@@ -116,9 +116,18 @@ def _simulate_callback_error(error: str = "access_denied"):
     _CallbackHandler.error = error
 
 
+def _patch_auth_config(monkeypatch):
+    """Set auth constants that no longer have hardcoded defaults."""
+    monkeypatch.setattr("nauro.cli.commands.auth.AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setattr("nauro.cli.commands.auth.AUTH0_CLIENT_ID", "test-client-id")
+    monkeypatch.setattr("nauro.cli.commands.auth.AUTH0_AUDIENCE", "https://test.api/mcp")
+
+
 class TestAuthLogin:
     def test_login_success(self, tmp_path, monkeypatch):
         _patch_home(monkeypatch, tmp_path)
+        _patch_auth_config(monkeypatch)
+        monkeypatch.setenv("NAURO_API_URL", "https://test.api.example.com")
 
         fake_token = _make_jwt({"sub": "auth0|user123"})
 
@@ -177,6 +186,7 @@ class TestAuthLogin:
 
     def test_login_callback_error(self, tmp_path, monkeypatch):
         _patch_home(monkeypatch, tmp_path)
+        _patch_auth_config(monkeypatch)
 
         def fake_server_init(self, addr, handler_class):
             pass
@@ -212,6 +222,7 @@ class TestAuthLogin:
 
     def test_login_timeout(self, tmp_path, monkeypatch):
         _patch_home(monkeypatch, tmp_path)
+        _patch_auth_config(monkeypatch)
 
         def fake_server_init(self, addr, handler_class):
             pass
@@ -249,6 +260,7 @@ class TestAuthLogin:
 
     def test_login_token_exchange_failure(self, tmp_path, monkeypatch):
         _patch_home(monkeypatch, tmp_path)
+        _patch_auth_config(monkeypatch)
 
         def fake_post(url, **kwargs):
             raise httpx.HTTPStatusError(

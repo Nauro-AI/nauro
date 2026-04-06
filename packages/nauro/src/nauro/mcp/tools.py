@@ -345,14 +345,16 @@ def tool_list_decisions(
     decisions.sort(key=lambda d: d["num"], reverse=True)
     items = []
     for d in decisions[:limit]:
-        items.append({
-            "number": d["num"],
-            "title": d["title"],
-            "date": d.get("date"),
-            "status": d.get("status", "active"),
-            "type": d.get("decision_type"),
-            "confidence": d.get("confidence"),
-        })
+        items.append(
+            {
+                "number": d["num"],
+                "title": d["title"],
+                "date": d.get("date"),
+                "status": d.get("status", "active"),
+                "type": d.get("decision_type"),
+                "confidence": d.get("confidence"),
+            }
+        )
     return {"store": "local", "decisions": items}
 
 

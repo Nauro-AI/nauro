@@ -36,6 +36,24 @@ from nauro_core.constants import (
     L1_DECISIONS_SUMMARY_LIMIT as L1_DECISIONS_SUMMARY_LIMIT,
 )
 from nauro_core.constants import (
+    MAX_APPROACH_LENGTH as MAX_APPROACH_LENGTH,
+)
+from nauro_core.constants import (
+    MAX_CONTEXT_LENGTH as MAX_CONTEXT_LENGTH,
+)
+from nauro_core.constants import (
+    MAX_DELTA_LENGTH as MAX_DELTA_LENGTH,
+)
+from nauro_core.constants import (
+    MAX_QUESTION_LENGTH as MAX_QUESTION_LENGTH,
+)
+from nauro_core.constants import (
+    MAX_RATIONALE_LENGTH as MAX_RATIONALE_LENGTH,
+)
+from nauro_core.constants import (
+    MAX_TITLE_LENGTH as MAX_TITLE_LENGTH,
+)
+from nauro_core.constants import (
     MIN_RATIONALE_LENGTH as MIN_RATIONALE_LENGTH,
 )
 from nauro_core.constants import (
@@ -118,24 +136,6 @@ from nauro_core.parsing import (
 )
 from nauro_core.pending import (
     PendingStore as PendingStore,
-)
-from nauro_core.constants import (
-    MAX_APPROACH_LENGTH as MAX_APPROACH_LENGTH,
-)
-from nauro_core.constants import (
-    MAX_CONTEXT_LENGTH as MAX_CONTEXT_LENGTH,
-)
-from nauro_core.constants import (
-    MAX_DELTA_LENGTH as MAX_DELTA_LENGTH,
-)
-from nauro_core.constants import (
-    MAX_QUESTION_LENGTH as MAX_QUESTION_LENGTH,
-)
-from nauro_core.constants import (
-    MAX_RATIONALE_LENGTH as MAX_RATIONALE_LENGTH,
-)
-from nauro_core.constants import (
-    MAX_TITLE_LENGTH as MAX_TITLE_LENGTH,
 )
 from nauro_core.validation import (
     check_content_length as check_content_length,

@@ -239,9 +239,7 @@ class TestContentSizeLimits:
             rationale="Valid rationale that meets the minimum length requirement.",
         )
         # Should not be rejected for size
-        assert result.get("status") != "rejected" or "length" not in result.get(
-            "reason", ""
-        )
+        assert result.get("status") != "rejected" or "length" not in result.get("reason", "")
 
     def test_propose_title_over_limit(self, store: Path):
         from nauro.mcp.tools import MAX_TITLE_LENGTH

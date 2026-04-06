@@ -140,7 +140,9 @@ class TestRenumberDecisionIfCollision:
 
         content = b"# 003 \xe2\x80\x94 Remote decision\n\nRemote content"
         rel, out = _renumber_decision_if_collision(
-            project_store, "decisions/003-remote-decision.md", content,
+            project_store,
+            "decisions/003-remote-decision.md",
+            content,
         )
 
         assert rel == "decisions/004-remote-decision.md"
@@ -156,7 +158,9 @@ class TestRenumberDecisionIfCollision:
 
         content = b"# 005 \xe2\x80\x94 Incoming\n\nContent"
         rel, out = _renumber_decision_if_collision(
-            project_store, "decisions/005-incoming.md", content,
+            project_store,
+            "decisions/005-incoming.md",
+            content,
         )
 
         assert rel == "decisions/007-incoming.md"
@@ -170,7 +174,9 @@ class TestRenumberDecisionIfCollision:
 
         content = b"# 003 \xe2\x80\x94 Same slug\n\nUpdated content"
         rel, out = _renumber_decision_if_collision(
-            project_store, "decisions/003-same-slug.md", content,
+            project_store,
+            "decisions/003-same-slug.md",
+            content,
         )
 
         assert rel == "decisions/003-same-slug.md"

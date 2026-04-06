@@ -14,7 +14,9 @@ logger = logging.getLogger("nauro.sync")
 
 
 def _renumber_decision_if_collision(
-    store_path: Path, rel: str, content: bytes,
+    store_path: Path,
+    rel: str,
+    content: bytes,
 ) -> tuple[str, bytes]:
     """If a pulled decision file's number collides with an existing local file, renumber it.
 
@@ -72,7 +74,9 @@ def _renumber_decision_if_collision(
 
     logger.info(
         "Renumbered pulled decision %s → %s to avoid collision with local decision %03d",
-        filename, new_filename, incoming_num,
+        filename,
+        new_filename,
+        incoming_num,
     )
     return new_rel, content
 
@@ -140,7 +144,9 @@ def pull_before_session(project_name: str, store_path: Path) -> int:
                 remote_etag = rf["etag"]
 
                 actual_rel, remote_content = _renumber_decision_if_collision(
-                    store_path, rel, remote_content,
+                    store_path,
+                    rel,
+                    remote_content,
                 )
                 actual_file = store_path / actual_rel
                 actual_file.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +167,9 @@ def pull_before_session(project_name: str, store_path: Path) -> int:
                     # For decisions, check if this is actually a different decision
                     # with the same number (not a content conflict on the same file)
                     actual_rel, remote_content = _renumber_decision_if_collision(
-                        store_path, rel, remote_content,
+                        store_path,
+                        rel,
+                        remote_content,
                     )
                     if actual_rel != rel:
                         # It was a number collision, not a true conflict — write as new file
