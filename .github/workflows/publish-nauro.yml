@@ -1,0 +1,22 @@
+name: Publish nauro to PyPI
+
+on:
+  push:
+    tags: ["nauro-v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi-nauro
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build packages/nauro/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/nauro/dist/
