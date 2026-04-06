@@ -48,7 +48,8 @@ def load_sync_config() -> SyncConfig:
       NAURO_SYNC_ACCESS_KEY_ID, NAURO_SYNC_SECRET_ACCESS_KEY
 
     Auth identity is loaded from the 'auth' key:
-      {"auth": {"sanitized_sub": "auth0-abc123"}}
+      {"auth": {"user_id": "01JQXYZ...", "sanitized_sub": "auth0-abc123"}}
+    user_id is preferred; sanitized_sub is a legacy fallback.
     """
     data = load_config()
     sync_data = data.get("sync", {})

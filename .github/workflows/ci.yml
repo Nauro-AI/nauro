@@ -26,7 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --package nauro-core --all-extras
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --package nauro-core --all-extras --python ${{ matrix.python-version }}
       - run: uv run --package nauro-core pytest packages/nauro-core/tests/ -v --tb=short
 
   test-nauro:
@@ -37,5 +38,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --package nauro --all-extras
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --package nauro --all-extras --python ${{ matrix.python-version }}
       - run: uv run --package nauro pytest packages/nauro/tests/ -v --tb=short -m "not integration"
