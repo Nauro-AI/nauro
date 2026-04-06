@@ -20,7 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "nauro-core @ git+https://github.com/nauro-ai/nauro-core.git@c96a62bb8f91c62e2771dd8f3f5db05cf08e3dc4",
+    "nauro-core>=0.1.0",
     "typer>=0.9",
     "fastapi>=0.100",
     "uvicorn>=0.23",
@@ -29,9 +29,6 @@ dependencies = [
     "boto3>=1.28",
     "filelock>=3.0",
 ]
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [project.optional-dependencies]
 extraction = [
@@ -67,6 +64,9 @@ packages = ["src/nauro"]
 
 [tool.hatch.build.targets.sdist]
 exclude = ["tests/"]
+
+[tool.uv.sources]
+nauro-core = { workspace = true }
 
 [tool.ruff]
 target-version = "py311"

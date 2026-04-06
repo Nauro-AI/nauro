@@ -24,9 +24,9 @@ classifiers = [
 dev = ["pytest", "ruff", "import-linter"]
 
 [project.urls]
-Homepage = "https://github.com/nauro-ai/nauro-core"
-Repository = "https://github.com/nauro-ai/nauro-core"
-Issues = "https://github.com/nauro-ai/nauro-core/issues"
+Homepage = "https://github.com/nauro-ai/nauro"
+Repository = "https://github.com/nauro-ai/nauro/tree/main/packages/nauro-core"
+Issues = "https://github.com/nauro-ai/nauro/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nauro_core"]
