@@ -1,0 +1,145 @@
+[
+  {
+    "name": "task_queue_migration",
+    "commit_message": "migrate from arq+Redis to procrastinate for capsule state machine",
+    "diff_summary": "- from arq import create_pool\n+ from procrastinate import App, ProcrastinateEngine\n- REDIS_URL = settings.REDIS_URL\n+ engine = ProcrastinateEngine(conninfo=settings.DATABASE_URL)",
+    "changed_files": ["src/capsules/tasks.py", "src/capsules/worker.py", "pyproject.toml", "docker-compose.yml"],
+    "expected_skip": false,
+    "expected_signal_range": [0.8, 1.0],
+    "expected_has_decisions": true,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "deployment_platform_switch",
+    "commit_message": "add Fly.io deployment config, remove Railway references",
+    "diff_summary": "- [railway]\n-   builder = \"nixpacks\"\n+ app = \"nauro-api\"\n+ primary_region = \"ams\"",
+    "changed_files": ["fly.toml", "Dockerfile", ".env.example", "railway.toml"],
+    "expected_skip": false,
+    "expected_signal_range": [0.8, 1.0],
+    "expected_has_decisions": true,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "new_endpoint",
+    "commit_message": "implement capsule contribution creation endpoint",
+    "diff_summary": "+ @router.post(\"/capsules/{capsule_id}/contributions\")\n+ async def create_contribution(capsule_id: int, body: ContributionCreate):",
+    "changed_files": ["src/api/routes/contributions.py", "src/api/schemas/contributions.py", "src/services/contributions.py"],
+    "expected_skip": false,
+    "expected_signal_range": [0.7, 1.0],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": true
+  },
+  {
+    "name": "protocol_switch",
+    "commit_message": "switch from REST to WebSocket for real-time capsule updates",
+    "diff_summary": "- @router.get(\"/capsules/{id}/updates\")\n+ @router.websocket(\"/capsules/{id}/ws\")\n+ async def capsule_ws(websocket: WebSocket, id: int):",
+    "changed_files": ["src/api/routes/updates.py", "src/services/updates.py", "src/core/broadcast.py"],
+    "expected_skip": false,
+    "expected_signal_range": [0.8, 1.0],
+    "expected_has_decisions": true,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "rls_policies",
+    "commit_message": "add Supabase RLS policies for group membership",
+    "diff_summary": "+ CREATE POLICY \"group_members_select\" ON group_members\n+   FOR SELECT USING (auth.uid() = user_id);",
+    "changed_files": ["supabase/migrations/20240115_group_rls.sql"],
+    "expected_skip": false,
+    "expected_signal_range": [0.7, 1.0],
+    "expected_has_decisions": true,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "reader_writer_refactor",
+    "commit_message": "refactor store module into reader/writer split",
+    "diff_summary": "- # store.py — all store operations\n+ # reader.py\n+ def read_project(name): ...\n+ # writer.py\n+ def write_decision(name, decision): ...",
+    "changed_files": ["src/nauro/store/reader.py", "src/nauro/store/writer.py"],
+    "expected_skip": false,
+    "expected_signal_range": [0.4, 0.7],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": true
+  },
+  {
+    "name": "typo_fix",
+    "commit_message": "fix typo in README",
+    "diff_summary": "- mainains versioned\n+ maintains versioned",
+    "changed_files": ["README.md"],
+    "expected_skip": true,
+    "expected_signal_range": [0.0, 0.2],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "dependency_bump",
+    "commit_message": "bump anthropic SDK to 0.40.0",
+    "diff_summary": "- anthropic = \"^0.39.0\"\n+ anthropic = \"^0.40.0\"",
+    "changed_files": ["pyproject.toml"],
+    "expected_skip": true,
+    "expected_signal_range": [0.0, 0.2],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "formatting_run",
+    "commit_message": "run ruff format",
+    "diff_summary": "- def foo(  x,y,z   ):\n+ def foo(x, y, z):",
+    "changed_files": ["src/nauro/cli/main.py", "src/nauro/store/reader.py"],
+    "expected_skip": true,
+    "expected_signal_range": [0.0, 0.15],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "merge_commit",
+    "commit_message": "merge branch 'feature/init' into main",
+    "diff_summary": "",
+    "changed_files": [],
+    "expected_skip": true,
+    "expected_signal_range": [0.0, 0.15],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "lockfile_update",
+    "commit_message": "update poetry.lock",
+    "diff_summary": "(binary/generated lockfile content)",
+    "changed_files": ["poetry.lock"],
+    "expected_skip": true,
+    "expected_signal_range": [0.0, 0.15],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "linting_fixes",
+    "commit_message": "fix linting errors",
+    "diff_summary": "- import os, sys\n+ import os\n+ import sys",
+    "changed_files": ["src/nauro/cli/main.py", "src/nauro/extraction/pipeline.py"],
+    "expected_skip": true,
+    "expected_signal_range": [0.0, 0.2],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  },
+  {
+    "name": "gitignore_additions",
+    "commit_message": "add .gitignore entries",
+    "diff_summary": "+ .nauro/\n+ *.pyc\n+ __pycache__/\n+ .env",
+    "changed_files": [".gitignore"],
+    "expected_skip": true,
+    "expected_signal_range": [0.0, 0.2],
+    "expected_has_decisions": false,
+    "expected_has_questions": false,
+    "expected_has_state_delta": null
+  }
+]

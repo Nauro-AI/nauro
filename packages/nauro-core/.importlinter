@@ -1,0 +1,13 @@
+[importlinter]
+root_packages =
+    nauro_core
+include_external_packages = True
+
+[importlinter:contract:isolation]
+name = nauro_core must not import from consumers
+type = forbidden
+source_modules =
+    nauro_core
+forbidden_modules =
+    nauro
+    mcp_server
