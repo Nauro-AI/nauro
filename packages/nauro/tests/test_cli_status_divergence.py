@@ -48,7 +48,7 @@ def test_status_shows_divergence_when_out_of_sync(tmp_path, monkeypatch):
         {
             "enabled": True,
             "bucket_name": "test-bucket",
-            "region": "eu-north-1",
+            "region": "us-east-1",
             "access_key_id": "key",
             "secret_access_key": "secret",
         },
@@ -86,7 +86,7 @@ def test_status_shows_in_sync_when_counts_match(tmp_path, monkeypatch):
         {
             "enabled": True,
             "bucket_name": "test-bucket",
-            "region": "eu-north-1",
+            "region": "us-east-1",
             "access_key_id": "key",
             "secret_access_key": "secret",
         },
@@ -116,7 +116,7 @@ def test_status_handles_remote_unreachable(tmp_path, monkeypatch):
         {
             "enabled": True,
             "bucket_name": "test-bucket",
-            "region": "eu-north-1",
+            "region": "us-east-1",
             "access_key_id": "key",
             "secret_access_key": "secret",
         },

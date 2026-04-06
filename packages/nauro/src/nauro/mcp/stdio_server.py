@@ -3,7 +3,7 @@
 Spawned by Claude Code at session start, communicates over stdin/stdout.
 Same tools as the HTTP server, same store, same payloads.
 
-MCP tools (11 total — 6 read, 5 write):
+MCP tools (11 total — 7 read, 4 write):
   - get_context(project, level)          → Return project context at L0/L1/L2
   - get_raw_file(project, path)          → Return raw file from project store
   - list_decisions(project, ...)         → Browse decision history

@@ -310,7 +310,7 @@ class TestPullOnStartup:
             {
                 "enabled": True,
                 "bucket_name": "test-bucket",
-                "region": "eu-north-1",
+                "region": "us-east-1",
                 "access_key_id": "key",
                 "secret_access_key": "secret",
             },
@@ -333,7 +333,7 @@ class TestPullOnStartup:
             {
                 "enabled": True,
                 "bucket_name": "test-bucket",
-                "region": "eu-north-1",
+                "region": "us-east-1",
                 "access_key_id": "key",
                 "secret_access_key": "secret",
             },
@@ -359,7 +359,7 @@ class TestPullOnStartup:
             {
                 "enabled": True,
                 "bucket_name": "test-bucket",
-                "region": "eu-north-1",
+                "region": "us-east-1",
                 "access_key_id": "key",
                 "secret_access_key": "secret",
             },

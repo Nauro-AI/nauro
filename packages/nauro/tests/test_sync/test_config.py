@@ -103,7 +103,7 @@ class TestLoadSyncConfig:
         from nauro.sync.config import load_sync_config
 
         config = load_sync_config()
-        assert config.region == "eu-north-1"
+        assert config.region == "us-east-1"
 
     def test_default_sync_interval(self, nauro_home):
         (nauro_home / "config.json").write_text(

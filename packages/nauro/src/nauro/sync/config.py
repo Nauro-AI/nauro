@@ -9,7 +9,7 @@ from nauro.store.config import load_config
 @dataclass
 class SyncConfig:
     bucket_name: str = ""
-    region: str = "eu-north-1"
+    region: str = "us-east-1"
     access_key_id: str = ""
     secret_access_key: str = ""
     sync_interval: int = 30
@@ -56,7 +56,7 @@ def load_sync_config() -> SyncConfig:
     auth_data = data.get("auth", {})
 
     bucket_name = os.environ.get("NAURO_SYNC_BUCKET_NAME", sync_data.get("bucket_name", ""))
-    region = os.environ.get("NAURO_SYNC_REGION", sync_data.get("region", "eu-north-1"))
+    region = os.environ.get("NAURO_SYNC_REGION", sync_data.get("region", "us-east-1"))
     access_key_id = os.environ.get("NAURO_SYNC_ACCESS_KEY_ID", sync_data.get("access_key_id", ""))
     secret_access_key = os.environ.get(
         "NAURO_SYNC_SECRET_ACCESS_KEY", sync_data.get("secret_access_key", "")

@@ -44,7 +44,7 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
 
-## MCP tools (11 total — 6 read, 5 write)
+## MCP tools (11 total — 7 read, 4 write)
 
 Read:
 - `get_context(project, level)` — L0 concise summary, L1 working set, L2 full dump
@@ -53,11 +53,11 @@ Read:
 - `get_decision(project, number)` — full content of a specific decision
 - `diff_since_last_session(project, days)` — what changed since last session
 - `search_decisions(project, query, limit)` — keyword search across decisions
+- `check_decision(proposed_approach)` — check for conflicts without writing
 
 Write:
 - `propose_decision(project, title, rationale, ...)` — propose a decision for validation
 - `confirm_decision(confirm_id)` — confirm a validated decision
-- `check_decision(proposed_approach)` — check for conflicts without writing
 - `flag_question(project, question, context)` — flag an open question
 - `update_state(project, delta)` — report what was completed
 
