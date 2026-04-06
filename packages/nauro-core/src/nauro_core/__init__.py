@@ -114,10 +114,16 @@ from nauro_core.parsing import (
     decisions_summary_lines as decisions_summary_lines,
 )
 from nauro_core.parsing import (
+    extract_current_state as extract_current_state,
+)
+from nauro_core.parsing import (
     extract_decision_number as extract_decision_number,
 )
 from nauro_core.parsing import (
     extract_relevance_snippet as extract_relevance_snippet,
+)
+from nauro_core.parsing import (
+    extract_stack_oneliner as extract_stack_oneliner,
 )
 from nauro_core.parsing import (
     extract_stack_summary as extract_stack_summary,

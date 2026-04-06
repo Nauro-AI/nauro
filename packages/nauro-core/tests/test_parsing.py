@@ -2,7 +2,9 @@
 
 from nauro_core.parsing import (
     decisions_summary_lines,
+    extract_current_state,
     extract_relevance_snippet,
+    extract_stack_oneliner,
     extract_stack_summary,
     parse_decision,
     parse_metadata_field,
@@ -263,3 +265,63 @@ class TestExtractRelevanceSnippet:
         short = extract_relevance_snippet(text, ["target"], length=20)
         long = extract_relevance_snippet(text, ["target"], length=200)
         assert len(short) < len(long)
+
+
+class TestExtractCurrentState:
+    def test_extracts_current_section(self):
+        content = (
+            "# State\n\n"
+            "## Current\n"
+            "Working on auth module\n\n"
+            "## History\n"
+            "- **2026-03-01:** Set up project\n"
+        )
+        result = extract_current_state(content)
+        assert result == "Working on auth module"
+
+    def test_no_current_section(self):
+        content = "# Current State\n**Focus:** shipping v1\n"
+        assert extract_current_state(content) == ""
+
+    def test_empty_current(self):
+        content = "# State\n\n## Current\n\n## History\n- old stuff\n"
+        assert extract_current_state(content) == ""
+
+    def test_multiline_current(self):
+        content = "# State\n\n## Current\nLine one\nLine two\n\n## History\n"
+        result = extract_current_state(content)
+        assert "Line one" in result
+        assert "Line two" in result
+
+    def test_current_at_end_of_file(self):
+        content = "# State\n\n## Current\nDoing things\n"
+        assert extract_current_state(content) == "Doing things"
+
+
+class TestExtractStackOneliner:
+    def test_normal_stack(self):
+        content = (
+            "# Stack\n"
+            "## Language\n"
+            "- **Python 3.11+** \u2014 main language\n"
+            "  - Chose over Go for ecosystem\n"
+            "## Infrastructure\n"
+            "- **AWS Lambda** \u2014 serverless\n"
+        )
+        result = extract_stack_oneliner(content)
+        assert result == "Python 3.11+, AWS Lambda"
+
+    def test_empty_stack(self):
+        content = "# Stack\n<!-- Tech choices with rationale and rejected alternatives -->"
+        assert extract_stack_oneliner(content) == ""
+
+    def test_blank_content(self):
+        assert extract_stack_oneliner("") == ""
+
+    def test_no_bold_items(self):
+        content = "# Stack\n- plain item without bold\n"
+        assert extract_stack_oneliner(content) == ""
+
+    def test_skips_indented_items(self):
+        content = "# Stack\n- **FastAPI** \u2014 web framework\n  - **Not this** \u2014 nested\n"
+        assert extract_stack_oneliner(content) == "FastAPI"

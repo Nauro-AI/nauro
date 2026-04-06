@@ -15,9 +15,7 @@ from nauro_core import extract_decision_number
 from nauro.constants import (
     DECISIONS_DIR,
     OPEN_QUESTIONS_MD,
-    RECENTLY_SHIPPED_LIMIT,
     SLUG_MAX_LENGTH,
-    STATE_FIELD_RECENTLY_SHIPPED,
     STATE_MD,
 )
 
@@ -290,62 +288,75 @@ def append_question(store_path: Path, question: str) -> None:
 
 
 def update_state(store_path: Path, delta: str) -> None:
-    """Update state.md: append delta to 'Recently completed' (keep last 5), update 'Last synced'.
+    """Replace the current state with *delta*, rotating the previous current into history.
+
+    The state.md file uses ``## Current`` and ``## History`` sections.
+    Each call replaces ``## Current`` with the new delta and prepends the
+    old current text (with a timestamp) to ``## History``.
+
+    If state.md uses the legacy format (no ``## Current`` / ``## History``),
+    the entire body is migrated into ``## History`` on first call.
 
     Args:
         store_path: Path to the project store directory.
-        delta: One-sentence description of what was completed.
+        delta: The new current state description.
     """
     state_path = store_path / STATE_MD
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-
     if not state_path.exists():
         return
 
     content = state_path.read_text()
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d")
 
-    # Update "Last synced" line
-    content = re.sub(
-        r"\*Last synced:.*?\*",
-        f"*Last synced: {timestamp}*",
-        content,
-    )
-
-    # Update "Recently completed" section
-    # Find the section and collect existing items
+    # Parse existing sections
     lines = content.split("\n")
-    result = []
-    in_recent = False
-    recent_items: list[str] = []
+    header_lines: list[str] = []
+    current_lines: list[str] = []
+    history_lines: list[str] = []
+    section: str | None = None
 
     for line in lines:
-        if line.startswith(STATE_FIELD_RECENTLY_SHIPPED):
-            in_recent = True
-            result.append(line)
+        low = line.strip().lower()
+        if low == "## current":
+            section = "current"
             continue
+        elif low == "## history":
+            section = "history"
+            continue
+        elif section is None:
+            header_lines.append(line)
+        elif section == "current":
+            current_lines.append(line)
+        elif section == "history":
+            history_lines.append(line)
 
-        if in_recent:
-            if line.startswith("- ") and "none yet" not in line:
-                recent_items.append(line)
-                continue
-            elif line.startswith("- "):
-                # Skip placeholder like "- (none yet)"
-                continue
-            else:
-                # End of recently completed section — inject updated items
-                recent_items.insert(0, f"- {delta}")
-                recent_items = recent_items[:RECENTLY_SHIPPED_LIMIT]
-                result.extend(recent_items)
-                in_recent = False
-                result.append(line)
-                continue
+    old_current = "\n".join(current_lines).strip()
 
-        result.append(line)
+    # Legacy migration: if no ## Current section was found, treat body after
+    # the H1 header as history content.
+    if section is None:
+        body_start = 0
+        for i, line in enumerate(header_lines):
+            if line.startswith("# "):
+                body_start = i + 1
+                break
+        legacy_body = "\n".join(header_lines[body_start:]).strip()
+        header_lines = header_lines[:body_start]
+        if legacy_body:
+            history_lines = [f"- **{timestamp}:** (migrated) {legacy_body}"] + history_lines
 
-    # If we were still in_recent at end of file
-    if in_recent:
-        recent_items.insert(0, f"- {delta}")
-        recent_items = recent_items[:RECENTLY_SHIPPED_LIMIT]
-        result.extend(recent_items)
+    # Rotate old current into history
+    if old_current:
+        history_lines.insert(0, f"- **{timestamp}:** {old_current}")
 
-    state_path.write_text("\n".join(result))
+    # Assemble
+    parts = header_lines
+    parts.append("")
+    parts.append("## Current")
+    parts.append(delta)
+    parts.append("")
+    parts.append("## History")
+    if history_lines:
+        parts.extend(history_lines)
+
+    state_path.write_text("\n".join(parts) + "\n")

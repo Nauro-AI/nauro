@@ -94,18 +94,15 @@ types in sync would slow us down considerably at this team size.
 """
 
 STATE_MD = f"""\
-# Current State
-**Focus:** Implementing user authentication
-**Active tasks:**
-- Building JWT-based auth flow with refresh tokens
-- Setting up role-based access control (RBAC)
-**Blocked on:**
-- Nothing right now
-**Recently shipped:**
-- CI pipeline with GitHub Actions
-- Database schema and migrations
-- Project scaffolding with Turborepo
-*Last synced: {_DEMO_DATE}*
+# State
+
+## Current
+Implementing user authentication \u2014 building JWT-based auth flow \
+with refresh tokens and RBAC.
+
+## History
+- **{_DEMO_DATE}:** Shipped CI pipeline with GitHub Actions, \
+database schema and migrations, project scaffolding with Turborepo.
 """
 
 OPEN_QUESTIONS_MD = """\

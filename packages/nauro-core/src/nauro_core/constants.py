@@ -6,7 +6,7 @@ defaults, and similarity thresholds.
 """
 
 # ── L0/L1/L2 payload limits ──
-L0_QUESTIONS_LIMIT = 5
+L0_QUESTIONS_LIMIT = 3
 L0_DECISIONS_SUMMARY_LIMIT = 10
 L1_DECISIONS_LIMIT = 10
 L1_DECISIONS_SUMMARY_LIMIT = 10

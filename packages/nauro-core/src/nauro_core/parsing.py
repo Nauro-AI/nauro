@@ -127,6 +127,47 @@ def parse_decision(content: str, filename: str) -> dict:
     }
 
 
+def extract_current_state(state_content: str) -> str:
+    """Extract only the ``## Current`` section from state.md content.
+
+    Returns the text between ``## Current`` and the next ``##`` heading
+    (or end of file). Returns empty string if no ``## Current`` section
+    is found, allowing callers to fall back to full content.
+    """
+    lines = state_content.split("\n")
+    in_current = False
+    current_lines: list[str] = []
+    for line in lines:
+        if line.strip().lower() == "## current":
+            in_current = True
+            continue
+        if in_current and line.startswith("## "):
+            break
+        if in_current:
+            current_lines.append(line)
+    return "\n".join(current_lines).strip()
+
+
+def extract_stack_oneliner(stack_content: str) -> str:
+    """Extract a one-line stack summary listing only technology names.
+
+    Parses bold items (``**Name**``) from top-level bullet lines in
+    stack.md and joins them with commas. Returns empty string for
+    empty or placeholder stacks.
+    """
+    if not stack_content.strip() or stack_content.strip() == STACK_EMPTY_MARKER:
+        return ""
+
+    names: list[str] = []
+    for line in stack_content.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("- ") and not line.startswith("  "):
+            m = re.match(r"-\s+\*\*(.+?)\*\*", stripped)
+            if m:
+                names.append(m.group(1))
+    return ", ".join(names)
+
+
 def extract_stack_summary(stack_content: str) -> str:
     """Extract one-line tech choices from stack.md (no full reasoning)."""
     if not stack_content.strip() or stack_content.strip() == STACK_EMPTY_MARKER:

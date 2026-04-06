@@ -185,29 +185,45 @@ def test_question_multiple(store: Path):
 # --- State update tests ---
 
 
-def test_update_state_adds_delta(store: Path):
+def test_update_state_replaces_current(store: Path):
     update_state(store, "Implemented auth module")
     content = (store / "state.md").read_text()
+    assert "## Current" in content
     assert "Implemented auth module" in content
-    assert "(none yet)" not in content
 
 
-def test_update_state_keeps_last_5(store: Path):
-    for i in range(7):
+def test_update_state_rotates_to_history(store: Path):
+    update_state(store, "First task")
+    update_state(store, "Second task")
+    content = (store / "state.md").read_text()
+    # Current should be the latest delta only
+    lines = content.split("\n")
+    in_current = False
+    current_text = []
+    for line in lines:
+        if line.strip().lower() == "## current":
+            in_current = True
+            continue
+        if line.startswith("## ") and in_current:
+            break
+        if in_current:
+            current_text.append(line)
+    current = "\n".join(current_text).strip()
+    assert current == "Second task"
+    # History should contain the first task
+    assert "First task" in content
+    assert "## History" in content
+
+
+def test_update_state_history_accumulates(store: Path):
+    for i in range(5):
         update_state(store, f"Task {i}")
     content = (store / "state.md").read_text()
-    items = [line for line in content.split("\n") if line.startswith("- Task")]
-    assert len(items) == 5
-    # Most recent first
-    assert "Task 6" in items[0]
-
-
-def test_update_state_updates_last_synced(store: Path):
-    update_state(store, "something")
-    content = (store / "state.md").read_text()
-    assert "*Last synced:" in content
-    # Should have a UTC timestamp, not the scaffold date
-    assert "UTC" in content
+    # Current is the last one
+    assert "## Current\nTask 4" in content
+    # All previous tasks are in history
+    for i in range(4):
+        assert f"Task {i}" in content
 
 
 # --- Snapshot tests ---
@@ -508,7 +524,7 @@ def test_validate_unfilled_prompts(store: Path):
 def test_validate_stale_sync(tmp_path: Path):
     store = tmp_path / "projects" / "stale"
     scaffold_project_store("stale", store)
-    # Make Last synced old
+    # Legacy format with old Last synced — validator still detects it
     state = store / "state.md"
     old_date = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%d")
     state.write_text(f"# Current State\n*Last synced: {old_date}*\n")
@@ -529,17 +545,14 @@ def test_validate_decision_gap(store: Path):
 
 
 def test_validate_no_warnings_clean_store(tmp_path: Path):
-    """A store with filled prompts and recent sync has no warnings."""
+    """A store with filled prompts and no issues has no warnings."""
     store = tmp_path / "projects" / "clean"
     store.mkdir(parents=True)
     (store / "decisions").mkdir()
     (store / "snapshots").mkdir()
 
-    now = datetime.now(UTC)
     (store / "project.md").write_text("# Clean\n\nA clean project.\n")
-    (store / "state.md").write_text(
-        f"# Current State\n*Last synced: {now.strftime('%Y-%m-%d %H:%M UTC')}*\n"
-    )
+    (store / "state.md").write_text("# State\n\n## Current\nShipping v1\n\n## History\n")
     (store / "stack.md").write_text("# Stack\n- Python 3.11\n")
     (store / "open-questions.md").write_text("# Open Questions\n")
     (store / "decisions" / "001-init.md").write_text("# 001: Init\n")
