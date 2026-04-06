@@ -21,10 +21,10 @@ def store(tmp_path: Path) -> Path:
     # Add stack content
     (store_path / "stack.md").write_text(
         "# Stack\n"
-        "- Python 3.11 — primary language\n"
-        "- FastAPI — HTTP framework\n"
-        "- PostgreSQL — primary database\n"
-        "- Redis — caching layer\n"
+        "- **Python 3.11** \u2014 primary language\n"
+        "- **FastAPI** \u2014 HTTP framework\n"
+        "- **PostgreSQL** \u2014 primary database\n"
+        "- **Redis** \u2014 caching layer\n"
     )
 
     # Add some decisions
@@ -67,25 +67,27 @@ def client(tmp_path: Path, monkeypatch) -> AsyncClient:
 
 
 class TestL0Payload:
-    def test_contains_state(self, store: Path):
+    def test_contains_current_state(self, store: Path):
         payload = build_l0_payload(store)
-        assert "Current State" in payload
+        assert "## Current State" in payload
+        assert "Fixed bug in auth" in payload
 
-    def test_contains_stack_summary(self, store: Path):
+    def test_contains_stack_oneliner(self, store: Path):
         payload = build_l0_payload(store)
+        assert "**Stack:**" in payload
         assert "Python 3.11" in payload
         assert "FastAPI" in payload
 
-    def test_contains_top5_questions(self, store: Path):
+    def test_contains_top3_questions(self, store: Path):
         payload = build_l0_payload(store)
-        # Should have the 5 most recent, not all 7
+        # Should have the 3 most recent, not all 7
         assert "Question 7?" in payload
-        assert "Question 3?" in payload
-        # Check we have exactly 5 question lines in the Open Questions section
+        assert "Question 5?" in payload
+        # Check we have exactly 3 question lines in the Open Questions section
         lines = [
             line for line in payload.split("\n") if "Question" in line and line.startswith("- [")
         ]
-        assert len(lines) == 5
+        assert len(lines) == 3
 
     def test_contains_decisions_summary(self, store: Path):
         payload = build_l0_payload(store)
@@ -95,9 +97,10 @@ class TestL0Payload:
         # Summary uses compact format: D{num} — Title (date)
         assert "D6 —" in payload or "D006 —" in payload or "D6 — Decision 6" in payload
 
-    def test_contains_last_synced(self, store: Path):
+    def test_excludes_history(self, store: Path):
         payload = build_l0_payload(store)
-        assert "Last synced" in payload
+        # History entries should not appear in L0
+        assert "Implemented feature X" not in payload
 
     def test_word_count_budget(self, store: Path):
         payload = build_l0_payload(store)

@@ -33,15 +33,12 @@ is useful. "Users" is not.]
 """
 
 STATE_MD = """\
-# Current State
-**Focus:** [What you're building right now in one phrase, e.g. "User auth flow"]
-**Active tasks:**
-- [The thing you'd tell a colleague if they asked "what are you working on?"]
-**Blocked on:**
-- [Nothing right now] or [Specific blocker, e.g. "Waiting on Stripe API approval"]
-**Recently shipped:**
-- [Last thing you finished, e.g. "Database schema and migrations"]
-*Last synced: {created_at}*
+# State
+
+## Current
+[What you're working on right now — e.g. "Building user auth flow, blocked on Stripe API approval"]
+
+## History
 """
 
 STACK_MD = """\
@@ -145,7 +142,7 @@ def scaffold_project_store(project_name: str, store_path: Path) -> None:
     created_at = datetime.now(UTC).strftime("%Y-%m-%d")
 
     (store_path / C.PROJECT_MD).write_text(render_scaffold(PROJECT_MD, project_name=project_name))
-    (store_path / C.STATE_MD).write_text(render_scaffold(STATE_MD, created_at=created_at))
+    (store_path / C.STATE_MD).write_text(render_scaffold(STATE_MD))
     (store_path / C.STACK_MD).write_text(render_scaffold(STACK_MD))
     (store_path / C.OPEN_QUESTIONS_MD).write_text(render_scaffold(OPEN_QUESTIONS_MD))
 

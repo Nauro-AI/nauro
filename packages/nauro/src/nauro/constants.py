@@ -78,7 +78,6 @@ CHARS_PER_TOKEN = 4  # rough chars-per-token for GPT/Claude family models
 
 # ── Writer limits ──
 SLUG_MAX_LENGTH = 60
-RECENTLY_SHIPPED_LIMIT = 5
 
 # ── Snapshot pruning intervals (days) ──
 PRUNE_KEEP_ALL_DAYS = 7
@@ -88,7 +87,6 @@ PRUNE_WEEKLY_DAYS = 180
 # ── State field patterns (used in parsing and diffing) ──
 STATE_FIELD_LAST_SYNCED_BOLD = r"\*\*Last synced:\*\*\s*(.*)"
 STATE_FIELD_LAST_SYNCED_ITALIC = r"\*Last synced:\s*(.*?)\*"
-STATE_FIELD_RECENTLY_SHIPPED = "**Recently shipped:**"
 STATE_DIFF_FIELDS = ("Sprint", "Focus", "Blockers")
 
 # ── Git hook markers ──

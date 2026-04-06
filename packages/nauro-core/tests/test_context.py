@@ -18,7 +18,13 @@ def _make_decision(num, title, status="active", date="2026-04-01", rationale="Re
 
 FULL_FILES = {
     "project.md": "# MyProject\nGoal: build something great.",
-    "state.md": "# Current State\n**Focus:** shipping v1",
+    "state.md": (
+        "# State\n\n"
+        "## Current\n"
+        "Shipping v1 — finishing auth module\n\n"
+        "## History\n"
+        "- **2026-03-01:** Set up project scaffolding\n"
+    ),
     "stack.md": (
         "# Stack\n"
         "## Language\n"
@@ -50,12 +56,17 @@ class TestBuildL0:
     def test_full_files(self):
         result = build_l0(FULL_FILES, DECISIONS)
         assert "# MyProject" in result
-        assert "**Focus:** shipping v1" in result
-        assert "## Stack" in result
-        assert "**Python 3.11+**" in result
+        assert "## Current State" in result
+        assert "Shipping v1" in result
+        assert "**Stack:** Python 3.11+" in result
         assert "## Open Questions" in result
         assert "How does auth work?" in result
         assert "## Recent Decisions" in result
+
+    def test_current_state_only(self):
+        result = build_l0(FULL_FILES, DECISIONS)
+        assert "Shipping v1" in result
+        assert "Set up project scaffolding" not in result  # history excluded
 
     def test_decisions_summary_present(self):
         result = build_l0(FULL_FILES, DECISIONS)
@@ -67,16 +78,18 @@ class TestBuildL0:
         result = build_l0(FULL_FILES, DECISIONS)
         assert "Old choice" not in result
 
-    def test_questions_limit_5(self):
+    def test_questions_limit_3(self):
         result = build_l0(FULL_FILES, DECISIONS)
         assert "Sixth question?" not in result
-        assert "Monitoring setup?" in result
+        assert "Deploy strategy?" not in result
+        assert "Monitoring setup?" not in result
+        assert "Redis or Memcached?" in result
 
     def test_missing_project_md(self):
         files = {k: v for k, v in FULL_FILES.items() if k != "project.md"}
         result = build_l0(files, DECISIONS)
         assert "# MyProject" not in result
-        assert "**Focus:** shipping v1" in result
+        assert "Shipping v1" in result
 
     def test_empty_decisions(self):
         result = build_l0(FULL_FILES, [])
@@ -87,16 +100,18 @@ class TestBuildL0:
         result = build_l0({}, [])
         assert result == ""
 
-    def test_stack_summary_not_full(self):
+    def test_stack_oneliner(self):
         result = build_l0(FULL_FILES, [])
-        assert "Chose over Go" not in result  # indented reasoning excluded
+        assert "**Stack:** Python 3.11+, AWS Lambda" in result
+        assert "Chose over Go" not in result
+        assert "## Language" not in result
 
 
 class TestBuildL1:
     def test_canonical_ordering(self):
         result = build_l1(FULL_FILES, DECISIONS)
         project_pos = result.find("# MyProject")
-        state_pos = result.find("**Focus:** shipping v1")
+        state_pos = result.find("# State")
         stack_pos = result.find("# Stack")
         questions_pos = result.find("# Open Questions")
         decisions_pos = result.find("## Decisions")

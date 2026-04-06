@@ -64,8 +64,8 @@ class TestDemoProjectStructure:
 
     def test_state_has_content(self, demo_store):
         content = (demo_store / constants.STATE_MD).read_text()
-        assert "Focus:" in content
-        assert "Recently shipped:" in content
+        assert "## Current" in content
+        assert "## History" in content
 
     def test_open_questions_has_content(self, demo_store):
         content = (demo_store / constants.OPEN_QUESTIONS_MD).read_text()

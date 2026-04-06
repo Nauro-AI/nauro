@@ -30,7 +30,7 @@ def store(tmp_path: Path, monkeypatch) -> Path:
     scaffold_project_store("testproj", store_path)
 
     (store_path / "stack.md").write_text(
-        "# Stack\n- Python 3.11 — primary language\n- FastAPI — HTTP framework\n"
+        "# Stack\n- **Python 3.11** \u2014 primary language\n- **FastAPI** \u2014 HTTP framework\n"
     )
     append_decision(store_path, "Use FastAPI", rationale="Good async support for our web server.")
     append_question(store_path, "Should we add caching?")
@@ -66,9 +66,9 @@ class TestResolveStore:
 
 
 class TestGetContext:
-    def test_l0_returns_state(self, store: Path):
+    def test_l0_returns_current_state(self, store: Path):
         result = get_context(project="testproj", level=0)
-        assert "Current State" in result
+        assert "## Current State" in result
 
     def test_l1_returns_full_stack(self, store: Path):
         result = get_context(project="testproj", level=1)

@@ -14,7 +14,8 @@ from nauro_core.constants import (
 )
 from nauro_core.parsing import (
     decisions_summary_lines,
-    extract_stack_summary,
+    extract_current_state,
+    extract_stack_oneliner,
     parse_questions,
 )
 
@@ -43,12 +44,14 @@ def build_l0(files: dict[str, str], decisions: list[dict]) -> str:
 
     state = files.get("state.md", "")
     if state.strip():
-        sections.append(state.strip())
+        current = extract_current_state(state)
+        if current:
+            sections.append("## Current State\n" + current)
 
     stack = files.get("stack.md", "")
-    summary = extract_stack_summary(stack)
-    if summary:
-        sections.append("## Stack\n" + summary)
+    oneliner = extract_stack_oneliner(stack)
+    if oneliner:
+        sections.append("**Stack:** " + oneliner)
 
     questions_content = files.get("questions.md", "")
     questions = parse_questions(questions_content)
