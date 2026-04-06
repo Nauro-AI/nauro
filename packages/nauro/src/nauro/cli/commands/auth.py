@@ -28,8 +28,8 @@ logger = logging.getLogger("nauro.auth")
 
 auth_app = typer.Typer(help="Manage authentication for remote sync.")
 
-AUTH0_DOMAIN = os.environ.get("NAURO_AUTH0_DOMAIN", "dev-q1kuoa1a154u26iw.us.auth0.com")
-AUTH0_CLIENT_ID = os.environ.get("NAURO_AUTH0_CLIENT_ID", "FoVl59QaztJou17Xqr3e2QYOupAr1Ke3")
+AUTH0_DOMAIN = os.environ.get("NAURO_AUTH0_DOMAIN", "")
+AUTH0_CLIENT_ID = os.environ.get("NAURO_AUTH0_CLIENT_ID", "")
 AUTH0_AUDIENCE = os.environ.get("NAURO_AUTH0_AUDIENCE", "https://mcp.nauro.ai/mcp")
 AUTH0_SCOPES = "openid profile offline_access read:context write:context"
 REDIRECT_PORT = 18457
@@ -102,6 +102,14 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 @auth_app.command()
 def login() -> None:
     """Authenticate with Auth0 using Authorization Code + PKCE."""
+    if not AUTH0_DOMAIN or not AUTH0_CLIENT_ID:
+        typer.echo(
+            "Auth0 not configured. Set NAURO_AUTH0_DOMAIN and NAURO_AUTH0_CLIENT_ID "
+            "environment variables, or run: nauro config set auth0_domain <domain>",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     code_verifier, code_challenge = _generate_pkce()
     state = secrets.token_urlsafe(32)
 
@@ -191,9 +199,14 @@ def login() -> None:
 
     # Fetch canonical user_id from server
     user_id = None
-    api_url = os.environ.get(
-        "NAURO_API_URL", "https://aiovf5wqph.execute-api.us-east-1.amazonaws.com"
-    )
+    api_url = os.environ.get("NAURO_API_URL", "")
+    if not api_url:
+        typer.echo(
+            "API URL not configured. Set NAURO_API_URL environment variable.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     try:
         me_resp = httpx.get(
             f"{api_url}/me",
