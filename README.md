@@ -84,6 +84,17 @@ A Python CLI extracts decisions from your git history using Haiku, stores them a
 
 All content is plain markdown. No database, no proprietary format.
 
+## Packages
+
+This repo contains two packages:
+
+| Package | Path | PyPI |
+|---|---|---|
+| `nauro` | `packages/nauro/` | `pip install nauro` |
+| `nauro-core` | `packages/nauro-core/` | `pip install nauro-core` |
+
+Why two packages? `nauro-core` contains the pure-Python parsing, validation, and context assembly logic shared between the CLI and Nauro's hosted remote MCP server. It has zero dependencies and can be used independently by third-party tools that want to read or write the Nauro decision format.
+
 ## MCP tools
 
 11 tools (7 read, 4 write) exposed to any connected MCP client:
@@ -116,11 +127,12 @@ Free tier: unlimited local usage + 100 remote MCP calls/month. Pro ($9/mo) adds 
 
 ## Contributing
 
-Contributions welcome. See the project structure in [CLAUDE.md](CLAUDE.md) for architecture context.
+Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and [CLAUDE.md](CLAUDE.md) for architecture context.
 
 ```bash
-pip install -e ".[dev]"
-pytest tests/ -x -q -m "not integration"
+uv sync --all-packages --all-extras
+uv run pytest packages/nauro-core/tests/ -x -q
+uv run pytest packages/nauro/tests/ -x -q -m "not integration"
 ```
 
-870+ tests across [nauro](https://github.com/nauro-ai/nauro), [nauro-core](https://github.com/nauro-ai/nauro-core), and [mcp-server](https://github.com/nauro-ai/mcp-server). Apache 2.0 license.
+Apache 2.0 license.

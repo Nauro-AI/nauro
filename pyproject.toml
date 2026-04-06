@@ -1,5 +1,5 @@
 [project]
-name = "nauro"
+name = "nauro-workspace"
 version = "0.0.0"
 description = "Nauro monorepo workspace (not published)"
 requires-python = ">=3.11"
