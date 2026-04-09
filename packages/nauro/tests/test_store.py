@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.reader import _list_decisions
+from nauro.store.reader import _list_decisions, _load_files, read_project_context
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
 from nauro.store.validator import validate_store
 from nauro.store.writer import append_decision, append_question, update_state
@@ -185,45 +185,100 @@ def test_question_multiple(store: Path):
 # --- State update tests ---
 
 
-def test_update_state_replaces_current(store: Path):
+def test_update_state_creates_state_current(store: Path):
+    """First update_state migrates legacy state.md and creates state_current.md."""
     update_state(store, "Implemented auth module")
-    content = (store / "state.md").read_text()
-    assert "## Current" in content
-    assert "Implemented auth module" in content
+    current = (store / "state_current.md").read_text()
+    assert "# Current State" in current
+    assert "Implemented auth module" in current
+    # Legacy state.md is left untouched
+    assert (store / "state.md").exists()
 
 
-def test_update_state_rotates_to_history(store: Path):
+def test_update_state_appends_history(store: Path):
     update_state(store, "First task")
     update_state(store, "Second task")
-    content = (store / "state.md").read_text()
-    # Current should be the latest delta only
-    lines = content.split("\n")
-    in_current = False
-    current_text = []
-    for line in lines:
-        if line.strip().lower() == "## current":
-            in_current = True
-            continue
-        if line.startswith("## ") and in_current:
-            break
-        if in_current:
-            current_text.append(line)
-    current = "\n".join(current_text).strip()
-    assert current == "Second task"
-    # History should contain the first task
-    assert "First task" in content
-    assert "## History" in content
+    current = (store / "state_current.md").read_text()
+    assert "Second task" in current
+    assert "First task" not in current
+    # History file should contain the first task's state
+    history = (store / "state_history.md").read_text()
+    assert "First task" in history
 
 
 def test_update_state_history_accumulates(store: Path):
     for i in range(5):
         update_state(store, f"Task {i}")
-    content = (store / "state.md").read_text()
-    # Current is the last one
-    assert "## Current\nTask 4" in content
-    # All previous tasks are in history
+    current = (store / "state_current.md").read_text()
+    assert "Task 4" in current
+    history = (store / "state_history.md").read_text()
+    # All previous tasks are in history (via rotation chain)
     for i in range(4):
-        assert f"Task {i}" in content
+        assert f"Task {i}" in history
+
+
+def test_update_state_migration_preserves_legacy(store: Path):
+    """Migration path: store with only state.md, first update creates state_current.md."""
+    assert (store / "state.md").exists()
+    assert not (store / "state_current.md").exists()
+    update_state(store, "Post-upgrade task")
+    assert (store / "state_current.md").exists()
+    assert (store / "state.md").exists()  # not deleted
+
+
+def test_update_state_first_write_empty_store(tmp_path: Path):
+    """First write to a store with no prior state files at all."""
+    store_path = tmp_path / "empty-store"
+    store_path.mkdir(parents=True)
+    # No state.md or state_current.md
+    update_state(store_path, "Brand new state")
+    # Nothing should be created since there's no existing state file
+    assert not (store_path / "state_current.md").exists()
+
+
+# --- Reader split-state tests ---
+
+
+def test_load_files_returns_state_current_key(store: Path):
+    """When state_current.md exists, _load_files returns it under that key."""
+    (store / "state_current.md").write_text("# Current State\n\nNew format")
+    files = _load_files(store)
+    assert "state_current.md" in files
+    assert "state.md" not in files
+
+
+def test_load_files_falls_back_to_state_md(store: Path):
+    """When only state.md exists, _load_files returns it under state.md key."""
+    files = _load_files(store)
+    assert "state.md" in files
+    assert "state_current.md" not in files
+
+
+def test_l2_loads_state_history(store: Path):
+    """L2 context includes state_history.md content."""
+    (store / "state_current.md").write_text("# Current State\n\nCurrent")
+    (store / "state_history.md").write_text("## 2026-04-01T10:00Z\n\nOld\n\n---\n")
+    result = read_project_context(store, level=2)
+    assert "Current" in result
+    assert "Old" in result
+
+
+def test_l0_does_not_load_state_history(store: Path):
+    """L0 context does not include state_history.md."""
+    (store / "state_current.md").write_text("# Current State\n\nCurrent only")
+    (store / "state_history.md").write_text("## 2026-04-01T10:00Z\n\nShould not appear\n\n---\n")
+    result = read_project_context(store, level=0)
+    assert "Current only" in result
+    assert "Should not appear" not in result
+
+
+def test_l1_does_not_load_state_history(store: Path):
+    """L1 context does not include state_history.md."""
+    (store / "state_current.md").write_text("# Current State\n\nCurrent only")
+    (store / "state_history.md").write_text("## 2026-04-01T10:00Z\n\nShould not appear\n\n---\n")
+    result = read_project_context(store, level=1)
+    assert "Current only" in result
+    assert "Should not appear" not in result
 
 
 # --- Snapshot tests ---

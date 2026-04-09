@@ -23,7 +23,7 @@ class TestDemoProjectStructure:
     def test_all_store_files_exist(self, demo_store):
         """Demo project should have the same files as a real project."""
         assert (demo_store / constants.PROJECT_MD).exists()
-        assert (demo_store / constants.STATE_MD).exists()
+        assert (demo_store / constants.STATE_CURRENT_FILENAME).exists()
         assert (demo_store / constants.STACK_MD).exists()
         assert (demo_store / constants.OPEN_QUESTIONS_MD).exists()
         assert (demo_store / constants.DECISIONS_DIR).is_dir()
@@ -59,13 +59,12 @@ class TestDemoProjectStructure:
         snapshot_path = demo_store / constants.SNAPSHOTS_DIR / f"v{ver:03d}.json"
         data = json.loads(snapshot_path.read_text())
         assert constants.PROJECT_MD in data["files"]
-        assert constants.STATE_MD in data["files"]
+        assert constants.STATE_CURRENT_FILENAME in data["files"]
         assert any(k.startswith(constants.DECISIONS_DIR + "/") for k in data["files"])
 
     def test_state_has_content(self, demo_store):
-        content = (demo_store / constants.STATE_MD).read_text()
-        assert "## Current" in content
-        assert "## History" in content
+        content = (demo_store / constants.STATE_CURRENT_FILENAME).read_text()
+        assert "# Current State" in content
 
     def test_open_questions_has_content(self, demo_store):
         content = (demo_store / constants.OPEN_QUESTIONS_MD).read_text()

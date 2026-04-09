@@ -93,16 +93,13 @@ Version pinning across repos, coordinating releases, and keeping shared
 types in sync would slow us down considerably at this team size.
 """
 
-STATE_MD = f"""\
-# State
+STATE_CURRENT_MD = f"""\
+# Current State
 
-## Current
 Implementing user authentication \u2014 building JWT-based auth flow \
 with refresh tokens and RBAC.
 
-## History
-- **{_DEMO_DATE}:** Shipped CI pipeline with GitHub Actions, \
-database schema and migrations, project scaffolding with Turborepo.
+*Last updated: {_DEMO_DATE}T12:00Z*
 """
 
 OPEN_QUESTIONS_MD = """\
@@ -176,7 +173,7 @@ def create_demo_project(store_path: Path) -> None:
 
     # Write content files
     (store_path / constants.PROJECT_MD).write_text(PROJECT_MD)
-    (store_path / constants.STATE_MD).write_text(STATE_MD)
+    (store_path / constants.STATE_CURRENT_FILENAME).write_text(STATE_CURRENT_MD)
     (store_path / constants.STACK_MD).write_text(STACK_MD)
     (store_path / constants.OPEN_QUESTIONS_MD).write_text(OPEN_QUESTIONS_MD)
 
@@ -188,7 +185,7 @@ def create_demo_project(store_path: Path) -> None:
     # Write a snapshot so diff_since_last_session returns something
     files = {
         constants.PROJECT_MD: PROJECT_MD,
-        constants.STATE_MD: STATE_MD,
+        constants.STATE_CURRENT_FILENAME: STATE_CURRENT_MD,
         constants.STACK_MD: STACK_MD,
         constants.OPEN_QUESTIONS_MD: OPEN_QUESTIONS_MD,
         f"{constants.DECISIONS_DIR}/001-chose-postgresql-over-mongodb.md": DECISION_001,

@@ -18,11 +18,30 @@ from nauro_core.parsing import (
     extract_stack_oneliner,
     parse_questions,
 )
+from nauro_core.state import assemble_state_for_context
 
 
 def _active_decisions(decisions: list[dict]) -> list[dict]:
     """Filter to active decisions only."""
     return [d for d in decisions if d.get("status", "active") == "active"]
+
+
+def _resolve_state(files: dict[str, str]) -> str | None:
+    """Resolve state content from files dict, preferring state_current.md.
+
+    Falls back to state.md for pre-upgrade stores. When falling back,
+    uses extract_current_state() to parse out only the current section
+    (legacy format may have ## Current / ## History sections).
+    """
+    current = files.get("state_current.md")
+    if current is not None and current.strip():
+        return current
+
+    legacy = files.get("state.md", "")
+    if legacy.strip():
+        return legacy
+
+    return None
 
 
 def build_l0(files: dict[str, str], decisions: list[dict]) -> str:
@@ -42,11 +61,20 @@ def build_l0(files: dict[str, str], decisions: list[dict]) -> str:
     if project.strip():
         sections.append(project.strip())
 
-    state = files.get("state.md", "")
-    if state.strip():
-        current = extract_current_state(state)
-        if current:
-            sections.append("## Current State\n" + current)
+    raw_state = _resolve_state(files)
+    if raw_state:
+        if "state_current.md" in files:
+            current = raw_state.strip()
+        else:
+            # Legacy fallback: parse out ## Current section
+            current = extract_current_state(raw_state)
+        assembled = assemble_state_for_context(
+            current or None,
+            history_content=None,
+            include_history=False,
+        )
+        if assembled and assembled.strip():
+            sections.append("## Current State\n" + assembled.strip())
 
     stack = files.get("stack.md", "")
     oneliner = extract_stack_oneliner(stack)
@@ -84,9 +112,15 @@ def build_l1(files: dict[str, str], decisions: list[dict]) -> str:
     if project.strip():
         sections.append(project.strip())
 
-    state = files.get("state.md", "")
-    if state.strip():
-        sections.append(state.strip())
+    raw_state = _resolve_state(files)
+    if raw_state:
+        assembled = assemble_state_for_context(
+            raw_state,
+            history_content=None,
+            include_history=False,
+        )
+        if assembled and assembled.strip():
+            sections.append(assembled.strip())
 
     stack = files.get("stack.md", "")
     if stack.strip():
@@ -122,6 +156,15 @@ def build_l2(files: dict[str, str], decisions: list[dict]) -> str:
         decisions: List of parsed decision dicts.
     """
     sections: list[str] = []
+
+    raw_state = _resolve_state(files)
+    history = files.get("state_history.md")
+    if raw_state or history:
+        assembled = assemble_state_for_context(
+            raw_state, history_content=history, include_history=True
+        )
+        if assembled and assembled.strip():
+            sections.append(assembled.strip())
 
     if decisions:
         parts = [d["content"].strip() for d in decisions]

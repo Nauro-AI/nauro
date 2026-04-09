@@ -1084,7 +1084,7 @@ class TestProcessCommit:
 
         # threshold=0.3 to ensure this gets captured
         process_commit("/fake/repo", store, threshold=0.3)
-        state = (store / "state.md").read_text()
+        state = (store / "state_current.md").read_text()
         assert "Split store into reader/writer" in state
 
     @patch("nauro.extraction.pipeline.get_commit_info")

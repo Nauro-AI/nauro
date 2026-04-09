@@ -202,7 +202,7 @@ class TestUpdateState:
         result = update_state(project="testproj", delta="Deployed v0.2.0")
         assert "State updated" in result
 
-        state = (store / "state.md").read_text()
+        state = (store / "state_current.md").read_text()
         assert "Deployed v0.2.0" in state
 
 

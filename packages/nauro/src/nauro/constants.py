@@ -26,6 +26,9 @@ from nauro_core.constants import REVERSIBILITY_LEVELS as REVERSIBILITY_LEVELS
 from nauro_core.constants import SNAPSHOTS_DIR as SNAPSHOTS_DIR
 from nauro_core.constants import STACK_EMPTY_MARKER as STACK_EMPTY_MARKER
 from nauro_core.constants import STACK_MD as STACK_MD
+from nauro_core.constants import STATE_CURRENT_FILENAME as STATE_CURRENT_FILENAME
+from nauro_core.constants import STATE_HISTORY_FILENAME as STATE_HISTORY_FILENAME
+from nauro_core.constants import STATE_LEGACY_FILENAME as STATE_LEGACY_FILENAME
 from nauro_core.constants import STATE_MD as STATE_MD
 from nauro_core.constants import VALID_CONFIDENCES as VALID_CONFIDENCES
 

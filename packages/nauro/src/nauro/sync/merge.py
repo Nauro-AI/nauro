@@ -16,7 +16,7 @@ from nauro.sync.state import SyncState
 logger = logging.getLogger("nauro.sync")
 
 # Files where append-only union merge is appropriate
-APPEND_ONLY_PATTERNS = ("decisions/", "open-questions.md")
+APPEND_ONLY_PATTERNS = ("decisions/", "open-questions.md", "state_history.md")
 
 # Files that are never synced
 NEVER_SYNC = (".sync-state.json",)

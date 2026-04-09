@@ -106,6 +106,28 @@ class TestBuildL0:
         assert "Chose over Go" not in result
         assert "## Language" not in result
 
+    def test_state_current_md_key(self):
+        files = {**FULL_FILES, "state_current.md": "# Current State\n\nNew format state"}
+        del files["state.md"]
+        result = build_l0(files, [])
+        assert "New format state" in result
+        assert "Set up project scaffolding" not in result
+
+    def test_state_md_fallback(self):
+        # Only state.md present (pre-upgrade store) — should extract ## Current
+        result = build_l0(FULL_FILES, [])
+        assert "Shipping v1" in result
+        assert "Set up project scaffolding" not in result
+
+    def test_state_current_wins_over_legacy(self):
+        files = {
+            **FULL_FILES,
+            "state_current.md": "# Current State\n\nNew format wins",
+        }
+        result = build_l0(files, [])
+        assert "New format wins" in result
+        assert "Shipping v1" not in result
+
 
 class TestBuildL1:
     def test_canonical_ordering(self):
@@ -153,6 +175,16 @@ class TestBuildL1:
         result = build_l1(FULL_FILES, [])
         assert "## Decisions" not in result
 
+    def test_state_current_md_key(self):
+        files = {**FULL_FILES, "state_current.md": "# Current State\n\nNew format L1"}
+        del files["state.md"]
+        result = build_l1(files, [])
+        assert "New format L1" in result
+
+    def test_state_md_fallback(self):
+        result = build_l1(FULL_FILES, [])
+        assert "# State" in result
+
 
 class TestBuildL2:
     def test_all_decisions_included(self):
@@ -176,3 +208,23 @@ class TestBuildL2:
     def test_decisions_separated_by_hr(self):
         result = build_l2({}, DECISIONS)
         assert "\n\n---\n\n" in result
+
+    def test_includes_state_history(self):
+        files = {
+            "state_current.md": "# Current State\n\nCurrent stuff",
+            "state_history.md": "## 2026-04-01T10:00Z\n\nOld stuff\n\n---\n",
+        }
+        result = build_l2(files, [])
+        assert "Current stuff" in result
+        assert "# State History" in result
+        assert "Old stuff" in result
+
+    def test_state_current_without_history(self):
+        files = {"state_current.md": "# Current State\n\nJust current"}
+        result = build_l2(files, [])
+        assert "Just current" in result
+        assert "# State History" not in result
+
+    def test_state_md_fallback_l2(self):
+        result = build_l2(FULL_FILES, [])
+        assert "# State" in result

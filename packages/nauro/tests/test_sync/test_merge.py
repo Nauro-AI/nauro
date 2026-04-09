@@ -37,6 +37,12 @@ class TestIsAppendOnly:
     def test_state_md(self):
         assert _is_append_only("state.md") is False
 
+    def test_state_current_md(self):
+        assert _is_append_only("state_current.md") is False
+
+    def test_state_history_md(self):
+        assert _is_append_only("state_history.md") is True
+
 
 class TestDetectConflict:
     def test_no_previous_state(self):

@@ -140,7 +140,7 @@ class TestDiffSnapshots:
 
     def test_detects_state_changes(self, evolved_store: Path):
         result = diff_snapshots(evolved_store, 1, 2)
-        assert "state.md" in result
+        assert "state_current.md" in result
 
     def test_detects_resolved_questions(self, evolved_store: Path):
         result = diff_snapshots(evolved_store, 2, 3)

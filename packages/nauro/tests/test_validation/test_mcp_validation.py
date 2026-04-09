@@ -144,7 +144,7 @@ async def test_update_state_endpoint(client, tmp_path):
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
 
-    state = (tmp_path / "projects" / "testproj" / "state.md").read_text()
+    state = (tmp_path / "projects" / "testproj" / "state_current.md").read_text()
     assert "Deployed v0.2.0 to staging" in state
 
 

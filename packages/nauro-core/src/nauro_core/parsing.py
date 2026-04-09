@@ -130,6 +130,10 @@ def parse_decision(content: str, filename: str) -> dict:
 def extract_current_state(state_content: str) -> str:
     """Extract only the ``## Current`` section from state.md content.
 
+    Legacy fallback only — used when reading pre-upgrade state.md files
+    that contain both ``## Current`` and ``## History`` sections. New-format
+    stores use state_current.md directly.
+
     Returns the text between ``## Current`` and the next ``##`` heading
     (or end of file). Returns empty string if no ``## Current`` section
     is found, allowing callers to fall back to full content.

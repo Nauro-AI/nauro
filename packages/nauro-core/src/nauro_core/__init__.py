@@ -75,6 +75,15 @@ from nauro_core.constants import (
     STACK_MD as STACK_MD,
 )
 from nauro_core.constants import (
+    STATE_CURRENT_FILENAME as STATE_CURRENT_FILENAME,
+)
+from nauro_core.constants import (
+    STATE_HISTORY_FILENAME as STATE_HISTORY_FILENAME,
+)
+from nauro_core.constants import (
+    STATE_LEGACY_FILENAME as STATE_LEGACY_FILENAME,
+)
+from nauro_core.constants import (
     STATE_MD as STATE_MD,
 )
 from nauro_core.constants import (
@@ -142,6 +151,18 @@ from nauro_core.parsing import (
 )
 from nauro_core.pending import (
     PendingStore as PendingStore,
+)
+from nauro_core.state import (
+    StateUpdateResult as StateUpdateResult,
+)
+from nauro_core.state import (
+    assemble_state_for_context as assemble_state_for_context,
+)
+from nauro_core.state import (
+    migrate_legacy_state as migrate_legacy_state,
+)
+from nauro_core.state import (
+    prepare_state_update as prepare_state_update,
 )
 from nauro_core.validation import (
     check_content_length as check_content_length,

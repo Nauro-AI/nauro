@@ -18,8 +18,10 @@ from nauro.constants import (
     OPEN_QUESTIONS_MD,
     PROJECT_MD,
     STACK_MD,
+    STATE_CURRENT_FILENAME,
     STATE_DIFF_FIELDS,
     STATE_FIELD_LAST_SYNCED_BOLD,
+    STATE_HISTORY_FILENAME,
     STATE_MD,
 )
 from nauro.store.snapshot import find_snapshot_near_date, list_snapshots, load_snapshot
@@ -201,11 +203,20 @@ def read_project_context(store_path: Path, level: int = 0) -> str:
 
 
 def _load_files(store_path: Path, include_project: bool = True) -> dict[str, str]:
-    """Load store files into a dict for nauro_core context builders."""
+    """Load store files into a dict for nauro_core context builders.
+
+    Prefers state_current.md; falls back to state.md for pre-upgrade stores.
+    """
     files: dict[str, str] = {}
     if include_project:
         files["project.md"] = _read_file(store_path / PROJECT_MD)
-    files["state.md"] = _read_file(store_path / STATE_MD)
+
+    current_state = _read_file(store_path / STATE_CURRENT_FILENAME)
+    if current_state:
+        files["state_current.md"] = current_state
+    else:
+        files["state.md"] = _read_file(store_path / STATE_MD)
+
     files["stack.md"] = _read_file(store_path / STACK_MD)
     files["questions.md"] = _read_file(store_path / OPEN_QUESTIONS_MD)
     return files
@@ -223,7 +234,7 @@ def _build_l0_local(store_path: Path) -> str:
     result = build_l0(files, decisions)
 
     # Local-specific: append "last synced" line from state
-    state = files.get("state.md", "")
+    state = files.get("state_current.md") or files.get("state.md", "")
     synced = re.search(STATE_FIELD_LAST_SYNCED_BOLD, state)
     if synced:
         result += f"\n\n*Last synced: {synced.group(1).strip()}*"
@@ -241,6 +252,10 @@ def _build_l1_local(store_path: Path) -> str:
 def _build_l2_local(store_path: Path) -> str:
     """Build L2 payload with local-specific snapshot diff."""
     files = _load_files(store_path)
+    # L2 includes state history
+    history = _read_file(store_path / STATE_HISTORY_FILENAME)
+    if history:
+        files["state_history.md"] = history
     decisions = _list_decisions(store_path)
 
     result = build_l2(files, decisions)

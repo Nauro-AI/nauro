@@ -11,11 +11,14 @@ from pathlib import Path
 
 from filelock import FileLock
 from nauro_core import extract_decision_number
+from nauro_core.state import migrate_legacy_state, prepare_state_update
 
 from nauro.constants import (
     DECISIONS_DIR,
     OPEN_QUESTIONS_MD,
     SLUG_MAX_LENGTH,
+    STATE_CURRENT_FILENAME,
+    STATE_HISTORY_FILENAME,
     STATE_MD,
 )
 
@@ -288,75 +291,42 @@ def append_question(store_path: Path, question: str) -> None:
 
 
 def update_state(store_path: Path, delta: str) -> None:
-    """Replace the current state with *delta*, rotating the previous current into history.
+    """Replace the current state with *delta*, archiving the previous state.
 
-    The state.md file uses ``## Current`` and ``## History`` sections.
-    Each call replaces ``## Current`` with the new delta and prepends the
-    old current text (with a timestamp) to ``## History``.
-
-    If state.md uses the legacy format (no ``## Current`` / ``## History``),
-    the entire body is migrated into ``## History`` on first call.
+    Writes state_current.md (replace semantics) and appends to
+    state_history.md (append-only archive). On first call after upgrade,
+    migrates legacy state.md to state_current.md without deleting state.md.
 
     Args:
         store_path: Path to the project store directory.
         delta: The new current state description.
     """
-    state_path = store_path / STATE_MD
-    if not state_path.exists():
+    current_path = store_path / STATE_CURRENT_FILENAME
+    history_path = store_path / STATE_HISTORY_FILENAME
+    legacy_path = store_path / STATE_MD
+
+    # Read existing current state
+    current_content: str | None = None
+    if current_path.exists():
+        current_content = current_path.read_text()
+    elif legacy_path.exists():
+        # First write after upgrade: migrate legacy state.md
+        legacy_content = legacy_path.read_text()
+        migrated = migrate_legacy_state(legacy_content)
+        current_path.write_text(migrated.current_content)
+        current_content = migrated.current_content
+        # Do NOT delete state.md — leave as dead file for sync safety
+    else:
+        # No state files at all — nothing to update
         return
 
-    content = state_path.read_text()
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%d")
+    # Prepare the update
+    result = prepare_state_update(delta, current_content)
 
-    # Parse existing sections
-    lines = content.split("\n")
-    header_lines: list[str] = []
-    current_lines: list[str] = []
-    history_lines: list[str] = []
-    section: str | None = None
+    # Write state_current.md (full replace)
+    current_path.write_text(result.current_content)
 
-    for line in lines:
-        low = line.strip().lower()
-        if low == "## current":
-            section = "current"
-            continue
-        elif low == "## history":
-            section = "history"
-            continue
-        elif section is None:
-            header_lines.append(line)
-        elif section == "current":
-            current_lines.append(line)
-        elif section == "history":
-            history_lines.append(line)
-
-    old_current = "\n".join(current_lines).strip()
-
-    # Legacy migration: if no ## Current section was found, treat body after
-    # the H1 header as history content.
-    if section is None:
-        body_start = 0
-        for i, line in enumerate(header_lines):
-            if line.startswith("# "):
-                body_start = i + 1
-                break
-        legacy_body = "\n".join(header_lines[body_start:]).strip()
-        header_lines = header_lines[:body_start]
-        if legacy_body:
-            history_lines = [f"- **{timestamp}:** (migrated) {legacy_body}"] + history_lines
-
-    # Rotate old current into history
-    if old_current:
-        history_lines.insert(0, f"- **{timestamp}:** {old_current}")
-
-    # Assemble
-    parts = header_lines
-    parts.append("")
-    parts.append("## Current")
-    parts.append(delta)
-    parts.append("")
-    parts.append("## History")
-    if history_lines:
-        parts.extend(history_lines)
-
-    state_path.write_text("\n".join(parts) + "\n")
+    # Append to state_history.md if there's a history entry
+    if result.history_entry is not None:
+        existing_history = history_path.read_text() if history_path.exists() else ""
+        history_path.write_text(existing_history + result.history_entry)
