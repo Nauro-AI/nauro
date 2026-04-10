@@ -1,0 +1,1 @@
+"""Nauro MCP server package."""
