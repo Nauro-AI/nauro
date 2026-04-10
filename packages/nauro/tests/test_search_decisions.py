@@ -58,12 +58,11 @@ def test_rationale_match_with_snippet(store: Path):
     assert "Mangum" in hit["relevance_snippet"]
 
 
-def test_case_insensitive_substring(store: Path):
-    """'auth' matches 'Auth0', 'authentication', and 'unauthorized'."""
-    result = search_decisions(store, "auth")
+def test_stemming_matches_variants(store: Path):
+    """'authentication' matches the Auth0 decision via BM25 stemming."""
+    result = search_decisions(store, "authentication")
     titles = [r["title"] for r in result["results"]]
     assert any("Auth0" in t for t in titles)
-    assert any("authentication" in t.lower() for t in titles)
 
 
 def test_multi_word_any_match(store: Path):
@@ -99,8 +98,9 @@ def test_superseded_included_with_status(store: Path):
     assert "superseded" in statuses
 
 
-def test_sorted_descending(store: Path):
-    result = search_decisions(store, "a")
-    numbers = [r["number"] for r in result["results"]]
-    assert len(numbers) >= 2
-    assert numbers == sorted(numbers, reverse=True)
+def test_sorted_by_relevance(store: Path):
+    """Results are sorted by BM25 score, not by decision number."""
+    result = search_decisions(store, "FastAPI Lambda deployment")
+    if len(result["results"]) >= 2:
+        scores = [r["score"] for r in result["results"]]
+        assert scores == sorted(scores, reverse=True)

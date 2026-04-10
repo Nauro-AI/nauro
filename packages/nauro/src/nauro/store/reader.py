@@ -9,9 +9,9 @@ from pathlib import Path
 
 from nauro_core.context import build_l0, build_l1, build_l2
 from nauro_core.parsing import (
-    extract_relevance_snippet,
     parse_decision,
 )
+from nauro_core.search import bm25_search
 
 from nauro.constants import (
     DECISIONS_DIR,
@@ -84,43 +84,13 @@ def search_decisions(
             ),
         }
 
-    query_words = query.strip().split()
     all_decisions = _list_decisions(store_path)
-
-    matches = []
-    for d in all_decisions:
-        title_lower = d["title"].lower()
-        rationale_lower = d["rationale"].lower()
-        combined = title_lower + " " + rationale_lower
-
-        if any(w.lower() in combined for w in query_words):
-            # Build relevance snippet from rationale
-            snippet = extract_relevance_snippet(d["rationale"], query_words)
-            if not snippet and d["rationale"]:
-                # Match was title-only — use first sentence of rationale
-                first_sentence = re.split(r"[.!?]\s", d["rationale"], maxsplit=1)[0]
-                snippet = first_sentence[:100].strip()
-                if len(first_sentence) > 100:
-                    snippet += "..."
-
-            matches.append(
-                {
-                    "number": d["num"],
-                    "title": d["title"],
-                    "date": d.get("date"),
-                    "status": d.get("status", "active"),
-                    "relevance_snippet": snippet,
-                }
-            )
-
-    # Sort by decision number descending
-    matches.sort(key=lambda m: m["number"], reverse=True)
-    total = len(matches)
+    results = bm25_search(all_decisions, query, limit=limit)
 
     return {
         "store": "local",
-        "results": matches[:limit],
-        "total_matches": total,
+        "results": results,
+        "total_matches": len(results),
         "query": query,
     }
 

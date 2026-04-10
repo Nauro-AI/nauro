@@ -152,6 +152,12 @@ from nauro_core.parsing import (
 from nauro_core.pending import (
     PendingStore as PendingStore,
 )
+from nauro_core.search import (
+    bm25_retrieve as bm25_retrieve,
+)
+from nauro_core.search import (
+    bm25_search as bm25_search,
+)
 from nauro_core.state import (
     StateUpdateResult as StateUpdateResult,
 )

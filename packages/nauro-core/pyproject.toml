@@ -19,6 +19,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+dependencies = [
+    "bm25s>=0.2",
+    "PyStemmer>=2.2",
+]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "import-linter"]

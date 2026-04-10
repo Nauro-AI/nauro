@@ -13,7 +13,7 @@ from nauro.store.writer import append_decision, supersede_decision, update_decis
 from nauro.validation.log import log_validation
 from nauro.validation.pending import get_pending, remove_pending, store_pending
 from nauro.validation.tier1 import screen_structural, update_hash_index
-from nauro.validation.tier2 import check_similarity, update_embedding_index
+from nauro.validation.tier2 import check_similarity
 from nauro.validation.tier3 import evaluate_with_llm
 
 
@@ -271,7 +271,6 @@ def _write_proposal(proposal: dict, project_path: Path) -> str:
     title = proposal.get("title", "")
     rationale = proposal.get("rationale", "")
     update_hash_index(title, rationale, decision_id, project_path)
-    update_embedding_index(decision_id, title, rationale, project_path)
 
     capture_snapshot(project_path, trigger=f"decision: {title}")
     return decision_id
@@ -286,7 +285,6 @@ def _execute_operation(operation: str, proposal: dict, project_path: Path, llm_r
             title = proposal.get("title", "")
             rationale = proposal.get("rationale", "")
             update_hash_index(title, rationale, decision_id, project_path)
-            update_embedding_index(decision_id, title, rationale, project_path)
             capture_snapshot(project_path, trigger=f"supersede {old_id}: {title}")
             return decision_id
         # Fall through to add if no affected_decision_id
