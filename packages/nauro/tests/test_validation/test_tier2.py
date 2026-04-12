@@ -74,6 +74,46 @@ class TestCheckSimilarity:
         assert action == "needs_review"
         assert any("Memcached" in s["title"] for s in similar)
 
+    def test_generic_verb_overlap_does_not_escalate(self, store):
+        """A proposal sharing only a generic action verb (e.g. ``use``)
+        with an existing decision must not escalate to tier 3.
+
+        ``use`` appears in virtually every Nauro decision title and carries
+        no similarity signal. Without filtering it, every new ``Use X`` or
+        ``Use Y`` proposal would escalate and pay for an LLM call.
+        """
+        append_decision(
+            store,
+            "Use FastAPI",
+            rationale="Good async support for our web server.",
+        )
+        proposal = {
+            "title": "Use Redis for Caching",
+            "rationale": "Fast in-memory store for session data management.",
+        }
+        action, similar = check_similarity(proposal, store)
+        assert action == "auto_confirm"
+        assert similar == []
+
+    def test_scaffold_seed_excluded_from_corpus(self, store):
+        """The scaffold-seeded 001-initial-setup decision must not gate
+        validation of user proposals.
+
+        Without this exclusion, a fresh store (containing only the seed)
+        escalates every new proposal that shares even one stem with the
+        template text (e.g. "store" in the seed rationale vs "in-memory
+        store" in a Redis proposal) to tier 3, defeating tier 2's purpose
+        and breaking offline operation on first use.
+        """
+        # Store contains only the scaffold seed — no user decisions.
+        proposal = {
+            "title": "Use Redis for Caching",
+            "rationale": "Fast in-memory store with pub/sub support for session data.",
+        }
+        action, similar = check_similarity(proposal, store)
+        assert action == "auto_confirm"
+        assert similar == []
+
     def test_result_format(self, store):
         append_decision(
             store,

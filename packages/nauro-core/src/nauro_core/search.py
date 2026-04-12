@@ -73,24 +73,30 @@ def bm25_retrieve(
     decisions: list[dict],
     query_text: str,
     top_k: int = 5,
+    stopwords: str | list[str] = "en",
 ) -> list[dict]:
     """Retrieve top-k related active decisions for conflict checking.
 
     Returns list of dicts sorted by BM25 score descending.
     Only active decisions are considered; results with score <= 0 are excluded.
+
+    ``stopwords`` is passed through to ``bm25s.tokenize`` and applies to both
+    the corpus and query tokenization. Callers (e.g. tier-2 validation) may
+    pass an extended list to filter domain-generic tokens that bm25s's
+    default English list doesn't cover.
     """
     active = [d for d in decisions if d.get("status", "active") == "active"]
     if not active or not query_text or not query_text.strip():
         return []
 
     corpus = [f"{d['title']} {d['rationale']}" for d in active]
-    corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer)
+    corpus_tokens = bm25s.tokenize(corpus, stopwords=stopwords, stemmer=_stemmer)
 
     retriever = bm25s.BM25()
     retriever.index(corpus_tokens)
 
     k = min(top_k, len(active))
-    query_tokens = bm25s.tokenize([query_text], stopwords="en", stemmer=_stemmer)
+    query_tokens = bm25s.tokenize([query_text], stopwords=stopwords, stemmer=_stemmer)
     results, scores = retriever.retrieve(query_tokens, k=k)
 
     related = []
