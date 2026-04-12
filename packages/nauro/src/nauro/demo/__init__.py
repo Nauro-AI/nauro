@@ -93,6 +93,118 @@ Version pinning across repos, coordinating releases, and keeping shared
 types in sync would slow us down considerably at this team size.
 """
 
+DECISION_004 = f"""\
+# 004 — SSE over WebSocket for live task updates
+
+**Date:** {_DEMO_DATE}
+**Version:** 1
+**Status:** active
+**Confidence:** high
+**Type:** api_design
+**Reversibility:** moderate
+**Source:** manual
+
+## Decision
+
+Server-Sent Events (SSE) for pushing live task updates to the frontend.
+SSE uses standard HTTP, reconnects automatically on disconnect, and works
+through every proxy and load balancer without configuration. During ECS
+rolling deploys, WebSocket connections were not released cleanly — new
+tasks routed to draining containers, causing 30-second stalls until
+timeout. SSE clients reconnect to healthy targets within 3 seconds.
+
+## Rejected Alternatives
+
+### WebSocket
+Persistent connections were not released during ECS rolling deploys,
+causing connection storms when multiple containers drained simultaneously.
+Debugging required custom connection-tracking middleware. The bidirectional
+channel is unnecessary — clients never push data through the event stream.
+"""
+
+DECISION_005 = f"""\
+# 005 — All processing in request path, no background workers
+
+**Date:** {_DEMO_DATE}
+**Version:** 1
+**Status:** active
+**Confidence:** medium
+**Type:** architecture
+**Reversibility:** moderate
+**Source:** manual
+
+## Decision
+
+All task processing (notifications, state transitions, webhook deliveries)
+happens synchronously in the request path. No job queue, no worker
+processes. p99 API latency is under 200ms with this approach, and the
+operational surface stays small: one container type, one log stream,
+one failure mode.
+
+## Rejected Alternatives
+
+### Background job queue (Redis + Bull / SQS)
+Added three failure modes the team couldn't monitor in v1: stuck jobs,
+duplicate delivery on retry, and silent queue backup when the worker
+fell behind. For current throughput (~50 req/s peak), synchronous
+processing is fast enough and dramatically simpler to debug.
+"""
+
+DECISION_006 = f"""\
+# 006 — Cursor-based pagination, not offset
+
+**Date:** {_DEMO_DATE}
+**Version:** 1
+**Status:** active
+**Confidence:** high
+**Type:** api_design
+**Reversibility:** hard
+**Source:** manual
+
+## Decision
+
+All list endpoints use cursor-based pagination with opaque encoded cursors.
+Offset pagination breaks when items are inserted or deleted between pages —
+users see duplicates or miss items entirely. Cursor pagination provides
+stable iteration regardless of concurrent writes, which matters for a
+multi-user task board where tasks move between states constantly.
+
+## Rejected Alternatives
+
+### LIMIT/OFFSET
+Simple to implement but produces inconsistent results under concurrent
+writes. With 50+ active users modifying task state, offset drift caused
+visible duplicates in the frontend during testing. Also degrades at scale:
+OFFSET 10000 still scans and discards 10,000 rows.
+"""
+
+DECISION_007 = f"""\
+# 007 — Hard delete with audit log, no soft deletes
+
+**Date:** {_DEMO_DATE}
+**Version:** 1
+**Status:** active
+**Confidence:** high
+**Type:** architecture
+**Reversibility:** hard
+**Source:** manual
+
+## Decision
+
+Deleted tasks are removed from the tasks table and a record is written to
+the audit_events table. No soft deletes. The audit log captures who deleted
+what and when, satisfying compliance requirements without polluting the
+primary table.
+
+## Rejected Alternatives
+
+### Soft deletes (deleted_at column)
+Leaks into every query: every WHERE clause, every index, every JOIN needs
+to filter on deleted_at IS NULL. In testing, three bugs shipped because
+a query forgot the filter and showed deleted tasks in the UI. The audit
+log table provides the same compliance trail without the query tax.
+"""
+
 STATE_CURRENT_MD = f"""\
 # Current State
 
@@ -104,7 +216,7 @@ with refresh tokens and RBAC.
 
 OPEN_QUESTIONS_MD = """\
 # Open Questions
-- [2026-03-14 10:00 UTC] Should we add WebSocket support for real-time updates?
+- [2026-03-14 10:00 UTC] Should we add rate limiting at the API gateway or application layer?
 - [2026-03-13 15:30 UTC] Redis vs in-memory caching for session storage?
 """
 
@@ -160,7 +272,7 @@ def create_demo_project(store_path: Path) -> None:
     """Write all demo project files to the store directory.
 
     Creates the same structure as a real project: project.md, state.md,
-    stack.md, open-questions.md, 3 decisions, and a snapshot.
+    stack.md, open-questions.md, 7 decisions, and a snapshot.
 
     Args:
         store_path: Path to the project store directory.
@@ -181,6 +293,10 @@ def create_demo_project(store_path: Path) -> None:
     (decisions_dir / "001-chose-postgresql-over-mongodb.md").write_text(DECISION_001)
     (decisions_dir / "002-rest-api-over-graphql.md").write_text(DECISION_002)
     (decisions_dir / "003-monorepo-with-turborepo.md").write_text(DECISION_003)
+    (decisions_dir / "004-sse-over-websocket.md").write_text(DECISION_004)
+    (decisions_dir / "005-no-background-workers.md").write_text(DECISION_005)
+    (decisions_dir / "006-cursor-based-pagination.md").write_text(DECISION_006)
+    (decisions_dir / "007-hard-delete-with-audit-log.md").write_text(DECISION_007)
 
     # Write a snapshot so diff_since_last_session returns something
     files = {
@@ -191,6 +307,10 @@ def create_demo_project(store_path: Path) -> None:
         f"{constants.DECISIONS_DIR}/001-chose-postgresql-over-mongodb.md": DECISION_001,
         f"{constants.DECISIONS_DIR}/002-rest-api-over-graphql.md": DECISION_002,
         f"{constants.DECISIONS_DIR}/003-monorepo-with-turborepo.md": DECISION_003,
+        f"{constants.DECISIONS_DIR}/004-sse-over-websocket.md": DECISION_004,
+        f"{constants.DECISIONS_DIR}/005-no-background-workers.md": DECISION_005,
+        f"{constants.DECISIONS_DIR}/006-cursor-based-pagination.md": DECISION_006,
+        f"{constants.DECISIONS_DIR}/007-hard-delete-with-audit-log.md": DECISION_007,
     }
 
     snapshot = {

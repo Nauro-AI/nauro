@@ -29,9 +29,9 @@ class TestDemoProjectStructure:
         assert (demo_store / constants.DECISIONS_DIR).is_dir()
         assert (demo_store / constants.SNAPSHOTS_DIR).is_dir()
 
-    def test_has_three_decisions(self, demo_store):
+    def test_has_seven_decisions(self, demo_store):
         decisions = _list_decisions(demo_store)
-        assert len(decisions) == 3
+        assert len(decisions) == 7
 
     def test_decisions_have_correct_format(self, demo_store):
         """Decisions should match the format produced by writer.py."""
@@ -48,6 +48,10 @@ class TestDemoProjectStructure:
         assert "Chose PostgreSQL over MongoDB for ACID compliance" in titles
         assert "REST API over GraphQL for simplicity" in titles
         assert "Monorepo with Turborepo over polyrepo" in titles
+        assert "SSE over WebSocket for live task updates" in titles
+        assert "All processing in request path, no background workers" in titles
+        assert "Cursor-based pagination, not offset" in titles
+        assert "Hard delete with audit log, no soft deletes" in titles
 
     def test_has_snapshot(self, demo_store):
         snapshots = list_snapshots(demo_store)
@@ -68,7 +72,7 @@ class TestDemoProjectStructure:
 
     def test_open_questions_has_content(self, demo_store):
         content = (demo_store / constants.OPEN_QUESTIONS_MD).read_text()
-        assert "WebSocket" in content
+        assert "rate limiting" in content
         assert "Redis" in content
 
     def test_project_md_has_content(self, demo_store):

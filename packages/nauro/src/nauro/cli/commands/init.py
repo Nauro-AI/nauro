@@ -56,7 +56,7 @@ def init(
         create_demo_project(store_path)
         typer.echo(f"Initialized demo project '{name}'")
         typer.echo(f"  Store: {store_path}")
-        typer.echo("  Includes: 3 decisions, project state, open questions, and a snapshot")
+        typer.echo("  Includes: 7 decisions, project state, open questions, and a snapshot")
 
         # Auto-push if sync is configured
         _try_demo_sync(name, store_path)
