@@ -98,35 +98,3 @@ src/nauro/
 tests/
   fixtures/              # pre-scaffolded stores, extraction test cases
 ```
-
-<!-- NAURO:START — managed by nauro, do not edit -->
-
-## Nauro — project context
-
-This project uses Nauro for persistent context. The MCP server is
-auto-started by Claude Code. Project context has been injected at
-session start via AGENTS.md.
-
----
-
-## When to propose a decision
-
-Call `propose_decision` when you choose between two or more approaches,
-replace or remove a dependency, establish a new pattern, or cut
-something from scope. Do not wait until the end of the session —
-log decisions at the moment they are made. Use `check_decision` first
-for advisory conflict checks, then `confirm_decision` after reviewing
-validation results.
-
-Examples that warrant a decision:
-- Choosing FastAPI over Flask for the MCP server
-- Deciding to defer multi-repo sync to v2
-- Establishing that all store writes go through writer.py, never direct
-- Removing Redis as a dependency by switching to procrastinate
-
-Examples that do not:
-- Fixing a bug with an obvious solution
-- Adding a test for existing behavior
-- Renaming a variable
-
-<!-- NAURO:END -->

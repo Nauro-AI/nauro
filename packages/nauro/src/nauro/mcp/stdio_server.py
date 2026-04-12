@@ -3,18 +3,14 @@
 Spawned by Claude Code at session start, communicates over stdin/stdout.
 Same tools as the HTTP server, same store, same payloads.
 
+Tool metadata (descriptions, titles, annotations) is centralized in
+`nauro_core.mcp_tools` — edit there, not here — so the local stdio server
+and the remote HTTP server stay in sync.
+
 MCP tools (11 total — 7 read, 4 write):
-  - get_context(project, level)          → Return project context at L0/L1/L2
-  - get_raw_file(project, path)          → Return raw file from project store
-  - list_decisions(project, ...)         → Browse decision history
-  - get_decision(project, number)        → Get full decision by number
-  - diff_since_last_session(project, ..) → Show what changed since last session
-  - search_decisions(project, query)     → Search decisions by keyword
-  - propose_decision(project, ...)       → Propose a decision with validation
-  - confirm_decision(confirm_id)         → Confirm a pending decision
-  - check_decision(proposed_approach)    → Check for conflicts without writing
-  - flag_question(project, ...)          → Flag an open question for human review
-  - update_state(project, ...)           → Update current project state
+  get_context, get_raw_file, list_decisions, get_decision,
+  diff_since_last_session, search_decisions, check_decision,
+  propose_decision, confirm_decision, flag_question, update_state
 """
 
 from __future__ import annotations
@@ -22,8 +18,12 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Any, Literal
 
 from mcp.server import FastMCP
+from mcp.types import ToolAnnotations
+from nauro_core.constants import MCP_INSTRUCTIONS
+from nauro_core.mcp_tools import ToolSpec, get_tool_spec
 
 from nauro.mcp.tools import (
     tool_check_decision,
@@ -42,7 +42,17 @@ from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.registry import get_store_path, resolve_project
 
 logger = logging.getLogger("nauro.stdio")
-mcp = FastMCP("nauro", log_level="WARNING")
+mcp = FastMCP("nauro", instructions=MCP_INSTRUCTIONS, log_level="WARNING")
+
+
+def _spec_kwargs(name: str) -> dict[str, Any]:
+    """Build FastMCP @tool() decorator kwargs from the shared registry."""
+    spec: ToolSpec = get_tool_spec(name)
+    return {
+        "title": spec["title"],
+        "description": spec["description"],
+        "annotations": ToolAnnotations(**spec["annotations"]),
+    }
 
 
 def _resolve_store(project: str | None, cwd: str | None) -> Path:
@@ -58,43 +68,22 @@ def _resolve_store(project: str | None, cwd: str | None) -> Path:
     return store_path
 
 
-@mcp.tool()
-def get_context(project: str | None = None, cwd: str | None = None, level: int = 0) -> str:
-    """Return project context at the requested detail level.
-
-    L0 includes the last 10 active decisions with titles and dates.
-    Do NOT call list_decisions after get_context unless you need decisions
-    beyond the last 10 or need the include_superseded filter.
-
-    Args:
-        project: Project name (e.g. "nauro"). If omitted, resolved from cwd.
-        cwd: Working directory path for project resolution fallback.
-        level: Detail level — 0 (concise summary), 1 (working set), 2 (full dump).
-    """
+@mcp.tool(**_spec_kwargs("get_context"))
+def get_context(
+    project: str | None = None,
+    cwd: str | None = None,
+    level: Literal["L0", "L1", "L2"] | int = "L0",
+) -> str:
     try:
         store_path = _resolve_store(project, cwd)
     except ValueError:
         return WELCOME_NO_PROJECT
+    # tool_get_context accepts both int and string levels.
     return tool_get_context(store_path, level)
 
 
-@mcp.tool()
+@mcp.tool(**_spec_kwargs("get_raw_file"))
 def get_raw_file(path: str, project: str | None = None, cwd: str | None = None) -> dict:
-    """Returns the raw content of any file in the Nauro project store.
-
-    Paths include: project.md, state.md, questions.md, references.md,
-    decisions/042-some-decision.md
-
-    This is a low-level escape hatch. For most use cases, prefer:
-    - get_context for project overview, state, questions, and recent decisions
-    - get_decision for a specific decision by number
-    - search_decisions for finding decisions by topic
-
-    Args:
-        path: File path relative to project root (e.g., 'project.md').
-        project: Project name (e.g. "nauro"). If omitted, resolved from cwd.
-        cwd: Working directory path for project resolution fallback.
-    """
     try:
         store_path = _resolve_store(project, cwd)
     except ValueError:
@@ -102,24 +91,13 @@ def get_raw_file(path: str, project: str | None = None, cwd: str | None = None) 
     return tool_get_raw_file(store_path, path)
 
 
-@mcp.tool()
+@mcp.tool(**_spec_kwargs("list_decisions"))
 def list_decisions(
     project: str | None = None,
     cwd: str | None = None,
     limit: int = 20,
     include_superseded: bool = False,
 ) -> dict:
-    """Browse the full decision history.
-
-    Use when you need decisions beyond the last 10 included in get_context,
-    or when you need the include_superseded filter.
-
-    Args:
-        project: Project name. If omitted, resolved from cwd.
-        cwd: Working directory path for project resolution fallback.
-        limit: Max decisions to return (default 20).
-        include_superseded: Include superseded decisions (default false).
-    """
     try:
         store_path = _resolve_store(project, cwd)
     except ValueError:
@@ -127,19 +105,12 @@ def list_decisions(
     return tool_list_decisions(store_path, limit, include_superseded)
 
 
-@mcp.tool()
+@mcp.tool(**_spec_kwargs("get_decision"))
 def get_decision(
     number: int,
     project: str | None = None,
     cwd: str | None = None,
 ) -> dict:
-    """Get the full content of a specific decision by number.
-
-    Args:
-        number: Decision number (e.g., 23).
-        project: Project name. If omitted, resolved from cwd.
-        cwd: Working directory path for project resolution fallback.
-    """
     try:
         store_path = _resolve_store(project, cwd)
     except ValueError:
@@ -147,23 +118,12 @@ def get_decision(
     return tool_get_decision(store_path, number)
 
 
-@mcp.tool()
+@mcp.tool(**_spec_kwargs("diff_since_last_session"))
 def diff_since_last_session(
     project: str | None = None,
     cwd: str | None = None,
     days: int | None = None,
 ) -> dict:
-    """Show what changed in the project context since the last snapshot.
-
-    When days is omitted, diffs the two most recent snapshots (session-scoped).
-    When days is provided, finds the nearest snapshot to N days ago and diffs
-    against the current state.
-
-    Args:
-        project: Project name. If omitted, resolved from cwd.
-        cwd: Working directory path for project resolution fallback.
-        days: Optional: number of days to look back.
-    """
     try:
         store_path = _resolve_store(project, cwd)
     except ValueError:
@@ -171,9 +131,36 @@ def diff_since_last_session(
     return tool_diff_since_last_session(store_path, days)
 
 
-@mcp.tool()
+@mcp.tool(**_spec_kwargs("search_decisions"))
+def search_decisions(
+    query: str,
+    limit: int = 10,
+    project: str | None = None,
+    cwd: str | None = None,
+) -> dict:
+    try:
+        store_path = _resolve_store(project, cwd)
+    except ValueError:
+        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    return tool_search_decisions(store_path, query, limit)
+
+
+@mcp.tool(**_spec_kwargs("check_decision"))
+def check_decision(
+    proposed_approach: str,
+    context: str | None = None,
+    project: str | None = None,
+    cwd: str | None = None,
+) -> dict:
+    try:
+        store_path = _resolve_store(project, cwd)
+    except ValueError:
+        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    return tool_check_decision(store_path, proposed_approach, context)
+
+
+@mcp.tool(**_spec_kwargs("propose_decision"))
 def propose_decision(
-    project: str,
     title: str,
     rationale: str,
     rejected: list[dict] | None = None,
@@ -182,40 +169,11 @@ def propose_decision(
     reversibility: str | None = None,
     files_affected: list[str] | None = None,
     skip_validation: bool = False,
+    project: str | None = None,
+    cwd: str | None = None,
 ) -> dict:
-    """Propose a new architectural decision for validation and recording.
-
-    Runs a validation pipeline before writing:
-    - Tier 1: Structural validation (required fields)
-    - Tier 2: Similarity check against existing decisions
-    - Tier 3: Conflict detection against existing decisions
-
-    Returns validation results (similar decisions, conflicts, assessment)
-    and a confirm_id. The decision is NOT written until confirm_decision
-    is called with this confirm_id.
-
-    If you already called check_decision for this approach, pass
-    skip_validation=true to skip redundant tier-2/tier-3 matching.
-    Tier-1 structural validation always runs regardless.
-
-    Use check_decision first for advisory "would this conflict?" checks.
-    Use propose_decision when ready to write.
-
-    Args:
-        project: Project name.
-        title: Short title for the decision.
-        rationale: Why this decision was made, including constraints and tradeoffs.
-        rejected: Alternatives considered and rejected, each with "alternative" and "reason".
-        confidence: high, medium, or low.
-        decision_type: architecture, library_choice, pattern, refactor,
-            api_design, infrastructure, data_model.
-        reversibility: easy, moderate, or hard.
-        files_affected: Key file paths affected by this decision.
-        skip_validation: Skip tier-2/tier-3 validation. Tier-1 structural
-            checks always run. Use when you already called check_decision.
-    """
     try:
-        store_path = _resolve_store(project, None)
+        store_path = _resolve_store(project, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_propose_decision(
@@ -231,21 +189,12 @@ def propose_decision(
     )
 
 
-@mcp.tool()
+@mcp.tool(**_spec_kwargs("confirm_decision"))
 def confirm_decision(
     confirm_id: str,
     project: str | None = None,
     cwd: str | None = None,
 ) -> dict:
-    """Confirm a previously proposed decision after reviewing the validation results.
-
-    Only needed when propose_decision returns status=pending_confirmation.
-
-    Args:
-        confirm_id: The confirm_id returned by propose_decision.
-        project: Project name (for store resolution).
-        cwd: Working directory path (fallback for project resolution).
-    """
     try:
         store_path = _resolve_store(project, cwd)
     except ValueError:
@@ -253,83 +202,15 @@ def confirm_decision(
     return tool_confirm_decision(store_path, confirm_id)
 
 
-@mcp.tool()
-def check_decision(
-    proposed_approach: str,
-    context: str | None = None,
-    project: str | None = None,
-    cwd: str | None = None,
-) -> dict:
-    """Check whether a proposed approach conflicts with existing decisions WITHOUT writing anything.
-
-    Use this to consult the project's decision history before committing to an approach.
-
-    Args:
-        proposed_approach: Description of the approach you're considering.
-        context: Optional additional context about why you're considering this approach.
-        project: Project name.
-        cwd: Working directory path (fallback for project resolution).
-    """
-    try:
-        store_path = _resolve_store(project, cwd)
-    except ValueError:
-        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    return tool_check_decision(store_path, proposed_approach, context)
-
-
-@mcp.tool()
-def search_decisions(
-    query: str,
-    limit: int = 10,
-    project: str | None = None,
-    cwd: str | None = None,
-) -> dict:
-    """Search across all project decisions by keyword. Returns decisions whose
-    titles or rationale contain the search terms (case-insensitive substring
-    matching). Includes both active and superseded decisions.
-
-    Use when you need to find decisions about a specific topic rather than
-    browsing the full list. More token-efficient than list_decisions for
-    targeted lookups.
-
-    Example: search_decisions("authentication") returns all decisions
-    related to auth, OAuth, JWT, etc.
-
-    Returns: decision number, title, date, status, and a relevance snippet
-    from the matching rationale.
-
-    Requires a non-empty query. Use list_decisions to browse all decisions.
-
-    Args:
-        query: Search text (required, non-empty).
-        limit: Maximum results to return (default 10).
-        project: Project name. If omitted, resolved from cwd.
-        cwd: Working directory path for project resolution fallback.
-    """
-    try:
-        store_path = _resolve_store(project, cwd)
-    except ValueError:
-        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    return tool_search_decisions(store_path, query, limit)
-
-
-@mcp.tool()
+@mcp.tool(**_spec_kwargs("flag_question"))
 def flag_question(
-    project: str,
     question: str,
     context: str | None = None,
+    project: str | None = None,
+    cwd: str | None = None,
 ) -> str:
-    """Flag an open question for human review.
-
-    Checks if the question is already addressed by an existing decision.
-
-    Args:
-        project: Project name.
-        question: The question to flag.
-        context: Optional context about why this question matters.
-    """
     try:
-        store_path = _resolve_store(project, None)
+        store_path = _resolve_store(project, cwd)
     except ValueError:
         return WELCOME_NO_PROJECT
     result = tool_flag_question(store_path, question, context)
@@ -338,21 +219,14 @@ def flag_question(
     return "Question flagged."
 
 
-@mcp.tool()
+@mcp.tool(**_spec_kwargs("update_state"))
 def update_state(
-    project: str,
     delta: str,
+    project: str | None = None,
+    cwd: str | None = None,
 ) -> str:
-    """Update current project state with what was completed. Triggers a snapshot.
-
-    Checks for potential contradictions with recent state before writing.
-
-    Args:
-        project: Project name.
-        delta: Description of what changed (e.g. "Deployed v0.2.0 to staging").
-    """
     try:
-        store_path = _resolve_store(project, None)
+        store_path = _resolve_store(project, cwd)
     except ValueError:
         return WELCOME_NO_PROJECT
     result = tool_update_state(store_path, delta)

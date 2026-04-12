@@ -60,3 +60,44 @@ MAX_DELTA_LENGTH = 5_000
 MAX_QUESTION_LENGTH = 2_000
 MAX_CONTEXT_LENGTH = 5_000
 MAX_APPROACH_LENGTH = 5_000
+
+# ── MCP server instructions ──
+# Delivered via the MCP `initialize` response to every connected client.
+# Single source of truth — both local (stdio) and remote (HTTP) servers
+# should reference this constant.
+MCP_INSTRUCTIONS = """\
+Nauro is the project's decision memory. Use it to check past decisions \
+before committing to an approach, and to record new decisions as you make them.
+
+## When to check decisions
+
+Before adopting any technical approach — architecture, library choice, \
+API design, data model, infrastructure — call `check_decision` with a \
+description of what you're considering. This includes when the user asks \
+"should we...", "what if we...", "can we...", or "check if...". \
+The tool surfaces conflicts with past decisions so you don't repeat \
+rejected approaches.
+
+## When to propose decisions
+
+Call `propose_decision` when you choose between two or more approaches, \
+replace or remove a dependency, establish a new pattern, or cut scope. \
+Do it at the moment the decision is made, not at the end of the session. \
+Always include what was rejected and why.
+
+Do NOT propose decisions for obvious bug fixes, adding tests for existing \
+behavior, or renaming variables.
+
+## When to get context
+
+Call `get_context` at the start of a session or when you need to \
+understand the project's current state, goals, and constraints. \
+L0 includes the last 10 decisions — do not call `list_decisions` \
+after `get_context` unless you need older or superseded decisions.
+
+## When to update state
+
+Call `update_state` when you complete a meaningful unit of work — \
+a feature, a refactor, a bug fix — so the next session starts with \
+current context.\
+"""

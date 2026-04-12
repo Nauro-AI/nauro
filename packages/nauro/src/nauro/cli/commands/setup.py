@@ -1,8 +1,7 @@
 """nauro setup — Configure tool integrations.
 
 Currently supports:
-  nauro setup claude-code  — inject CLAUDE.md directives + MCP config
-  nauro setup claude-code --hooks — install Claude Code compaction hooks
+  nauro setup claude-code  — register MCP server + regenerate AGENTS.md
 """
 
 from __future__ import annotations
@@ -19,85 +18,23 @@ from nauro.templates.agents_md import regenerate_agents_md_for_project
 
 setup_app = typer.Typer(help="Configure tool integrations.")
 
+# Legacy markers — kept for removal of old CLAUDE.md blocks during --remove.
 CLAUDE_MD_START = NAURO_BLOCK_START
 CLAUDE_MD_END = NAURO_BLOCK_END
 
 
-def _claude_md_block() -> str:
-    """Generate the CLAUDE.md integration block."""
-    return f"""{CLAUDE_MD_START}
+def _remove_claude_md(repo_path: Path) -> str | None:
+    """Remove a legacy Nauro block from CLAUDE.md if present.
 
-## Nauro — project context
-
-This project uses Nauro for persistent context. The MCP server is
-auto-started by Claude Code. Project context has been injected at
-session start via AGENTS.md.
-
----
-
-## When to propose a decision
-
-Call `propose_decision` when you choose between two or more approaches,
-replace or remove a dependency, establish a new pattern, or cut
-something from scope. Do not wait until the end of the session —
-log decisions at the moment they are made. Use `check_decision` first
-for advisory conflict checks, then `confirm_decision` after reviewing
-validation results.
-
-Examples that warrant a decision:
-- Choosing FastAPI over Flask for the MCP server
-- Deciding to defer multi-repo sync to v2
-- Establishing that all store writes go through writer.py, never direct
-- Removing Redis as a dependency by switching to procrastinate
-
-Examples that do not:
-- Fixing a bug with an obvious solution
-- Adding a test for existing behavior
-- Renaming a variable
-
-{CLAUDE_MD_END}"""
-
-
-def _inject_claude_md(repo_path: Path, project_name: str) -> str:
-    """Inject or replace the Nauro block in CLAUDE.md.
-
-    Returns a status string describing what happened.
-    """
-    claude_md = repo_path / CLAUDE_MD
-    block = _claude_md_block()
-
-    if claude_md.exists():
-        content = claude_md.read_text()
-        if CLAUDE_MD_START in content and CLAUDE_MD_END in content:
-            # Replace existing block
-            before = content[: content.index(CLAUDE_MD_START)]
-            after = content[content.index(CLAUDE_MD_END) + len(CLAUDE_MD_END) :]
-            new_content = before + block + after
-            claude_md.write_text(new_content)
-            return f"  {repo_path}: updated existing Nauro block in {CLAUDE_MD}"
-        else:
-            # Append block
-            if not content.endswith("\n"):
-                content += "\n"
-            claude_md.write_text(content + "\n" + block + "\n")
-            return f"  {repo_path}: appended Nauro block to {CLAUDE_MD}"
-    else:
-        claude_md.write_text(block + "\n")
-        return f"  {repo_path}: created {CLAUDE_MD}"
-
-
-def _remove_claude_md(repo_path: Path) -> str:
-    """Remove the Nauro block from CLAUDE.md.
-
-    Returns a status string describing what happened.
+    Returns a status string if a block was removed, or None if no block found.
     """
     claude_md = repo_path / CLAUDE_MD
     if not claude_md.exists():
-        return f"  {repo_path}: no {CLAUDE_MD} found"
+        return None
 
     content = claude_md.read_text()
     if CLAUDE_MD_START not in content:
-        return f"  {repo_path}: no Nauro block found in {CLAUDE_MD}"
+        return None
 
     before = content[: content.index(CLAUDE_MD_START)]
     after = content[content.index(CLAUDE_MD_END) + len(CLAUDE_MD_END) :]
@@ -105,10 +42,10 @@ def _remove_claude_md(repo_path: Path) -> str:
 
     if not remaining:
         claude_md.unlink()
-        return f"  {repo_path}: deleted {CLAUDE_MD} (only contained Nauro block)"
+        return f"  {repo_path}: removed legacy Nauro block (deleted empty {CLAUDE_MD})"
     else:
         claude_md.write_text(remaining + "\n")
-        return f"  {repo_path}: removed Nauro block from {CLAUDE_MD}"
+        return f"  {repo_path}: removed legacy Nauro block from {CLAUDE_MD}"
 
 
 def _find_claude_config_path() -> Path | None:
@@ -195,26 +132,28 @@ def claude_code(
         typer.echo(f"Project '{project_name}' has no associated repos.", err=True)
         raise typer.Exit(code=1)
 
-    repo_results = []
+    # Clean up legacy CLAUDE.md blocks (behavioral guidance now delivered
+    # via MCP server instructions, so the injected block is no longer needed).
+    legacy_results = []
     for repo_str in entry["repo_paths"]:
         repo_path = Path(repo_str)
         if not repo_path.is_dir():
-            repo_results.append(f"  {repo_path}: directory not found, skipped")
             continue
-        if remove:
-            repo_results.append(_remove_claude_md(repo_path))
-        else:
-            repo_results.append(_inject_claude_md(repo_path, project_name))
+        result = _remove_claude_md(repo_path)
+        if result:
+            legacy_results.append(result)
 
     mcp_result = _configure_mcp(remove=remove)
 
     # Print summary
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro for project '{project_name}':\n")
-    typer.echo("Repos:")
-    for line in repo_results:
-        typer.echo(line)
-    typer.echo(f"\n{mcp_result}")
+    typer.echo(mcp_result)
+
+    if legacy_results:
+        typer.echo("\nLegacy cleanup:")
+        for line in legacy_results:
+            typer.echo(line)
 
     if not remove:
         # Regenerate AGENTS.md so context is fresh from the start

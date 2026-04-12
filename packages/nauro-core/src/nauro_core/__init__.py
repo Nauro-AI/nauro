@@ -54,6 +54,9 @@ from nauro_core.constants import (
     MAX_TITLE_LENGTH as MAX_TITLE_LENGTH,
 )
 from nauro_core.constants import (
+    MCP_INSTRUCTIONS as MCP_INSTRUCTIONS,
+)
+from nauro_core.constants import (
     MIN_RATIONALE_LENGTH as MIN_RATIONALE_LENGTH,
 )
 from nauro_core.constants import (
@@ -118,6 +121,15 @@ from nauro_core.format import (
 )
 from nauro_core.format import (
     parse_title as parse_title,
+)
+from nauro_core.mcp_tools import (
+    ALL_TOOLS as ALL_TOOLS,
+)
+from nauro_core.mcp_tools import (
+    ToolSpec as ToolSpec,
+)
+from nauro_core.mcp_tools import (
+    get_tool_spec as get_tool_spec,
 )
 from nauro_core.parsing import (
     decisions_summary_lines as decisions_summary_lines,
