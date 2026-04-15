@@ -1,0 +1,100 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nauro"
+version = "0.1.0"
+description = "Local CLI + MCP server that maintains versioned project context for AI coding agents."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    {name = "Thomas Thomsen"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "nauro-core>=0.1.0",
+    "typer>=0.9",
+    "fastapi>=0.100",
+    "uvicorn>=0.23",
+    "httpx>=0.24",
+    "mcp>=1.0",
+    "boto3>=1.28",
+    "filelock>=3.0",
+]
+
+[project.optional-dependencies]
+extraction = [
+    "anthropic>=0.18",
+]
+validation = [
+    "openai>=1.0",
+]
+all = [
+    "nauro[extraction,validation]",
+]
+dev = [
+    "nauro[all]",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1",
+    "mypy>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/nauro-ai/nauro"
+Repository = "https://github.com/nauro-ai/nauro"
+Issues = "https://github.com/nauro-ai/nauro/issues"
+
+[project.scripts]
+nauro = "nauro.cli.main:app"
+
+[tool.hatch.envs.default]
+features = ["dev"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nauro"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["tests/"]
+
+[tool.uv.sources]
+nauro-core = { workspace = true }
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+check_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["anthropic.*", "mcp.*", "boto3.*", "botocore.*", "openai.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: tests that call external APIs (require ANTHROPIC_API_KEY)",
+]
+addopts = "-m 'not integration'"

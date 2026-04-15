@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.eggs/
+*.egg
+.pytest_cache/
+.sync-state.json
+.conflict-backup/
+config.json
+.env
+.DS_Store
+**/.DS_Store
+.nauro/
