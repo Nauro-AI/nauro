@@ -2,7 +2,7 @@
 
 Give every AI agent your project's theory: the decisions, rationale, and rejected paths.
 
-Nauro maintains versioned project context and delivers it to Claude Code, Claude AI, Perplexity, ChatGPT, Cursor, and any MCP client. When an agent proposes an approach that conflicts with a past decision, Nauro catches it before the drift happens.
+Nauro maintains versioned project context and delivers it to Claude, Perplexity, ChatGPT, Cursor, and any MCP client. When an agent proposes an approach that conflicts with a past decision, Nauro catches it before the drift happens.
 
 Named for Peter Naur, whose 1985 paper argued the real program is the theory in the programmer's mind, not the code. Every fresh agent session is the equivalent of losing that programmer.
 
