@@ -21,9 +21,6 @@ from nauro_core.constants import (
     EXTRACTION_SOURCES as EXTRACTION_SOURCES,
 )
 from nauro_core.constants import (
-    JACCARD_THRESHOLD as JACCARD_THRESHOLD,
-)
-from nauro_core.constants import (
     L0_DECISIONS_SUMMARY_LIMIT as L0_DECISIONS_SUMMARY_LIMIT,
 )
 from nauro_core.constants import (
@@ -183,20 +180,20 @@ from nauro_core.state import (
     prepare_state_update as prepare_state_update,
 )
 from nauro_core.validation import (
-    check_content_length as check_content_length,
+    TIER2_STOPWORDS as TIER2_STOPWORDS,
 )
 from nauro_core.validation import (
-    check_jaccard_similarity as check_jaccard_similarity,
+    TIER2_TOP_K as TIER2_TOP_K,
+)
+from nauro_core.validation import (
+    check_bm25_similarity as check_bm25_similarity,
+)
+from nauro_core.validation import (
+    check_content_length as check_content_length,
 )
 from nauro_core.validation import (
     compute_hash as compute_hash,
 )
 from nauro_core.validation import (
-    jaccard_similarity as jaccard_similarity,
-)
-from nauro_core.validation import (
     screen_structural as screen_structural,
-)
-from nauro_core.validation import (
-    word_set as word_set,
 )

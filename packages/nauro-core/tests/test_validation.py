@@ -1,11 +1,9 @@
-"""Tests for nauro_core.validation — structural screening and Jaccard similarity."""
+"""Tests for nauro_core.validation — structural screening and BM25 similarity."""
 
 from nauro_core.validation import (
-    check_jaccard_similarity,
+    check_bm25_similarity,
     compute_hash,
-    jaccard_similarity,
     screen_structural,
-    word_set,
 )
 
 
@@ -36,129 +34,123 @@ class TestComputeHash:
         assert len(h) == 64  # SHA-256 hex
 
 
-class TestWordSet:
-    def test_basic(self):
-        result = word_set("Hello world foo")
-        assert "hello" in result
-        assert "world" in result
-        assert "foo" in result
-
-    def test_strips_punctuation(self):
-        result = word_set("hello, world! (test)")
-        assert "hello" in result
-        assert "world" in result
-        assert "test" in result
-
-    def test_short_words_excluded(self):
-        result = word_set("I am a big cat")
-        assert "big" in result
-        assert "cat" in result
-        assert "am" not in result
-        assert "a" not in result
-
-    def test_empty_string(self):
-        assert word_set("") == set()
-
-    def test_lowercase(self):
-        result = word_set("FastAPI Lambda")
-        assert "fastapi" in result
-        assert "lambda" in result
-
-
-class TestJaccardSimilarity:
-    def test_identical_sets(self):
-        s = {"hello", "world"}
-        assert jaccard_similarity(s, s) == 1.0
-
-    def test_disjoint_sets(self):
-        a = {"hello", "world"}
-        b = {"foo", "bar"}
-        assert jaccard_similarity(a, b) == 0.0
-
-    def test_partial_overlap(self):
-        a = {"hello", "world", "foo"}
-        b = {"hello", "world", "bar"}
-        sim = jaccard_similarity(a, b)
-        assert 0.0 < sim < 1.0
-        # intersection={hello, world}=2, union={hello, world, foo, bar}=4
-        assert sim == 0.5
-
-    def test_both_empty(self):
-        assert jaccard_similarity(set(), set()) == 0.0
-
-    def test_one_empty(self):
-        assert jaccard_similarity({"hello"}, set()) == 0.0
-
-    def test_subset(self):
-        a = {"hello", "world"}
-        b = {"hello", "world", "foo"}
-        sim = jaccard_similarity(a, b)
-        # 2/3
-        assert abs(sim - 2 / 3) < 0.001
-
-
-class TestCheckJaccardSimilarity:
-    def _decision(self, num, title, rationale="Some rationale text here."):
-        return {"num": num, "title": title, "rationale": rationale}
+class TestCheckBm25Similarity:
+    def _decision(self, num, title, rationale="Some rationale text here.", status="active"):
+        return {"num": num, "title": title, "rationale": rationale, "status": status}
 
     def test_no_existing_decisions(self):
         proposal = {"title": "Use FastAPI", "rationale": "Async support is great."}
-        action, similar = check_jaccard_similarity(proposal, [])
+        action, related = check_bm25_similarity(proposal, [])
         assert action == "auto_confirm"
-        assert similar == []
+        assert related == []
 
-    def test_below_threshold(self):
-        proposal = {"title": "Use FastAPI for server", "rationale": "Async support is great."}
-        existing = [self._decision(1, "Choose Redis for caching", "Speed and simplicity.")]
-        action, similar = check_jaccard_similarity(proposal, existing)
-        assert action == "auto_confirm"
-        assert similar == []
-
-    def test_above_threshold(self):
+    def test_only_scaffold_seed_is_excluded(self):
+        # A store containing only the scaffold-seed must never gate user proposals.
+        existing = [self._decision(1, "Initial project setup", "Store was initialized.")]
         proposal = {
-            "title": "Use FastAPI for the MCP server",
-            "rationale": "FastAPI provides async support and type safety for MCP server.",
+            "title": "Use Redis for caching",
+            "rationale": "Fast in-memory store with pub/sub.",
         }
+        action, related = check_bm25_similarity(proposal, existing)
+        assert action == "auto_confirm"
+        assert related == []
+
+    def test_unrelated_proposal_auto_confirms(self):
+        existing = [
+            self._decision(2, "Chose FastAPI for the server", "Async support and automatic docs."),
+        ]
+        proposal = {
+            "title": "Add dark mode to the UI",
+            "rationale": "Users requested a dark theme for reduced eye strain.",
+        }
+        action, related = check_bm25_similarity(proposal, existing)
+        assert action == "auto_confirm"
+        assert related == []
+
+    def test_vocabulary_mismatch_flagged(self):
+        # D93 motivating case: BM25 + stemming catches vocabulary mismatches
+        # that substring and naive word-set matching miss.
         existing = [
             self._decision(
-                1,
-                "Use FastAPI for MCP server",
-                "FastAPI provides async support and type safety for the MCP server.",
+                2,
+                "Chose Memcached for session state",
+                "Memcached is simpler than Redis for session caching. "
+                "Lower operational overhead for our read-heavy workload.",
             )
         ]
-        action, similar = check_jaccard_similarity(proposal, existing)
-        assert action == "needs_review"
-        assert len(similar) >= 1
-        assert similar[0]["number"] == 1
-
-    def test_similarity_value_in_result(self):
         proposal = {
-            "title": "Use FastAPI for server",
-            "rationale": "FastAPI provides async and type safety.",
+            "title": "Use Redis for session caching",
+            "rationale": "Redis provides session state management with persistence.",
         }
-        existing = [
-            self._decision(1, "Use FastAPI for server", "FastAPI provides async and type safety.")
-        ]
-        action, similar = check_jaccard_similarity(proposal, existing)
-        if similar:
-            assert "similarity" in similar[0]
-            assert 0.0 <= similar[0]["similarity"] <= 1.0
+        action, related = check_bm25_similarity(proposal, existing)
+        assert action == "needs_review"
+        assert any("Memcached" in r["title"] for r in related)
 
-    def test_max_five_results(self):
-        proposal = {"title": "common words shared across", "rationale": "common words shared."}
-        existing = [
-            self._decision(i, "common words shared across", "common words shared across all.")
-            for i in range(10)
-        ]
-        action, similar = check_jaccard_similarity(proposal, existing)
-        assert len(similar) <= 5
+    def test_generic_use_verb_does_not_escalate(self):
+        # Shared stopword-extended ``use`` must not produce a match on its own.
+        existing = [self._decision(2, "Use FastAPI", "Good async support.")]
+        proposal = {
+            "title": "Use Redis for caching",
+            "rationale": "Fast in-memory store for session data management.",
+        }
+        action, related = check_bm25_similarity(proposal, existing)
+        assert action == "auto_confirm"
+        assert related == []
 
-    def test_custom_threshold(self):
-        proposal = {"title": "Use FastAPI", "rationale": "Async support."}
-        existing = [self._decision(1, "Use Flask", "Simple and lightweight.")]
-        # Very low threshold should catch even slight overlap
-        action, _ = check_jaccard_similarity(proposal, existing, threshold=0.01)
-        # With such a low threshold, any word overlap triggers review
+    def test_result_shape_matches_bm25_retrieve(self):
+        existing = [
+            self._decision(
+                2,
+                "Use FastAPI for the server",
+                "Async support and automatic OpenAPI documentation.",
+            )
+        ]
+        proposal = {
+            "title": "Use FastAPI for the API layer",
+            "rationale": "FastAPI provides async and OpenAPI docs.",
+        }
+        action, related = check_bm25_similarity(proposal, existing)
+        assert action == "needs_review"
+        hit = related[0]
+        assert "number" in hit
+        assert "title" in hit
+        assert "similarity" in hit
+        assert "rationale_preview" in hit
+
+    def test_respects_top_k(self):
+        existing = [
+            self._decision(
+                n,
+                "Use FastAPI for service",
+                "Async support and automatic OpenAPI documentation.",
+            )
+            for n in range(2, 12)
+        ]
+        proposal = {
+            "title": "Use FastAPI for the API layer",
+            "rationale": "FastAPI provides async and OpenAPI docs.",
+        }
+        _, related = check_bm25_similarity(proposal, existing, top_k=3)
+        assert len(related) <= 3
+
+    def test_superseded_decisions_excluded(self):
+        # bm25_retrieve ignores non-active decisions — shared function inherits
+        # that filter. A superseded near-match must not trigger needs_review.
+        existing = [
+            self._decision(
+                2,
+                "Use FastAPI for the server",
+                "Async support and automatic OpenAPI documentation.",
+                status="superseded",
+            )
+        ]
+        proposal = {
+            "title": "Use FastAPI for the API layer",
+            "rationale": "FastAPI provides async and OpenAPI docs.",
+        }
+        action, related = check_bm25_similarity(proposal, existing)
+        assert action == "auto_confirm"
+        assert related == []
 
 
 class TestScreenStructural:

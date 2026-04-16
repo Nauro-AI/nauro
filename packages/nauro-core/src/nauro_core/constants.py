@@ -14,7 +14,6 @@ L1_DECISIONS_SUMMARY_LIMIT = 10
 # ── Validation thresholds ──
 VALID_CONFIDENCES: set[str] = {"high", "medium", "low"}
 MIN_RATIONALE_LENGTH = 20
-JACCARD_THRESHOLD = 0.5
 
 # ── Pending confirmation ──
 EXPIRY_MINUTES = 10
