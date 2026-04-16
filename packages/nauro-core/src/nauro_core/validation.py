@@ -1,4 +1,4 @@
-"""Structural screening, Jaccard similarity, and hash-based deduplication.
+"""Structural screening, similarity, and hash-based deduplication.
 
 Pure validation functions that determine whether a candidate decision should
 be written to the store. No I/O — existing decisions and hashes are passed
@@ -10,11 +10,91 @@ from __future__ import annotations
 import hashlib
 import re
 
+from bm25s.stopwords import STOPWORDS_EN
+
 from nauro_core.constants import (
-    JACCARD_THRESHOLD,
     MIN_RATIONALE_LENGTH,
     VALID_CONFIDENCES,
 )
+from nauro_core.search import bm25_retrieve
+
+# Tier-2 BM25 defaults shared by local (nauro) and remote (mcp-server) surfaces.
+# Both call check_bm25_similarity below so the same proposal produces the same
+# validation outcome on either.
+TIER2_TOP_K = 5
+
+# bm25s's default English stopword list is minimal (~30 tokens: a, an, and,
+# are, as, at, be, but, by, for, if, in, into, is, it, no, not, of, on, or,
+# ...). It omits common action verbs that appear in virtually every Nauro
+# decision title ("Use Postgres", "Use Redis", "Use FastAPI", etc.), so a
+# fresh proposal shares the stem ``use`` with most existing decisions and
+# gets a nonzero BM25 score, escalating tier 2 -> tier 3 on almost every
+# call. Extending the list with ``use`` collapses those false-positive
+# matches to score 0 (already filtered by bm25_retrieve).
+#
+# This list is intentionally minimal: only tokens with observed false
+# positives are added, not a speculative blanket of generic verbs. Add
+# more only when a concrete failure case justifies it, and add a test to
+# lock the case in.
+TIER2_STOPWORDS = list(STOPWORDS_EN) + ["use"]
+
+# The scaffold-seeded "Initial project setup" decision is Nauro's own
+# bookkeeping — it records that the store was initialized, not a choice the
+# user made. It should not gate validation of user-authored proposals.
+# Including it in the tier-2 corpus causes every new proposal sharing even
+# one weak stem (e.g. "store", "use") with the template text to escalate,
+# defeating tier 2's purpose as a cheap pre-filter.
+#
+# Identified by the conventional num+title pair written by the scaffold
+# template. This is a convention match, not a fuzzy heuristic: the title is
+# hardcoded in the scaffold and the scaffold is the only path that produces
+# a ``num == 1`` decision with this exact title.
+_SCAFFOLD_SEED_TITLE = "Initial project setup"
+
+
+def _is_scaffold_seed(decision: dict) -> bool:
+    return decision.get("num") == 1 and decision.get("title") == _SCAFFOLD_SEED_TITLE
+
+
+def check_bm25_similarity(
+    proposal: dict,
+    existing_decisions: list[dict],
+    top_k: int = TIER2_TOP_K,
+    stopwords: list[str] | None = None,
+) -> tuple[str, list[dict]]:
+    """Tier-2 BM25 similarity check (D93). Shared by local and remote surfaces.
+
+    Filters the scaffold-seed decision (bookkeeping, not a user choice) and
+    delegates retrieval to ``nauro_core.search.bm25_retrieve``, which also
+    filters non-active decisions and empty-score matches.
+
+    Args:
+        proposal: Dict with at least "title" and "rationale" keys.
+        existing_decisions: Parsed decision dicts. Each should carry "num",
+            "title", "rationale", and optionally "status".
+        top_k: Maximum number of related decisions to return.
+        stopwords: Override for tokenizer stopwords. Defaults to
+            ``TIER2_STOPWORDS``.
+
+    Returns:
+        (action, related) where action is "auto_confirm" or "needs_review"
+        and related uses the ``bm25_retrieve`` shape:
+        ``{"number", "title", "similarity", "rationale_preview"}``.
+    """
+    candidates = [d for d in existing_decisions if not _is_scaffold_seed(d)]
+    if not candidates:
+        return ("auto_confirm", [])
+
+    proposal_text = f"{proposal.get('title', '')}. {(proposal.get('rationale') or '')[:200]}"
+    related = bm25_retrieve(
+        candidates,
+        proposal_text,
+        top_k=top_k,
+        stopwords=stopwords if stopwords is not None else TIER2_STOPWORDS,
+    )
+    if not related:
+        return ("auto_confirm", [])
+    return ("needs_review", related)
 
 
 def check_content_length(value: str, label: str, max_length: int) -> str | None:
@@ -28,64 +108,6 @@ def compute_hash(title: str, rationale: str) -> str:
     """SHA-256 of normalized title + rationale for exact dedup."""
     content = f"{title.strip().lower()}|{rationale.strip().lower()}"
     return hashlib.sha256(content.encode()).hexdigest()
-
-
-def word_set(text: str) -> set[str]:
-    """Extract a set of lowercase words (len > 2) from text."""
-    return {w.lower().strip(".,;:!?()[]{}\"'") for w in text.split() if len(w) > 2}
-
-
-def jaccard_similarity(a: set[str], b: set[str]) -> float:
-    """Jaccard index between two word sets. Returns 0.0 if both are empty."""
-    if not a and not b:
-        return 0.0
-    return len(a & b) / len(a | b)
-
-
-def check_jaccard_similarity(
-    proposal: dict,
-    existing_decisions: list[dict],
-    threshold: float = JACCARD_THRESHOLD,
-) -> tuple[str, list[dict]]:
-    """Check proposal against existing decisions using Jaccard word-set similarity.
-
-    Args:
-        proposal: Dict with at least "title" and "rationale" keys.
-        existing_decisions: List of parsed decision dicts.
-        threshold: Similarity threshold (default from constants).
-
-    Returns:
-        (action, similar_decisions) where action is "auto_confirm" or "needs_review".
-        similar_decisions is sorted by similarity descending, capped at 5.
-    """
-    if not existing_decisions:
-        return ("auto_confirm", [])
-
-    proposal_text = f"{proposal.get('title', '')}. {(proposal.get('rationale') or '')[:200]}"
-    proposal_words = word_set(proposal_text)
-    if not proposal_words:
-        return ("auto_confirm", [])
-
-    similarities: list[dict] = []
-    for d in existing_decisions:
-        decision_text = f"{d.get('title', '')}. {(d.get('rationale') or '')[:200]}"
-        decision_words = word_set(decision_text)
-        sim = jaccard_similarity(proposal_words, decision_words)
-
-        if sim >= threshold:
-            similarities.append(
-                {
-                    "number": d.get("num", 0),
-                    "title": d.get("title", ""),
-                    "similarity": round(sim, 3),
-                }
-            )
-
-    if not similarities:
-        return ("auto_confirm", [])
-
-    similarities.sort(key=lambda x: x["similarity"], reverse=True)
-    return ("needs_review", similarities[:5])
 
 
 def _normalize_title(title: str) -> str:

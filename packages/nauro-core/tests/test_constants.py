@@ -5,7 +5,6 @@ from nauro_core.constants import (
     DECISION_TYPES,
     DECISIONS_DIR,
     EXTRACTION_SOURCES,
-    JACCARD_THRESHOLD,
     L0_DECISIONS_SUMMARY_LIMIT,
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
@@ -36,11 +35,6 @@ class TestLimits:
 
     def test_min_rationale_length_positive(self):
         assert MIN_RATIONALE_LENGTH > 0
-
-
-class TestThresholds:
-    def test_jaccard_threshold_in_range(self):
-        assert 0.0 < JACCARD_THRESHOLD <= 1.0
 
 
 class TestValidValues:
