@@ -20,6 +20,7 @@ from nauro_core.constants import (
     MAX_RATIONALE_LENGTH,
     MAX_TITLE_LENGTH,
 )
+from nauro_core.decision_model import DecisionStatus
 from nauro_core.validation import check_content_length
 
 from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payload
@@ -238,7 +239,7 @@ def tool_check_decision(
     )
 
     all_decisions = _list_decisions(store_path)
-    decision_titles = {f"decision-{d['num']:03d}": d["title"] for d in all_decisions}
+    decision_titles = {f"decision-{d.num:03d}": d.title for d in all_decisions}
 
     related = []
     for rd in llm_result.get("related_decisions", []):
@@ -341,18 +342,18 @@ def tool_list_decisions(
         return {"store": "local", "status": "error", "guidance": guidance}
     decisions = _list_decisions(store_path)
     if not include_superseded:
-        decisions = [d for d in decisions if d.get("status", "active") == "active"]
-    decisions.sort(key=lambda d: d["num"], reverse=True)
+        decisions = [d for d in decisions if d.status is DecisionStatus.active]
+    decisions.sort(key=lambda d: d.num, reverse=True)
     items = []
     for d in decisions[:limit]:
         items.append(
             {
-                "number": d["num"],
-                "title": d["title"],
-                "date": d.get("date"),
-                "status": d.get("status", "active"),
-                "type": d.get("decision_type"),
-                "confidence": d.get("confidence"),
+                "number": d.num,
+                "title": d.title,
+                "date": d.date.isoformat() if d.date else None,
+                "status": str(d.status.value),
+                "type": str(d.decision_type.value) if d.decision_type else None,
+                "confidence": str(d.confidence.value),
             }
         )
     return {"store": "local", "decisions": items}

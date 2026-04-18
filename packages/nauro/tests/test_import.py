@@ -381,13 +381,13 @@ def test_import_nygard_format(store: Path, nygard_directory: Path):
 
     # First ADR has "Accepted" status → high confidence
     micro_content = decisions[1].read_text()
-    assert "**Confidence:** high" in micro_content
+    assert "confidence: high" in micro_content
     # Title should have number prefix stripped
     assert "Use microservices architecture" in micro_content
 
     # Second ADR has "Proposed" status → medium confidence
     grpc_content = decisions[2].read_text()
-    assert "**Confidence:** medium" in grpc_content
+    assert "confidence: medium" in grpc_content
 
     # Nygard consequences with "rejected" keyword should be extracted
     assert "monolith" in micro_content

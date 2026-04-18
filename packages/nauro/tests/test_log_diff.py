@@ -45,7 +45,10 @@ def evolved_store(store: Path) -> Path:
         store,
         "Use Postgres for storage",
         rationale="Mature, reliable RDBMS with great JSON support.",
-        rejected=["MongoDB", "SQLite"],
+        rejected=[
+            {"alternative": "MongoDB", "reason": "No ACID guarantees for task state transitions."},
+            {"alternative": "SQLite", "reason": "No concurrent writes for multi-user."},
+        ],
         confidence="high",
     )
     append_question(store, "Should we add Redis for caching?")
@@ -59,7 +62,7 @@ def evolved_store(store: Path) -> Path:
         store,
         "Use Redis for caching",
         rationale="Low-latency in-memory store, good ecosystem.",
-        rejected=["Memcached"],
+        rejected=[{"alternative": "Memcached", "reason": "Weaker data structures."}],
         confidence="medium",
     )
 

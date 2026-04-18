@@ -33,7 +33,10 @@ def store(tmp_path: Path) -> Path:
             store_path,
             f"Decision {i + 1}",
             rationale=f"Rationale for decision {i + 1}. More detail here.",
-            rejected=[f"Alt A{i}", f"Alt B{i}"],
+            rejected=[
+                {"alternative": f"Alt A{i}", "reason": f"Rejected reason for A{i}."},
+                {"alternative": f"Alt B{i}", "reason": f"Rejected reason for B{i}."},
+            ],
         )
 
     # Add some questions
@@ -178,23 +181,30 @@ class TestL0DecisionsSummary:
 
     def test_l0_summary_excludes_superseded(self, tmp_path: Path):
         """L0 summary shows only active decisions (superseded excluded)."""
+        from nauro.store.writer import supersede_decision
+
         store_path = tmp_path / "projects" / "testproj"
         scaffold_project_store("testproj", store_path)
-        # scaffold creates 001, these are 002-006
+        # scaffold creates 001, these are 002-006.
+        paths = []
         for i in range(5):
-            append_decision(store_path, f"Decision {i + 1}", rationale=f"Rationale {i + 1}")
-        # Manually mark decision 004 as superseded
-        d4_files = list((store_path / "decisions").glob("004-*"))
-        assert len(d4_files) == 1
-        content = d4_files[0].read_text()
-        content = content.replace("**Status:** active", "**Status:** superseded")
-        d4_files[0].write_text(content)
+            paths.append(
+                append_decision(store_path, f"Decision {i + 1}", rationale=f"Rationale {i + 1}")
+            )
+        # Mark decision 004 as superseded via the v2 writer (creates 007 as replacement).
+        d4 = paths[2]
+        supersede_decision(
+            d4.stem,
+            {"title": "Replacement for D4", "rationale": "Supersedes D4."},
+            store_path,
+        )
 
         payload = build_l0_payload(store_path)
         recent_section = payload[payload.index("## Recent Decisions") :]
-        assert "D4 —" not in recent_section
+        assert "D4 \u2014" not in recent_section
         summary_lines = [line for line in recent_section.split("\n") if line.startswith("- D")]
-        assert len(summary_lines) == 5  # 6 total - 1 superseded
+        # 6 original + 1 replacement = 7; D4 is superseded → 6 active shown.
+        assert len(summary_lines) == 6
 
     def test_l0_summary_empty_store(self, tmp_path: Path):
         """L0 summary is empty when store has no decisions."""

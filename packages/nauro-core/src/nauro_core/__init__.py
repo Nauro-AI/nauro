@@ -3,7 +3,7 @@
 Re-export facade — public API symbols from all modules.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from nauro_core.constants import (
     DECISION_HASHES_FILE as DECISION_HASHES_FILE,
@@ -98,26 +98,32 @@ from nauro_core.context import (
 from nauro_core.context import (
     build_l2 as build_l2,
 )
-from nauro_core.format import (
-    METADATA_PATTERN as METADATA_PATTERN,
+from nauro_core.decision_model import (
+    Decision as Decision,
 )
-from nauro_core.format import (
-    SECTION_PATTERN as SECTION_PATTERN,
+from nauro_core.decision_model import (
+    DecisionConfidence as DecisionConfidence,
 )
-from nauro_core.format import (
-    TITLE_PATTERN as TITLE_PATTERN,
+from nauro_core.decision_model import (
+    DecisionSource as DecisionSource,
 )
-from nauro_core.format import (
-    format_metadata_field as format_metadata_field,
+from nauro_core.decision_model import (
+    DecisionStatus as DecisionStatus,
 )
-from nauro_core.format import (
-    format_title as format_title,
+from nauro_core.decision_model import (
+    DecisionType as DecisionType,
 )
-from nauro_core.format import (
-    parse_metadata as parse_metadata,
+from nauro_core.decision_model import (
+    RejectedAlternative as RejectedAlternative,
 )
-from nauro_core.format import (
-    parse_title as parse_title,
+from nauro_core.decision_model import (
+    Reversibility as Reversibility,
+)
+from nauro_core.decision_model import (
+    format_decision_v2 as format_decision_v2,
+)
+from nauro_core.decision_model import (
+    parse_decision_v2 as parse_decision_v2,
 )
 from nauro_core.mcp_tools import (
     ALL_TOOLS as ALL_TOOLS,
@@ -150,13 +156,7 @@ from nauro_core.parsing import (
     parse_decision as parse_decision,
 )
 from nauro_core.parsing import (
-    parse_metadata_field as parse_metadata_field,
-)
-from nauro_core.parsing import (
     parse_questions as parse_questions,
-)
-from nauro_core.parsing import (
-    strip_frontmatter as strip_frontmatter,
 )
 from nauro_core.pending import (
     PendingStore as PendingStore,

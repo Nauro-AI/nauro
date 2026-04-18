@@ -56,13 +56,13 @@ def test_scaffold_creates_first_decision(store: Path):
     first = store / "decisions" / "001-initial-setup.md"
     assert first.exists()
     content = first.read_text()
-    # Verify well-formed YAML frontmatter (starts with ---, has a closing ---)
+    # Well-formed v2 YAML frontmatter.
     assert content.startswith("---\n"), "First decision must start with YAML frontmatter"
     fm_end = content.index("\n---\n", 4)
     frontmatter = content[4:fm_end]
-    assert "status: accepted" in frontmatter
+    assert "status: active" in frontmatter
     assert "confidence: high" in frontmatter
-    assert "# 001: Initial project setup" in content
+    assert "# 001 \u2014 Initial project setup" in content
     assert "## Rejected Alternatives" in content
 
 
@@ -74,13 +74,17 @@ def test_get_scaffolds_returns_dict():
     assert "open-questions.md" in scaffolds
 
 
-def test_decision_template_exists():
-    """Decision template still available in scaffolds (for nauro init)."""
-    from nauro.templates.scaffolds import DECISION_TEMPLATE
+def test_scaffolded_first_decision_parses_as_v2(store: Path):
+    """The scaffolded first decision round-trips through parse_decision_v2."""
+    from nauro_core.decision_model import parse_decision_v2
 
-    assert "date:" in DECISION_TEMPLATE
-    assert "status:" in DECISION_TEMPLATE
-    assert "confidence:" in DECISION_TEMPLATE
+    first = store / "decisions" / "001-initial-setup.md"
+    d = parse_decision_v2(first.read_text(), first.name)
+    assert d.num == 1
+    assert d.title == "Initial project setup"
+    assert d.confidence.value == "high"
+    assert d.status.value == "active"
+    assert len(d.rejected) == 2
 
 
 # --- Decision tests ---
@@ -90,8 +94,8 @@ def test_decision_first(store: Path):
     path = append_decision(store, "Use Postgres")
     assert path.name == "002-use-postgres.md"  # 001 is initial-setup
     content = path.read_text()
-    assert "# 002 — Use Postgres" in content
-    assert "**Confidence:** medium" in content
+    assert "# 002 \u2014 Use Postgres" in content
+    assert "confidence: medium" in content
 
 
 def test_decision_auto_increment(store: Path):
@@ -119,7 +123,7 @@ def test_decision_with_rationale_and_rejected(store: Path):
     assert "Less feature-rich" in content
     assert "### DynamoDB" in content
     assert "Too expensive" in content
-    assert "**Confidence:** high" in content
+    assert "confidence: high" in content
 
 
 def test_decision_with_extended_fields(store: Path):
@@ -132,34 +136,35 @@ def test_decision_with_extended_fields(store: Path):
         decision_type="data_model",
         reversibility="hard",
         files_affected=["src/db.py", "migrations/"],
-        source="compaction (session abc123)",
+        source="compaction",
     )
     content = path.read_text()
-    assert "**Type:** data_model" in content
-    assert "**Reversibility:** hard" in content
-    assert "**Source:** compaction (session abc123)" in content
-    assert "**Files affected:** src/db.py, migrations/" in content
+    assert "decision_type: data_model" in content
+    assert "reversibility: hard" in content
+    assert "source: compaction" in content
+    assert "src/db.py" in content
+    assert "migrations/" in content
 
 
 def test_decision_minimal_fields(store: Path):
-    """Decision with only required fields works (backwards compat)."""
+    """Decision with only required fields works."""
     path = append_decision(store, "Simple decision")
     content = path.read_text()
-    assert "# 002 — Simple decision" in content
-    assert "**Confidence:** medium" in content
-    assert "**Date:**" in content
-    # Optional fields should not appear
-    assert "**Type:**" not in content
-    assert "**Reversibility:**" not in content
-    assert "**Source:**" not in content
-    assert "**Files affected:**" not in content
+    assert "# 002 \u2014 Simple decision" in content
+    assert "confidence: medium" in content
+    assert "date:" in content
+    # Optional fields are present with null values (YAML frontmatter contract).
+    assert "decision_type: null" in content
+    assert "reversibility: null" in content
+    assert "source: null" in content
+    assert "files_affected: []" in content
 
 
 def test_decision_metadata_format(store: Path):
     path = append_decision(store, "Test metadata")
     content = path.read_text()
-    assert "**Date:**" in content
-    assert "**Confidence:** medium" in content
+    assert "date:" in content
+    assert "confidence: medium" in content
 
 
 # --- Question tests ---
@@ -498,7 +503,7 @@ def test_snapshot_includes_decisions(store: Path):
 
 
 def test_reader_parses_new_format(store: Path):
-    """Reader can parse decisions written in the new metadata format."""
+    """Reader returns Decision objects with all fields populated."""
     append_decision(
         store,
         "Use Postgres",
@@ -507,32 +512,30 @@ def test_reader_parses_new_format(store: Path):
         decision_type="data_model",
         reversibility="hard",
         files_affected=["src/db.py", "migrations/"],
-        source="compaction (session abc)",
+        source="compaction",
     )
     decisions = _list_decisions(store)
-    new_decision = [d for d in decisions if d["title"] == "Use Postgres"]
-    assert len(new_decision) == 1
-    d = new_decision[0]
-    assert d["decision_type"] == "data_model"
-    assert d["reversibility"] == "hard"
-    assert d["source"] == "compaction (session abc)"
-    assert d["files_affected"] == ["src/db.py", "migrations/"]
-    assert d["confidence"] == "high"
-    assert d["rationale"]  # Should have rationale from ## Decision section
+    new = [d for d in decisions if d.title == "Use Postgres"]
+    assert len(new) == 1
+    d = new[0]
+    assert d.decision_type is not None and d.decision_type.value == "data_model"
+    assert d.reversibility is not None and d.reversibility.value == "hard"
+    assert d.source is not None and d.source.value == "compaction"
+    assert d.files_affected == ["src/db.py", "migrations/"]
+    assert d.confidence.value == "high"
+    assert d.rationale  # from ## Decision section
 
 
-def test_reader_backwards_compat_old_format(store: Path):
-    """Reader can still parse old-format decisions (YAML frontmatter)."""
-    # The scaffold creates 001-initial-setup.md in old format
+def test_reader_scaffolded_first_decision(store: Path):
+    """The scaffolded 001 decision parses cleanly; optional fields are None."""
     decisions = _list_decisions(store)
-    initial = [d for d in decisions if d["num"] == 1]
+    initial = [d for d in decisions if d.num == 1]
     assert len(initial) == 1
     d = initial[0]
-    assert d["title"]  # Should parse title
-    # New fields default to None for old format
-    assert d["decision_type"] is None
-    assert d["reversibility"] is None
-    assert d["source"] is None
+    assert d.title
+    assert d.decision_type is None
+    assert d.reversibility is None
+    assert d.source is None
 
 
 def test_reader_roundtrip_new_format(store: Path):
@@ -552,15 +555,18 @@ def test_reader_roundtrip_new_format(store: Path):
         source="commit",
     )
     decisions = _list_decisions(store)
-    d = [d for d in decisions if d["title"] == "Switch to WebSocket"][0]
-    assert d["confidence"] == "high"
-    assert d["decision_type"] == "api_design"
-    assert d["reversibility"] == "moderate"
-    assert d["source"] == "commit"
-    assert "src/api/ws.py" in d["files_affected"]
-    # Content should contain the rejected alternatives
-    assert "### SSE" in d["content"]
-    assert "### Polling" in d["content"]
+    d = [d for d in decisions if d.title == "Switch to WebSocket"][0]
+    assert d.confidence.value == "high"
+    assert d.decision_type is not None
+    assert d.decision_type.value == "api_design"
+    assert d.reversibility is not None
+    assert d.reversibility.value == "moderate"
+    assert d.source is not None
+    assert d.source.value == "commit"
+    assert "src/api/ws.py" in d.files_affected
+    # Content should contain the rejected alternatives section
+    assert "### SSE" in d.content
+    assert "### Polling" in d.content
 
 
 # --- Question parser tests ---
@@ -589,10 +595,14 @@ def test_validate_stale_sync(tmp_path: Path):
 
 
 def test_validate_decision_gap(store: Path):
-    # Create decisions 001 (exists from scaffold), 002, then 004 (gap at 003)
+    # Create decisions 001 (exists from scaffold), 002, then 004 (gap at 003).
+    # The 004 filler is a minimal valid v2 decision so the reader can load it.
     append_decision(store, "Second")
-    # Manually create 004 to create a gap
-    (store / "decisions" / "004-skipped.md").write_text("# 004: Skipped\n")
+    _minimal_v2_decision(
+        store / "decisions" / "004-skipped.md",
+        num=4,
+        title="Skipped",
+    )
     warnings = validate_store(store)
     gap_warnings = [w for w in warnings if "gap" in w]
     assert len(gap_warnings) == 1
@@ -610,10 +620,26 @@ def test_validate_no_warnings_clean_store(tmp_path: Path):
     (store / "state.md").write_text("# State\n\n## Current\nShipping v1\n\n## History\n")
     (store / "stack.md").write_text("# Stack\n- Python 3.11\n")
     (store / "open-questions.md").write_text("# Open Questions\n")
-    (store / "decisions" / "001-init.md").write_text("# 001: Init\n")
+    _minimal_v2_decision(
+        store / "decisions" / "001-init.md",
+        num=1,
+        title="Init",
+    )
 
     warnings = validate_store(store)
     assert len(warnings) == 0
+
+
+def _minimal_v2_decision(path: Path, num: int, title: str) -> None:
+    """Write a minimal valid v2 decision file for tests that just need one file."""
+    path.write_text(
+        "---\n"
+        "date: 2026-04-17\n"
+        "confidence: medium\n"
+        "---\n\n"
+        f"# {num:03d} \u2014 {title}\n\n"
+        "## Decision\n\nPlaceholder rationale.\n"
+    )
 
 
 # --- CLI: note command ---

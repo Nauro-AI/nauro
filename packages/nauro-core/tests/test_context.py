@@ -1,19 +1,28 @@
 """Tests for nauro_core.context — L0/L1/L2 context assembly."""
 
+from datetime import date as _date
+
 from nauro_core.context import build_l0, build_l1, build_l2
+from nauro_core.decision_model import (
+    Decision,
+    DecisionConfidence,
+    DecisionStatus,
+)
 
 
 def _make_decision(num, title, status="active", date="2026-04-01", rationale="Reason."):
-    return {
-        "num": num,
-        "title": title,
-        "status": status,
-        "date": date,
-        "rationale": rationale,
-        "content": (
-            f"# {num:03d} \u2014 {title}\n\n**Status:** {status}\n\n## Decision\n\n{rationale}\n"
-        ),
-    }
+    status_enum = DecisionStatus(status)
+    content = f"# {num:03d} \u2014 {title}\n\nstatus: {status}\n\n## Decision\n\n{rationale}\n"
+    return Decision(
+        date=_date.fromisoformat(date),
+        confidence=DecisionConfidence.medium,
+        status=status_enum,
+        superseded_by="999-replacement" if status_enum is DecisionStatus.superseded else None,
+        num=num,
+        title=title,
+        rationale=rationale,
+        content=content,
+    )
 
 
 FULL_FILES = {

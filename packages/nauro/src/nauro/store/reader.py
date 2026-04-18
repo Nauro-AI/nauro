@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from nauro_core.context import build_l0, build_l1, build_l2
+from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import (
     parse_decision,
 )
@@ -34,26 +35,22 @@ def _read_file(path: Path) -> str:
     return ""
 
 
-def _list_decisions(store_path: Path) -> list[dict]:
-    """Parse all decision files, return list of dicts sorted by number.
-
-    Delegates parsing to nauro_core.parsing.parse_decision.
-    """
+def _list_decisions(store_path: Path) -> list[Decision]:
+    """Parse all decision files, return ``Decision`` objects sorted by number."""
     decisions_dir = store_path / DECISIONS_DIR
     if not decisions_dir.exists():
         return []
 
-    results = []
+    results: list[Decision] = []
     for f in sorted(decisions_dir.glob("*.md")):
         content = f.read_text()
-        d = parse_decision(content, f.name)
-        results.append(d)
+        results.append(parse_decision(content, f.name))
     return results
 
 
-def list_active_decisions(store_path: Path) -> list[dict]:
+def list_active_decisions(store_path: Path) -> list[Decision]:
     """Return only decisions with status=active."""
-    return [d for d in _list_decisions(store_path) if d.get("status", "active") == "active"]
+    return [d for d in _list_decisions(store_path) if d.status is DecisionStatus.active]
 
 
 def search_decisions(
@@ -95,24 +92,20 @@ def search_decisions(
     }
 
 
-def get_decision_history(store_path: Path, decision_id: str) -> list[dict]:
+def get_decision_history(store_path: Path, decision_id: str) -> list[Decision]:
     """Follow the supersedes/superseded_by chain for a decision.
 
     Returns a list of decisions in chronological order (oldest first).
     """
     all_decisions = _list_decisions(store_path)
-    decision_map = {}
+    decision_map: dict[str, Decision] = {}
+    decisions_dir = store_path / DECISIONS_DIR
     for d in all_decisions:
-        stem = f"{d['num']:03d}"
-        decision_map[stem] = d
-        # Also index by full stem (e.g. "019-use-cloudflare")
-        # Find the actual filename stem
-        decisions_dir = store_path / DECISIONS_DIR
-        for f in decisions_dir.glob(f"{d['num']:03d}-*.md"):
+        decision_map[f"{d.num:03d}"] = d
+        for f in decisions_dir.glob(f"{d.num:03d}-*.md"):
             decision_map[f.stem] = d
 
-    # Find the target decision
-    target = None
+    target: Decision | None = None
     for key, d in decision_map.items():
         if key == decision_id or key.startswith(decision_id):
             target = d
@@ -121,28 +114,24 @@ def get_decision_history(store_path: Path, decision_id: str) -> list[dict]:
     if not target:
         return []
 
-    # Walk backwards (supersedes chain)
-    chain = [target]
-    seen = {target["num"]}
+    chain: list[Decision] = [target]
+    seen = {target.num}
     current = target
-    while current.get("supersedes"):
-        prev_id = current["supersedes"]
-        prev = decision_map.get(prev_id)
-        if prev and prev["num"] not in seen:
+    while current.supersedes:
+        prev = decision_map.get(current.supersedes)
+        if prev and prev.num not in seen:
             chain.insert(0, prev)
-            seen.add(prev["num"])
+            seen.add(prev.num)
             current = prev
         else:
             break
 
-    # Walk forwards (superseded_by chain)
     current = target
-    while current.get("superseded_by"):
-        next_id = current["superseded_by"]
-        nxt = decision_map.get(next_id)
-        if nxt and nxt["num"] not in seen:
+    while current.superseded_by:
+        nxt = decision_map.get(current.superseded_by)
+        if nxt and nxt.num not in seen:
             chain.append(nxt)
-            seen.add(nxt["num"])
+            seen.add(nxt.num)
             current = nxt
         else:
             break

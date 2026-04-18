@@ -65,18 +65,15 @@ def _show_decisions(store_path: Path, show_all: bool = False) -> None:
     typer.echo("─" * 70)
 
     for d in all_decs:
-        status = d.get("status", "active")
+        status = str(d.status.value)
         if not show_all and status == "superseded":
             continue
 
-        version = d.get("version", 1)
-        title = d["title"]
-
         if status == "superseded":
-            superseded_by = d.get("superseded_by", "?")
-            typer.echo(f"{d['num']:03d}      [SUPERSEDED] v{version:<3} {title} → {superseded_by}")
+            superseded_by = d.superseded_by or "?"
+            typer.echo(f"{d.num:03d}      [SUPERSEDED] v{d.version:<3} {d.title} → {superseded_by}")
         else:
-            typer.echo(f"{d['num']:03d}      active       v{version:<3} {title}")
+            typer.echo(f"{d.num:03d}      active       v{d.version:<3} {d.title}")
 
 
 def _show_summary(store_path: Path, snapshots: list[dict]) -> None:

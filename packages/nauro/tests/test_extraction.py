@@ -1040,8 +1040,8 @@ class TestProcessCommit:
         assert len(user_decisions) == 1
         content = user_decisions[0].read_text()
         assert "Use Postgres" in content
-        assert "**Type:** architecture" in content
-        assert "**Reversibility:** hard" in content
+        assert "decision_type: architecture" in content
+        assert "reversibility: hard" in content
 
     @patch("nauro.extraction.pipeline.get_commit_info")
     @patch("nauro.extraction.pipeline.extract_from_commit")
@@ -1238,7 +1238,7 @@ class TestProcessCommit:
         assert "### SQLite" in content
         assert "No concurrent write support" in content
         assert "### MySQL" in content
-        assert "**Type:** data_model" in content
+        assert "decision_type: data_model" in content
 
 
 # ---------------------------------------------------------------------------

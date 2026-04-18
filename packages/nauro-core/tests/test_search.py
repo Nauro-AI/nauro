@@ -1,16 +1,26 @@
 """Tests for BM25 search (D93)."""
 
+from datetime import date
+
+from nauro_core.decision_model import (
+    Decision,
+    DecisionConfidence,
+    DecisionStatus,
+)
 from nauro_core.search import bm25_retrieve, bm25_search
 
 
-def _make_decision(num: int, title: str, rationale: str, status: str = "active") -> dict:
-    return {
-        "num": num,
-        "title": title,
-        "rationale": rationale,
-        "date": "2026-04-07",
-        "status": status,
-    }
+def _make_decision(num: int, title: str, rationale: str, status: str = "active") -> Decision:
+    status_enum = DecisionStatus(status)
+    return Decision(
+        date=date(2026, 4, 7),
+        confidence=DecisionConfidence.medium,
+        status=status_enum,
+        superseded_by="999-replacement" if status_enum is DecisionStatus.superseded else None,
+        num=num,
+        title=title,
+        rationale=rationale,
+    )
 
 
 DECISIONS = [
