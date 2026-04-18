@@ -164,11 +164,25 @@ def _import_adrs(adr_dir: Path, store_path: Path) -> dict[str, Any]:
         rejected = _extract_adr_rejected(content)
         confidence = _extract_adr_confidence(content)
 
+        # ADR source format has no structured reason-per-alternative; attach a
+        # placeholder so the v2 validator (which requires a reason on every
+        # rejected alternative of an active decision) accepts the import. The
+        # placeholder makes the data gap explicit rather than fabricating prose.
+        structured_rejected: list[dict] | None = None
+        if rejected:
+            structured_rejected = [
+                {
+                    "alternative": alt,
+                    "reason": "Rejected reason not available in source ADR.",
+                }
+                for alt in rejected
+            ]
+
         append_decision(
             store_path,
             title=title,
             rationale=rationale,
-            rejected=rejected if rejected else None,
+            rejected=structured_rejected,
             confidence=confidence,
         )
         counts["imported"] += 1

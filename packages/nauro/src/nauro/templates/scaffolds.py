@@ -5,10 +5,23 @@ These templates define the initial file contents created when a new
 Nauro project store is initialized at ~/.nauro/projects/<name>/.
 
 Bracketed [prompts] guide the user on what to fill in.
+
+Decision files (the first-decision scaffold) are emitted via
+``nauro_core.decision_model.format_decision_v2`` rather than a string
+template, so the one source of truth for the on-disk decision format stays
+in nauro-core.
 """
 
 from datetime import UTC, datetime
 from pathlib import Path
+
+from nauro_core.decision_model import (
+    Decision,
+    DecisionConfidence,
+    DecisionStatus,
+    RejectedAlternative,
+    format_decision_v2,
+)
 
 from nauro import constants as C  # noqa: N812
 
@@ -65,50 +78,38 @@ OPEN_QUESTIONS_MD = """\
 - ~~[Example resolved question]~~ → Resolved: [How it was resolved]
 """
 
-DECISION_TEMPLATE = """\
----
-date: {date}
-status: accepted
-confidence: {confidence}
----
+_FIRST_DECISION_RATIONALE = (
+    "Initial project setup — scaffold the Nauro project store and begin "
+    "tracking architectural decisions.\n\n"
+    "Explicit decision tracking from day one prevents context loss when "
+    "onboarding contributors or switching between projects."
+)
 
-# {number}: {title}
+_FIRST_DECISION_REJECTED = (
+    RejectedAlternative(
+        name="Ad-hoc notes in README",
+        reason="Hard to find, no structure — does not scale past a few entries.",
+    ),
+    RejectedAlternative(
+        name="No tracking until later",
+        reason="Context is already lost by the time you decide you need it.",
+    ),
+)
 
-## Context
-[What situation or problem prompted this decision]
 
-## Decision
-{title}
-
-{rationale_section}\
-{rejected_section}\
-"""
-
-FIRST_DECISION_MD = """\
----
-date: {date}
-status: accepted
-confidence: high
----
-
-# 001: Initial project setup
-
-## Context
-Project store initialized. This first decision documents the project
-bootstrapping choices so future decisions can reference it.
-
-## Decision
-Initial project setup — scaffold the Nauro project store and begin
-tracking architectural decisions.
-
-## Rationale
-Explicit decision tracking from day one prevents context loss when
-onboarding contributors or switching between projects.
-
-## Rejected Alternatives
-- Ad-hoc notes in README (hard to find, no structure)
-- No tracking until later (context already lost by then)
-"""
+def _build_first_decision(date_str: str) -> str:
+    """Emit the scaffolded first decision in v2 format."""
+    decision = Decision(
+        date=datetime.strptime(date_str, "%Y-%m-%d").date(),
+        version=1,
+        status=DecisionStatus.active,
+        confidence=DecisionConfidence.high,
+        num=1,
+        title="Initial project setup",
+        rationale=_FIRST_DECISION_RATIONALE,
+        rejected=list(_FIRST_DECISION_REJECTED),
+    )
+    return format_decision_v2(decision)
 
 
 def get_scaffolds() -> dict[str, str]:
@@ -146,9 +147,9 @@ def scaffold_project_store(project_name: str, store_path: Path) -> None:
     (store_path / C.STACK_MD).write_text(render_scaffold(STACK_MD))
     (store_path / C.OPEN_QUESTIONS_MD).write_text(render_scaffold(OPEN_QUESTIONS_MD))
 
-    # Scaffold the first decision as a teaching example
+    # Scaffold the first decision as a teaching example (v2 format via nauro-core).
     (store_path / C.DECISIONS_DIR / "001-initial-setup.md").write_text(
-        render_scaffold(FIRST_DECISION_MD, date=created_at)
+        _build_first_decision(created_at)
     )
 
 

@@ -1,5 +1,12 @@
 """Tests for nauro_core.validation — structural screening and BM25 similarity."""
 
+from datetime import date
+
+from nauro_core.decision_model import (
+    Decision,
+    DecisionConfidence,
+    DecisionStatus,
+)
 from nauro_core.validation import (
     check_bm25_similarity,
     compute_hash,
@@ -36,7 +43,18 @@ class TestComputeHash:
 
 class TestCheckBm25Similarity:
     def _decision(self, num, title, rationale="Some rationale text here.", status="active"):
-        return {"num": num, "title": title, "rationale": rationale, "status": status}
+        status_enum = DecisionStatus(status)
+        return Decision(
+            date=date(2026, 4, 7),
+            confidence=DecisionConfidence.medium,
+            status=status_enum,
+            superseded_by=(
+                "999-replacement" if status_enum is DecisionStatus.superseded else None
+            ),
+            num=num,
+            title=title,
+            rationale=rationale,
+        )
 
     def test_no_existing_decisions(self):
         proposal = {"title": "Use FastAPI", "rationale": "Async support is great."}

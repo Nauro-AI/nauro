@@ -7,11 +7,11 @@ Delegates pure validation logic to nauro_core; handles filesystem I/O locally.
 from __future__ import annotations
 
 import json
-import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from nauro_core import extract_decision_number
+from nauro_core.decision_model import Decision
+from nauro_core.parsing import parse_decision
 from nauro_core.validation import compute_hash
 from nauro_core.validation import screen_structural as _screen_structural_pure
 
@@ -36,37 +36,25 @@ def screen_structural(proposal: dict, project_path: Path) -> tuple[str, str | No
     return _screen_structural_pure(proposal, existing_hashes, recent_decisions)
 
 
-def _load_recent_decisions(project_path: Path) -> list[dict]:
+def _load_recent_decisions(project_path: Path) -> list[Decision]:
     """Load decisions from the last 24 hours for title dedup."""
     decisions_dir = project_path / DECISIONS_DIR
     if not decisions_dir.exists():
         return []
 
-    cutoff = datetime.now(UTC) - timedelta(hours=24)
-    recent = []
+    cutoff = (datetime.now(UTC) - timedelta(hours=24)).date()
+    recent: list[Decision] = []
 
     for f in sorted(decisions_dir.glob("*.md"), reverse=True):
-        content = f.read_text()
-        # Parse title
-        title = ""
-        for line in content.split("\n"):
-            if line.startswith("# "):
-                title = re.sub(r"^# \d+[:\s—]+\s*", "", line).strip()
-                break
-
-        # Parse date
-        date_match = re.search(r"\*\*Date:\*\*\s*(\S+)", content)
-        if date_match:
-            try:
-                decision_date = datetime.strptime(date_match.group(1), "%Y-%m-%d").replace(
-                    tzinfo=UTC
-                )
-                if decision_date >= cutoff:
-                    # Parse num from filename
-                    num = extract_decision_number(f.name) or 0
-                    recent.append({"title": title, "num": num, "date": date_match.group(1)})
-            except ValueError:
-                pass
+        try:
+            decision = parse_decision(f.read_text(), f.name)
+        except Exception:
+            # Skip files that don't round-trip through the v2 parser
+            # (e.g. a hand-edited file mid-migration). Title dedup degrades
+            # silently rather than blocking the caller.
+            continue
+        if decision.date >= cutoff:
+            recent.append(decision)
 
     return recent
 

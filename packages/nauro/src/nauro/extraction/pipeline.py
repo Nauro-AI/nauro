@@ -337,14 +337,31 @@ def route_extraction_to_store(
 
     for decision in result.get("decisions", []):
         rejected = decision.get("rejected")
-        rejected_alternatives = None
+        rejected_alternatives: list[dict] | None = None
         if rejected:
             rejected_alternatives = []
             for item in rejected:
                 if isinstance(item, dict):
-                    rejected_alternatives.append(item)
+                    # Skip entries with no usable reason — the v2 Decision
+                    # validator rejects reasonless rejections on active
+                    # decisions. Feeding them through would fail-loudly at
+                    # the write step anyway; dropping here prevents the
+                    # whole proposal from being lost when the LLM returns a
+                    # partially-structured payload.
+                    alt_name = item.get("alternative") or item.get("name")
+                    reason = (item.get("reason") or "").strip()
+                    if not alt_name or not reason:
+                        logger.debug(
+                            "dropping rejected alternative without name+reason: %r",
+                            item,
+                        )
+                        continue
+                    rejected_alternatives.append({"alternative": alt_name, "reason": reason})
                 elif isinstance(item, str):
-                    rejected_alternatives.append({"alternative": item, "reason": ""})
+                    # Bare strings from the extractor have no reason attached.
+                    # Drop them rather than fabricate one; the validator would
+                    # reject the whole proposal otherwise.
+                    logger.debug("dropping bare-string rejected alternative: %r", item)
 
         proposal = {
             "title": decision.get("title", "Untitled"),

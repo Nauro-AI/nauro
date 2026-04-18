@@ -1,9 +1,10 @@
 """Context assembly: build_l0, build_l1, build_l2 from pre-loaded data.
 
-Accepts pre-loaded file contents (dict[str, str]) and parsed decision lists
-(list[dict]) via function injection. Callers control which files to include,
-allowing surface-specific customization (e.g., local L0 can omit project.md
-for AGENTS.md compatibility) without nauro-core needing to know about I/O.
+Accepts pre-loaded file contents (``dict[str, str]``) and parsed decision
+lists (``list[Decision]``) via function injection. Callers control which
+files to include, allowing surface-specific customization (e.g., local L0
+can omit project.md for AGENTS.md compatibility) without nauro-core needing
+to know about I/O.
 """
 
 from nauro_core.constants import (
@@ -12,6 +13,7 @@ from nauro_core.constants import (
     L1_DECISIONS_LIMIT,
     L1_DECISIONS_SUMMARY_LIMIT,
 )
+from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import (
     decisions_summary_lines,
     extract_current_state,
@@ -21,9 +23,9 @@ from nauro_core.parsing import (
 from nauro_core.state import assemble_state_for_context
 
 
-def _active_decisions(decisions: list[dict]) -> list[dict]:
+def _active_decisions(decisions: list[Decision]) -> list[Decision]:
     """Filter to active decisions only."""
-    return [d for d in decisions if d.get("status", "active") == "active"]
+    return [d for d in decisions if d.status is DecisionStatus.active]
 
 
 def _resolve_state(files: dict[str, str]) -> str | None:
@@ -44,7 +46,7 @@ def _resolve_state(files: dict[str, str]) -> str | None:
     return None
 
 
-def build_l0(files: dict[str, str], decisions: list[dict]) -> str:
+def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
     """Build L0 payload (concise summary).
 
     Section order: project → state → stack summary → open questions (top 5) →
@@ -96,7 +98,7 @@ def build_l0(files: dict[str, str], decisions: list[dict]) -> str:
     return "\n\n".join(sections)
 
 
-def build_l1(files: dict[str, str], decisions: list[dict]) -> str:
+def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
     """Build L1 payload (working set).
 
     Canonical section order: project → state → stack → questions →
@@ -133,7 +135,7 @@ def build_l1(files: dict[str, str], decisions: list[dict]) -> str:
     active = _active_decisions(decisions)
     if active:
         recent_full = list(reversed(active))[:L1_DECISIONS_LIMIT]
-        parts = [d["content"].strip() for d in recent_full]
+        parts = [d.content.strip() for d in recent_full]
         sections.append("## Decisions\n\n" + "\n\n---\n\n".join(parts))
 
         beyond = list(reversed(active))[
@@ -146,7 +148,7 @@ def build_l1(files: dict[str, str], decisions: list[dict]) -> str:
     return "\n\n".join(sections)
 
 
-def build_l2(files: dict[str, str], decisions: list[dict]) -> str:
+def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
     """Build L2 payload (full content).
 
     Includes all decision content plus all files provided.
@@ -167,7 +169,7 @@ def build_l2(files: dict[str, str], decisions: list[dict]) -> str:
             sections.append(assembled.strip())
 
     if decisions:
-        parts = [d["content"].strip() for d in decisions]
+        parts = [d.content.strip() for d in decisions]
         sections.append("## All Decisions\n\n" + "\n\n---\n\n".join(parts))
 
     questions_content = files.get("questions.md", "")

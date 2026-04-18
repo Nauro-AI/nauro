@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from nauro.store.reader import search_decisions
-from nauro.store.writer import append_decision
+from nauro.store.writer import append_decision, supersede_decision
 from nauro.templates.scaffolds import scaffold_project_store
 
 
@@ -15,7 +15,7 @@ def store(tmp_path: Path) -> Path:
     store_path = tmp_path / "projects" / "testproj"
     scaffold_project_store("testproj", store_path)
 
-    append_decision(
+    auth0_path = append_decision(
         store_path,
         "Use Auth0 for authentication",
         rationale="Auth0 provides OAuth 2.1 support and handles JWT validation. "
@@ -34,12 +34,15 @@ def store(tmp_path: Path) -> Path:
         "Works well with Mangum for Lambda deployment.",
     )
 
-    # Mark Auth0 decision as superseded
-    for f in sorted((store_path / "decisions").glob("*.md")):
-        if "auth0" in f.name:
-            content = f.read_text()
-            f.write_text(content.replace("**Status:** active", "**Status:** superseded"))
-            break
+    # Mark Auth0 decision as superseded via the v2 writer (creates a replacement).
+    supersede_decision(
+        auth0_path.stem,
+        {
+            "title": "Use Cognito for authentication",
+            "rationale": "Switching managed identity providers for tighter AWS integration.",
+        },
+        store_path,
+    )
 
     return store_path
 

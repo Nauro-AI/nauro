@@ -20,7 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "nauro-core>=0.1.0",
+    "nauro-core>=0.2.0,<0.3",
     "typer>=0.9",
     "fastapi>=0.100",
     "uvicorn>=0.23",

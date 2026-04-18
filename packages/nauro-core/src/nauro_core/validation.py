@@ -52,13 +52,16 @@ TIER2_STOPWORDS = list(STOPWORDS_EN) + ["use"]
 _SCAFFOLD_SEED_TITLE = "Initial project setup"
 
 
-def _is_scaffold_seed(decision: dict) -> bool:
+def _is_scaffold_seed(decision) -> bool:
+    """Detect the scaffold-seeded first decision (``Decision`` or legacy dict)."""
+    if hasattr(decision, "num"):
+        return decision.num == 1 and decision.title == _SCAFFOLD_SEED_TITLE
     return decision.get("num") == 1 and decision.get("title") == _SCAFFOLD_SEED_TITLE
 
 
 def check_bm25_similarity(
     proposal: dict,
-    existing_decisions: list[dict],
+    existing_decisions: list,
     top_k: int = TIER2_TOP_K,
     stopwords: list[str] | None = None,
 ) -> tuple[str, list[dict]]:
@@ -69,9 +72,9 @@ def check_bm25_similarity(
     filters non-active decisions and empty-score matches.
 
     Args:
-        proposal: Dict with at least "title" and "rationale" keys.
-        existing_decisions: Parsed decision dicts. Each should carry "num",
-            "title", "rationale", and optionally "status".
+        proposal: Dict with at least "title" and "rationale" keys (extractor /
+            MCP input shape — stays a dict).
+        existing_decisions: Parsed ``Decision`` objects.
         top_k: Maximum number of related decisions to return.
         stopwords: Override for tokenizer stopwords. Defaults to
             ``TIER2_STOPWORDS``.
@@ -157,15 +160,22 @@ def screen_structural(
     if content_hash in existing_hashes:
         return ("reject", "Exact duplicate of existing decision (hash match).")
 
-    # Title dedup against recent decisions (caller provides 24h window)
+    # Title dedup against recent decisions (caller provides 24h window).
+    # Recent-decision entries may be either Decision objects or lightweight
+    # dicts (the mcp-server tier-1 path loads just title+num from S3 without
+    # full parsing). Handle both shapes.
     title_normalized = _normalize_title(title)
     for d in recent_decisions:
-        existing_title = d.get("title", "")
-        existing_normalized = _normalize_title(existing_title)
-        if existing_normalized == title_normalized:
+        if hasattr(d, "title"):
+            existing_title = d.title
+            existing_num = d.num
+        else:
+            existing_title = d.get("title", "")
+            existing_num = d.get("num", "?")
+        if _normalize_title(existing_title) == title_normalized:
             return (
                 "reject",
-                f"Decision with same title written recently: D{d.get('num', '?')}",
+                f"Decision with same title written recently: D{existing_num}",
             )
 
     return ("pass", None)

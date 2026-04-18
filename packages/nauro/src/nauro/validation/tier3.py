@@ -153,18 +153,14 @@ def evaluate_with_llm(
     """
     # Load full content of similar decisions
     all_decisions = _list_decisions(project_path)
-    decision_map = {}
-    for d in all_decisions:
-        decision_id = f"decision-{d['num']:03d}"
-        decision_map[decision_id] = d
+    decision_map = {f"decision-{d.num:03d}": d for d in all_decisions}
 
     similar_content = []
     for sim in similar_decisions:
         sim_d = decision_map.get(sim["id"])
         if sim_d:
             similar_content.append(
-                f"### {sim['id']}: {sim_d['title']} (similarity: {sim['similarity']})\n"
-                f"{sim_d['content']}"
+                f"### {sim['id']}: {sim_d.title} (similarity: {sim['similarity']})\n{sim_d.content}"
             )
 
     user_prompt = (
@@ -233,16 +229,13 @@ def check_conflicts_with_llm(
         {related_decisions, potential_conflicts, assessment}
     """
     all_decisions = _list_decisions(project_path)
-    decision_map = {}
-    for d in all_decisions:
-        decision_id = f"decision-{d['num']:03d}"
-        decision_map[decision_id] = d
+    decision_map = {f"decision-{d.num:03d}": d for d in all_decisions}
 
     similar_content = []
     for sim in similar_decisions:
         sim_d = decision_map.get(sim["id"])
         if sim_d:
-            similar_content.append(f"### {sim['id']}: {sim_d['title']}\n{sim_d['content']}")
+            similar_content.append(f"### {sim['id']}: {sim_d.title}\n{sim_d.content}")
 
     user_prompt = f"## Proposed Approach\n\n{proposed_approach}\n\n"
     if context:

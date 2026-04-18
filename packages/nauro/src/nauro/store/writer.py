@@ -1,6 +1,12 @@
 """Store writer — write operations for the project store.
 
 All writes to ~/.nauro/projects/<name>/ go through this module.
+
+As of nauro-core 0.2.0, decision files are emitted via the v2 pydantic
+model. ``append_decision`` / ``supersede_decision`` / ``update_decision``
+build a ``Decision`` and serialize with ``format_decision_v2``. String
+templating is gone; the one source of truth for the on-disk format is
+``nauro_core.decision_model``.
 """
 
 import json
@@ -10,7 +16,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from filelock import FileLock
-from nauro_core import extract_decision_number
+from nauro_core import extract_decision_number, parse_decision
+from nauro_core.decision_model import (
+    Decision,
+    DecisionConfidence,
+    DecisionSource,
+    DecisionStatus,
+    DecisionType,
+    RejectedAlternative,
+    Reversibility,
+    format_decision_v2,
+)
 from nauro_core.state import migrate_legacy_state, prepare_state_update
 
 from nauro.constants import (
@@ -21,6 +37,57 @@ from nauro.constants import (
     STATE_HISTORY_FILENAME,
     STATE_MD,
 )
+
+
+def _coerce_rejected(rejected: Sequence[dict | str] | str | None) -> list[RejectedAlternative]:
+    """Accept the legacy proposal-dict shapes and coerce to RejectedAlternative."""
+    if rejected is None:
+        return []
+    if isinstance(rejected, str):
+        # Defensive: MCP transport may send arrays as JSON strings.
+        try:
+            rejected = json.loads(rejected)
+        except (json.JSONDecodeError, ValueError):
+            return []
+    if not rejected:
+        return []
+    out: list[RejectedAlternative] = []
+    for item in rejected:
+        if isinstance(item, RejectedAlternative):
+            out.append(item)
+        elif isinstance(item, dict):
+            name = item.get("alternative") or item.get("name") or "Unknown"
+            reason = item.get("reason")
+            out.append(RejectedAlternative(name=str(name), reason=reason or None))
+        elif isinstance(item, str):
+            out.append(RejectedAlternative(name=item, reason=None))
+    return out
+
+
+def _coerce_files_affected(files_affected: list[str] | str | None) -> list[str]:
+    """Accept both list and JSON-string shapes from the MCP transport."""
+    if files_affected is None:
+        return []
+    if isinstance(files_affected, str):
+        try:
+            decoded = json.loads(files_affected)
+            if isinstance(decoded, list):
+                return [str(x) for x in decoded]
+            return [files_affected]
+        except (json.JSONDecodeError, ValueError):
+            return [files_affected]
+    return list(files_affected)
+
+
+def _optional_enum(raw, enum_cls):
+    if raw is None:
+        return None
+    if isinstance(raw, enum_cls):
+        return raw
+    s = str(raw).strip()
+    if not s:
+        return None
+    return enum_cls(s)
 
 
 def append_decision(
@@ -36,22 +103,8 @@ def append_decision(
 ) -> Path:
     """Create the next sequential decision file in decisions/.
 
-    Reads existing decision files to determine the next number.
-
-    Args:
-        store_path: Path to the project store directory.
-        title: Decision title.
-        rationale: Why this decision was made.
-        rejected: Rejected alternatives. Each item is either a string (legacy)
-            or a dict with "alternative" and "reason" keys.
-        confidence: "high", "medium", or "low".
-        decision_type: Classification (architecture, library_choice, pattern, etc.).
-        reversibility: "easy", "moderate", or "hard".
-        files_affected: List of key file paths affected by this decision.
-        source: Where this decision was extracted from (e.g., "commit", "compaction (session abc)").
-
-    Returns:
-        Path to the newly created decision file.
+    Builds a v2 ``Decision`` and serializes via ``format_decision_v2``.
+    Proposal-dict input shape is unchanged; only the on-disk format moves.
     """
     decisions_dir = store_path / DECISIONS_DIR
     decisions_dir.mkdir(parents=True, exist_ok=True)
@@ -71,63 +124,22 @@ def append_decision(
         filename = f"{next_num:03d}-{slug}.md"
         filepath = decisions_dir / filename
 
-        date = datetime.now(UTC).strftime("%Y-%m-%d")
-
-        # Build metadata lines
-        metadata_lines = [
-            f"**Date:** {date}",
-            "**Version:** 1",
-            "**Status:** active",
-            f"**Confidence:** {confidence}",
-        ]
-        if decision_type:
-            metadata_lines.append(f"**Type:** {decision_type}")
-        if reversibility:
-            metadata_lines.append(f"**Reversibility:** {reversibility}")
-        if source:
-            metadata_lines.append(f"**Source:** {source}")
-        # Defensive: MCP transport may pass arrays as JSON strings
-        if isinstance(files_affected, str):
-            try:
-                files_affected = json.loads(files_affected)
-            except (json.JSONDecodeError, ValueError):
-                files_affected = [files_affected]
-        if files_affected:
-            metadata_lines.append(f"**Files affected:** {', '.join(files_affected)}")
-
-        metadata_block = "\n".join(metadata_lines)
-
-        # Build decision section
-        decision_section = "## Decision\n\n"
-        if rationale:
-            decision_section += f"{rationale}\n"
-        else:
-            decision_section += f"{title}\n"
-
-        # Build rejected alternatives section
-        rejected_section = ""
-        if isinstance(rejected, str):
-            try:
-                rejected = json.loads(rejected)
-            except (json.JSONDecodeError, ValueError):
-                rejected = None
-        if rejected:
-            rejected_section = "\n## Rejected Alternatives\n"
-            for item in rejected:
-                if isinstance(item, dict):
-                    alt_name = item.get("alternative", "Unknown")
-                    alt_reason = item.get("reason", "")
-                    rejected_section += f"\n### {alt_name}\n{alt_reason}\n"
-                elif isinstance(item, str):
-                    rejected_section += f"\n### {item}\n"
-
-        content = (
-            f"# {next_num:03d} — {title}\n\n"
-            f"{metadata_block}\n\n"
-            f"{decision_section}{rejected_section}"
+        decision = Decision(
+            date=datetime.now(UTC).date(),
+            version=1,
+            status=DecisionStatus.active,
+            confidence=DecisionConfidence(confidence),
+            decision_type=_optional_enum(decision_type, DecisionType),
+            reversibility=_optional_enum(reversibility, Reversibility),
+            source=_optional_enum(source, DecisionSource),
+            files_affected=_coerce_files_affected(files_affected),
+            rejected=_coerce_rejected(rejected),
+            num=next_num,
+            title=title,
+            rationale=rationale or title,
         )
 
-        filepath.write_text(content)
+        filepath.write_text(format_decision_v2(decision))
 
     return filepath
 
@@ -139,27 +151,19 @@ def supersede_decision(
 ) -> str:
     """Supersede an old decision with a new one.
 
-    Marks the old decision as superseded and creates the new decision
-    with a Supersedes pointer.
-
-    Args:
-        old_decision_id: Stem of the old decision file (e.g. "019-use-cloudflare").
-        new_proposal: Dict with title, rationale, etc.
-        project_path: Path to the project store.
-
-    Returns:
-        The new decision's file stem (decision ID).
+    Writes the new decision first (via ``append_decision``), then parses the
+    old file with the v2 parser and re-emits it with
+    ``status=superseded`` + ``superseded_by=<new_id>``. The new decision is
+    updated to carry ``supersedes=<old_id>``.
     """
     decisions_dir = project_path / DECISIONS_DIR
 
-    # Find and update the old decision file
-    old_path = None
+    old_path: Path | None = None
     for f in decisions_dir.glob("*.md"):
         if f.stem == old_decision_id:
             old_path = f
             break
 
-    # Write the new decision first to get its ID
     new_path = append_decision(
         project_path,
         title=new_proposal.get("title", "Untitled"),
@@ -173,30 +177,21 @@ def supersede_decision(
     )
     new_decision_id = new_path.stem
 
-    # Add Supersedes pointer to the new decision
-    new_content = new_path.read_text()
-    new_content = new_content.replace(
-        "**Status:** active",
-        f"**Status:** active\n**Supersedes:** {old_decision_id}",
-    )
-    new_path.write_text(new_content)
+    # Rewrite the new decision with the Supersedes backref.
+    new_decision = parse_decision(new_path.read_text(), new_path.name)
+    new_decision_rewritten = new_decision.model_copy(update={"supersedes": old_decision_id})
+    new_path.write_text(format_decision_v2(new_decision_rewritten))
 
-    # Mark old decision as superseded
+    # Mark the old decision as superseded.
     if old_path and old_path.exists():
-        old_content = old_path.read_text()
-        if "**Status:** active" in old_content:
-            old_content = old_content.replace(
-                "**Status:** active",
-                f"**Status:** superseded\n**Superseded by:** {new_decision_id}",
-            )
-        elif "**Status:**" not in old_content:
-            # Old format without Status field — add it after Date line
-            old_content = re.sub(
-                r"(\*\*Date:\*\* \S+)",
-                rf"\1\n**Status:** superseded\n**Superseded by:** {new_decision_id}",
-                old_content,
-            )
-        old_path.write_text(old_content)
+        old_decision = parse_decision(old_path.read_text(), old_path.name)
+        old_rewritten = old_decision.model_copy(
+            update={
+                "status": DecisionStatus.superseded,
+                "superseded_by": new_decision_id,
+            }
+        )
+        old_path.write_text(format_decision_v2(old_rewritten))
 
     return new_decision_id
 
@@ -208,17 +203,14 @@ def update_decision(
 ) -> str:
     """Update an existing decision by incrementing its version and appending rationale.
 
-    Args:
-        decision_id: Stem of the decision file (e.g. "019-use-cloudflare").
-        additional_rationale: New rationale to append.
-        project_path: Path to the project store.
-
-    Returns:
-        The decision's file stem (same as input).
+    The update appends a dated paragraph to the decision's rationale rather
+    than adding a new ``## Update`` section; v2's parser collapses everything
+    under ``## Decision`` and we don't want content that round-trips
+    asymmetrically.
     """
     decisions_dir = project_path / DECISIONS_DIR
 
-    target_path = None
+    target_path: Path | None = None
     for f in decisions_dir.glob("*.md"):
         if f.stem == decision_id:
             target_path = f
@@ -227,42 +219,24 @@ def update_decision(
     if not target_path or not target_path.exists():
         return decision_id
 
-    content = target_path.read_text()
-
-    # Increment version
-    version_match = re.search(r"\*\*Version:\*\*\s*(\d+)", content)
-    if version_match:
-        old_version = int(version_match.group(1))
-        new_version = old_version + 1
-        content = content.replace(
-            f"**Version:** {old_version}",
-            f"**Version:** {new_version}",
-        )
-    else:
-        # Old format — add version field after Date
-        new_version = 2
-        content = re.sub(
-            r"(\*\*Date:\*\* \S+)",
-            rf"\1\n**Version:** {new_version}",
-            content,
-        )
-
-    # Append the update section
+    decision = parse_decision(target_path.read_text(), target_path.name)
     date = datetime.now(UTC).strftime("%Y-%m-%d")
-    update_section = f"\n## Update (v{new_version}) — {date}\n\n{additional_rationale}\n"
-    content += update_section
-
-    target_path.write_text(content)
+    appended_rationale = (
+        f"{decision.rationale.strip()}\n\n"
+        f"*Update (v{decision.version + 1}) — {date}:* {additional_rationale.strip()}"
+    )
+    updated = decision.model_copy(
+        update={
+            "version": decision.version + 1,
+            "rationale": appended_rationale,
+        }
+    )
+    target_path.write_text(format_decision_v2(updated))
     return decision_id
 
 
 def append_question(store_path: Path, question: str) -> None:
-    """Append a question to open-questions.md with timestamp.
-
-    Args:
-        store_path: Path to the project store directory.
-        question: The question text.
-    """
+    """Append a question to open-questions.md with timestamp."""
     oq_path = store_path / OPEN_QUESTIONS_MD
     timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     entry = f"- [{timestamp}] {question}\n"
@@ -272,7 +246,6 @@ def append_question(store_path: Path, question: str) -> None:
     else:
         content = "# Open Questions\n"
 
-    # Insert after the header line
     lines = content.split("\n")
     insert_idx = 1
     for i, line in enumerate(lines):
@@ -280,7 +253,6 @@ def append_question(store_path: Path, question: str) -> None:
             insert_idx = i + 1
             break
 
-    # Skip blank lines / comment lines right after header
     while insert_idx < len(lines) and (
         lines[insert_idx].strip() == "" or lines[insert_idx].startswith("<!--")
     ):
@@ -291,42 +263,25 @@ def append_question(store_path: Path, question: str) -> None:
 
 
 def update_state(store_path: Path, delta: str) -> None:
-    """Replace the current state with *delta*, archiving the previous state.
-
-    Writes state_current.md (replace semantics) and appends to
-    state_history.md (append-only archive). On first call after upgrade,
-    migrates legacy state.md to state_current.md without deleting state.md.
-
-    Args:
-        store_path: Path to the project store directory.
-        delta: The new current state description.
-    """
+    """Replace the current state with *delta*, archiving the previous state."""
     current_path = store_path / STATE_CURRENT_FILENAME
     history_path = store_path / STATE_HISTORY_FILENAME
     legacy_path = store_path / STATE_MD
 
-    # Read existing current state
     current_content: str | None = None
     if current_path.exists():
         current_content = current_path.read_text()
     elif legacy_path.exists():
-        # First write after upgrade: migrate legacy state.md
         legacy_content = legacy_path.read_text()
         migrated = migrate_legacy_state(legacy_content)
         current_path.write_text(migrated.current_content)
         current_content = migrated.current_content
-        # Do NOT delete state.md — leave as dead file for sync safety
     else:
-        # No state files at all — nothing to update
         return
 
-    # Prepare the update
     result = prepare_state_update(delta, current_content)
-
-    # Write state_current.md (full replace)
     current_path.write_text(result.current_content)
 
-    # Append to state_history.md if there's a history entry
     if result.history_entry is not None:
         existing_history = history_path.read_text() if history_path.exists() else ""
         history_path.write_text(existing_history + result.history_entry)

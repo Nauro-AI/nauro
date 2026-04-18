@@ -37,14 +37,14 @@ class TestDemoProjectStructure:
         """Decisions should match the format produced by writer.py."""
         decisions = _list_decisions(demo_store)
         for d in decisions:
-            assert d["title"], f"Decision {d['num']} has no title"
-            assert d["rationale"], f"Decision {d['num']} has no rationale"
-            assert d["status"] == "active"
-            assert d["confidence"] in ("high", "medium", "low")
+            assert d.title, f"Decision {d.num} has no title"
+            assert d.rationale, f"Decision {d.num} has no rationale"
+            assert d.status.value == "active"
+            assert d.confidence.value in ("high", "medium", "low")
 
     def test_decision_titles(self, demo_store):
         decisions = _list_decisions(demo_store)
-        titles = [d["title"] for d in decisions]
+        titles = [d.title for d in decisions]
         assert "Chose PostgreSQL over MongoDB for ACID compliance" in titles
         assert "REST API over GraphQL for simplicity" in titles
         assert "Monorepo with Turborepo over polyrepo" in titles

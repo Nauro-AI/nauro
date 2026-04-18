@@ -11,13 +11,14 @@ import re
 import bm25s
 import Stemmer
 
+from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import extract_relevance_snippet
 
 _stemmer = Stemmer.Stemmer("english")
 
 
 def bm25_search(
-    decisions: list[dict],
+    decisions: list[Decision],
     query: str,
     limit: int = 10,
 ) -> list[dict]:
@@ -29,7 +30,7 @@ def bm25_search(
     if not decisions or not query or not query.strip():
         return []
 
-    corpus = [f"{d['title']} {d['rationale']}" for d in decisions]
+    corpus = [f"{d.title} {d.rationale}" for d in decisions]
     corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer)
 
     retriever = bm25s.BM25()
@@ -48,19 +49,19 @@ def bm25_search(
             break
 
         d = decisions[idx]
-        snippet = extract_relevance_snippet(d["rationale"], query_words)
-        if not snippet and d["rationale"]:
-            first_sentence = re.split(r"[.!?]\s", d["rationale"], maxsplit=1)[0]
+        snippet = extract_relevance_snippet(d.rationale, query_words)
+        if not snippet and d.rationale:
+            first_sentence = re.split(r"[.!?]\s", d.rationale, maxsplit=1)[0]
             snippet = first_sentence[:100].strip()
             if len(first_sentence) > 100:
                 snippet += "..."
 
         ranked.append(
             {
-                "number": d["num"],
-                "title": d["title"],
-                "date": d.get("date"),
-                "status": d.get("status", "active"),
+                "number": d.num,
+                "title": d.title,
+                "date": d.date.isoformat() if d.date else None,
+                "status": str(d.status.value),
                 "relevance_snippet": snippet,
                 "score": round(score, 3),
             }
@@ -70,7 +71,7 @@ def bm25_search(
 
 
 def bm25_retrieve(
-    decisions: list[dict],
+    decisions: list[Decision],
     query_text: str,
     top_k: int = 5,
     stopwords: str | list[str] = "en",
@@ -85,11 +86,11 @@ def bm25_retrieve(
     pass an extended list to filter domain-generic tokens that bm25s's
     default English list doesn't cover.
     """
-    active = [d for d in decisions if d.get("status", "active") == "active"]
+    active = [d for d in decisions if d.status is DecisionStatus.active]
     if not active or not query_text or not query_text.strip():
         return []
 
-    corpus = [f"{d['title']} {d['rationale']}" for d in active]
+    corpus = [f"{d.title} {d.rationale}" for d in active]
     corpus_tokens = bm25s.tokenize(corpus, stopwords=stopwords, stemmer=_stemmer)
 
     retriever = bm25s.BM25()
@@ -109,10 +110,10 @@ def bm25_retrieve(
         d = active[idx]
         related.append(
             {
-                "number": d["num"],
-                "title": d["title"],
+                "number": d.num,
+                "title": d.title,
                 "similarity": round(score, 3),
-                "rationale_preview": d["rationale"][:200] if d["rationale"] else "",
+                "rationale_preview": d.rationale[:200] if d.rationale else "",
             }
         )
 
