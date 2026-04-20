@@ -16,6 +16,7 @@ import re
 import secrets
 import threading
 import webbrowser
+from collections.abc import Mapping
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -28,12 +29,59 @@ logger = logging.getLogger("nauro.auth")
 
 auth_app = typer.Typer(help="Manage authentication for remote sync.")
 
-AUTH0_DOMAIN = os.environ.get("NAURO_AUTH0_DOMAIN", "")
-AUTH0_CLIENT_ID = os.environ.get("NAURO_AUTH0_CLIENT_ID", "")
-AUTH0_AUDIENCE = os.environ.get("NAURO_AUTH0_AUDIENCE", "https://mcp.nauro.ai/mcp")
+# Public OAuth identifiers — safe to ship; not secrets. Do not strip.
+DEFAULT_AUTH0_DOMAIN = "dev-q1kuoa1a154u26iw.us.auth0.com"
+DEFAULT_AUTH0_CLIENT_ID = "FoVl59QaztJou17Xqr3e2QYOupAr1Ke3"
+DEFAULT_API_URL = "https://mcp.nauro.ai"
+DEFAULT_AUTH0_AUDIENCE = "https://mcp.nauro.ai/mcp"
 AUTH0_SCOPES = "openid profile offline_access read:context write:context"
 REDIRECT_PORT = 18457
 REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
+
+
+class PartialAuthConfigError(Exception):
+    """Raised when Auth0 domain/client_id are partially set at a single layer."""
+
+
+def _resolve_auth_config(
+    env: Mapping[str, str], config: Mapping[str, object]
+) -> tuple[str, str, str, str]:
+    """Resolve (domain, client_id, api_url, audience).
+
+    (domain, client_id) must come from the same source — mixing tenants produces
+    confusing Auth0 errors. A partial env pair (one of the two set without the
+    other) raises rather than falling through to config or defaults; a stale
+    shell export is usually the cause and silent fall-through would hide it.
+    api_url and audience resolve independently.
+    """
+    env_domain = env.get("NAURO_AUTH0_DOMAIN") or ""
+    env_client_id = env.get("NAURO_AUTH0_CLIENT_ID") or ""
+    config_domain = str(config.get("auth0_domain") or "")
+    config_client_id = str(config.get("auth0_client_id") or "")
+
+    if env_domain and env_client_id:
+        domain, client_id = env_domain, env_client_id
+    elif env_domain or env_client_id:
+        raise PartialAuthConfigError(
+            "Partial Auth0 config: NAURO_AUTH0_DOMAIN and NAURO_AUTH0_CLIENT_ID "
+            "must be set together."
+        )
+    elif config_domain and config_client_id:
+        domain, client_id = config_domain, config_client_id
+    elif config_domain or config_client_id:
+        raise PartialAuthConfigError(
+            "Partial Auth0 config: auth0_domain and auth0_client_id must be set together in config."
+        )
+    else:
+        domain, client_id = DEFAULT_AUTH0_DOMAIN, DEFAULT_AUTH0_CLIENT_ID
+
+    api_url = env.get("NAURO_API_URL") or str(config.get("api_url") or "") or DEFAULT_API_URL
+    audience = (
+        env.get("NAURO_AUTH0_AUDIENCE")
+        or str(config.get("auth0_audience") or "")
+        or DEFAULT_AUTH0_AUDIENCE
+    )
+    return domain, client_id, api_url, audience
 
 
 def _sanitize_sub(sub: str) -> str:
@@ -102,13 +150,11 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 @auth_app.command()
 def login() -> None:
     """Authenticate with Auth0 using Authorization Code + PKCE."""
-    if not AUTH0_DOMAIN or not AUTH0_CLIENT_ID:
-        typer.echo(
-            "Auth0 not configured. Set NAURO_AUTH0_DOMAIN and NAURO_AUTH0_CLIENT_ID "
-            "environment variables, or run: nauro config set auth0_domain <domain>",
-            err=True,
-        )
-        raise typer.Exit(1)
+    try:
+        domain, client_id, api_url, audience = _resolve_auth_config(os.environ, load_config())
+    except PartialAuthConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
 
     code_verifier, code_challenge = _generate_pkce()
     state = secrets.token_urlsafe(32)
@@ -126,17 +172,17 @@ def login() -> None:
     auth_params = urlencode(
         {
             "response_type": "code",
-            "client_id": AUTH0_CLIENT_ID,
+            "client_id": client_id,
             "redirect_uri": REDIRECT_URI,
             "scope": AUTH0_SCOPES,
-            "audience": AUTH0_AUDIENCE,
+            "audience": audience,
             "state": state,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
             "prompt": "login",
         }
     )
-    auth_url = f"https://{AUTH0_DOMAIN}/authorize?{auth_params}"
+    auth_url = f"https://{domain}/authorize?{auth_params}"
 
     typer.echo("\nOpening browser to authenticate...\n")
     typer.echo(f"If the browser doesn't open, visit:\n  {auth_url}\n")
@@ -163,10 +209,10 @@ def login() -> None:
     # Exchange code for tokens
     try:
         token_resp = httpx.post(
-            f"https://{AUTH0_DOMAIN}/oauth/token",
+            f"https://{domain}/oauth/token",
             json={
                 "grant_type": "authorization_code",
-                "client_id": AUTH0_CLIENT_ID,
+                "client_id": client_id,
                 "code": _CallbackHandler.auth_code,
                 "redirect_uri": REDIRECT_URI,
                 "code_verifier": code_verifier,
@@ -199,14 +245,6 @@ def login() -> None:
 
     # Fetch canonical user_id from server
     user_id = None
-    api_url = os.environ.get("NAURO_API_URL", "")
-    if not api_url:
-        typer.echo(
-            "API URL not configured. Set NAURO_API_URL environment variable.",
-            err=True,
-        )
-        raise typer.Exit(1)
-
     try:
         me_resp = httpx.get(
             f"{api_url}/me",
