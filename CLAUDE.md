@@ -48,7 +48,7 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 User config lives at `~/.nauro/config.json` (created by `nauro config set`):
 - `api_key` → sets `ANTHROPIC_API_KEY` env var
 - `sync.bucket_name`, `sync.region`, `sync.access_key_id`, `sync.secret_access_key` → S3 sync credentials
-- Auth0 domain, client ID, and API URL are configured via environment variables (`NAURO_AUTH0_DOMAIN`, `NAURO_AUTH0_CLIENT_ID`, `NAURO_API_URL`)
+- Auth0 domain, client ID, API URL, and audience ship as defaults in `cli/commands/auth.py`; env vars (`NAURO_AUTH0_*`, `NAURO_API_URL`) or config keys override (domain + client_id must be set as a pair)
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
 
 ## Stack

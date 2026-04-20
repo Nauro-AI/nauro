@@ -116,17 +116,9 @@ def _simulate_callback_error(error: str = "access_denied"):
     _CallbackHandler.error = error
 
 
-def _patch_auth_config(monkeypatch):
-    """Set auth constants that no longer have hardcoded defaults."""
-    monkeypatch.setattr("nauro.cli.commands.auth.AUTH0_DOMAIN", "test.auth0.com")
-    monkeypatch.setattr("nauro.cli.commands.auth.AUTH0_CLIENT_ID", "test-client-id")
-    monkeypatch.setattr("nauro.cli.commands.auth.AUTH0_AUDIENCE", "https://test.api/mcp")
-
-
 class TestAuthLogin:
     def test_login_success(self, tmp_path, monkeypatch):
         _patch_home(monkeypatch, tmp_path)
-        _patch_auth_config(monkeypatch)
         monkeypatch.setenv("NAURO_API_URL", "https://test.api.example.com")
 
         fake_token = _make_jwt({"sub": "auth0|user123"})
@@ -186,7 +178,6 @@ class TestAuthLogin:
 
     def test_login_callback_error(self, tmp_path, monkeypatch):
         _patch_home(monkeypatch, tmp_path)
-        _patch_auth_config(monkeypatch)
 
         def fake_server_init(self, addr, handler_class):
             pass
@@ -222,7 +213,6 @@ class TestAuthLogin:
 
     def test_login_timeout(self, tmp_path, monkeypatch):
         _patch_home(monkeypatch, tmp_path)
-        _patch_auth_config(monkeypatch)
 
         def fake_server_init(self, addr, handler_class):
             pass
@@ -260,7 +250,6 @@ class TestAuthLogin:
 
     def test_login_token_exchange_failure(self, tmp_path, monkeypatch):
         _patch_home(monkeypatch, tmp_path)
-        _patch_auth_config(monkeypatch)
 
         def fake_post(url, **kwargs):
             raise httpx.HTTPStatusError(
@@ -397,3 +386,121 @@ class TestAuthLogout:
         config_path = tmp_path / "nauro_home" / "config.json"
         mode = os.stat(config_path).st_mode & 0o777
         assert mode == 0o600
+
+
+# --- shipped defaults + resolver (regression lock-in for the empty-defaults bug) ---
+
+
+def test_defaults_are_non_empty():
+    """Trip-wire: a future audit pass must not strip these back to empty strings."""
+    from nauro.cli.commands.auth import (
+        DEFAULT_API_URL,
+        DEFAULT_AUTH0_AUDIENCE,
+        DEFAULT_AUTH0_CLIENT_ID,
+        DEFAULT_AUTH0_DOMAIN,
+    )
+
+    assert DEFAULT_AUTH0_DOMAIN
+    assert DEFAULT_AUTH0_CLIENT_ID
+    assert DEFAULT_API_URL
+    assert DEFAULT_AUTH0_AUDIENCE
+
+
+class TestResolveAuthConfig:
+    """Pure-function resolver tests — no monkeypatching, no tmp_path."""
+
+    def _call(self, env=None, config=None):
+        from nauro.cli.commands.auth import _resolve_auth_config
+
+        return _resolve_auth_config(env or {}, config or {})
+
+    def _defaults(self):
+        from nauro.cli.commands.auth import (
+            DEFAULT_API_URL,
+            DEFAULT_AUTH0_AUDIENCE,
+            DEFAULT_AUTH0_CLIENT_ID,
+            DEFAULT_AUTH0_DOMAIN,
+        )
+
+        return (
+            DEFAULT_AUTH0_DOMAIN,
+            DEFAULT_AUTH0_CLIENT_ID,
+            DEFAULT_API_URL,
+            DEFAULT_AUTH0_AUDIENCE,
+        )
+
+    def test_empty_env_empty_config_returns_defaults(self):
+        domain, client_id, api_url, audience = self._call()
+        assert (domain, client_id, api_url, audience) == self._defaults()
+
+    def test_config_complete_pair_returns_config(self):
+        cfg = {"auth0_domain": "cfg.auth0.com", "auth0_client_id": "cfg-id"}
+        domain, client_id, _, _ = self._call(config=cfg)
+        assert domain == "cfg.auth0.com"
+        assert client_id == "cfg-id"
+
+    def test_config_only_domain_raises(self):
+        from nauro.cli.commands.auth import PartialAuthConfigError
+
+        with pytest.raises(PartialAuthConfigError):
+            self._call(config={"auth0_domain": "cfg.auth0.com"})
+
+    def test_config_only_client_id_raises(self):
+        from nauro.cli.commands.auth import PartialAuthConfigError
+
+        with pytest.raises(PartialAuthConfigError):
+            self._call(config={"auth0_client_id": "cfg-id"})
+
+    def test_env_complete_pair_overrides_config(self):
+        env = {
+            "NAURO_AUTH0_DOMAIN": "env.auth0.com",
+            "NAURO_AUTH0_CLIENT_ID": "env-id",
+        }
+        cfg = {"auth0_domain": "cfg.auth0.com", "auth0_client_id": "cfg-id"}
+        domain, client_id, _, _ = self._call(env=env, config=cfg)
+        assert domain == "env.auth0.com"
+        assert client_id == "env-id"
+
+    def test_env_only_domain_raises(self):
+        from nauro.cli.commands.auth import PartialAuthConfigError
+
+        with pytest.raises(PartialAuthConfigError):
+            self._call(env={"NAURO_AUTH0_DOMAIN": "env.auth0.com"})
+
+    def test_env_only_client_id_raises(self):
+        from nauro.cli.commands.auth import PartialAuthConfigError
+
+        with pytest.raises(PartialAuthConfigError):
+            self._call(env={"NAURO_AUTH0_CLIENT_ID": "env-id"})
+
+    def test_api_url_env_overrides_config_and_default(self):
+        _, _, api_url, _ = self._call(
+            env={"NAURO_API_URL": "https://env.example/"},
+            config={"api_url": "https://cfg.example/"},
+        )
+        assert api_url == "https://env.example/"
+
+    def test_api_url_config_overrides_default(self):
+        _, _, api_url, _ = self._call(config={"api_url": "https://cfg.example/"})
+        assert api_url == "https://cfg.example/"
+
+    def test_api_url_falls_back_to_default(self):
+        _, _, api_url, _ = self._call()
+        _, _, expected, _ = self._defaults()
+        assert api_url == expected
+
+    def test_audience_env_overrides_config_and_default(self):
+        _, _, _, audience = self._call(
+            env={"NAURO_AUTH0_AUDIENCE": "https://env.aud/mcp"},
+            config={"auth0_audience": "https://cfg.aud/mcp"},
+        )
+        assert audience == "https://env.aud/mcp"
+
+    def test_audience_config_overrides_default(self):
+        _, _, _, audience = self._call(config={"auth0_audience": "https://cfg.aud/mcp"})
+        assert audience == "https://cfg.aud/mcp"
+
+    def test_audience_falls_back_to_default(self):
+        _, _, _, audience = self._call()
+        _, _, _, expected = self._defaults()
+        assert audience == expected
