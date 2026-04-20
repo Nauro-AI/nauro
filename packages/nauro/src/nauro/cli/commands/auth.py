@@ -54,21 +54,21 @@ def _resolve_auth_config(
     shell export is usually the cause and silent fall-through would hide it.
     api_url and audience resolve independently.
     """
-    env_d = env.get("NAURO_AUTH0_DOMAIN") or ""
-    env_c = env.get("NAURO_AUTH0_CLIENT_ID") or ""
-    cfg_d = str(config.get("auth0_domain") or "")
-    cfg_c = str(config.get("auth0_client_id") or "")
+    env_domain = env.get("NAURO_AUTH0_DOMAIN") or ""
+    env_client_id = env.get("NAURO_AUTH0_CLIENT_ID") or ""
+    config_domain = str(config.get("auth0_domain") or "")
+    config_client_id = str(config.get("auth0_client_id") or "")
 
-    if env_d and env_c:
-        domain, client_id = env_d, env_c
-    elif env_d or env_c:
+    if env_domain and env_client_id:
+        domain, client_id = env_domain, env_client_id
+    elif env_domain or env_client_id:
         raise PartialAuthConfigError(
             "Partial Auth0 config: NAURO_AUTH0_DOMAIN and NAURO_AUTH0_CLIENT_ID "
             "must be set together."
         )
-    elif cfg_d and cfg_c:
-        domain, client_id = cfg_d, cfg_c
-    elif cfg_d or cfg_c:
+    elif config_domain and config_client_id:
+        domain, client_id = config_domain, config_client_id
+    elif config_domain or config_client_id:
         raise PartialAuthConfigError(
             "Partial Auth0 config: auth0_domain and auth0_client_id must be set together in config."
         )
