@@ -3,7 +3,7 @@
 Re-export facade — public API symbols from all modules.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from nauro_core.constants import (
     DECISION_HASHES_FILE as DECISION_HASHES_FILE,
@@ -54,6 +54,9 @@ from nauro_core.constants import (
     MCP_INSTRUCTIONS as MCP_INSTRUCTIONS,
 )
 from nauro_core.constants import (
+    MCP_INSTRUCTIONS_STATIC as MCP_INSTRUCTIONS_STATIC,
+)
+from nauro_core.constants import (
     MIN_RATIONALE_LENGTH as MIN_RATIONALE_LENGTH,
 )
 from nauro_core.constants import (
@@ -97,6 +100,15 @@ from nauro_core.context import (
 )
 from nauro_core.context import (
     build_l2 as build_l2,
+)
+from nauro_core.instructions import (
+    MAX_INLINE_PROJECTS as MAX_INLINE_PROJECTS,
+)
+from nauro_core.instructions import (
+    WELCOME_NO_PROJECT as WELCOME_NO_PROJECT,
+)
+from nauro_core.instructions import (
+    build_remote_instructions as build_remote_instructions,
 )
 from nauro_core.decision_model import (
     Decision as Decision,
