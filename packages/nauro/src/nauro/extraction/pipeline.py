@@ -25,7 +25,34 @@ from nauro.extraction.prompts import EXTRACTION_TOOL  # noqa: F401
 from nauro.extraction.providers import ExtractionProvider
 from nauro.extraction.types import ExtractionOutcome, ExtractionResult, ExtractionSkipped
 from nauro.store import reader, registry, writer
+from nauro.store.repo_config import (
+    RepoConfigSchemaError,
+    find_repo_config,
+    load_repo_config,
+)
 from nauro.templates.agents_md import regenerate_agents_md_for_project
+
+
+def _resolve_project_key_for_repo(repo_path: Path) -> str | None:
+    """Return project_id from repo config, then v2 registry, then v1 name.
+
+    The same priority order used by the CLI: id-keyed identification wins
+    over name-keyed legacy resolution so AGENTS.md regeneration and S3
+    push agree about which project is being targeted.
+    """
+    config_path = find_repo_config(start=repo_path)
+    if config_path is not None:
+        try:
+            cfg = load_repo_config(config_path.parent.parent)
+            return cfg["id"]
+        except RepoConfigSchemaError:
+            pass
+    v2_match = registry.resolve_v2_from_path(repo_path)
+    if v2_match is not None:
+        pid, _entry = v2_match
+        return pid
+    return registry.resolve_project(repo_path)
+
 
 logger = logging.getLogger(__name__)
 
@@ -280,16 +307,17 @@ def process_commit(
         trigger=f"extract: {commit_message[:80]}",
     )
 
-    # Regenerate AGENTS.md in all associated repos so context stays current
-    project_name = registry.resolve_project(Path(repo_path))
-    if project_name:
-        regenerate_agents_md_for_project(project_name, store_path)
+    # Regenerate AGENTS.md in all associated repos so context stays current.
+    # Resolve via repo config first (v2 id-keyed), fall back to v1 by name.
+    project_key = _resolve_project_key_for_repo(Path(repo_path))
+    if project_key:
+        regenerate_agents_md_for_project(project_key, store_path)
 
         # Push to S3 after extraction (event-driven sync)
         try:
             from nauro.sync.hooks import push_after_extraction
 
-            push_after_extraction(project_name, store_path)
+            push_after_extraction(project_key, store_path)
         except Exception:
             # Log but never block the hook
             _append_extraction_log(

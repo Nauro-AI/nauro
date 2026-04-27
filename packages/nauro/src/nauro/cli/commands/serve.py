@@ -4,6 +4,9 @@ Supports two transports:
   --stdio   Stdio transport (default for Claude Code integration).
             Claude Code spawns this process and communicates over stdin/stdout.
   (default) HTTP transport on localhost:7432. For advanced use or other tools.
+
+The server resolves project context from the cwd's ``.nauro/config.json``;
+there is no longer a ``--project`` flag — one source of truth.
 """
 
 import multiprocessing
@@ -30,11 +33,6 @@ def serve(
         False,
         "--stdio",
         help="Run over stdio (for Claude Code MCP integration).",
-    ),
-    project: str | None = typer.Option(
-        None,
-        "--project",
-        help="Target project name. Overrides cwd resolution.",
     ),
 ) -> None:
     """Start the Nauro MCP server."""

@@ -85,22 +85,38 @@ def generate_agents_md(
     return "\n".join(parts)
 
 
-def regenerate_agents_md_for_project(project_name: str, store_path: Path) -> list[Path]:
+def regenerate_agents_md_for_project(project_key: str, store_path: Path) -> list[Path]:
     """Regenerate AGENTS.md in all repos associated with a project.
 
     Args:
-        project_name: Name of the Nauro project.
+        project_key: Either a v2 project_id (ULID) or a v1 project name.
+            v2 takes priority — the v1 name lookup is the legacy fallback.
         store_path: Path to the project store directory.
 
     Returns:
         List of repo paths where AGENTS.md was updated.
     """
     from nauro.mcp.payloads import build_l0_payload
-    from nauro.store.registry import load_registry
+    from nauro.store.registry import (
+        RegistrySchemaError,
+        get_project_v2,
+        load_registry,
+    )
 
-    registry = load_registry()
-    entry = registry["projects"].get(project_name, {})
-    repo_paths = entry.get("repo_paths", [])
+    repo_paths: list[str] = []
+    display_name = project_key
+
+    try:
+        v2_entry = get_project_v2(project_key)
+    except RegistrySchemaError:
+        v2_entry = None
+    if v2_entry is not None:
+        repo_paths = list(v2_entry.get("repo_paths", []))
+        display_name = v2_entry.get("name", project_key)
+    else:
+        registry = load_registry()
+        entry = registry["projects"].get(project_key, {})
+        repo_paths = list(entry.get("repo_paths", []))
 
     l0_payload = build_l0_payload(store_path)
     updated = []
@@ -111,7 +127,7 @@ def regenerate_agents_md_for_project(project_name: str, store_path: Path) -> lis
             continue
         agents_md_path = repo_path / AGENTS_MD
         manual = parse_manual_section(agents_md_path)
-        content = generate_agents_md(project_name, l0_payload, manual_section=manual)
+        content = generate_agents_md(display_name, l0_payload, manual_section=manual)
         agents_md_path.write_text(content)
         updated.append(repo_path)
 

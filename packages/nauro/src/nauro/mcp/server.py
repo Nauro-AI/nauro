@@ -34,7 +34,18 @@ from nauro.mcp.tools import (
     tool_update_state,
 )
 from nauro.store.reader import read_project_context
-from nauro.store.registry import get_store_path, resolve_project
+from nauro.store.registry import (
+    find_projects_by_name_v2,
+    get_store_path,
+    get_store_path_v2,
+    resolve_project,
+    resolve_v2_from_path,
+)
+from nauro.store.repo_config import (
+    RepoConfigSchemaError,
+    find_repo_config,
+    load_repo_config,
+)
 
 logger = logging.getLogger("nauro.mcp")
 
@@ -96,17 +107,84 @@ class HookRequest(BaseModel):
 # --- Helpers ---
 
 
+def _resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
+    """Walk up from ``start`` (or cwd) looking for ``.nauro/config.json``."""
+    config_path = find_repo_config(start=start)
+    if config_path is None:
+        return None
+    repo_root = config_path.parent.parent
+    try:
+        cfg = load_repo_config(repo_root)
+    except RepoConfigSchemaError:
+        return None
+    return cfg["id"], get_store_path_v2(cfg["id"])
+
+
 def _resolve_store(project: str | None, cwd: str | None) -> Path:
-    """Resolve project name to store path, raising 404 on failure."""
-    name = project
-    if not name and cwd:
-        name = resolve_project(Path(cwd))
-    if not name:
-        raise HTTPException(status_code=404, detail="Could not resolve project.")
-    store_path = get_store_path(name)
-    if not store_path.exists():
-        raise HTTPException(status_code=404, detail=f"Project store not found: {name}")
-    return store_path
+    """Resolve project name to store path, raising 404 on failure.
+
+    Same priority order as the stdio server's ``_resolve_store``: repo
+    config first, then explicit project name (v2 → v1), then cwd-based
+    legacy fallback.
+    """
+    cwd_path = Path(cwd) if cwd else None
+    via_config = _resolve_via_repo_config(cwd_path)
+
+    if project and via_config is not None:
+        config_id, store_path = via_config
+        if project != config_id:
+            matches = find_projects_by_name_v2(project)
+            if not any(pid == config_id for pid, _ in matches):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Supplied project_id {project!r} does not match the "
+                        f"repo config id {config_id!r}."
+                    ),
+                )
+        if not store_path.exists():
+            raise HTTPException(status_code=404, detail=f"Project store not found: {config_id}")
+        return store_path
+
+    if via_config is not None:
+        _pid, store_path = via_config
+        if not store_path.exists():
+            raise HTTPException(status_code=404, detail=f"Project store not found at {store_path}")
+        return store_path
+
+    if project:
+        matches = find_projects_by_name_v2(project)
+        if len(matches) == 1:
+            pid, _entry = matches[0]
+            store_path = get_store_path_v2(pid)
+            if not store_path.exists():
+                raise HTTPException(status_code=404, detail=f"Project store not found: {project}")
+            return store_path
+        if len(matches) > 1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Multiple v2 projects named {project!r}; pass project_id instead.",
+            )
+        # v1 legacy
+        store_path = get_store_path(project)
+        if not store_path.exists():
+            raise HTTPException(status_code=404, detail=f"Project store not found: {project}")
+        return store_path
+
+    if cwd:
+        legacy_name = resolve_project(Path(cwd))
+        if legacy_name:
+            store_path = get_store_path(legacy_name)
+            if store_path.exists():
+                return store_path
+        v2_match = resolve_v2_from_path(Path(cwd))
+        if v2_match is not None:
+            pid, _entry = v2_match
+            store_path = get_store_path_v2(pid)
+            if store_path.exists():
+                return store_path
+
+    raise HTTPException(status_code=404, detail="Could not resolve project.")
 
 
 def _resolve_store_safe(cwd: str | None) -> Path | None:
@@ -114,13 +192,40 @@ def _resolve_store_safe(cwd: str | None) -> Path | None:
     if not cwd:
         return None
     try:
+        via_config = _resolve_via_repo_config(Path(cwd))
+        if via_config is not None:
+            _pid, store_path = via_config
+            return store_path if store_path.exists() else None
+
+        v2_match = resolve_v2_from_path(Path(cwd))
+        if v2_match is not None:
+            pid, _entry = v2_match
+            store_path = get_store_path_v2(pid)
+            return store_path if store_path.exists() else None
+
         name = resolve_project(Path(cwd))
         if not name:
             return None
         store_path = get_store_path(name)
-        if not store_path.exists():
-            return None
-        return store_path
+        return store_path if store_path.exists() else None
+    except Exception:
+        return None
+
+
+def _resolve_project_key_safe(cwd: str | None) -> str | None:
+    """Return the project_id (or legacy name) for the cwd, or None."""
+    if not cwd:
+        return None
+    try:
+        via_config = _resolve_via_repo_config(Path(cwd))
+        if via_config is not None:
+            pid, _store = via_config
+            return pid
+        v2_match = resolve_v2_from_path(Path(cwd))
+        if v2_match is not None:
+            pid, _entry = v2_match
+            return pid
+        return resolve_project(Path(cwd))
     except Exception:
         return None
 
@@ -258,12 +363,11 @@ async def hook_session_start(req: HookRequest) -> dict:
 
         # Pull latest from S3 before reading context (non-blocking on failure)
         try:
-            if req.cwd:
-                project_name = resolve_project(Path(req.cwd))
-                if project_name:
-                    from nauro.sync.hooks import pull_before_session
+            project_key = _resolve_project_key_safe(req.cwd)
+            if project_key:
+                from nauro.sync.hooks import pull_before_session
 
-                    await asyncio.to_thread(pull_before_session, project_name, store_path)
+                await asyncio.to_thread(pull_before_session, project_key, store_path)
         except Exception:
             logger.warning("session-start: S3 pull failed, continuing with local state")
 
@@ -349,12 +453,11 @@ def _run_post_compact_extraction(
 
     # Push to S3 after extraction (event-driven sync)
     try:
-        if cwd:
-            project_name = resolve_project(Path(cwd))
-            if project_name:
-                from nauro.sync.hooks import push_after_extraction
+        project_key = _resolve_project_key_safe(cwd)
+        if project_key:
+            from nauro.sync.hooks import push_after_extraction
 
-                push_after_extraction(project_name, store_path)
+            push_after_extraction(project_key, store_path)
     except Exception:
         logger.warning("post-compact: S3 push failed, decisions saved locally")
 

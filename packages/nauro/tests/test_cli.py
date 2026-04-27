@@ -20,7 +20,9 @@ def test_app_shows_help():
 
 
 def test_init_command(tmp_path: Path, monkeypatch):
-    """nauro init should create a project store."""
+    """nauro init should create an id-keyed project store."""
+    from nauro.store.registry import find_projects_by_name_v2
+
     monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
@@ -28,8 +30,12 @@ def test_init_command(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0
     assert "Initialized project" in result.output
     assert "Next:" in result.output
-    assert (tmp_path / "projects" / "testproj" / "project.md").exists()
-    assert (tmp_path / "projects" / "testproj" / "decisions" / "001-initial-setup.md").exists()
+
+    matches = find_projects_by_name_v2("testproj")
+    assert len(matches) == 1
+    pid, _entry = matches[0]
+    assert (tmp_path / "projects" / pid / "project.md").exists()
+    assert (tmp_path / "projects" / pid / "decisions" / "001-initial-setup.md").exists()
 
 
 def test_note_command(tmp_path: Path, monkeypatch):

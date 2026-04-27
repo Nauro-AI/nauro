@@ -41,6 +41,7 @@ def main(
 def _register_commands() -> None:
     """Import and register all CLI subcommands."""
     from nauro.cli.commands import (  # noqa: F401
+        attach,
         auth,
         config,
         diff,
@@ -48,6 +49,7 @@ def _register_commands() -> None:
         hook,
         import_cmd,
         init,
+        link,
         log,
         note,
         serve,
@@ -58,6 +60,8 @@ def _register_commands() -> None:
     )
 
     app.command(name="init")(init.init)
+    app.command(name="attach")(attach.attach)
+    app.command(name="link")(link.link)
     app.command(name="note")(note.note)
     app.command(name="sync")(sync.sync)
     app.command(name="log")(log.log)

@@ -6,13 +6,29 @@ from pathlib import Path
 import typer
 
 from nauro.cli.utils import resolve_target_project
-from nauro.store.registry import load_registry
+from nauro.store.registry import (
+    RegistrySchemaError,
+    get_project_v2,
+    load_registry,
+)
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
 from nauro.store.writer import update_state
 from nauro.templates.agents_md import regenerate_agents_md_for_project
 
 logger = logging.getLogger("nauro.sync")
+
+
+def _registry_repo_paths(project_key: str) -> list[str]:
+    """Return repo paths for ``project_key`` from v2 (preferred) or v1 registry."""
+    try:
+        v2_entry = get_project_v2(project_key)
+    except RegistrySchemaError:
+        v2_entry = None
+    if v2_entry is not None:
+        return list(v2_entry.get("repo_paths", []))
+    registry = load_registry()
+    return list(registry["projects"].get(project_key, {}).get("repo_paths", []))
 
 
 def sync(
@@ -39,18 +55,18 @@ def sync(
         return
 
     project_name, store_path = resolve_target_project(project)
+    # store_path.name is the project_id under v2 (id-keyed) or name under v1.
+    project_key = store_path.name
     trigger = message or "manual sync"
 
     # Pull from S3 first if cloud sync is configured (git-style pull-then-push)
-    _pull_from_cloud(project_name, store_path)
+    _pull_from_cloud(project_key, store_path)
 
     version = capture_snapshot(store_path, trigger=trigger)
     update_state(store_path, f"Snapshot v{version:03d}: {trigger}")
 
     # Warn about missing repo paths before regenerating
-    registry = load_registry()
-    entry = registry["projects"].get(project_name, {})
-    for repo_str in entry.get("repo_paths", []):
+    for repo_str in _registry_repo_paths(project_key):
         if not Path(repo_str).is_dir():
             typer.echo(
                 f"  Warning: repo path does not exist, skipping AGENTS.md: {repo_str}\n"
@@ -59,14 +75,14 @@ def sync(
             )
 
     # Regenerate AGENTS.md in each associated repo
-    updated_repos = regenerate_agents_md_for_project(project_name, store_path)
+    updated_repos = regenerate_agents_md_for_project(project_key, store_path)
 
     typer.echo(f"Synced {project_name} — snapshot v{version:03d}")
     for repo_path in updated_repos:
         typer.echo(f"  Updated AGENTS.md: {repo_path}")
 
     # Push to S3 if sync is configured
-    _push_to_cloud(project_name, store_path)
+    _push_to_cloud(project_key, store_path)
 
     # Run store validation and print warnings to stderr
     warnings = validate_store(store_path)
@@ -309,6 +325,7 @@ def _show_status(project_flag: str | None) -> None:
         project_name, store_path = resolve_target_project(project_flag)
     except SystemExit:
         return
+    project_key = store_path.name
 
     from nauro.sync.state import load_state
 
@@ -346,7 +363,7 @@ def _show_status(project_flag: str | None) -> None:
             typer.echo("  Remote status unavailable: run 'nauro auth login' first", err=True)
             return 0
         user_key = config.user_id or config.sanitized_sub
-        prefix = s3_prefix(user_key, project_name)
+        prefix = s3_prefix(user_key, project_key)
         remote_files = list_remote(client, config.bucket_name, prefix)
 
         pending_remote = []
