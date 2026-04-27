@@ -39,10 +39,27 @@ from nauro.mcp.tools import (
     tool_update_state,
 )
 from nauro.onboarding import WELCOME_NO_PROJECT
-from nauro.store.registry import get_store_path, resolve_project
+from nauro.store.registry import (
+    find_projects_by_name_v2,
+    get_store_path,
+    get_store_path_v2,
+    resolve_project,
+    resolve_v2_from_path,
+)
+from nauro.store.repo_config import (
+    RepoConfigSchemaError,
+    find_repo_config,
+    load_repo_config,
+)
 
 logger = logging.getLogger("nauro.stdio")
 mcp = FastMCP("nauro", instructions=MCP_INSTRUCTIONS, log_level="WARNING")
+
+
+NOT_A_NAURO_REPO = (
+    "Not a nauro repo: no .nauro/config.json found. "
+    "Run 'nauro init <name>' in this repo, or pass project_id explicitly."
+)
 
 
 def _spec_kwargs(name: str) -> dict[str, Any]:
@@ -55,17 +72,87 @@ def _spec_kwargs(name: str) -> dict[str, Any]:
     }
 
 
+def _resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
+    """Walk up from ``start`` (or cwd) looking for ``.nauro/config.json``.
+
+    Returns (project_id, store_path) or None when no repo config is found.
+    """
+    config_path = find_repo_config(start=start)
+    if config_path is None:
+        return None
+    repo_root = config_path.parent.parent
+    try:
+        cfg = load_repo_config(repo_root)
+    except RepoConfigSchemaError:
+        return None
+    return cfg["id"], get_store_path_v2(cfg["id"])
+
+
 def _resolve_store(project: str | None, cwd: str | None) -> Path:
-    """Resolve project name to store path, raising on failure."""
-    name = project
-    if not name and cwd:
+    """Resolve a project to a store path.
+
+    Resolution order matches the CLI:
+      1. cwd's ``.nauro/config.json`` walk-up (id-keyed v2 store).
+      2. ``project`` argument matched against v2 registry by name.
+      3. ``project`` argument matched against v1 registry by name (legacy).
+      4. ``cwd`` arg → v1 ``resolve_project`` (legacy).
+
+    When ``project`` is supplied AND the cwd resolves to a different id via
+    the repo config, the call fails with a mismatch error so tooling cannot
+    silently mask a misconfiguration.
+    """
+    cwd_path = Path(cwd) if cwd else Path.cwd()
+    via_config = _resolve_via_repo_config(cwd_path)
+
+    if project and via_config is not None:
+        config_id, store_path = via_config
+        if project != config_id:
+            matches = find_projects_by_name_v2(project)
+            if not any(pid == config_id for pid, _ in matches):
+                raise ValueError(
+                    f"Supplied project_id {project!r} does not match the repo "
+                    f"config id {config_id!r} in {cwd_path}."
+                )
+        if not store_path.exists():
+            raise ValueError(f"Project store not found: {config_id}")
+        return store_path
+
+    if via_config is not None:
+        _pid, store_path = via_config
+        if not store_path.exists():
+            raise ValueError(f"Project store not found at {store_path}")
+        return store_path
+
+    if project:
+        matches = find_projects_by_name_v2(project)
+        if len(matches) == 1:
+            pid, _entry = matches[0]
+            store_path = get_store_path_v2(pid)
+            if not store_path.exists():
+                raise ValueError(f"Project store not found: {project}")
+            return store_path
+        if len(matches) > 1:
+            raise ValueError(f"Multiple v2 projects named {project!r}; pass project_id instead.")
+        # v1 legacy fallback
+        store_path = get_store_path(project)
+        if not store_path.exists():
+            raise ValueError(f"Project store not found: {project}")
+        return store_path
+
+    if cwd:
         name = resolve_project(Path(cwd))
-    if not name:
-        raise ValueError("Could not resolve project. Pass a 'project' name or 'cwd' path.")
-    store_path = get_store_path(name)
-    if not store_path.exists():
-        raise ValueError(f"Project store not found: {name}")
-    return store_path
+        if name:
+            store_path = get_store_path(name)
+            if store_path.exists():
+                return store_path
+        v2_match = resolve_v2_from_path(Path(cwd))
+        if v2_match is not None:
+            pid, _entry = v2_match
+            store_path = get_store_path_v2(pid)
+            if store_path.exists():
+                return store_path
+
+    raise ValueError("Could not resolve project. Pass a 'project' name or 'cwd' path.")
 
 
 @mcp.tool(**_spec_kwargs("get_context"))
@@ -253,22 +340,37 @@ def _pull_on_startup() -> None:
         return
 
     try:
-        project_name = resolve_project(Path(os.getcwd()))
-        if not project_name:
+        cwd = Path(os.getcwd())
+        project_key: str | None = None
+        store_path: Path | None = None
+
+        via_config = _resolve_via_repo_config(cwd)
+        if via_config is not None:
+            project_key, store_path = via_config
+        else:
+            v2_match = resolve_v2_from_path(cwd)
+            if v2_match is not None:
+                pid, _entry = v2_match
+                project_key, store_path = pid, get_store_path_v2(pid)
+            else:
+                legacy_name = resolve_project(cwd)
+                if legacy_name:
+                    project_key, store_path = legacy_name, get_store_path(legacy_name)
+
+        if not project_key or store_path is None:
             logger.debug("session-start pull: no project found in cwd, skipping")
             return
-        store_path = get_store_path(project_name)
         if not store_path.exists():
-            logger.debug("session-start pull: store not found for %s, skipping", project_name)
+            logger.debug("session-start pull: store not found for %s, skipping", project_key)
             return
 
         from nauro.sync.hooks import pull_before_session
 
-        pulled = pull_before_session(project_name, store_path)
+        pulled = pull_before_session(project_key, store_path)
         if pulled:
-            logger.info("session-start pull: pulled %d file(s) for %s", pulled, project_name)
+            logger.info("session-start pull: pulled %d file(s) for %s", pulled, project_key)
         else:
-            logger.debug("session-start pull: already up to date (%s)", project_name)
+            logger.debug("session-start pull: already up to date (%s)", project_key)
     except Exception as e:
         logger.warning("session-start pull: failed, continuing with local state: %s", e)
 

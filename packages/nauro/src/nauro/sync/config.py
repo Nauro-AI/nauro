@@ -22,12 +22,15 @@ class AuthRequiredError(Exception):
     """Raised when a sync operation requires auth but sanitized_sub is missing."""
 
 
-def s3_prefix(user_key: str, project_name: str) -> str:
+def s3_prefix(user_key: str, project_id: str) -> str:
     """Build the S3 key prefix for a project.
 
-    user_key is either user_id (preferred) or sanitized_sub (fallback).
+    Args:
+        user_key: Either user_id (preferred) or sanitized_sub (fallback).
+        project_id: The v2 project_id (ULID). Legacy callers pass a
+            project name; the prefix layout is unchanged either way.
     """
-    return f"users/{user_key}/projects/{project_name}/"
+    return f"users/{user_key}/projects/{project_id}/"
 
 
 def require_auth(config: SyncConfig) -> str:

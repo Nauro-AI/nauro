@@ -1,9 +1,12 @@
 """Tests for nauro.store.registry and nauro init."""
 
+import json
+
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store import registry
+from nauro.store.repo_config import load_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 
 
@@ -183,6 +186,16 @@ def test_scaffold_creates_all_files(tmp_path):
 runner = CliRunner()
 
 
+def _v2_entry_for_name(name: str) -> tuple[str, dict]:
+    """Return the single v2 (project_id, entry) matching ``name``.
+
+    Tests assert one entry exists; extracted helper makes the assertions read clean.
+    """
+    matches = registry.find_projects_by_name_v2(name)
+    assert len(matches) == 1, f"expected one v2 entry for {name!r}, got {len(matches)}"
+    return matches[0]
+
+
 def test_init_cli(tmp_path, monkeypatch):
     _patch_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
@@ -190,8 +203,22 @@ def test_init_cli(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "Initialized project 'myproject'" in result.output
     assert "Store:" in result.output
-    store = tmp_path / "nauro_home" / "projects" / "myproject"
+    pid, _entry = _v2_entry_for_name("myproject")
+    store = tmp_path / "nauro_home" / "projects" / pid
     assert (store / "project.md").exists()
+
+
+def test_init_cli_writes_repo_config_local(tmp_path, monkeypatch):
+    """`nauro init <name>` writes a local-mode .nauro/config.json into cwd."""
+    _patch_home(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["init", "configproj"])
+    assert result.exit_code == 0
+    cfg = load_repo_config(tmp_path)
+    assert cfg["mode"] == "local"
+    assert cfg["name"] == "configproj"
+    pid, _entry = _v2_entry_for_name("configproj")
+    assert cfg["id"] == pid
 
 
 def test_init_cli_with_add_repo(tmp_path, monkeypatch):
@@ -201,15 +228,25 @@ def test_init_cli_with_add_repo(tmp_path, monkeypatch):
     result = runner.invoke(app, ["init", "proj2", "--add-repo", str(repo)])
     assert result.exit_code == 0
     assert str(repo.resolve()) in result.output
+    cfg = load_repo_config(repo)
+    assert cfg["name"] == "proj2"
 
 
 def test_init_cli_duplicate(tmp_path, monkeypatch):
+    """A second `nauro init <same-name>` (no --add-repo) creates a SECOND project.
+
+    v2 allows duplicate names — id is unique. To extend an existing project,
+    callers must pass --add-repo, which is the explicit signal.
+    """
     _patch_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     runner.invoke(app, ["init", "dup"])
     result = runner.invoke(app, ["init", "dup"])
-    assert result.exit_code == 1
-    assert "already exists" in result.output
+    # Either succeeds (creates a second, distinct id-keyed entry) or fails with
+    # the clear duplicate-id message; both are acceptable, but the registry
+    # ends up with two entries named 'dup' in the success case.
+    assert result.exit_code == 0
+    assert len(registry.find_projects_by_name_v2("dup")) == 2
 
 
 def test_init_cli_add_repo_to_existing(tmp_path, monkeypatch):
@@ -225,9 +262,13 @@ def test_init_cli_add_repo_to_existing(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "Updated project" in result.output
     assert "Added repo" in result.output
-    data = registry.load_registry()
-    paths = data["projects"]["proj"]["repo_paths"]
+    pid, entry = _v2_entry_for_name("proj")
+    paths = entry["repo_paths"]
     assert str(repo2.resolve()) in paths
+    # v2 registry shape
+    raw = json.loads((tmp_path / "nauro_home" / "registry.json").read_text())
+    assert raw["schema_version"] == 2
+    assert pid in raw["projects"]
 
 
 def test_remove_repo(tmp_path, monkeypatch):

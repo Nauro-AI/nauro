@@ -97,3 +97,14 @@ HOOK_END_MARKER = "# --- nauro post-commit hook end ---"
 
 # ── Schema versioning ──
 SCHEMA_VERSION = 1
+
+# ── Repo-local config (.nauro/config.json inside each repo) ──
+REPO_CONFIG_DIR = ".nauro"
+REPO_CONFIG_FILENAME = "config.json"
+REPO_CONFIG_SCHEMA_VERSION = 1
+REPO_CONFIG_MODE_LOCAL = "local"
+REPO_CONFIG_MODE_CLOUD = "cloud"
+
+# ── Registry schema versions ──
+REGISTRY_SCHEMA_VERSION_V1 = 1
+REGISTRY_SCHEMA_VERSION_V2 = 2

@@ -63,8 +63,10 @@ MAX_APPROACH_LENGTH = 5_000
 # ── MCP server instructions ──
 # Delivered via the MCP `initialize` response to every connected client.
 # Single source of truth — both local (stdio) and remote (HTTP) servers
-# should reference this constant.
-MCP_INSTRUCTIONS = """\
+# reference MCP_INSTRUCTIONS_STATIC. Remote callers compose it with a
+# per-user project section via build_remote_instructions() in instructions.py.
+# MCP_INSTRUCTIONS remains as a backward-compatible alias.
+MCP_INSTRUCTIONS_STATIC = """\
 Nauro is the project's decision memory. Use it to check past decisions \
 before committing to an approach, and to record new decisions as you make them.
 
@@ -100,3 +102,5 @@ Call `update_state` when you complete a meaningful unit of work — \
 a feature, a refactor, a bug fix — so the next session starts with \
 current context.\
 """
+
+MCP_INSTRUCTIONS = MCP_INSTRUCTIONS_STATIC

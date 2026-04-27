@@ -41,7 +41,10 @@ class ToolSpec(TypedDict):
 
 _PROJECT_PARAM: dict[str, Any] = {
     "type": "string",
-    "description": "Project name. If omitted, auto-discovered from cwd (local) or S3 (remote).",
+    "description": (
+        "Project ID (ULID). Required for every tool except list_projects. "
+        "Call list_projects to discover the IDs available to the current user."
+    ),
 }
 
 # Every tool is closed-world (operates only on the local/remote Nauro store)
@@ -85,8 +88,9 @@ GET_CONTEXT: ToolSpec = {
                 "default": "L0",
                 "description": "Detail level: L0 (concise), L1 (working set), L2 (full dump).",
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
+        "required": ["project_id"],
     },
 }
 
@@ -115,9 +119,9 @@ GET_RAW_FILE: ToolSpec = {
                     "(e.g., 'project.md', 'decisions/001-initial-architecture.md')."
                 ),
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
-        "required": ["path"],
+        "required": ["path", "project_id"],
     },
 }
 
@@ -143,8 +147,9 @@ LIST_DECISIONS: ToolSpec = {
                 "default": False,
                 "description": "Include superseded decisions in the result.",
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
+        "required": ["project_id"],
     },
 }
 
@@ -163,9 +168,9 @@ GET_DECISION: ToolSpec = {
                 "type": "integer",
                 "description": "Decision number (e.g., 23).",
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
-        "required": ["number"],
+        "required": ["number", "project_id"],
     },
 }
 
@@ -191,8 +196,9 @@ DIFF_SINCE_LAST_SESSION: ToolSpec = {
                     "snapshot to N days ago and diffs against the latest."
                 ),
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
+        "required": ["project_id"],
     },
 }
 
@@ -227,9 +233,9 @@ SEARCH_DECISIONS: ToolSpec = {
                 "default": 10,
                 "description": "Maximum results to return.",
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
-        "required": ["query"],
+        "required": ["query", "project_id"],
     },
 }
 
@@ -263,9 +269,9 @@ CHECK_DECISION: ToolSpec = {
                     "Optional additional context about why you're considering this approach."
                 ),
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
-        "required": ["proposed_approach"],
+        "required": ["proposed_approach", "project_id"],
     },
 }
 
@@ -347,9 +353,9 @@ PROPOSE_DECISION: ToolSpec = {
                     "Use when you already called check_decision."
                 ),
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
-        "required": ["title", "rationale"],
+        "required": ["title", "rationale", "project_id"],
     },
 }
 
@@ -372,9 +378,9 @@ CONFIRM_DECISION: ToolSpec = {
                 "type": "string",
                 "description": "The confirm_id returned by propose_decision.",
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
-        "required": ["confirm_id"],
+        "required": ["confirm_id", "project_id"],
     },
 }
 
@@ -404,9 +410,9 @@ FLAG_QUESTION: ToolSpec = {
                 "type": "string",
                 "description": "Optional context about why this question matters.",
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
-        "required": ["question"],
+        "required": ["question", "project_id"],
     },
 }
 
@@ -430,9 +436,28 @@ UPDATE_STATE: ToolSpec = {
                 "type": "string",
                 "description": 'Description of what changed (e.g. "Deployed v0.2.0 to staging").',
             },
-            "project": _PROJECT_PARAM,
+            "project_id": _PROJECT_PARAM,
         },
-        "required": ["delta"],
+        "required": ["delta", "project_id"],
+    },
+}
+
+# list_projects is the only tool that does not take a project_id — it is the
+# discovery entry point users (and Claude) call before any other tool can run.
+# Treat the exemption as deliberate: every other spec requires "project_id".
+LIST_PROJECTS: ToolSpec = {
+    "name": "list_projects",
+    "title": "List projects",
+    "description": (
+        "Return the projects this user has access to. The only tool that "
+        "does not require a project_id — call this first to discover the "
+        "IDs to pass to every other tool."
+    ),
+    "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
     },
 }
 
@@ -450,6 +475,7 @@ ALL_TOOLS: tuple[ToolSpec, ...] = (
     CONFIRM_DECISION,
     FLAG_QUESTION,
     UPDATE_STATE,
+    LIST_PROJECTS,
 )
 
 _BY_NAME: dict[str, ToolSpec] = {spec["name"]: spec for spec in ALL_TOOLS}

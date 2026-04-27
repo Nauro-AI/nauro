@@ -13,7 +13,11 @@ import typer
 
 from nauro.cli.utils import resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
-from nauro.store.registry import get_project
+from nauro.store.registry import (
+    RegistrySchemaError,
+    get_project,
+    get_project_v2,
+)
 from nauro.templates.agents_md import regenerate_agents_md_for_project
 
 setup_app = typer.Typer(help="Configure tool integrations.")
@@ -126,7 +130,15 @@ def claude_code(
 ) -> None:
     """Configure Claude Code to use Nauro during sessions."""
     project_name, _store_path = resolve_target_project(project)
-    entry = get_project(project_name)
+    project_key = _store_path.name
+
+    # Try v2 first (id-keyed), then fall back to v1 (name-keyed legacy)
+    try:
+        entry = get_project_v2(project_key)
+    except RegistrySchemaError:
+        entry = None
+    if entry is None:
+        entry = get_project(project_name)
 
     if entry is None or not entry.get("repo_paths"):
         typer.echo(f"Project '{project_name}' has no associated repos.", err=True)
@@ -156,8 +168,9 @@ def claude_code(
             typer.echo(line)
 
     if not remove:
-        # Regenerate AGENTS.md so context is fresh from the start
-        updated_repos = regenerate_agents_md_for_project(project_name, _store_path)
+        # Regenerate AGENTS.md so context is fresh from the start.
+        # project_key is the v2 id (or v1 name) used by the registry-aware lookup.
+        updated_repos = regenerate_agents_md_for_project(project_key, _store_path)
         if updated_repos:
             typer.echo("\nAGENTS.md:")
             for repo_path in updated_repos:
