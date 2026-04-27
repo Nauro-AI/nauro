@@ -20,10 +20,16 @@ from nauro.constants import (
     NAURO_HOME_ENV,
     PROJECTS_DIR,
     REGISTRY_FILENAME,
+    REGISTRY_SCHEMA_VERSION_V1,
+    REGISTRY_SCHEMA_VERSION_V2,
     SCHEMA_VERSION,
 )
 
 logger = logging.getLogger("nauro.registry")
+
+
+class RegistrySchemaError(Exception):
+    """Raised when registry.json advertises a schema_version this build cannot read."""
 
 
 @contextmanager
@@ -72,6 +78,76 @@ def save_registry(data: dict) -> None:
         data: Full registry dict to persist.
     """
     data.setdefault("schema_version", SCHEMA_VERSION)
+    rf = _registry_file()
+    rf.parent.mkdir(parents=True, exist_ok=True)
+    tmp = rf.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    os.replace(tmp, rf)
+
+
+# ── v2 registry (id-keyed) ───────────────────────────────────────────────────
+#
+# v2 introduces a project_id (ULID) primary key and tracks ``mode`` plus an
+# optional ``server_url`` per project. v2 is read/written by the new
+# project-scoped commands shipping in 2c-B; existing v1 commands continue to
+# use load_registry/save_registry above.
+#
+# v2 is a strict loader: it refuses to read a v1 registry and tells the user
+# to run the one-time manual migration documented in 2c-B's release notes.
+# Auto-migration is intentionally out of scope — solo-founder scale, single
+# existing project, three shell commands beat code that needs idempotency,
+# directory renames, and adopt-existing-config fallbacks.
+
+
+def load_registry_v2() -> dict:
+    """Read registry.json under v2 semantics. Refuses v1.
+
+    Returns:
+        Registry dict shaped as ``{"projects": {<id>: {...}}, "schema_version": 2}``.
+        When the file does not exist, returns the empty v2 shape.
+
+    Raises:
+        RegistrySchemaError: If the on-disk registry is at schema_version 1 (a
+            one-time manual migration is required) or any other unknown
+            version.
+    """
+    rf = _registry_file()
+    if not rf.exists():
+        return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V2}
+
+    try:
+        data = json.loads(rf.read_text())
+    except json.JSONDecodeError:
+        logger.warning("registry.json is corrupt — starting with empty v2 registry")
+        return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V2}
+
+    version = data.get("schema_version", REGISTRY_SCHEMA_VERSION_V1)
+    if version == REGISTRY_SCHEMA_VERSION_V1:
+        raise RegistrySchemaError(
+            "registry is at schema_version 1; please run the one-time manual "
+            "migration documented in the release notes before continuing."
+        )
+    if version != REGISTRY_SCHEMA_VERSION_V2:
+        raise RegistrySchemaError(
+            f"Unknown registry schema_version={version!r} at {rf}. "
+            f"Upgrade nauro to a version that supports this schema."
+        )
+    return data  # type: ignore[no-any-return]
+
+
+def save_registry_v2(data: dict) -> None:
+    """Write a v2 registry atomically. Stamps schema_version=2 on the data.
+
+    Raises:
+        RegistrySchemaError: If ``data["schema_version"]`` is set to anything
+            other than 2.
+    """
+    data.setdefault("schema_version", REGISTRY_SCHEMA_VERSION_V2)
+    if data["schema_version"] != REGISTRY_SCHEMA_VERSION_V2:
+        raise RegistrySchemaError(
+            f"save_registry_v2 refuses to write schema_version="
+            f"{data['schema_version']!r}; expected {REGISTRY_SCHEMA_VERSION_V2}."
+        )
     rf = _registry_file()
     rf.parent.mkdir(parents=True, exist_ok=True)
     tmp = rf.with_suffix(".tmp")
