@@ -101,15 +101,6 @@ from nauro_core.context import (
 from nauro_core.context import (
     build_l2 as build_l2,
 )
-from nauro_core.instructions import (
-    MAX_INLINE_PROJECTS as MAX_INLINE_PROJECTS,
-)
-from nauro_core.instructions import (
-    WELCOME_NO_PROJECT as WELCOME_NO_PROJECT,
-)
-from nauro_core.instructions import (
-    build_remote_instructions as build_remote_instructions,
-)
 from nauro_core.decision_model import (
     Decision as Decision,
 )
@@ -136,6 +127,15 @@ from nauro_core.decision_model import (
 )
 from nauro_core.decision_model import (
     parse_decision_v2 as parse_decision_v2,
+)
+from nauro_core.instructions import (
+    MAX_INLINE_PROJECTS as MAX_INLINE_PROJECTS,
+)
+from nauro_core.instructions import (
+    WELCOME_NO_PROJECT as WELCOME_NO_PROJECT,
+)
+from nauro_core.instructions import (
+    build_remote_instructions as build_remote_instructions,
 )
 from nauro_core.mcp_tools import (
     ALL_TOOLS as ALL_TOOLS,

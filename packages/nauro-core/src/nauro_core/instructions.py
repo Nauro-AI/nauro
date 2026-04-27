@@ -52,10 +52,7 @@ def build_remote_instructions(
         lines = ["Your projects:"]
         for p in ordered:
             lines.append(f"- {p['name']} — {p['project_id'][:8]}")
-        lines.append(
-            "\nPass the matching project_id to every tool call "
-            "(except list_projects)."
-        )
+        lines.append("\nPass the matching project_id to every tool call (except list_projects).")
         return f"{static_block}\n\n" + "\n".join(lines)
 
     return (

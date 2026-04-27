@@ -75,9 +75,7 @@ class TestSpecShape:
             assert required == []
         else:
             assert "project_id" in props, f"{spec['name']} is missing `project_id`"
-            assert "project_id" in required, (
-                f"{spec['name']} must require `project_id`"
-            )
+            assert "project_id" in required, f"{spec['name']} must require `project_id`"
 
     @pytest.mark.parametrize("spec", ALL_TOOLS, ids=lambda s: s["name"])
     def test_closed_world(self, spec):
@@ -128,13 +126,9 @@ class TestProjectIdRequirement:
         for spec in ALL_TOOLS:
             required = spec["input_schema"].get("required", [])
             if spec["name"] == "list_projects":
-                assert required == [], (
-                    "list_projects must have no required parameters"
-                )
+                assert required == [], "list_projects must have no required parameters"
             else:
-                assert "project_id" in required, (
-                    f"{spec['name']} must require project_id"
-                )
+                assert "project_id" in required, f"{spec['name']} must require project_id"
 
     def test_list_projects_in_all_tools(self):
         names = {spec["name"] for spec in ALL_TOOLS}
