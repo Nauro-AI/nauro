@@ -3,7 +3,7 @@
 Re-export facade — public API symbols from all modules.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from nauro_core.constants import (
     DECISION_HASHES_FILE as DECISION_HASHES_FILE,
@@ -123,10 +123,10 @@ from nauro_core.decision_model import (
     Reversibility as Reversibility,
 )
 from nauro_core.decision_model import (
-    format_decision_v2 as format_decision_v2,
+    format_decision as format_decision,
 )
 from nauro_core.decision_model import (
-    parse_decision_v2 as parse_decision_v2,
+    parse_decision as parse_decision,
 )
 from nauro_core.instructions import (
     MAX_INLINE_PROJECTS as MAX_INLINE_PROJECTS,
@@ -163,9 +163,6 @@ from nauro_core.parsing import (
 )
 from nauro_core.parsing import (
     extract_stack_summary as extract_stack_summary,
-)
-from nauro_core.parsing import (
-    parse_decision as parse_decision,
 )
 from nauro_core.parsing import (
     parse_questions as parse_questions,

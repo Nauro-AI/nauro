@@ -4,7 +4,7 @@ All writes to ~/.nauro/projects/<name>/ go through this module.
 
 As of nauro-core 0.2.0, decision files are emitted via the v2 pydantic
 model. ``append_decision`` / ``supersede_decision`` / ``update_decision``
-build a ``Decision`` and serialize with ``format_decision_v2``. String
+build a ``Decision`` and serialize with ``format_decision``. String
 templating is gone; the one source of truth for the on-disk format is
 ``nauro_core.decision_model``.
 """
@@ -25,7 +25,7 @@ from nauro_core.decision_model import (
     DecisionType,
     RejectedAlternative,
     Reversibility,
-    format_decision_v2,
+    format_decision,
 )
 from nauro_core.state import migrate_legacy_state, prepare_state_update
 
@@ -103,7 +103,7 @@ def append_decision(
 ) -> Path:
     """Create the next sequential decision file in decisions/.
 
-    Builds a v2 ``Decision`` and serializes via ``format_decision_v2``.
+    Builds a v2 ``Decision`` and serializes via ``format_decision``.
     Proposal-dict input shape is unchanged; only the on-disk format moves.
     """
     decisions_dir = store_path / DECISIONS_DIR
@@ -139,7 +139,7 @@ def append_decision(
             rationale=rationale or title,
         )
 
-        filepath.write_text(format_decision_v2(decision))
+        filepath.write_text(format_decision(decision))
 
     return filepath
 
@@ -177,10 +177,15 @@ def supersede_decision(
     )
     new_decision_id = new_path.stem
 
+    # Canonicalize stem-formatted IDs to plain integer strings to match the
+    # nauro-core supersession-ref convention ("70", not "070-some-slug").
+    old_ref = _canonical_supersession_ref(old_decision_id)
+    new_ref = _canonical_supersession_ref(new_decision_id)
+
     # Rewrite the new decision with the Supersedes backref.
     new_decision = parse_decision(new_path.read_text(), new_path.name)
-    new_decision_rewritten = new_decision.model_copy(update={"supersedes": old_decision_id})
-    new_path.write_text(format_decision_v2(new_decision_rewritten))
+    new_decision_rewritten = new_decision.model_copy(update={"supersedes": old_ref})
+    new_path.write_text(format_decision(new_decision_rewritten))
 
     # Mark the old decision as superseded.
     if old_path and old_path.exists():
@@ -188,12 +193,22 @@ def supersede_decision(
         old_rewritten = old_decision.model_copy(
             update={
                 "status": DecisionStatus.superseded,
-                "superseded_by": new_decision_id,
+                "superseded_by": new_ref,
             }
         )
-        old_path.write_text(format_decision_v2(old_rewritten))
+        old_path.write_text(format_decision(old_rewritten))
 
     return new_decision_id
+
+
+def _canonical_supersession_ref(decision_id: str) -> str:
+    num = extract_decision_number(decision_id)
+    if num is None:
+        raise ValueError(
+            f"Cannot derive supersession ref from decision id {decision_id!r}: "
+            "expected leading number prefix like '042-some-title'."
+        )
+    return str(num)
 
 
 def update_decision(
@@ -231,7 +246,7 @@ def update_decision(
             "rationale": appended_rationale,
         }
     )
-    target_path.write_text(format_decision_v2(updated))
+    target_path.write_text(format_decision(updated))
     return decision_id
 
 

@@ -1,14 +1,16 @@
-"""Pydantic v2 Decision model + canonical YAML-frontmatter round-trip.
+"""Pydantic Decision model + canonical YAML-frontmatter round-trip.
 
-The authoritative shape for a parsed decision. `parse_decision_v2` reads a
+The authoritative shape for a parsed decision. `parse_decision` reads a
 markdown file with YAML frontmatter and returns a validated `Decision`.
-`format_decision_v2` goes the other way.
+`format_decision` goes the other way.
 
 Strict by design — per the migration plan §9, unknown enum values, missing
 required fields, malformed YAML, non-ISO dates, reasonless rejected
 alternatives on active decisions, and superseded decisions without a
-`superseded_by` ref all raise. Legacy tolerance lives in the Phase 3 migration
-script, not here.
+`superseded_by` ref all raise.
+
+Supersession refs (`supersedes`, `superseded_by`) are validated as plain
+integer strings: "70", not "070" or "070-some-slug" or "D70".
 
 Field model (see plan §2):
     Required frontmatter: date, confidence.
@@ -17,7 +19,7 @@ Field model (see plan §2):
                           supersedes, superseded_by.
     Body-rendered: rejected (rendered as `## Rejected Alternatives` + `### name`
                    subsections, not in frontmatter).
-    Derived (set by parse_decision_v2): num, title, rationale, body, content.
+    Derived (set by parse_decision): num, title, rationale, body, content.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from datetime import date as _date
 from enum import StrEnum
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from nauro_core.parsing import extract_decision_number
 
@@ -116,12 +118,33 @@ class Decision(BaseModel):
     # ── Body-rendered ──
     rejected: list[RejectedAlternative] = Field(default_factory=list)
 
-    # ── Derived (set by parse_decision_v2; excluded from frontmatter dump) ──
+    # ── Derived (set by parse_decision; excluded from frontmatter dump) ──
     num: int = Field(default=0, ge=0)
     title: str = ""
     rationale: str = ""
     body: str = ""
     content: str = ""
+
+    @field_validator("supersedes", "superseded_by")
+    @classmethod
+    def _validate_supersession_ref(cls, v: str | None) -> str | None:
+        """Enforce plain integer string: "70", not "070" or "070-slug" or "D70".
+
+        Canonicalizes the format that ``writer.supersede_decision`` writes and
+        that the prior session's D69/D70/D105 backfill standardized on.
+        """
+        if v is None:
+            return v
+        if not v.isdigit():
+            raise ValueError(
+                f"supersession ref must be a plain integer string (e.g. '70'), got {v!r}"
+            )
+        canonical = str(int(v))
+        if v != canonical:
+            raise ValueError(
+                f"supersession ref must not have leading zeros, got {v!r}; expected {canonical!r}"
+            )
+        return v
 
     @model_validator(mode="after")
     def require_reasons_on_active(self) -> Decision:
@@ -148,7 +171,7 @@ class Decision(BaseModel):
 #
 # Fields derived from the filename or body that must NOT appear in the
 # frontmatter dump. Kept as a module-level constant because
-# format_decision_v2 applies it; if this ends up being applied in a second
+# format_decision applies it; if this ends up being applied in a second
 # place (snapshot v2, a remote payload serializer), split the model into
 # DecisionMetadata + Decision per plan §12.2.
 _DERIVED_FIELDS: frozenset[str] = frozenset({"num", "title", "rationale", "body", "content"})
@@ -178,7 +201,7 @@ _SECTION_START = re.compile(r"^##\s+", re.MULTILINE)
 _SUBSECTION_SPLIT = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
 
 
-def parse_decision_v2(text: str, filename: str) -> Decision:
+def parse_decision(text: str, filename: str) -> Decision:
     """Parse a decision markdown file into a validated ``Decision``.
 
     Strict by design: raises ``ValueError`` (and propagates
@@ -284,7 +307,7 @@ def _parse_rejected_subsections(section_text: str) -> list[RejectedAlternative]:
 # ── Formatter ──
 
 
-def format_decision_v2(decision: Decision) -> str:
+def format_decision(decision: Decision) -> str:
     """Serialize a ``Decision`` to canonical v2 markdown.
 
     Output shape:
@@ -304,7 +327,7 @@ def format_decision_v2(decision: Decision) -> str:
 
         {reason}
 
-    Idempotent with ``parse_decision_v2``: format → parse → format is byte-identical.
+    Idempotent with ``parse_decision``: format → parse → format is byte-identical.
     """
     dumped = decision.model_dump(mode="json", exclude=_DERIVED_FIELDS)
 
@@ -350,6 +373,6 @@ __all__ = [
     "DecisionType",
     "RejectedAlternative",
     "Reversibility",
-    "format_decision_v2",
-    "parse_decision_v2",
+    "format_decision",
+    "parse_decision",
 ]

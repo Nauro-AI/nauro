@@ -10,8 +10,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from nauro_core import parse_decision
 from nauro_core.decision_model import Decision
-from nauro_core.parsing import parse_decision
 from nauro_core.validation import compute_hash
 from nauro_core.validation import screen_structural as _screen_structural_pure
 
