@@ -48,9 +48,7 @@ class TestCheckBm25Similarity:
             date=date(2026, 4, 7),
             confidence=DecisionConfidence.medium,
             status=status_enum,
-            superseded_by=(
-                "999-replacement" if status_enum is DecisionStatus.superseded else None
-            ),
+            superseded_by=("999" if status_enum is DecisionStatus.superseded else None),
             num=num,
             title=title,
             rationale=rationale,

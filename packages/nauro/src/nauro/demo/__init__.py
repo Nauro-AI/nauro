@@ -4,7 +4,7 @@ Creates a sample project with pre-written decisions, state, questions,
 and a snapshot — so users can explore Nauro's features immediately.
 
 Decision files are built as ``Decision`` objects and serialized via
-``format_decision_v2`` so the demo output is guaranteed to match whatever
+``format_decision`` so the demo output is guaranteed to match whatever
 real writer output looks like (no template drift).
 """
 
@@ -20,7 +20,7 @@ from nauro_core.decision_model import (
     DecisionType,
     RejectedAlternative,
     Reversibility,
-    format_decision_v2,
+    format_decision,
 )
 
 from nauro import constants
@@ -309,11 +309,11 @@ def create_demo_project(store_path: Path) -> None:
     (store_path / constants.STACK_MD).write_text(STACK_MD)
     (store_path / constants.OPEN_QUESTIONS_MD).write_text(OPEN_QUESTIONS_MD)
 
-    # Emit decisions via format_decision_v2 so they match the writer's output shape.
+    # Emit decisions via format_decision so they match the writer's output shape.
     decision_files: dict[str, str] = {}
     for d in DEMO_DECISIONS:
         filename = _decision_filename(d, _DEMO_SLUGS[d.num])
-        body = format_decision_v2(d)
+        body = format_decision(d)
         (decisions_dir / filename).write_text(body)
         decision_files[f"{constants.DECISIONS_DIR}/{filename}"] = body
 

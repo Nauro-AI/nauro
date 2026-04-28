@@ -1,23 +1,15 @@
-"""Stateless markdown → structured data parsers.
+"""Stateless markdown → structured data parsers for non-decision files.
 
-`parse_decision` is the primary public function: it returns a validated
-``Decision`` (pydantic model) rather than a dict as it did in 0.1.x. The
-name and signature are preserved for import compatibility; callers now use
-attribute access (``d.status``) instead of dict access (``d["status"]``).
-
-Other helpers in this module parse non-decision files (state, stack,
-questions) and remain dict/list-based.
+Decision parsing lives in ``nauro_core.decision_model.parse_decision``.
+This module covers the smaller helpers — filename number extraction,
+state/stack/questions parsing, and snippet extraction.
 """
 
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
 
 from nauro_core.constants import STACK_EMPTY_MARKER
-
-if TYPE_CHECKING:
-    from nauro_core.decision_model import Decision
 
 
 def extract_decision_number(filename: str) -> int | None:
@@ -27,24 +19,6 @@ def extract_decision_number(filename: str) -> int | None:
     """
     m = re.match(r"(\d+)-", filename)
     return int(m.group(1)) if m else None
-
-
-def parse_decision(content: str, filename: str) -> Decision:
-    """Parse a decision markdown file into a validated ``Decision``.
-
-    Thin wrapper around ``nauro_core.decision_model.parse_decision_v2``.
-    Kept under the name ``parse_decision`` for import compatibility; callers
-    moved from dict to attribute access in nauro-core 0.2.0.
-
-    Raises:
-        ValueError: malformed frontmatter / missing required sections.
-        pydantic.ValidationError: field-level validation failure.
-    """
-    # Late import to avoid the circular
-    # parsing → decision_model → parsing (extract_decision_number).
-    from nauro_core.decision_model import parse_decision_v2
-
-    return parse_decision_v2(content, filename)
 
 
 def extract_current_state(state_content: str) -> str:

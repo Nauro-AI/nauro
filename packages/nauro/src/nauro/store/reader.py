@@ -7,11 +7,9 @@ import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from nauro_core import extract_decision_number, parse_decision
 from nauro_core.context import build_l0, build_l1, build_l2
 from nauro_core.decision_model import Decision, DecisionStatus
-from nauro_core.parsing import (
-    parse_decision,
-)
 from nauro_core.search import bm25_search
 
 from nauro.constants import (
@@ -98,19 +96,10 @@ def get_decision_history(store_path: Path, decision_id: str) -> list[Decision]:
     Returns a list of decisions in chronological order (oldest first).
     """
     all_decisions = _list_decisions(store_path)
-    decision_map: dict[str, Decision] = {}
-    decisions_dir = store_path / DECISIONS_DIR
-    for d in all_decisions:
-        decision_map[f"{d.num:03d}"] = d
-        for f in decisions_dir.glob(f"{d.num:03d}-*.md"):
-            decision_map[f.stem] = d
+    decision_map = {str(d.num): d for d in all_decisions}
 
-    target: Decision | None = None
-    for key, d in decision_map.items():
-        if key == decision_id or key.startswith(decision_id):
-            target = d
-            break
-
+    target_num = extract_decision_number(decision_id)
+    target = decision_map.get(str(target_num)) if target_num is not None else None
     if not target:
         return []
 
@@ -119,22 +108,20 @@ def get_decision_history(store_path: Path, decision_id: str) -> list[Decision]:
     current = target
     while current.supersedes:
         prev = decision_map.get(current.supersedes)
-        if prev and prev.num not in seen:
-            chain.insert(0, prev)
-            seen.add(prev.num)
-            current = prev
-        else:
+        if not prev or prev.num in seen:
             break
+        chain.insert(0, prev)
+        seen.add(prev.num)
+        current = prev
 
     current = target
     while current.superseded_by:
         nxt = decision_map.get(current.superseded_by)
-        if nxt and nxt.num not in seen:
-            chain.append(nxt)
-            seen.add(nxt.num)
-            current = nxt
-        else:
+        if not nxt or nxt.num in seen:
             break
+        chain.append(nxt)
+        seen.add(nxt.num)
+        current = nxt
 
     return chain
 

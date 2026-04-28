@@ -51,7 +51,7 @@ class TestSupersedeDecision:
         )
         old_id = old_path.stem
 
-        new_id = supersede_decision(
+        supersede_decision(
             old_id,
             {
                 "title": "Switch to Postgres",
@@ -65,10 +65,11 @@ class TestSupersedeDecision:
         old = next(d for d in decisions if d.title == "Use MySQL")
         new = next(d for d in decisions if d.title == "Switch to Postgres")
 
+        # 001 is the scaffold's initial-setup, 002 is "Use MySQL", 003 is the supersede.
         assert old.status.value == "superseded"
-        assert old.superseded_by == new_id
+        assert old.superseded_by == "3"
         assert new.status.value == "active"
-        assert new.supersedes == old_id
+        assert new.supersedes == "2"
 
     def test_superseded_decision_not_in_active_list(self, store):
         old_path = append_decision(

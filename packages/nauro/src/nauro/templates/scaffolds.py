@@ -7,7 +7,7 @@ Nauro project store is initialized at ~/.nauro/projects/<name>/.
 Bracketed [prompts] guide the user on what to fill in.
 
 Decision files (the first-decision scaffold) are emitted via
-``nauro_core.decision_model.format_decision_v2`` rather than a string
+``nauro_core.decision_model.format_decision`` rather than a string
 template, so the one source of truth for the on-disk decision format stays
 in nauro-core.
 """
@@ -20,7 +20,7 @@ from nauro_core.decision_model import (
     DecisionConfidence,
     DecisionStatus,
     RejectedAlternative,
-    format_decision_v2,
+    format_decision,
 )
 
 from nauro import constants as C  # noqa: N812
@@ -109,7 +109,7 @@ def _build_first_decision(date_str: str) -> str:
         rationale=_FIRST_DECISION_RATIONALE,
         rejected=list(_FIRST_DECISION_REJECTED),
     )
-    return format_decision_v2(decision)
+    return format_decision(decision)
 
 
 def get_scaffolds() -> dict[str, str]:

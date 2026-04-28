@@ -17,7 +17,7 @@ def _make_decision(num, title, status="active", date="2026-04-01", rationale="Re
         date=_date.fromisoformat(date),
         confidence=DecisionConfidence.medium,
         status=status_enum,
-        superseded_by="999-replacement" if status_enum is DecisionStatus.superseded else None,
+        superseded_by="999" if status_enum is DecisionStatus.superseded else None,
         num=num,
         title=title,
         rationale=rationale,

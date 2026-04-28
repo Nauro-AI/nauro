@@ -75,11 +75,11 @@ def test_get_scaffolds_returns_dict():
 
 
 def test_scaffolded_first_decision_parses_as_v2(store: Path):
-    """The scaffolded first decision round-trips through parse_decision_v2."""
-    from nauro_core.decision_model import parse_decision_v2
+    """The scaffolded first decision round-trips through parse_decision."""
+    from nauro_core.decision_model import parse_decision
 
     first = store / "decisions" / "001-initial-setup.md"
-    d = parse_decision_v2(first.read_text(), first.name)
+    d = parse_decision(first.read_text(), first.name)
     assert d.num == 1
     assert d.title == "Initial project setup"
     assert d.confidence.value == "high"

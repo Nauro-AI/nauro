@@ -28,8 +28,8 @@ from nauro_core.decision_model import (
     DecisionType,
     RejectedAlternative,
     Reversibility,
-    format_decision_v2,
-    parse_decision_v2,
+    format_decision,
+    parse_decision,
 )
 
 # ── Fixtures: three representative v2 shapes ──
@@ -156,9 +156,9 @@ class TestRoundTrip:
     @pytest.mark.parametrize("text,filename", ALL_FIXTURES)
     def test_parse_format_parse(self, text: str, filename: str) -> None:
         """parse → format → parse returns an equivalent Decision."""
-        first = parse_decision_v2(text, filename)
-        formatted = format_decision_v2(first)
-        second = parse_decision_v2(formatted, filename)
+        first = parse_decision(text, filename)
+        formatted = format_decision(first)
+        second = parse_decision(formatted, filename)
 
         # Equality of metadata, not of derived `content` (which includes the
         # original verbatim text and may differ from the formatted output
@@ -181,25 +181,24 @@ class TestRoundTrip:
     @pytest.mark.parametrize("text,filename", ALL_FIXTURES)
     def test_format_parse_format_is_byte_identical(self, text: str, filename: str) -> None:
         """Idempotence: once reformatted, subsequent rounds produce identical bytes."""
-        first_decision = parse_decision_v2(text, filename)
-        once = format_decision_v2(first_decision)
-        twice = format_decision_v2(parse_decision_v2(once, filename))
+        first_decision = parse_decision(text, filename)
+        once = format_decision(first_decision)
+        twice = format_decision(parse_decision(once, filename))
         assert once == twice, (
-            "format_decision_v2 is not idempotent:\n"
-            f"--- once ---\n{once}\n--- twice ---\n{twice}\n"
+            f"format_decision is not idempotent:\n--- once ---\n{once}\n--- twice ---\n{twice}\n"
         )
 
 
 class TestRejectedAlternativeRoundTrip:
     def test_special_chars_in_name(self) -> None:
         """Em-dashes and colons in rejected names survive round-trip."""
-        decision = parse_decision_v2(RICH_V2, RICH_V2_FILENAME)
+        decision = parse_decision(RICH_V2, RICH_V2_FILENAME)
         names = [r.name for r in decision.rejected]
         assert "Monorepo \u2014 fold mcp-server into the nauro repo" in names
         assert "PyPI round-trip on every change" in names
 
-        formatted = format_decision_v2(decision)
-        reparsed = parse_decision_v2(formatted, RICH_V2_FILENAME)
+        formatted = format_decision(decision)
+        reparsed = parse_decision(formatted, RICH_V2_FILENAME)
         assert [r.name for r in reparsed.rejected] == names
         assert [r.reason for r in reparsed.rejected] == [r.reason for r in decision.rejected]
 
@@ -209,16 +208,16 @@ class TestRejectedAlternativeRoundTrip:
 
 class TestOptionalFields:
     def test_empty_files_affected(self) -> None:
-        d = parse_decision_v2(MINIMAL_V2, MINIMAL_V2_FILENAME)
+        d = parse_decision(MINIMAL_V2, MINIMAL_V2_FILENAME)
         assert d.files_affected == []
 
     def test_null_supersedes(self) -> None:
-        d = parse_decision_v2(MINIMAL_V2, MINIMAL_V2_FILENAME)
+        d = parse_decision(MINIMAL_V2, MINIMAL_V2_FILENAME)
         assert d.supersedes is None
         assert d.superseded_by is None
 
     def test_no_rejected_alternatives(self) -> None:
-        d = parse_decision_v2(MINIMAL_V2, MINIMAL_V2_FILENAME)
+        d = parse_decision(MINIMAL_V2, MINIMAL_V2_FILENAME)
         assert d.rejected == []
 
     def test_defaults_when_fields_omitted(self) -> None:
@@ -231,7 +230,7 @@ class TestOptionalFields:
             "# 001 \u2014 Minimal decision\n\n"
             "## Decision\n\nChose option A.\n"
         )
-        d = parse_decision_v2(text, "001-minimal.md")
+        d = parse_decision(text, "001-minimal.md")
         assert d.version == 1
         assert d.status is DecisionStatus.active
         assert d.decision_type is None
@@ -262,27 +261,27 @@ class TestNegativeValidation:
     def test_unknown_status_raises(self) -> None:
         text = self._build(status="experimental")
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_unknown_confidence_raises(self) -> None:
         text = self._build(confidence="super_high")
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_unknown_decision_type_raises(self) -> None:
         text = self._build(decision_type="library_choice")  # removed from enum
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_unknown_reversibility_raises(self) -> None:
         text = self._build(reversibility="impossible")
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_unknown_source_raises(self) -> None:
         text = self._build(source="oracle")
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_missing_required_confidence_raises(self) -> None:
         text = (
@@ -293,12 +292,12 @@ class TestNegativeValidation:
             "## Decision\n\nSomething.\n"
         )
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_missing_required_date_raises(self) -> None:
         text = "---\nconfidence: high\n---\n\n# 001 \u2014 No date\n\n## Decision\n\nSomething.\n"
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_non_iso_date_raises(self) -> None:
         text = (
@@ -310,7 +309,7 @@ class TestNegativeValidation:
             "## Decision\n\nSomething.\n"
         )
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_malformed_yaml_raises(self) -> None:
         text = (
@@ -323,22 +322,22 @@ class TestNegativeValidation:
             "## Decision\n\nSomething.\n"
         )
         with pytest.raises(ValueError, match="invalid YAML"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_missing_frontmatter_raises(self) -> None:
         text = "# 001 \u2014 No frontmatter\n\n## Decision\n\nSomething.\n"
         with pytest.raises(ValueError, match="missing YAML frontmatter"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_unterminated_frontmatter_raises(self) -> None:
         text = "---\ndate: 2026-04-01\nconfidence: high\n\n# 001 \u2014 Title\n"
         with pytest.raises(ValueError, match="unterminated"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_missing_h1_raises(self) -> None:
         text = "---\ndate: 2026-04-01\nconfidence: high\n---\n\n## Decision\n\nNo H1 above.\n"
         with pytest.raises(ValueError, match="missing or malformed H1"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_h1_with_colon_separator_raises(self) -> None:
         """Parser is strict: colon-H1 is legacy, must be migrated to em-dash first."""
@@ -351,7 +350,7 @@ class TestNegativeValidation:
             "## Decision\n\nSomething.\n"
         )
         with pytest.raises(ValueError, match="missing or malformed H1"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_missing_decision_section_raises(self) -> None:
         text = (
@@ -363,7 +362,7 @@ class TestNegativeValidation:
             "Some prose but no `## Decision` heading.\n"
         )
         with pytest.raises(ValueError, match="missing `## Decision`"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_rationale_heading_alone_raises(self) -> None:
         """`## Rationale` is legacy — parser does not accept it."""
@@ -376,7 +375,7 @@ class TestNegativeValidation:
             "## Rationale\n\nLegacy prose.\n"
         )
         with pytest.raises(ValueError, match="missing `## Decision`"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_reasonless_rejected_on_active_raises(self) -> None:
         """An active decision cannot have reasonless rejected alternatives."""
@@ -392,7 +391,7 @@ class TestNegativeValidation:
             "### B\n"  # no reason below
         )
         with pytest.raises(ValidationError, match="without reasons"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_superseded_without_superseded_by_raises(self) -> None:
         text = (
@@ -405,7 +404,7 @@ class TestNegativeValidation:
             "## Decision\n\nOld decision.\n"
         )
         with pytest.raises(ValidationError, match="superseded_by"):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
     def test_extra_frontmatter_key_raises(self) -> None:
         """extra='forbid' on Decision means typos fail loudly."""
@@ -419,50 +418,52 @@ class TestNegativeValidation:
             "## Decision\n\nSomething.\n"
         )
         with pytest.raises(ValidationError):
-            parse_decision_v2(text, "001-test.md")
+            parse_decision(text, "001-test.md")
 
 
 # ── Model-level construction tests (no parsing) ──
 
 
-class TestDecisionConstruction:
-    def _minimal(self, **overrides: object) -> Decision:
-        kwargs: dict[str, object] = {
-            "date": date(2026, 4, 1),
-            "confidence": DecisionConfidence.high,
-            "num": 1,
-            "title": "Test",
-            "rationale": "Chose A.",
-        }
-        kwargs.update(overrides)
-        return Decision(**kwargs)  # type: ignore[arg-type]
+def _minimal_decision(**overrides: object) -> Decision:
+    """Build a Decision with the minimum required fields, overrides applied."""
+    kwargs: dict[str, object] = {
+        "date": date(2026, 4, 1),
+        "confidence": DecisionConfidence.high,
+        "num": 1,
+        "title": "Test",
+        "rationale": "Chose A.",
+    }
+    kwargs.update(overrides)
+    return Decision(**kwargs)  # type: ignore[arg-type]
 
+
+class TestDecisionConstruction:
     def test_superseded_with_ref_ok(self) -> None:
-        d = self._minimal(
+        d = _minimal_decision(
             status=DecisionStatus.superseded,
-            superseded_by="042-new-choice",
+            superseded_by="42",
         )
         assert d.status is DecisionStatus.superseded
-        assert d.superseded_by == "042-new-choice"
+        assert d.superseded_by == "42"
 
     def test_source_import_serializes_correctly(self) -> None:
-        d = self._minimal(source=DecisionSource.import_)
+        d = _minimal_decision(source=DecisionSource.import_)
         dumped = d.model_dump(mode="json")
         assert dumped["source"] == "import"
 
     def test_all_decision_types_accepted(self) -> None:
         for dt in DecisionType:
-            d = self._minimal(decision_type=dt)
+            d = _minimal_decision(decision_type=dt)
             assert d.decision_type is dt
 
     def test_all_reversibilities_accepted(self) -> None:
         for r in Reversibility:
-            d = self._minimal(reversibility=r)
+            d = _minimal_decision(reversibility=r)
             assert d.reversibility is r
 
     def test_all_sources_accepted(self) -> None:
         for s in DecisionSource:
-            d = self._minimal(source=s)
+            d = _minimal_decision(source=s)
             assert d.source is s
 
     def test_rejected_alternative_requires_name(self) -> None:
@@ -472,3 +473,41 @@ class TestDecisionConstruction:
     def test_rejected_alternative_reason_optional(self) -> None:
         r = RejectedAlternative(name="Thing")
         assert r.reason is None
+
+
+class TestSupersessionRefValidator:
+    """The supersedes / superseded_by validator: plain integer string only.
+
+    Convention is "70", not "070" or "070-some-slug" or "D70". The prior
+    session's D69/D70/D105 backfill standardized on this form, and
+    writer.supersede_decision now canonicalizes filename stems before
+    writing. The model-level validator is the backstop.
+    """
+
+    def test_plain_integer_accepted(self) -> None:
+        d = _minimal_decision(supersedes="70")
+        assert d.supersedes == "70"
+
+    def test_none_accepted(self) -> None:
+        d = _minimal_decision(supersedes=None, superseded_by=None)
+        assert d.supersedes is None
+        assert d.superseded_by is None
+
+    def test_leading_zeros_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="leading zeros"):
+            _minimal_decision(supersedes="070")
+
+    def test_filename_stem_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="plain integer string"):
+            _minimal_decision(supersedes="42-some-slug")
+
+    def test_d_prefix_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="plain integer string"):
+            _minimal_decision(supersedes="D70")
+
+    def test_validator_applies_to_superseded_by_too(self) -> None:
+        with pytest.raises(ValidationError, match="leading zeros"):
+            _minimal_decision(
+                status=DecisionStatus.superseded,
+                superseded_by="070",
+            )
