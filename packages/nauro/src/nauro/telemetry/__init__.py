@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import Any
 
 from nauro.constants import NAURO_TELEMETRY_ENV
-from nauro.store.config import get_telemetry_config
+from nauro.store.config import get_telemetry_config, load_config, save_config
 from nauro.telemetry.client import _resolve_project_key, get_client
 
 logger = logging.getLogger("nauro.telemetry")
@@ -61,6 +62,23 @@ def capture(event_name: str, properties: dict[str, Any] | None = None) -> None:
         )
     except Exception:
         logger.debug("telemetry capture failed", exc_info=True)
+
+
+def _rotate_anonymous_id() -> str:
+    """Mint a fresh UUID4 anonymous_id, persist it, leave consent fields untouched.
+
+    Used by ``nauro telemetry reset`` and (in Phase 1c) by identify_logout(). The
+    rotation is application-side only — PostHog's Python SDK is stateless w.r.t.
+    identity, so subsequent capture() calls will pick up the new id via
+    _get_distinct_id() without any SDK reset.
+    """
+    new_id = str(uuid.uuid4())
+    data = load_config()
+    section = data.get("telemetry") or {}
+    section["anonymous_id"] = new_id
+    data["telemetry"] = section
+    save_config(data)
+    return new_id
 
 
 def identify_login(user_id: str) -> None:

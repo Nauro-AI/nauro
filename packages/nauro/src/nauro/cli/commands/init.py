@@ -24,7 +24,11 @@ from pathlib import Path
 import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL
-from nauro.constants import REPO_CONFIG_MODE_CLOUD, REPO_CONFIG_MODE_LOCAL
+from nauro.constants import (
+    REGISTRY_SCHEMA_VERSION_V2,
+    REPO_CONFIG_MODE_CLOUD,
+    REPO_CONFIG_MODE_LOCAL,
+)
 from nauro.store.registry import (
     add_repo_v2,
     find_projects_by_name_v2,
@@ -33,6 +37,8 @@ from nauro.store.registry import (
 )
 from nauro.store.repo_config import save_repo_config
 from nauro.sync.cloud_projects import CloudProjectError, create_project
+from nauro.telemetry import capture
+from nauro.telemetry.events import project_created
 from nauro.templates.scaffolds import scaffold_project_store
 
 logger = logging.getLogger("nauro.cli.init")
@@ -112,6 +118,7 @@ def init(
         except ValueError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=1)
+        capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
         for rp in repo_paths:
             save_repo_config(
                 rp,
@@ -141,6 +148,7 @@ def init(
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1)
+    capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
     for rp in repo_paths:
         save_repo_config(
             rp,
