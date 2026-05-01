@@ -19,7 +19,7 @@ def _version_callback(value: bool) -> None:
 
 app = typer.Typer(
     name="nauro",
-    help="Local CLI for managing versioned project context for AI coding agents.",
+    help="Set your project's direction once; every connected AI agent inherits it.",
     no_args_is_help=True,
 )
 
@@ -35,7 +35,7 @@ def main(
         help="Show version and exit.",
     ),
 ) -> None:
-    """Local CLI for managing versioned project context for AI coding agents."""
+    """Set your project's direction once; every connected AI agent inherits it."""
 
 
 def _register_commands() -> None:

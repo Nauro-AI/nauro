@@ -1,126 +1,44 @@
 # Nauro
 
-Persistent project context for AI coding agents.
+Set the vision once. Every agent inherits it.
 
-Nauro maintains versioned project context (decisions, state, open questions) and delivers it to Claude, Perplexity, ChatGPT, Cursor, and any MCP client. Think `git log` for *why* your project is the way it is.
+Set your project's direction once — goals, decisions, rejected paths — and every connected agent inherits it. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
 
 ## Install
 
 ```bash
-pipx install nauro
-```
-
-Or with pip:
-
-```bash
-pip install nauro
+pipx install nauro   # or: pip install nauro
 ```
 
 Requires Python 3.11+.
 
 ## Quickstart
 
-### Try the demo locally (1 minute)
-
 ```bash
 nauro init --demo
-nauro setup claude-code
+nauro setup claude-code   # writes the MCP entry to ~/.claude/settings.json
 ```
 
 Open Claude Code and ask:
 
-> "What did we decide about the database?"
+> "Check if we should add a WebSocket endpoint for live task updates"
 
-The demo creates a sample project with three decisions, project state, and open questions. No account needed.
+The demo creates a sample project with 7 decisions, project state, and open questions. `check_decision` surfaces a conflict: the team already chose SSE over WebSocket because persistent connections weren't released during ECS rolling deploys. No account needed.
 
-### Try it across surfaces (2 minutes)
-
-To access the same project context from Claude AI, Perplexity, or ChatGPT:
-
-```bash
-nauro auth login
-nauro sync
-```
-
-Then add `mcp.nauro.ai` as a remote MCP connector in your tool's settings. Ask the same question — same answers, different surface.
-
-### Use with your project
-
-```bash
-# Register your project
-nauro init my-project
-
-# Log a decision directly
-nauro note "Chose Postgres over MongoDB for ACID compliance"
-
-# Set your Anthropic API key to auto-extract decisions from commits
-nauro config set api_key sk-ant-...
-nauro extract
-```
+For real-project setup, cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme).
 
 ## Why Nauro?
 
-| Approach | Cross-tool | Extracted from commits | Versioned | Format |
-|---|---|---|---|---|
-| **Nauro** | All MCP clients | Yes (via Haiku) | Snapshots + diffs | Portable markdown |
-| AGENTS.md (manual) | Tools with repo access | No | Git history only | Markdown |
-| Cursor Rules | Cursor only | No | No | Proprietary |
-| Claude Memory | Claude only | Partial | No | Proprietary |
+Memory tools record what agents saw and said. Nauro captures what you decided and rejected, then checks every session against those decisions before they drift.
 
-`check_decision` catches when a new approach conflicts with a past decision, across any connected surface.
-
-## How it works
-
-A Python CLI extracts decisions from your git history using Haiku, stores them as flat markdown in `~/.nauro/projects/`, and validates new decisions against existing ones (structural screening, embedding similarity, LLM evaluation). An MCP server delivers context to any connected AI tool. Cloud sync keeps everything in sync via S3.
-
-```
-~/.nauro/projects/<n>/
-  project.md          # goals, constraints
-  state.md            # current focus, blockers
-  decisions/          # one markdown file per decision
-  open-questions.md   # unresolved threads
-  snapshots/          # versioned store captures
-```
-
-All content is plain markdown. No database, no proprietary format.
-
-## MCP tools
-
-11 tools (7 read, 4 write) exposed to any connected MCP client:
-
-**Read:**
-- `get_context` — project summary at three detail levels (L0/L1/L2)
-- `list_decisions` — browse the full decision history
-- `get_decision` — full content of a specific decision by number
-- `search_decisions` — keyword search across decision titles and rationale
-- `get_raw_file` — raw markdown content of any store file
-- `diff_since_last_session` — what changed since your last session (or N days ago)
-- `check_decision` — check a proposed approach for conflicts without writing
-
-**Write:**
-- `propose_decision` / `confirm_decision` — write decisions with conflict validation
-- `flag_question` — flag an unresolved question
-- `update_state` — report progress
-
-## Your data
-
-**Local extraction (free tier):** Code diffs go directly from your machine to your Anthropic API key. Nauro is never in the data path.
-
-**Cloud sync:** Project context (decisions, state, open questions — not source code) is stored encrypted in AWS S3 (SSE-S3). Each user's data is isolated under a unique prefix.
-
-**Remote MCP:** When connected, your project context is read from S3 and delivered to the AI tool. The AI tool's own data policies apply after delivery.
+The `check_decision` → `propose_decision` → `confirm_decision` pipeline catches conflicts before they're written, across any connected surface. Decisions made in Claude Code are validated in Perplexity. No platform vendor owns your context.
 
 ## Pricing
 
-Free tier: unlimited local usage + 100 remote MCP calls/month. Pro ($9/mo) adds unlimited remote MCP and hosted extraction.
+Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. See [nauro.ai/pricing](https://nauro.ai/pricing) for hosted tiers.
 
-## Contributing
+---
 
-Contributions welcome. See the project structure in [CLAUDE.md](CLAUDE.md) for architecture context.
+Apache 2.0 license. Part of the [nauro-ai/nauro](https://github.com/nauro-ai/nauro) monorepo.
 
-```bash
-pip install -e ".[dev]"
-pytest tests/ -x -q -m "not integration"
-```
-
-870+ tests across [nauro](https://github.com/nauro-ai/nauro), [nauro-core](https://github.com/nauro-ai/nauro-core), and [mcp-server](https://github.com/nauro-ai/mcp-server). Apache 2.0 license.
+Named for Peter Naur, whose 1985 paper *Programming as Theory Building* argued the real program is the theory in the programmer's mind, not the code. Every fresh agent session is the equivalent of losing that programmer.
