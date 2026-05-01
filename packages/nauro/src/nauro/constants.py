@@ -99,6 +99,9 @@ HOOK_END_MARKER = "# --- nauro post-commit hook end ---"
 # ── Schema versioning ──
 SCHEMA_VERSION = 1
 
+# ── Telemetry ──
+TELEMETRY_CONSENT_VERSION = 1
+
 # ── Repo-local config (.nauro/config.json inside each repo) ──
 REPO_CONFIG_DIR = ".nauro"
 REPO_CONFIG_FILENAME = "config.json"
