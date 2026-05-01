@@ -7,6 +7,7 @@ all subcommands: init, note, sync, log, diff, import, extract, hook, serve, conf
 import typer
 
 from nauro.store.config import apply_config_to_env
+from nauro.telemetry import consent
 
 
 def _version_callback(value: bool) -> None:
@@ -36,6 +37,7 @@ def main(
     ),
 ) -> None:
     """Set your project's direction once; every connected AI agent inherits it."""
+    consent.maybe_prompt()
 
 
 def _register_commands() -> None:
