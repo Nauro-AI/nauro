@@ -10,9 +10,16 @@ Respects NAURO_HOME env var override (defaults to ~/.nauro/).
 import json
 import logging
 import os
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
-from nauro.constants import CONFIG_FILENAME, DEFAULT_NAURO_HOME, NAURO_HOME_ENV
+from nauro.constants import (
+    CONFIG_FILENAME,
+    DEFAULT_NAURO_HOME,
+    NAURO_HOME_ENV,
+    NAURO_TELEMETRY_ENV,
+)
 
 logger = logging.getLogger("nauro.config")
 
@@ -82,3 +89,46 @@ def apply_config_to_env() -> None:
         value = data.get(config_key)
         if value and env_var not in os.environ:
             os.environ[env_var] = value
+
+
+_TELEMETRY_KEY = "telemetry"
+
+
+@dataclass(frozen=True)
+class TelemetryConfig:
+    anonymous_id: str
+    enabled: bool | None
+    consent_version: int | None
+    consented_at: str | None
+
+
+def get_telemetry_config() -> TelemetryConfig:
+    """Read telemetry section, generating anonymous_id on first call.
+
+    Applies NAURO_TELEMETRY=0 env override at read time without mutating disk.
+    """
+    data = load_config()
+    section = data.get(_TELEMETRY_KEY) or {}
+
+    anonymous_id = section.get("anonymous_id")
+    if not anonymous_id:
+        # anonymous_id is generated and persisted before consent so Phase 1
+        # can attach the consent record to a stable identity that already exists.
+        anonymous_id = str(uuid.uuid4())
+        section["anonymous_id"] = anonymous_id
+        section.setdefault("enabled", None)
+        section.setdefault("consent_version", None)
+        section.setdefault("consented_at", None)
+        data[_TELEMETRY_KEY] = section
+        save_config(data)
+
+    enabled = section.get("enabled")
+    if os.environ.get(NAURO_TELEMETRY_ENV) == "0":
+        enabled = False
+
+    return TelemetryConfig(
+        anonymous_id=anonymous_id,
+        enabled=enabled,
+        consent_version=section.get("consent_version"),
+        consented_at=section.get("consented_at"),
+    )
