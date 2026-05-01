@@ -1,8 +1,8 @@
 # Nauro
 
-Set the vision once. Every agent inherits it.
+Set the direction once. Every agent inherits it.
 
-Set your project's direction once — goals, decisions, rejected paths — and every connected agent inherits it. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
+Your project's direction — goals, decisions, rejected paths — is inherited by every connected agent. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
 
 ## Install
 
