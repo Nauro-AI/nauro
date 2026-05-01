@@ -1,12 +1,14 @@
 # Nauro
 
-Set the vision once. Every agent inherits it.
+Decide once. Every agent inherits it.
 
-Set your project's direction once — goals, decisions, rejected paths — and every connected agent inherits it. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
+Every project decision — what you chose, what you rejected, and why — is inherited by every connected agent. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
 
 ## The problem
 
-Agents don't see what you've already decided or rejected. Approaches that failed last month look reasonable in isolation and get proposed again. The context resets; the drift doesn't.
+New session. The agent knows nothing. You re-explain the architecture, re-surface decisions, correct suggestions you already ruled out. Or worse, with multiple agents running in parallel, nobody catches the drift at all.
+
+Approaches that failed last month look reasonable in isolation and get proposed again. The context resets; the drift doesn't.
 
 ## Install
 
@@ -20,16 +22,11 @@ Requires Python 3.11+.
 
 ### Try the demo locally (2 minutes, no account)
 
-```bash
-nauro init --demo
-nauro setup claude-code   # writes the MCP entry to ~/.claude/settings.json
-```
+1. `nauro init --demo` — scaffold a sample project with 7 decisions, project state, and open questions.
+2. `nauro setup claude-code` — write the MCP entry to `~/.claude/settings.json`.
+3. Open Claude Code and ask: *"Check if we should add a WebSocket endpoint for live task updates"*
 
-Open Claude Code and ask:
-
-> "Check if we should add a WebSocket endpoint for live task updates"
-
-The demo creates a sample project with 7 decisions, project state, and open questions. `check_decision` surfaces a conflict: the team already chose SSE over WebSocket because persistent connections weren't released during ECS rolling deploys. No account needed.
+`check_decision` surfaces a conflict: the team already chose SSE over WebSocket because persistent connections weren't released during ECS rolling deploys. No account needed.
 
 ### Use with your project
 
@@ -55,9 +52,11 @@ nauro sync
 
 Then add `mcp.nauro.ai` as a remote MCP connector in your tool's settings. Ask the same question, same answers, different surface.
 
-## Why Nauro?
+## How it compares
 
 Memory tools record what agents saw and said. Nauro captures what you decided and rejected, then checks every session against those decisions before they drift.
+
+Nauro is the only context tool that gates new proposals against past rejections — across any MCP client.
 
 | Approach | Cross-tool | Validates against past decisions | Versioned |
 |---|---|---|---|
@@ -66,11 +65,15 @@ Memory tools record what agents saw and said. Nauro captures what you decided an
 | Cursor Rules | Cursor only | No | No |
 | ADRs in-repo | Tools with repo access | Manual | Git history only |
 
-The `check_decision` → `propose_decision` → `confirm_decision` pipeline catches conflicts before they're written, across any connected surface. Decisions made in Claude Code are validated in Perplexity. No platform vendor owns your context.
+The `check_decision` → `propose_decision` → `confirm_decision` pipeline catches conflicts before they're written, across any connected surface. Decisions made in Claude Code are validated in Perplexity. Your decisions stay yours, not your platform's.
 
 ## How it works
 
-Agents propose decisions through MCP during sessions. You can also log decisions from the terminal with `nauro note` or bootstrap from git history with `nauro extract`. Everything is stored as flat markdown in `~/.nauro/projects/` and validated against existing decisions (structural screening, BM25 retrieval, LLM evaluation). Cloud sync replicates the local store to S3 for cross-device and remote MCP access.
+Agents propose decisions through MCP during sessions. You can also log decisions from the terminal with `nauro note` or bootstrap from git history with `nauro extract`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
+
+One project spans many repos — the store lives in `~/.nauro/`, not inside any repo, so context follows the project across the whole codebase.
+
+Everything is stored as flat markdown in `~/.nauro/projects/` and validated against existing decisions (structural screening, BM25 retrieval, LLM evaluation). Cloud sync replicates the local store to S3 for cross-device and remote MCP access.
 
 ```
 ~/.nauro/projects/<name>/
@@ -94,18 +97,7 @@ All content is plain markdown. No database, no proprietary format.
 
 ## Pricing
 
-Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. See [nauro.ai/pricing](https://nauro.ai/pricing) for hosted tiers.
-
-## Packages
-
-This repo contains two packages:
-
-| Package | Path | PyPI |
-|---|---|---|
-| `nauro` | `packages/nauro/` | `pip install nauro` |
-| `nauro-core` | `packages/nauro-core/` | `pip install nauro-core` |
-
-`nauro-core` contains the pure-Python parsing, validation, and context assembly logic shared between the CLI and the hosted remote MCP server. Minimal dependencies (BM25 search only) so it can be used independently by third-party tools that want to read or write the Nauro decision format.
+Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. A typical agent session uses 10–30 calls, so the free tier covers roughly 200+ sessions a month. See [nauro.ai/pricing](https://nauro.ai/pricing) for hosted tiers.
 
 ## MCP tool surface
 
@@ -134,6 +126,17 @@ uv sync --all-packages --all-extras
 uv run pytest packages/nauro-core/tests/ -x -q
 uv run pytest packages/nauro/tests/ -x -q -m "not integration"
 ```
+
+## Packages
+
+This repo contains two packages:
+
+| Package | Path | PyPI |
+|---|---|---|
+| `nauro` | `packages/nauro/` | `pip install nauro` |
+| `nauro-core` | `packages/nauro-core/` | `pip install nauro-core` |
+
+`nauro-core` contains the pure-Python parsing, validation, and context assembly logic shared between the CLI and the hosted remote MCP server. Minimal dependencies (BM25 search only) so it can be used independently by third-party tools that want to read or write the Nauro decision format.
 
 ---
 
