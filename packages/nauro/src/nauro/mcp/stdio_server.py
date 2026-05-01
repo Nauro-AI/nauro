@@ -377,5 +377,8 @@ def _pull_on_startup() -> None:
 
 def run_stdio() -> None:
     """Run the MCP server over stdio (called by `nauro serve --stdio`)."""
+    from nauro.telemetry.transport import set_transport
+
+    set_transport("stdio")
     _pull_on_startup()
     mcp.run(transport="stdio")

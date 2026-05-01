@@ -38,9 +38,17 @@ def _should_emit() -> bool:
 
 
 def _get_distinct_id() -> str:
-    """Phase 1a: anonymous_id only. Phase 1c extends to user_id when logged in (D119)."""
-    cfg = get_telemetry_config()
-    return cfg.anonymous_id
+    """Resolve the PostHog distinct_id for this process.
+
+    Phase 1c (D119): prefer ``config.auth.user_id`` if logged in; otherwise the
+    anonymous_id from the telemetry section. The alias call in identify_login
+    ties pre-login anonymous events to the user_id post-login.
+    """
+    auth = load_config().get("auth") or {}
+    user_id = auth.get("user_id")
+    if user_id:
+        return user_id
+    return get_telemetry_config().anonymous_id
 
 
 def is_enabled() -> bool:
@@ -81,9 +89,42 @@ def _rotate_anonymous_id() -> str:
     return new_id
 
 
-def identify_login(user_id: str) -> None:
-    raise NotImplementedError("Implemented in Phase 1c per D119")
+def identify_login(user_id: str, email_hash: str) -> None:
+    """Merge anonymous identity into user_id on login (D119).
+
+    Order is load-bearing: alias(previous_id=anonymous_id, distinct_id=user_id)
+    FIRST, then set(distinct_id=user_id, properties={"email_hash"}). Reversed
+    alias args alias the identified user back to the anonymous id and split
+    future events across two distinct_ids in PostHog — silently corrupts
+    analytics. Auth state (config.auth.user_id) is persisted by auth.py
+    BEFORE this call, so identify_login is purely the telemetry side.
+
+    Guarded by _should_emit() — telemetry-disabled callers no-op.
+    """
+    if not _should_emit():
+        return
+    try:
+        client = get_client()
+        if client is None:
+            return
+        cfg = get_telemetry_config()
+        client.alias(previous_id=cfg.anonymous_id, distinct_id=user_id)
+        client.set(distinct_id=user_id, properties={"email_hash": email_hash})
+    except Exception:
+        logger.debug("identify_login failed", exc_info=True)
 
 
 def identify_logout() -> None:
-    raise NotImplementedError("Implemented in Phase 1c per D119")
+    """Rotate anonymous_id on logout (D119) — no SDK reset.
+
+    posthog.reset() is a JS-SDK API; the Python SDK 7.x has no such method
+    (every capture() takes an explicit distinct_id, so identity is stateless
+    on the SDK side). Identity reset is application-side rotation only —
+    the next capture() re-resolves through _get_distinct_id() which now
+    returns the new anonymous_id (because config.auth.user_id is gone).
+
+    auth.py clears config.auth AFTER this call. Consent fields
+    (enabled, consent_version, consented_at) are preserved by
+    _rotate_anonymous_id().
+    """
+    _rotate_anonymous_id()

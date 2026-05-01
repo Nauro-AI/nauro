@@ -52,6 +52,21 @@ logger = logging.getLogger("nauro.mcp")
 app = FastAPI(title="Nauro MCP Server", version="0.2.0")
 
 
+@app.middleware("http")
+async def _telemetry_transport_middleware(request, call_next):
+    """Set transport='http' for the duration of this request.
+
+    Per D117 / Phase 1c T1.5, the mcp.tool_called event reads transport from
+    a ContextVar. Each FastAPI request runs in its own asyncio Task, which
+    gets a copy of the parent's context — so set_transport here is scoped to
+    this request and cannot leak to other transports.
+    """
+    from nauro.telemetry.transport import set_transport
+
+    set_transport("http")
+    return await call_next(request)
+
+
 # --- Request models ---
 
 
