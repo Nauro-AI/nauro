@@ -40,6 +40,7 @@ from nauro.store.reader import (
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.writer import append_question
 from nauro.store.writer import update_state as _write_state
+from nauro.telemetry.decorators import mcp_tool
 from nauro.validation.pipeline import confirm_write, validate_proposed_write
 from nauro.validation.tier2 import check_similarity
 from nauro.validation.tier3 import check_conflicts_with_llm
@@ -95,6 +96,7 @@ def _coerce_level(level: int | str) -> int:
     return level
 
 
+@mcp_tool("get_context")
 def tool_get_context(store_path: Path, level: int | str) -> str:
     """Return project context at the requested detail level."""
     guidance = _check_store_exists(store_path)
@@ -111,6 +113,7 @@ def tool_get_context(store_path: Path, level: int | str) -> str:
     return result
 
 
+@mcp_tool("propose_decision")
 def tool_propose_decision(
     store_path: Path,
     title: str,
@@ -175,6 +178,7 @@ def tool_propose_decision(
     return response
 
 
+@mcp_tool("confirm_decision")
 def tool_confirm_decision(store_path: Path, confirm_id: str) -> dict:
     """Confirm a previously proposed decision."""
     guidance = _check_store_exists(store_path)
@@ -187,6 +191,7 @@ def tool_confirm_decision(store_path: Path, confirm_id: str) -> dict:
     return response
 
 
+@mcp_tool("check_decision")
 def tool_check_decision(
     store_path: Path,
     proposed_approach: str,
@@ -261,6 +266,7 @@ def tool_check_decision(
     }
 
 
+@mcp_tool("flag_question")
 def tool_flag_question(
     store_path: Path,
     question: str,
@@ -306,6 +312,7 @@ def tool_flag_question(
     return response
 
 
+@mcp_tool("get_raw_file")
 def tool_get_raw_file(store_path: Path, path: str) -> dict:
     """Return raw content of any file in the project store."""
     guidance = _check_store_exists(store_path)
@@ -331,6 +338,7 @@ def tool_get_raw_file(store_path: Path, path: str) -> dict:
     return {"store": "local", "content": file_path.read_text()}
 
 
+@mcp_tool("list_decisions")
 def tool_list_decisions(
     store_path: Path,
     limit: int = 20,
@@ -359,6 +367,7 @@ def tool_list_decisions(
     return {"store": "local", "decisions": items}
 
 
+@mcp_tool("get_decision")
 def tool_get_decision(store_path: Path, number: int) -> dict:
     """Return full content of a specific decision by number."""
     guidance = _check_store_exists(store_path)
@@ -373,6 +382,7 @@ def tool_get_decision(store_path: Path, number: int) -> dict:
     return {"store": "local", "error": f"Decision {number} not found"}
 
 
+@mcp_tool("diff_since_last_session")
 def tool_diff_since_last_session(
     store_path: Path,
     days: int | None = None,
@@ -385,6 +395,7 @@ def tool_diff_since_last_session(
     return {"store": "local", "diff": diff}
 
 
+@mcp_tool("search_decisions")
 def tool_search_decisions(
     store_path: Path,
     query: str,
@@ -397,6 +408,7 @@ def tool_search_decisions(
     return search_decisions(store_path, query, limit)
 
 
+@mcp_tool("update_state")
 def tool_update_state(store_path: Path, delta: str) -> dict:
     """Update current project state. Returns a warning on keyword overlap."""
     guidance = _check_store_exists(store_path)

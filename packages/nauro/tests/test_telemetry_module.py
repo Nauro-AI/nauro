@@ -156,15 +156,5 @@ def test_get_distinct_id_returns_anonymous_id(nauro_home):
     assert _get_distinct_id() == aid
 
 
-def test_identify_login_raises_not_implemented():
-    from nauro.telemetry import identify_login
-
-    with pytest.raises(NotImplementedError, match="Phase 1c"):
-        identify_login("auth0|123")
-
-
-def test_identify_logout_raises_not_implemented():
-    from nauro.telemetry import identify_logout
-
-    with pytest.raises(NotImplementedError, match="Phase 1c"):
-        identify_logout()
+# Phase 1c — identify_login / identify_logout are implemented now.
+# Comprehensive coverage lives in tests/test_identity_lifecycle.py.
