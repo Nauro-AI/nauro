@@ -67,8 +67,9 @@ MAX_APPROACH_LENGTH = 5_000
 # per-user project section via build_remote_instructions() in instructions.py.
 # MCP_INSTRUCTIONS remains as a backward-compatible alias.
 MCP_INSTRUCTIONS_STATIC = """\
-Nauro is the project's decision memory. Use it to check past decisions \
-before committing to an approach, and to record new decisions as you make them.
+Nauro carries this project's direction across every agent session. \
+Use it to check past decisions before adopting an approach, and to record \
+new decisions as you make them.
 
 ## When to check decisions
 

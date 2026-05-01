@@ -1,8 +1,8 @@
 # Nauro
 
-Give every AI agent your project's theory: the decisions, rationale, and rejected paths.
+Set the vision once. Every agent inherits it.
 
-Nauro maintains versioned project context and delivers it to Claude, Perplexity, ChatGPT, Cursor, and any MCP client. When an agent proposes an approach that conflicts with a past decision, Nauro catches it before the drift happens.
+Set your project's direction once — goals, decisions, rejected paths — and every connected agent inherits it. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
 
 ## The problem
 
@@ -66,7 +66,7 @@ Memory tools record what agents saw and said. Nauro captures what you decided an
 | Cursor Rules | Cursor only | No | No |
 | ADRs in-repo | Tools with repo access | Manual | Git history only |
 
-The `propose_decision` → `confirm_decision` → `check_decision` pipeline catches conflicts across any connected surface. Decisions made in Claude Code are validated in Perplexity. No platform vendor owns your context.
+The `check_decision` → `propose_decision` → `confirm_decision` pipeline catches conflicts before they're written, across any connected surface. Decisions made in Claude Code are validated in Perplexity. No platform vendor owns your context.
 
 ## How it works
 
@@ -112,13 +112,13 @@ This repo contains two packages:
 11 tools (7 read, 4 write) exposed to any connected MCP client:
 
 **Read:**
+- `check_decision` — check a proposed approach for conflicts without writing (the centerpiece — call this before any architectural change)
 - `get_context` — project summary at three detail levels (L0/L1/L2)
 - `list_decisions` — browse the full decision history
 - `get_decision` — full content of a specific decision by number
 - `search_decisions` — keyword search across decision titles and rationale (BM25)
 - `get_raw_file` — raw markdown content of any store file
 - `diff_since_last_session` — what changed since your last session (or N days ago)
-- `check_decision` — check a proposed approach for conflicts without writing
 
 **Write:**
 - `propose_decision` / `confirm_decision` — write decisions with conflict validation

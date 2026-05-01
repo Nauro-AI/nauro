@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "nauro"
 version = "0.1.1"
-description = "Local CLI + MCP server that maintains versioned project context for AI coding agents."
+description = "Local CLI + MCP server: set your project's direction once, every connected AI agent inherits it."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
