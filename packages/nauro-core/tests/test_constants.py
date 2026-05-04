@@ -9,6 +9,7 @@ from nauro_core.constants import (
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
     L1_DECISIONS_SUMMARY_LIMIT,
+    MCP_INSTRUCTIONS_STATIC,
     MIN_RATIONALE_LENGTH,
     OPEN_QUESTIONS_MD,
     PROJECT_MD,
@@ -65,3 +66,23 @@ class TestFilenames:
 
     def test_decision_hashes_file_is_json(self):
         assert DECISION_HASHES_FILE.endswith(".json")
+
+
+class TestMcpInstructions:
+    def test_check_decision_section_is_a_precondition(self):
+        """The check_decision guidance must explicitly forbid the skip-on-rejection
+        loophole. A competent agent with a strong premise to attack can otherwise
+        reason past the tool entirely.
+        """
+        assert "precondition, not an option" in MCP_INSTRUCTIONS_STATIC
+        assert "first-principles reasoning is not a substitute" in MCP_INSTRUCTIONS_STATIC
+
+    def test_check_decision_triggers_on_rejection_too(self):
+        """The directive must apply even when the agent intends to push back —
+        not only when it intends to adopt the proposed approach.
+        """
+        assert "push back" in MCP_INSTRUCTIONS_STATIC
+
+    def test_check_decision_lists_vendor_swap(self):
+        """Vendor swaps are a common conflict surface (e.g. S3 ↔ R2)."""
+        assert "vendor swap" in MCP_INSTRUCTIONS_STATIC

@@ -9,6 +9,10 @@ from nauro_core.instructions import (
 )
 from nauro_core.mcp_tools import ALL_TOOLS, get_tool_spec
 
+# Real-shaped 26-char ULIDs for the inline-rendering tests.
+ULID_ALPHA = "01AAAAAAAAAAAAAAAAAAAAAAAA"
+ULID_BETA = "01HZZZZZZZZZZZZZZZZZZZZZZZ"
+
 EXPECTED_TOOL_NAMES = {
     "get_context",
     "get_raw_file",
@@ -67,7 +71,13 @@ class TestSpecShape:
 
     @pytest.mark.parametrize("spec", ALL_TOOLS, ids=lambda s: s["name"])
     def test_project_id_param(self, spec):
-        """Every tool except list_projects must require a `project_id`."""
+        """Every non-list_projects tool exposes an OPTIONAL `project_id`.
+
+        The server resolves the user's project automatically when only one
+        exists; the parameter is for explicit selection in the multi-project
+        case. It must therefore be in `properties` (so agents can pass it)
+        but never in `required`.
+        """
         props = spec["input_schema"]["properties"]
         required = spec["input_schema"].get("required", [])
         if spec["name"] == "list_projects":
@@ -75,7 +85,10 @@ class TestSpecShape:
             assert required == []
         else:
             assert "project_id" in props, f"{spec['name']} is missing `project_id`"
-            assert "project_id" in required, f"{spec['name']} must require `project_id`"
+            assert "project_id" not in required, (
+                f"{spec['name']} must NOT require `project_id` — "
+                "the server auto-resolves single-project users."
+            )
 
     @pytest.mark.parametrize("spec", ALL_TOOLS, ids=lambda s: s["name"])
     def test_closed_world(self, spec):
@@ -121,14 +134,20 @@ class TestGetContextLevel:
         assert level["enum"] == ["L0", "L1", "L2"]
 
 
-class TestProjectIdRequirement:
-    def test_all_tools_require_project_id_except_list_projects(self):
+class TestProjectIdOptional:
+    def test_no_tool_requires_project_id(self):
+        """Server-side default resolution makes project_id optional everywhere."""
         for spec in ALL_TOOLS:
             required = spec["input_schema"].get("required", [])
-            if spec["name"] == "list_projects":
-                assert required == [], "list_projects must have no required parameters"
-            else:
-                assert "project_id" in required, f"{spec['name']} must require project_id"
+            assert "project_id" not in required, f"{spec['name']} must NOT require project_id"
+
+    def test_param_description_mentions_auto_resolve(self):
+        """_PROJECT_PARAM description must signal that the server resolves."""
+        # Pull from any non-list_projects tool — they all share _PROJECT_PARAM.
+        spec = get_tool_spec("check_decision")
+        desc = spec["input_schema"]["properties"]["project_id"]["description"]
+        assert "Optional" in desc
+        assert "resolves" in desc or "auto-resolve" in desc
 
     def test_list_projects_in_all_tools(self):
         names = {spec["name"] for spec in ALL_TOOLS}
@@ -149,20 +168,51 @@ class TestBuildRemoteInstructions:
         assert STATIC in result
         assert WELCOME_NO_PROJECT in result
 
-    def test_inline(self):
+    def test_one_project_orientation_only(self):
+        """Single-project users get a name-only orientation line — no ULID.
+
+        Auto-resolve handles dispatch, so rendering the project_id is just
+        noise (and was the source of the historical truncation bug).
+        """
+        projects = [{"project_id": ULID_ALPHA, "name": "nauro"}]
+        result = build_remote_instructions(STATIC, projects)
+        assert STATIC in result
+        assert "nauro" in result, "project name must appear for orientation"
+        assert ULID_ALPHA not in result, "single-project rendering must NOT include the ULID"
+        assert "auto-resolve" in result or "automatically" in result or "auto" in result
+        # The old "Pass the matching project_id" directive is gone.
+        assert "Pass the matching project_id" not in result
+
+    def test_two_projects_emits_full_ulids(self):
+        """Regression: the multi-project branch renders full 26-char ULIDs.
+
+        Previously it emitted `project_id[:8]` for every project (including
+        the single-project case) — the truncated form failed server-side
+        ULID validation. Full ULIDs are unambiguous.
+        """
         projects = [
-            {"project_id": "01HZZZZZZZZZZZZZZZZZZZZZZ1", "name": "Beta"},
-            {"project_id": "01AAAAAAAAAAAAAAAAAAAAAAA1", "name": "alpha"},
+            {"project_id": ULID_BETA, "name": "Beta"},
+            {"project_id": ULID_ALPHA, "name": "alpha"},
         ]
         result = build_remote_instructions(STATIC, projects)
         assert "Beta" in result
         assert "alpha" in result
-        assert "01AAAAAA" in result
-        assert "01HZZZZZ" in result
+        assert ULID_ALPHA in result, "full alpha ULID must be present"
+        assert ULID_BETA in result, "full beta ULID must be present"
         # alpha sorts before Beta (case-insensitive name)
         assert result.index("alpha") < result.index("Beta")
         # Inline form must NOT mention list_projects (no overflow hint)
         assert "Call list_projects" not in result
+
+    def test_two_projects_directive_requires_explicit_id(self):
+        """Multi-project rendering must tell the agent disambiguation is required."""
+        projects = [
+            {"project_id": ULID_ALPHA, "name": "alpha"},
+            {"project_id": ULID_BETA, "name": "beta"},
+        ]
+        result = build_remote_instructions(STATIC, projects)
+        assert "explicit project_id" in result
+        assert "Pass the matching project_id" not in result
 
     def test_overflow(self):
         projects = [

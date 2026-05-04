@@ -42,8 +42,9 @@ class ToolSpec(TypedDict):
 _PROJECT_PARAM: dict[str, Any] = {
     "type": "string",
     "description": (
-        "Project ID (ULID). Required for every tool except list_projects. "
-        "Call list_projects to discover the IDs available to the current user."
+        "Optional. If you have one project, the server resolves it "
+        "automatically. Pass explicitly if you have multiple — call "
+        "list_projects to discover the IDs available to the current user."
     ),
 }
 
@@ -90,7 +91,7 @@ GET_CONTEXT: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["project_id"],
+        "required": [],
     },
 }
 
@@ -121,7 +122,7 @@ GET_RAW_FILE: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["path", "project_id"],
+        "required": ["path"],
     },
 }
 
@@ -149,7 +150,7 @@ LIST_DECISIONS: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["project_id"],
+        "required": [],
     },
 }
 
@@ -170,7 +171,7 @@ GET_DECISION: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["number", "project_id"],
+        "required": ["number"],
     },
 }
 
@@ -198,7 +199,7 @@ DIFF_SINCE_LAST_SESSION: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["project_id"],
+        "required": [],
     },
 }
 
@@ -235,7 +236,7 @@ SEARCH_DECISIONS: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["query", "project_id"],
+        "required": ["query"],
     },
 }
 
@@ -271,7 +272,7 @@ CHECK_DECISION: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["proposed_approach", "project_id"],
+        "required": ["proposed_approach"],
     },
 }
 
@@ -355,7 +356,7 @@ PROPOSE_DECISION: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["title", "rationale", "project_id"],
+        "required": ["title", "rationale"],
     },
 }
 
@@ -380,7 +381,7 @@ CONFIRM_DECISION: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["confirm_id", "project_id"],
+        "required": ["confirm_id"],
     },
 }
 
@@ -412,7 +413,7 @@ FLAG_QUESTION: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["question", "project_id"],
+        "required": ["question"],
     },
 }
 
@@ -438,20 +439,20 @@ UPDATE_STATE: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["delta", "project_id"],
+        "required": ["delta"],
     },
 }
 
-# list_projects is the only tool that does not take a project_id — it is the
-# discovery entry point users (and Claude) call before any other tool can run.
-# Treat the exemption as deliberate: every other spec requires "project_id".
+# list_projects is the discovery entry point. Other tools resolve the user's
+# project automatically when only one exists; agents only need to call
+# list_projects when they have multiple projects and must disambiguate.
 LIST_PROJECTS: ToolSpec = {
     "name": "list_projects",
     "title": "List projects",
     "description": (
-        "Return the projects this user has access to. The only tool that "
-        "does not require a project_id — call this first to discover the "
-        "IDs to pass to every other tool."
+        "Return the projects this user has access to. Other tools auto-resolve "
+        "to your project when you have one — call list_projects only if you "
+        "have multiple and need to pick a specific project_id to pass."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {

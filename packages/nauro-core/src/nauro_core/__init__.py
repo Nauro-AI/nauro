@@ -3,7 +3,7 @@
 Re-export facade — public API symbols from all modules.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from nauro_core.constants import (
     DECISION_HASHES_FILE as DECISION_HASHES_FILE,
