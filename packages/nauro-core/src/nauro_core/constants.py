@@ -73,12 +73,14 @@ new decisions as you make them.
 
 ## When to check decisions
 
-Before adopting any technical approach — architecture, library choice, \
-API design, data model, infrastructure — call `check_decision` with a \
-description of what you're considering. This includes when the user asks \
-"should we...", "what if we...", "can we...", or "check if...". \
-The tool surfaces conflicts with past decisions so you don't repeat \
-rejected approaches.
+Before responding to any technical change request — architecture, \
+library choice, API design, data model, infrastructure, vendor swap — \
+call `check_decision` with a description of what's being proposed. \
+This includes "should we...", "what if we...", "can we...", "check if..." \
+framings, and applies even when you intend to push back or refuse. \
+Your first-principles reasoning is not a substitute for project history; \
+`check_decision` is a precondition, not an option. The tool surfaces \
+conflicts with past decisions so you don't repeat rejected approaches.
 
 ## When to propose decisions
 
