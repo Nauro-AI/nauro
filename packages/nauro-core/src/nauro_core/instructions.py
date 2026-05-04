@@ -2,8 +2,10 @@
 
 The static instructional block (MCP_INSTRUCTIONS_STATIC) is project-agnostic.
 Remote callers append a small section listing the user's projects so Claude
-can pick a project_id without a discovery roundtrip. For users with no
-projects, WELCOME_NO_PROJECT replaces the project list with onboarding copy.
+knows which projects exist. Tools auto-resolve to the user's project when
+they have only one; the per-user section is informational + disambiguation
+hint when they have multiple. For users with no projects, WELCOME_NO_PROJECT
+replaces the project list with onboarding copy.
 """
 
 from __future__ import annotations
@@ -21,8 +23,8 @@ WELCOME_NO_PROJECT = (
     "3. Or, if a teammate already created a cloud project, run "
     "`nauro attach <project_id>` to connect this machine to it.\n"
     "\n"
-    "Once a project exists, every tool call (except list_projects) requires "
-    "its project_id."
+    "Once a project exists, tools auto-resolve to it — you do not need to "
+    "pass a project_id."
 )
 
 
@@ -37,7 +39,7 @@ def build_remote_instructions(
 
     - Empty list: append WELCOME_NO_PROJECT.
     - 1..MAX_INLINE_PROJECTS: append "Your projects:" with each rendered as
-      `name — {project_id[:8]}`, sorted by (name.lower(), project_id).
+      `name — {full project_id}`, sorted by (name.lower(), project_id).
     - More than MAX_INLINE_PROJECTS: append a count + hint to call
       list_projects, without enumerating each one.
     """
@@ -51,13 +53,16 @@ def build_remote_instructions(
         )
         lines = ["Your projects:"]
         for p in ordered:
-            lines.append(f"- {p['name']} — {p['project_id'][:8]}")
-        lines.append("\nPass the matching project_id to every tool call (except list_projects).")
+            lines.append(f"- {p['name']} — {p['project_id']}")
+        lines.append(
+            "\nTools resolve to your project automatically when you have one; "
+            "pass an explicit project_id only if you have multiple."
+        )
         return f"{static_block}\n\n" + "\n".join(lines)
 
     return (
         f"{static_block}\n\n"
         f"You have {len(projects)} projects. "
-        "Call list_projects to see them all and pick a project_id; "
-        "every tool call except list_projects requires one."
+        "Tools require an explicit project_id when multiple exist — "
+        "call list_projects to see them all and pick one."
     )
