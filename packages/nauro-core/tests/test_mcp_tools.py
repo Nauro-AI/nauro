@@ -139,9 +139,7 @@ class TestProjectIdOptional:
         """Server-side default resolution makes project_id optional everywhere."""
         for spec in ALL_TOOLS:
             required = spec["input_schema"].get("required", [])
-            assert "project_id" not in required, (
-                f"{spec['name']} must NOT require project_id"
-            )
+            assert "project_id" not in required, f"{spec['name']} must NOT require project_id"
 
     def test_param_description_mentions_auto_resolve(self):
         """_PROJECT_PARAM description must signal that the server resolves."""
@@ -180,9 +178,7 @@ class TestBuildRemoteInstructions:
         result = build_remote_instructions(STATIC, projects)
         assert STATIC in result
         assert "nauro" in result, "project name must appear for orientation"
-        assert ULID_ALPHA not in result, (
-            "single-project rendering must NOT include the ULID"
-        )
+        assert ULID_ALPHA not in result, "single-project rendering must NOT include the ULID"
         assert "auto-resolve" in result or "automatically" in result or "auto" in result
         # The old "Pass the matching project_id" directive is gone.
         assert "Pass the matching project_id" not in result
