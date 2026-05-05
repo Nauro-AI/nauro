@@ -1,8 +1,8 @@
 # Nauro
 
-Set the direction once. Every agent inherits it.
+Set the vision once. Every agent inherits it.
 
-Your project's direction — goals, decisions, rejected paths — is inherited by every connected agent. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
+Your goals, decisions, and rejected paths are inherited by every connected agent. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
 
 ## The problem
 
@@ -13,7 +13,7 @@ Approaches that failed last month look reasonable in isolation and get proposed 
 ## Install
 
 ```bash
-pipx install nauro   # or: pip install nauro
+pip install nauro   # or: pipx install nauro
 ```
 
 Requires Python 3.11+.
@@ -69,7 +69,7 @@ The `check_decision` → `propose_decision` → `confirm_decision` pipeline catc
 
 ## How it works
 
-Agents propose decisions through MCP during sessions. You can also log decisions from the terminal with `nauro note` or bootstrap from git history with `nauro extract`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
+Agents propose decisions through MCP during sessions. Decisions are proposed in collaboration with your agent and confirmed by you before anything is written — the gate is the boundary between "we discussed it" and "your project's direction has changed." You can also log decisions from the terminal with `nauro note` or bootstrap from git history with `nauro extract`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
 
 One project spans many repos — the store lives in `~/.nauro/`, not inside any repo, so context follows the project across the whole codebase.
 
