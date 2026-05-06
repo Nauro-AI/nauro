@@ -1,14 +1,26 @@
 # Nauro
 
-Set the vision once. Every agent inherits it.
+Your project has context. Every agent should inherit it.
 
-Your goals, decisions, and rejected paths are inherited by every connected agent. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
+Nauro is an open-source MCP server that gives AI agents persistent project context across tools and sessions.
 
-## The problem
+It captures a project's decisions, rejected options, rationale, constraints, current state, and open questions, then makes that context available across Claude, Perplexity, Cursor, Codex, and any MCP client.
 
-New session. The agent knows nothing. You re-explain the architecture, re-surface decisions, correct suggestions you already ruled out. Or worse, with multiple agents running in parallel, nobody catches the drift at all.
+Nauro is designed for individuals and teams using multiple agents across coding, research, planning, documentation, and product work.
 
-Approaches that failed last month look reasonable in isolation and get proposed again. The context resets; the drift doesn't.
+When an agent proposes work that conflicts with a recorded decision, Nauro surfaces the conflict before your team has to undo it.
+
+## Why Nauro
+
+Projects accumulate context. Agents start from scratch.
+
+Your project has goals, constraints, decisions, rejected options, open questions, and rationale. But every new agent session sees only a slice of that history, so you keep re-explaining the same background and correcting ideas you already ruled out.
+
+As work moves across Claude, Perplexity, Cursor, Codex, ChatGPT, and other MCP clients, the problem gets worse. A decision made in one surface may be invisible in another. An approach that failed last month can look reasonable in isolation today.
+
+The context resets. The drift does not.
+
+Nauro gives agents a shared project record, then checks new proposals against the decisions already on file.
 
 ## Install
 
@@ -20,15 +32,15 @@ Requires Python 3.11+.
 
 ## Quickstart
 
-### Try the demo locally (2 minutes, no account)
+Try the demo locally in 2 minutes — no account needed.
 
 1. `nauro init --demo` — scaffold a sample project with 7 decisions, project state, and open questions.
 2. `nauro setup claude-code` — write the MCP entry to `~/.claude/settings.json`.
 3. Open Claude Code and ask: *"Check if we should add a WebSocket endpoint for live task updates"*
 
-`check_decision` surfaces a conflict: the team already chose SSE over WebSocket because persistent connections weren't released during ECS rolling deploys. No account needed.
+`check_decision` surfaces a conflict: the team already chose SSE over WebSocket because persistent connections weren't released during ECS rolling deploys.
 
-### Use with your project
+## Use with your project
 
 ```bash
 nauro init my-project
@@ -40,7 +52,7 @@ nauro setup claude-code
 
 Agents can also propose decisions directly through MCP during sessions. To bootstrap from existing git history, set `ANTHROPIC_API_KEY` and run `nauro extract`.
 
-### Try it across surfaces
+## Use across surfaces
 
 Cross-surface access requires authenticating to the hosted MCP — your decisions live in your own S3 prefix so any tool can reach them.
 
@@ -50,22 +62,9 @@ nauro link --cloud   # one-time: promote local project to cloud
 nauro sync
 ```
 
-Then add `mcp.nauro.ai` as a remote MCP connector in your tool's settings. Ask the same question, same answers, different surface.
+Then add `https://mcp.nauro.ai/mcp` as a remote MCP connector in your tool's settings. Ask the same question, same answers, different surface.
 
-## How it compares
-
-Memory tools record what agents saw and said. Nauro captures what you decided and rejected, then checks every session against those decisions before they drift.
-
-Nauro is the only context tool that gates new proposals against past rejections — across any MCP client.
-
-| Approach | Cross-tool | Validates against past decisions | Versioned |
-|---|---|---|---|
-| **Nauro** | Any MCP client | Yes (`check_decision`) | Snapshots + diffs |
-| AGENTS.md (manual) | Tools with repo access | No | Git history only |
-| Cursor Rules | Cursor only | No | No |
-| ADRs in-repo | Tools with repo access | Manual | Git history only |
-
-The `check_decision` → `propose_decision` → `confirm_decision` pipeline catches conflicts before they're written, across any connected surface. Decisions made in Claude Code are validated in Perplexity. Your decisions stay yours, not your platform's.
+Codex users: also add `mcp_oauth_callback_port = 8765` to the top of `~/.codex/config.toml` so the OAuth callback uses a fixed port.
 
 ## How it works
 
@@ -87,6 +86,21 @@ Everything is stored as flat markdown in `~/.nauro/projects/` and validated agai
 
 All content is plain markdown. No database, no proprietary format.
 
+## How it compares
+
+Most memory tools preserve conversation history. Nauro captures what you decided and rejected, then checks every session against those decisions before they drift.
+
+Nauro is built around a different primitive: checking new proposals against past decisions before they become work you have to undo.
+
+| Approach | Cross-tool | Validates against past decisions | Versioned |
+|---|---|---|---|
+| **Nauro** | Any MCP client | Yes (`check_decision`) | Snapshots + diffs |
+| AGENTS.md (manual) | Tools with repo access | No | Git history only |
+| Cursor Rules | Cursor only | No | No |
+| ADRs in-repo | Tools with repo access | Manual | Git history only |
+
+The `check_decision` → `propose_decision` → `confirm_decision` pipeline catches conflicts before they're written, across any connected surface. Decisions made in Claude Code are validated in Perplexity. Your decisions stay yours, not your platform's.
+
 ## Your data
 
 **Local usage (free tier):** Everything runs on your machine. If you use `nauro extract`, code diffs go directly to your Anthropic API key. Nauro is never in the data path.
@@ -99,12 +113,12 @@ All content is plain markdown. No database, no proprietary format.
 
 Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. A typical agent session uses 10–30 calls, so the free tier covers roughly 200+ sessions a month. See [nauro.ai/pricing](https://nauro.ai/pricing) for hosted tiers.
 
-## MCP tool surface
+## MCP tools
 
 11 tools (7 read, 4 write) exposed to any connected MCP client:
 
 **Read:**
-- `check_decision` — check a proposed approach for conflicts without writing (the centerpiece — call this before any architectural change)
+- `check_decision` — check a proposed approach for conflicts without writing (the centerpiece — call this before work that could conflict with project direction)
 - `get_context` — project summary at three detail levels (L0/L1/L2)
 - `list_decisions` — browse the full decision history
 - `get_decision` — full content of a specific decision by number
