@@ -1,7 +1,7 @@
 """Tests for nauro log, nauro diff, and store/reader.py."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -399,7 +399,7 @@ def _backdate_snapshot(store_path: Path, version: int, days_ago: int) -> None:
     """Rewrite a snapshot's timestamp to be N days ago."""
     snap_path = store_path / SNAPSHOTS_DIR / f"v{version:03d}.json"
     data = load_snapshot(store_path, version)
-    data["timestamp"] = (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
+    data["timestamp"] = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
     snap_path.write_text(json.dumps(data, indent=2) + "\n")
 
 
@@ -430,32 +430,32 @@ def timed_store(store: Path) -> Path:
 
 class TestFindSnapshotNearDate:
     def test_finds_exact_match(self, timed_store: Path):
-        target = datetime.now(UTC) - timedelta(days=7)
+        target = datetime.now(timezone.utc) - timedelta(days=7)
         result = find_snapshot_near_date(timed_store, target)
         assert result is not None
         assert result["version"] == 2
 
     def test_finds_nearest_before(self, timed_store: Path):
         # 10 days ago — should pick v001 (14 days ago), not v002 (7 days ago)
-        target = datetime.now(UTC) - timedelta(days=10)
+        target = datetime.now(timezone.utc) - timedelta(days=10)
         result = find_snapshot_near_date(timed_store, target)
         assert result is not None
         assert result["version"] == 1
 
     def test_falls_back_to_oldest(self, timed_store: Path):
         # 30 days ago — nothing that old, should return oldest (v001)
-        target = datetime.now(UTC) - timedelta(days=30)
+        target = datetime.now(timezone.utc) - timedelta(days=30)
         result = find_snapshot_near_date(timed_store, target)
         assert result is not None
         assert result["version"] == 1
 
     def test_no_snapshots(self, store: Path):
-        result = find_snapshot_near_date(store, datetime.now(UTC))
+        result = find_snapshot_near_date(store, datetime.now(timezone.utc))
         assert result is None
 
     def test_target_in_future(self, timed_store: Path):
         # Future target — should pick latest (v003)
-        target = datetime.now(UTC) + timedelta(days=1)
+        target = datetime.now(timezone.utc) + timedelta(days=1)
         result = find_snapshot_near_date(timed_store, target)
         assert result is not None
         assert result["version"] == 3

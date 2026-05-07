@@ -12,7 +12,7 @@ and never pruned (preserves the decision chain).
 """
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from nauro.constants import (
@@ -63,7 +63,7 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
     snapshot = {
         "schema_version": SCHEMA_VERSION,
         "version": next_version,
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "trigger": trigger,
         "trigger_detail": trigger_detail,
         "token_count": token_count,
@@ -127,7 +127,7 @@ def _prune_snapshots(snapshots_dir: Path) -> None:
     # Always keep the latest snapshot
     latest = snapshots[-1]["path"]
 
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     keep_all_cutoff = now - timedelta(days=PRUNE_KEEP_ALL_DAYS)
     daily_cutoff = now - timedelta(days=PRUNE_DAILY_DAYS)
     weekly_cutoff = now - timedelta(days=PRUNE_WEEKLY_DAYS)

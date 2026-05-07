@@ -4,8 +4,8 @@ Nauro is a versioned project context system for AI coding agents. This is a `uv`
 
 | Package | Path | Python | Purpose |
 |---|---|---|---|
-| `nauro` | `packages/nauro/` | 3.11+ | CLI + local MCP server (stdio). Reads/writes `~/.nauro/projects/` |
-| `nauro-core` | `packages/nauro-core/` | 3.11+ | Shared pure-Python logic: parsing, validation, context assembly, constants. Zero runtime deps. |
+| `nauro` | `packages/nauro/` | 3.10+ | CLI + local MCP server (stdio). Reads/writes `~/.nauro/projects/` |
+| `nauro-core` | `packages/nauro-core/` | 3.10+ | Shared pure-Python logic: parsing, validation, context assembly, constants. Zero runtime deps. |
 
 Each package has its own `CLAUDE.md`, `pyproject.toml`, and test suite. The remote MCP server (`mcp-server/`) lives in a separate private repository.
 
@@ -53,7 +53,7 @@ User config lives at `~/.nauro/config.json` (created by `nauro config set`):
 
 ## Stack
 
-- CLI: Python 3.11+, Typer
+- CLI: Python 3.10+, Typer
 - MCP server: FastAPI + uvicorn, local HTTP only
 - Extraction: Anthropic SDK, Haiku, structured output via tool use
 - Storage: flat markdown + JSON snapshots

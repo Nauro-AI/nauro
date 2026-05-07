@@ -2,7 +2,7 @@
 name = "nauro-workspace"
 version = "0.0.0"
 description = "Nauro monorepo workspace (not published)"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -11,7 +11,7 @@ members = ["packages/*"]
 nauro-core = { workspace = true }
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py310"
 line-length = 99
 
 [tool.ruff.lint]

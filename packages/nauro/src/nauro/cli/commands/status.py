@@ -1,7 +1,7 @@
 """nauro status — Show capability table for the current project."""
 
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import typer
 
@@ -13,8 +13,8 @@ def _format_time_ago(iso_timestamp: str) -> str:
     try:
         dt = datetime.fromisoformat(iso_timestamp)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        delta = datetime.now(UTC) - dt
+            dt = dt.replace(tzinfo=timezone.utc)
+        delta = datetime.now(timezone.utc) - dt
         if delta.days > 0:
             return f"{delta.days} day{'s' if delta.days != 1 else ''} ago"
         hours = delta.seconds // 3600

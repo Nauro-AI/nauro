@@ -1,6 +1,6 @@
 """Tests for pending confirmation store."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -46,7 +46,7 @@ def test_remove():
 def test_expire_old_entries():
     confirm_id = store_pending({"title": "Old"}, {})
     # Manually backdate via internal store
-    _store._pending[confirm_id]["created_at"] = datetime.now(UTC) - timedelta(minutes=15)
+    _store._pending[confirm_id]["created_at"] = datetime.now(timezone.utc) - timedelta(minutes=15)
 
     expire_pending()
     assert get_pending(confirm_id) is None

@@ -1,7 +1,7 @@
 """Tests for store writer, snapshot, and CLI commands (note, sync)."""
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -341,7 +341,7 @@ def test_snapshot_logarithmic_pruning_keeps_correct_per_bucket(tmp_path: Path):
     snapshots_dir.mkdir(parents=True, exist_ok=True)
 
     # Use a fixed midday time so hour/minute offsets never cross day boundaries
-    now = datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+    now = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
 
     version = 0
     snapshots_data = []
@@ -407,7 +407,7 @@ def test_snapshot_decision_adding_never_pruned(tmp_path: Path):
     scaffold_project_store("pintest", store_path)
     snapshots_dir = store_path / "snapshots"
 
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
 
     # Create old snapshots — some with increasing decision counts
     for i in range(20):
@@ -461,7 +461,7 @@ def test_snapshot_all_pinned_no_excessive_pruning(tmp_path: Path):
     scaffold_project_store("allpin", store_path)
     snapshots_dir = store_path / "snapshots"
 
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
 
     # Create 15 old snapshots, each with increasing decision count (all pinned)
     for i in range(15):
@@ -587,7 +587,7 @@ def test_validate_stale_sync(tmp_path: Path):
     scaffold_project_store("stale", store)
     # Legacy format with old Last synced — validator still detects it
     state = store / "state.md"
-    old_date = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%d")
+    old_date = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%d")
     state.write_text(f"# Current State\n*Last synced: {old_date}*\n")
     warnings = validate_store(store)
     stale_warnings = [w for w in warnings if "days ago" in w]

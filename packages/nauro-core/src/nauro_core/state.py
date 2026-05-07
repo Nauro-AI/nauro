@@ -6,7 +6,7 @@ responsible for reading/writing files (local filesystem or S3).
 
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -25,7 +25,7 @@ class StateUpdateResult:
 
 def _utc_timestamp() -> str:
     """Return current UTC time as ISO 8601 with minute precision."""
-    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%MZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
 def _strip_current_header_footer(content: str) -> str:

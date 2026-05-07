@@ -10,7 +10,7 @@ Your project's direction — goals, decisions, rejected paths — is inherited b
 pipx install nauro   # or: pip install nauro
 ```
 
-Requires Python 3.11+.
+Requires Python 3.10+.
 
 ## Quickstart
 

@@ -7,7 +7,7 @@ Delegates pure validation logic to nauro_core; handles filesystem I/O locally.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from nauro_core import parse_decision
@@ -42,7 +42,7 @@ def _load_recent_decisions(project_path: Path) -> list[Decision]:
     if not decisions_dir.exists():
         return []
 
-    cutoff = (datetime.now(UTC) - timedelta(hours=24)).date()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).date()
     recent: list[Decision] = []
 
     for f in sorted(decisions_dir.glob("*.md"), reverse=True):
@@ -82,6 +82,6 @@ def update_hash_index(title: str, rationale: str, decision_id: str, project_path
     index = _load_hash_index(project_path)
     index[content_hash] = {
         "decision_id": decision_id,
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     _save_hash_index(project_path, index)

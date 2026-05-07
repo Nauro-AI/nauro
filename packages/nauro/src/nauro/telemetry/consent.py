@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from nauro.constants import NAURO_TELEMETRY_ENV, TELEMETRY_CONSENT_VERSION
 from nauro.store.config import get_telemetry_config, load_config, save_config
@@ -27,7 +27,7 @@ def _persist(enabled: bool) -> None:
     section = data.get("telemetry") or {}
     section["enabled"] = enabled
     section["consent_version"] = TELEMETRY_CONSENT_VERSION
-    section["consented_at"] = datetime.now(UTC).isoformat()
+    section["consented_at"] = datetime.now(timezone.utc).isoformat()
     data["telemetry"] = section
     save_config(data)
 

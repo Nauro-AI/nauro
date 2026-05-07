@@ -12,7 +12,7 @@ template, so the one source of truth for the on-disk decision format stays
 in nauro-core.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro_core.decision_model import (
@@ -140,7 +140,7 @@ def scaffold_project_store(project_name: str, store_path: Path) -> None:
     (store_path / C.DECISIONS_DIR).mkdir(exist_ok=True)
     (store_path / C.SNAPSHOTS_DIR).mkdir(exist_ok=True)
 
-    created_at = datetime.now(UTC).strftime("%Y-%m-%d")
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     (store_path / C.PROJECT_MD).write_text(render_scaffold(PROJECT_MD, project_name=project_name))
     (store_path / C.STATE_MD).write_text(render_scaffold(STATE_MD))

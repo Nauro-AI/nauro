@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from datetime import date as _date
-from enum import StrEnum
+from enum import Enum
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -36,18 +36,18 @@ from nauro_core.parsing import extract_decision_number
 # ── Enums (values match on-disk lowercase tokens verbatim) ──
 
 
-class DecisionStatus(StrEnum):
+class DecisionStatus(str, Enum):
     active = "active"
     superseded = "superseded"
 
 
-class DecisionConfidence(StrEnum):
+class DecisionConfidence(str, Enum):
     high = "high"
     medium = "medium"
     low = "low"
 
 
-class DecisionType(StrEnum):
+class DecisionType(str, Enum):
     architecture = "architecture"
     api_design = "api_design"
     infrastructure = "infrastructure"
@@ -56,13 +56,13 @@ class DecisionType(StrEnum):
     data_model = "data_model"
 
 
-class Reversibility(StrEnum):
+class Reversibility(str, Enum):
     easy = "easy"
     moderate = "moderate"
     hard = "hard"
 
 
-class DecisionSource(StrEnum):
+class DecisionSource(str, Enum):
     mcp = "mcp"
     commit = "commit"
     compaction = "compaction"

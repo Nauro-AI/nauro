@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ def log_validation(project_path: Path, proposal: dict, result: dict) -> None:
     try:
         log_path = project_path / VALIDATION_LOG_FILENAME
         entry = {
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "proposal_title": proposal.get("title", ""),
             "proposal_rationale_preview": (proposal.get("rationale") or "")[:100],
             "tier": result.get("tier"),

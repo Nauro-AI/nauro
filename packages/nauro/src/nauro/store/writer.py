@@ -12,7 +12,7 @@ templating is gone; the one source of truth for the on-disk format is
 import json
 import re
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from filelock import FileLock
@@ -125,7 +125,7 @@ def append_decision(
         filepath = decisions_dir / filename
 
         decision = Decision(
-            date=datetime.now(UTC).date(),
+            date=datetime.now(timezone.utc).date(),
             version=1,
             status=DecisionStatus.active,
             confidence=DecisionConfidence(confidence),
@@ -235,7 +235,7 @@ def update_decision(
         return decision_id
 
     decision = parse_decision(target_path.read_text(), target_path.name)
-    date = datetime.now(UTC).strftime("%Y-%m-%d")
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     appended_rationale = (
         f"{decision.rationale.strip()}\n\n"
         f"*Update (v{decision.version + 1}) — {date}:* {additional_rationale.strip()}"
@@ -253,7 +253,7 @@ def update_decision(
 def append_question(store_path: Path, question: str) -> None:
     """Append a question to open-questions.md with timestamp."""
     oq_path = store_path / OPEN_QUESTIONS_MD
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     entry = f"- [{timestamp}] {question}\n"
 
     if oq_path.exists():

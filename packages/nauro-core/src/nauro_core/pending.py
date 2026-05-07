@@ -8,7 +8,7 @@ pipeline and the remote MCP server's propose/confirm workflow.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from nauro_core.constants import EXPIRY_MINUTES
 
@@ -31,7 +31,7 @@ class PendingStore:
         self._pending[confirm_id] = {
             "proposal": proposal,
             "validation_result": validation_result,
-            "created_at": datetime.now(UTC),
+            "created_at": datetime.now(timezone.utc),
         }
         return confirm_id
 
@@ -46,7 +46,7 @@ class PendingStore:
 
     def expire(self) -> None:
         """Remove entries older than EXPIRY_MINUTES."""
-        cutoff = datetime.now(UTC) - timedelta(minutes=EXPIRY_MINUTES)
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=EXPIRY_MINUTES)
         expired = [k for k, v in self._pending.items() if v["created_at"] < cutoff]
         for k in expired:
             del self._pending[k]

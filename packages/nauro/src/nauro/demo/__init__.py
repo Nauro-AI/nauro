@@ -9,7 +9,7 @@ real writer output looks like (no template drift).
 """
 
 import json
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from nauro_core.decision_model import (
@@ -328,7 +328,7 @@ def create_demo_project(store_path: Path) -> None:
     snapshot = {
         "schema_version": 1,
         "version": 1,
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "trigger": "demo project created",
         "trigger_detail": "",
         "token_count": sum(len(v) for v in files.values()) // 4,

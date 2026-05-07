@@ -4,7 +4,7 @@ Thanks for your interest in contributing to Nauro! This guide covers how to set 
 
 ## Prerequisites
 
-- Python 3.11+
+- Python 3.10+
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
 ## Setup

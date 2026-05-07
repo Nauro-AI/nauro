@@ -4,7 +4,7 @@ All reads from the .nauro/ project store go through this module.
 """
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from nauro_core import extract_decision_number, parse_decision
@@ -450,7 +450,7 @@ def diff_since_last_session(store_path: Path, days: int | None = None) -> str:
         if not snapshots:
             return "No snapshots available."
 
-        target = datetime.now(UTC) - timedelta(days=days)
+        target = datetime.now(timezone.utc) - timedelta(days=days)
         baseline = find_snapshot_near_date(store_path, target)
         if baseline is None:
             return "No snapshots available."

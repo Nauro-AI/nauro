@@ -1,6 +1,6 @@
 """Tests for nauro_core.pending — PendingStore lifecycle."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from nauro_core.pending import PendingStore
 
@@ -39,7 +39,7 @@ class TestPendingStore:
         store = PendingStore()
         cid = store.store({"title": "Old"}, {})
         # Backdate the entry
-        store._pending[cid]["created_at"] = datetime.now(UTC) - timedelta(minutes=15)
+        store._pending[cid]["created_at"] = datetime.now(timezone.utc) - timedelta(minutes=15)
         store.expire()
         assert store.get(cid) is None
 
@@ -52,7 +52,7 @@ class TestPendingStore:
     def test_auto_expire_on_store(self):
         store = PendingStore()
         old_cid = store.store({"title": "Old"}, {})
-        store._pending[old_cid]["created_at"] = datetime.now(UTC) - timedelta(minutes=15)
+        store._pending[old_cid]["created_at"] = datetime.now(timezone.utc) - timedelta(minutes=15)
         # Storing a new entry triggers expire
         store.store({"title": "New"}, {})
         assert store.get(old_cid) is None
@@ -60,7 +60,7 @@ class TestPendingStore:
     def test_auto_expire_on_get(self):
         store = PendingStore()
         old_cid = store.store({"title": "Old"}, {})
-        store._pending[old_cid]["created_at"] = datetime.now(UTC) - timedelta(minutes=15)
+        store._pending[old_cid]["created_at"] = datetime.now(timezone.utc) - timedelta(minutes=15)
         # Getting triggers expire
         assert store.get(old_cid) is None
 
