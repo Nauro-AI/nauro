@@ -5,8 +5,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from nauro.cli.commands.import_cmd import _import_adrs, _import_memory_bank
+from nauro.cli.commands.import_cmd import (
+    _import_adrs,
+    _import_memory_bank,
+    _import_progress,
+)
 from nauro.cli.main import app
+from nauro.mcp.payloads import build_l0_payload
 from nauro.store.registry import register_project
 from nauro.store.snapshot import list_snapshots
 from nauro.templates.scaffolds import scaffold_project_store
@@ -77,10 +82,13 @@ def test_import_complete_memory_bank(store: Path, full_memory_bank: Path):
     assert "## Imported from Memory Bank" in project_content
     assert "task management" in project_content
 
-    # state.md should have imported context and progress items
-    state_content = (store / "state.md").read_text()
-    assert "## Imported from Memory Bank" in state_content
-    assert "auth module" in state_content
+    # state_current.md should have the composed activeContext + progress
+    # (the legacy "## Imported from Memory Bank" header is no longer added —
+    # active body lands directly under prepare_state_update's "# Current State").
+    state_current = (store / "state_current.md").read_text()
+    assert "auth module" in state_current
+    assert "## Recently completed" in state_current
+    assert "Set up project scaffolding" in state_current
 
     # stack.md should have tech context
     stack_content = (store / "stack.md").read_text()
@@ -263,6 +271,155 @@ def test_import_progress_with_empty_items(store: Path, tmp_path: Path):
 
     counts = _import_memory_bank(ctx, store)
     assert counts["progress_items"] == 1
+
+
+# --- v2 split-state composition (single update_state call) ---
+
+
+def _mb_with(tmp_path: Path, name: str, **files: str) -> Path:
+    """Build a Memory Bank dir with the given files. Always includes projectBrief."""
+    ctx = tmp_path / name
+    ctx.mkdir()
+    (ctx / "projectBrief.md").write_text("# Brief\n\nA test project.\n")
+    for filename, content in files.items():
+        (ctx / filename).write_text(content)
+    return ctx
+
+
+def test_active_context_lands_in_state_current_not_legacy(store: Path, tmp_path: Path):
+    mb = _mb_with(
+        tmp_path,
+        ".context_active_only",
+        **{"activeContext.md": "# Active Context\n\nWiring up Stripe checkout.\n"},
+    )
+    legacy_before = (store / "state.md").read_text()
+
+    _import_memory_bank(mb, store)
+
+    state_current = (store / "state_current.md").read_text()
+    assert "Wiring up Stripe checkout." in state_current
+    # Legacy state.md is the scaffold; never gets the imported activeContext body.
+    assert (store / "state.md").read_text() == legacy_before
+    assert "Wiring up Stripe checkout." not in (store / "state.md").read_text()
+
+
+def test_progress_items_compose_into_recently_completed(store: Path, tmp_path: Path):
+    mb = _mb_with(
+        tmp_path,
+        ".context_progress_only",
+        **{"progress.md": "# Progress\n\n- Item one\n- Item two\n- Item three\n"},
+    )
+
+    _import_memory_bank(mb, store)
+
+    state_current = (store / "state_current.md").read_text()
+    assert "## Recently completed" in state_current
+    assert "- Item one" in state_current
+    assert "- Item two" in state_current
+    assert "- Item three" in state_current
+
+
+def test_active_context_and_progress_compose_into_single_state_current(store: Path, tmp_path: Path):
+    mb = _mb_with(
+        tmp_path,
+        ".context_both",
+        **{
+            "activeContext.md": "# Active Context\n\nReviewing payment flow.\n",
+            "progress.md": "# Progress\n\n- A\n- B\n- C\n",
+        },
+    )
+
+    _import_memory_bank(mb, store)
+
+    state_current = (store / "state_current.md").read_text()
+    assert "Reviewing payment flow." in state_current
+    assert "## Recently completed" in state_current
+    assert "- A" in state_current
+    assert "- B" in state_current
+    assert "- C" in state_current
+
+    # state_history should NOT contain N entries (one per progress item).
+    # update_state was called once, so at most one prior-state archive exists
+    # (the migrated legacy scaffold).
+    history_path = store / "state_history.md"
+    if history_path.exists():
+        # Count `## ` timestamp headers — there should be exactly one (or zero).
+        history = history_path.read_text()
+        timestamp_headers = [line for line in history.split("\n") if line.startswith("## 20")]
+        assert len(timestamp_headers) <= 1
+
+
+def test_build_l0_surfaces_imported_state(store: Path, tmp_path: Path):
+    """Regression: imported activeContext + progress must reach the L0 payload.
+
+    build_l0 passes include_history=False, so anything in state_history.md is
+    invisible. This test fails if update_state is called per-progress-item
+    (most items end up in history).
+    """
+    mb = _mb_with(
+        tmp_path,
+        ".context_l0",
+        **{
+            "activeContext.md": "# Active Context\n\nL0_ACTIVE_MARKER\n",
+            "progress.md": "# Progress\n\n- L0_PROGRESS_MARKER\n",
+        },
+    )
+
+    _import_memory_bank(mb, store)
+
+    payload = build_l0_payload(store)
+    assert "L0_ACTIVE_MARKER" in payload
+    assert "L0_PROGRESS_MARKER" in payload
+
+
+def test_progress_only_no_active_context(store: Path, tmp_path: Path):
+    mb = _mb_with(
+        tmp_path,
+        ".context_progress_no_active",
+        **{"progress.md": "# Progress\n\n- Only progress here\n"},
+    )
+
+    _import_memory_bank(mb, store)
+
+    state_current = (store / "state_current.md").read_text()
+    # State delta starts directly with the section header — no leading body.
+    body_after_wrapper = state_current.split("# Current State", 1)[1].lstrip()
+    assert body_after_wrapper.startswith("## Recently completed")
+
+
+def test_active_only_no_progress(store: Path, tmp_path: Path):
+    mb = _mb_with(
+        tmp_path,
+        ".context_active_no_progress",
+        **{"activeContext.md": "# Active Context\n\nJust active body.\n"},
+    )
+
+    _import_memory_bank(mb, store)
+
+    state_current = (store / "state_current.md").read_text()
+    assert "Just active body." in state_current
+    assert "## Recently completed" not in state_current
+
+
+def test_neither_active_nor_progress_no_state_files_created(store: Path, tmp_path: Path):
+    """Only projectBrief — no update_state call, no state_current.md created.
+
+    Scaffolds today create legacy state.md only (no state_current.md). When
+    neither activeContext nor progress is imported, update_state is skipped
+    entirely, so state_current.md should never come into existence.
+    """
+    legacy_before = (store / "state.md").read_text()
+    mb = _mb_with(tmp_path, ".context_brief_only")  # only projectBrief.md
+
+    _import_memory_bank(mb, store)
+
+    assert not (store / "state_current.md").exists()
+    assert (store / "state.md").read_text() == legacy_before
+
+
+def test_import_progress_returns_parsed_items():
+    items = _import_progress("# Progress\n\n- one\n- two\n- three\n")
+    assert items == ["one", "two", "three"]
 
 
 # ===========================================================================
