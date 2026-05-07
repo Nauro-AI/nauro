@@ -1,0 +1,23 @@
+# Nauro session skill
+
+The agent uses Nauro across the session to keep project context current and surface decision conflicts before they ship. Three calls cover the lifecycle.
+
+## At session start — call get_context
+
+The agent calls `get_context` early in the session, before the first user-driven action where possible. The L0 payload returns the project summary, current state, top open questions, and the last 10 active decisions with titles and dates. This loads the project's intent into the agent's working context so subsequent suggestions align with prior decisions.
+
+## Before any architectural change — call check_decision
+
+When the user proposes — or the agent considers proposing — an architectural change (library swap, API redesign, data model change, infrastructure pick, new pattern), the agent calls `check_decision(proposed_approach)` first. The tool returns related decisions via BM25 retrieval and an LLM-based conflict assessment. If conflicts surface: the agent shows them to the user verbatim before recommending the change. If no conflicts and the choice is real: the agent records it via `propose_decision` + `confirm_decision`.
+
+This includes "should we…", "what if we…", "can we…", and "check if…" framings, and applies even when the agent intends to push back or refuse. First-principles reasoning is not a substitute for project history.
+
+## After meaningful progress — call update_state
+
+After completing a unit of work (a feature, a refactor, a bug fix that took more than a few changes) the agent calls `update_state(delta)` with a short paragraph describing what was completed. This replaces the project's current state, archiving the prior content to history. The next session's `get_context` call surfaces this update so context flows forward.
+
+The agent does not call `update_state` for every commit or every minor change — only at meaningful boundaries. State is a snapshot of "where the project is now," not a changelog.
+
+## Refusal contract
+
+The agent does not invent decisions to record. `propose_decision` is called when a real architectural choice is made — between two or more approaches, replacing a dependency, establishing a new pattern, cutting scope. Bug fixes, renaming, and adding tests for existing behavior are not decisions.
