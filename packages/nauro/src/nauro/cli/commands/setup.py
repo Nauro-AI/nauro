@@ -1,12 +1,16 @@
 """nauro setup — Configure tool integrations.
 
-Currently supports:
+Subcommands:
   nauro setup claude-code  — register MCP server + regenerate AGENTS.md
+  nauro setup cursor       — register MCP server in <repo>/.cursor/mcp.json
+                             for each of the project's repos
+  nauro setup codex        — register MCP server in ~/.codex/config.toml
 """
 
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import typer
@@ -19,6 +23,13 @@ from nauro.store.registry import (
     get_project_v2,
 )
 from nauro.templates.agents_md import regenerate_agents_md_for_project
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
+import tomli_w
 
 setup_app = typer.Typer(help="Configure tool integrations.")
 
@@ -180,3 +191,133 @@ def claude_code(
             "\nNext: start a Claude Code session in one of the repos."
             " The MCP server will start automatically."
         )
+
+
+# ─── Cursor ─────────────────────────────────────────────────────────────────
+
+
+# Cursor reads MCP servers from `<repo>/.cursor/mcp.json` (per-project).
+# User-global "Rules for AI" live in the IDE Settings UI, not a file path —
+# so MCP wiring is per-project here.
+# Docs: https://cursor.com/docs (checked: 2026-05-07)
+
+
+def _configure_cursor_for_repo(repo_path: Path, *, remove: bool) -> str:
+    """Add or remove the Nauro MCP entry in this repo's ``.cursor/mcp.json``."""
+    cursor_dir = repo_path / ".cursor"
+    config_path = cursor_dir / "mcp.json"
+    nauro_cmd = _find_nauro_command()
+    nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
+
+    if config_path.exists():
+        config = json.loads(config_path.read_text())
+    else:
+        config = {}
+
+    if remove:
+        servers = config.get("mcpServers", {})
+        if "nauro" in servers:
+            del servers["nauro"]
+            if not servers:
+                config.pop("mcpServers", None)
+            if config:
+                config_path.write_text(json.dumps(config, indent=2) + "\n")
+            else:
+                config_path.unlink()
+            return f"  {repo_path}: removed nauro from .cursor/mcp.json"
+        return f"  {repo_path}: no nauro entry to remove"
+
+    config.setdefault("mcpServers", {})["nauro"] = nauro_entry
+    cursor_dir.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    return f"  {repo_path}: wrote nauro to .cursor/mcp.json"
+
+
+@setup_app.command(name="cursor")
+def cursor(
+    project: str | None = typer.Option(
+        None, "--project", help="Project name (default: resolve from cwd)."
+    ),
+    remove: bool = typer.Option(
+        False, "--remove", help="Remove Nauro integration instead of adding it."
+    ),
+) -> None:
+    """Configure Cursor to use Nauro for this project's repos."""
+    project_name, _store_path = resolve_target_project(project)
+    project_key = _store_path.name
+
+    try:
+        entry = get_project_v2(project_key)
+    except RegistrySchemaError:
+        entry = None
+    if entry is None:
+        entry = get_project(project_name)
+
+    if entry is None or not entry.get("repo_paths"):
+        typer.echo(f"Project '{project_name}' has no associated repos.", err=True)
+        raise typer.Exit(code=1)
+
+    action = "Removed" if remove else "Configured"
+    typer.echo(f"{action} Nauro (Cursor) for project '{project_name}':\n")
+    for repo_str in entry["repo_paths"]:
+        repo_path = Path(repo_str)
+        if not repo_path.is_dir():
+            typer.echo(f"  {repo_path}: repo path missing, skipped")
+            continue
+        typer.echo(_configure_cursor_for_repo(repo_path, remove=remove))
+
+    if not remove:
+        typer.echo("\nNext: open this repo in Cursor and start a chat — Nauro MCP will connect.")
+
+
+# ─── Codex CLI ──────────────────────────────────────────────────────────────
+
+
+# Codex reads MCP servers from `~/.codex/config.toml` under `[mcp_servers.<name>]`.
+# This is the user-global Codex CLI config and is shared with the IDE extension.
+# Docs: https://developers.openai.com/codex/mcp (checked: 2026-05-07)
+
+
+def _default_codex_config_path() -> Path:
+    return Path.home() / ".codex" / "config.toml"
+
+
+def _configure_codex(*, remove: bool, config_path: Path | None = None) -> str:
+    """Add or remove the Nauro MCP entry in ``~/.codex/config.toml``."""
+    config_path = config_path or _default_codex_config_path()
+    nauro_cmd = _find_nauro_command()
+    nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
+
+    if config_path.exists():
+        with config_path.open("rb") as f:
+            config = tomllib.load(f)
+    else:
+        config = {}
+
+    servers = config.setdefault("mcp_servers", {})
+
+    if remove:
+        if "nauro" in servers:
+            del servers["nauro"]
+            if not servers:
+                config.pop("mcp_servers", None)
+            config_path.write_bytes(tomli_w.dumps(config).encode("utf-8"))
+            return f"Codex: removed nauro from {config_path}"
+        return f"Codex: no nauro entry to remove in {config_path}"
+
+    servers["nauro"] = nauro_entry
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_bytes(tomli_w.dumps(config).encode("utf-8"))
+    return f"Codex: wrote nauro to {config_path}"
+
+
+@setup_app.command(name="codex")
+def codex(
+    remove: bool = typer.Option(
+        False, "--remove", help="Remove Nauro integration instead of adding it."
+    ),
+) -> None:
+    """Configure Codex CLI to use Nauro (writes ``~/.codex/config.toml``)."""
+    typer.echo(_configure_codex(remove=remove))
+    if not remove:
+        typer.echo("\nNext: run a Codex session — it reads ~/.codex/config.toml on start.")

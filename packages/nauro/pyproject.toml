@@ -30,6 +30,8 @@ dependencies = [
     "boto3>=1.28",
     "filelock>=3.0",
     "posthog>=7.0,<8.0",
+    "tomli>=2.0; python_version<'3.11'",
+    "tomli-w>=1.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,90 @@
+# Nauro adopt skill
+
+The agent helps the user seed Nauro with context from the current repo. Before this skill runs, the user has run `nauro adopt` from the repo root, which created the project, wired MCP across surfaces, and installed this skill into the agent's surface directory. The agent's job here is to read the repo's documentation (README, manifests, ADRs, Memory-Bank) and seed the Nauro store via MCP write tools. The agent records facts that source documents explicitly state — it does not invent decisions from prose. On chat surfaces (Claude.ai, ChatGPT) without filesystem access, the agent uses paste-content mode (Step 3b); chat-paste mode requires the project to already exist (run `nauro adopt` locally first).
+
+## Step 1 — Detect repo root
+
+The agent runs `git rev-parse --show-toplevel` from the current working directory. On failure: abort with "nauro adopt requires a git repository. Run 'git init' first, then re-run 'nauro adopt'."
+
+## Step 2 — Already-adopted guard
+
+The agent reads `<repo>/.nauro/config.json`. If the file is missing: abort with "This repo is not adopted yet. Run 'nauro adopt' from the repo root, restart this agent, then invoke /nauro-adopt again." If the file exists and parses as JSON: extract `id` and `name` and use these as the project handle for subsequent calls.
+
+## Step 3 — Read source files
+
+The agent reads the first match found per category. Files larger than 256KB are flagged to the user before reading.
+
+- **README**: `README.md`, `README.rst`, `README` (first found)
+- **Manifest**: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `Gemfile`, `pom.xml`, `build.gradle`, `composer.json`, `requirements*.txt`
+- **Top-level docs**: `CONTRIBUTING.md`, `ARCHITECTURE.md`, `DESIGN.md`, `CLAUDE.md`, `AGENTS.md`
+- **ADR directory**: `docs/adr/`, `docs/decisions/`, `architecture/decisions/`, `adr/` — every `.md` except templates and index files (`0000-template.md`, `README.md`)
+- **Memory Bank**: `.context/`, `memory-bank/`, `cline_docs/` — `projectBrief.md`, `activeContext.md`, `techContext.md`, `decisionLog.md`, `progress.md`
+
+### Step 3b — Chat-surface paste branch
+
+When filesystem read is unavailable, the agent prompts:
+
+> This skill needs source content. Paste the contents of any of: README, manifest (pyproject.toml/package.json/etc.), ADRs, Memory-Bank files. Send each as a separate message labelled with the filename.
+
+Chat-paste mode does not create projects (no shell access for `nauro adopt`). If `<repo>/.nauro/config.json` was not previously written by a local `nauro adopt`, the agent surfaces "I cannot continue from here; please run `nauro adopt` locally first" and stops.
+
+## Step 4 — Call get_context
+
+The agent calls `get_context` (MCP) to surface what the scaffold already wrote — `001-initial-setup.md` and bracketed-prompt placeholders in `project.md` / `stack.md` / `state_current.md`. The agent uses this to (a) avoid duplicating the scaffold's first decision, (b) confirm the project resolved correctly.
+
+## Step 5 — Build candidate list, surface FIRST
+
+The agent triages the source content into two lists.
+
+**Step 5a — Clear decisions.** Candidates where the source explicitly states acceptance and rationale (and, when applicable, rejected alternatives). Each entry: number, title (≤60 chars), one-line summary (≤140 chars), source location. The agent prints the full list as one message:
+
+> Reply 'keep N' / 'edit N: <new title>' / 'skip N' per item. Or 'keep all' to accept everything. Reply 'done' when finished.
+
+**Step 5b — Boundary candidates.** Facts that *might* be decisions but where the source does not state rationale verbatim. Surfaced after the user finishes Step 5a:
+
+> The agent thinks these might be decisions but couldn't extract rationale verbatim from the source. Each is opt-in only — reply 'opt N: <rationale>' to record any of them with rationale you provide; otherwise they are skipped.
+
+## Step 6 — Iterate kept items
+
+For each kept item from 5a (and each opt-in from 5b):
+
+1. Call `propose_decision(title, rationale, rejected, confidence)`. `rationale` is drawn from explicit source text (or user-provided for opt-ins). `confidence` defaults to `medium`; `high` only when the source explicitly says "accepted" or "approved". Rejected alternatives are included only when the source names them.
+2. **If `propose_decision` returns no conflicts**: call `confirm_decision(confirm_id)` automatically — no further user prompt.
+3. **If `propose_decision` returns conflicts**: surface the conflict text verbatim, ask `confirm-anyway / edit / skip`. On user 'confirm' → `confirm_decision(confirm_id)`.
+
+One propose+confirm per decision. No batching.
+
+## Step 7 — State composition (one update_state call)
+
+The agent reads `activeContext.md` body and `progress.md` items, then composes one delta:
+
+```
+{activeContext_body_with_leading_h1_stripped}
+
+## Recently completed
+- {progress_item_1}
+- {progress_item_2}
+- ...
+```
+
+If only one source is present, the corresponding section is omitted. If neither is present, `update_state` is skipped entirely. **The agent does not call `update_state` per progress item** — `update_state` archives prior state to history, and the L0 payload ignores history.
+
+## Step 8 — Flag open questions
+
+Sources: explicit `## Open Questions` sections, lines beginning `Q:` or `TODO:` in CONTRIBUTING/ARCHITECTURE docs, user-noted gaps from Steps 5–6 ("we never decided X"). Per candidate: surface, ask `keep / edit / skip`. On keep → `flag_question(question, context)`.
+
+## Step 9 — Refusal contract
+
+The agent records facts that source documents explicitly state. The agent does not infer rationale from prose, does not invent rejected alternatives, does not assume `confidence=high` from tone, does not summarize a paragraph into a "decision" the source never called a decision. Boundary cases go to Step 5b (opt-in only — write rationale yourself), not into the clear-decisions list.
+
+## Step 10 — Summary
+
+The agent prints one block:
+
+- Project: `<name>` (id: `<pid>`, store: `<store-path>`)
+- Sources read: `<comma-separated list>`
+- Decisions created: N (titles)
+- Decisions skipped: M (titles)
+- State updated: yes/no
+- Open questions flagged: K
+- Next: run `nauro sync` from the repo to capture a snapshot.
