@@ -12,7 +12,7 @@ from typing import Any
 import typer
 
 from nauro.cli.utils import resolve_target_project
-from nauro.constants import PROJECT_MD, STACK_MD, STATE_MD
+from nauro.constants import PROJECT_MD, STACK_MD
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.writer import append_decision, update_state
 
@@ -21,11 +21,15 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
     """Import a Cline/Roo Code Memory Bank (.context/ directory) into the store.
 
     Maps Memory Bank files to Nauro store files:
-      projectBrief.md  → project.md  (appended under ## Imported from Memory Bank)
-      activeContext.md  → state.md   (appended under ## Imported from Memory Bank)
-      techContext.md    → stack.md   (appended under ## Imported from Memory Bank)
+      projectBrief.md  → project.md           (appended under ## Imported from Memory Bank)
+      techContext.md   → stack.md             (appended under ## Imported from Memory Bank)
       decisionLog.md   → decisions/NNN-title.md (one file per ## Decision block)
-      progress.md      → state.md   (recently completed items via update_state)
+      activeContext.md + progress.md → state_current.md (single composed update_state call)
+
+    activeContext.md and progress.md are composed into one delta and written via
+    a single update_state() call. Calling update_state per progress item would
+    archive all but the last to state_history.md, which build_l0 ignores
+    (include_history=False), making the imported state invisible to L0.
 
     Args:
         memory_bank: Path to the .context/ directory.
@@ -49,15 +53,6 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
         )
         counts["files_merged"] += 1
 
-    # activeContext.md → state.md
-    active_path = memory_bank / "activeContext.md"
-    if active_path.exists():
-        _append_to_store_file(
-            store_path / STATE_MD,
-            active_path.read_text(),
-        )
-        counts["files_merged"] += 1
-
     # techContext.md → stack.md
     tech_path = memory_bank / "techContext.md"
     if tech_path.exists():
@@ -72,12 +67,59 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
     if decision_log.exists():
         counts["decisions"] = _parse_and_import_decisions(decision_log.read_text(), store_path)
 
-    # progress.md → state.md (recently completed items)
+    # activeContext.md + progress.md → state_current.md (one composed update_state)
+    active_body: str | None = None
+    active_path = memory_bank / "activeContext.md"
+    if active_path.exists():
+        active_body = _strip_h1_prefix(active_path.read_text())
+        if active_body:
+            counts["files_merged"] += 1
+
+    progress_items: list[str] = []
     progress_path = memory_bank / "progress.md"
     if progress_path.exists():
-        counts["progress_items"] = _import_progress(progress_path.read_text(), store_path)
+        progress_items = _import_progress(progress_path.read_text())
+    counts["progress_items"] = len(progress_items)
+
+    delta = _compose_state_delta(active_body, progress_items)
+    if delta is not None:
+        update_state(store_path, delta)
 
     return counts
+
+
+def _strip_h1_prefix(content: str) -> str:
+    """Strip a leading H1 header (and trailing blank lines), then strip whitespace.
+
+    activeContext.md typically opens with `# Active Context`, which becomes
+    redundant once composed into a state delta — prepare_state_update wraps
+    the delta in `# Current State` already.
+    """
+    lines = content.split("\n")
+    first = lines[0].strip() if lines else ""
+    if first.startswith("# ") and first[2:].strip():
+        i = 1
+        while i < len(lines) and lines[i].strip() == "":
+            i += 1
+        return "\n".join(lines[i:]).strip()
+    return content.strip()
+
+
+def _compose_state_delta(active_body: str | None, progress_items: list[str]) -> str | None:
+    """Compose activeContext body + progress items into a single state delta.
+
+    Returns None when both inputs are empty (caller skips update_state entirely).
+    """
+    has_active = bool(active_body)
+    has_progress = bool(progress_items)
+    progress_block = "## Recently completed\n" + "\n".join(f"- {item}" for item in progress_items)
+    if has_active and has_progress:
+        return f"{active_body}\n\n{progress_block}"
+    if has_active:
+        return active_body
+    if has_progress:
+        return progress_block
+    return None
 
 
 def _append_to_store_file(target: Path, content: str) -> None:
@@ -279,24 +321,20 @@ def _extract_list_items(text: str) -> list[str]:
     return items
 
 
-def _import_progress(content: str, store_path: Path) -> int:
-    """Extract recently completed items from progress.md and update state.
+def _import_progress(content: str) -> list[str]:
+    """Extract recently completed items from progress.md as a list.
 
-    Looks for lines starting with - (list items) that look like completed work.
-
-    Returns:
-        Number of items imported.
+    Pure parser — composition into a state delta and the single update_state
+    call live in _import_memory_bank.
     """
-    count = 0
+    items: list[str] = []
     for line in content.split("\n"):
-        line = line.strip()
-        # Match markdown list items: - text or * text
-        if re.match(r"^[-*]\s+", line):
-            item = re.sub(r"^[-*]\s+", "", line).strip()
+        stripped = line.strip()
+        if stripped.startswith(("- ", "* ")):
+            item = stripped[2:].strip()
             if item:
-                update_state(store_path, item)
-                count += 1
-    return count
+                items.append(item)
+    return items
 
 
 def import_cmd(
