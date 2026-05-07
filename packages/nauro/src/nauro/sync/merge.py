@@ -8,7 +8,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.sync.state import SyncState
@@ -51,7 +51,7 @@ def _git_available() -> bool:
 
 def _save_conflict_backup(project_path: Path, relative_path: str, content: bytes) -> Path:
     """Save the losing version to .conflict-backup/."""
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename = relative_path.replace("/", "_")
     backup_dir = project_path / ".conflict-backup"
     backup_dir.mkdir(parents=True, exist_ok=True)

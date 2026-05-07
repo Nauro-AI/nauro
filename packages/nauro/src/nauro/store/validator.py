@@ -2,7 +2,7 @@
 
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro_core import extract_decision_number
@@ -70,12 +70,14 @@ def validate_store(store_path: Path) -> list[str]:
                 # Try parsing "YYYY-MM-DD HH:MM UTC" or "YYYY-MM-DD"
                 if "UTC" in synced_str:
                     synced_date = datetime.strptime(synced_str, "%Y-%m-%d %H:%M UTC").replace(
-                        tzinfo=UTC
+                        tzinfo=timezone.utc
                     )
                 else:
-                    synced_date = datetime.strptime(synced_str, "%Y-%m-%d").replace(tzinfo=UTC)
+                    synced_date = datetime.strptime(synced_str, "%Y-%m-%d").replace(
+                        tzinfo=timezone.utc
+                    )
 
-                age = datetime.now(UTC) - synced_date
+                age = datetime.now(timezone.utc) - synced_date
                 if age.days > STALE_SYNC_DAYS:
                     warnings.append(
                         f"state.md: Last synced {age.days} days ago — consider running nauro sync"

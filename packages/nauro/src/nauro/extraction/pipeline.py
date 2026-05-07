@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import subprocess
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.constants import (
@@ -69,7 +69,7 @@ def _append_extraction_log(store_path: Path, entry: dict) -> None:
     """
     try:
         log_path = store_path / EXTRACTION_LOG_FILENAME
-        entry["timestamp"] = datetime.now(UTC).isoformat()
+        entry["timestamp"] = datetime.now(timezone.utc).isoformat()
         with open(log_path, "a") as f:
             f.write(json.dumps(entry, default=str) + "\n")
     except Exception:

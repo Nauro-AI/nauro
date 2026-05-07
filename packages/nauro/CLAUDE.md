@@ -25,7 +25,7 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 
 ## Stack
 
-- CLI: Python 3.11+, Typer
+- CLI: Python 3.10+, Typer
 - MCP server: FastAPI + uvicorn, local HTTP only
 - Extraction: Anthropic SDK, Haiku, structured output via tool use
 - Storage: flat markdown + JSON snapshots

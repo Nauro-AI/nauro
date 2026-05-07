@@ -189,9 +189,9 @@ def pull_before_session(project_name: str, store_path: Path) -> int:
                 except Exception:
                     logger.exception("sync pull: error resolving conflict for %s", rel)
 
-    from datetime import UTC, datetime
+    from datetime import datetime, timezone
 
-    state.last_full_sync = datetime.now(UTC).isoformat()
+    state.last_full_sync = datetime.now(timezone.utc).isoformat()
     save_state(store_path, state)
 
     if merged:

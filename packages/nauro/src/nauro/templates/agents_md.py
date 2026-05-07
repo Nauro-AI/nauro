@@ -7,7 +7,7 @@ the project context. It is regenerated on `nauro sync`.
 Convention: no Jinja2 — use f-strings and string templates only.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER
@@ -30,7 +30,7 @@ def generate_agents_md(
     Returns:
         Complete AGENTS.md file content.
     """
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     parts = [
         f"# AGENTS.md\n"

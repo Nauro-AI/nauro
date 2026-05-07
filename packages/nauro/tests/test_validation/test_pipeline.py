@@ -205,7 +205,7 @@ class TestConfirmWrite:
     @patch("nauro.validation.pipeline.evaluate_with_llm")
     def test_expired_confirm_id(self, mock_llm, mock_sim, store):
         """Expired confirm_ids return error."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         from nauro.validation.pending import _store
 
@@ -228,7 +228,9 @@ class TestConfirmWrite:
         assert result.confirm_id is not None
 
         # Manually expire it
-        _store._pending[result.confirm_id]["created_at"] = datetime.now(UTC) - timedelta(minutes=15)
+        _store._pending[result.confirm_id]["created_at"] = datetime.now(timezone.utc) - timedelta(
+            minutes=15
+        )
 
         confirm_result = confirm_write(result.confirm_id, store)
         assert "error" in confirm_result

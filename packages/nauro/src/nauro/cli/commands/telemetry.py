@@ -8,7 +8,7 @@ overrides config-level state at read time and is reported by ``status``.
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import typer
 
@@ -58,7 +58,7 @@ def _persist_enabled(enabled: bool) -> None:
     section = data.get("telemetry") or {}
     section["enabled"] = enabled
     section["consent_version"] = TELEMETRY_CONSENT_VERSION
-    section["consented_at"] = datetime.now(UTC).isoformat()
+    section["consented_at"] = datetime.now(timezone.utc).isoformat()
     data["telemetry"] = section
     save_config(data)
 

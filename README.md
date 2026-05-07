@@ -28,7 +28,7 @@ Nauro gives agents a shared project record, then checks new proposals against th
 pip install nauro   # or: pipx install nauro
 ```
 
-Requires Python 3.11+.
+Requires Python 3.10+.
 
 ## Quickstart
 

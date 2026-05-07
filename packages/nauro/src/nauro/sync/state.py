@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger("nauro.sync")
@@ -93,7 +93,7 @@ def update_file_state(
     state: SyncState, relative_path: str, local_sha256: str, remote_etag: str
 ) -> None:
     """Update the sync state entry for a file."""
-    now = datetime.now(UTC).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     state.files[relative_path] = FileState(
         local_sha256=local_sha256,
         remote_etag=remote_etag,
