@@ -13,4 +13,5 @@ build/
 .env
 *.lock
 AGENTS.md
-.claude/
+.claude/*
+!.claude/skills/
