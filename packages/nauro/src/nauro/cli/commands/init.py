@@ -93,6 +93,17 @@ def init(
             added = []
             for rp in repo_paths:
                 add_repo_v2(pid, rp)
+                # Per-repo config is the source of truth for "is this repo
+                # adopted?" (D111). The cloud-mode branch is rejected above,
+                # so all surviving entries here are local-mode.
+                save_repo_config(
+                    rp,
+                    {
+                        "mode": REPO_CONFIG_MODE_LOCAL,
+                        "id": pid,
+                        "name": name,
+                    },
+                )
                 added.append(rp.resolve())
             typer.echo(f"Updated project '{name}'")
             typer.echo(f"  Store: {store_path}")
