@@ -167,3 +167,94 @@ def test_setup_top_level_help_lists_new_subcommands():
     assert "claude-code" in result.output
     assert "cursor" in result.output
     assert "codex" in result.output
+    assert "all" in result.output
+
+
+# ─── nauro setup all (PR-B2) ─────────────────────────────────────────────────
+
+
+def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatch):
+    """`setup all` writes MCP config and skill files across all three surfaces."""
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # Pre-create ~/.claude/ as a real Claude Code user would have.
+    (tmp_path / ".claude").mkdir()
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "all"])
+    assert result.exit_code == 0, result.output
+
+    # MCP configs:
+    assert (tmp_path / ".claude" / "claude_desktop_config.json").is_file()
+    assert (repo / ".cursor" / "mcp.json").is_file()
+    assert (tmp_path / ".codex" / "config.toml").is_file()
+
+    # Skill files (materialized):
+    assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
+    assert (tmp_path / ".claude" / "skills" / "nauro" / "SKILL.md").is_file()
+    assert (repo / ".cursor" / "rules" / "nauro-adopt.mdc").is_file()
+    assert (repo / ".cursor" / "rules" / "nauro.mdc").is_file()
+    assert (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
+    assert (tmp_path / ".agents" / "skills" / "nauro" / "SKILL.md").is_file()
+
+
+def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    runner.invoke(app, ["setup", "all"])
+    result = runner.invoke(app, ["setup", "all", "--remove"])
+    assert result.exit_code == 0, result.output
+
+    # Skill files gone:
+    assert not (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").exists()
+    assert not (repo / ".cursor" / "rules" / "nauro-adopt.mdc").exists()
+    assert not (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").exists()
+
+
+def test_remove_skill_file_does_not_walk_above_base(tmp_path: Path):
+    """``_remove_skill_file`` must stop at ``stop_above`` — never delete the surface root."""
+    from nauro.cli.commands.setup import _remove_skill_file
+
+    base = tmp_path / ".claude" / "skills"
+    skill_dir = base / "nauro-adopt"
+    skill_dir.mkdir(parents=True)
+    target = skill_dir / "SKILL.md"
+    target.write_text("body")
+
+    _remove_skill_file(target, stop_above=base)
+
+    assert not target.exists()
+    assert not skill_dir.exists()  # subdir was empty → pruned
+    assert base.is_dir()  # base preserved
+    assert base.parent.is_dir()  # ~/.claude preserved
+    assert base.parent.parent.is_dir()  # tmp_path preserved
+
+
+def test_remove_skill_file_preserves_sibling_skills(tmp_path: Path):
+    """If `~/.claude/skills/` has other skills, removing nauro must not touch them."""
+    from nauro.cli.commands.setup import _remove_skill_file
+
+    base = tmp_path / ".claude" / "skills"
+    nauro_skill = base / "nauro-adopt" / "SKILL.md"
+    other_skill = base / "user-other" / "SKILL.md"
+    nauro_skill.parent.mkdir(parents=True)
+    nauro_skill.write_text("nauro")
+    other_skill.parent.mkdir(parents=True)
+    other_skill.write_text("user-other")
+
+    _remove_skill_file(nauro_skill, stop_above=base)
+
+    assert not nauro_skill.exists()
+    assert not nauro_skill.parent.exists()  # nauro subdir pruned
+    assert other_skill.exists()  # other skill untouched
+    assert base.is_dir()

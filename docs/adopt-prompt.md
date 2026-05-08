@@ -1,3 +1,24 @@
+# Nauro adopt prompt — chat surface (paste-content) variant
+
+Use this prompt when adopting a Nauro project from a chat surface that has no
+filesystem access (Claude.ai, ChatGPT, Perplexity). The chat agent reads
+content **you paste into the chat** instead of reading repo files itself.
+
+**Prerequisite — chat-paste mode does not create projects.** First run the CLI:
+
+```sh
+nauro adopt --name <your-project-name>
+```
+
+That registers the project, wires MCP across surfaces, and installs the
+session + adopt skills. Once that has run, you can use the prompt below from
+any connected chat surface to seed the project's store with context.
+
+If you have `nauro` installed locally, `nauro adopt --print-prompt` outputs
+this same body to stdout (without the intro paragraph above).
+
+---
+
 # Nauro adopt skill
 
 The agent helps the user seed Nauro with context from the current repo. Before this skill runs, the user has run `nauro adopt` from the repo root, which created the project, wired MCP across surfaces, and installed this skill into the agent's surface directory. The agent's job here is to read the repo's documentation (README, manifests, ADRs, Memory-Bank) and seed the Nauro store via MCP write tools. The agent records facts that source documents explicitly state — it does not invent decisions from prose. On chat surfaces (Claude.ai, ChatGPT) without filesystem access, the agent uses paste-content mode (Step 3b); chat-paste mode requires the project to already exist (run `nauro adopt` locally first).

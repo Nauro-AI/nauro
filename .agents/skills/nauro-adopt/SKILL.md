@@ -1,3 +1,8 @@
+---
+name: nauro-adopt
+description: Seeds Nauro's project store from an existing repo's documentation. Use after the user has run `nauro adopt` locally — reads README, manifests, ADRs, and Memory-Bank files, surfaces decision candidates for triage, and writes them to Nauro via existing MCP write tools.
+---
+
 # Nauro adopt skill
 
 The agent helps the user seed Nauro with context from the current repo. Before this skill runs, the user has run `nauro adopt` from the repo root, which created the project, wired MCP across surfaces, and installed this skill into the agent's surface directory. The agent's job here is to read the repo's documentation (README, manifests, ADRs, Memory-Bank) and seed the Nauro store via MCP write tools. The agent records facts that source documents explicitly state — it does not invent decisions from prose. On chat surfaces (Claude.ai, ChatGPT) without filesystem access, the agent uses paste-content mode (Step 3b); chat-paste mode requires the project to already exist (run `nauro adopt` locally first).

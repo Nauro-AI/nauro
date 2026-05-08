@@ -55,6 +55,7 @@ CLAUDE_MD = "CLAUDE.md"
 NAURO_BLOCK_START = "<!-- NAURO:START — managed by nauro, do not edit -->"
 NAURO_BLOCK_END = "<!-- NAURO:END -->"
 MANUAL_SECTION_HEADER = "# Manual"
+SKILLS_SECTION_HEADER = "## Skills"
 
 # ── MCP server defaults ──
 DEFAULT_MCP_PORT = 7432
