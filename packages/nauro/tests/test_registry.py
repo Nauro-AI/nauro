@@ -271,6 +271,33 @@ def test_init_cli_add_repo_to_existing(tmp_path, monkeypatch):
     assert pid in raw["projects"]
 
 
+def test_init_add_repo_to_existing_writes_per_repo_config(tmp_path, monkeypatch):
+    """Regression: `--add-repo` against same-name project must write `.nauro/config.json`.
+
+    Per D111 the per-repo config is the source of truth for "is this repo
+    adopted?". Without it, downstream guards (``nauro adopt`` already-adopted
+    check, the /nauro-adopt skill's Step 2) fail to detect the linkage.
+    """
+    _patch_home(monkeypatch, tmp_path)
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    repo1.mkdir()
+    repo2.mkdir()
+    runner.invoke(app, ["init", "proj", "--add-repo", str(repo1)])
+    runner.invoke(app, ["init", "proj", "--add-repo", str(repo2)])
+
+    # Both repos have a per-repo config pointing at the same project_id.
+    cfg1 = load_repo_config(repo1)
+    cfg2 = load_repo_config(repo2)
+    assert cfg1["name"] == "proj"
+    assert cfg2["name"] == "proj"
+    assert cfg1["mode"] == "local"
+    assert cfg2["mode"] == "local"
+    assert cfg1["id"] == cfg2["id"]
+    pid, _ = _v2_entry_for_name("proj")
+    assert cfg2["id"] == pid
+
+
 def test_remove_repo(tmp_path, monkeypatch):
     _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
