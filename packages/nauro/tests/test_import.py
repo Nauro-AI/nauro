@@ -121,8 +121,8 @@ def test_import_partial_memory_bank(store: Path, partial_memory_bank: Path):
     assert "## Imported from Memory Bank" in project_content
     assert "minimal project" in project_content
 
-    # state.md should NOT have import header (no activeContext.md)
-    state_content = (store / "state.md").read_text()
+    # state_current.md should NOT have import header (no activeContext.md)
+    state_content = (store / "state_current.md").read_text()
     assert "## Imported from Memory Bank" not in state_content
 
 
@@ -287,19 +287,22 @@ def _mb_with(tmp_path: Path, name: str, **files: str) -> Path:
 
 
 def test_active_context_lands_in_state_current_not_legacy(store: Path, tmp_path: Path):
+    """Pre-D94 stores may carry a legacy state.md alongside state_current.md.
+    Verify import writes only to state_current.md, never the legacy file."""
+    legacy_marker = "# Legacy state — should not be touched\n"
+    (store / "state.md").write_text(legacy_marker)
     mb = _mb_with(
         tmp_path,
         ".context_active_only",
         **{"activeContext.md": "# Active Context\n\nWiring up Stripe checkout.\n"},
     )
-    legacy_before = (store / "state.md").read_text()
 
     _import_memory_bank(mb, store)
 
     state_current = (store / "state_current.md").read_text()
     assert "Wiring up Stripe checkout." in state_current
-    # Legacy state.md is the scaffold; never gets the imported activeContext body.
-    assert (store / "state.md").read_text() == legacy_before
+    # Legacy state.md remains untouched.
+    assert (store / "state.md").read_text() == legacy_marker
     assert "Wiring up Stripe checkout." not in (store / "state.md").read_text()
 
 
@@ -401,20 +404,20 @@ def test_active_only_no_progress(store: Path, tmp_path: Path):
     assert "## Recently completed" not in state_current
 
 
-def test_neither_active_nor_progress_no_state_files_created(store: Path, tmp_path: Path):
-    """Only projectBrief — no update_state call, no state_current.md created.
+def test_neither_active_nor_progress_no_state_update(store: Path, tmp_path: Path):
+    """Only projectBrief — no update_state call, scaffolded state_current.md untouched.
 
-    Scaffolds today create legacy state.md only (no state_current.md). When
-    neither activeContext nor progress is imported, update_state is skipped
-    entirely, so state_current.md should never come into existence.
+    When neither activeContext nor progress is imported, update_state is
+    skipped entirely; the placeholder state_current.md from scaffold_project_store
+    must remain unchanged.
     """
-    legacy_before = (store / "state.md").read_text()
+    state_before = (store / "state_current.md").read_text()
     mb = _mb_with(tmp_path, ".context_brief_only")  # only projectBrief.md
 
     _import_memory_bank(mb, store)
 
-    assert not (store / "state_current.md").exists()
-    assert (store / "state.md").read_text() == legacy_before
+    assert (store / "state_current.md").read_text() == state_before
+    assert not (store / "state.md").exists()
 
 
 def test_import_progress_returns_parsed_items():

@@ -45,7 +45,7 @@ is useful. "Users" is not.]
 - [Technical constraints, e.g. "Must run offline — no cloud dependency in v1"]
 """
 
-STATE_MD = """\
+STATE_CURRENT_MD = """\
 # State
 
 ## Current
@@ -120,7 +120,7 @@ def get_scaffolds() -> dict[str, str]:
     """
     return {
         C.PROJECT_MD: PROJECT_MD,
-        C.STATE_MD: STATE_MD,
+        C.STATE_CURRENT_FILENAME: STATE_CURRENT_MD,
         C.STACK_MD: STACK_MD,
         C.OPEN_QUESTIONS_MD: OPEN_QUESTIONS_MD,
     }
@@ -129,7 +129,7 @@ def get_scaffolds() -> dict[str, str]:
 def scaffold_project_store(project_name: str, store_path: Path) -> None:
     """Write all template files to the project store directory.
 
-    Creates: project.md, state.md, stack.md, open-questions.md,
+    Creates: project.md, state_current.md, stack.md, open-questions.md,
     decisions/ directory (with 001-initial-setup.md), snapshots/ directory.
 
     Args:
@@ -143,7 +143,7 @@ def scaffold_project_store(project_name: str, store_path: Path) -> None:
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     (store_path / C.PROJECT_MD).write_text(render_scaffold(PROJECT_MD, project_name=project_name))
-    (store_path / C.STATE_MD).write_text(render_scaffold(STATE_MD))
+    (store_path / C.STATE_CURRENT_FILENAME).write_text(render_scaffold(STATE_CURRENT_MD))
     (store_path / C.STACK_MD).write_text(render_scaffold(STACK_MD))
     (store_path / C.OPEN_QUESTIONS_MD).write_text(render_scaffold(OPEN_QUESTIONS_MD))
 

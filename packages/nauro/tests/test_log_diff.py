@@ -253,7 +253,7 @@ class TestLogCommand:
         result = runner.invoke(app, ["log", "--full", "--limit", "1"])
         assert result.exit_code == 0
         assert "project.md" in result.output
-        assert "state.md" in result.output
+        assert "state_current.md" in result.output
         assert "decisions/" in result.output
 
     def test_log_no_snapshots(self, tmp_path: Path, monkeypatch):
