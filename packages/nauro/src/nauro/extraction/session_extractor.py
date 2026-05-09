@@ -11,11 +11,6 @@ import logging
 import os
 from pathlib import Path
 
-try:
-    import anthropic
-except ImportError:
-    raise ImportError("anthropic package required for extraction: pip install nauro[extraction]")
-
 from nauro.constants import (
     DEFAULT_EXTRACTION_MODEL,
     NAURO_EXTRACTION_MODEL_ENV,
@@ -63,6 +58,13 @@ def extract_from_compaction(
 
     if not compaction_summary or not compaction_summary.strip():
         return skip_result
+
+    try:
+        import anthropic
+    except ImportError as e:
+        raise ImportError(
+            "anthropic package required for extraction: pip install nauro[extraction]"
+        ) from e
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
@@ -264,6 +266,14 @@ def _extract_from_chunk(chunk: str, api_key: str | None = None) -> dict:
         return _make_no_api_key_result()
 
     skip_result = _make_skip_result()
+
+    try:
+        import anthropic
+    except ImportError as e:
+        raise ImportError(
+            "anthropic package required for extraction: pip install nauro[extraction]"
+        ) from e
+
     try:
         client = anthropic.Anthropic(api_key=api_key)
         model = os.environ.get(NAURO_EXTRACTION_MODEL_ENV, DEFAULT_EXTRACTION_MODEL)

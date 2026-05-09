@@ -66,7 +66,7 @@ def _make_extraction_result(**overrides):
 
 
 class TestExtractFromCompaction:
-    @patch("nauro.extraction.session_extractor.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_basic_extraction(self, mock_cls, store):
         expected = _make_extraction_result(
             decisions=[
@@ -102,7 +102,7 @@ class TestExtractFromCompaction:
         assert result["decisions"][0]["title"] == "Use FastAPI for MCP server"
         assert result["composite_score"] == 0.65
 
-    @patch("nauro.extraction.session_extractor.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_sets_source_on_decisions(self, mock_cls, store):
         expected = _make_extraction_result(
             decisions=[{"title": "Test", "confidence": "medium"}],
@@ -119,7 +119,7 @@ class TestExtractFromCompaction:
         result = extract_from_compaction("", store, api_key="test")
         assert result["skip"] is True
 
-    @patch("nauro.extraction.session_extractor.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_api_error_returns_skip(self, mock_cls, store):
         mock_cls.return_value.messages.create.side_effect = Exception("API error")
         result = extract_from_compaction("summary", store, api_key="test")
@@ -136,7 +136,7 @@ class TestExtractFromSessionJsonl:
         lines = [json.dumps(m) for m in messages]
         path.write_text("\n".join(lines))
 
-    @patch("nauro.extraction.session_extractor.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_basic_jsonl_extraction(self, mock_cls, store, tmp_path):
         session_path = tmp_path / "session.jsonl"
         self._write_session(
@@ -163,7 +163,7 @@ class TestExtractFromSessionJsonl:
         result = extract_from_session_jsonl(tmp_path / "missing.jsonl", store)
         assert result["skip"] is True
 
-    @patch("nauro.extraction.session_extractor.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_deduplicates_across_chunks(self, mock_cls, store, tmp_path):
         """Decisions with the same title across chunks are deduplicated."""
         session_path = tmp_path / "session.jsonl"

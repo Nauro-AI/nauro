@@ -253,7 +253,7 @@ class TestFailClosedBehavior:
         return store_path
 
     @patch("nauro.validation.pipeline.check_similarity")
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_auto_confirm_path_holds_when_llm_fails(
         self, mock_anthropic_cls, mock_check_similarity, tmp_path
     ):
@@ -293,7 +293,7 @@ class TestFailClosedBehavior:
         )
 
     @patch("nauro.validation.pipeline.check_similarity")
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_mcp_path_queues_for_confirmation_when_llm_fails(
         self, mock_anthropic_cls, mock_check_similarity, tmp_path
     ):
