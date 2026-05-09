@@ -97,6 +97,22 @@ class TestMCPConfigShellout:
         assert calls == []  # subprocess.run never invoked
         assert "skipping Claude Code wiring" in result
 
+    def test_remove_when_claude_not_on_path_says_nothing_to_remove(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """On --remove with no `claude` CLI, surface a remove-shaped message
+        rather than telling the user to install Claude Code (which is the
+        add-path hint). Locks in the branched message."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        calls = _mock_claude_cli(monkeypatch, on_path=False)
+
+        result = _configure_mcp(repo, remove=True)
+
+        assert calls == []
+        assert "nothing to remove" in result
+        assert "skipping Claude Code wiring" not in result
+
     def test_non_zero_exit_surfaces_stderr(self, tmp_path: Path, monkeypatch):
         repo = tmp_path / "repo"
         repo.mkdir()

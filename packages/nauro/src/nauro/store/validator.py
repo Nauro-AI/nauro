@@ -83,7 +83,8 @@ def validate_store(store_path: Path) -> list[str]:
                 age = datetime.now(timezone.utc) - synced_date
                 if age.days > STALE_SYNC_DAYS:
                     warnings.append(
-                        f"state.md: Last synced {age.days} days ago — consider running nauro sync"
+                        f"{state_path.name}: Last synced {age.days} days ago — "
+                        "consider running nauro sync"
                     )
             except ValueError:
                 pass

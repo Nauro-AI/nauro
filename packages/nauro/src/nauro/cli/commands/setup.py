@@ -88,6 +88,8 @@ def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
     Returns a one-line status string (indented for ``setup_all_surfaces``).
     """
     if shutil.which("claude") is None:
+        if remove:
+            return "Claude Code CLI not found on PATH; nothing to remove."
         return (
             "Claude Code CLI not found on PATH; skipping Claude Code wiring "
             "(run 'nauro setup claude-code' after installing it)."
