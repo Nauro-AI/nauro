@@ -72,10 +72,6 @@ def _find_nauro_command() -> str:
     return path if path else "nauro"
 
 
-# claude mcp remove emits these on a missing entry — treat as graceful no-op.
-_CLAUDE_REMOVE_NOT_FOUND_MARKERS = ("no mcp server", "not found", "does not exist")
-
-
 def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
     """Add or remove the Nauro MCP entry in Claude Code via the ``claude`` CLI.
 
@@ -98,6 +94,19 @@ def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
     nauro_cmd = _find_nauro_command()
 
     if remove:
+        # Pre-check the file rather than parse `claude mcp remove` stderr —
+        # stderr wording is unstable across Claude Code versions, but the
+        # project-scope `.mcp.json` shape is the documented contract.
+        mcp_json = repo_path / ".mcp.json"
+        if not mcp_json.is_file():
+            return f"  {repo_path}: no nauro entry to remove"
+        try:
+            config = json.loads(mcp_json.read_text())
+        except json.JSONDecodeError as exc:
+            return f"  {repo_path}: could not parse .mcp.json — {exc}"
+        if "nauro" not in config.get("mcpServers", {}):
+            return f"  {repo_path}: no nauro entry to remove"
+
         result = subprocess.run(
             ["claude", "mcp", "remove", "nauro"],
             cwd=repo_path,
@@ -107,9 +116,6 @@ def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
         )
         if result.returncode == 0:
             return f"  {repo_path}: removed nauro from .mcp.json"
-        stderr_lower = (result.stderr or "").lower()
-        if any(marker in stderr_lower for marker in _CLAUDE_REMOVE_NOT_FOUND_MARKERS):
-            return f"  {repo_path}: no nauro entry to remove"
         return f"  {repo_path}: claude mcp remove failed — {(result.stderr or '').strip()}"
 
     result = subprocess.run(

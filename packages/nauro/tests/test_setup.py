@@ -1,5 +1,6 @@
 """Tests for nauro setup claude-code command."""
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -77,6 +78,9 @@ class TestMCPConfigShellout:
     def test_remove_path_argv_and_cwd(self, tmp_path: Path, monkeypatch):
         repo = tmp_path / "repo"
         repo.mkdir()
+        # The remove path now pre-checks <repo>/.mcp.json and only invokes
+        # `claude mcp remove` when the nauro entry is actually present.
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"nauro": {}}}))
         calls = _mock_claude_cli(monkeypatch)
 
         result = _configure_mcp(repo, remove=True)
@@ -123,18 +127,40 @@ class TestMCPConfigShellout:
         assert "some claude error" in result
         assert "claude mcp add failed" in result
 
-    def test_remove_graceful_when_no_entry(self, tmp_path: Path, monkeypatch):
-        """`claude mcp remove` against a missing entry exits non-zero with a
-        recognizable stderr — the wrapper turns it into a no-op message."""
+    def test_remove_skips_when_no_mcp_json(self, tmp_path: Path, monkeypatch):
+        """No `.mcp.json` at all → no-op without invoking the CLI."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        _mock_claude_cli(monkeypatch, returncode=1, stderr="No MCP server named 'nauro'")
+        calls = _mock_claude_cli(monkeypatch)
 
         result = _configure_mcp(repo, remove=True)
 
+        assert calls == []
         assert "no nauro entry to remove" in result
-        # And the failure-path message is NOT used.
-        assert "claude mcp remove failed" not in result
+
+    def test_remove_skips_when_nauro_absent_from_mcp_json(self, tmp_path: Path, monkeypatch):
+        """`.mcp.json` exists but has no nauro entry → no-op without invoking CLI."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"other": {}}}))
+        calls = _mock_claude_cli(monkeypatch)
+
+        result = _configure_mcp(repo, remove=True)
+
+        assert calls == []
+        assert "no nauro entry to remove" in result
+
+    def test_remove_handles_malformed_mcp_json(self, tmp_path: Path, monkeypatch):
+        """Malformed `.mcp.json` surfaces a parse error instead of crashing."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".mcp.json").write_text("{not json")
+        calls = _mock_claude_cli(monkeypatch)
+
+        result = _configure_mcp(repo, remove=True)
+
+        assert calls == []
+        assert "could not parse .mcp.json" in result
 
     def test_setup_all_iterates_per_repo(self, tmp_path: Path, monkeypatch):
         """Multi-repo project: `setup all` invokes `claude mcp add` once per
