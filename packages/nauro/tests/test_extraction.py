@@ -853,7 +853,7 @@ def _make_new_format_result(
 class TestExtractFromCommit:
     """Test extract_from_commit with mocked Anthropic client."""
 
-    @patch("nauro.extraction.anthropic_provider.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_returns_parsed_tool_result(self, mock_cls):
         expected = _make_new_format_result(
             decisions=[{"title": "Switch to Postgres", "confidence": "high"}],
@@ -876,7 +876,7 @@ class TestExtractFromCommit:
         assert result.signal.architectural_significance == 0.9
         assert result.reasoning == "Test reasoning"
 
-    @patch("nauro.extraction.anthropic_provider.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_returns_skip_on_api_error(self, mock_cls):
         mock_cls.return_value.messages.create.side_effect = Exception("API down")
 
@@ -884,7 +884,7 @@ class TestExtractFromCommit:
         assert isinstance(result, ExtractionSkipped)
         assert result.reason == "error"
 
-    @patch("nauro.extraction.anthropic_provider.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_returns_skip_when_no_tool_use_block(self, mock_cls):
         text_block = MagicMock()
         text_block.type = "text"
@@ -896,7 +896,7 @@ class TestExtractFromCommit:
         assert isinstance(result, ExtractionSkipped)
         assert result.reason == "no_tool_use"
 
-    @patch("nauro.extraction.anthropic_provider.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_defaults_missing_keys(self, mock_cls):
         mock_cls.return_value.messages.create.return_value = _make_mock_response(
             {"composite_score": 0.5, "skip": False}
@@ -910,7 +910,7 @@ class TestExtractFromCommit:
         assert result.signal is not None
         assert result.reasoning == ""
 
-    @patch("nauro.extraction.anthropic_provider.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_recomputes_composite_when_zero_with_decisions(self, mock_cls):
         """If model returns skip=false, real decisions, but composite_score=0.0,
         the pipeline should recompute from signal dimensions."""
@@ -939,7 +939,7 @@ class TestExtractFromCommit:
         assert result.signal.composite_score == pytest.approx(0.68)
         assert result.skip is False
 
-    @patch("nauro.extraction.anthropic_provider.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_no_recompute_when_skip_true(self, mock_cls):
         """Don't recompute if skip=true — 0.0 is correct for skipped results."""
         mock_cls.return_value.messages.create.return_value = _make_mock_response(
@@ -964,7 +964,7 @@ class TestExtractFromCommit:
         assert isinstance(result, ExtractionResult)
         assert result.signal.composite_score == 0.0
 
-    @patch("nauro.extraction.anthropic_provider.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_no_recompute_when_composite_nonzero(self, mock_cls):
         """Don't recompute if model already provided a nonzero composite."""
         mock_cls.return_value.messages.create.return_value = _make_mock_response(

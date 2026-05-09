@@ -9,11 +9,6 @@ from __future__ import annotations
 import logging
 import os
 
-try:
-    import anthropic
-except ImportError:
-    raise ImportError("anthropic package required for extraction: pip install nauro[extraction]")
-
 from nauro.constants import DEFAULT_EXTRACTION_MODEL, NAURO_EXTRACTION_MODEL_ENV
 from nauro.extraction.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
@@ -45,6 +40,13 @@ class AnthropicProvider:
         """Extract structured context from a commit diff using Anthropic Haiku."""
         if not self._has_api_key():
             return ExtractionSkipped(reason="no_api_key")
+
+        try:
+            import anthropic
+        except ImportError as e:
+            raise ImportError(
+                "anthropic package required for extraction: pip install nauro[extraction]"
+            ) from e
 
         try:
             client = anthropic.Anthropic(api_key=self._api_key)

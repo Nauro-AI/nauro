@@ -10,13 +10,21 @@ import logging
 import os
 from pathlib import Path
 
-try:
-    import anthropic
-except ImportError:
-    raise ImportError("anthropic package required for validation: pip install nauro[extraction]")
-
 from nauro.constants import DEFAULT_EXTRACTION_MODEL, NAURO_EXTRACTION_MODEL_ENV
 from nauro.store.reader import _list_decisions
+
+_ANTHROPIC_INSTALL_HINT = (
+    "anthropic package required for tier-3 validation: pip install nauro[extraction]"
+)
+
+
+def _require_anthropic():
+    try:
+        import anthropic
+    except ImportError as e:
+        raise ImportError(_ANTHROPIC_INSTALL_HINT) from e
+    return anthropic
+
 
 logger = logging.getLogger("nauro.validation.tier3")
 
@@ -172,6 +180,8 @@ def evaluate_with_llm(
         "## Most Similar Existing Decisions\n\n" + "\n\n---\n\n".join(similar_content)
     )
 
+    anthropic = _require_anthropic()
+
     try:
         client = anthropic.Anthropic(api_key=api_key)
         model = os.environ.get(NAURO_EXTRACTION_MODEL_ENV, DEFAULT_EXTRACTION_MODEL)
@@ -241,6 +251,8 @@ def check_conflicts_with_llm(
     if context:
         user_prompt += f"**Context:** {context}\n\n"
     user_prompt += "## Relevant Existing Decisions\n\n" + "\n\n---\n\n".join(similar_content)
+
+    anthropic = _require_anthropic()
 
     try:
         client = anthropic.Anthropic(api_key=api_key)

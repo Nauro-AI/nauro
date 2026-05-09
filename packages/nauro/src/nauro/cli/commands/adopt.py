@@ -24,11 +24,12 @@ seeding the Nauro store via the existing MCP write tools.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import typer
 
-from nauro.cli.commands.setup import setup_all_surfaces
+from nauro.cli.commands.setup import _find_nauro_command, setup_all_surfaces
 from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
 from nauro.store.registry import find_projects_by_name_v2, register_project_v2
@@ -41,6 +42,48 @@ from nauro.templates.scaffolds import scaffold_project_store
 def _resolve_repo_root(repo_arg: Path | None) -> Path:
     """Return the absolute path of the repo root to adopt."""
     return (repo_arg if repo_arg is not None else Path.cwd()).resolve()
+
+
+def _smoke_test_wired_binary(nauro_cmd: str, timeout: float = 1.5) -> str | None:
+    """Boot ``<nauro_cmd> serve --stdio`` briefly to verify it doesn't crash on import.
+
+    A healthy stdio server either exits cleanly on stdin EOF (returncode 0) or
+    keeps running waiting for an MCP handshake (we kill it after ``timeout``).
+    Either outcome is "healthy". The failure mode we care about is the binary
+    crashing on import — that surfaces as a non-zero exit before the timeout.
+
+    Returns a multi-line warning string on detected failure, otherwise None.
+    """
+    try:
+        proc = subprocess.run(
+            [nauro_cmd, "serve", "--stdio"],
+            input="",
+            timeout=timeout,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    except FileNotFoundError:
+        return (
+            f"WARNING: could not run `{nauro_cmd} serve --stdio` — binary not found.\n"
+            f"  /nauro-adopt and other MCP-driven flows will not work until this is fixed."
+        )
+
+    if proc.returncode == 0:
+        return None
+
+    first_err = next(
+        (line for line in (proc.stderr or "").splitlines() if line.strip()),
+        "(no stderr captured)",
+    )
+    return (
+        f"\nWARNING: `{nauro_cmd} serve --stdio` failed to start (exit {proc.returncode}): "
+        f"{first_err}\n"
+        f"  Run `{nauro_cmd} serve --stdio` manually to see the full traceback.\n"
+        f"  /nauro-adopt and other MCP-driven flows will not work until this is fixed."
+    )
 
 
 def _check_collision(name: str, repo_root: Path) -> str | None:
@@ -154,6 +197,10 @@ def adopt(
         typer.echo("\nWiring MCP and installing skills across surfaces:")
         for line in setup_all_surfaces([repo_root], remove=False):
             typer.echo(line)
+
+        warning = _smoke_test_wired_binary(_find_nauro_command())
+        if warning:
+            typer.echo(warning, err=True)
 
     typer.echo(
         "\nNext: restart your agent and invoke /nauro-adopt to seed context "

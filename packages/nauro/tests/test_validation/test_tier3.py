@@ -37,7 +37,7 @@ def _make_mock_response(tool_name: str, tool_input: dict):
 
 
 class TestEvaluateWithLlm:
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_add_operation(self, mock_anthropic_cls, store):
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
@@ -61,7 +61,7 @@ class TestEvaluateWithLlm:
         assert result["operation"] == "add"
         assert result["conflicts"] == []
 
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_supersede_operation(self, mock_anthropic_cls, store):
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
@@ -91,7 +91,7 @@ class TestEvaluateWithLlm:
         assert result["affected_decision_id"] == "decision-002"
         assert len(result["conflicts"]) == 1
 
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_update_operation(self, mock_anthropic_cls, store):
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
@@ -118,7 +118,7 @@ class TestEvaluateWithLlm:
         assert result["operation"] == "update"
         assert result["affected_decision_id"] == "decision-002"
 
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_noop_operation(self, mock_anthropic_cls, store):
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
@@ -139,7 +139,7 @@ class TestEvaluateWithLlm:
         )
         assert result["operation"] == "noop"
 
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_returns_hold_on_api_failure(self, mock_anthropic_cls, store):
         """When LLM call fails, operation is 'hold' — not 'add' (fail-closed)."""
         mock_client = MagicMock()
@@ -158,7 +158,7 @@ class TestEvaluateWithLlm:
         )
         assert "unavailable" in result["assessment"].lower()
 
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_api_key_forwarded_to_anthropic_client(self, mock_anthropic_cls, store):
         """Explicit api_key must be passed to Anthropic() constructor."""
         mock_client = MagicMock()
@@ -179,7 +179,7 @@ class TestEvaluateWithLlm:
 
 
 class TestCheckConflicts:
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_finds_conflicts(self, mock_anthropic_cls, store):
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
@@ -207,7 +207,7 @@ class TestCheckConflicts:
         assert len(result["potential_conflicts"]) == 1
         assert "MySQL" in result["potential_conflicts"][0]["conflict"]
 
-    @patch("nauro.validation.tier3.anthropic.Anthropic")
+    @patch("anthropic.Anthropic")
     def test_returns_empty_on_api_failure(self, mock_anthropic_cls, store):
         mock_client = MagicMock()
         mock_anthropic_cls.return_value = mock_client
