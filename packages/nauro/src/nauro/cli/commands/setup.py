@@ -1,7 +1,8 @@
 """nauro setup — Configure tool integrations.
 
 Subcommands:
-  nauro setup claude-code  — register MCP server + regenerate AGENTS.md
+  nauro setup claude-code  — register MCP server in <repo>/.mcp.json (project scope)
+                             for each of the project's repos
   nauro setup cursor       — register MCP server in <repo>/.cursor/mcp.json
                              for each of the project's repos
   nauro setup codex        — register MCP server in ~/.codex/config.toml
@@ -10,6 +11,8 @@ Subcommands:
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -63,71 +66,79 @@ def _remove_claude_md(repo_path: Path) -> str | None:
         return f"  {repo_path}: removed legacy Nauro block from {CLAUDE_MD}"
 
 
-def _find_claude_config_path() -> Path | None:
-    """Find the Claude Code MCP config file path."""
-    candidates = [
-        Path.home() / ".claude" / "claude_desktop_config.json",
-        Path.home() / ".config" / "claude" / "claude_desktop_config.json",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    # If neither exists, prefer the first path if its parent exists
-    for candidate in candidates:
-        if candidate.parent.exists():
-            return candidate
-    return None
-
-
 def _find_nauro_command() -> str:
     """Find the full path to the nauro binary for the MCP config."""
-    import shutil
-
     path = shutil.which("nauro")
     return path if path else "nauro"
 
 
-def _configure_mcp(remove: bool = False) -> str:
-    """Add or remove the Nauro MCP entry in Claude Code's config.
+def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
+    """Add or remove the Nauro MCP entry in Claude Code via the ``claude`` CLI.
 
-    Uses stdio transport — Claude Code spawns the server process directly.
-    Returns a status string.
+    Uses ``--scope project`` so the entry is written to ``<repo>/.mcp.json``,
+    making it shareable with collaborators via git — mirroring the Cursor
+    surface model. The shell-out is intentional: Claude Code's per-project
+    config layout has changed before; ``claude mcp add`` is the supported
+    entry point.
+
+    Returns a one-line status string (indented for ``setup_all_surfaces``).
     """
-    config_path = _find_claude_config_path()
-    nauro_cmd = _find_nauro_command()
-    nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
-
-    if config_path is None:
+    if shutil.which("claude") is None:
         if remove:
-            return "MCP config: no Claude Code config found, nothing to remove"
-        snippet = json.dumps({"mcpServers": {"nauro": nauro_entry}}, indent=2)
+            return "Claude Code CLI not found on PATH; nothing to remove."
         return (
-            "MCP config: could not find Claude Code config file.\n"
-            "  Add the following to your Claude Code MCP config:\n"
-            f"  {snippet}"
+            "Claude Code CLI not found on PATH; skipping Claude Code wiring "
+            "(run 'nauro setup claude-code' after installing it)."
         )
 
-    if config_path.exists():
-        config = json.loads(config_path.read_text())
-    else:
-        config = {}
+    nauro_cmd = _find_nauro_command()
 
     if remove:
-        servers = config.get("mcpServers", {})
-        if "nauro" in servers:
-            del servers["nauro"]
-            if not servers:
-                del config["mcpServers"]
-            config_path.write_text(json.dumps(config, indent=2) + "\n")
-            return f"MCP config: removed nauro from {config_path}"
-        return f"MCP config: no nauro entry found in {config_path}"
+        # Pre-check the file rather than parse `claude mcp remove` stderr —
+        # stderr wording is unstable across Claude Code versions, but the
+        # project-scope `.mcp.json` shape is the documented contract.
+        mcp_json = repo_path / ".mcp.json"
+        if not mcp_json.is_file():
+            return f"  {repo_path}: no nauro entry to remove"
+        try:
+            config = json.loads(mcp_json.read_text())
+        except json.JSONDecodeError as exc:
+            return f"  {repo_path}: could not parse .mcp.json — {exc}"
+        if "nauro" not in config.get("mcpServers", {}):
+            return f"  {repo_path}: no nauro entry to remove"
 
-    if "mcpServers" not in config:
-        config["mcpServers"] = {}
-    config["mcpServers"]["nauro"] = nauro_entry
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
-    return f"MCP config: wrote nauro server to {config_path}"
+        result = subprocess.run(
+            ["claude", "mcp", "remove", "nauro"],
+            cwd=repo_path,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return f"  {repo_path}: removed nauro from .mcp.json"
+        return f"  {repo_path}: claude mcp remove failed — {(result.stderr or '').strip()}"
+
+    result = subprocess.run(
+        [
+            "claude",
+            "mcp",
+            "add",
+            "--scope",
+            "project",
+            "nauro",
+            "--",
+            nauro_cmd,
+            "serve",
+            "--stdio",
+        ],
+        cwd=repo_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return f"  {repo_path}: wrote nauro to .mcp.json"
+    return f"  {repo_path}: claude mcp add failed — {(result.stderr or '').strip()}"
 
 
 @setup_app.command(name="claude-code")
@@ -158,20 +169,22 @@ def claude_code(
     # Clean up legacy CLAUDE.md blocks (behavioral guidance now delivered
     # via MCP server instructions, so the injected block is no longer needed).
     legacy_results = []
+    mcp_results = []
     for repo_str in entry["repo_paths"]:
         repo_path = Path(repo_str)
         if not repo_path.is_dir():
+            mcp_results.append(f"  {repo_path}: repo path missing, skipped")
             continue
-        result = _remove_claude_md(repo_path)
-        if result:
-            legacy_results.append(result)
-
-    mcp_result = _configure_mcp(remove=remove)
+        legacy = _remove_claude_md(repo_path)
+        if legacy:
+            legacy_results.append(legacy)
+        mcp_results.append(_configure_mcp(repo_path, remove=remove))
 
     # Print summary
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro for project '{project_name}':\n")
-    typer.echo(mcp_result)
+    for line in mcp_results:
+        typer.echo(line)
 
     if legacy_results:
         typer.echo("\nLegacy cleanup:")
@@ -424,11 +437,15 @@ def setup_all_surfaces(project_repos: list[Path], *, remove: bool = False) -> li
     """
     lines: list[str] = []
 
-    # Claude Code (MCP global + skills global)
-    try:
-        lines.append(_configure_mcp(remove=remove))
-    except Exception as exc:
-        lines.append(f"Claude Code MCP: error — {exc}")
+    # Claude Code (MCP per-repo via `claude mcp add --scope project` + skills global)
+    for repo in project_repos:
+        if not repo.is_dir():
+            lines.append(f"  {repo}: repo path missing, skipped")
+            continue
+        try:
+            lines.append(_configure_mcp(repo, remove=remove))
+        except Exception as exc:
+            lines.append(f"Claude Code MCP ({repo}): error — {exc}")
     try:
         lines.extend(materialize_skills_claude_code(remove=remove))
     except Exception as exc:
@@ -437,7 +454,6 @@ def setup_all_surfaces(project_repos: list[Path], *, remove: bool = False) -> li
     # Cursor (MCP per-repo + skills per-repo)
     for repo in project_repos:
         if not repo.is_dir():
-            lines.append(f"  {repo}: repo path missing, skipped")
             continue
         try:
             lines.append(_configure_cursor_for_repo(repo, remove=remove))

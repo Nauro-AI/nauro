@@ -10,9 +10,11 @@ The agent runs `git rev-parse --show-toplevel` from the current working director
 
 The agent reads `<repo>/.nauro/config.json`. If the file is missing: abort with "This repo is not adopted yet. Run 'nauro adopt' from the repo root, restart this agent, then invoke /nauro-adopt again." If the file exists and parses as JSON: extract `id` and `name` and use these as the project handle for subsequent calls.
 
+Pass `id` as the `project_id` argument on every subsequent MCP call (`propose_decision`, `confirm_decision`, `update_state`, `flag_question`, `get_context`, `list_decisions`). Do not omit `project_id` even though the tool descriptions say it's optional — auto-resolve routes to the user's default project, which is **not** the project this skill is seeding when both local-mode and cloud-mode projects coexist.
+
 ## Step 3 — Read source files
 
-The agent reads the first match found per category. Files larger than 256KB are flagged to the user before reading.
+The agent reads the first match found per category. Files larger than 256KB are flagged to the user before reading. If the README category yields no match, surface "No README found; reading manifest only." to the user once and continue — manifest-only repos are still adoptable.
 
 - **README**: `README.md`, `README.rst`, `README` (first found)
 - **Manifest**: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `Gemfile`, `pom.xml`, `build.gradle`, `composer.json`, `requirements*.txt`

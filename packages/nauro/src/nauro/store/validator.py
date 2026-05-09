@@ -12,8 +12,9 @@ from nauro.constants import (
     DECISIONS_DIR,
     L0_TOKEN_LIMIT,
     STALE_SYNC_DAYS,
+    STATE_CURRENT_FILENAME,
     STATE_FIELD_LAST_SYNCED_ITALIC,
-    STATE_MD,
+    STATE_LEGACY_FILENAME,
     VALIDATED_STORE_FILES,
 )
 
@@ -59,8 +60,10 @@ def validate_store(store_path: Path) -> list[str]:
                 f"{filename}: {len(unfilled)} unfilled prompt(s) remaining — e.g. [{unfilled[0]}]"
             )
 
-    # Check Last synced staleness
-    state_path = store_path / STATE_MD
+    # Check Last synced staleness — prefer state_current.md, fall back to legacy state.md.
+    state_path = store_path / STATE_CURRENT_FILENAME
+    if not state_path.exists():
+        state_path = store_path / STATE_LEGACY_FILENAME
     if state_path.exists():
         content = state_path.read_text()
         sync_match = re.search(STATE_FIELD_LAST_SYNCED_ITALIC, content)
@@ -80,7 +83,8 @@ def validate_store(store_path: Path) -> list[str]:
                 age = datetime.now(timezone.utc) - synced_date
                 if age.days > STALE_SYNC_DAYS:
                     warnings.append(
-                        f"state.md: Last synced {age.days} days ago — consider running nauro sync"
+                        f"{state_path.name}: Last synced {age.days} days ago — "
+                        "consider running nauro sync"
                     )
             except ValueError:
                 pass

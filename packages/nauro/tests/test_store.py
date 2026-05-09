@@ -33,7 +33,8 @@ def store(tmp_path: Path) -> Path:
 
 def test_scaffold_creates_all_files(store: Path):
     assert (store / "project.md").exists()
-    assert (store / "state.md").exists()
+    assert (store / "state_current.md").exists()
+    assert not (store / "state.md").exists()
     assert (store / "stack.md").exists()
     assert (store / "open-questions.md").exists()
     assert (store / "decisions").is_dir()
@@ -69,7 +70,8 @@ def test_scaffold_creates_first_decision(store: Path):
 def test_get_scaffolds_returns_dict():
     scaffolds = get_scaffolds()
     assert "project.md" in scaffolds
-    assert "state.md" in scaffolds
+    assert "state_current.md" in scaffolds
+    assert "state.md" not in scaffolds
     assert "stack.md" in scaffolds
     assert "open-questions.md" in scaffolds
 
@@ -191,13 +193,13 @@ def test_question_multiple(store: Path):
 
 
 def test_update_state_creates_state_current(store: Path):
-    """First update_state migrates legacy state.md and creates state_current.md."""
+    """update_state writes to state_current.md (scaffolded directly post-D94)."""
     update_state(store, "Implemented auth module")
     current = (store / "state_current.md").read_text()
     assert "# Current State" in current
     assert "Implemented auth module" in current
-    # Legacy state.md is left untouched
-    assert (store / "state.md").exists()
+    # Scaffold no longer writes a legacy state.md.
+    assert not (store / "state.md").exists()
 
 
 def test_update_state_appends_history(store: Path):
@@ -222,9 +224,12 @@ def test_update_state_history_accumulates(store: Path):
         assert f"Task {i}" in history
 
 
-def test_update_state_migration_preserves_legacy(store: Path):
-    """Migration path: store with only state.md, first update creates state_current.md."""
-    assert (store / "state.md").exists()
+def test_update_state_migration_preserves_legacy(tmp_path: Path):
+    """Pre-D94 stores: state.md only → first update_state migrates to state_current.md."""
+    store = tmp_path / "legacy-store"
+    (store / "decisions").mkdir(parents=True)
+    (store / "snapshots").mkdir()
+    (store / "state.md").write_text("# State\n\n## Current\nLegacy content\n\n## History\n")
     assert not (store / "state_current.md").exists()
     update_state(store, "Post-upgrade task")
     assert (store / "state_current.md").exists()
@@ -252,8 +257,14 @@ def test_load_files_returns_state_current_key(store: Path):
     assert "state.md" not in files
 
 
-def test_load_files_falls_back_to_state_md(store: Path):
-    """When only state.md exists, _load_files returns it under state.md key."""
+def test_load_files_falls_back_to_state_md(tmp_path: Path):
+    """When only legacy state.md exists, _load_files returns it under state.md key."""
+    store = tmp_path / "legacy-store"
+    store.mkdir()
+    (store / "project.md").write_text("# Project\n")
+    (store / "state.md").write_text("# State\n\nLegacy content\n")
+    (store / "stack.md").write_text("# Stack\n")
+    (store / "open-questions.md").write_text("# Questions\n")
     files = _load_files(store)
     assert "state.md" in files
     assert "state_current.md" not in files
@@ -295,7 +306,7 @@ def test_snapshot_capture(store: Path):
     snap = load_snapshot(store, 1)
     assert snap["trigger"] == "test"
     assert "project.md" in snap["files"]
-    assert "state.md" in snap["files"]
+    assert "state_current.md" in snap["files"]
     assert snap["schema_version"] == 1
 
 
@@ -585,8 +596,8 @@ def test_validate_unfilled_prompts(store: Path):
 def test_validate_stale_sync(tmp_path: Path):
     store = tmp_path / "projects" / "stale"
     scaffold_project_store("stale", store)
-    # Legacy format with old Last synced — validator still detects it
-    state = store / "state.md"
+    # Validator prefers state_current.md (post-D94 default) for staleness check.
+    state = store / "state_current.md"
     old_date = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%d")
     state.write_text(f"# Current State\n*Last synced: {old_date}*\n")
     warnings = validate_store(store)

@@ -172,7 +172,8 @@ def test_scaffold_creates_all_files(tmp_path):
     store = tmp_path / "store"
     scaffold_project_store("testproj", store)
     assert (store / "project.md").exists()
-    assert (store / "state.md").exists()
+    assert (store / "state_current.md").exists()
+    assert not (store / "state.md").exists()
     assert (store / "stack.md").exists()
     assert (store / "open-questions.md").exists()
     assert (store / "decisions").is_dir()

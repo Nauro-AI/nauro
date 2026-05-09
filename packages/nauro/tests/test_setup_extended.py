@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -19,6 +20,20 @@ else:
     import tomli as tomllib
 
 runner = CliRunner()
+
+
+def _mock_claude_cli(monkeypatch, *, on_path: bool = True, returncode: int = 0):
+    """Mock the `claude` CLI for any test that exercises the Claude Code path."""
+    monkeypatch.setattr(
+        "nauro.cli.commands.setup.shutil.which",
+        lambda cmd: "/usr/local/bin/claude" if (on_path and cmd == "claude") else None,
+    )
+    monkeypatch.setattr(
+        "nauro.cli.commands.setup.subprocess.run",
+        lambda argv, **kwargs: subprocess.CompletedProcess(
+            args=argv, returncode=returncode, stdout="", stderr=""
+        ),
+    )
 
 
 # ─── nauro setup cursor ─────────────────────────────────────────────────────
@@ -174,22 +189,23 @@ def test_setup_top_level_help_lists_new_subcommands():
 
 
 def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatch):
-    """`setup all` writes MCP config and skill files across all three surfaces."""
+    """`setup all` shells out to `claude mcp add` and writes Cursor + Codex
+    configs and skill files across all three surfaces."""
     monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
-    # Pre-create ~/.claude/ as a real Claude Code user would have.
-    (tmp_path / ".claude").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
+    _mock_claude_cli(monkeypatch)
 
     result = runner.invoke(app, ["setup", "all"])
     assert result.exit_code == 0, result.output
 
-    # MCP configs:
-    assert (tmp_path / ".claude" / "claude_desktop_config.json").is_file()
+    # MCP configs (Claude Code is wired via the mocked `claude mcp add` shellout
+    # — the actual .mcp.json write is the `claude` CLI's responsibility, so the
+    # multi-repo iteration test in test_setup.py covers the argv shape).
     assert (repo / ".cursor" / "mcp.json").is_file()
     assert (tmp_path / ".codex" / "config.toml").is_file()
 
@@ -210,6 +226,7 @@ def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
     _, store_path = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
+    _mock_claude_cli(monkeypatch)
 
     runner.invoke(app, ["setup", "all"])
     result = runner.invoke(app, ["setup", "all", "--remove"])
