@@ -76,11 +76,11 @@ class TestCheckSimilarity:
 
     def test_generic_verb_overlap_does_not_escalate(self, store):
         """A proposal sharing only a generic action verb (e.g. ``use``)
-        with an existing decision must not escalate to tier 3.
+        with an existing decision must not surface as a near-neighbour.
 
         ``use`` appears in virtually every Nauro decision title and carries
         no similarity signal. Without filtering it, every new ``Use X`` or
-        ``Use Y`` proposal would escalate and pay for an LLM call.
+        ``Use Y`` proposal would surface as a noisy match.
         """
         append_decision(
             store,
@@ -100,10 +100,10 @@ class TestCheckSimilarity:
         validation of user proposals.
 
         Without this exclusion, a fresh store (containing only the seed)
-        escalates every new proposal that shares even one stem with the
+        surfaces every new proposal that shares even one stem with the
         template text (e.g. "store" in the seed rationale vs "in-memory
-        store" in a Redis proposal) to tier 3, defeating tier 2's purpose
-        and breaking offline operation on first use.
+        store" in a Redis proposal), defeating Tier 2's purpose and
+        breaking offline operation on first use.
         """
         # Store contains only the scaffold seed — no user decisions.
         proposal = {

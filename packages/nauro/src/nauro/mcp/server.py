@@ -9,16 +9,10 @@ MCP tools:
   - nauro.check_decision()            → Check for conflicts without writing
   - nauro.flag_question()             → Flag an open question for human review
   - nauro.update_state()              → Update current project state
-
-Hook endpoints (called by Claude Code's hook system):
-  - POST /hooks/pre-compact    → Log compaction start
-  - POST /hooks/post-compact   → Extract decisions from compaction summary
-  - POST /hooks/session-start  → Return context for injection
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 
@@ -33,7 +27,6 @@ from nauro.mcp.tools import (
     tool_propose_decision,
     tool_update_state,
 )
-from nauro.store.reader import read_project_context
 from nauro.store.registry import (
     find_projects_by_name_v2,
     get_store_path,
@@ -80,6 +73,8 @@ class ProposeDecisionRequest(BaseModel):
     project: str
     title: str
     rationale: str
+    operation: str = "add"
+    affected_decision_id: str | None = None
     rejected: list[dict] | None = None
     confidence: str = "medium"
     decision_type: str | None = None
@@ -110,13 +105,6 @@ class FlagQuestionRequest(BaseModel):
 class UpdateStateRequest(BaseModel):
     project: str
     delta: str
-
-
-class HookRequest(BaseModel):
-    session_id: str | None = None
-    cwd: str | None = None
-    hook_event_name: str | None = None
-    source: str | None = None
 
 
 # --- Helpers ---
@@ -202,49 +190,6 @@ def _resolve_store(project: str | None, cwd: str | None) -> Path:
     raise HTTPException(status_code=404, detail="Could not resolve project.")
 
 
-def _resolve_store_safe(cwd: str | None) -> Path | None:
-    """Resolve project store from cwd, returning None on failure (never raises)."""
-    if not cwd:
-        return None
-    try:
-        via_config = _resolve_via_repo_config(Path(cwd))
-        if via_config is not None:
-            _pid, store_path = via_config
-            return store_path if store_path.exists() else None
-
-        v2_match = resolve_v2_from_path(Path(cwd))
-        if v2_match is not None:
-            pid, _entry = v2_match
-            store_path = get_store_path_v2(pid)
-            return store_path if store_path.exists() else None
-
-        name = resolve_project(Path(cwd))
-        if not name:
-            return None
-        store_path = get_store_path(name)
-        return store_path if store_path.exists() else None
-    except Exception:
-        return None
-
-
-def _resolve_project_key_safe(cwd: str | None) -> str | None:
-    """Return the project_id (or legacy name) for the cwd, or None."""
-    if not cwd:
-        return None
-    try:
-        via_config = _resolve_via_repo_config(Path(cwd))
-        if via_config is not None:
-            pid, _store = via_config
-            return pid
-        v2_match = resolve_v2_from_path(Path(cwd))
-        if v2_match is not None:
-            pid, _entry = v2_match
-            return pid
-        return resolve_project(Path(cwd))
-    except Exception:
-        return None
-
-
 # --- MCP tool endpoints ---
 
 
@@ -273,6 +218,8 @@ async def propose_decision(req: ProposeDecisionRequest) -> dict:
         store_path,
         title=req.title,
         rationale=req.rationale,
+        operation=req.operation,
+        affected_decision_id=req.affected_decision_id,
         rejected=req.rejected,
         confidence=req.confidence,
         decision_type=req.decision_type,
@@ -320,167 +267,3 @@ async def update_state_endpoint(req: UpdateStateRequest) -> dict:
     """Update current project state. Checks for contradictions."""
     store_path = _resolve_store(req.project, None)
     return tool_update_state(store_path, req.delta)
-
-
-# --- Hook endpoints ---
-# These are called by Claude Code's hook system via HTTP POST.
-# MUST always return 200, even on error, to avoid Claude Code disabling hooks.
-
-
-@app.post("/hooks/pre-compact")
-async def hook_pre_compact(req: HookRequest) -> dict:
-    """Called before Claude Code compacts the conversation."""
-    logger.info(
-        "pre-compact hook: session=%s cwd=%s",
-        req.session_id,
-        req.cwd,
-    )
-    return {}
-
-
-@app.post("/hooks/post-compact")
-async def hook_post_compact(req: HookRequest) -> dict:
-    """Called after Claude Code compacts the conversation.
-
-    Primary extraction trigger. Reads the compaction summary and runs extraction
-    through the validation pipeline.
-    """
-    try:
-        store_path = _resolve_store_safe(req.cwd)
-        if not store_path:
-            logger.warning("post-compact: could not resolve project for cwd=%s", req.cwd)
-            return {"status": "no_project"}
-
-        result = await asyncio.to_thread(
-            _run_post_compact_extraction,
-            store_path=store_path,
-            session_id=req.session_id,
-            cwd=req.cwd,
-        )
-        return result
-
-    except Exception as e:
-        logger.exception("post-compact hook error: %s", e)
-        return {"status": "error", "message": str(e)}
-
-
-@app.post("/hooks/session-start")
-async def hook_session_start(req: HookRequest) -> dict:
-    """Called when a Claude Code session starts or after compaction.
-
-    Pulls latest from S3 before returning context so every session
-    starts with the most recent remote state.
-    """
-    try:
-        store_path = _resolve_store_safe(req.cwd)
-        if not store_path:
-            return {"context": ""}
-
-        # Pull latest from S3 before reading context (non-blocking on failure)
-        try:
-            project_key = _resolve_project_key_safe(req.cwd)
-            if project_key:
-                from nauro.sync.hooks import pull_before_session
-
-                await asyncio.to_thread(pull_before_session, project_key, store_path)
-        except Exception:
-            logger.warning("session-start: S3 pull failed, continuing with local state")
-
-        context = read_project_context(store_path, level=0)
-        return {"context": context}
-
-    except Exception as e:
-        logger.exception("session-start hook error: %s", e)
-        return {"context": ""}
-
-
-def _run_post_compact_extraction(
-    store_path: Path,
-    session_id: str | None,
-    cwd: str | None,
-) -> dict:
-    """Run extraction from compaction summary through validation pipeline."""
-    # TODO: convert session_extractor to ExtractionOutcome (deferred from D63)
-    from nauro.extraction.pipeline import _append_extraction_log, route_extraction_to_store
-    from nauro.extraction.session_extractor import (
-        extract_from_compaction,
-        find_session_jsonl,
-        read_compaction_from_session,
-    )
-    from nauro.extraction.signal import from_dict
-
-    if not session_id:
-        return {"status": "no_session_id"}
-
-    session_path = find_session_jsonl(session_id, cwd=cwd)
-    if not session_path:
-        logger.warning("post-compact: session file not found for %s", session_id)
-        return {"status": "session_not_found"}
-
-    summary = read_compaction_from_session(session_path)
-    if not summary:
-        logger.info("post-compact: no compaction summary found in session %s", session_id)
-        return {"status": "no_compaction_summary"}
-
-    result = extract_from_compaction(summary, store_path, session_id=session_id)
-
-    # Handle no-API-key skip
-    if result.get("reasoning") == "no_api_key":
-        _append_extraction_log(
-            store_path,
-            {
-                "source": "compaction",
-                "session_id": session_id,
-                "signal": {},
-                "composite_score": None,
-                "skip": True,
-                "reasoning": "no_api_key",
-                "captured": False,
-            },
-        )
-        return {"status": "skipped", "reasoning": "no_api_key"}
-
-    signal = from_dict(result)
-    _append_extraction_log(
-        store_path,
-        {
-            "source": "compaction",
-            "session_id": session_id,
-            "signal": signal.to_dict(),
-            "composite_score": signal.composite_score,
-            "skip": result.get("skip", True),
-            "reasoning": signal.reasoning,
-            "captured": not result.get("skip") and signal.composite_score >= 0.4,
-        },
-    )
-
-    if result.get("skip") or signal.composite_score < 0.4:
-        return {"status": "skipped", "composite_score": signal.composite_score}
-
-    # Route through validation pipeline
-    route_extraction_to_store(
-        result,
-        store_path,
-        source="compaction",
-        session_id=session_id,
-        trigger=f"compaction (session {session_id})",
-    )
-
-    # Push to S3 after extraction (event-driven sync)
-    try:
-        project_key = _resolve_project_key_safe(cwd)
-        if project_key:
-            from nauro.sync.hooks import push_after_extraction
-
-            push_after_extraction(project_key, store_path)
-    except Exception:
-        logger.warning("post-compact: S3 push failed, decisions saved locally")
-
-    n_decisions = len(result.get("decisions", []))
-    n_questions = len(result.get("questions", []))
-    return {
-        "status": "extracted",
-        "decisions": n_decisions,
-        "questions": n_questions,
-        "composite_score": signal.composite_score,
-    }

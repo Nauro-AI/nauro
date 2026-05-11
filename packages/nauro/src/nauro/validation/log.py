@@ -27,7 +27,6 @@ def log_validation(project_path: Path, proposal: dict, result: dict) -> None:
             "status": result.get("status"),
             "operation": result.get("operation"),
             "similar_count": len(result.get("similar_decisions", [])),
-            "conflicts_count": len(result.get("conflicts", [])),
             "assessment": result.get("assessment", ""),
         }
         with open(log_path, "a") as f:

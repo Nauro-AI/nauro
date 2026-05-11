@@ -13,7 +13,6 @@ from nauro_core.constants import DECISION_HASHES_FILE as DECISION_HASHES_FILE
 from nauro_core.constants import DECISION_TYPES as DECISION_TYPES
 from nauro_core.constants import DECISIONS_DIR as DECISIONS_DIR
 from nauro_core.constants import EXPIRY_MINUTES as EXPIRY_MINUTES
-from nauro_core.constants import EXTRACTION_SOURCES as EXTRACTION_SOURCES
 from nauro_core.constants import L0_DECISIONS_SUMMARY_LIMIT as L0_DECISIONS_SUMMARY_LIMIT
 from nauro_core.constants import L0_QUESTIONS_LIMIT as L0_QUESTIONS_LIMIT
 from nauro_core.constants import L1_DECISIONS_LIMIT as L1_DECISIONS_LIMIT
@@ -33,8 +32,6 @@ from nauro_core.constants import VALID_CONFIDENCES as VALID_CONFIDENCES
 
 # ── Environment variables (CLI-specific) ──
 NAURO_HOME_ENV = "NAURO_HOME"
-NAURO_EXTRACTION_MODEL_ENV = "NAURO_EXTRACTION_MODEL"
-NAURO_SIGNAL_THRESHOLD_ENV = "NAURO_SIGNAL_THRESHOLD"
 NAURO_TELEMETRY_ENV = "NAURO_TELEMETRY"
 
 # ── Paths (CLI-specific) ──
@@ -71,18 +68,6 @@ SKILLS_SECTION_HEADER = "## Skills"
 DEFAULT_MCP_PORT = 7432
 MCP_HOST = "127.0.0.1"
 
-# ── Extraction defaults ──
-DEFAULT_EXTRACTION_MODEL = "claude-haiku-4-5-20251001"
-DEFAULT_SIGNAL_THRESHOLD = 0.4
-EXTRACTION_LOG_FILENAME = "extraction-log.jsonl"
-
-# ── Signal score weights ──
-SIGNAL_WEIGHT_ARCHITECTURAL = 0.3
-SIGNAL_WEIGHT_NOVELTY = 0.2
-SIGNAL_WEIGHT_RATIONALE_DENSITY = 0.2
-SIGNAL_WEIGHT_REVERSIBILITY = 0.15
-SIGNAL_WEIGHT_SCOPE = 0.15
-
 # ── Validation thresholds (CLI-specific) ──
 STALE_SYNC_DAYS = 7
 L0_TOKEN_LIMIT = 3500
@@ -102,10 +87,6 @@ PRUNE_WEEKLY_DAYS = 180
 STATE_FIELD_LAST_SYNCED_BOLD = r"\*\*Last synced:\*\*\s*(.*)"
 STATE_FIELD_LAST_SYNCED_ITALIC = r"\*Last synced:\s*(.*?)\*"
 STATE_DIFF_FIELDS = ("Sprint", "Focus", "Blockers")
-
-# ── Git hook markers ──
-HOOK_START_MARKER = "# --- nauro post-commit hook start ---"
-HOOK_END_MARKER = "# --- nauro post-commit hook end ---"
 
 # ── Schema versioning ──
 SCHEMA_VERSION = 1

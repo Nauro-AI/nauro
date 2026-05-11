@@ -10,8 +10,7 @@ WELCOME_NO_PROJECT = (
     "\n"
     "To get started:\n"
     "1. Run: nauro init <project-name>\n"
-    "2. Make some commits, then: nauro extract\n"
-    '3. Or log a decision directly: nauro note "Chose Postgres over MongoDB"\n'
+    '2. Log a decision: nauro note "Chose Postgres over MongoDB"\n'
     "\n"
     "Your decisions will then be available here and across all connected AI tools."
 )
@@ -20,7 +19,6 @@ NO_DECISIONS_YET = (
     "This project has no decisions yet.\n"
     "\n"
     "To add your first decision:\n"
-    "- Run: nauro extract (extracts from recent git commits)\n"
     '- Run: nauro note "Your decision here"\n'
     "- Or use propose_decision right here in this conversation"
 )
@@ -45,6 +43,5 @@ NO_CONTEXT_YET = (
     "\n"
     "To populate your project context:\n"
     "- Use propose_decision to record architectural decisions\n"
-    "- Use update_state to track current progress\n"
-    "- Run: nauro extract to pull decisions from git history"
+    "- Use update_state to track current progress"
 )

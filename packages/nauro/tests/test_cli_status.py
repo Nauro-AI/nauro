@@ -17,25 +17,14 @@ def _setup_project(tmp_path, monkeypatch):
     return store
 
 
-def test_status_with_api_key(tmp_path, monkeypatch):
+def test_status_shows_active_capabilities(tmp_path, monkeypatch):
     _setup_project(tmp_path, monkeypatch)
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "Extraction    active" in result.output
     assert "MCP           active" in result.output
     assert "AGENTS.md     active" in result.output
-
-
-def test_status_without_api_key(tmp_path, monkeypatch):
-    _setup_project(tmp_path, monkeypatch)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-
-    result = runner.invoke(app, ["status"])
-    assert result.exit_code == 0
-    assert "Extraction    inactive" in result.output
-    assert "add API key to enable" in result.output
+    assert "Decisions:" in result.output
 
 
 def test_status_sync_inactive(tmp_path, monkeypatch):

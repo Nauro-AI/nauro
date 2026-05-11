@@ -50,11 +50,11 @@ def maybe_prompt() -> None:
         return
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        # Both streams must be a TTY. The post-commit hook backgrounds `nauro extract`
-        # with stdout/stderr redirected (`> /dev/null 2>&1 &`) but inherits stdin from
-        # the user's terminal — checking stdin alone passes the gate, then input() in a
-        # background process triggers SIGTTIN and leaves the extract job suspended.
-        # Skipping here also avoids generating the anonymous_id on non-interactive runs.
+        # Both streams must be a TTY. A backgrounded caller may inherit stdin from
+        # the user's terminal but redirect stdout/stderr; checking stdin alone would
+        # pass the gate, then input() in the background process triggers SIGTTIN and
+        # leaves the job suspended. Skipping here also avoids generating the
+        # anonymous_id on non-interactive runs (CI, scripts, etc.).
         return
 
     cfg = get_telemetry_config()

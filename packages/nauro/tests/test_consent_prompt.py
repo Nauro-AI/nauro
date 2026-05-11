@@ -65,11 +65,10 @@ def test_non_tty_does_not_fire_prompt(nauro_home, monkeypatch):
 
 
 def test_redirected_stdout_does_not_fire_prompt(nauro_home, monkeypatch):
-    """Regression: post-commit hook backgrounds `nauro extract > /dev/null 2>&1 &`.
-
-    Stdin is still the user's terminal (isatty=True) but stdout is redirected.
-    Without the stdout TTY check the prompt would call input() and SIGTTIN-suspend
-    the background job — violating the hook's "must never block" contract.
+    """A backgrounded caller (CI, scripted automation) may inherit a TTY stdin
+    while redirecting stdout. Without the stdout TTY check the prompt would call
+    input() and SIGTTIN-suspend the job. Belt-and-suspenders: NAURO_TELEMETRY=0
+    or stdout-not-a-tty both must skip the prompt.
     """
     monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)

@@ -250,6 +250,8 @@ def check_decision(
 def propose_decision(
     title: str,
     rationale: str,
+    operation: str = "add",
+    affected_decision_id: str | None = None,
     rejected: list[dict] | None = None,
     confidence: str = "medium",
     decision_type: str | None = None,
@@ -267,6 +269,8 @@ def propose_decision(
         store_path,
         title=title,
         rationale=rationale,
+        operation=operation,
+        affected_decision_id=affected_decision_id,
         rejected=rejected,
         confidence=confidence,
         decision_type=decision_type,

@@ -46,9 +46,6 @@ DECISION_TYPES: tuple[str, ...] = (
 # ── Reversibility levels ──
 REVERSIBILITY_LEVELS: tuple[str, ...] = ("easy", "moderate", "hard")
 
-# ── Extraction sources ──
-EXTRACTION_SOURCES: tuple[str, ...] = ("compaction", "commit", "manual", "mcp")
-
 # ── Stack empty marker ──
 STACK_EMPTY_MARKER = "# Stack\n<!-- Tech choices with rationale and rejected alternatives -->"
 
@@ -79,8 +76,13 @@ call `check_decision` with a description of what's being proposed. \
 This includes "should we...", "what if we...", "can we...", "check if..." \
 framings, and applies even when you intend to push back or refuse. \
 Your first-principles reasoning is not a substitute for project history; \
-`check_decision` is a precondition, not an option. The tool surfaces \
-conflicts with past decisions so you don't repeat rejected approaches.
+`check_decision` is a precondition, not an option.
+
+`check_decision` returns related decisions surfaced via BM25 retrieval \
+and a deterministic assessment. It does NOT judge conflicts for you. \
+When the response lists related decisions, call `get_decision` on each \
+one before proposing — the relevance, supersession status, and full \
+rationale live in those bodies, not in the assessment string.
 
 ## When to propose decisions
 
@@ -88,6 +90,17 @@ Call `propose_decision` when you choose between two or more approaches, \
 replace or remove a dependency, establish a new pattern, or cut scope. \
 Do it at the moment the decision is made, not at the end of the session. \
 Always include what was rejected and why.
+
+Pick the right `operation`:
+- `add` (default) — genuinely new ground; no existing decision is being changed.
+- `update` — augment an existing decision with new rationale or scope. \
+Provide `affected_decision_id`.
+- `supersede` — replace an existing decision with one that contradicts or \
+wholly subsumes it. Provide `affected_decision_id`.
+
+You own this classification. Pick `add` when uncertain — an `update`/\
+`supersede` you're not sure about can ship as `add` and be reclassified \
+later, but a wrongly-confirmed supersede is hard to reverse.
 
 Do NOT propose decisions for obvious bug fixes, adding tests for existing \
 behavior, or renaming variables.

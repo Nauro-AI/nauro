@@ -156,6 +156,9 @@ def supersede_decision(
     ``status=superseded`` + ``superseded_by=<new_id>``. The new decision is
     updated to carry ``supersedes=<old_id>``.
     """
+    # Validate up front so any error happens before append_decision writes.
+    old_ref = _canonical_supersession_ref(old_decision_id)
+
     decisions_dir = project_path / DECISIONS_DIR
 
     old_path: Path | None = None
@@ -176,10 +179,6 @@ def supersede_decision(
         source=new_proposal.get("source"),
     )
     new_decision_id = new_path.stem
-
-    # Canonicalize stem-formatted IDs to plain integer strings to match the
-    # nauro-core supersession-ref convention ("70", not "070-some-slug").
-    old_ref = _canonical_supersession_ref(old_decision_id)
     new_ref = _canonical_supersession_ref(new_decision_id)
 
     # Rewrite the new decision with the Supersedes backref.

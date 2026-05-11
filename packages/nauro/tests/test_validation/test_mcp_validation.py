@@ -110,7 +110,85 @@ async def test_check_decision_no_matches(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["related_decisions"] == []
-    assert "proceed" in data["assessment"].lower() or "no existing" in data["assessment"].lower()
+    assert data["assessment"] == "No related decisions found."
+    assert "potential_conflicts" not in data
+
+
+@pytest.mark.asyncio
+async def test_check_decision_with_matches_returns_heuristic_assessment(client, tmp_path):
+    """When BM25 finds matches, the assessment uses the locked heuristic shape."""
+    from nauro.store.writer import append_decision
+
+    store_path = tmp_path / "projects" / "testproj"
+    append_decision(
+        store_path,
+        "Use Postgres as primary database",
+        rationale="Mature ecosystem with strong JSON support and excellent tooling.",
+        confidence="high",
+        decision_type="data_model",
+    )
+
+    resp = await client.post(
+        "/check_decision",
+        json={
+            "project": "testproj",
+            "proposed_approach": "Use Postgres for analytics warehouse with JSON workloads",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["related_decisions"]) >= 1
+    assert "potential_conflicts" not in data
+
+    assessment = data["assessment"]
+    assert "Top match: D" in assessment
+    assert "status active" in assessment
+    assert "BM25 " in assessment
+    assert "get_decision" in assessment
+
+
+@pytest.mark.asyncio
+async def test_propose_decision_with_operation_supersede(client, tmp_path):
+    """propose_decision with operation='supersede' threads through to confirm."""
+    from nauro.store.writer import append_decision
+
+    store_path = tmp_path / "projects" / "testproj"
+    append_decision(
+        store_path,
+        "Use Postgres as primary database",
+        rationale="Mature ecosystem with strong JSON support and excellent tooling.",
+        confidence="high",
+        decision_type="data_model",
+    )
+    # supersede_decision matches by filename stem.
+    affected_id = next((store_path / "decisions").glob("*postgres*.md")).stem
+
+    resp = await client.post(
+        "/propose_decision",
+        json={
+            "project": "testproj",
+            "title": "Switch to a managed Postgres provider",
+            "rationale": (
+                "Reduces ops burden; the rationale for self-hosting no longer applies to our scale."
+            ),
+            "operation": "supersede",
+            "affected_decision_id": affected_id,
+            "confidence": "high",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "pending_confirmation"
+    confirm_id = data["confirm_id"]
+
+    resp = await client.post(
+        "/confirm_decision",
+        json={"project": "testproj", "confirm_id": confirm_id},
+    )
+    assert resp.status_code == 200
+    confirm_data = resp.json()
+    assert confirm_data["status"] == "confirmed"
+    assert confirm_data["operation"] == "supersede"
 
 
 @pytest.mark.asyncio
@@ -166,32 +244,117 @@ async def test_legacy_log_decision_endpoint(client, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_extraction_through_validation(tmp_path, monkeypatch):
-    """Extraction pipeline routes through validation."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
+async def test_propose_decision_supersede_without_affected_id_rejects(client):
+    resp = await client.post(
+        "/propose_decision",
+        json={
+            "project": "testproj",
+            "title": "Replace prior choice",
+            "rationale": "A new choice that should replace something.",
+            "operation": "supersede",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "rejected"
+    assert "affected_decision_id" in data["reason"]
+
+
+@pytest.mark.asyncio
+async def test_propose_decision_update_without_affected_id_rejects(client):
+    resp = await client.post(
+        "/propose_decision",
+        json={
+            "project": "testproj",
+            "title": "Augment the prior choice",
+            "rationale": "Adds nuance to an existing decision body.",
+            "operation": "update",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "rejected"
+    assert "affected_decision_id" in data["reason"]
+
+
+@pytest.mark.asyncio
+async def test_propose_supersede_with_unknown_affected_id_rejects(client):
+    resp = await client.post(
+        "/propose_decision",
+        json={
+            "project": "testproj",
+            "title": "Replace something nonexistent",
+            "rationale": "Tests the resolution failure branch of the boundary check.",
+            "operation": "supersede",
+            "affected_decision_id": "decision-9999",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "rejected"
+    assert "not found" in data["reason"]
+
+
+@pytest.mark.asyncio
+async def test_supersede_end_to_end_via_check_then_propose(client, tmp_path):
+    """Natural agent workflow: read affected_decision_id from check_decision,
+    pass it back to propose_decision(supersede). The id must round-trip
+    through the boundary, and the store must end up with the old decision
+    marked superseded and the new one active — even when Tier 2 doesn't
+    re-surface similarity for the new proposal text (Ship-blocker 2)."""
+    from nauro.store.reader import _list_decisions
+    from nauro.store.writer import append_decision
 
     store_path = tmp_path / "projects" / "testproj"
-    scaffold_project_store("testproj", store_path)
+    append_decision(
+        store_path,
+        "Use Postgres as primary database",
+        rationale="Mature ecosystem with strong JSON support and excellent tooling.",
+        confidence="high",
+        decision_type="data_model",
+    )
 
-    from nauro.extraction.pipeline import route_extraction_to_store
+    check_resp = await client.post(
+        "/check_decision",
+        json={
+            "project": "testproj",
+            "proposed_approach": "Use SQLite for the analytics workload instead of Postgres",
+        },
+    )
+    assert check_resp.status_code == 200
+    check_data = check_resp.json()
+    assert check_data["related_decisions"]
+    affected = check_data["related_decisions"][0]["id"]
 
-    result = {
-        "decisions": [
-            {
-                "title": "Adopt TypeScript",
-                "rationale": "Type safety reduces bugs in our large codebase.",
-                "confidence": "high",
-                "decision_type": "pattern",
-            }
-        ],
-        "questions": ["What about Deno?"],
-        "state_delta": "Started TypeScript migration",
-    }
+    propose_resp = await client.post(
+        "/propose_decision",
+        json={
+            "project": "testproj",
+            "title": "Switch to SQLite for analytics",
+            "rationale": "Lower ops burden for the read-mostly analytics workload.",
+            "operation": "supersede",
+            "affected_decision_id": affected,
+        },
+    )
+    assert propose_resp.status_code == 200
+    propose_data = propose_resp.json()
+    # Either pending_confirmation (Tier 2 also surfaced similarity) or
+    # confirmed (Tier 2 missed; fast path executed the supersede). Both are
+    # valid; what matters is the post-state.
+    if propose_data["status"] == "pending_confirmation":
+        confirm_resp = await client.post(
+            "/confirm_decision",
+            json={"project": "testproj", "confirm_id": propose_data["confirm_id"]},
+        )
+        assert confirm_resp.status_code == 200
+        confirm_data = confirm_resp.json()
+        assert confirm_data["status"] == "confirmed"
+        assert confirm_data["operation"] == "supersede"
+    else:
+        assert propose_data["status"] == "confirmed"
+        assert propose_data["validation"]["operation"] == "supersede"
 
-    output = route_extraction_to_store(result, store_path, source="commit")
-    assert output is not None
-
-    # Verify decision was written
-    decisions_dir = store_path / "decisions"
-    files = [f.name for f in decisions_dir.glob("*.md")]
-    assert any("typescript" in f.lower() for f in files)
+    decisions = _list_decisions(store_path)
+    by_title = {d.title: d for d in decisions}
+    assert by_title["Use Postgres as primary database"].status.value == "superseded"
+    assert by_title["Switch to SQLite for analytics"].status.value == "active"

@@ -1,6 +1,5 @@
 """nauro status — Show capability table for the current project."""
 
-import os
 from datetime import datetime, timezone
 
 import typer
@@ -60,21 +59,6 @@ def status(
         raise typer.Exit(1)
 
     typer.echo(f"Project: {project_name}\n")
-
-    # Extraction
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if not has_key:
-        from nauro.store.config import load_config
-
-        has_key = bool(load_config().get("api_key"))
-
-    if has_key:
-        from nauro.constants import DEFAULT_EXTRACTION_MODEL, NAURO_EXTRACTION_MODEL_ENV
-
-        model = os.environ.get(NAURO_EXTRACTION_MODEL_ENV, DEFAULT_EXTRACTION_MODEL)
-        typer.echo(f"  Extraction    active ({model})")
-    else:
-        typer.echo("  Extraction    inactive — add API key to enable")
 
     # Sync
     sync_enabled = False

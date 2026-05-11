@@ -10,7 +10,7 @@ from nauro.sync.config import SyncConfig
 from nauro.sync.hooks import (
     _renumber_decision_if_collision,
     pull_before_session,
-    push_after_extraction,
+    push_after_write,
 )
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -87,7 +87,7 @@ class TestPushAfterExtraction:
             patch("nauro.sync.config.load_sync_config", return_value=_mock_sync_config()),
             patch("nauro.sync.remote.create_client", return_value=mock_client),
         ):
-            result = push_after_extraction("testproj", project_store)
+            result = push_after_write("testproj", project_store)
 
         assert result > 0  # Should push store files
         mock_client.put_object.assert_called()
@@ -98,7 +98,7 @@ class TestPushAfterExtraction:
             patch("nauro.sync.config.load_sync_config", return_value=_mock_sync_config()),
             patch("nauro.sync.remote.create_client", side_effect=Exception("network error")),
         ):
-            result = push_after_extraction("testproj", project_store)
+            result = push_after_write("testproj", project_store)
 
         assert result == 0
 
@@ -106,7 +106,7 @@ class TestPushAfterExtraction:
         """If sync is not configured, push should be a no-op."""
         config = _mock_sync_config(enabled=False)
         with patch("nauro.sync.config.load_sync_config", return_value=config):
-            result = push_after_extraction("testproj", project_store)
+            result = push_after_write("testproj", project_store)
 
         assert result == 0
 
@@ -114,7 +114,7 @@ class TestPushAfterExtraction:
         """If sanitized_sub is missing, push should return 0."""
         config = _mock_sync_config(enabled=True, sanitized_sub="")
         with patch("nauro.sync.config.load_sync_config", return_value=config):
-            result = push_after_extraction("testproj", project_store)
+            result = push_after_write("testproj", project_store)
 
         assert result == 0
 

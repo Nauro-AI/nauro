@@ -1,9 +1,6 @@
 """User configuration — manages ~/.nauro/config.json.
 
-Stores user-level settings like API keys. Config values for known keys
-(e.g. api_key) are applied to the environment at CLI startup so that
-downstream code (Anthropic SDK) picks them up automatically.
-
+Stores user-level settings (telemetry consent, anonymous_id, etc.).
 Respects NAURO_HOME env var override (defaults to ~/.nauro/).
 """
 
@@ -22,11 +19,6 @@ from nauro.constants import (
 )
 
 logger = logging.getLogger("nauro.config")
-
-# Maps config keys to the environment variable they should populate.
-_CONFIG_ENV_MAP = {
-    "api_key": "ANTHROPIC_API_KEY",
-}
 
 
 def _config_file() -> Path:
@@ -76,19 +68,6 @@ def unset_config(key: str) -> bool:
     del data[key]
     save_config(data)
     return True
-
-
-def apply_config_to_env() -> None:
-    """Load config and set environment variables for known keys.
-
-    Does not override env vars that are already set, so explicit
-    exports (e.g. in .bashrc) always take precedence.
-    """
-    data = load_config()
-    for config_key, env_var in _CONFIG_ENV_MAP.items():
-        value = data.get(config_key)
-        if value and env_var not in os.environ:
-            os.environ[env_var] = value
 
 
 _TELEMETRY_KEY = "telemetry"

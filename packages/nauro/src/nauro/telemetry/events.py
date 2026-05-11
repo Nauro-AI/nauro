@@ -40,18 +40,6 @@ def mcp_tool_called(
     }
 
 
-def hook_extraction_run(
-    commits: int,
-    decisions_extracted: int,
-    success: bool,
-) -> dict[str, Any]:
-    return {
-        "commits": commits,
-        "decisions_extracted": decisions_extracted,
-        "success": success,
-    }
-
-
 def sync_completed(
     snapshot_count: int,
     duration_bucket: str,
