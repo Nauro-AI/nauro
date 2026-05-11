@@ -8,7 +8,12 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.reader import _list_decisions, _load_files, read_project_context
+from nauro.store.reader import (
+    _list_decisions,
+    _load_files,
+    read_project_context,
+    resolve_decision_id,
+)
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
 from nauro.store.validator import validate_store
 from nauro.store.writer import append_decision, append_question, update_state
@@ -784,3 +789,35 @@ def test_concurrent_decision_numbering(tmp_path: Path):
     # Numbers must be 1..10 with no gaps
     nums = sorted(int(s.split("-")[0]) for s in stems)
     assert nums == list(range(1, 11)), f"Non-sequential decision numbers: {nums}"
+
+
+class TestResolveDecisionId:
+    def test_resolves_file_stem(self, store):
+        append_decision(store, "Use Postgres", rationale="A solid pick for OLTP workloads.")
+        result = resolve_decision_id(store, "002-use-postgres")
+        assert result is not None
+        assert result.startswith("002-")
+
+    def test_resolves_synthetic_id(self, store):
+        append_decision(store, "Use Postgres", rationale="A solid pick for OLTP workloads.")
+        result = resolve_decision_id(store, "decision-002")
+        assert result is not None
+        assert result.startswith("002-")
+
+    def test_resolves_d_prefixed(self, store):
+        append_decision(store, "Use Postgres", rationale="A solid pick for OLTP workloads.")
+        result = resolve_decision_id(store, "D002")
+        assert result is not None
+        assert result.startswith("002-")
+
+    def test_resolves_bare_integer(self, store):
+        append_decision(store, "Use Postgres", rationale="A solid pick for OLTP workloads.")
+        result = resolve_decision_id(store, "2")
+        assert result is not None
+        assert result.startswith("002-")
+
+    def test_returns_none_for_unknown_number(self, store):
+        assert resolve_decision_id(store, "decision-999") is None
+
+    def test_returns_none_for_garbage(self, store):
+        assert resolve_decision_id(store, "not-a-decision") is None

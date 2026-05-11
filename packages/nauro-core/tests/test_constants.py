@@ -4,7 +4,6 @@ from nauro_core.constants import (
     DECISION_HASHES_FILE,
     DECISION_TYPES,
     DECISIONS_DIR,
-    EXTRACTION_SOURCES,
     L0_DECISIONS_SUMMARY_LIMIT,
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
@@ -52,9 +51,6 @@ class TestValidValues:
 
     def test_reversibility_levels_non_empty(self):
         assert len(REVERSIBILITY_LEVELS) > 0
-
-    def test_extraction_sources_non_empty(self):
-        assert len(EXTRACTION_SOURCES) > 0
 
 
 class TestFilenames:

@@ -50,7 +50,7 @@ nauro setup claude-code
 
 `nauro init` writes a small `.nauro/config.json` into your repo (commit it — it links the repo to the project so any `nauro` command you run from inside this repo knows which project to use). To start with cloud sync from day one, use `nauro init --cloud my-project` instead.
 
-Agents can also propose decisions directly through MCP during sessions. To bootstrap from existing git history, set `ANTHROPIC_API_KEY` and run `nauro extract`.
+Agents propose decisions directly through MCP during sessions. You confirm before anything is written to the store.
 
 ## Use across surfaces
 
@@ -68,11 +68,11 @@ Codex users: also add `mcp_oauth_callback_port = 8765` to the top of `~/.codex/c
 
 ## How it works
 
-Agents propose decisions through MCP during sessions. Decisions are proposed in collaboration with your agent and confirmed by you before anything is written — the gate is the boundary between "we discussed it" and "your project's direction has changed." You can also log decisions from the terminal with `nauro note` or bootstrap from git history with `nauro extract`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
+Agents propose decisions through MCP during sessions. Decisions are proposed in collaboration with your agent and confirmed by you before anything is written — the gate is the boundary between "we discussed it" and "your project's direction has changed." You can also log decisions from the terminal with `nauro note`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
 
 One project spans many repos — the store lives in `~/.nauro/`, not inside any repo, so context follows the project across the whole codebase.
 
-Everything is stored as flat markdown in `~/.nauro/projects/` and validated against existing decisions (structural screening, BM25 retrieval, LLM evaluation). Cloud sync replicates the local store to S3 for cross-device and remote MCP access.
+Everything is stored as flat markdown in `~/.nauro/projects/` and matched against existing decisions (structural screening and BM25 retrieval); you confirm whether to write. Cloud sync replicates the local store to S3 for cross-device and remote MCP access.
 
 ```
 ~/.nauro/projects/<name>/
@@ -99,11 +99,11 @@ Nauro is built around a different primitive: checking new proposals against past
 | Cursor Rules | Cursor only | No | No |
 | ADRs in-repo | Tools with repo access | Manual | Git history only |
 
-The `check_decision` → `propose_decision` → `confirm_decision` pipeline catches conflicts before they're written, across any connected surface. Decisions made in Claude Code are validated in Perplexity. Your decisions stay yours, not your platform's.
+The `check_decision` → `propose_decision` → `confirm_decision` pipeline surfaces conflicts for you to confirm before they're written, across any connected surface. Decisions made in Claude Code surface in Perplexity. Your decisions stay yours, not your platform's.
 
 ## Your data
 
-**Local usage (free tier):** Everything runs on your machine. If you use `nauro extract`, code diffs go directly to your Anthropic API key. Nauro is never in the data path.
+**Local usage (free tier):** Everything runs on your machine. The store lives under `~/.nauro/` and never leaves the device unless you turn on cloud sync.
 
 **Cloud sync:** Project context (decisions, state, open questions — not source code) is stored encrypted in AWS S3 (SSE-S3). Each user's data is isolated under a unique prefix.
 

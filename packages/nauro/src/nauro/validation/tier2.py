@@ -4,7 +4,7 @@ Thin adapter over ``nauro_core.validation.check_bm25_similarity``. The
 filtering, stopword list, and retrieval live in nauro-core so the remote
 MCP surface (mcp-server) gets the same outcome for the same proposal.
 This module only contributes the local I/O (filesystem decision load) and
-the ``id`` reshape that ``tier3`` needs for its lookup.
+the ``id`` reshape that downstream consumers expect.
 """
 
 from __future__ import annotations

@@ -28,7 +28,7 @@ TIER2_TOP_K = 5
 # ...). It omits common action verbs that appear in virtually every Nauro
 # decision title ("Use Postgres", "Use Redis", "Use FastAPI", etc.), so a
 # fresh proposal shares the stem ``use`` with most existing decisions and
-# gets a nonzero BM25 score, escalating tier 2 -> tier 3 on almost every
+# gets a nonzero BM25 score, surfacing as a near-neighbour on almost every
 # call. Extending the list with ``use`` collapses those false-positive
 # matches to score 0 (already filtered by bm25_retrieve).
 #

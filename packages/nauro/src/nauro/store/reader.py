@@ -46,6 +46,25 @@ def _list_decisions(store_path: Path) -> list[Decision]:
     return results
 
 
+def resolve_decision_id(project_path: Path, identifier: str) -> str | None:
+    """Resolve any decision id shape to the canonical file stem.
+
+    Accepts whatever ``extract_decision_number`` accepts (file stem, synthetic
+    ``decision-NNN``, ``DNNN``, or bare integer). Returns the on-disk file
+    stem (e.g. ``"042-use-postgres"``); returns None if the identifier can't
+    be parsed or no matching decision file exists.
+    """
+    num = extract_decision_number(identifier)
+    if num is None:
+        return None
+    decisions_dir = project_path / DECISIONS_DIR
+    if not decisions_dir.exists():
+        return None
+    for f in decisions_dir.glob(f"{num:03d}-*.md"):
+        return f.stem
+    return None
+
+
 def list_active_decisions(store_path: Path) -> list[Decision]:
     """Return only decisions with status=active."""
     return [d for d in _list_decisions(store_path) if d.status is DecisionStatus.active]

@@ -1,7 +1,7 @@
-"""Event-driven sync hooks — pull on session start, push after extraction.
+"""Event-driven sync hooks — pull on session start, push after writes.
 
-These replace the daemon's poll loop. Called from MCP server hooks
-and extraction pipeline. Never block or crash — failures are logged only.
+Replace the daemon's poll loop. Called by the MCP server after each
+write. Never block or crash — failures are logged only.
 """
 
 import logging
@@ -270,7 +270,3 @@ def push_after_write(project_name: str, store_path: Path) -> int:
         logger.info("sync push: pushed %d file(s) for %s", pushed, project_name)
 
     return pushed
-
-
-# Backward-compatible alias — extraction pipeline still imports this name.
-push_after_extraction = push_after_write

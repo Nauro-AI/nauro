@@ -35,17 +35,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-extraction = [
-    "anthropic>=0.18",
-]
-validation = [
-    "openai>=1.0",
-]
-all = [
-    "nauro[extraction,validation]",
-]
 dev = [
-    "nauro[all]",
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "ruff>=0.1",
@@ -92,13 +82,9 @@ module = "tests.*"
 check_untyped_defs = false
 
 [[tool.mypy.overrides]]
-module = ["anthropic.*", "mcp.*", "boto3.*", "botocore.*", "openai.*"]
+module = ["mcp.*", "boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-markers = [
-    "integration: tests that call external APIs (require ANTHROPIC_API_KEY)",
-]
-addopts = "-m 'not integration'"

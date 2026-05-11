@@ -31,7 +31,7 @@ For real-project setup, cross-surface access, MCP tool reference, and architectu
 
 Memory tools record what agents saw and said. Nauro captures what you decided and rejected, then checks every session against those decisions before they drift.
 
-The `check_decision` → `propose_decision` → `confirm_decision` pipeline catches conflicts before they're written, across any connected surface. Decisions made in Claude Code are validated in Perplexity. No platform vendor owns your context.
+The `check_decision` → `propose_decision` → `confirm_decision` pipeline surfaces conflicts for you to confirm before they're written, across any connected surface. Decisions made in Claude Code surface in Perplexity. No platform vendor owns your context.
 
 ## Pricing
 

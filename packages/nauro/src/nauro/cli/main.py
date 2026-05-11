@@ -1,13 +1,12 @@
 """Nauro CLI — Typer app entry point.
 
 This module defines the top-level Typer application and registers
-all subcommands: init, note, sync, log, diff, import, extract, hook, serve,
+all subcommands: init, note, sync, log, diff, import, serve,
 config, auth, telemetry.
 """
 
 import typer
 
-from nauro.store.config import apply_config_to_env
 from nauro.telemetry import consent
 from nauro.telemetry.cli_wrapper import instrument_app
 
@@ -53,8 +52,6 @@ def _register_commands() -> None:
         auth,
         config,
         diff,
-        extract,
-        hook,
         import_cmd,
         init,
         link,
@@ -77,9 +74,7 @@ def _register_commands() -> None:
     app.command(name="log")(log.log)
     app.command(name="diff")(diff.diff)
     app.command(name="import")(import_cmd.import_cmd)
-    app.command(name="extract")(extract.extract)
     app.command(name="serve")(serve.serve)
-    app.add_typer(hook.hook_app, name="hook")
     app.add_typer(setup.setup_app, name="setup")
     app.command(name="status")(status.status)
     app.add_typer(config.config_app, name="config")
@@ -90,7 +85,6 @@ def _register_commands() -> None:
 
 _register_commands()
 instrument_app(app)
-apply_config_to_env()
 
 if __name__ == "__main__":
     app()

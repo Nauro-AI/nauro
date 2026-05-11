@@ -12,13 +12,30 @@ import re
 from nauro_core.constants import STACK_EMPTY_MARKER
 
 
-def extract_decision_number(filename: str) -> int | None:
-    """Extract the decision number from a filename like ``042-some-title.md``.
+def extract_decision_number(identifier: str) -> int | None:
+    """Extract the decision number from a decision identifier.
 
-    Returns None if the filename doesn't start with a number prefix.
+    Accepts:
+    - file stem: ``"042-some-title"`` (or ``"042-some-title.md"``)
+    - synthetic id: ``"decision-042"``
+    - prefixed: ``"D042"`` or ``"D42"``
+    - bare integer: ``"42"``
+
+    Returns None if the identifier doesn't match a known shape.
     """
-    m = re.match(r"(\d+)-", filename)
-    return int(m.group(1)) if m else None
+    s = identifier.removesuffix(".md")
+    low = s.lower()
+    if low.startswith("decision-"):
+        s = s[len("decision-") :]
+    elif low.startswith("d") and len(s) > 1 and s[1].isdigit():
+        s = s[1:]
+    leading = ""
+    for ch in s:
+        if ch.isdigit():
+            leading += ch
+        else:
+            break
+    return int(leading) if leading else None
 
 
 def extract_current_state(state_content: str) -> str:

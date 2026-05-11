@@ -18,9 +18,6 @@ from nauro_core.constants import (
     EXPIRY_MINUTES as EXPIRY_MINUTES,
 )
 from nauro_core.constants import (
-    EXTRACTION_SOURCES as EXTRACTION_SOURCES,
-)
-from nauro_core.constants import (
     L0_DECISIONS_SUMMARY_LIMIT as L0_DECISIONS_SUMMARY_LIMIT,
 )
 from nauro_core.constants import (

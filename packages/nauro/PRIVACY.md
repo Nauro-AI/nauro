@@ -1,14 +1,6 @@
 # Nauro Privacy & Data Paths
 
-Last updated: 2026-04-30
-
-## Local extraction (free tier, BYOK)
-
-Your code diffs go directly from your machine to your configured LLM provider (Anthropic API). Nauro's servers are never in the data path. The API key is stored locally at `~/.nauro/config.json` with owner-only file permissions (0o600).
-
-## Hosted extraction (future Pro tier)
-
-Code diffs transit a Nauro Lambda function and are sent to Anthropic's API for extraction. Diffs are not stored. Anthropic's data retention policies apply to API calls.
+Last updated: 2026-05-10
 
 ## Cloud sync
 
@@ -29,7 +21,6 @@ Only the following events fire, with only the listed properties. No content, no 
 ```
 cli.command_invoked   { command, success, duration_bucket, nauro_version, os }
 mcp.tool_called       { tool_name, transport, success, duration_bucket }
-hook.extraction_run   { commits, decisions_extracted, success }
 sync.completed        { snapshot_count, duration_bucket, bytes_bucket }
 project.created       { schema_version }
 ```

@@ -242,19 +242,22 @@ SEARCH_DECISIONS: ToolSpec = {
 
 CHECK_DECISION: ToolSpec = {
     "name": "check_decision",
-    "title": "Check decision for conflicts",
+    "title": "Check decision against existing decisions",
     "description": (
-        "Check whether a proposed approach conflicts with existing decisions "
-        "WITHOUT writing anything. Returns related decisions (via BM25 "
-        "retrieval) and an LLM-based conflict assessment when an API key is "
-        "available.\n"
+        "Check whether a proposed approach overlaps with existing decisions "
+        "WITHOUT writing anything. Returns related decisions (via Tier 1 + "
+        "Tier 2 BM25 retrieval) and a deterministic assessment string.\n"
+        "\n"
+        "This tool does NOT judge conflicts. When the response lists related "
+        "decisions, call get_decision on each before proposing — the relevance, "
+        "supersession status, and full rationale live in those bodies.\n"
         "\n"
         "Use this to consult the project's decision history before committing "
         'to an approach — especially when the user asks "should we...", '
         '"what if we...", "can we...", or "check if...". If check_decision '
-        "shows no conflicts and you want to record the choice, call "
-        "propose_decision next with skip_validation=true to avoid "
-        "redundant work."
+        "returns no related decisions and you want to record the choice, call "
+        "propose_decision next with skip_validation=true to avoid redundant "
+        "BM25 work."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -282,18 +285,17 @@ PROPOSE_DECISION: ToolSpec = {
     "description": (
         "Propose a new architectural decision for validation and recording.\n"
         "\n"
-        "Runs a validation pipeline before writing:\n"
+        "Runs a deterministic validation pipeline before queueing the write:\n"
         "- Tier 1: Structural validation (required fields, length limits)\n"
         "- Tier 2: BM25 similarity check against existing decisions\n"
-        "- Tier 3: LLM-based conflict detection (when API key available)\n"
         "\n"
-        "Returns validation results (similar decisions, potential conflicts, "
-        "assessment) and a confirm_id. The decision is NOT written until "
-        "confirm_decision is called with the returned confirm_id.\n"
+        "When Tier 2 finds similar decisions, returns status=pending_confirmation "
+        "with a confirm_id; the agent must call confirm_decision to commit. When "
+        "no similar decisions exist, the write happens immediately.\n"
         "\n"
-        "If you already called check_decision for this approach and saw no "
-        "conflicts, pass skip_validation=true to skip redundant tier-2/tier-3 "
-        "matching. Tier-1 structural validation always runs regardless.\n"
+        "If you already called check_decision for this approach and read the "
+        "related decisions, pass skip_validation=true to skip Tier 2. Tier 1 "
+        "structural validation always runs.\n"
         "\n"
         "Call this when you choose between two or more approaches, replace or "
         "remove a dependency, establish a new pattern, or cut scope. Always "
@@ -311,6 +313,27 @@ PROPOSE_DECISION: ToolSpec = {
                 "type": "string",
                 "description": (
                     "Why this decision was made, including constraints and tradeoffs."
+                ),
+            },
+            "operation": {
+                "type": "string",
+                "enum": ["add", "update", "supersede"],
+                "default": "add",
+                "description": (
+                    "How this proposal relates to existing decisions. 'add' for "
+                    "genuinely new ground; 'update' to augment an existing decision "
+                    "(provide affected_decision_id); 'supersede' to replace one "
+                    "(provide affected_decision_id). You own this classification — "
+                    "pick 'add' when uncertain. A wrongly-confirmed supersede is "
+                    "hard to reverse; an 'add' that should have been an update can "
+                    "be reclassified later."
+                ),
+            },
+            "affected_decision_id": {
+                "type": "string",
+                "description": (
+                    "Required when operation is 'update' or 'supersede'. The id "
+                    "(e.g. 'decision-042') of the decision being modified."
                 ),
             },
             "rejected": {
@@ -350,8 +373,8 @@ PROPOSE_DECISION: ToolSpec = {
                 "type": "boolean",
                 "default": False,
                 "description": (
-                    "Skip tier-2/tier-3 validation (tier-1 always runs). "
-                    "Use when you already called check_decision."
+                    "Skip Tier 2 BM25 matching (Tier 1 always runs). Use when you "
+                    "already called check_decision and read the related decisions."
                 ),
             },
             "project_id": _PROJECT_PARAM,

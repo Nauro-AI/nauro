@@ -29,9 +29,9 @@ from nauro.onboarding import (
     NO_DECISIONS_TO_CHECK,
     WELCOME_NO_PROJECT,
 )
-from nauro.store.config import get_config
 from nauro.store.reader import (
     _list_decisions,
+    resolve_decision_id,
     search_decisions,
 )
 from nauro.store.reader import (
@@ -43,7 +43,6 @@ from nauro.store.writer import update_state as _write_state
 from nauro.telemetry.decorators import mcp_tool
 from nauro.validation.pipeline import confirm_write, validate_proposed_write
 from nauro.validation.tier2 import check_similarity
-from nauro.validation.tier3 import check_conflicts_with_llm
 
 logger = logging.getLogger("nauro.mcp.tools")
 
@@ -118,6 +117,8 @@ def tool_propose_decision(
     store_path: Path,
     title: str,
     rationale: str,
+    operation: str = "add",
+    affected_decision_id: str | None = None,
     rejected: list[dict] | None = None,
     confidence: str = "medium",
     decision_type: str | None = None,
@@ -125,18 +126,55 @@ def tool_propose_decision(
     files_affected: list[str] | None = None,
     skip_validation: bool = False,
 ) -> dict:
-    """Propose a new decision through the validation pipeline."""
+    """Propose a new decision through the validation pipeline.
+
+    Args:
+        title: Short title for the decision.
+        rationale: Why this decision is being made.
+        operation: How this proposal relates to existing decisions. ``add``
+            for genuinely new ground; ``update`` to augment an existing
+            decision (provide ``affected_decision_id``); ``supersede`` to
+            replace an existing decision (provide ``affected_decision_id``).
+            You own this classification — pick ``add`` when uncertain; an
+            ``update`` / ``supersede`` you're not sure about can ship as
+            ``add`` and be reclassified later, but a wrongly-confirmed
+            supersede is hard to reverse.
+        affected_decision_id: Required when ``operation`` is ``update`` or
+            ``supersede``. The id (e.g. "decision-042") being modified.
+        rejected: List of {alternative, reason} dicts.
+        confidence: "high" | "medium" | "low".
+        decision_type: Optional category string.
+        reversibility: Optional "easy" | "moderate" | "hard".
+        files_affected: Optional list of file paths.
+        skip_validation: When True, skip Tier 2 and queue a confirm_id after
+            Tier 1 passes. Use when the caller already ran ``check_decision``.
+    """
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
 
-    # Content size limits
     for err in (
         _reject_if_too_long(title, "Title", MAX_TITLE_LENGTH),
         _reject_if_too_long(rationale, "Rationale", MAX_RATIONALE_LENGTH),
     ):
         if err:
             return err
+
+    if operation in ("update", "supersede"):
+        if not affected_decision_id:
+            return {
+                "store": "local",
+                "status": "rejected",
+                "reason": f"operation={operation!r} requires affected_decision_id",
+            }
+        resolved = resolve_decision_id(store_path, affected_decision_id)
+        if resolved is None:
+            return {
+                "store": "local",
+                "status": "rejected",
+                "reason": (f"affected_decision_id={affected_decision_id!r} not found in store"),
+            }
+        affected_decision_id = resolved
 
     proposal = {
         "title": title,
@@ -152,9 +190,9 @@ def tool_propose_decision(
     result = validate_proposed_write(
         proposal,
         store_path,
-        auto_confirm=False,
-        api_key=get_config("api_key"),
         skip_validation=skip_validation,
+        operation=operation,
+        affected_decision_id=affected_decision_id,
     )
 
     response: dict = {
@@ -164,9 +202,7 @@ def tool_propose_decision(
             "tier": result.tier,
             "operation": result.operation,
             "similar_decisions": result.similar_decisions,
-            "conflicts": result.conflicts,
             "assessment": result.assessment,
-            "suggested_refinements": result.suggested_refinements,
         },
     }
 
@@ -197,12 +233,16 @@ def tool_check_decision(
     proposed_approach: str,
     context: str | None = None,
 ) -> dict:
-    """Check for conflicts with existing decisions without writing anything."""
+    """Check for conflicts with existing decisions without writing anything.
+
+    Returns related decisions found via Tier 2 BM25 retrieval and a
+    deterministic assessment string. The agent is responsible for reading
+    the related decisions (via ``get_decision``) and judging conflicts.
+    """
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
 
-    # Content size limits
     for err in (
         _reject_if_too_long(proposed_approach, "Proposed approach", MAX_APPROACH_LENGTH),
         _reject_if_too_long(context or "", "Context", MAX_CONTEXT_LENGTH) if context else None,
@@ -214,9 +254,9 @@ def tool_check_decision(
         return {
             "store": "local",
             "related_decisions": [],
-            "potential_conflicts": [],
             "assessment": NO_DECISIONS_TO_CHECK,
         }
+
     pseudo_proposal = {
         "title": proposed_approach[:100],
         "rationale": proposed_approach + (f" {context}" if context else ""),
@@ -228,41 +268,50 @@ def tool_check_decision(
         return {
             "store": "local",
             "related_decisions": [],
-            "potential_conflicts": [],
-            "assessment": (
-                "No existing decisions found that relate to this"
-                " approach. Proceed and consider logging the decision."
-            ),
+            "assessment": "No related decisions found.",
         }
 
-    llm_result = check_conflicts_with_llm(
-        proposed_approach,
-        context,
-        similar_decisions,
-        store_path,
-        api_key=get_config("api_key"),
-    )
-
+    # Map BM25 hits to full decision metadata (date, status).
     all_decisions = _list_decisions(store_path)
-    decision_titles = {f"decision-{d.num:03d}": d.title for d in all_decisions}
+    by_id = {f"decision-{d.num:03d}": d for d in all_decisions}
 
     related = []
-    for rd in llm_result.get("related_decisions", []):
-        did = rd.get("decision_id", "")
+    for hit in similar_decisions:
+        did = hit.get("id", "")
+        decision = by_id.get(did)
+        canonical_id = resolve_decision_id(store_path, did) or did
         related.append(
             {
-                "id": did,
-                "title": decision_titles.get(did, ""),
-                "relevance": rd.get("relevance", "medium"),
-                "rationale_preview": "",
+                "id": canonical_id,
+                "title": hit.get("title", ""),
+                "score": hit.get("similarity", 0.0),
+                "status": decision.status.value if decision else "active",
+                "date": str(decision.date) if decision and decision.date else "",
             }
+        )
+
+    # Deterministic assessment from BM25 facts.
+    top = related[0]
+    top_num = extract_decision_number(top["id"])
+    top_label = f"D{top_num:03d}" if top_num is not None else top["id"]
+    top_line = (
+        f'Top match: {top_label} "{top["title"]}"'
+        f" (status {top['status']}, decided {top['date']}, BM25 {top['score']:.1f})."
+    )
+
+    if len(related) == 1:
+        target = f"get_decision({top_num})" if top_num is not None else "get_decision"
+        assessment = f"{top_line} Call {target} before proposing."
+    else:
+        assessment = (
+            f"Found {len(related)} related decisions. {top_line}"
+            f" Call get_decision on each related decision before proposing."
         )
 
     return {
         "store": "local",
         "related_decisions": related,
-        "potential_conflicts": llm_result.get("potential_conflicts", []),
-        "assessment": llm_result.get("assessment", ""),
+        "assessment": assessment,
     }
 
 

@@ -46,7 +46,6 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 ## Config and credentials
 
 User config lives at `~/.nauro/config.json` (created by `nauro config set`):
-- `api_key` → sets `ANTHROPIC_API_KEY` env var
 - `sync.bucket_name`, `sync.region`, `sync.access_key_id`, `sync.secret_access_key` → S3 sync credentials
 - Auth0 domain, client ID, API URL, and audience ship as defaults in `cli/commands/auth.py`; env vars (`NAURO_AUTH0_*`, `NAURO_API_URL`) or config keys override (domain + client_id must be set as a pair)
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
@@ -55,7 +54,6 @@ User config lives at `~/.nauro/config.json` (created by `nauro config set`):
 
 - CLI: Python 3.10+, Typer
 - MCP server: FastAPI + uvicorn, local HTTP only
-- Extraction: Anthropic SDK, Haiku, structured output via tool use
 - Storage: flat markdown + JSON snapshots
 - Templating: f-strings and Python string templates — no Jinja2
 
@@ -66,8 +64,6 @@ User config lives at `~/.nauro/config.json` (created by `nauro config set`):
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
 - `nauro diff [version]` — semantic diff between snapshots
-- `nauro extract` — manually run extraction on the latest git commit
-- `nauro hook install/uninstall` — manage the post-commit git hook
 - `nauro serve` — start the MCP server on localhost:7432
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
@@ -114,8 +110,6 @@ uv run ruff format --check packages/
 - Tests: pytest with `tmp_path` fixture to avoid touching real `~/.nauro/`
 - Linting: ruff
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
-- Git hook runs `nauro extract` as a post-commit side effect — must never block or crash
-- Extraction uses Anthropic Haiku via tool_use structured output
 - MCP tool implementations in `packages/nauro/src/nauro/mcp/tools.py` are canonical — both stdio and HTTP transports delegate to them
 - `nauro-core` has zero external runtime dependencies
 
@@ -130,9 +124,6 @@ packages/nauro/
     mcp/
       server.py            # FastAPI MCP server
       payloads.py          # L0/L1/L2 payload builders
-    extraction/
-      pipeline.py          # LLM extraction from commits/sessions
-      prompts.py           # extraction prompt templates
     store/
       registry.py          # ~/.nauro/registry.json CRUD + resolve_project()
       reader.py            # read from project store
@@ -142,7 +133,7 @@ packages/nauro/
       scaffolds.py         # nauro init template strings
       agents_md.py         # AGENTS.md generation
   tests/
-    fixtures/              # pre-scaffolded stores, extraction test cases
+    fixtures/              # pre-scaffolded stores
 
 packages/nauro-core/
   src/nauro_core/
