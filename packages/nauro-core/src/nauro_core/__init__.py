@@ -3,7 +3,7 @@
 Re-export facade — public API symbols from all modules.
 """
 
-__version__ = "0.5.0"
+from importlib.metadata import version
 
 from nauro_core.constants import (
     DECISION_HASHES_FILE as DECISION_HASHES_FILE,
@@ -203,3 +203,5 @@ from nauro_core.validation import (
 from nauro_core.validation import (
     screen_structural as screen_structural,
 )
+
+__version__ = version("nauro-core")
