@@ -1,16 +1,20 @@
 """Nauro MCP server — stdio transport for Claude Code integration.
 
 Spawned by Claude Code at session start, communicates over stdin/stdout.
-Same tools as the HTTP server, same store, same payloads.
+Same store and payloads as the HTTP server.
 
 Tool metadata (descriptions, titles, annotations) is centralized in
 `nauro_core.mcp_tools` — edit there, not here — so the local stdio server
 and the remote HTTP server stay in sync.
 
-MCP tools (11 total — 7 read, 4 write):
+MCP tools registered here (11 — 7 read, 4 write):
   get_context, get_raw_file, list_decisions, get_decision,
   diff_since_last_session, search_decisions, check_decision,
   propose_decision, confirm_decision, flag_question, update_state
+
+The shared `nauro_core.mcp_tools.ALL_TOOLS` registry contains 12 tools.
+`list_projects` is remote-only — local installs auto-resolve to the
+single project store, so the discovery tool is not registered here.
 """
 
 from __future__ import annotations

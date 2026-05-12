@@ -2,7 +2,7 @@
 
 Your project has context. Every agent should inherit it.
 
-Nauro is an open-source MCP server that gives AI agents persistent project context across tools and sessions.
+Nauro is an open-source system that gives AI agents persistent project context across tools and sessions.
 
 It captures a project's decisions, rejected options, rationale, constraints, current state, and open questions, then makes that context available across Claude, Perplexity, Cursor, Codex, and any MCP client.
 
@@ -50,7 +50,17 @@ nauro setup claude-code
 
 `nauro init` writes a small `.nauro/config.json` into your repo (commit it — it links the repo to the project so any `nauro` command you run from inside this repo knows which project to use). To start with cloud sync from day one, use `nauro init --cloud my-project` instead.
 
-Agents propose decisions directly through MCP during sessions. You confirm before anything is written to the store.
+Agents propose decisions directly through MCP during sessions. When a proposal overlaps with existing decisions, you confirm before it's written.
+
+## Adopt an existing repo
+
+For a repo that already has docs — README, ADRs, Memory-Bank files, manifests:
+
+```bash
+nauro adopt
+```
+
+Run from the repo root. `nauro adopt` creates the project, wires MCP across your installed agents (Claude Code, Cursor, Codex), and drops a portable skill into your agent. Invoke `/nauro-adopt` in any connected agent and it reads your existing docs, surfaces decision candidates for you to keep or skip, then seeds the store one decision at a time. The agent does the reading — no API key required server-side.
 
 ## Use across surfaces
 
@@ -68,7 +78,7 @@ Codex users: also add `mcp_oauth_callback_port = 8765` to the top of `~/.codex/c
 
 ## How it works
 
-Agents propose decisions through MCP during sessions. Decisions are proposed in collaboration with your agent and confirmed by you before anything is written — the gate is the boundary between "we discussed it" and "your project's direction has changed." You can also log decisions from the terminal with `nauro note`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
+Agents propose decisions through MCP during sessions. Proposals are drafted in collaboration with your agent; when one overlaps with an existing decision, you confirm before it's written, and updates or replacements of existing decisions always require explicit confirmation. The gate is the boundary between "we discussed it" and "your project's direction has changed." You can also log decisions from the terminal with `nauro note`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
 
 One project spans many repos — the store lives in `~/.nauro/`, not inside any repo, so context follows the project across the whole codebase.
 
@@ -92,12 +102,13 @@ Most memory tools preserve conversation history. Nauro captures what you decided
 
 Nauro is built around a different primitive: checking new proposals against past decisions before they become work you have to undo.
 
-| Approach | Cross-tool | Validates against past decisions | Versioned |
+| Approach | What it captures | Cross-tool reach | Validates against past decisions |
 |---|---|---|---|
-| **Nauro** | Any MCP client | Yes (`check_decision`) | Snapshots + diffs |
-| AGENTS.md (manual) | Tools with repo access | No | Git history only |
-| Cursor Rules | Cursor only | No | No |
-| ADRs in-repo | Tools with repo access | Manual | Git history only |
+| **Nauro** | Decisions with rationale | Any MCP client | Yes (`check_decision`) |
+| AGENTS.md / ADRs (manual) | Decisions, manually maintained | Tools with repo access | No |
+| Cursor Rules | Coding preferences | Cursor only | No |
+| Memory tools (mem0, Letta, Zep) | Conversation history | Per integration | No |
+| Platform memory (Copilot, Windsurf, Claude) | Usage patterns | Single vendor | No |
 
 The `check_decision` → `propose_decision` → `confirm_decision` pipeline surfaces conflicts for you to confirm before they're written, across any connected surface. Decisions made in Claude Code surface in Perplexity. Your decisions stay yours, not your platform's.
 
@@ -115,16 +126,17 @@ Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. A
 
 ## MCP tools
 
-11 tools (7 read, 4 write) exposed to any connected MCP client:
+12 tools (8 read, 4 write) exposed to any connected MCP client:
 
 **Read:**
-- `check_decision` — check a proposed approach for conflicts without writing (the centerpiece — call this before work that could conflict with project direction)
+- `check_decision` — check a proposed approach against existing decisions without writing (the centerpiece; agents are instructed to call this before any architectural change)
 - `get_context` — project summary at three detail levels (L0/L1/L2)
 - `list_decisions` — browse the full decision history
 - `get_decision` — full content of a specific decision by number
 - `search_decisions` — keyword search across decision titles and rationale (BM25)
 - `get_raw_file` — raw markdown content of any store file
 - `diff_since_last_session` — what changed since your last session (or N days ago)
+- `list_projects` — list projects you have access to (only needed when you have multiple — single-project users auto-resolve)
 
 **Write:**
 - `propose_decision` / `confirm_decision` — write decisions with conflict validation
