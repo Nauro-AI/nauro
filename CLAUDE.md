@@ -68,7 +68,9 @@ User config lives at `~/.nauro/config.json` (created by `nauro config set`):
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
 
-## MCP tools (11 total — 7 read, 4 write)
+## MCP tools (12 total in `nauro_core.mcp_tools` — 8 read, 4 write)
+
+The local stdio server registers 11; `list_projects` is remote-only since local installs auto-resolve to the single project store.
 
 Read:
 - `get_context(project, level)` — L0 concise summary, L1 working set, L2 full dump
@@ -78,6 +80,7 @@ Read:
 - `diff_since_last_session(project, days)` — what changed since last session
 - `search_decisions(project, query, limit)` — keyword search across decisions
 - `check_decision(proposed_approach)` — check for conflicts without writing
+- `list_projects()` — list user's projects (remote-only)
 
 Write:
 - `propose_decision(project, title, rationale, ...)` — propose a decision for validation
