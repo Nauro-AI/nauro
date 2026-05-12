@@ -275,3 +275,102 @@ def test_remove_skill_file_preserves_sibling_skills(tmp_path: Path):
     assert not nauro_skill.parent.exists()  # nauro subdir pruned
     assert other_skill.exists()  # other skill untouched
     assert base.is_dir()
+
+
+# ─── multi-project remove gating ────────────────────────────────────────────
+
+
+def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, monkeypatch):
+    """``setup all --remove`` for one project must not strip the user-scope
+    Claude/Codex skills or the codex MCP entry while another nauro project
+    remains in the registry — those resources are shared."""
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_a = tmp_path / "repo_a"
+    repo_b = tmp_path / "repo_b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    _, store_a = register_project_v2("proj-a", [repo_a])
+    scaffold_project_store("proj-a", store_a)
+    _, store_b = register_project_v2("proj-b", [repo_b])
+    scaffold_project_store("proj-b", store_b)
+    _mock_claude_cli(monkeypatch)
+
+    monkeypatch.chdir(repo_a)
+    runner.invoke(app, ["setup", "all", "--project", "proj-a"])
+    monkeypatch.chdir(repo_b)
+    runner.invoke(app, ["setup", "all", "--project", "proj-b"])
+
+    monkeypatch.chdir(repo_a)
+    result = runner.invoke(app, ["setup", "all", "--project", "proj-a", "--remove"])
+    assert result.exit_code == 0, result.output
+
+    # User-scope artifacts preserved — proj-b still depends on them.
+    assert (tmp_path / ".claude" / "skills" / "nauro" / "SKILL.md").is_file()
+    assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
+    assert (tmp_path / ".agents" / "skills" / "nauro" / "SKILL.md").is_file()
+    assert (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
+
+    codex_config = tmp_path / ".codex" / "config.toml"
+    assert codex_config.is_file()
+    with codex_config.open("rb") as f:
+        data = tomllib.load(f)
+    assert data["mcp_servers"]["nauro"]["args"] == ["serve", "--stdio"]
+
+    # Per-repo wiring for proj-a still got torn down.
+    assert not (repo_a / ".cursor" / "mcp.json").is_file()
+    assert not (repo_a / ".cursor" / "rules" / "nauro.mdc").is_file()
+    # And proj-b's per-repo wiring stayed put.
+    assert (repo_b / ".cursor" / "mcp.json").is_file()
+    assert (repo_b / ".cursor" / "rules" / "nauro.mdc").is_file()
+
+
+def test_remove_clears_user_scope_when_last_project(tmp_path: Path, monkeypatch):
+    """When removing the last project, the user-scope skill files and the
+    codex MCP entry are fully cleared — nothing depends on them anymore."""
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("solo", [repo])
+    scaffold_project_store("solo", store_path)
+    monkeypatch.chdir(repo)
+    _mock_claude_cli(monkeypatch)
+
+    runner.invoke(app, ["setup", "all"])
+    result = runner.invoke(app, ["setup", "all", "--remove"])
+    assert result.exit_code == 0, result.output
+
+    assert not (tmp_path / ".claude" / "skills" / "nauro" / "SKILL.md").exists()
+    assert not (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").exists()
+    assert not (tmp_path / ".agents" / "skills" / "nauro" / "SKILL.md").exists()
+    assert not (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").exists()
+
+    codex_config = tmp_path / ".codex" / "config.toml"
+    if codex_config.is_file():
+        with codex_config.open("rb") as f:
+            data = tomllib.load(f)
+        assert "nauro" not in data.get("mcp_servers", {})
+
+
+def test_standalone_codex_remove_preserves_when_projects_remain(tmp_path: Path, monkeypatch):
+    """``nauro setup codex --remove`` must not strip ``~/.codex/config.toml``'s
+    nauro entry while any projects remain in the registry. The standalone
+    command is user-global; preservation guards still-active projects."""
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    register_project_v2("still-here", [repo])
+
+    runner.invoke(app, ["setup", "codex"])
+    codex_config = tmp_path / ".codex" / "config.toml"
+    assert codex_config.is_file()
+
+    result = runner.invoke(app, ["setup", "codex", "--remove"])
+    assert result.exit_code == 0, result.output
+    assert "preserved nauro entry" in result.output
+
+    with codex_config.open("rb") as f:
+        data = tomllib.load(f)
+    assert data["mcp_servers"]["nauro"]["args"] == ["serve", "--stdio"]

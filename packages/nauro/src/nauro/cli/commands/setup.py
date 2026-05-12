@@ -24,6 +24,8 @@ from nauro.store.registry import (
     RegistrySchemaError,
     get_project,
     get_project_v2,
+    load_registry,
+    load_registry_v2,
 )
 from nauro.templates.agents_md import regenerate_agents_md_for_project
 
@@ -70,6 +72,24 @@ def _find_nauro_command() -> str:
     """Find the full path to the nauro binary for the MCP config."""
     path = shutil.which("nauro")
     return path if path else "nauro"
+
+
+def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
+    """Return True iff no other nauro projects remain in the registry.
+
+    User-scope artifacts (``~/.claude/skills/nauro*``, ``~/.agents/skills/nauro*``,
+    and the ``nauro`` entry in ``~/.codex/config.toml``) are shared by every
+    registered project on the machine, so a per-project teardown must not
+    strip them while other projects still depend on them.
+    """
+    try:
+        registry = load_registry_v2()
+    except RegistrySchemaError:
+        registry = load_registry()
+    keys = set(registry.get("projects", {}).keys())
+    if current_project_key is not None:
+        keys.discard(current_project_key)
+    return not keys
 
 
 def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
@@ -295,11 +315,27 @@ def _default_codex_config_path() -> Path:
     return Path.home() / ".codex" / "config.toml"
 
 
-def _configure_codex(*, remove: bool, config_path: Path | None = None) -> str:
-    """Add or remove the Nauro MCP entry in ``~/.codex/config.toml``."""
+def _configure_codex(
+    *,
+    remove: bool,
+    config_path: Path | None = None,
+    clear_user_scope: bool = True,
+) -> str:
+    """Add or remove the Nauro MCP entry in ``~/.codex/config.toml``.
+
+    ``clear_user_scope`` gates the remove path: when False, the codex MCP
+    entry is preserved because other registered nauro projects still depend
+    on it. Defaults to True so direct unit callers and the add path retain
+    their previous behavior.
+    """
     config_path = config_path or _default_codex_config_path()
     nauro_cmd = _find_nauro_command()
     nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
+
+    if remove and not clear_user_scope:
+        return (
+            f"Codex: preserved nauro entry in {config_path} (other nauro projects still registered)"
+        )
 
     if config_path.exists():
         with config_path.open("rb") as f:
@@ -331,7 +367,11 @@ def codex(
     ),
 ) -> None:
     """Configure Codex CLI to use Nauro (writes ``~/.codex/config.toml``)."""
-    typer.echo(_configure_codex(remove=remove))
+    # Standalone codex wiring is user-global, so removing it without first
+    # tearing down the other projects would leave them pointed at a missing
+    # MCP entry. Gate on the registry: only the last project's teardown clears.
+    clear_user_scope = _user_scope_safe_to_clear(None) if remove else True
+    typer.echo(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
     if not remove:
         typer.echo("\nNext: run a Codex session — it reads ~/.codex/config.toml on start.")
 
@@ -381,11 +421,20 @@ def _remove_skill_file(target: Path, *, stop_above: Path) -> str:
     return f"  removed {target}"
 
 
-def materialize_skills_claude_code(*, remove: bool) -> list[str]:
-    """Install or remove the two Nauro skills under ``~/.claude/skills/``."""
+def materialize_skills_claude_code(*, remove: bool, clear_user_scope: bool = True) -> list[str]:
+    """Install or remove the two Nauro skills under ``~/.claude/skills/``.
+
+    ``clear_user_scope`` gates the remove path: when False, the skill files
+    are preserved because other registered nauro projects still depend on
+    them. Defaults to True so direct unit callers and the add path retain
+    their previous behavior.
+    """
     from nauro.skills import render_skill
 
     base = _claude_skill_dir()
+    if remove and not clear_user_scope:
+        return ["  preserved ~/.claude/skills/nauro* (other nauro projects still registered)"]
+
     results: list[str] = []
     for name in SKILL_NAMES:
         target = base / name / "SKILL.md"
@@ -396,11 +445,20 @@ def materialize_skills_claude_code(*, remove: bool) -> list[str]:
     return results
 
 
-def materialize_skills_codex(*, remove: bool) -> list[str]:
-    """Install or remove the two Nauro skills under ``~/.agents/skills/``."""
+def materialize_skills_codex(*, remove: bool, clear_user_scope: bool = True) -> list[str]:
+    """Install or remove the two Nauro skills under ``~/.agents/skills/``.
+
+    ``clear_user_scope`` gates the remove path: when False, the skill files
+    are preserved because other registered nauro projects still depend on
+    them. Defaults to True so direct unit callers and the add path retain
+    their previous behavior.
+    """
     from nauro.skills import render_skill
 
     base = _codex_skill_dir()
+    if remove and not clear_user_scope:
+        return ["  preserved ~/.agents/skills/nauro* (other nauro projects still registered)"]
+
     results: list[str] = []
     for name in SKILL_NAMES:
         target = base / name / "SKILL.md"
@@ -429,12 +487,25 @@ def materialize_skills_cursor_for_repo(repo: Path, *, remove: bool) -> list[str]
 # ─── nauro setup all ────────────────────────────────────────────────────────
 
 
-def setup_all_surfaces(project_repos: list[Path], *, remove: bool = False) -> list[str]:
+def setup_all_surfaces(
+    project_repos: list[Path],
+    *,
+    remove: bool = False,
+    current_project_key: str | None = None,
+) -> list[str]:
     """Wire MCP and materialize skills across Claude Code, Cursor, Codex.
 
     Continues across per-handler errors so partial coverage still reports
     progress. Returns the cumulative status lines.
+
+    ``current_project_key`` is the registry key (v2 id or v1 name) for the
+    project being torn down. When ``remove=True``, it is excluded from the
+    "are there other projects?" check so per-project teardown only clears
+    user-scope artifacts (Claude/Codex skills, ``~/.codex/config.toml``)
+    when this is the last project on the machine.
     """
+    clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True
+
     lines: list[str] = []
 
     # Claude Code (MCP per-repo via `claude mcp add --scope project` + skills global)
@@ -447,7 +518,9 @@ def setup_all_surfaces(project_repos: list[Path], *, remove: bool = False) -> li
         except Exception as exc:
             lines.append(f"Claude Code MCP ({repo}): error — {exc}")
     try:
-        lines.extend(materialize_skills_claude_code(remove=remove))
+        lines.extend(
+            materialize_skills_claude_code(remove=remove, clear_user_scope=clear_user_scope)
+        )
     except Exception as exc:
         lines.append(f"Claude Code skills: error — {exc}")
 
@@ -466,11 +539,11 @@ def setup_all_surfaces(project_repos: list[Path], *, remove: bool = False) -> li
 
     # Codex (MCP global + skills global)
     try:
-        lines.append(_configure_codex(remove=remove))
+        lines.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
     except Exception as exc:
         lines.append(f"Codex MCP: error — {exc}")
     try:
-        lines.extend(materialize_skills_codex(remove=remove))
+        lines.extend(materialize_skills_codex(remove=remove, clear_user_scope=clear_user_scope))
     except Exception as exc:
         lines.append(f"Codex skills: error — {exc}")
 
@@ -504,5 +577,5 @@ def all_(
     project_repos = [Path(rp) for rp in entry["repo_paths"]]
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro for project '{project_name}' across all surfaces:\n")
-    for line in setup_all_surfaces(project_repos, remove=remove):
+    for line in setup_all_surfaces(project_repos, remove=remove, current_project_key=project_key):
         typer.echo(line)
