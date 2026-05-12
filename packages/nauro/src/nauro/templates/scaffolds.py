@@ -46,12 +46,9 @@ is useful. "Users" is not.]
 """
 
 STATE_CURRENT_MD = """\
-# State
+# Current State
 
-## Current
-[What you're working on right now — e.g. "Building user auth flow, blocked on Stripe API approval"]
-
-## History
+_(No state recorded yet — call update_state to capture progress.)_
 """
 
 STACK_MD = """\
