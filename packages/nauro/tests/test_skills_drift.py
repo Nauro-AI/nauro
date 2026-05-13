@@ -103,3 +103,47 @@ def test_docs_adopt_prompt_contains_canonical_body():
         "docs/adopt-prompt.md does not contain load_adopt_body() — re-append "
         "or update the intro to keep the canonical body in sync."
     )
+
+
+# --- Retired phrases must not reappear in skill / docs surfaces ---
+#
+# Anchored to D124/D129/D130/D131 + PR #38. Scope is narrow on purpose: the two
+# canonical skill bodies plus ``docs/adopt-prompt.md``. The six dogfood files are
+# chained to the source bodies via ``test_dogfood_file_matches_render_skill``.
+
+RETIRED_PHRASES = [
+    ("LLM-based", "D130 removed Tier 3 LLM validation"),
+    ("Tier 3", "D130 removed Tier 3 LLM validation"),
+    ("nauro extract", "D129 retired the extract command"),
+    ("[extraction]", "D129 retired the [extraction] extra"),
+    ("Anthropic SDK", "D129 dropped Anthropic SDK as a runtime dep"),
+    ("Python 3.11+", "D124 lowered the Python floor to 3.10"),
+    (
+        "propose_decision(title, rationale, rejected,",
+        "D131 made propose_decision operation-aware; rejected/confidence are no longer positional",
+    ),
+    (
+        "bracketed-prompt placeholders in `project.md` / `stack.md` / `state_current.md`",
+        "PR #38 removed bracket-prompt scaffolding from state_current.md",
+    ),
+]
+
+
+def _load_docs_adopt_prompt() -> str:
+    return (REPO_ROOT / "docs" / "adopt-prompt.md").read_text(encoding="utf-8")
+
+
+SCANNED_SURFACES = [
+    ("session_body.md", load_session_body),
+    ("adopt_body.md", load_adopt_body),
+    ("docs/adopt-prompt.md", _load_docs_adopt_prompt),
+]
+
+
+@pytest.mark.parametrize("surface_name,loader", SCANNED_SURFACES)
+@pytest.mark.parametrize("phrase,reason", RETIRED_PHRASES)
+def test_skill_surface_has_no_retired_phrases(
+    surface_name: str, loader, phrase: str, reason: str
+) -> None:
+    content = loader()
+    assert phrase not in content, f"retired phrase {phrase!r} found in {surface_name}: {reason}"

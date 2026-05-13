@@ -36,7 +36,7 @@ Chat-paste mode does not create projects.
 
 ## Step 4 — Call get_context
 
-The agent calls `get_context` (MCP) to surface what the scaffold already wrote — `001-initial-setup.md` and bracketed-prompt placeholders in `project.md` / `stack.md` / `state_current.md`. The agent uses this to (a) avoid duplicating the scaffold's first decision, (b) confirm the project resolved correctly.
+The agent calls `get_context` (MCP) to surface what the scaffold already wrote — `001-initial-setup.md` and bracketed-prompt placeholders in `project.md` / `stack.md`. The agent uses this to (a) avoid duplicating the scaffold's first decision, (b) confirm the project resolved correctly.
 
 ## Step 5 — Build candidate list, surface FIRST
 
@@ -54,7 +54,7 @@ The agent triages the source content into two lists.
 
 For each kept item from 5a (and each opt-in from 5b):
 
-1. Call `propose_decision(title, rationale, rejected, confidence)`. `rationale` is drawn from explicit source text (or user-provided for opt-ins). `confidence` defaults to `medium`; `high` only when the source explicitly says "accepted" or "approved". Rejected alternatives are included only when the source names them.
+1. Call `propose_decision(title=..., rationale=..., operation="add", rejected=..., confidence=...)`. Adopt seeds the store from source documents, so it normally uses `operation="add"` and does not set `affected_decision_id`. `rationale` is drawn from explicit source text or user-provided opt-ins. `confidence` defaults to `medium`; use `high` only when the source explicitly says "accepted" or "approved". Include rejected alternatives only when the source names them.
 2. **If `propose_decision` returns no conflicts**: call `confirm_decision(confirm_id)` automatically — no further user prompt.
 3. **If `propose_decision` returns conflicts**: surface the conflict text verbatim, ask `confirm-anyway / edit / skip`. On user 'confirm' → `confirm_decision(confirm_id)`.
 
