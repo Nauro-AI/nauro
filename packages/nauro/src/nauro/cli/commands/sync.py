@@ -1,4 +1,4 @@
-"""nauro sync — Capture a snapshot and update state."""
+"""nauro sync — Capture a snapshot and regenerate AGENTS.md in associated repos."""
 
 import logging
 from pathlib import Path
@@ -44,7 +44,12 @@ def sync(
     ),
     status: bool = typer.Option(False, "--status", help="Show sync status."),
 ) -> None:
-    """Capture a snapshot and update the project state."""
+    """Capture a snapshot and regenerate AGENTS.md in each associated repo.
+
+    With cloud sync configured, pulls from S3 first (git-style pull-then-push),
+    then pushes the updated store back. Project state in state_current.md is
+    not touched — use the MCP `update_state` tool to record what changed.
+    """
     if cloud_setup:
         _cloud_setup_wizard()
         return
