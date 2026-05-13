@@ -29,19 +29,28 @@ The agent runs `git rev-parse --show-toplevel` from the current working director
 
 ## Step 2 — Already-adopted guard
 
-The agent reads `<repo>/.nauro/config.json`. If the file is missing: abort with "This repo is not adopted yet. Run 'nauro adopt' from the repo root, restart this agent, then invoke /nauro-adopt again." If the file exists and parses as JSON: extract `id` and `name` and use these as the project handle for subsequent calls.
+The agent reads `<repo>/.nauro/config.json`. If it exists and parses as JSON: extract `id` and `name` and use them as the project handle.
+
+If the file is missing, try two fallbacks before aborting:
+
+1. **Worktree fallback.** Compare `git rev-parse --git-dir` and `git rev-parse --git-common-dir`. If they differ, the current checkout is a linked worktree, and `.nauro/` may only exist in the main worktree (common when a workspace tool gitignores `.nauro/` per-checkout). Resolve the main worktree path from `git worktree list --porcelain` (the first `worktree` line) and re-read `<main-worktree>/.nauro/config.json`.
+2. **Registry fallback.** Read `~/.nauro/registry.json`. If any project's `repo_paths` contains the current repo root or the resolved main-worktree path, use that project's `id` and `name`.
+
+Abort only when both fallbacks miss, with: "This repo is not adopted yet. Run 'nauro adopt' from the repo root, restart this agent, then invoke /nauro-adopt again."
 
 Pass `id` as the `project_id` argument on every subsequent MCP call (`propose_decision`, `confirm_decision`, `update_state`, `flag_question`, `get_context`, `list_decisions`). Do not omit `project_id` even though the tool descriptions say it's optional — auto-resolve routes to the user's default project, which is **not** the project this skill is seeding when both local-mode and cloud-mode projects coexist.
 
 ## Step 3 — Read source files
 
-The agent reads the first match found per category. Files larger than 256KB are flagged to the user before reading. If the README category yields no match, surface "No README found; reading manifest only." to the user once and continue — manifest-only repos are still adoptable.
+The agent reads the first match found per category, with the manifest workspace exception below. Files larger than 256KB are flagged to the user before reading. If the README category yields no match, surface "No README found; reading manifest only." to the user once and continue — manifest-only repos are still adoptable.
 
 - **README**: `README.md`, `README.rst`, `README` (first found)
-- **Manifest**: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `Gemfile`, `pom.xml`, `build.gradle`, `composer.json`, `requirements*.txt`
+- **Manifest**: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `Gemfile`, `pom.xml`, `build.gradle`, `composer.json`, `requirements*.txt`. Read the root manifest. If it declares a workspace — `[tool.uv.workspace]` with `members = [...]` in `pyproject.toml`, a top-level `workspaces` array in `package.json` (npm/pnpm/yarn), or `[workspace]` with `members = [...]` in `Cargo.toml` — also read each member manifest at its declared path. Otherwise stop at the root match. The root manifest of a workspace is often a thin shim with no real dependencies; member manifests carry the actual stack.
 - **Top-level docs**: `CONTRIBUTING.md`, `ARCHITECTURE.md`, `DESIGN.md`, `CLAUDE.md`, `AGENTS.md`
 - **ADR directory**: `docs/adr/`, `docs/decisions/`, `architecture/decisions/`, `adr/` — every `.md` except templates and index files (`0000-template.md`, `README.md`)
 - **Memory Bank**: `.context/`, `memory-bank/`, `cline_docs/` — `projectBrief.md`, `activeContext.md`, `techContext.md`, `decisionLog.md`, `progress.md`
+
+The agent does not read source code, tests, IaC templates, or git history during adopt. Those surfaces are out of scope on purpose — every recorded fact must trace back to an explicit source document so the refusal contract in Step 9 holds.
 
 ### Step 3b — Chat-surface paste branch
 
@@ -63,11 +72,11 @@ The agent calls `get_context` (MCP) to surface what the scaffold already wrote �
 
 The agent triages the source content into two lists.
 
-**Step 5a — Clear decisions.** Candidates where the source explicitly states acceptance and rationale (and, when applicable, rejected alternatives). Each entry: number, title (≤60 chars), one-line summary (≤140 chars), source location. The agent prints the full list as one message:
+**Step 5a — Clear decisions.** Candidates where the source explicitly states acceptance and rationale (and, when applicable, rejected alternatives). Each entry: number, title (≤60 chars), one-line summary (≤140 chars), source location. A candidate also qualifies as a clear decision when the rule is stated in one explicit source document and the rationale is stated in a *different* explicit source document — cite both source locations in the entry (e.g. "rule: CLAUDE.md §Conventions; rationale: README §How it works"). The agent does not invent the second source to make a candidate fit; if rationale is absent from every source the candidate goes to Step 5b. The agent prints the full list as one message:
 
 > Reply 'keep N' / 'edit N: <new title>' / 'skip N' per item. Or 'keep all' to accept everything. Reply 'done' when finished.
 
-**Step 5b — Boundary candidates.** Facts that *might* be decisions but where the source does not state rationale verbatim. Surfaced after the user finishes Step 5a:
+**Step 5b — Boundary candidates.** Facts that *might* be decisions but where the source does not state rationale verbatim. Stack inventory (languages, frameworks, package managers, license, lint tooling) lives here unless a source frames the choice with rationale. Surfaced after the user finishes Step 5a:
 
 > The agent thinks these might be decisions but couldn't extract rationale verbatim from the source. Each is opt-in only — reply 'opt N: <rationale>' to record any of them with rationale you provide; otherwise they are skipped.
 
@@ -102,7 +111,13 @@ Sources: explicit `## Open Questions` sections, lines beginning `Q:` or `TODO:` 
 
 ## Step 9 — Refusal contract
 
-The agent records facts that source documents explicitly state. The agent does not infer rationale from prose, does not invent rejected alternatives, does not assume `confidence=high` from tone, does not summarize a paragraph into a "decision" the source never called a decision. Boundary cases go to Step 5b (opt-in only — write rationale yourself), not into the clear-decisions list.
+The agent records facts that source documents explicitly state. The agent does not infer rationale from prose, does not invent rejected alternatives, does not assume `confidence=high` from tone, does not summarize a paragraph into a "decision" the source never called a decision. Three specific traps to avoid:
+
+- **Demo prose.** Decision-shaped statements inside README quickstart examples, illustrative scenarios, hypothetical user prompts, comparison tables, or product-demo narratives are false positives unless an independent source (CLAUDE.md, ADR, ARCHITECTURE.md, manifest, Memory-Bank) names the same fact as an actual project decision. In that case the independent source is the citation, not the demo prose.
+- **Stack inventory.** Languages, frameworks, package managers, license, and lint tooling listed in a manifest or a "Stack" section are inventory, not decisions, unless the source frames the choice with rationale (in which case Step 5a applies, possibly via cross-doc stitching).
+- **Cross-doc stitching is not inference.** When Step 5a stitches a rule from one source with rationale from another, both source locations must be explicit. The agent never fills in a missing rationale itself, and never treats two restatements of the same rule as "rule + rationale".
+
+Boundary cases go to Step 5b (opt-in only — write rationale yourself), not into the clear-decisions list.
 
 ## Step 10 — Summary
 
