@@ -1,6 +1,6 @@
 ---
 name: nauro-adopt
-description: Seeds Nauro's project store from an existing repo. Use after the user has run `nauro adopt` locally. On filesystem-capable surfaces (Claude Code, Cursor, Codex CLI), reads docs (README, manifests, ADRs, Memory-Bank) for rationale and inspects code, config, tests, lockfiles, and recent git history for evidence, then surfaces targeted probes that turn evidence into rationale. On chat surfaces, reads pasted content against an already-adopted project. Writes decisions, state, and open questions via existing MCP write tools.
+description: Seeds Nauro's project store from an existing repo. Use after `nauro adopt` has run locally. On filesystem-capable surfaces, reads docs (README, manifests, ADRs, Memory-Bank) for rationale and inspects code, config, tests, lockfiles, and recent git history for evidence, then surfaces targeted probes that turn evidence into rationale. On chat surfaces, operates on pasted content against an already-adopted project.
 ---
 
 # Nauro adopt skill
@@ -118,7 +118,21 @@ For each kept candidate from 6a and each rationale-supplied 6b answer, the agent
     - **update** when the candidate augments an existing decision's rationale only. Per D133 the server consumes only `rationale` on update; `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, and `rejected` are rejected at the boundary — use supersede if any of those must change.
     - **supersede** when the title or other metadata must change, or the candidate replaces or contradicts an existing decision. Pass the full new body and set `affected_decision_id`.
     - **skip** when the candidate is a duplicate (e.g. matches `001-initial-setup` or a candidate already seeded earlier in this same adopt run).
-4. Call `propose_decision(project_id=..., title=..., rationale=..., operation=<op>, affected_decision_id=<N when update or supersede>, rejected=<…>, confidence=<…>)`. `rationale` is drawn from explicit Step 3 source text (6a) or the user's probe answer (6b). `confidence` defaults to `medium`; use `high` only when a source explicitly says "accepted" or "approved". Include rejected alternatives only when the source names them or the user supplies them in the probe answer.
+4. Call `propose_decision` using the call signature for the chosen operation — these are operation-specific by design so an agent copying the template cannot accidentally send a field the server will reject:
+    - For **add** (new decisions):
+      ```
+      propose_decision(project_id=..., title=..., rationale=..., operation="add", rejected=..., confidence=...)
+      ```
+    - For **update** (rationale-only — D133 rejects every other field at the boundary):
+      ```
+      propose_decision(project_id=..., rationale=..., operation="update", affected_decision_id=...)
+      ```
+    - For **supersede** (replace a decision or change metadata; pass the full new body):
+      ```
+      propose_decision(project_id=..., title=..., rationale=..., operation="supersede", affected_decision_id=..., rejected=..., confidence=...)
+      ```
+
+   `rationale` is drawn from explicit Step 3 source text (6a) or the user's probe answer (6b). `confidence` defaults to `medium`; use `high` only when a source explicitly says "accepted" or "approved". Include rejected alternatives only when the source names them or the user supplies them in the probe answer.
 5. Call `confirm_decision(confirm_id, project_id=...)`:
     - `add` + no conflicts → auto-confirm.
     - `add` + conflicts → surface the assessment verbatim, ask `confirm-anyway / edit / skip`; confirm only on user 'confirm'.

@@ -29,6 +29,9 @@ def test_load_adopt_body_returns_canonical_bytes():
     assert "Step 6a — Documented decisions" in body
     assert "Step 6b — Code-evidenced" in body
     assert "was Y considered; what pushed you toward X" in body
+    # Step 7 has operation-specific propose_decision templates per D133 —
+    # the dedicated update signature must stay distinct from add/supersede.
+    assert 'operation="update"' in body
     assert "Step 11 — Summary" in body
 
 
