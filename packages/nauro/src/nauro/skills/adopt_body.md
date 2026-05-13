@@ -1,6 +1,12 @@
+<!-- Source template. May contain protocol-fragment tokens (HTML comments of
+     the form protocol:NAME) that are resolved by load_adopt_body() and
+     render_skill(). The dogfood files under .claude/, .cursor/, .agents/ are
+     the rendered surface and must be token-free. Canonical claims live in
+     nauro_core.protocol. -->
+
 # Nauro adopt skill
 
-The agent helps the user seed Nauro with context from the current repo. Before this skill runs, the user has run `nauro adopt` from the repo root, which created the project, wired MCP across surfaces, and installed this skill into the agent's surface directory. The agent's job here is to seed the Nauro store via MCP write tools: docs supply the rationale for documented decisions, code and config and tests and manifests and recent git history supply evidence, and the user supplies the "why" via targeted probes when only evidence is present. The agent records decisions that source documents explicitly state, or that the user confirms in response to a probe — it does not invent rationale from code or prose.
+The agent helps the user seed Nauro with context from the current repo. Before this skill runs, the user has run `nauro adopt` from the repo root, which created the project, wired MCP across surfaces, and installed this skill into the agent's surface directory. The agent's job here is to seed the Nauro store via MCP write tools: docs supply the rationale for documented decisions, code and config and tests and manifests and recent git history supply evidence, and the user supplies the "why" via targeted probes when only evidence is present. <!-- protocol:NO_INVENT_RATIONALE -->
 
 ## Surface modes
 
@@ -106,8 +112,8 @@ Languages, frameworks, package managers, license, lint tooling, and similar fact
 
 For each kept candidate from 6a and each rationale-supplied 6b answer, the agent runs the full D131 / D133 protocol:
 
-1. Call `check_decision(proposed_approach=<title or short description>, project_id=...)`. The tool returns related decisions via BM25 retrieval and a deterministic assessment.
-2. For each related decision in the response, call `get_decision(number=N, project_id=...)`. `check_decision` does not judge conflicts — the agent reads the decision bodies to decide what the right action is.
+1. Call `check_decision(proposed_approach=<title or short description>, project_id=...)`. <!-- protocol:CHECK_DECISION_RETURNS -->
+2. For each related decision in the response, call `get_decision(number=N, project_id=...)`. <!-- protocol:GET_DECISION_BEFORE_PROPOSING -->
 3. Classify the operation:
     - **add** (default; new ground, no existing decision covers it).
     - **update** when the candidate augments an existing decision's rationale only. Per D133 the server consumes only `rationale` on update; `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, and `rejected` are rejected at the boundary — use supersede if any of those must change.

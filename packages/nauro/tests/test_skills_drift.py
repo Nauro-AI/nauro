@@ -213,19 +213,22 @@ def test_adopt_body_step_references_resolve_to_headings():
 
 # --- session_body.md ↔ MCP_INSTRUCTIONS_STATIC alignment ---
 #
-# Both teach the agent the same lifecycle and refusal contract.
-# Render parity catches drift within each surface, but the two
-# surfaces can drift relative to each other invisibly. Anchor the
-# load-bearing shared phrases — case-insensitive so sentence-start
-# capitalization differences don't trigger false failures.
+# Both teach the agent the same lifecycle and refusal contract. Render parity
+# catches drift within each surface, but the two surfaces can drift relative
+# to each other invisibly. Anchor the load-bearing shared phrases that live
+# inline in both surfaces — case-insensitive so sentence-start capitalization
+# differences don't trigger false failures.
+#
+# Canonical protocol claims (BM25 retrieval, get_decision-before-proposing,
+# no-invent-rationale) have their own source-of-truth fragments in
+# nauro_core.protocol; verbatim-presence is enforced by test_protocol_drift.
+# Only phrase-level shared anchors that are NOT fragments stay here.
 
 SHARED_SESSION_MCP_PHRASES = [
     # Refusal contract — first-principles cannot replace project history
     "first-principles reasoning is not a substitute",
     # Anti-evasion — the rule applies even when the agent disagrees
     "push back or refuse",
-    # Retrieval mechanism named in both
-    "BM25",
 ]
 
 

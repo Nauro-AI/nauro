@@ -5,6 +5,14 @@ the Nauro ecosystem: token budgets, file names, decision statuses, field
 defaults, and similarity thresholds.
 """
 
+from nauro_core.protocol import (
+    CHECK_DECISION_RETURNS,
+    GET_DECISION_BEFORE_PROPOSING,
+    NO_INVENT_RATIONALE,
+    PROPOSE_DECISION_OPERATIONS,
+    UPDATE_SUPERSEDE_CARE,
+)
+
 # ── L0/L1/L2 payload limits ──
 L0_QUESTIONS_LIMIT = 3
 L0_DECISIONS_SUMMARY_LIMIT = 10
@@ -62,61 +70,54 @@ MAX_APPROACH_LENGTH = 5_000
 # Single source of truth — both local (stdio) and remote (HTTP) servers
 # reference MCP_INSTRUCTIONS_STATIC. Remote callers compose it with a
 # per-user project section via build_remote_instructions() in instructions.py.
+# Canonical claims about check_decision/get_decision/propose_decision live in
+# nauro_core.protocol (imported at the top of this module) and are spliced
+# in below; MCP-specific framing prose (precondition / first-principles /
+# push back / vendor swap) stays inline.
 # MCP_INSTRUCTIONS remains as a backward-compatible alias.
-MCP_INSTRUCTIONS_STATIC = """\
-Nauro carries this project's direction across every agent session. \
-Use it to check past decisions before adopting an approach, and to record \
-new decisions as you make them.
-
-## When to check decisions
-
-Before responding to any technical change request — architecture, \
-library choice, API design, data model, infrastructure, vendor swap — \
-call `check_decision` with a description of what's being proposed. \
-This includes "should we...", "what if we...", "can we...", "check if..." \
-framings, and applies even when you intend to push back or refuse. \
-Your first-principles reasoning is not a substitute for project history; \
-`check_decision` is a precondition, not an option.
-
-`check_decision` returns related decisions surfaced via BM25 retrieval \
-and a deterministic assessment. It does NOT judge conflicts for you. \
-When the response lists related decisions, call `get_decision` on each \
-one before proposing — the relevance, supersession status, and full \
-rationale live in those bodies, not in the assessment string.
-
-## When to propose decisions
-
-Call `propose_decision` when you choose between two or more approaches, \
-replace or remove a dependency, establish a new pattern, or cut scope. \
-Do it at the moment the decision is made, not at the end of the session. \
-Always include what was rejected and why.
-
-Pick the right `operation`:
-- `add` (default) — genuinely new ground; no existing decision is being changed.
-- `update` — augment an existing decision with new rationale or scope. \
-Provide `affected_decision_id`.
-- `supersede` — replace an existing decision with one that contradicts or \
-wholly subsumes it. Provide `affected_decision_id`.
-
-You own this classification. Pick `add` when uncertain — an `update`/\
-`supersede` you're not sure about can ship as `add` and be reclassified \
-later, but a wrongly-confirmed supersede is hard to reverse.
-
-Do NOT propose decisions for obvious bug fixes, adding tests for existing \
-behavior, or renaming variables.
-
-## When to get context
-
-Call `get_context` at the start of a session or when you need to \
-understand the project's current state, goals, and constraints. \
-L0 includes the last 10 decisions — do not call `list_decisions` \
-after `get_context` unless you need older or superseded decisions.
-
-## When to update state
-
-Call `update_state` when you complete a meaningful unit of work — \
-a feature, a refactor, a bug fix — so the next session starts with \
-current context.\
-"""
+MCP_INSTRUCTIONS_STATIC = (
+    "Nauro carries this project's direction across every agent session. "
+    "Use it to check past decisions before adopting an approach, and to "
+    "record new decisions as you make them.\n"
+    "\n"
+    "## When to check decisions\n"
+    "\n"
+    "Before responding to any technical change request — architecture, "
+    "library choice, API design, data model, infrastructure, vendor swap — "
+    "call `check_decision` with a description of what's being proposed. "
+    'This includes "should we...", "what if we...", "can we...", '
+    '"check if..." framings, and applies even when you intend to push back '
+    "or refuse. Your first-principles reasoning is not a substitute for "
+    "project history; `check_decision` is a precondition, not an option.\n"
+    "\n"
+    f"{CHECK_DECISION_RETURNS} {GET_DECISION_BEFORE_PROPOSING}\n"
+    "\n"
+    "## When to propose decisions\n"
+    "\n"
+    "Call `propose_decision` when you choose between two or more approaches, "
+    "replace or remove a dependency, establish a new pattern, or cut scope. "
+    "Do it at the moment the decision is made, not at the end of the "
+    "session. Always include what was rejected and why.\n"
+    "\n"
+    f"{PROPOSE_DECISION_OPERATIONS}\n"
+    "\n"
+    f"You own this classification. {UPDATE_SUPERSEDE_CARE}\n"
+    "\n"
+    f"{NO_INVENT_RATIONALE} Do NOT propose decisions for obvious bug fixes, "
+    "adding tests for existing behavior, or renaming variables.\n"
+    "\n"
+    "## When to get context\n"
+    "\n"
+    "Call `get_context` at the start of a session or when you need to "
+    "understand the project's current state, goals, and constraints. "
+    "L0 includes the last 10 decisions — do not call `list_decisions` "
+    "after `get_context` unless you need older or superseded decisions.\n"
+    "\n"
+    "## When to update state\n"
+    "\n"
+    "Call `update_state` when you complete a meaningful unit of work — "
+    "a feature, a refactor, a bug fix — so the next session starts with "
+    "current context."
+)
 
 MCP_INSTRUCTIONS = MCP_INSTRUCTIONS_STATIC

@@ -167,6 +167,30 @@ from nauro_core.parsing import (
 from nauro_core.pending import (
     PendingStore as PendingStore,
 )
+from nauro_core.protocol import (
+    CANONICAL_FRAGMENTS as CANONICAL_FRAGMENTS,
+)
+from nauro_core.protocol import (
+    CHECK_DECISION_RETURNS as CHECK_DECISION_RETURNS,
+)
+from nauro_core.protocol import (
+    GET_DECISION_BEFORE_PROPOSING as GET_DECISION_BEFORE_PROPOSING,
+)
+from nauro_core.protocol import (
+    NO_INVENT_RATIONALE as NO_INVENT_RATIONALE,
+)
+from nauro_core.protocol import (
+    PROPOSE_DECISION_OPERATIONS as PROPOSE_DECISION_OPERATIONS,
+)
+from nauro_core.protocol import (
+    UPDATE_SUPERSEDE_CARE as UPDATE_SUPERSEDE_CARE,
+)
+from nauro_core.protocol import (
+    protocol_tokens_in as protocol_tokens_in,
+)
+from nauro_core.protocol import (
+    substitute_protocol_fragments as substitute_protocol_fragments,
+)
 from nauro_core.search import (
     bm25_retrieve as bm25_retrieve,
 )
