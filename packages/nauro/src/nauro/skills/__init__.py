@@ -18,10 +18,13 @@ SkillName = Literal["nauro", "nauro-adopt"]
 
 SKILL_DESCRIPTIONS: dict[str, str] = {
     "nauro-adopt": (
-        "Seeds Nauro's project store from an existing repo's documentation. "
-        "Use after the user has run `nauro adopt` locally — reads README, "
-        "manifests, ADRs, and Memory-Bank files, surfaces decision candidates "
-        "for triage, and writes them to Nauro via existing MCP write tools."
+        "Seeds Nauro's project store from an existing repo. Use after "
+        "`nauro adopt` has run locally. On filesystem-capable surfaces, reads "
+        "docs (README, manifests, ADRs, Memory-Bank) for rationale and "
+        "inspects code, config, tests, lockfiles, and recent git history for "
+        "evidence, then surfaces targeted probes that turn evidence into "
+        "rationale. On chat surfaces, operates on pasted content against an "
+        "already-adopted project."
     ),
     "nauro": (
         "Nauro session-time guidance. Reminds the agent to call get_context "
