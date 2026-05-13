@@ -13,7 +13,6 @@ from nauro.store.registry import (
 )
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
-from nauro.store.writer import update_state
 from nauro.templates.agents_md import regenerate_agents_md_for_project
 
 logger = logging.getLogger("nauro.sync")
@@ -63,7 +62,6 @@ def sync(
     _pull_from_cloud(project_key, store_path)
 
     version = capture_snapshot(store_path, trigger=trigger)
-    update_state(store_path, f"Snapshot v{version:03d}: {trigger}")
 
     # Warn about missing repo paths before regenerating
     for repo_str in _registry_repo_paths(project_key):
