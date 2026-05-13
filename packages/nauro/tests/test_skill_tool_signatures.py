@@ -238,6 +238,11 @@ def _find_misspelled_tool_calls(text: str) -> list[tuple[str, int]]:
 # ── Schema-aware validators ─────────────────────────────────────────────────
 
 
+def _kwarg_value(kwargs: dict[str, str], key: str) -> str:
+    """Return ``kwargs[key]`` stripped of surrounding whitespace and quotes."""
+    return kwargs.get(key, "").strip().strip("\"'")
+
+
 def _required_for_call(spec: ToolSpec, kwargs: dict[str, str]) -> set[str]:
     """Effective required-param set, applying the D133 update exception.
 
@@ -246,10 +251,8 @@ def _required_for_call(spec: ToolSpec, kwargs: dict[str, str]) -> set[str]:
     relaxed from the schema's static required list.
     """
     required = set(spec["input_schema"].get("required", []))
-    if spec["name"] == "propose_decision":
-        operation = kwargs.get("operation", "").strip().strip("\"'")
-        if operation == "update":
-            required.discard("title")
+    if spec["name"] == "propose_decision" and _kwarg_value(kwargs, "operation") == "update":
+        required.discard("title")
     return required
 
 
@@ -353,6 +356,14 @@ _RETIRED_PROPOSE_DECISION_POSITIONALS: tuple[str, ...] = (
     "confidence",
 )
 
+# D133: propose_decision(operation="update") only accepts a narrow set of
+# fields. title / confidence / decision_type / reversibility /
+# files_affected / rejected are all rejected at the server boundary —
+# use operation="supersede" if any of those must change.
+_UPDATE_ALLOWED_KWARGS: frozenset[str] = frozenset(
+    {"project_id", "rationale", "operation", "affected_decision_id", "skip_validation"}
+)
+
 
 @pytest.mark.parametrize("surface_name,loader", _SURFACE_PARAMS)
 def test_no_retired_propose_decision_positional_shape(surface_name: str, loader) -> None:
@@ -392,6 +403,30 @@ def test_propose_decision_multi_kwarg_calls_specify_operation(surface_name: str,
         assert "operation" in kwargs, (
             f"{_at(surface_name, text, call.offset)}: propose_decision({call.args}) "
             "is missing the operation kwarg — D131 requires operation-aware calls"
+        )
+
+
+@pytest.mark.parametrize("surface_name,loader", _SURFACE_PARAMS)
+def test_propose_decision_update_kwargs_within_d133_allowlist(surface_name: str, loader) -> None:
+    """D133: ``propose_decision(operation="update")`` accepts only a narrow set.
+
+    ``title``, ``confidence``, ``decision_type``, ``reversibility``,
+    ``files_affected``, ``rejected`` are rejected at the server boundary
+    for update — use ``operation="supersede"`` if any of those must change.
+    """
+    text = loader()
+    for call in _iter_well_formed_calls(text):
+        if call.name != "propose_decision":
+            continue
+        _, kwargs = _parse_args(call.args)
+        if _kwarg_value(kwargs, "operation") != "update":
+            continue
+        extra = set(kwargs) - _UPDATE_ALLOWED_KWARGS
+        assert not extra, (
+            f"{_at(surface_name, text, call.offset)}: "
+            f"propose_decision({call.args}) includes D133-rejected fields "
+            f'for operation="update": {sorted(extra)}; '
+            f"allowed = {sorted(_UPDATE_ALLOWED_KWARGS)}"
         )
 
 
