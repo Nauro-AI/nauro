@@ -9,13 +9,13 @@ materialized files (written into user-global / per-repo surface dirs at
 
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Iterator
 
 import pytest
+from nauro_core import MCP_INSTRUCTIONS_STATIC
 
 from nauro.skills import load_adopt_body, load_session_body, render_skill
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from tests._skill_surfaces import REPO_ROOT, SKILL_SURFACES, load_docs_adopt_prompt
 
 
 def test_load_adopt_body_returns_canonical_bytes():
@@ -29,9 +29,11 @@ def test_load_adopt_body_returns_canonical_bytes():
     assert "Step 6a — Documented decisions" in body
     assert "Step 6b — Code-evidenced" in body
     assert "was Y considered; what pushed you toward X" in body
-    # Step 7 has operation-specific propose_decision templates per D133 —
-    # the dedicated update signature must stay distinct from add/supersede.
-    assert 'operation="update"' in body
+    # All three D131/D133 operation variants must remain present so a
+    # cleanup edit cannot accidentally drop one — the structural test
+    # only validates calls that *are* there, not that all three exist.
+    for op in ("add", "update", "supersede"):
+        assert f'operation="{op}"' in body, f"missing propose_decision variant: {op}"
     assert "Step 11 — Summary" in body
 
 
@@ -103,9 +105,7 @@ def test_dogfood_file_matches_render_skill(rel_path: str, surface: str, skill_na
 
 def test_docs_adopt_prompt_contains_canonical_body():
     """``docs/adopt-prompt.md`` may have a small intro paragraph; canonical body must be present."""
-    docs_path = REPO_ROOT / "docs" / "adopt-prompt.md"
-    assert docs_path.is_file(), f"missing docs file: {docs_path}"
-    content = docs_path.read_text(encoding="utf-8")
+    content = load_docs_adopt_prompt()
     assert load_adopt_body() in content, (
         "docs/adopt-prompt.md does not contain load_adopt_body() — re-append "
         "or update the intro to keep the canonical body in sync."
@@ -114,9 +114,8 @@ def test_docs_adopt_prompt_contains_canonical_body():
 
 # --- Retired phrases must not reappear in skill / docs surfaces ---
 #
-# Anchored to D124/D129/D130/D131 + PR #38. Scope is narrow on purpose: the two
-# canonical skill bodies plus ``docs/adopt-prompt.md``. The six dogfood files are
-# chained to the source bodies via ``test_dogfood_file_matches_render_skill``.
+# Anchored to D124/D129/D130/D131 + PR #38. Scanned across every surface
+# in ``SKILL_SURFACES``; dogfood files inherit via the byte-equality test.
 
 RETIRED_PHRASES = [
     ("LLM-based", "D130 removed Tier 3 LLM validation"),
@@ -148,21 +147,95 @@ RETIRED_PHRASES = [
 ]
 
 
-def _load_docs_adopt_prompt() -> str:
-    return (REPO_ROOT / "docs" / "adopt-prompt.md").read_text(encoding="utf-8")
-
-
-SCANNED_SURFACES = [
-    ("session_body.md", load_session_body),
-    ("adopt_body.md", load_adopt_body),
-    ("docs/adopt-prompt.md", _load_docs_adopt_prompt),
-]
-
-
-@pytest.mark.parametrize("surface_name,loader", SCANNED_SURFACES)
+@pytest.mark.parametrize("surface_name,loader", list(SKILL_SURFACES.items()))
 @pytest.mark.parametrize("phrase,reason", RETIRED_PHRASES)
 def test_skill_surface_has_no_retired_phrases(
     surface_name: str, loader, phrase: str, reason: str
 ) -> None:
     content = loader()
     assert phrase not in content, f"retired phrase {phrase!r} found in {surface_name}: {reason}"
+
+
+# --- Cross-step reference integrity (adopt_body.md only) ---
+#
+# The adopt body has 15+ prose references like "Step 6a" and "Step 7 step 3".
+# Renumbering a heading would silently rot every cross-ref. Guard by
+# asserting every ``Step N[a-c]?`` ref resolves to an actual heading.
+
+
+def _extract_step_id(text: str, start: int) -> str | None:
+    """Read digits + optional ``a``/``b``/``c`` at ``start``; ``None`` if no digit."""
+    i = start
+    while i < len(text) and text[i].isdigit():
+        i += 1
+    if i == start:
+        return None
+    if i < len(text) and text[i] in "abc":
+        i += 1
+    return text[start:i]
+
+
+def _iter_step_refs(text: str) -> Iterator[str]:
+    """Yield each ``Step N[a-c]?`` mention found in prose."""
+    needle = "Step "
+    pos = 0
+    while True:
+        idx = text.find(needle, pos)
+        if idx < 0:
+            return
+        step_id = _extract_step_id(text, idx + len(needle))
+        if step_id:
+            yield step_id
+        pos = idx + len(needle)
+
+
+def _iter_step_headings(text: str) -> Iterator[str]:
+    """Yield each step id from headings like ``## Step N — Title``."""
+    for line in text.splitlines():
+        stripped = line.lstrip("#").lstrip()
+        if not stripped.startswith("Step "):
+            continue
+        step_id = _extract_step_id(stripped, len("Step "))
+        if step_id:
+            yield step_id
+
+
+def test_adopt_body_step_references_resolve_to_headings():
+    body = load_adopt_body()
+    refs = set(_iter_step_refs(body))
+    headings = set(_iter_step_headings(body))
+    missing = refs - headings
+    assert not missing, (
+        f"adopt_body.md has Step references without matching headings: "
+        f"{sorted(missing)}; headings present: {sorted(headings)}"
+    )
+
+
+# --- session_body.md ↔ MCP_INSTRUCTIONS_STATIC alignment ---
+#
+# Both teach the agent the same lifecycle and refusal contract.
+# Render parity catches drift within each surface, but the two
+# surfaces can drift relative to each other invisibly. Anchor the
+# load-bearing shared phrases — case-insensitive so sentence-start
+# capitalization differences don't trigger false failures.
+
+SHARED_SESSION_MCP_PHRASES = [
+    # Refusal contract — first-principles cannot replace project history
+    "first-principles reasoning is not a substitute",
+    # Anti-evasion — the rule applies even when the agent disagrees
+    "push back or refuse",
+    # Retrieval mechanism named in both
+    "BM25",
+]
+
+
+@pytest.mark.parametrize("phrase", SHARED_SESSION_MCP_PHRASES)
+def test_session_body_and_mcp_instructions_share_phrase(phrase: str) -> None:
+    """Phrases that anchor shared agent guidance must appear in both surfaces."""
+    needle = phrase.lower()
+    assert needle in load_session_body().lower(), (
+        f"session_body.md is missing shared anchor {phrase!r}"
+    )
+    assert needle in MCP_INSTRUCTIONS_STATIC.lower(), (
+        f"MCP_INSTRUCTIONS_STATIC is missing shared anchor {phrase!r}"
+    )
