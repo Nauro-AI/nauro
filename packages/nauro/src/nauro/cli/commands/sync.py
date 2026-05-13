@@ -1,4 +1,4 @@
-"""nauro sync — Capture a snapshot and update state."""
+"""nauro sync — Capture a snapshot and regenerate AGENTS.md in associated repos."""
 
 import logging
 from pathlib import Path
@@ -13,7 +13,6 @@ from nauro.store.registry import (
 )
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
-from nauro.store.writer import update_state
 from nauro.templates.agents_md import regenerate_agents_md_for_project
 
 logger = logging.getLogger("nauro.sync")
@@ -45,7 +44,12 @@ def sync(
     ),
     status: bool = typer.Option(False, "--status", help="Show sync status."),
 ) -> None:
-    """Capture a snapshot and update the project state."""
+    """Capture a snapshot and regenerate AGENTS.md in each associated repo.
+
+    With cloud sync configured, pulls from S3 first (git-style pull-then-push),
+    then pushes the updated store back. Project state in state_current.md is
+    not touched — use the MCP `update_state` tool to record what changed.
+    """
     if cloud_setup:
         _cloud_setup_wizard()
         return
@@ -63,7 +67,6 @@ def sync(
     _pull_from_cloud(project_key, store_path)
 
     version = capture_snapshot(store_path, trigger=trigger)
-    update_state(store_path, f"Snapshot v{version:03d}: {trigger}")
 
     # Warn about missing repo paths before regenerating
     for repo_str in _registry_repo_paths(project_key):

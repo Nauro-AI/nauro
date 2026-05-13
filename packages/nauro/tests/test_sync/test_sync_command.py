@@ -120,3 +120,86 @@ class TestSyncPullNoConfig:
 
         result = _pull_from_cloud("testproj", project_store)
         assert result == 0
+
+
+class TestSyncPreservesState:
+    """Regression: sync must not write snapshot labels into state files."""
+
+    RICH_STATE = "Sprint 5: shipping feature X.\nBlockers: none.\nNext: write release notes."
+
+    def _seed_rich_state(self, store):
+        from nauro.store.writer import update_state
+
+        update_state(store, self.RICH_STATE)
+
+    def _read_state_files(self, store):
+        from nauro.constants import STATE_CURRENT_FILENAME, STATE_HISTORY_FILENAME
+
+        current = (store / STATE_CURRENT_FILENAME).read_text()
+        history_path = store / STATE_HISTORY_FILENAME
+        history = history_path.read_text() if history_path.exists() else ""
+        return current, history
+
+    def test_rich_state_survives_repeated_sync(self, project_store):
+        """Repeated `nauro sync` must leave rich state_current.md intact and keep
+        snapshot labels out of state_history.md."""
+        from nauro.store.snapshot import list_snapshots
+
+        self._seed_rich_state(project_store)
+        baseline_snapshots = len(list_snapshots(project_store))
+
+        for _ in range(3):
+            result = runner.invoke(app, ["sync"])
+            assert result.exit_code == 0, result.output
+
+        current, history = self._read_state_files(project_store)
+
+        assert "Sprint 5: shipping feature X." in current
+        assert "Blockers: none." in current
+        assert "Snapshot v" not in current
+        assert "manual sync" not in current
+        assert "Snapshot v" not in history
+        assert "manual sync" not in history
+
+        snapshots = list_snapshots(project_store)
+        assert len(snapshots) - baseline_snapshots == 3
+        assert snapshots[0]["trigger"] == "manual sync"
+
+    def test_custom_message_routes_to_snapshot_only(self, project_store):
+        """`-m <msg>` must land in snapshot metadata, never in state files."""
+        from nauro.store.snapshot import list_snapshots
+
+        self._seed_rich_state(project_store)
+
+        result = runner.invoke(app, ["sync", "-m", "release-prep"])
+        assert result.exit_code == 0, result.output
+
+        current, history = self._read_state_files(project_store)
+
+        assert "Sprint 5: shipping feature X." in current
+        assert "release-prep" not in current
+        assert "release-prep" not in history
+
+        snapshots = list_snapshots(project_store)
+        assert snapshots[0]["trigger"] == "release-prep"
+
+    def test_legitimate_state_rotation_still_works(self, project_store):
+        """Sanity check: update_state() calls between syncs still archive prior
+        state into state_history.md — sync just stops doing this itself."""
+        from nauro.store.writer import update_state
+
+        self._seed_rich_state(project_store)
+
+        result = runner.invoke(app, ["sync"])
+        assert result.exit_code == 0, result.output
+
+        update_state(project_store, "Sprint 6: new sprint.")
+
+        result = runner.invoke(app, ["sync"])
+        assert result.exit_code == 0, result.output
+
+        current, history = self._read_state_files(project_store)
+
+        assert "Sprint 6: new sprint." in current
+        assert "Sprint 5: shipping feature X." in history
+        assert "Snapshot v" not in history
