@@ -12,8 +12,8 @@ The agent reads `<repo>/.nauro/config.json`. If it exists and parses as JSON: ex
 
 If the file is missing, try two fallbacks before aborting:
 
-1. **Worktree fallback.** Compare `git rev-parse --git-dir` and `git rev-parse --git-common-dir`. If they differ, the current checkout is a linked worktree, and `.nauro/` may only exist in the main worktree (common when a workspace tool gitignores `.nauro/` per-checkout). Resolve the main worktree path from `git worktree list --porcelain` (the first `worktree` line) and re-read `<main-worktree>/.nauro/config.json`.
-2. **Registry fallback.** Read `~/.nauro/registry.json`. If any project's `repo_paths` contains the current repo root or the resolved main-worktree path, use that project's `id` and `name`.
+1. **Worktree fallback.** Compare `git rev-parse --git-dir` and `git rev-parse --git-common-dir`. If they differ, the current checkout is a linked worktree, and `.nauro/` may only exist in the main worktree (common when a workspace tool gitignores `.nauro/` per-checkout). The main worktree path is the parent directory of `git rev-parse --path-format=absolute --git-common-dir`. Re-read `<main-worktree>/.nauro/config.json` there.
+2. **Registry fallback.** Read `~/.nauro/registry.json`. Schema v2 keys each project by its id under `projects` — the dict key **is** the project `id`; the entry stores `name`, `mode`, `repo_paths`, etc. If any entry's `repo_paths` contains the current repo root or the resolved main-worktree path, use that dict key as the `id` and the entry's `name` as the project handle.
 
 Abort only when both fallbacks miss, with: "This repo is not adopted yet. Run 'nauro adopt' from the repo root, restart this agent, then invoke /nauro-adopt again."
 
@@ -24,7 +24,13 @@ Pass `id` as the `project_id` argument on every subsequent MCP call (`propose_de
 The agent reads the first match found per category, with the manifest workspace exception below. Files larger than 256KB are flagged to the user before reading. If the README category yields no match, surface "No README found; reading manifest only." to the user once and continue — manifest-only repos are still adoptable.
 
 - **README**: `README.md`, `README.rst`, `README` (first found)
-- **Manifest**: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `Gemfile`, `pom.xml`, `build.gradle`, `composer.json`, `requirements*.txt`. Read the root manifest. If it declares a workspace — `[tool.uv.workspace]` with `members = [...]` in `pyproject.toml`, a top-level `workspaces` array in `package.json` (npm/pnpm/yarn), or `[workspace]` with `members = [...]` in `Cargo.toml` — also read each member manifest at its declared path. Otherwise stop at the root match. The root manifest of a workspace is often a thin shim with no real dependencies; member manifests carry the actual stack.
+- **Manifest**: `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `Gemfile`, `pom.xml`, `build.gradle`, `composer.json`, `requirements*.txt`. Read the root manifest. If it declares a workspace, also read each member manifest. Workspace declarations to recognise:
+    - `pyproject.toml` → `[tool.uv.workspace]` `members = [...]`
+    - `package.json` (npm / Yarn classic) → top-level `workspaces` array
+    - `pnpm-workspace.yaml` → top-level `packages:` list (pnpm does **not** use `package.json` `workspaces`)
+    - `Cargo.toml` → `[workspace]` `members = [...]`
+
+  Member entries are usually globs (`packages/*`, `crates/*`). Expand each glob and read every matched directory's manifest of the same ecosystem. Otherwise stop at the root match. The root manifest of a workspace is often a thin shim with no real dependencies; member manifests carry the actual stack.
 - **Top-level docs**: `CONTRIBUTING.md`, `ARCHITECTURE.md`, `DESIGN.md`, `CLAUDE.md`, `AGENTS.md`
 - **ADR directory**: `docs/adr/`, `docs/decisions/`, `architecture/decisions/`, `adr/` — every `.md` except templates and index files (`0000-template.md`, `README.md`)
 - **Memory Bank**: `.context/`, `memory-bank/`, `cline_docs/` — `projectBrief.md`, `activeContext.md`, `techContext.md`, `decisionLog.md`, `progress.md`
