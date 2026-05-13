@@ -8,7 +8,7 @@ The agent calls `get_context` early in the session, before the first user-driven
 
 ## Before any architectural change — call check_decision
 
-When the user proposes — or the agent considers proposing — an architectural change (library swap, API redesign, data model change, infrastructure pick, new pattern), the agent calls `check_decision(proposed_approach)` first. The tool returns related decisions via BM25 retrieval and an LLM-based conflict assessment. If conflicts surface: the agent shows them to the user verbatim before recommending the change. If no conflicts and the choice is real: the agent records it via `propose_decision` + `confirm_decision`.
+When the user proposes — or the agent considers proposing — an architectural change (library swap, API redesign, data model change, infrastructure pick, new pattern), the agent calls `check_decision(proposed_approach)` first. The tool returns related decisions via BM25 retrieval and a deterministic assessment. `check_decision` does not judge conflicts for the agent — when the response lists related decisions, the agent calls `get_decision` on each one before deciding whether to proceed. If conflicts surface: the agent shows them to the user verbatim before recommending the change. If no conflicts and the choice is real: the agent records it via `propose_decision` + `confirm_decision`.
 
 This includes "should we…", "what if we…", "can we…", and "check if…" framings, and applies even when the agent intends to push back or refuse. First-principles reasoning is not a substitute for project history.
 
