@@ -21,11 +21,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 def test_load_adopt_body_returns_canonical_bytes():
     body = load_adopt_body()
     assert body.endswith("\n")
-    assert 1000 < len(body) < 20000
+    assert 1000 < len(body) < 25000
     # Anchor on key step markers — catches accidental empty / corrupted body.
     assert "Step 1 — Detect repo root" in body
-    assert "Step 5a — Clear decisions" in body
-    assert "Step 10 — Summary" in body
+    assert "## Surface modes" in body
+    assert "Step 4 — Read code evidence" in body
+    assert "Step 6a — Documented decisions" in body
+    assert "Step 6b — Code-evidenced" in body
+    assert "was Y considered; what pushed you toward X" in body
+    assert "Step 11 — Summary" in body
 
 
 def test_load_session_body_returns_canonical_bytes():
@@ -125,6 +129,18 @@ RETIRED_PHRASES = [
     (
         "bracketed-prompt placeholders in `project.md` / `stack.md` / `state_current.md`",
         "PR #38 removed bracket-prompt scaffolding from state_current.md",
+    ),
+    (
+        "The agent does not read source code, tests, IaC templates, or git history during adopt",
+        "D125 v2 reverses the docs-only stance — code is evidence on filesystem-capable surfaces",
+    ),
+    (
+        "Step 5a — Clear decisions",
+        "D125 v2 renamed to Step 6a — Documented decisions",
+    ),
+    (
+        "Step 5b — Boundary candidates",
+        "D125 v2 split this into Step 6b (code-evidenced) + Step 6c (stack inventory)",
     ),
 ]
 
