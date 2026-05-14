@@ -231,20 +231,6 @@ RETIRED_PARAPHRASES = (
     # rejected metadata changes; the bare "augment with new rationale or scope"
     # phrasing would silently mislead an agent into trying to pass metadata.
     "augment an existing decision with new rationale or scope",
-    # F2 hedge — the previous fragment promised "the server rejects ... at the
-    # boundary", which is true on remote MCP and false on local stdio. The
-    # canonical fragment now tells the agent to use supersede without claiming
-    # boundary enforcement; reintroducing the active-voice "server rejects ..."
-    # phrasing would re-open the gap. Local enforcement is tracked as a P0
-    # follow-up; flip back to a stronger promise only after that lands.
-    "the server rejects `title`",
-    # F2 hedge — adopt's parallel D131/D133 elaboration carried the same false
-    # guarantee in passive voice. After the hedge, neither phrasing should
-    # reappear in any surface.
-    "are rejected at the boundary",
-    "the server consumes only `rationale`",
-    "D133 rejects every other field at the boundary",
-    "a field the server will reject",
     # UPDATE_SUPERSEDE_CARE iterations — pre-PR "reclassified" wording implied
     # a post-confirm operation change that no tool supports, and the PR's
     # initial "re-proposed later" wording implied resubmitting the same
@@ -253,6 +239,11 @@ RETIRED_PARAPHRASES = (
     "be reclassified later",
     "be re-proposed later",
 )
+# NOTE: The PR-#44 hedge that retired the "server rejects ... at the boundary"
+# phrasing has been promoted back per D134 — both transports now enforce
+# D133's metadata rejection, so the active wording is accurate again. The
+# guard entries from the hedge commit are deliberately removed; revert this
+# only if local enforcement is rolled back.
 
 
 def _propose_decision_docstring() -> str:

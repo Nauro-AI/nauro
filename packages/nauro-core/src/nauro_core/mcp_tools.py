@@ -352,6 +352,13 @@ PROPOSE_DECISION: ToolSpec = {
                 "type": "string",
                 "enum": ["high", "medium", "low"],
                 "default": "medium",
+                "description": (
+                    "Author's confidence in the decision. Use 'high' only "
+                    "when a source explicitly accepts or approves the choice; "
+                    "'medium' when it is the best available given known "
+                    "tradeoffs; 'low' when it is a working assumption that "
+                    "may be revisited."
+                ),
             },
             "decision_type": {
                 "type": "string",
@@ -364,12 +371,31 @@ PROPOSE_DECISION: ToolSpec = {
                     "infrastructure",
                     "data_model",
                 ],
+                "description": (
+                    "Optional architectural category for the decision. Helps "
+                    "downstream filtering and reporting; omit when none "
+                    "applies cleanly."
+                ),
             },
             "reversibility": {
                 "type": "string",
                 "enum": ["easy", "moderate", "hard"],
+                "description": (
+                    "How costly it would be to reverse this decision later. "
+                    "'easy' = config or one-file change; 'moderate' = "
+                    "multi-day migration; 'hard' = irreversible without "
+                    "significant rework."
+                ),
             },
-            "files_affected": {"type": "array", "items": {"type": "string"}},
+            "files_affected": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Optional list of repo-relative paths most affected by "
+                    "this decision. Anchors the decision to specific code "
+                    "for future reviewers."
+                ),
+            },
             "skip_validation": {
                 "type": "boolean",
                 "default": False,

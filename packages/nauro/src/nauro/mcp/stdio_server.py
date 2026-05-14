@@ -22,12 +22,13 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server import FastMCP
 from mcp.types import ToolAnnotations
 from nauro_core.constants import MCP_INSTRUCTIONS
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
+from pydantic import Field
 
 from nauro.mcp.tools import (
     tool_check_decision,
@@ -74,6 +75,27 @@ def _spec_kwargs(name: str) -> dict[str, Any]:
         "description": spec["description"],
         "annotations": ToolAnnotations(**spec["annotations"]),
     }
+
+
+def _param_desc(tool_name: str, param: str) -> str:
+    """Pull a per-property description from the centralized ToolSpec.
+
+    Per D101 + D134, the local FastMCP stdio derives input schemas from
+    Python type hints; per-property descriptions are surfaced via
+    ``Annotated[T, Field(description=...)]`` rather than passing
+    ``input_schema`` through directly. Sourcing the description from the
+    ToolSpec at module load time keeps the registry as the single source
+    of truth — inlining literal strings here would create a parallel
+    surface the drift guards do not cover.
+    """
+    spec: ToolSpec = get_tool_spec(tool_name)
+    props = spec["input_schema"].get("properties", {})
+    if param not in props or "description" not in props[param]:
+        raise KeyError(
+            f"ToolSpec for {tool_name!r} has no description for {param!r}; "
+            "either add one in nauro_core.mcp_tools or omit the Annotated."
+        )
+    return props[param]["description"]
 
 
 def _resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
@@ -161,9 +183,14 @@ def _resolve_store(project: str | None, cwd: str | None) -> Path:
 
 @mcp.tool(**_spec_kwargs("get_context"))
 def get_context(
-    project: str | None = None,
+    project: Annotated[
+        str | None, Field(description=_param_desc("get_context", "project_id"))
+    ] = None,
     cwd: str | None = None,
-    level: Literal["L0", "L1", "L2"] | int = "L0",
+    level: Annotated[
+        Literal["L0", "L1", "L2"] | int,
+        Field(description=_param_desc("get_context", "level")),
+    ] = "L0",
 ) -> str:
     try:
         store_path = _resolve_store(project, cwd)
@@ -174,7 +201,13 @@ def get_context(
 
 
 @mcp.tool(**_spec_kwargs("get_raw_file"))
-def get_raw_file(path: str, project: str | None = None, cwd: str | None = None) -> dict:
+def get_raw_file(
+    path: Annotated[str, Field(description=_param_desc("get_raw_file", "path"))],
+    project: Annotated[
+        str | None, Field(description=_param_desc("get_raw_file", "project_id"))
+    ] = None,
+    cwd: str | None = None,
+) -> dict:
     try:
         store_path = _resolve_store(project, cwd)
     except ValueError:
@@ -184,10 +217,14 @@ def get_raw_file(path: str, project: str | None = None, cwd: str | None = None) 
 
 @mcp.tool(**_spec_kwargs("list_decisions"))
 def list_decisions(
-    project: str | None = None,
+    project: Annotated[
+        str | None, Field(description=_param_desc("list_decisions", "project_id"))
+    ] = None,
     cwd: str | None = None,
-    limit: int = 20,
-    include_superseded: bool = False,
+    limit: Annotated[int, Field(description=_param_desc("list_decisions", "limit"))] = 20,
+    include_superseded: Annotated[
+        bool, Field(description=_param_desc("list_decisions", "include_superseded"))
+    ] = False,
 ) -> dict:
     try:
         store_path = _resolve_store(project, cwd)
@@ -198,8 +235,10 @@ def list_decisions(
 
 @mcp.tool(**_spec_kwargs("get_decision"))
 def get_decision(
-    number: int,
-    project: str | None = None,
+    number: Annotated[int, Field(description=_param_desc("get_decision", "number"))],
+    project: Annotated[
+        str | None, Field(description=_param_desc("get_decision", "project_id"))
+    ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
@@ -211,9 +250,14 @@ def get_decision(
 
 @mcp.tool(**_spec_kwargs("diff_since_last_session"))
 def diff_since_last_session(
-    project: str | None = None,
+    project: Annotated[
+        str | None,
+        Field(description=_param_desc("diff_since_last_session", "project_id")),
+    ] = None,
     cwd: str | None = None,
-    days: int | None = None,
+    days: Annotated[
+        int | None, Field(description=_param_desc("diff_since_last_session", "days"))
+    ] = None,
 ) -> dict:
     try:
         store_path = _resolve_store(project, cwd)
@@ -224,9 +268,11 @@ def diff_since_last_session(
 
 @mcp.tool(**_spec_kwargs("search_decisions"))
 def search_decisions(
-    query: str,
-    limit: int = 10,
-    project: str | None = None,
+    query: Annotated[str, Field(description=_param_desc("search_decisions", "query"))],
+    limit: Annotated[int, Field(description=_param_desc("search_decisions", "limit"))] = 10,
+    project: Annotated[
+        str | None, Field(description=_param_desc("search_decisions", "project_id"))
+    ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
@@ -238,9 +284,15 @@ def search_decisions(
 
 @mcp.tool(**_spec_kwargs("check_decision"))
 def check_decision(
-    proposed_approach: str,
-    context: str | None = None,
-    project: str | None = None,
+    proposed_approach: Annotated[
+        str, Field(description=_param_desc("check_decision", "proposed_approach"))
+    ],
+    context: Annotated[
+        str | None, Field(description=_param_desc("check_decision", "context"))
+    ] = None,
+    project: Annotated[
+        str | None, Field(description=_param_desc("check_decision", "project_id"))
+    ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
@@ -252,17 +304,53 @@ def check_decision(
 
 @mcp.tool(**_spec_kwargs("propose_decision"))
 def propose_decision(
-    title: str,
-    rationale: str,
-    operation: str = "add",
-    affected_decision_id: str | None = None,
-    rejected: list[dict] | None = None,
-    confidence: str = "medium",
-    decision_type: str | None = None,
-    reversibility: str | None = None,
-    files_affected: list[str] | None = None,
-    skip_validation: bool = False,
-    project: str | None = None,
+    title: Annotated[str, Field(description=_param_desc("propose_decision", "title"))],
+    rationale: Annotated[str, Field(description=_param_desc("propose_decision", "rationale"))],
+    operation: Annotated[
+        Literal["add", "update", "supersede"],
+        Field(description=_param_desc("propose_decision", "operation")),
+    ] = "add",
+    affected_decision_id: Annotated[
+        str | None,
+        Field(description=_param_desc("propose_decision", "affected_decision_id")),
+    ] = None,
+    rejected: Annotated[
+        list[dict] | None,
+        Field(description=_param_desc("propose_decision", "rejected")),
+    ] = None,
+    confidence: Annotated[
+        Literal["high", "medium", "low"] | None,
+        Field(description=_param_desc("propose_decision", "confidence")),
+    ] = None,
+    decision_type: Annotated[
+        Literal[
+            "architecture",
+            "library_choice",
+            "pattern",
+            "refactor",
+            "api_design",
+            "infrastructure",
+            "data_model",
+        ]
+        | None,
+        Field(description=_param_desc("propose_decision", "decision_type")),
+    ] = None,
+    reversibility: Annotated[
+        Literal["easy", "moderate", "hard"] | None,
+        Field(description=_param_desc("propose_decision", "reversibility")),
+    ] = None,
+    files_affected: Annotated[
+        list[str] | None,
+        Field(description=_param_desc("propose_decision", "files_affected")),
+    ] = None,
+    skip_validation: Annotated[
+        bool,
+        Field(description=_param_desc("propose_decision", "skip_validation")),
+    ] = False,
+    project: Annotated[
+        str | None,
+        Field(description=_param_desc("propose_decision", "project_id")),
+    ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
@@ -286,8 +374,10 @@ def propose_decision(
 
 @mcp.tool(**_spec_kwargs("confirm_decision"))
 def confirm_decision(
-    confirm_id: str,
-    project: str | None = None,
+    confirm_id: Annotated[str, Field(description=_param_desc("confirm_decision", "confirm_id"))],
+    project: Annotated[
+        str | None, Field(description=_param_desc("confirm_decision", "project_id"))
+    ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
@@ -299,9 +389,13 @@ def confirm_decision(
 
 @mcp.tool(**_spec_kwargs("flag_question"))
 def flag_question(
-    question: str,
-    context: str | None = None,
-    project: str | None = None,
+    question: Annotated[str, Field(description=_param_desc("flag_question", "question"))],
+    context: Annotated[
+        str | None, Field(description=_param_desc("flag_question", "context"))
+    ] = None,
+    project: Annotated[
+        str | None, Field(description=_param_desc("flag_question", "project_id"))
+    ] = None,
     cwd: str | None = None,
 ) -> str:
     try:
@@ -316,8 +410,10 @@ def flag_question(
 
 @mcp.tool(**_spec_kwargs("update_state"))
 def update_state(
-    delta: str,
-    project: str | None = None,
+    delta: Annotated[str, Field(description=_param_desc("update_state", "delta"))],
+    project: Annotated[
+        str | None, Field(description=_param_desc("update_state", "project_id"))
+    ] = None,
     cwd: str | None = None,
 ) -> str:
     try:

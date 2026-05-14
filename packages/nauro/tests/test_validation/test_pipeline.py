@@ -210,11 +210,154 @@ class TestCallerOperationPreservedAcrossT2Outcomes:
             "002-use-postgres-as-primary-database" if operation in ("update", "supersede") else None
         )
 
+        # D133: update appends rationale only — title="" + no metadata so the
+        # disallowed-fields branch does not fire. add/supersede send the full
+        # proposal as before.
+        if operation == "update":
+            proposal = {"title": "", "rationale": rationale}
+        else:
+            proposal = {"title": title, "rationale": rationale, "confidence": "high"}
+
         result = validate_proposed_write(
-            {"title": title, "rationale": rationale, "confidence": "high"},
+            proposal,
             store_with_seed,
             operation=operation,
             affected_decision_id=affected,
         )
         assert result.status == expected_status
         assert result.operation == expected_op
+
+
+class TestD133UpdateRejectsMetadata:
+    """D134 (mirroring D133): operation='update' rejects metadata fields at the
+    local boundary so the canonical wording in PROPOSE_DECISION_OPERATIONS
+    holds on both transports.
+    """
+
+    @pytest.fixture
+    def store_with_seed(self, tmp_path: Path) -> Path:
+        store_path = tmp_path / "projects" / "d133"
+        scaffold_project_store("d133", store_path)
+        append_decision(
+            store_path,
+            "Seed decision for D133 tests",
+            rationale="A seed decision the update tests can target as affected_decision_id.",
+        )
+        return store_path
+
+    RATIONALE = (
+        "A sufficiently long rationale that comfortably exceeds the structural "
+        "minimum length so D133 rejection wins on the disallowed-fields branch."
+    )
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("title", "A new title"),
+            ("rejected", [{"alternative": "x", "reason": "y"}]),
+            ("files_affected", ["foo.py"]),
+            ("decision_type", "architecture"),
+            ("reversibility", "easy"),
+            ("confidence", "high"),
+        ],
+    )
+    def test_update_with_single_metadata_field_is_rejected(
+        self, store_with_seed: Path, field: str, value: object
+    ) -> None:
+        proposal = {"title": "", "rationale": self.RATIONALE, field: value}
+        result = validate_proposed_write(
+            proposal,
+            store_with_seed,
+            operation="update",
+            affected_decision_id="002-seed-decision-for-d133-tests",
+        )
+        assert result.status == "rejected"
+        assert result.tier == 0
+        assert field in result.assessment
+        assert 'operation="supersede"' in result.assessment
+
+    def test_update_with_multiple_metadata_fields_lists_all(self, store_with_seed: Path) -> None:
+        proposal = {
+            "title": "Changed title",
+            "rationale": self.RATIONALE,
+            "confidence": "high",
+            "decision_type": "architecture",
+        }
+        result = validate_proposed_write(
+            proposal,
+            store_with_seed,
+            operation="update",
+            affected_decision_id="002-seed-decision-for-d133-tests",
+        )
+        assert result.status == "rejected"
+        assert result.tier == 0
+        for field in ("title", "decision_type", "confidence"):
+            assert field in result.assessment
+
+    def test_update_with_empty_title_and_no_metadata_passes_d133_gate(
+        self, store_with_seed: Path
+    ) -> None:
+        """The legitimate rationale-only update signal: title="" and none of the
+        disallowed fields populated. Validation should advance past the D133
+        gate (status may be confirmed or pending_confirmation depending on
+        Tier 2 — either way, the disallowed-fields rejection must not fire)."""
+        proposal = {"title": "", "rationale": self.RATIONALE}
+        result = validate_proposed_write(
+            proposal,
+            store_with_seed,
+            operation="update",
+            affected_decision_id="002-seed-decision-for-d133-tests",
+        )
+        assert result.status != "rejected"
+        assert result.tier != 0
+
+    def test_update_with_empty_rationale_rejects_at_tier_1_not_d133(
+        self, store_with_seed: Path
+    ) -> None:
+        """Update with empty rationale should fail on the rationale-only Tier 1
+        check, not on the D133 disallowed-fields branch (which only fires for
+        metadata fields, not for missing rationale)."""
+        proposal = {"title": "", "rationale": ""}
+        result = validate_proposed_write(
+            proposal,
+            store_with_seed,
+            operation="update",
+            affected_decision_id="002-seed-decision-for-d133-tests",
+        )
+        assert result.status == "rejected"
+        assert result.tier == 1
+        assert "Rationale is empty" in result.assessment
+
+    def test_update_with_short_rationale_rejects_at_tier_1(self, store_with_seed: Path) -> None:
+        proposal = {"title": "", "rationale": "too short"}
+        result = validate_proposed_write(
+            proposal,
+            store_with_seed,
+            operation="update",
+            affected_decision_id="002-seed-decision-for-d133-tests",
+        )
+        assert result.status == "rejected"
+        assert result.tier == 1
+        assert "Rationale too short" in result.assessment
+
+    def test_add_and_supersede_unaffected_by_d133_branch(self, store_with_seed: Path) -> None:
+        """The disallowed-fields branch only fires for operation='update'."""
+        proposal = {
+            "title": "A new architectural decision",
+            "rationale": self.RATIONALE,
+            "confidence": "high",
+            "decision_type": "architecture",
+        }
+        result_add = validate_proposed_write(
+            proposal,
+            store_with_seed,
+            operation="add",
+        )
+        assert result_add.status != "rejected" or result_add.tier != 0
+        result_supersede = validate_proposed_write(
+            proposal,
+            store_with_seed,
+            operation="supersede",
+            affected_decision_id="002-seed-decision-for-d133-tests",
+        )
+        assert result_supersede.status != "rejected" or result_supersede.tier != 0
