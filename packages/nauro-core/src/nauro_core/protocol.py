@@ -46,7 +46,9 @@ PROPOSE_DECISION_OPERATIONS = (
 )
 
 UPDATE_SUPERSEDE_CARE = (
-    "Default to `add` when uncertain — a wrongly-confirmed supersede is hard to reverse."
+    "Default to `add` when uncertain — an `update` or `supersede` you're not "
+    "sure about can ship as `add` and be re-proposed later. A wrongly-confirmed "
+    "supersede is hard to reverse."
 )
 
 NO_INVENT_RATIONALE = (
@@ -70,12 +72,15 @@ _TOKENS: dict[str, str] = {
 }
 
 # Self-check at import time: no fragment may itself contain the token prefix,
-# or a single substitution pass would re-trigger and chain. Cheap insurance
-# against a future edit smuggling a token into a fragment value.
+# or a single substitution pass would re-trigger and chain. ``raise`` rather
+# than ``assert`` so the invariant survives ``python -O`` (which strips
+# asserts) — module-load self-checks must always run.
 for _name, _value in CANONICAL_FRAGMENTS.items():
-    assert _TOKEN_PREFIX not in _value, (
-        f"fragment {_name!r} contains a protocol token prefix, which would chain on substitution"
-    )
+    if _TOKEN_PREFIX in _value:
+        raise ValueError(
+            f"fragment {_name!r} contains a protocol token prefix, which "
+            "would chain on substitution"
+        )
 
 
 def substitute_protocol_fragments(text: str) -> str:

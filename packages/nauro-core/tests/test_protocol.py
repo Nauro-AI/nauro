@@ -58,6 +58,8 @@ class TestFragmentAnchors:
         assert "`add`" in UPDATE_SUPERSEDE_CARE
         assert "supersede" in UPDATE_SUPERSEDE_CARE
         assert "hard to reverse" in UPDATE_SUPERSEDE_CARE
+        # Practical recovery guidance for an uncertain agent
+        assert "re-proposed later" in UPDATE_SUPERSEDE_CARE
 
     def test_no_invent_rationale_says_what_it_says(self) -> None:
         assert "invent rationale" in NO_INVENT_RATIONALE
@@ -82,6 +84,15 @@ class TestFragmentAnchors:
     @pytest.mark.parametrize("name,value", list(CANONICAL_FRAGMENTS.items()))
     def test_each_fragment_is_non_empty(self, name: str, value: str) -> None:
         assert value.strip(), f"fragment {name!r} is empty or whitespace-only"
+
+    @pytest.mark.parametrize("name,value", list(CANONICAL_FRAGMENTS.items()))
+    def test_no_fragment_contains_protocol_token_prefix(self, name: str, value: str) -> None:
+        """Backstop the module-load invariant: a fragment whose value contains
+        a ``<!-- protocol:`` substring would chain on substitution. The runtime
+        check in protocol.py raises ValueError at import; this test makes the
+        invariant explicit and survives ``python -O`` where asserts would not.
+        """
+        assert "<!-- protocol:" not in value, f"fragment {name!r} contains a protocol token prefix"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

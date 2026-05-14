@@ -17,6 +17,11 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from nauro_core.protocol import (
+    PROPOSE_DECISION_OPERATIONS,
+    UPDATE_SUPERSEDE_CARE,
+)
+
 
 class ToolAnnotations(TypedDict, total=False):
     """Behavioral hints for MCP clients. All fields optional."""
@@ -320,13 +325,9 @@ PROPOSE_DECISION: ToolSpec = {
                 "enum": ["add", "update", "supersede"],
                 "default": "add",
                 "description": (
-                    "How this proposal relates to existing decisions. 'add' for "
-                    "genuinely new ground; 'update' to augment an existing decision "
-                    "(provide affected_decision_id); 'supersede' to replace one "
-                    "(provide affected_decision_id). You own this classification — "
-                    "pick 'add' when uncertain. A wrongly-confirmed supersede is "
-                    "hard to reverse; an 'add' that should have been an update can "
-                    "be reclassified later."
+                    f"How this proposal relates to existing decisions. "
+                    f"{PROPOSE_DECISION_OPERATIONS}\n\n"
+                    f"{UPDATE_SUPERSEDE_CARE}"
                 ),
             },
             "affected_decision_id": {

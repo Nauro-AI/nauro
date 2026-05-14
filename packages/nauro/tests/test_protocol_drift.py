@@ -79,6 +79,18 @@ def _adopt_rendered() -> str:
     return render_skill("claude_code", "nauro-adopt")
 
 
+def _propose_decision_spec_text() -> str:
+    """Flatten the propose_decision ToolSpec into a single string so the
+    retired-paraphrase scan covers titles, top-level descriptions, and every
+    nested parameter description in one pass. The ToolSpec is agent-facing
+    just like the rendered skill bodies."""
+    import json
+
+    from nauro_core.mcp_tools import get_tool_spec
+
+    return json.dumps(get_tool_spec("propose_decision"), ensure_ascii=False)
+
+
 _RENDERED_LOADERS = {"session": _session_rendered, "adopt": _adopt_rendered}
 
 
@@ -215,6 +227,10 @@ RETIRED_PARAPHRASES = (
     "`check_decision` does not judge conflicts — the agent reads the decision bodies",
     # Pre-refactor adopt_body intro wording for NO_INVENT_RATIONALE
     "it does not invent rationale from code or prose",
+    # Pre-D133 update-operation wording — D133 made update rationale-only and
+    # rejected metadata changes; the bare "augment with new rationale or scope"
+    # phrasing would silently mislead an agent into trying to pass metadata.
+    "augment an existing decision with new rationale or scope",
 )
 
 
@@ -224,6 +240,7 @@ RETIRED_PARAPHRASES = (
         ("session (rendered)", _session_rendered),
         ("adopt (rendered)", _adopt_rendered),
         ("docs/adopt-prompt.md", load_docs_adopt_prompt),
+        ("propose_decision ToolSpec", _propose_decision_spec_text),
     ],
 )
 @pytest.mark.parametrize("paraphrase", RETIRED_PARAPHRASES)
