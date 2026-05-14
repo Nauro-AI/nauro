@@ -8,7 +8,7 @@ It captures a project's decisions, rejected options, rationale, constraints, cur
 
 Nauro is designed for individuals and teams using multiple agents across coding, research, planning, documentation, and product work.
 
-When an agent proposes work that conflicts with a recorded decision, Nauro surfaces the conflict before your team has to undo it.
+When an agent proposes work that conflicts with a recorded decision, Nauro surfaces the conflict in the session, before it ships.
 
 ## Why Nauro
 
@@ -25,7 +25,7 @@ Nauro gives agents a shared project record, then checks new proposals against th
 ## Install
 
 ```bash
-pip install nauro   # or: pipx install nauro
+pipx install nauro   # or: pip install nauro
 ```
 
 Requires Python 3.10+.
@@ -98,9 +98,7 @@ All content is plain markdown. No database, no proprietary format.
 
 ## How it compares
 
-Most memory tools preserve conversation history. Nauro captures what you decided and rejected, then checks every session against those decisions before they drift.
-
-Nauro is built around a different primitive: checking new proposals against past decisions before they become work you have to undo.
+Nauro is decisional, not observational. Memory tools preserve conversation history; Nauro records the decisions and rejected options that conversation produced, and `check_decision` matches every new proposal against that record before it lands.
 
 | Approach | What it captures | Cross-tool reach | Validates against past decisions |
 |---|---|---|---|
@@ -110,7 +108,7 @@ Nauro is built around a different primitive: checking new proposals against past
 | Memory tools (mem0, Letta, Zep) | Conversation history | Per integration | No |
 | Platform memory (Copilot, Windsurf, Claude) | Usage patterns | Single vendor | No |
 
-The `check_decision` → `propose_decision` → `confirm_decision` pipeline surfaces conflicts for you to confirm before they're written, across any connected surface. Decisions made in Claude Code surface in Perplexity. Your decisions stay yours, not your platform's.
+The `check_decision` → `propose_decision` → `confirm_decision` pipeline surfaces conflicts for you to confirm before they're written, across any connected surface. A decision recorded from one connected tool surfaces in every other one. Your decisions stay yours, not your platform's.
 
 ## Your data
 
