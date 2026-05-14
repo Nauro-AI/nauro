@@ -8,12 +8,28 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from nauro_core.constants import MIN_RATIONALE_LENGTH
+
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.writer import append_decision, supersede_decision, update_decision
 from nauro.validation.log import log_validation
 from nauro.validation.pending import get_pending, remove_pending, store_pending
 from nauro.validation.tier1 import screen_structural, update_hash_index
 from nauro.validation.tier2 import check_similarity
+
+# D133: operation="update" appends rationale only — update_decision reads only
+# affected_decision_id + rationale. Any value in these fields would be silently
+# dropped on local stdio (and rejected on remote MCP); reject loudly at the
+# boundary so the wording in PROPOSE_DECISION_OPERATIONS holds on both
+# transports. Order mirrors mcp-server/src/mcp_server/validation.py:261-268.
+_UPDATE_DISALLOWED_FIELDS: tuple[str, ...] = (
+    "title",
+    "rejected",
+    "files_affected",
+    "decision_type",
+    "reversibility",
+    "confidence",
+)
 
 
 @dataclass
@@ -60,8 +76,51 @@ def validate_proposed_write(
     Returns:
         ValidationResult with status and details.
     """
-    # --- Tier 1: Structural screening (always runs) ---
-    action, reason = screen_structural(proposal, project_path)
+    # --- D133: reject metadata fields on operation="update" ---
+    # update_decision writes only the new rationale onto the existing target;
+    # any value in the disallowed fields would be silently dropped. Reject
+    # loudly and point the caller at supersede. Sits before Tier 1 so the
+    # rejection assessment names the offending fields rather than failing as
+    # a generic structural error.
+    if operation == "update":
+        disallowed = [
+            name
+            for name in _UPDATE_DISALLOWED_FIELDS
+            if proposal.get(name)
+            and (not isinstance(proposal.get(name), str) or proposal.get(name).strip())
+        ]
+        if disallowed:
+            result = ValidationResult(
+                status="rejected",
+                tier=0,
+                operation="update",
+                assessment=(
+                    'operation="update" appends rationale only; cannot change '
+                    f"{', '.join(disallowed)}. "
+                    'Use operation="supersede" to replace the decision with new metadata.'
+                ),
+            )
+            log_validation(project_path, proposal, result.to_dict())
+            return result
+
+    # --- Tier 1: Structural screening ---
+    # - update: rationale-only (length + minimum). The existing target supplies
+    #   the title, so the standard "title empty" reject would otherwise prevent
+    #   title="" from being the legitimate rationale-only signal (per D133).
+    # - add / supersede: full structural screen.
+    if operation == "update":
+        rationale = (proposal.get("rationale") or "").strip()
+        if not rationale:
+            action, reason = "reject", "Rationale is empty."
+        elif len(rationale) < MIN_RATIONALE_LENGTH:
+            action, reason = (
+                "reject",
+                f"Rationale too short ({len(rationale)} chars). Minimum {MIN_RATIONALE_LENGTH}.",
+            )
+        else:
+            action, reason = "pass", None
+    else:
+        action, reason = screen_structural(proposal, project_path)
     if action == "reject":
         result = ValidationResult(
             status="rejected",

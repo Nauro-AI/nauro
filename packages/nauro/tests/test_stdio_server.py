@@ -221,6 +221,94 @@ class TestToolRegistration:
         assert "get_decision" in tool_names
         assert "diff_since_last_session" in tool_names
 
+
+class TestToolSpecDescriptionsReachAgent:
+    """D134 P1: per-property descriptions in nauro_core.mcp_tools must reach
+    agents via FastMCP's tools/list inputSchema (not just the parent tool
+    description). Pre-D134 the local stdio's _spec_kwargs forwarded only
+    title/description/annotations; FastMCP regenerated the inputSchema from
+    function signatures, stripping every per-property description and enum.
+    Annotated[T, Field(description=...)] + Literal[...] in the wrappers
+    closes that gap."""
+
+    @pytest.fixture
+    def tools_by_name(self):
+        return {t.name: t for t in mcp._tool_manager.list_tools()}
+
+    def test_propose_decision_operation_carries_d133_list(self, tools_by_name):
+        op = tools_by_name["propose_decision"].parameters["properties"]["operation"]
+        # Description should carry the canonical fragment text — the D133 6-field
+        # list, the operation enumeration, and the use-supersede guidance.
+        for needle in (
+            "D133",
+            "rationale-only",
+            "`title`",
+            "`confidence`",
+            "`decision_type`",
+            "`reversibility`",
+            "`files_affected`",
+            "`rejected`",
+            "supersede",
+        ):
+            assert needle in op["description"], f"missing {needle!r} in operation description"
+        # Operation enum constraint should also be present (was missing pre-D134).
+        assert op["enum"] == ["add", "update", "supersede"]
+
+    @pytest.mark.parametrize(
+        "tool,param,expected_substring",
+        [
+            ("propose_decision", "title", "title"),
+            ("propose_decision", "rationale", "Why this decision"),
+            ("propose_decision", "affected_decision_id", "decision-042"),
+            ("propose_decision", "rejected", "Alternatives"),
+            ("propose_decision", "confidence", "confidence"),
+            ("propose_decision", "decision_type", "category"),
+            ("propose_decision", "reversibility", "reverse"),
+            ("propose_decision", "files_affected", "paths"),
+            ("propose_decision", "skip_validation", "Tier 2"),
+            ("check_decision", "proposed_approach", "approach"),
+            ("check_decision", "context", "context"),
+            ("get_context", "level", "L0"),
+            ("get_decision", "number", "Decision number"),
+            ("list_decisions", "limit", "Maximum"),
+            ("list_decisions", "include_superseded", "superseded"),
+            ("search_decisions", "query", "Search text"),
+            ("flag_question", "question", "question"),
+            ("update_state", "delta", "Description of what changed"),
+            ("confirm_decision", "confirm_id", "confirm_id"),
+        ],
+    )
+    def test_per_property_descriptions_reach_agent(
+        self, tools_by_name, tool, param, expected_substring
+    ):
+        params = tools_by_name[tool].parameters["properties"]
+        assert param in params, f"{tool} missing param {param!r}"
+        desc = params[param].get("description", "")
+        assert desc, f"{tool}.{param} has no description in inputSchema"
+        assert expected_substring.lower() in desc.lower(), (
+            f"{tool}.{param} description missing expected substring "
+            f"{expected_substring!r}; got: {desc[:120]!r}"
+        )
+
+    def test_enum_constraints_present_for_propose_decision(self, tools_by_name):
+        """confidence / decision_type / reversibility have no description in
+        the ToolSpec, but their enum constraints must still surface so agents
+        can't pass invalid values without a Pydantic validation error."""
+        params = tools_by_name["propose_decision"].parameters["properties"]
+        assert {"high", "medium", "low"} == set(params["confidence"]["anyOf"][0]["enum"])
+        decision_type_enum = params["decision_type"]["anyOf"][0]["enum"]
+        for dt in (
+            "architecture",
+            "library_choice",
+            "pattern",
+            "refactor",
+            "api_design",
+            "infrastructure",
+            "data_model",
+        ):
+            assert dt in decision_type_enum
+        assert {"easy", "moderate", "hard"} == set(params["reversibility"]["anyOf"][0]["enum"])
+
     def test_eleven_tools_registered(self):
         tools = mcp._tool_manager.list_tools()
         assert len(tools) == 11

@@ -121,12 +121,12 @@ def tool_get_context(store_path: Path, level: int | str) -> str:
 @mcp_tool("propose_decision")
 def tool_propose_decision(
     store_path: Path,
-    title: str,
-    rationale: str,
+    title: str = "",
+    rationale: str = "",
     operation: str = "add",
     affected_decision_id: str | None = None,
     rejected: list[dict] | None = None,
-    confidence: str = "medium",
+    confidence: str | None = None,
     decision_type: str | None = None,
     reversibility: str | None = None,
     files_affected: list[str] | None = None,
@@ -160,11 +160,22 @@ def tool_propose_decision(
             }
         affected_decision_id = resolved
 
+    # D133: confidence flows as None when the caller did not send it so the
+    # validation pipeline can distinguish caller intent from default. Reapply
+    # "medium" only for add/supersede where the value lands in the decision
+    # file. On update the disallowed-fields branch in validate_proposed_write
+    # uses the unset value to recognise "caller did not send confidence".
+    proposal_confidence: str | None
+    if operation in ("add", "supersede") and confidence is None:
+        proposal_confidence = "medium"
+    else:
+        proposal_confidence = confidence
+
     proposal = {
         "title": title,
         "rationale": rationale,
         "rejected": rejected,
-        "confidence": confidence,
+        "confidence": proposal_confidence,
         "decision_type": decision_type,
         "reversibility": reversibility,
         "files_affected": files_affected,

@@ -116,15 +116,15 @@ For each kept candidate from 6a and each rationale-supplied 6b answer, the agent
 2. <!-- protocol:GET_DECISION_BEFORE_PROPOSING --> Call signature: `get_decision(number=N, project_id=...)`.
 3. Classify the operation:
     - **add** (default; new ground, no existing decision covers it).
-    - **update** when the candidate augments an existing decision's rationale only. Per D133, `update` is rationale-only: to change `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, or `rejected`, use supersede.
+    - **update** when the candidate augments an existing decision's rationale only. Per D133 the server consumes only `rationale` on update; `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, and `rejected` are rejected at the boundary — use supersede if any of those must change.
     - **supersede** when the title or other metadata must change, or the candidate replaces or contradicts an existing decision. Pass the full new body and set `affected_decision_id`.
     - **skip** when the candidate is a duplicate (e.g. matches `001-initial-setup` or a candidate already seeded earlier in this same adopt run).
-4. Call `propose_decision` using the call signature for the chosen operation — the signatures are operation-specific by design so an agent copying the template doesn't send fields the chosen operation won't use:
+4. Call `propose_decision` using the call signature for the chosen operation — these are operation-specific by design so an agent copying the template cannot accidentally send a field the server will reject:
     - For **add** (new decisions):
       ```
       propose_decision(project_id=..., title=..., rationale=..., operation="add", rejected=..., confidence=...)
       ```
-    - For **update** (rationale-only per D133):
+    - For **update** (rationale-only — D133 rejects every other field at the boundary):
       ```
       propose_decision(project_id=..., rationale=..., operation="update", affected_decision_id=...)
       ```
