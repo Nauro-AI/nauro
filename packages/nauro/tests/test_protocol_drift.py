@@ -231,7 +231,45 @@ RETIRED_PARAPHRASES = (
     # rejected metadata changes; the bare "augment with new rationale or scope"
     # phrasing would silently mislead an agent into trying to pass metadata.
     "augment an existing decision with new rationale or scope",
+    # F2 hedge — the previous fragment promised "the server rejects ... at the
+    # boundary", which is true on remote MCP and false on local stdio. The
+    # canonical fragment now tells the agent to use supersede without claiming
+    # boundary enforcement; reintroducing the active-voice "server rejects ..."
+    # phrasing would re-open the gap. Local enforcement is tracked as a P0
+    # follow-up; flip back to a stronger promise only after that lands.
+    "the server rejects `title`",
+    # F2 hedge — adopt's parallel D131/D133 elaboration carried the same false
+    # guarantee in passive voice. After the hedge, neither phrasing should
+    # reappear in any surface.
+    "are rejected at the boundary",
+    "the server consumes only `rationale`",
+    "D133 rejects every other field at the boundary",
+    "a field the server will reject",
+    # UPDATE_SUPERSEDE_CARE iterations — pre-PR "reclassified" wording implied
+    # a post-confirm operation change that no tool supports, and the PR's
+    # initial "re-proposed later" wording implied resubmitting the same
+    # proposal. Both retired in favor of "a later proposal can update or
+    # supersede it once context clarifies".
+    "be reclassified later",
+    "be re-proposed later",
 )
+
+
+def _propose_decision_docstring() -> str:
+    """The agent-facing docstring on the local stdio's tool wrapper. Composed
+    from canonical fragments in mcp/tools.py; the retired-paraphrase guard
+    keeps it from drifting back to bespoke wording."""
+    from nauro.mcp.tools import tool_propose_decision
+
+    return tool_propose_decision.__doc__ or ""
+
+
+def _check_decision_docstring() -> str:
+    """Same contract as the propose_decision docstring: composed from the
+    fragments so the read-then-judge protocol stays aligned across surfaces."""
+    from nauro.mcp.tools import tool_check_decision
+
+    return tool_check_decision.__doc__ or ""
 
 
 @pytest.mark.parametrize(
@@ -241,6 +279,8 @@ RETIRED_PARAPHRASES = (
         ("adopt (rendered)", _adopt_rendered),
         ("docs/adopt-prompt.md", load_docs_adopt_prompt),
         ("propose_decision ToolSpec", _propose_decision_spec_text),
+        ("tool_propose_decision docstring", _propose_decision_docstring),
+        ("tool_check_decision docstring", _check_decision_docstring),
     ],
 )
 @pytest.mark.parametrize("paraphrase", RETIRED_PARAPHRASES)

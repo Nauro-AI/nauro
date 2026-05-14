@@ -112,18 +112,18 @@ Languages, frameworks, package managers, license, lint tooling, and similar fact
 For each kept candidate from 6a and each rationale-supplied 6b answer, the agent runs the full D131 / D133 protocol:
 
 1. Call `check_decision(proposed_approach=<title or short description>, project_id=...)`. `check_decision` returns related decisions via BM25 retrieval and a deterministic assessment. It does NOT judge conflicts.
-2. For each related decision in the response, call `get_decision(number=N, project_id=...)`. When the response lists related decisions, call `get_decision` on each one before proposing — the relevance, supersession status, and full rationale live in those bodies, not in the assessment string.
+2. When the response lists related decisions, call `get_decision` on each one before proposing — the relevance, supersession status, and full rationale live in those bodies, not in the assessment string. Call signature: `get_decision(number=N, project_id=...)`.
 3. Classify the operation:
     - **add** (default; new ground, no existing decision covers it).
-    - **update** when the candidate augments an existing decision's rationale only. Per D133 the server consumes only `rationale` on update; `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, and `rejected` are rejected at the boundary — use supersede if any of those must change.
+    - **update** when the candidate augments an existing decision's rationale only. Per D133, `update` is rationale-only: to change `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, or `rejected`, use supersede.
     - **supersede** when the title or other metadata must change, or the candidate replaces or contradicts an existing decision. Pass the full new body and set `affected_decision_id`.
     - **skip** when the candidate is a duplicate (e.g. matches `001-initial-setup` or a candidate already seeded earlier in this same adopt run).
-4. Call `propose_decision` using the call signature for the chosen operation — these are operation-specific by design so an agent copying the template cannot accidentally send a field the server will reject:
+4. Call `propose_decision` using the call signature for the chosen operation — the signatures are operation-specific by design so an agent copying the template doesn't send fields the chosen operation won't use:
     - For **add** (new decisions):
       ```
       propose_decision(project_id=..., title=..., rationale=..., operation="add", rejected=..., confidence=...)
       ```
-    - For **update** (rationale-only — D133 rejects every other field at the boundary):
+    - For **update** (rationale-only per D133):
       ```
       propose_decision(project_id=..., rationale=..., operation="update", affected_decision_id=...)
       ```

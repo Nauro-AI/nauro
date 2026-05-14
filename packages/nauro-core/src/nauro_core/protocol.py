@@ -37,18 +37,17 @@ GET_DECISION_BEFORE_PROPOSING = (
 PROPOSE_DECISION_OPERATIONS = (
     "Pick the right `operation`:\n"
     "- `add` (default) — genuinely new ground; no existing decision is being changed.\n"
-    "- `update` — rationale-only; provide `affected_decision_id`. Per D133 the server "
-    "rejects `title`, `confidence`, `decision_type`, `reversibility`, "
-    "`files_affected`, and `rejected` at the boundary — use supersede for any "
-    "of those.\n"
+    "- `update` — rationale-only; provide `affected_decision_id`. To change "
+    "`title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, "
+    'or `rejected`, use `operation="supersede"`. (Per D133.)\n'
     "- `supersede` — replace an existing decision with one that contradicts or "
     "wholly subsumes it. Provide `affected_decision_id`."
 )
 
 UPDATE_SUPERSEDE_CARE = (
-    "Default to `add` when uncertain — an `update` or `supersede` you're not "
-    "sure about can ship as `add` and be re-proposed later. A wrongly-confirmed "
-    "supersede is hard to reverse."
+    "Default to `add` when uncertain — a later proposal can update or "
+    "supersede it once context clarifies. A wrongly-confirmed supersede is "
+    "hard to reverse."
 )
 
 NO_INVENT_RATIONALE = (

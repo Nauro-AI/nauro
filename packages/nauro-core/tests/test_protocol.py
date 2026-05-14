@@ -59,7 +59,7 @@ class TestFragmentAnchors:
         assert "supersede" in UPDATE_SUPERSEDE_CARE
         assert "hard to reverse" in UPDATE_SUPERSEDE_CARE
         # Practical recovery guidance for an uncertain agent
-        assert "re-proposed later" in UPDATE_SUPERSEDE_CARE
+        assert "a later proposal can update or supersede" in UPDATE_SUPERSEDE_CARE
 
     def test_no_invent_rationale_says_what_it_says(self) -> None:
         assert "invent rationale" in NO_INVENT_RATIONALE
