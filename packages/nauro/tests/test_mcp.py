@@ -284,7 +284,7 @@ async def test_health_endpoint(client):
 
 @pytest.mark.asyncio
 async def test_context_l0(client):
-    resp = await client.post("/context", json={"project": "testproj", "level": 0})
+    resp = await client.post("/context", json={"project_id": "testproj", "level": 0})
     assert resp.status_code == 200
     data = resp.json()
     assert data["level"] == 0
@@ -293,7 +293,7 @@ async def test_context_l0(client):
 
 @pytest.mark.asyncio
 async def test_context_l1(client):
-    resp = await client.post("/context", json={"project": "testproj", "level": 1})
+    resp = await client.post("/context", json={"project_id": "testproj", "level": 1})
     assert resp.status_code == 200
     data = resp.json()
     assert data["level"] == 1
@@ -302,7 +302,7 @@ async def test_context_l1(client):
 
 @pytest.mark.asyncio
 async def test_context_l2(client):
-    resp = await client.post("/context", json={"project": "testproj", "level": 2})
+    resp = await client.post("/context", json={"project_id": "testproj", "level": 2})
     assert resp.status_code == 200
     data = resp.json()
     assert data["level"] == 2
@@ -311,7 +311,7 @@ async def test_context_l2(client):
 
 @pytest.mark.asyncio
 async def test_context_invalid_level(client):
-    resp = await client.post("/context", json={"project": "testproj", "level": 5})
+    resp = await client.post("/context", json={"project_id": "testproj", "level": 5})
     assert resp.status_code == 400
 
 
@@ -326,7 +326,7 @@ async def test_log_decision_endpoint(client, tmp_path):
     resp = await client.post(
         "/log_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Use SQLite for tests",
             "rationale": "Fast and in-memory database that doesn't require"
             " a separate server process",
@@ -352,7 +352,7 @@ async def test_flag_question_endpoint(client, tmp_path):
     resp = await client.post(
         "/flag_question",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "question": "Should we add WebSocket support?",
             "context": "For real-time updates",
         },
@@ -370,7 +370,7 @@ async def test_update_state_endpoint(client, tmp_path):
     resp = await client.post(
         "/update_state",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "delta": "Deployed v0.2.0 to staging",
         },
     )

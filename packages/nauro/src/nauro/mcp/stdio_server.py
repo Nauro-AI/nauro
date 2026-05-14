@@ -114,29 +114,29 @@ def _resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
     return cfg["id"], get_store_path_v2(cfg["id"])
 
 
-def _resolve_store(project: str | None, cwd: str | None) -> Path:
+def _resolve_store(project_id: str | None, cwd: str | None) -> Path:
     """Resolve a project to a store path.
 
     Resolution order matches the CLI:
       1. cwd's ``.nauro/config.json`` walk-up (id-keyed v2 store).
-      2. ``project`` argument matched against v2 registry by name.
-      3. ``project`` argument matched against v1 registry by name (legacy).
+      2. ``project_id`` argument matched against v2 registry by name.
+      3. ``project_id`` argument matched against v1 registry by name (legacy).
       4. ``cwd`` arg → v1 ``resolve_project`` (legacy).
 
-    When ``project`` is supplied AND the cwd resolves to a different id via
+    When ``project_id`` is supplied AND the cwd resolves to a different id via
     the repo config, the call fails with a mismatch error so tooling cannot
     silently mask a misconfiguration.
     """
     cwd_path = Path(cwd) if cwd else Path.cwd()
     via_config = _resolve_via_repo_config(cwd_path)
 
-    if project and via_config is not None:
+    if project_id and via_config is not None:
         config_id, store_path = via_config
-        if project != config_id:
-            matches = find_projects_by_name_v2(project)
+        if project_id != config_id:
+            matches = find_projects_by_name_v2(project_id)
             if not any(pid == config_id for pid, _ in matches):
                 raise ValueError(
-                    f"Supplied project_id {project!r} does not match the repo "
+                    f"Supplied project_id {project_id!r} does not match the repo "
                     f"config id {config_id!r} in {cwd_path}."
                 )
         if not store_path.exists():
@@ -149,20 +149,20 @@ def _resolve_store(project: str | None, cwd: str | None) -> Path:
             raise ValueError(f"Project store not found at {store_path}")
         return store_path
 
-    if project:
-        matches = find_projects_by_name_v2(project)
+    if project_id:
+        matches = find_projects_by_name_v2(project_id)
         if len(matches) == 1:
             pid, _entry = matches[0]
             store_path = get_store_path_v2(pid)
             if not store_path.exists():
-                raise ValueError(f"Project store not found: {project}")
+                raise ValueError(f"Project store not found: {project_id}")
             return store_path
         if len(matches) > 1:
-            raise ValueError(f"Multiple v2 projects named {project!r}; pass project_id instead.")
+            raise ValueError(f"Multiple v2 projects named {project_id!r}; pass project_id instead.")
         # v1 legacy fallback
-        store_path = get_store_path(project)
+        store_path = get_store_path(project_id)
         if not store_path.exists():
-            raise ValueError(f"Project store not found: {project}")
+            raise ValueError(f"Project store not found: {project_id}")
         return store_path
 
     if cwd:
@@ -178,12 +178,12 @@ def _resolve_store(project: str | None, cwd: str | None) -> Path:
             if store_path.exists():
                 return store_path
 
-    raise ValueError("Could not resolve project. Pass a 'project' name or 'cwd' path.")
+    raise ValueError("Could not resolve project. Pass 'project_id' or 'cwd'.")
 
 
 @mcp.tool(**_spec_kwargs("get_context"))
 def get_context(
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("get_context", "project_id"))
     ] = None,
     cwd: str | None = None,
@@ -193,7 +193,7 @@ def get_context(
     ] = "L0",
 ) -> str:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return WELCOME_NO_PROJECT
     # tool_get_context accepts both int and string levels.
@@ -203,13 +203,13 @@ def get_context(
 @mcp.tool(**_spec_kwargs("get_raw_file"))
 def get_raw_file(
     path: Annotated[str, Field(description=_param_desc("get_raw_file", "path"))],
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("get_raw_file", "project_id"))
     ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_get_raw_file(store_path, path)
@@ -217,7 +217,7 @@ def get_raw_file(
 
 @mcp.tool(**_spec_kwargs("list_decisions"))
 def list_decisions(
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("list_decisions", "project_id"))
     ] = None,
     cwd: str | None = None,
@@ -227,7 +227,7 @@ def list_decisions(
     ] = False,
 ) -> dict:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_list_decisions(store_path, limit, include_superseded)
@@ -236,13 +236,13 @@ def list_decisions(
 @mcp.tool(**_spec_kwargs("get_decision"))
 def get_decision(
     number: Annotated[int, Field(description=_param_desc("get_decision", "number"))],
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("get_decision", "project_id"))
     ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_get_decision(store_path, number)
@@ -250,7 +250,7 @@ def get_decision(
 
 @mcp.tool(**_spec_kwargs("diff_since_last_session"))
 def diff_since_last_session(
-    project: Annotated[
+    project_id: Annotated[
         str | None,
         Field(description=_param_desc("diff_since_last_session", "project_id")),
     ] = None,
@@ -260,7 +260,7 @@ def diff_since_last_session(
     ] = None,
 ) -> dict:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_diff_since_last_session(store_path, days)
@@ -270,13 +270,13 @@ def diff_since_last_session(
 def search_decisions(
     query: Annotated[str, Field(description=_param_desc("search_decisions", "query"))],
     limit: Annotated[int, Field(description=_param_desc("search_decisions", "limit"))] = 10,
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("search_decisions", "project_id"))
     ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_search_decisions(store_path, query, limit)
@@ -290,13 +290,13 @@ def check_decision(
     context: Annotated[
         str | None, Field(description=_param_desc("check_decision", "context"))
     ] = None,
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("check_decision", "project_id"))
     ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_check_decision(store_path, proposed_approach, context)
@@ -347,14 +347,14 @@ def propose_decision(
         bool,
         Field(description=_param_desc("propose_decision", "skip_validation")),
     ] = False,
-    project: Annotated[
+    project_id: Annotated[
         str | None,
         Field(description=_param_desc("propose_decision", "project_id")),
     ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_propose_decision(
@@ -375,13 +375,13 @@ def propose_decision(
 @mcp.tool(**_spec_kwargs("confirm_decision"))
 def confirm_decision(
     confirm_id: Annotated[str, Field(description=_param_desc("confirm_decision", "confirm_id"))],
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("confirm_decision", "project_id"))
     ] = None,
     cwd: str | None = None,
 ) -> dict:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     return tool_confirm_decision(store_path, confirm_id)
@@ -393,13 +393,13 @@ def flag_question(
     context: Annotated[
         str | None, Field(description=_param_desc("flag_question", "context"))
     ] = None,
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("flag_question", "project_id"))
     ] = None,
     cwd: str | None = None,
 ) -> str:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return WELCOME_NO_PROJECT
     result = tool_flag_question(store_path, question, context)
@@ -411,13 +411,13 @@ def flag_question(
 @mcp.tool(**_spec_kwargs("update_state"))
 def update_state(
     delta: Annotated[str, Field(description=_param_desc("update_state", "delta"))],
-    project: Annotated[
+    project_id: Annotated[
         str | None, Field(description=_param_desc("update_state", "project_id"))
     ] = None,
     cwd: str | None = None,
 ) -> str:
     try:
-        store_path = _resolve_store(project, cwd)
+        store_path = _resolve_store(project_id, cwd)
     except ValueError:
         return WELCOME_NO_PROJECT
     result = tool_update_state(store_path, delta)
