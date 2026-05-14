@@ -35,13 +35,75 @@ from nauro.store.registry import (
     get_store_path_v2,
     register_project_v2,
 )
-from nauro.store.repo_config import save_repo_config
+from nauro.store.repo_config import (
+    RepoConfigSchemaError,
+    load_repo_config,
+    repo_config_path,
+    save_repo_config,
+)
 from nauro.sync.cloud_projects import CloudProjectError, create_project
 from nauro.telemetry import capture
 from nauro.telemetry.events import project_created
 from nauro.templates.scaffolds import scaffold_project_store
 
 logger = logging.getLogger("nauro.cli.init")
+
+
+def _check_config_overwrite(
+    rp: Path,
+    expected_id: str | None,
+    expected_name: str,
+    force: bool,
+) -> None:
+    """Refuse to overwrite an existing ``.nauro/config.json`` whose project
+    differs from the one being initialized. Per D136, this closes the
+    silent-overwrite footgun where ``nauro init <new-name>`` (or
+    ``nauro init --demo``) would replace a real project's cwd config
+    without warning, breaking every subsequent cwd-walk-up resolution.
+
+    No-op when no existing config is present, when the existing config
+    advertises the same project *id* as ``expected_id`` (idempotent
+    re-write — applies to ``--add-repo`` where the pid is known up front),
+    or when ``force`` is set. Aborts via :class:`typer.Exit` with a
+    diagnostic message naming the existing project otherwise. For a fresh
+    init where ``expected_id`` is ``None``, no id match can short-circuit,
+    so any existing config triggers the refusal — name match alone is not
+    a safe idempotency signal because v2 allows duplicate names with
+    distinct ids.
+    """
+    config_file = repo_config_path(rp)
+    if not config_file.is_file():
+        return
+    try:
+        existing = load_repo_config(rp)
+    except RepoConfigSchemaError:
+        # Existing file is structurally invalid — let save_repo_config
+        # replace it; there is no trustworthy state to preserve.
+        return
+    except (OSError, ValueError):
+        return
+    existing_id = existing.get("id")
+    existing_name = existing.get("name")
+    # Idempotent: --add-repo against the same project id is a re-statement,
+    # not a conflict. We only short-circuit on id match — name match is
+    # insufficient because v2 allows duplicate names with distinct ids.
+    if expected_id is not None and existing_id == expected_id:
+        return
+    if force:
+        return
+    typer.echo(
+        f"Refusing to overwrite existing .nauro/config.json in {rp.resolve()}\n"
+        f"  Existing: {existing_name!r} (id: {existing_id})\n"
+        f"  New:      {expected_name!r}\n"
+        "\n"
+        "Options:\n"
+        "  - Re-run with --force to replace the existing config.\n"
+        "  - cd into a different directory and re-run nauro init.\n"
+        f"  - If you meant to associate this repo with {existing_name!r},\n"
+        f"    run: nauro init {existing_name!r} --add-repo {rp.resolve()}",
+        err=True,
+    )
+    raise typer.Exit(code=1)
 
 
 def init(
@@ -60,6 +122,15 @@ def init(
         False,
         "--cloud",
         help="Create a cloud-scoped project on the remote MCP server.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help=(
+            "Overwrite an existing .nauro/config.json in the target repo. "
+            "Without this flag init refuses to replace a config pointing at "
+            "a different project."
+        ),
     ),
 ) -> None:
     """Initialize a new Nauro project store and register it.
@@ -90,6 +161,9 @@ def init(
                 )
                 raise typer.Exit(code=1)
             store_path = get_store_path_v2(pid)
+            # Pre-check every target repo before any state changes (D136).
+            for rp in repo_paths:
+                _check_config_overwrite(rp, pid, name, force)
             added = []
             for rp in repo_paths:
                 add_repo_v2(pid, rp)
@@ -112,6 +186,16 @@ def init(
             return
 
     # ── New project: cloud or local ────────────────────────────────────────
+    # Pre-check every target repo before allocating a new id (D136). For a
+    # fresh init we have no pid to compare against; any existing config is
+    # treated as a potential conflict and refused without --force. v2 allows
+    # duplicate names with distinct ids, so name-match alone cannot be a
+    # safe idempotency signal — silently coalescing 'nauro init projA' from
+    # a cwd already linked to a different projA would lose the user's
+    # existing project association.
+    for rp in repo_paths:
+        _check_config_overwrite(rp, None, name, force)
+
     if cloud:
         try:
             view = create_project(name)
