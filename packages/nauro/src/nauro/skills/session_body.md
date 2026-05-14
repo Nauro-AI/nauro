@@ -1,3 +1,9 @@
+<!-- Source template. May contain protocol-fragment tokens (HTML comments of
+     the form protocol:NAME) that are resolved by load_session_body() and
+     render_skill(). The dogfood files under .claude/, .cursor/, .agents/ are
+     the rendered surface and must be token-free. Canonical claims live in
+     nauro_core.protocol. -->
+
 # Nauro session skill
 
 The agent uses Nauro across the session to keep project context current and surface decision conflicts before they ship. Three calls cover the lifecycle.
@@ -8,7 +14,7 @@ The agent calls `get_context` early in the session, before the first user-driven
 
 ## Before any architectural change — call check_decision
 
-When the user proposes — or the agent considers proposing — an architectural change (library swap, API redesign, data model change, infrastructure pick, new pattern), the agent calls `check_decision(proposed_approach)` first. The tool returns related decisions via BM25 retrieval and a deterministic assessment. `check_decision` does not judge conflicts for the agent — when the response lists related decisions, the agent calls `get_decision` on each one before deciding whether to proceed. If conflicts surface: the agent shows them to the user verbatim before recommending the change. If no conflicts and the choice is real: the agent records it via `propose_decision` + `confirm_decision`.
+When the user proposes — or the agent considers proposing — an architectural change (library swap, API redesign, data model change, infrastructure pick, new pattern), the agent calls `check_decision(proposed_approach)` first. <!-- protocol:CHECK_DECISION_RETURNS --> <!-- protocol:GET_DECISION_BEFORE_PROPOSING --> If conflicts surface: the agent shows them to the user verbatim before recommending the change. If no conflicts and the choice is real: the agent records it via `propose_decision` + `confirm_decision`.
 
 This includes "should we…", "what if we…", "can we…", and "check if…" framings, and applies even when the agent intends to push back or refuse. First-principles reasoning is not a substitute for project history.
 
@@ -20,4 +26,6 @@ The agent does not call `update_state` for every commit or every minor change �
 
 ## Refusal contract
 
-The agent does not invent decisions to record. `propose_decision` is called when a real architectural choice is made — between two or more approaches, replacing a dependency, establishing a new pattern, cutting scope. Bug fixes, renaming, and adding tests for existing behavior are not decisions.
+<!-- protocol:NO_INVENT_RATIONALE -->
+
+`propose_decision` is called when a real architectural choice is made — between two or more approaches, replacing a dependency, establishing a new pattern, cutting scope. Bug fixes, renaming, and adding tests for existing behavior are not decisions.

@@ -21,6 +21,12 @@ from nauro_core.constants import (
     MAX_TITLE_LENGTH,
 )
 from nauro_core.decision_model import DecisionStatus
+from nauro_core.protocol import (
+    CHECK_DECISION_RETURNS,
+    GET_DECISION_BEFORE_PROPOSING,
+    PROPOSE_DECISION_OPERATIONS,
+    UPDATE_SUPERSEDE_CARE,
+)
 from nauro_core.validation import check_content_length
 
 from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payload
@@ -126,29 +132,7 @@ def tool_propose_decision(
     files_affected: list[str] | None = None,
     skip_validation: bool = False,
 ) -> dict:
-    """Propose a new decision through the validation pipeline.
-
-    Args:
-        title: Short title for the decision.
-        rationale: Why this decision is being made.
-        operation: How this proposal relates to existing decisions. ``add``
-            for genuinely new ground; ``update`` to augment an existing
-            decision (provide ``affected_decision_id``); ``supersede`` to
-            replace an existing decision (provide ``affected_decision_id``).
-            You own this classification — pick ``add`` when uncertain; an
-            ``update`` / ``supersede`` you're not sure about can ship as
-            ``add`` and be reclassified later, but a wrongly-confirmed
-            supersede is hard to reverse.
-        affected_decision_id: Required when ``operation`` is ``update`` or
-            ``supersede``. The id (e.g. "decision-042") being modified.
-        rejected: List of {alternative, reason} dicts.
-        confidence: "high" | "medium" | "low".
-        decision_type: Optional category string.
-        reversibility: Optional "easy" | "moderate" | "hard".
-        files_affected: Optional list of file paths.
-        skip_validation: When True, skip Tier 2 and queue a confirm_id after
-            Tier 1 passes. Use when the caller already ran ``check_decision``.
-    """
+    """Propose a new decision through the validation pipeline."""
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
@@ -214,6 +198,34 @@ def tool_propose_decision(
     return response
 
 
+# Compose the agent-facing docstring from canonical fragments so the
+# operation classification advice cannot drift from MCP_INSTRUCTIONS_STATIC
+# or the propose_decision ToolSpec. Guarded by
+# test_retired_paraphrase_absent in packages/nauro/tests/test_protocol_drift.py.
+tool_propose_decision.__doc__ = f"""\
+Propose a new decision through the validation pipeline.
+
+Args:
+    title: Short title for the decision.
+    rationale: Why this decision is being made.
+    operation: How this proposal relates to existing decisions.
+
+        {PROPOSE_DECISION_OPERATIONS}
+
+        {UPDATE_SUPERSEDE_CARE}
+
+    affected_decision_id: Required when ``operation`` is ``update`` or
+        ``supersede``. The id (e.g. "decision-042") being modified.
+    rejected: List of {{alternative, reason}} dicts.
+    confidence: "high" | "medium" | "low".
+    decision_type: Optional category string.
+    reversibility: Optional "easy" | "moderate" | "hard".
+    files_affected: Optional list of file paths.
+    skip_validation: When True, skip Tier 2 and queue a confirm_id after
+        Tier 1 passes. Use when the caller already ran ``check_decision``.
+"""
+
+
 @mcp_tool("confirm_decision")
 def tool_confirm_decision(store_path: Path, confirm_id: str) -> dict:
     """Confirm a previously proposed decision."""
@@ -233,12 +245,7 @@ def tool_check_decision(
     proposed_approach: str,
     context: str | None = None,
 ) -> dict:
-    """Check for conflicts with existing decisions without writing anything.
-
-    Returns related decisions found via Tier 2 BM25 retrieval and a
-    deterministic assessment string. The agent is responsible for reading
-    the related decisions (via ``get_decision``) and judging conflicts.
-    """
+    """Check for conflicts with existing decisions without writing anything."""
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
@@ -313,6 +320,19 @@ def tool_check_decision(
         "related_decisions": related,
         "assessment": assessment,
     }
+
+
+# Compose the agent-facing docstring from canonical fragments so the
+# read-then-judge protocol cannot drift from MCP_INSTRUCTIONS_STATIC or
+# the check_decision ToolSpec. Guarded by test_retired_paraphrase_absent
+# in packages/nauro/tests/test_protocol_drift.py.
+tool_check_decision.__doc__ = f"""\
+Check for conflicts with existing decisions without writing anything.
+
+{CHECK_DECISION_RETURNS}
+
+{GET_DECISION_BEFORE_PROPOSING}
+"""
 
 
 @mcp_tool("flag_question")
