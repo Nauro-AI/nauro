@@ -45,16 +45,16 @@ from nauro.mcp.tools import (
 )
 from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.registry import (
-    find_projects_by_name_v2,
     get_store_path,
     get_store_path_v2,
     resolve_project,
     resolve_v2_from_path,
 )
-from nauro.store.repo_config import (
-    RepoConfigSchemaError,
-    find_repo_config,
-    load_repo_config,
+from nauro.store.resolution import (
+    NoProjectError,
+    StoreResolutionError,
+    resolve_store,
+    resolve_via_repo_config,
 )
 
 logger = logging.getLogger("nauro.stdio")
@@ -98,87 +98,10 @@ def _param_desc(tool_name: str, param: str) -> str:
     return props[param]["description"]
 
 
-def _resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
-    """Walk up from ``start`` (or cwd) looking for ``.nauro/config.json``.
-
-    Returns (project_id, store_path) or None when no repo config is found.
-    """
-    config_path = find_repo_config(start=start)
-    if config_path is None:
-        return None
-    repo_root = config_path.parent.parent
-    try:
-        cfg = load_repo_config(repo_root)
-    except RepoConfigSchemaError:
-        return None
-    return cfg["id"], get_store_path_v2(cfg["id"])
-
-
-def _resolve_store(project_id: str | None, cwd: str | None) -> Path:
-    """Resolve a project to a store path.
-
-    Resolution order matches the CLI:
-      1. cwd's ``.nauro/config.json`` walk-up (id-keyed v2 store).
-      2. ``project_id`` argument matched against v2 registry by name.
-      3. ``project_id`` argument matched against v1 registry by name (legacy).
-      4. ``cwd`` arg → v1 ``resolve_project`` (legacy).
-
-    When ``project_id`` is supplied AND the cwd resolves to a different id via
-    the repo config, the call fails with a mismatch error so tooling cannot
-    silently mask a misconfiguration.
-    """
-    cwd_path = Path(cwd) if cwd else Path.cwd()
-    via_config = _resolve_via_repo_config(cwd_path)
-
-    if project_id and via_config is not None:
-        config_id, store_path = via_config
-        if project_id != config_id:
-            matches = find_projects_by_name_v2(project_id)
-            if not any(pid == config_id for pid, _ in matches):
-                raise ValueError(
-                    f"Supplied project_id {project_id!r} does not match the repo "
-                    f"config id {config_id!r} in {cwd_path}."
-                )
-        if not store_path.exists():
-            raise ValueError(f"Project store not found: {config_id}")
-        return store_path
-
-    if via_config is not None:
-        _pid, store_path = via_config
-        if not store_path.exists():
-            raise ValueError(f"Project store not found at {store_path}")
-        return store_path
-
-    if project_id:
-        matches = find_projects_by_name_v2(project_id)
-        if len(matches) == 1:
-            pid, _entry = matches[0]
-            store_path = get_store_path_v2(pid)
-            if not store_path.exists():
-                raise ValueError(f"Project store not found: {project_id}")
-            return store_path
-        if len(matches) > 1:
-            raise ValueError(f"Multiple v2 projects named {project_id!r}; pass project_id instead.")
-        # v1 legacy fallback
-        store_path = get_store_path(project_id)
-        if not store_path.exists():
-            raise ValueError(f"Project store not found: {project_id}")
-        return store_path
-
-    if cwd:
-        name = resolve_project(Path(cwd))
-        if name:
-            store_path = get_store_path(name)
-            if store_path.exists():
-                return store_path
-        v2_match = resolve_v2_from_path(Path(cwd))
-        if v2_match is not None:
-            pid, _entry = v2_match
-            store_path = get_store_path_v2(pid)
-            if store_path.exists():
-                return store_path
-
-    raise ValueError("Could not resolve project. Pass 'project_id' or 'cwd'.")
+# Back-compat re-exports — tests import these symbols from this module.
+# The resolution logic itself lives in nauro.store.resolution.
+_resolve_store = resolve_store
+_resolve_via_repo_config = resolve_via_repo_config
 
 
 @mcp.tool(**_spec_kwargs("get_context"))
@@ -194,8 +117,10 @@ def get_context(
 ) -> str:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return WELCOME_NO_PROJECT
+    except StoreResolutionError as exc:
+        return str(exc)
     # tool_get_context accepts both int and string levels.
     return tool_get_context(store_path, level)
 
@@ -210,8 +135,10 @@ def get_raw_file(
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     return tool_get_raw_file(store_path, path)
 
 
@@ -228,8 +155,10 @@ def list_decisions(
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     return tool_list_decisions(store_path, limit, include_superseded)
 
 
@@ -243,8 +172,10 @@ def get_decision(
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     return tool_get_decision(store_path, number)
 
 
@@ -261,8 +192,10 @@ def diff_since_last_session(
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     return tool_diff_since_last_session(store_path, days)
 
 
@@ -277,8 +210,10 @@ def search_decisions(
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     return tool_search_decisions(store_path, query, limit)
 
 
@@ -297,8 +232,10 @@ def check_decision(
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     return tool_check_decision(store_path, proposed_approach, context)
 
 
@@ -355,8 +292,10 @@ def propose_decision(
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     return tool_propose_decision(
         store_path,
         title=title,
@@ -382,8 +321,10 @@ def confirm_decision(
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     return tool_confirm_decision(store_path, confirm_id)
 
 
@@ -400,8 +341,10 @@ def flag_question(
 ) -> str:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return WELCOME_NO_PROJECT
+    except StoreResolutionError as exc:
+        return str(exc)
     result = tool_flag_question(store_path, question, context)
     if result.get("hint"):
         return f"{result['hint']} The question has still been logged."
@@ -418,8 +361,10 @@ def update_state(
 ) -> str:
     try:
         store_path = _resolve_store(project_id, cwd)
-    except ValueError:
+    except NoProjectError:
         return WELCOME_NO_PROJECT
+    except StoreResolutionError as exc:
+        return str(exc)
     result = tool_update_state(store_path, delta)
     if result.get("warning"):
         return f"State updated. {result['warning']}"

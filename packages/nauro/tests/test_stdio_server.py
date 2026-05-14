@@ -12,6 +12,7 @@ from nauro.mcp.stdio_server import (
     confirm_decision,
     flag_question,
     get_context,
+    get_raw_file,
     mcp,
     propose_decision,
     update_state,
@@ -57,11 +58,19 @@ class TestResolveStore:
         assert result == store
 
     def test_raises_on_unknown_project(self, store: Path):
-        with pytest.raises(ValueError, match="Project store not found"):
+        # D136: unknown name in v2 falls through to v1 legacy; if also
+        # missing there, ProjectNotFoundError carries the "registry" anchor.
+        from nauro.store.resolution import ProjectNotFoundError
+
+        with pytest.raises(ProjectNotFoundError, match="registry"):
             _resolve_store("nonexistent", None)
 
     def test_raises_on_no_project_or_cwd(self, store: Path):
-        with pytest.raises(ValueError, match="Could not resolve project"):
+        # D136: NoProjectError reserved for the genuinely-no-project case.
+        # Wrapper code maps only this subclass to WELCOME_NO_PROJECT.
+        from nauro.store.resolution import NoProjectError
+
+        with pytest.raises(NoProjectError, match="No Nauro project found"):
             _resolve_store(None, None)
 
 
@@ -157,6 +166,42 @@ class TestProposeDecision:
         )
         # Default behavior — should go through full pipeline
         assert result["status"] in ("confirmed", "pending_confirmation")
+
+
+class TestWelcomeDisambiguation:
+    """D136: WELCOME_NO_PROJECT is reserved for the genuinely-no-project
+    case. Specific failures (bogus project_id, missing store on disk,
+    mismatched cwd config) must surface their own diagnostic instead of
+    the onboarding screen suggesting `nauro init`, which is the wrong
+    remedy when the caller already has a (mis-)configured project."""
+
+    def test_unknown_project_id_surfaces_specific_error(self, store: Path):
+        """Bogus project_id keyword on a dict-returning tool → guidance
+        names the registry, not the welcome screen."""
+        result = get_raw_file(path="project.md", project_id="does-not-exist")
+        assert result["status"] == "error"
+        assert "Welcome to Nauro" not in result["guidance"]
+        # ProjectNotFoundError surfaces the registry-lookup framing.
+        assert "registry" in result["guidance"].lower() or "not found" in result["guidance"].lower()
+
+    def test_unknown_project_id_string_tool_surfaces_specific_error(self, store: Path):
+        """Same disambiguation on a string-returning tool: a non-welcome
+        message is returned for known-bogus handles."""
+        result = update_state(delta="anything", project_id="does-not-exist")
+        assert "Welcome to Nauro" not in result
+        assert "registry" in result.lower() or "not found" in result.lower()
+
+    def test_no_project_resolvable_still_returns_welcome(self, store: Path):
+        """The genuine onboarding case — no project_id, no cwd config —
+        keeps the welcome screen. D136 narrows what counts as the
+        onboarding case; this asserts the narrowing didn't lose it."""
+        # Drop the registry so no project can resolve from cwd or by name.
+        from nauro.store.registry import _registry_file
+
+        _registry_file().write_text('{"projects": {}, "schema_version": 2}\n')
+        result = get_raw_file(path="project.md")
+        assert result["status"] == "error"
+        assert "Welcome to Nauro" in result["guidance"]
 
 
 class TestConfirmDecision:

@@ -234,20 +234,89 @@ def test_init_cli_with_add_repo(tmp_path, monkeypatch):
 
 
 def test_init_cli_duplicate(tmp_path, monkeypatch):
-    """A second `nauro init <same-name>` (no --add-repo) creates a SECOND project.
-
-    v2 allows duplicate names — id is unique. To extend an existing project,
-    callers must pass --add-repo, which is the explicit signal.
+    """v2 allows duplicate names — id is unique. Two `nauro init dup`
+    invocations from separate cwds both succeed and create distinct
+    entries. From the SAME cwd, D136's overwrite guard refuses without
+    --force; the registry-allows-dups invariant is verified by exercising
+    each init from its own directory.
     """
     _patch_home(monkeypatch, tmp_path)
-    monkeypatch.chdir(tmp_path)
+    cwd1 = tmp_path / "cwd1"
+    cwd2 = tmp_path / "cwd2"
+    cwd1.mkdir()
+    cwd2.mkdir()
+    monkeypatch.chdir(cwd1)
     runner.invoke(app, ["init", "dup"])
+    monkeypatch.chdir(cwd2)
     result = runner.invoke(app, ["init", "dup"])
-    # Either succeeds (creates a second, distinct id-keyed entry) or fails with
-    # the clear duplicate-id message; both are acceptable, but the registry
-    # ends up with two entries named 'dup' in the success case.
     assert result.exit_code == 0
     assert len(registry.find_projects_by_name_v2("dup")) == 2
+
+
+def test_init_cli_refuses_overwrite_without_force(tmp_path, monkeypatch):
+    """D136: a second `nauro init <other-name>` from the same cwd refuses
+    to overwrite the existing .nauro/config.json without --force, naming
+    the existing project so the caller can decide what to do."""
+    _patch_home(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    first = runner.invoke(app, ["init", "first"])
+    assert first.exit_code == 0
+    result = runner.invoke(app, ["init", "second"])
+    assert result.exit_code == 1
+    assert "Refusing to overwrite" in result.output
+    assert "'first'" in result.output
+    assert "'second'" in result.output
+    assert "--force" in result.output
+    # Existing config must be untouched.
+    cfg = load_repo_config(tmp_path)
+    assert cfg["name"] == "first"
+
+
+def test_init_cli_force_overwrites(tmp_path, monkeypatch):
+    """D136: --force replaces an existing .nauro/config.json with the new
+    project's handle; the registry shows both."""
+    _patch_home(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    runner.invoke(app, ["init", "first"])
+    result = runner.invoke(app, ["init", "second", "--force"])
+    assert result.exit_code == 0
+    cfg = load_repo_config(tmp_path)
+    assert cfg["name"] == "second"
+    assert len(registry.find_projects_by_name_v2("first")) == 1
+    assert len(registry.find_projects_by_name_v2("second")) == 1
+
+
+def test_init_cli_add_repo_idempotent_on_same_id(tmp_path, monkeypatch):
+    """D136: re-running `nauro init <existing-name> --add-repo <repo>`
+    against a repo already pointing at that project succeeds (idempotent),
+    because the existing config id matches the project's id."""
+    _patch_home(monkeypatch, tmp_path)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    first = runner.invoke(app, ["init", "proj", "--add-repo", str(repo)])
+    assert first.exit_code == 0
+    again = runner.invoke(app, ["init", "proj", "--add-repo", str(repo)])
+    assert again.exit_code == 0, again.output
+
+
+def test_init_cli_add_repo_refuses_overwrite_on_different_id(tmp_path, monkeypatch):
+    """D136: --add-repo against a repo already linked to a *different*
+    project refuses without --force, naming both projects."""
+    _patch_home(monkeypatch, tmp_path)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    # Repo already linked to 'alpha'.
+    first = runner.invoke(app, ["init", "alpha", "--add-repo", str(repo)])
+    assert first.exit_code == 0
+    # Attempt to link the same repo to a fresh 'beta' project.
+    runner.invoke(app, ["init", "beta"], catch_exceptions=False)  # creates beta entry
+    again = runner.invoke(app, ["init", "beta", "--add-repo", str(repo)], catch_exceptions=False)
+    assert again.exit_code == 1
+    assert "Refusing to overwrite" in again.output
+    assert "'alpha'" in again.output
+    # Existing config untouched.
+    cfg = load_repo_config(repo)
+    assert cfg["name"] == "alpha"
 
 
 def test_init_cli_add_repo_to_existing(tmp_path, monkeypatch):
