@@ -39,7 +39,7 @@ async def test_propose_decision_new(client, tmp_path):
     resp = await client.post(
         "/propose_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Use Redis for Caching",
             "rationale": "Fast in-memory store with pub/sub support for session management.",
             "confidence": "high",
@@ -57,7 +57,7 @@ async def test_propose_decision_rejected(client):
     resp = await client.post(
         "/propose_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "",
             "rationale": "Some valid rationale text here.",
         },
@@ -74,7 +74,7 @@ async def test_propose_decision_short_rationale(client):
     resp = await client.post(
         "/propose_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Use Redis",
             "rationale": "Fast.",
         },
@@ -90,7 +90,7 @@ async def test_confirm_decision_invalid_id(client):
     resp = await client.post(
         "/confirm_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "confirm_id": "nonexistent-uuid",
         },
     )
@@ -103,7 +103,7 @@ async def test_check_decision_no_matches(client):
     resp = await client.post(
         "/check_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "proposed_approach": "Use a completely novel approach to distributed tracing",
         },
     )
@@ -131,7 +131,7 @@ async def test_check_decision_with_matches_returns_heuristic_assessment(client, 
     resp = await client.post(
         "/check_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "proposed_approach": "Use Postgres for analytics warehouse with JSON workloads",
         },
     )
@@ -166,7 +166,7 @@ async def test_propose_decision_with_operation_supersede(client, tmp_path):
     resp = await client.post(
         "/propose_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Switch to a managed Postgres provider",
             "rationale": (
                 "Reduces ops burden; the rationale for self-hosting no longer applies to our scale."
@@ -183,7 +183,7 @@ async def test_propose_decision_with_operation_supersede(client, tmp_path):
 
     resp = await client.post(
         "/confirm_decision",
-        json={"project": "testproj", "confirm_id": confirm_id},
+        json={"project_id": "testproj", "confirm_id": confirm_id},
     )
     assert resp.status_code == 200
     confirm_data = resp.json()
@@ -197,7 +197,7 @@ async def test_flag_question_endpoint(client, tmp_path):
     resp = await client.post(
         "/flag_question",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "question": "Should we add WebSocket support?",
             "context": "For real-time updates",
         },
@@ -215,7 +215,7 @@ async def test_update_state_endpoint(client, tmp_path):
     resp = await client.post(
         "/update_state",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "delta": "Deployed v0.2.0 to staging",
         },
     )
@@ -232,7 +232,7 @@ async def test_legacy_log_decision_endpoint(client, tmp_path):
     resp = await client.post(
         "/log_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Use SQLite for Tests",
             "rationale": "Fast and in-memory for testing purposes.",
         },
@@ -248,7 +248,7 @@ async def test_propose_decision_supersede_without_affected_id_rejects(client):
     resp = await client.post(
         "/propose_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Replace prior choice",
             "rationale": "A new choice that should replace something.",
             "operation": "supersede",
@@ -265,7 +265,7 @@ async def test_propose_decision_update_without_affected_id_rejects(client):
     resp = await client.post(
         "/propose_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Augment the prior choice",
             "rationale": "Adds nuance to an existing decision body.",
             "operation": "update",
@@ -282,7 +282,7 @@ async def test_propose_supersede_with_unknown_affected_id_rejects(client):
     resp = await client.post(
         "/propose_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Replace something nonexistent",
             "rationale": "Tests the resolution failure branch of the boundary check.",
             "operation": "supersede",
@@ -317,7 +317,7 @@ async def test_supersede_end_to_end_via_check_then_propose(client, tmp_path):
     check_resp = await client.post(
         "/check_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "proposed_approach": "Use SQLite for the analytics workload instead of Postgres",
         },
     )
@@ -329,7 +329,7 @@ async def test_supersede_end_to_end_via_check_then_propose(client, tmp_path):
     propose_resp = await client.post(
         "/propose_decision",
         json={
-            "project": "testproj",
+            "project_id": "testproj",
             "title": "Switch to SQLite for analytics",
             "rationale": "Lower ops burden for the read-mostly analytics workload.",
             "operation": "supersede",
@@ -344,7 +344,7 @@ async def test_supersede_end_to_end_via_check_then_propose(client, tmp_path):
     if propose_data["status"] == "pending_confirmation":
         confirm_resp = await client.post(
             "/confirm_decision",
-            json={"project": "testproj", "confirm_id": propose_data["confirm_id"]},
+            json={"project_id": "testproj", "confirm_id": propose_data["confirm_id"]},
         )
         assert confirm_resp.status_code == 200
         confirm_data = confirm_resp.json()

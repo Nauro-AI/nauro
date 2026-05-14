@@ -22,7 +22,7 @@ def _version_callback(value: bool) -> None:
 app = typer.Typer(
     name="nauro",
     help=(
-        "Set your project's direction once; every connected AI agent inherits it."
+        "Set your project's doctrine once; every connected AI agent inherits it."
         "\n\nRun 'nauro telemetry --help' to manage anonymous usage telemetry."
     ),
     no_args_is_help=True,
@@ -40,7 +40,7 @@ def main(
         help="Show version and exit.",
     ),
 ) -> None:
-    """Set your project's direction once; every connected AI agent inherits it."""
+    """Set your project's doctrine once; every connected AI agent inherits it."""
     consent.maybe_prompt()
 
 

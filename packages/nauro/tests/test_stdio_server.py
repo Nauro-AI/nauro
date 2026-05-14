@@ -67,28 +67,28 @@ class TestResolveStore:
 
 class TestGetContext:
     def test_l0_returns_current_state(self, store: Path):
-        result = get_context(project="testproj", level=0)
+        result = get_context(project_id="testproj", level=0)
         assert "## Current State" in result
 
     def test_l1_returns_full_stack(self, store: Path):
-        result = get_context(project="testproj", level=1)
+        result = get_context(project_id="testproj", level=1)
         assert "# Stack" in result
         assert "Python 3.11" in result
 
     def test_l2_returns_full_content(self, store: Path):
-        result = get_context(project="testproj", level=2)
+        result = get_context(project_id="testproj", level=2)
         assert "Use FastAPI" in result
         assert "Should we add caching?" in result
 
     def test_invalid_level_raises(self, store: Path):
         with pytest.raises(ValueError, match="Invalid level"):
-            get_context(project="testproj", level=5)
+            get_context(project_id="testproj", level=5)
 
 
 class TestProposeDecision:
     def test_propose_new_decision(self, store: Path):
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title="Use Redis for Caching",
             rationale="Fast in-memory store for session data management.",
         )
@@ -100,7 +100,7 @@ class TestProposeDecision:
 
     def test_propose_rejected_empty_title(self, store: Path):
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title="",
             rationale="Some rationale text here.",
         )
@@ -108,7 +108,7 @@ class TestProposeDecision:
 
     def test_propose_triggers_snapshot(self, store: Path):
         propose_decision(
-            project="testproj",
+            project_id="testproj",
             title="Snapshot Test Decision",
             rationale="Testing that snapshots are triggered by proposals.",
         )
@@ -117,7 +117,7 @@ class TestProposeDecision:
 
     def test_skip_validation_returns_confirm_id(self, store: Path):
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title="Skip Validation Decision",
             rationale="Testing skip_validation returns a confirm_id without tier-2/tier-3.",
             skip_validation=True,
@@ -129,7 +129,7 @@ class TestProposeDecision:
 
     def test_skip_validation_still_runs_tier1(self, store: Path):
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title="",
             rationale="Some rationale text here.",
             skip_validation=True,
@@ -138,7 +138,7 @@ class TestProposeDecision:
 
     def test_skip_validation_confirm_flow(self, store: Path):
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title="Confirm After Skip",
             rationale="Testing that confirm_decision works after skip_validation.",
             skip_validation=True,
@@ -146,12 +146,12 @@ class TestProposeDecision:
         assert result["status"] == "pending_confirmation"
         cid = result["confirm_id"]
 
-        confirmed = confirm_decision(confirm_id=cid, project="testproj")
+        confirmed = confirm_decision(confirm_id=cid, project_id="testproj")
         assert confirmed["status"] == "confirmed"
 
     def test_default_false_unchanged(self, store: Path):
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title="Default Validation Decision",
             rationale="Testing that default skip_validation=false works normally.",
         )
@@ -163,7 +163,7 @@ class TestConfirmDecision:
     def test_confirm_invalid_id(self, store: Path):
         result = confirm_decision(
             confirm_id="nonexistent-uuid",
-            project="testproj",
+            project_id="testproj",
         )
         assert "error" in result
 
@@ -172,7 +172,7 @@ class TestCheckDecision:
     def test_check_no_conflicts(self, store: Path):
         result = check_decision(
             proposed_approach="Use a completely novel distributed tracing approach",
-            project="testproj",
+            project_id="testproj",
         )
         assert "related_decisions" in result
         assert "assessment" in result
@@ -180,7 +180,7 @@ class TestCheckDecision:
 
 class TestFlagQuestion:
     def test_records_question(self, store: Path):
-        result = flag_question(project="testproj", question="Should we add WebSocket?")
+        result = flag_question(project_id="testproj", question="Should we add WebSocket?")
         assert "flagged" in result.lower() or "addressed" in result.lower()
 
         oq = (store / "open-questions.md").read_text()
@@ -188,7 +188,7 @@ class TestFlagQuestion:
 
     def test_includes_context(self, store: Path):
         flag_question(
-            project="testproj",
+            project_id="testproj",
             question="Need auth?",
             context="For the admin API",
         )
@@ -199,7 +199,7 @@ class TestFlagQuestion:
 
 class TestUpdateState:
     def test_updates_state(self, store: Path):
-        result = update_state(project="testproj", delta="Deployed v0.2.0")
+        result = update_state(project_id="testproj", delta="Deployed v0.2.0")
         assert "State updated" in result
 
         state = (store / "state_current.md").read_text()
@@ -313,6 +313,35 @@ class TestToolSpecDescriptionsReachAgent:
         tools = mcp._tool_manager.list_tools()
         assert len(tools) == 11
 
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            "get_context",
+            "get_raw_file",
+            "list_decisions",
+            "get_decision",
+            "diff_since_last_session",
+            "search_decisions",
+            "check_decision",
+            "propose_decision",
+            "confirm_decision",
+            "flag_question",
+            "update_state",
+        ],
+    )
+    def test_project_id_property_alignment_with_toolspec(self, tools_by_name, tool):
+        """D135: the local stdio's tools/list must advertise `project_id` as
+        the property name on every tool that takes a project handle —
+        matching the central ToolSpec (and the remote MCP). Pre-rename the
+        wrappers exposed `project`, which produced cross-transport schema
+        drift: an agent inspecting tools/list saw different property names
+        depending on which transport they connected through."""
+        params = tools_by_name[tool].parameters["properties"]
+        assert "project_id" in params, f"{tool} missing project_id in inputSchema"
+        assert "project" not in params, (
+            f"{tool} still advertises bare 'project' — should be renamed to project_id"
+        )
+
 
 class TestContentSizeLimits:
     """H3 STRIDE fix: local tools must reject oversized inputs."""
@@ -322,7 +351,7 @@ class TestContentSizeLimits:
 
         title = "A" * MAX_TITLE_LENGTH
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title=title,
             rationale="Valid rationale that meets the minimum length requirement.",
         )
@@ -334,7 +363,7 @@ class TestContentSizeLimits:
 
         title = "A" * (MAX_TITLE_LENGTH + 1)
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title=title,
             rationale="Valid rationale that meets the minimum length requirement.",
         )
@@ -345,7 +374,7 @@ class TestContentSizeLimits:
         from nauro.mcp.tools import MAX_RATIONALE_LENGTH
 
         result = propose_decision(
-            project="testproj",
+            project_id="testproj",
             title="Valid title",
             rationale="X" * (MAX_RATIONALE_LENGTH + 1),
         )

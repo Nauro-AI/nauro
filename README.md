@@ -1,6 +1,6 @@
 # Nauro
 
-Your project has context. Every agent should inherit it.
+Set the doctrine once. Every agent inherits it.
 
 Nauro is an open-source system that gives AI agents persistent project context across tools and sessions.
 
@@ -78,7 +78,7 @@ Codex users: also add `mcp_oauth_callback_port = 8765` to the top of `~/.codex/c
 
 ## How it works
 
-Agents propose decisions through MCP during sessions. Proposals are drafted in collaboration with your agent; when one overlaps with an existing decision, you confirm before it's written, and updates or replacements of existing decisions always require explicit confirmation. The gate is the boundary between "we discussed it" and "your project's direction has changed." You can also log decisions from the terminal with `nauro note`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
+Agents propose decisions through MCP during sessions. Proposals are drafted in collaboration with your agent; when one overlaps with an existing decision, you confirm before it's written, and updates or replacements of existing decisions always require explicit confirmation. The gate is the boundary between "we discussed it" and "your project's doctrine has changed." You can also log decisions from the terminal with `nauro note`. Open questions are tracked too, so agents surface unresolved tensions before they become assumptions.
 
 One project spans many repos — the store lives in `~/.nauro/`, not inside any repo, so context follows the project across the whole codebase.
 
