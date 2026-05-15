@@ -31,14 +31,16 @@ def bm25_search(
         return []
 
     corpus = [f"{d.title} {d.rationale}" for d in decisions]
-    corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer)
+    # show_progress=False — bm25s defaults to True; the tqdm output is invisible
+    # in MCP server stderr but pollutes the `nauro check` CLI surface.
+    corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer, show_progress=False)
 
     retriever = bm25s.BM25()
-    retriever.index(corpus_tokens)
+    retriever.index(corpus_tokens, show_progress=False)
 
     k = min(limit, len(decisions))
-    query_tokens = bm25s.tokenize([query], stopwords="en", stemmer=_stemmer)
-    results, scores = retriever.retrieve(query_tokens, k=k)
+    query_tokens = bm25s.tokenize([query], stopwords="en", stemmer=_stemmer, show_progress=False)
+    results, scores = retriever.retrieve(query_tokens, k=k, show_progress=False)
 
     query_words = query.strip().split()
     ranked = []
@@ -91,14 +93,18 @@ def bm25_retrieve(
         return []
 
     corpus = [f"{d.title} {d.rationale}" for d in active]
-    corpus_tokens = bm25s.tokenize(corpus, stopwords=stopwords, stemmer=_stemmer)
+    corpus_tokens = bm25s.tokenize(
+        corpus, stopwords=stopwords, stemmer=_stemmer, show_progress=False
+    )
 
     retriever = bm25s.BM25()
-    retriever.index(corpus_tokens)
+    retriever.index(corpus_tokens, show_progress=False)
 
     k = min(top_k, len(active))
-    query_tokens = bm25s.tokenize([query_text], stopwords=stopwords, stemmer=_stemmer)
-    results, scores = retriever.retrieve(query_tokens, k=k)
+    query_tokens = bm25s.tokenize(
+        [query_text], stopwords=stopwords, stemmer=_stemmer, show_progress=False
+    )
+    results, scores = retriever.retrieve(query_tokens, k=k, show_progress=False)
 
     related = []
     for i in range(results.shape[1]):

@@ -15,6 +15,7 @@ Requires Python 3.10+.
 ## Quickstart
 
 ```bash
+mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
 nauro init --demo
 nauro setup claude-code   # writes the MCP entry to <repo>/.mcp.json
 ```
