@@ -42,6 +42,12 @@ setup_app = typer.Typer(help="Configure tool integrations.")
 CLAUDE_MD_START = NAURO_BLOCK_START
 CLAUDE_MD_END = NAURO_BLOCK_END
 
+# Discoverability hint appended to every setup-add success path. `nauro check`
+# (the L1 surface) works from the current shell against the local store, so
+# users don't have to wait for an agent restart to see Nauro do something
+# useful. Imported by test_setup_extended.py to assert placement.
+CHECK_HINT_LINE = 'Try it now from this shell: nauro check "<approach>"'
+
 
 def _remove_claude_md(repo_path: Path) -> str | None:
     """Remove a legacy Nauro block from CLAUDE.md if present.
@@ -224,6 +230,7 @@ def claude_code(
             "\nNext: start a Claude Code session in one of the repos."
             " The MCP server will start automatically."
         )
+        typer.echo(f"\n{CHECK_HINT_LINE}")
 
 
 # ─── Cursor ─────────────────────────────────────────────────────────────────
@@ -301,6 +308,7 @@ def cursor(
 
     if not remove:
         typer.echo("\nNext: open this repo in Cursor and start a chat — Nauro MCP will connect.")
+        typer.echo(f"\n{CHECK_HINT_LINE}")
 
 
 # ─── Codex CLI ──────────────────────────────────────────────────────────────
@@ -374,6 +382,7 @@ def codex(
     typer.echo(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
     if not remove:
         typer.echo("\nNext: run a Codex session — it reads ~/.codex/config.toml on start.")
+        typer.echo(f"\n{CHECK_HINT_LINE}")
 
 
 # ─── Skill materialization ──────────────────────────────────────────────────
@@ -579,3 +588,6 @@ def all_(
     typer.echo(f"{action} Nauro for project '{project_name}' across all surfaces:\n")
     for line in setup_all_surfaces(project_repos, remove=remove, current_project_key=project_key):
         typer.echo(line)
+
+    if not remove:
+        typer.echo(f"\n{CHECK_HINT_LINE}")

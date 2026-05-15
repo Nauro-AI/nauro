@@ -9,7 +9,11 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from nauro.cli.commands.setup import _configure_codex, _configure_cursor_for_repo
+from nauro.cli.commands.setup import (
+    CHECK_HINT_LINE,
+    _configure_codex,
+    _configure_cursor_for_repo,
+)
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
@@ -374,3 +378,77 @@ def test_standalone_codex_remove_preserves_when_projects_remain(tmp_path: Path, 
     with codex_config.open("rb") as f:
         data = tomllib.load(f)
     assert data["mcp_servers"]["nauro"]["args"] == ["serve", "--stdio"]
+
+
+# ─── nauro check discoverability hint ───────────────────────────────────────
+
+
+def test_setup_claude_code_advertises_nauro_check(tmp_path: Path, monkeypatch):
+    """`setup claude-code` success output points users at the L1 surface."""
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    register_project_v2("myproj", [repo])
+    monkeypatch.chdir(repo)
+    _mock_claude_cli(monkeypatch)
+
+    result = runner.invoke(app, ["setup", "claude-code"])
+    assert result.exit_code == 0, result.output
+    assert CHECK_HINT_LINE in result.output
+
+
+def test_setup_claude_code_remove_does_not_advertise_nauro_check(tmp_path: Path, monkeypatch):
+    """The hint only fires on the add path — removal output stays minimal."""
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    register_project_v2("myproj", [repo])
+    monkeypatch.chdir(repo)
+    _mock_claude_cli(monkeypatch)
+
+    result = runner.invoke(app, ["setup", "claude-code", "--remove"])
+    assert result.exit_code == 0, result.output
+    assert CHECK_HINT_LINE not in result.output
+
+
+def test_setup_cursor_advertises_nauro_check(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "cursor"])
+    assert result.exit_code == 0, result.output
+    assert CHECK_HINT_LINE in result.output
+
+
+def test_setup_all_advertises_nauro_check(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+    _mock_claude_cli(monkeypatch)
+
+    result = runner.invoke(app, ["setup", "all"])
+    assert result.exit_code == 0, result.output
+    assert CHECK_HINT_LINE in result.output
+
+
+def test_setup_codex_advertises_nauro_check(tmp_path: Path, monkeypatch):
+    """`setup codex` also advertises `nauro check` — a Codex user benefits from
+    knowing they can demo conflict-detection from the shell before opening a
+    Codex session.
+    """
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    result = runner.invoke(app, ["setup", "codex"])
+    assert result.exit_code == 0, result.output
+    assert CHECK_HINT_LINE in result.output
