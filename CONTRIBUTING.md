@@ -23,8 +23,8 @@ uv sync --all-packages --all-extras
 # nauro-core tests
 uv run pytest packages/nauro-core/tests/ -x -q
 
-# nauro tests (excludes integration tests by default)
-uv run pytest packages/nauro/tests/ -x -q -m "not integration"
+# nauro tests
+uv run pytest packages/nauro/tests/ -x -q
 ```
 
 ## Linting
