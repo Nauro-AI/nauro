@@ -18,6 +18,8 @@ When the user proposes — or the agent considers proposing — an architectural
 
 This includes "should we…", "what if we…", "can we…", and "check if…" framings, and applies even when the agent intends to push back or refuse. First-principles reasoning is not a substitute for project history.
 
+<!-- protocol:RESOLVES_OPEN_QUESTIONS -->
+
 ## After meaningful progress — call update_state
 
 After completing a unit of work (a feature, a refactor, a bug fix that took more than a few changes) the agent calls `update_state(delta)` with a short paragraph describing what was completed. This replaces the project's current state, archiving the prior content to history. The next session's `get_context` call surfaces this update so context flows forward.

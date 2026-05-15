@@ -18,6 +18,7 @@ from nauro_core import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
     NO_INVENT_RATIONALE,
+    RESOLVES_OPEN_QUESTIONS,
 )
 from nauro_core.protocol import protocol_tokens_in
 
@@ -33,6 +34,7 @@ SURFACE_FRAGMENTS: dict[str, list[str]] = {
         CHECK_DECISION_RETURNS,
         GET_DECISION_BEFORE_PROPOSING,
         NO_INVENT_RATIONALE,
+        RESOLVES_OPEN_QUESTIONS,
     ],
     "adopt": [
         CHECK_DECISION_RETURNS,

@@ -183,6 +183,9 @@ from nauro_core.protocol import (
     PROPOSE_DECISION_OPERATIONS as PROPOSE_DECISION_OPERATIONS,
 )
 from nauro_core.protocol import (
+    RESOLVES_OPEN_QUESTIONS as RESOLVES_OPEN_QUESTIONS,
+)
+from nauro_core.protocol import (
     UPDATE_SUPERSEDE_CARE as UPDATE_SUPERSEDE_CARE,
 )
 from nauro_core.protocol import (
