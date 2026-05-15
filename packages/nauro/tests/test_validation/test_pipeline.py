@@ -361,3 +361,161 @@ class TestD133UpdateRejectsMetadata:
             affected_decision_id="002-seed-decision-for-d133-tests",
         )
         assert result_supersede.status != "rejected" or result_supersede.tier != 0
+
+
+class TestD139ResolvesQuestions:
+    """D139: propose_decision can pass `resolves_questions` to move named
+    open-questions.md entries under ``## Resolved`` on confirm.
+    """
+
+    RATIONALE = (
+        "A sufficiently long rationale that comfortably exceeds the structural "
+        "minimum length so D139 boundary validation is what is exercised."
+    )
+
+    @pytest.fixture
+    def store_with_questions(self, tmp_path: Path) -> Path:
+        store_path = tmp_path / "projects" / "d139"
+        scaffold_project_store("d139", store_path)
+        oq = store_path / "open-questions.md"
+        oq.write_text(
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] q-one body text\n"
+            "- [2026-05-11 15:29 UTC] q-two body text\n"
+        )
+        return store_path
+
+    def test_unknown_id_rejects_at_boundary(self, store_with_questions: Path) -> None:
+        proposal = {
+            "title": "A decision that names a bogus question",
+            "rationale": self.RATIONALE,
+            "resolves_questions": ["2099-01-01 00:00 UTC"],
+        }
+        result = validate_proposed_write(proposal, store_with_questions)
+        assert result.status == "rejected"
+        assert result.tier == 0
+        assert "2099-01-01 00:00 UTC" in result.assessment
+        assert "resolves_questions" in result.assessment
+
+    def test_unknown_id_rejection_lists_every_offender(self, store_with_questions: Path) -> None:
+        proposal = {
+            "title": "A decision that names two bogus questions",
+            "rationale": self.RATIONALE,
+            "resolves_questions": [
+                "2099-01-01 00:00 UTC",
+                "2099-02-02 00:00 UTC",
+                "2026-05-12 20:18 UTC",  # this one IS valid
+            ],
+        }
+        result = validate_proposed_write(proposal, store_with_questions)
+        assert result.status == "rejected"
+        for bad in ("2099-01-01 00:00 UTC", "2099-02-02 00:00 UTC"):
+            assert bad in result.assessment
+
+    def test_known_id_moves_to_resolved_on_auto_confirm(self, store_with_questions: Path) -> None:
+        proposal = {
+            "title": "A decision that closes the first open question",
+            "rationale": self.RATIONALE,
+            "resolves_questions": ["2026-05-12 20:18 UTC"],
+        }
+        result = validate_proposed_write(proposal, store_with_questions)
+        assert result.status == "confirmed"
+        assert result.resolved_questions == ("2026-05-12 20:18 UTC",)
+        oq_content = (store_with_questions / "open-questions.md").read_text()
+        assert "## Resolved" in oq_content
+        assert "[Resolved by D" in oq_content
+        # q-one moved out of the open section
+        open_part = oq_content.split("## Resolved", 1)[0]
+        assert "[2026-05-12 20:18 UTC]" not in open_part
+        # q-two still in the open section
+        assert "[2026-05-11 15:29 UTC] q-two body text" in open_part
+
+    def test_resolves_through_pending_confirm(self, store_with_questions: Path) -> None:
+        proposal = {
+            "title": "A decision that closes via the pending path",
+            "rationale": self.RATIONALE,
+            "resolves_questions": ["2026-05-12 20:18 UTC"],
+        }
+        result = validate_proposed_write(proposal, store_with_questions, skip_validation=True)
+        assert result.status == "pending_confirmation"
+        assert result.confirm_id is not None
+        # Question is NOT yet moved (write hasn't happened).
+        oq_before = (store_with_questions / "open-questions.md").read_text()
+        assert "## Resolved" not in oq_before
+
+        confirm_response = confirm_write(result.confirm_id, store_with_questions)
+        assert confirm_response["status"] == "confirmed"
+        assert confirm_response.get("resolved_questions") == ["2026-05-12 20:18 UTC"]
+        oq_after = (store_with_questions / "open-questions.md").read_text()
+        assert "## Resolved" in oq_after
+
+    def test_idempotent_for_already_resolved_id(self, store_with_questions: Path) -> None:
+        oq = store_with_questions / "open-questions.md"
+        oq.write_text(
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-11 15:29 UTC] q-two\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D100 on 2026-05-01] [2026-04-30 10:00 UTC] q-old\n"
+        )
+        proposal = {
+            "title": "A decision that names an already-resolved question",
+            "rationale": self.RATIONALE,
+            "resolves_questions": ["2026-04-30 10:00 UTC"],
+        }
+        result = validate_proposed_write(proposal, store_with_questions)
+        # Should NOT reject — already-resolved counts as known.
+        assert result.status == "confirmed"
+        assert result.resolved_questions == ("2026-04-30 10:00 UTC",)
+        # And the resolved-section back-ref to D100 is preserved.
+        assert "[Resolved by D100 on 2026-05-01]" in oq.read_text()
+
+    def test_empty_list_is_no_op(self, store_with_questions: Path) -> None:
+        proposal = {
+            "title": "A decision with no resolves_questions",
+            "rationale": self.RATIONALE,
+            "resolves_questions": [],
+        }
+        result = validate_proposed_write(proposal, store_with_questions)
+        assert result.status == "confirmed"
+        assert result.resolved_questions == ()
+        oq_content = (store_with_questions / "open-questions.md").read_text()
+        # File is untouched.
+        assert "## Resolved" not in oq_content
+
+    def test_works_for_supersede(self, store_with_questions: Path) -> None:
+        # Seed an extra decision to supersede.
+        append_decision(
+            store_with_questions,
+            "Seed for supersede + resolves_questions",
+            rationale="Pre-existing decision the supersede path targets.",
+        )
+        proposal = {
+            "title": "Supersedes the seed and closes a question",
+            "rationale": self.RATIONALE,
+            "resolves_questions": ["2026-05-12 20:18 UTC"],
+        }
+        decisions = sorted(
+            (store_with_questions / "decisions").glob("*.md"),
+            key=lambda p: p.name,
+        )
+        affected = decisions[-1].stem
+        # D131: supersede always returns pending_confirmation.
+        result = validate_proposed_write(
+            proposal,
+            store_with_questions,
+            operation="supersede",
+            affected_decision_id=affected,
+            skip_validation=True,
+        )
+        assert result.status == "pending_confirmation"
+        assert result.confirm_id is not None
+        confirm = confirm_write(result.confirm_id, store_with_questions)
+        assert confirm["status"] == "confirmed"
+        assert confirm["operation"] == "supersede"
+        assert confirm.get("resolved_questions") == ["2026-05-12 20:18 UTC"]
+        oq_content = (store_with_questions / "open-questions.md").read_text()
+        assert "## Resolved" in oq_content

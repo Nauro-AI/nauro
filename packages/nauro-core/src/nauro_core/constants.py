@@ -10,6 +10,7 @@ from nauro_core.protocol import (
     GET_DECISION_BEFORE_PROPOSING,
     NO_INVENT_RATIONALE,
     PROPOSE_DECISION_OPERATIONS,
+    RESOLVES_OPEN_QUESTIONS,
     UPDATE_SUPERSEDE_CARE,
 )
 
@@ -105,6 +106,8 @@ MCP_INSTRUCTIONS_STATIC = (
     "\n"
     f"{NO_INVENT_RATIONALE} Do NOT propose decisions for obvious bug fixes, "
     "adding tests for existing behavior, or renaming variables.\n"
+    "\n"
+    f"{RESOLVES_OPEN_QUESTIONS}\n"
     "\n"
     "## When to get context\n"
     "\n"

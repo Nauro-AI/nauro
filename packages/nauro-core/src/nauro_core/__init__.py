@@ -183,6 +183,9 @@ from nauro_core.protocol import (
     PROPOSE_DECISION_OPERATIONS as PROPOSE_DECISION_OPERATIONS,
 )
 from nauro_core.protocol import (
+    RESOLVES_OPEN_QUESTIONS as RESOLVES_OPEN_QUESTIONS,
+)
+from nauro_core.protocol import (
     UPDATE_SUPERSEDE_CARE as UPDATE_SUPERSEDE_CARE,
 )
 from nauro_core.protocol import (
@@ -190,6 +193,18 @@ from nauro_core.protocol import (
 )
 from nauro_core.protocol import (
     substitute_protocol_fragments as substitute_protocol_fragments,
+)
+from nauro_core.questions import (
+    OpenQuestionsFile as OpenQuestionsFile,
+)
+from nauro_core.questions import (
+    QuestionEntry as QuestionEntry,
+)
+from nauro_core.questions import (
+    ResolvedRef as ResolvedRef,
+)
+from nauro_core.questions import (
+    ResolveResult as ResolveResult,
 )
 from nauro_core.search import (
     bm25_retrieve as bm25_retrieve,

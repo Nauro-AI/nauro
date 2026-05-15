@@ -280,6 +280,10 @@ def propose_decision(
         list[str] | None,
         Field(description=_param_desc("propose_decision", "files_affected")),
     ] = None,
+    resolves_questions: Annotated[
+        list[str] | None,
+        Field(description=_param_desc("propose_decision", "resolves_questions")),
+    ] = None,
     skip_validation: Annotated[
         bool,
         Field(description=_param_desc("propose_decision", "skip_validation")),
@@ -307,6 +311,7 @@ def propose_decision(
         decision_type=decision_type,
         reversibility=reversibility,
         files_affected=files_affected,
+        resolves_questions=resolves_questions,
         skip_validation=skip_validation,
     )
 

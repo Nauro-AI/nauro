@@ -5,17 +5,28 @@ Pipeline: propose → validate (tier 1 → tier 2) → confirm.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
-from nauro_core.constants import MIN_RATIONALE_LENGTH
+from nauro_core import extract_decision_number
+from nauro_core.constants import MIN_RATIONALE_LENGTH, OPEN_QUESTIONS_MD
+from nauro_core.questions import OpenQuestionsFile
 
 from nauro.store.snapshot import capture_snapshot
-from nauro.store.writer import append_decision, supersede_decision, update_decision
+from nauro.store.writer import (
+    append_decision,
+    resolve_questions_in_file,
+    supersede_decision,
+    update_decision,
+)
 from nauro.validation.log import log_validation
 from nauro.validation.pending import get_pending, remove_pending, store_pending
 from nauro.validation.tier1 import screen_structural, update_hash_index
 from nauro.validation.tier2 import check_similarity
+
+logger = logging.getLogger("nauro.validation.pipeline")
 
 # D133: operation="update" appends rationale only — update_decision reads only
 # affected_decision_id + rationale. Any value in these fields would be silently
@@ -40,6 +51,7 @@ class ValidationResult:
     assessment: str = ""
     confirm_id: str | None = None
     operation: str = "add"  # "add", "update", "supersede", "reject"
+    resolved_questions: tuple[str, ...] = ()
     _decision_id: str | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict:
@@ -50,6 +62,7 @@ class ValidationResult:
             "assessment": self.assessment,
             "confirm_id": self.confirm_id,
             "operation": self.operation,
+            "resolved_questions": list(self.resolved_questions),
         }
 
 
@@ -98,6 +111,29 @@ def validate_proposed_write(
                     'operation="update" appends rationale only; cannot change '
                     f"{', '.join(disallowed)}. "
                     'Use operation="supersede" to replace the decision with new metadata.'
+                ),
+            )
+            log_validation(project_path, proposal, result.to_dict())
+            return result
+
+    # --- D139: reject unknown resolves_questions ids at the boundary ---
+    # Validate every supplied id exists in open-questions.md (either open
+    # or already-resolved). Unknown ids reject before Tier 1 so the
+    # assessment names the offending ids rather than slipping past the
+    # gate and failing on the write side.
+    requested_resolves = list(proposal.get("resolves_questions") or [])
+    if requested_resolves:
+        unknown = _unknown_question_ids(requested_resolves, project_path)
+        if unknown:
+            result = ValidationResult(
+                status="rejected",
+                tier=0,
+                operation=operation,
+                assessment=(
+                    "resolves_questions contains unknown timestamp id(s): "
+                    + ", ".join(repr(x) for x in unknown)
+                    + ". Call get_context (L0 lists every open question) to "
+                    "see the canonical ids in open-questions.md."
                 ),
             )
             log_validation(project_path, proposal, result.to_dict())
@@ -166,7 +202,7 @@ def validate_proposed_write(
         # Preserves supersede/update intent even when BM25 misses the affected
         # decision; the boundary already validated that affected_decision_id
         # resolves to a real file.
-        decision_id, actual_operation = _execute_operation(
+        decision_id, actual_operation, resolved_ids = _execute_operation(
             operation, proposal, project_path, affected_decision_id
         )
         result = ValidationResult(
@@ -175,6 +211,7 @@ def validate_proposed_write(
             operation=actual_operation,
             assessment="No similar existing decisions found.",
             similar_decisions=[],
+            resolved_questions=resolved_ids,
         )
         result._decision_id = decision_id
         log_validation(project_path, proposal, result.to_dict())
@@ -219,17 +256,20 @@ def confirm_write(confirm_id: str, project_path: Path) -> dict:
     operation = data["operation"]
     affected_decision_id = data["affected_decision_id"]
 
-    decision_id, actual_operation = _execute_operation(
+    decision_id, actual_operation, resolved_ids = _execute_operation(
         operation, proposal, project_path, affected_decision_id
     )
     remove_pending(confirm_id)
 
-    return {
+    response: dict = {
         "status": "confirmed",
         "decision_id": decision_id,
         "title": proposal.get("title", ""),
         "operation": actual_operation,
     }
+    if resolved_ids:
+        response["resolved_questions"] = list(resolved_ids)
+    return response
 
 
 def _write_proposal(proposal: dict, project_path: Path) -> str:
@@ -270,13 +310,17 @@ def _execute_operation(
     proposal: dict,
     project_path: Path,
     affected_decision_id: str | None,
-) -> tuple[str, str]:
-    """Execute the validated operation. Returns (decision_id, actual_operation).
+) -> tuple[str, str, tuple[str, ...]]:
+    """Execute the validated operation.
 
-    The actual operation may differ from the requested one if the boundary
-    let through an update/supersede without affected_decision_id (it should
-    not — see tool_propose_decision). The return value reflects what was
+    Returns ``(decision_id, actual_operation, resolved_question_ids)``. The
+    actual operation may differ from the requested one if the boundary let
+    through an update/supersede without affected_decision_id (it should not
+    — see tool_propose_decision). The return value reflects what was
     actually written so callers can echo ground truth.
+
+    Question resolution (D139) is applied best-effort after the decision
+    write — see :func:`_apply_question_resolves` for the failure posture.
     """
     if operation == "supersede" and affected_decision_id:
         decision_id = supersede_decision(affected_decision_id, proposal, project_path)
@@ -284,7 +328,8 @@ def _execute_operation(
         rationale = proposal.get("rationale", "")
         update_hash_index(title, rationale, decision_id, project_path)
         capture_snapshot(project_path, trigger=f"supersede {affected_decision_id}: {title}")
-        return decision_id, "supersede"
+        resolved = _apply_question_resolves(proposal, project_path, decision_id)
+        return decision_id, "supersede", resolved
 
     if operation == "update" and affected_decision_id:
         additional = proposal.get("rationale", "")
@@ -293,7 +338,59 @@ def _execute_operation(
             project_path,
             trigger=f"update {affected_decision_id}: {proposal.get('title', '')}",
         )
-        return decision_id, "update"
+        resolved = _apply_question_resolves(proposal, project_path, decision_id)
+        return decision_id, "update", resolved
 
     # "add", or fallback for update/supersede without affected_decision_id.
-    return _write_proposal(proposal, project_path), "add"
+    decision_id = _write_proposal(proposal, project_path)
+    resolved = _apply_question_resolves(proposal, project_path, decision_id)
+    return decision_id, "add", resolved
+
+
+def _apply_question_resolves(
+    proposal: dict, project_path: Path, decision_id: str
+) -> tuple[str, ...]:
+    """Apply ``resolves_questions`` to open-questions.md after a successful
+    decision write.
+
+    Best-effort: the boundary already rejected unknown ids, so this can only
+    fail on file I/O. Failures are logged with ``unresolved_ids`` and the
+    decision write stands — D132's posture for partial writes.
+    """
+    ids = list(proposal.get("resolves_questions") or [])
+    if not ids:
+        return ()
+    num = extract_decision_number(decision_id)
+    if num is None:
+        return ()
+    try:
+        result = resolve_questions_in_file(
+            project_path,
+            ids,
+            num,
+            datetime.now(timezone.utc).date(),
+        )
+    except Exception:
+        logger.exception(
+            "question-resolution failed after decision %s wrote; "
+            "decision stands. unresolved_ids=%s",
+            decision_id,
+            ids,
+        )
+        return ()
+    if result.moved_ids:
+        capture_snapshot(
+            project_path,
+            trigger=f"resolved questions via {decision_id}",
+        )
+    return result.moved_ids
+
+
+def _unknown_question_ids(ids: list[str], project_path: Path) -> list[str]:
+    """Return any caller-supplied ids absent from open-questions.md."""
+    oq_path = project_path / OPEN_QUESTIONS_MD
+    if not oq_path.exists():
+        return list(ids)
+    file = OpenQuestionsFile.parse(oq_path.read_text())
+    known = set(file.open_ids) | set(file.resolved_ids)
+    return [tid for tid in ids if tid not in known]

@@ -17,6 +17,8 @@ When the user proposes — or the agent considers proposing — an architectural
 
 This includes "should we…", "what if we…", "can we…", and "check if…" framings, and applies even when the agent intends to push back or refuse. First-principles reasoning is not a substitute for project history.
 
+When a proposal closes one of `get_context`'s open questions, include the question's `[YYYY-MM-DD HH:MM UTC]` timestamp in `resolves_questions`. The named entries move under `## Resolved` with a back-reference to the new decision on confirm; unknown ids reject at the boundary.
+
 ## After meaningful progress — call update_state
 
 After completing a unit of work (a feature, a refactor, a bug fix that took more than a few changes) the agent calls `update_state(delta)` with a short paragraph describing what was completed. This replaces the project's current state, archiving the prior content to history. The next session's `get_context` call surfaces this update so context flows forward.

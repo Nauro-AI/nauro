@@ -56,12 +56,21 @@ NO_INVENT_RATIONALE = (
     "reasoning that supports it."
 )
 
+RESOLVES_OPEN_QUESTIONS = (
+    "When a proposal closes one of `get_context`'s open questions, include "
+    "the question's `[YYYY-MM-DD HH:MM UTC]` timestamp in "
+    "`resolves_questions`. The named entries move under `## Resolved` with a "
+    "back-reference to the new decision on confirm; unknown ids reject at "
+    "the boundary."
+)
+
 CANONICAL_FRAGMENTS: dict[str, str] = {
     "CHECK_DECISION_RETURNS": CHECK_DECISION_RETURNS,
     "GET_DECISION_BEFORE_PROPOSING": GET_DECISION_BEFORE_PROPOSING,
     "PROPOSE_DECISION_OPERATIONS": PROPOSE_DECISION_OPERATIONS,
     "UPDATE_SUPERSEDE_CARE": UPDATE_SUPERSEDE_CARE,
     "NO_INVENT_RATIONALE": NO_INVENT_RATIONALE,
+    "RESOLVES_OPEN_QUESTIONS": RESOLVES_OPEN_QUESTIONS,
 }
 
 _TOKEN_PREFIX = "<!-- protocol:"
@@ -127,6 +136,7 @@ __all__ = [
     "GET_DECISION_BEFORE_PROPOSING",
     "NO_INVENT_RATIONALE",
     "PROPOSE_DECISION_OPERATIONS",
+    "RESOLVES_OPEN_QUESTIONS",
     "UPDATE_SUPERSEDE_CARE",
     "protocol_tokens_in",
     "substitute_protocol_fragments",

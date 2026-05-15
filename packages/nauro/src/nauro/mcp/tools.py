@@ -130,6 +130,7 @@ def tool_propose_decision(
     decision_type: str | None = None,
     reversibility: str | None = None,
     files_affected: list[str] | None = None,
+    resolves_questions: list[str] | None = None,
     skip_validation: bool = False,
 ) -> dict:
     """Propose a new decision through the validation pipeline."""
@@ -179,6 +180,7 @@ def tool_propose_decision(
         "decision_type": decision_type,
         "reversibility": reversibility,
         "files_affected": files_affected,
+        "resolves_questions": list(resolves_questions) if resolves_questions else [],
         "source": "mcp",
     }
 
@@ -205,6 +207,8 @@ def tool_propose_decision(
         response["decision_id"] = result._decision_id
     if result.confirm_id:
         response["confirm_id"] = result.confirm_id
+    if result.resolved_questions:
+        response["resolved_questions"] = list(result.resolved_questions)
 
     return response
 

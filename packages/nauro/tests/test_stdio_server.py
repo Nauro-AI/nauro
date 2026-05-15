@@ -168,6 +168,69 @@ class TestProposeDecision:
         assert result["status"] in ("confirmed", "pending_confirmation")
 
 
+class TestProposeDecisionResolvesQuestions:
+    """D139 wired through the stdio FastMCP layer.
+
+    Asserts the Annotated[list[str], ...] wrapper forwards the param into
+    tool_propose_decision and the resolved-questions response field is
+    surfaced back to the caller.
+    """
+
+    def _seed_question(self, store: Path) -> str:
+        """Write one question with a deterministic timestamp; return its id."""
+        ts = "2026-05-12 20:18 UTC"
+        (store / "open-questions.md").write_text(
+            f"# Open Questions\n\n- [{ts}] should we ship D139?\n"
+        )
+        return ts
+
+    def test_known_id_moves_to_resolved(self, store: Path):
+        question_id = self._seed_question(store)
+        result = propose_decision(
+            project_id="testproj",
+            title="Ship D139",
+            rationale="Decision that closes the seeded open question.",
+            resolves_questions=[question_id],
+        )
+        assert result["status"] == "confirmed"
+        assert result.get("resolved_questions") == [question_id]
+        oq = (store / "open-questions.md").read_text()
+        open_section = oq.split("## Resolved", 1)[0]
+        assert f"[{question_id}]" not in open_section
+        assert "## Resolved" in oq
+
+    def test_unknown_id_rejects_at_boundary(self, store: Path):
+        self._seed_question(store)
+        result = propose_decision(
+            project_id="testproj",
+            title="Names a bogus id",
+            rationale="Decision that names a question id that doesn't exist.",
+            resolves_questions=["2099-01-01 00:00 UTC"],
+        )
+        assert result["status"] == "rejected"
+        assessment = result["validation"]["assessment"]
+        assert "2099-01-01 00:00 UTC" in assessment
+        assert "resolves_questions" in assessment
+
+    def test_pending_then_confirm_applies_move(self, store: Path):
+        question_id = self._seed_question(store)
+        result = propose_decision(
+            project_id="testproj",
+            title="Closes via pending path",
+            rationale="Routes through skip_validation→confirm to exercise pending storage.",
+            resolves_questions=[question_id],
+            skip_validation=True,
+        )
+        assert result["status"] == "pending_confirmation"
+        cid = result["confirm_id"]
+        # Question not yet moved.
+        assert "## Resolved" not in (store / "open-questions.md").read_text()
+        confirmed = confirm_decision(confirm_id=cid, project_id="testproj")
+        assert confirmed["status"] == "confirmed"
+        assert confirmed.get("resolved_questions") == [question_id]
+        assert "## Resolved" in (store / "open-questions.md").read_text()
+
+
 class TestWelcomeDisambiguation:
     """D136: WELCOME_NO_PROJECT is reserved for the genuinely-no-project
     case. Specific failures (bogus project_id, missing store on disk,
