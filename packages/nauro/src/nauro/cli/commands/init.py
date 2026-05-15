@@ -139,6 +139,18 @@ def init(
     is provided, the repos are appended to the existing local-mode entry.
     Cloud-mode entries cannot be extended this way — use ``nauro attach``.
     """
+    # D140: --demo seeds 7 pre-written decisions directly to disk (D91); the
+    # --cloud path goes through propose_decision/confirm_decision, which has
+    # no batch-seed bypass. Reject the combination at command entry rather
+    # than silently dropping --demo inside the --cloud branch.
+    if demo and cloud:
+        raise typer.BadParameter(
+            "Cannot combine --demo with --cloud — the demo fixture seeds "
+            "locally only. Use `nauro init <name> --demo` for a local demo, "
+            "or `nauro init <name> --cloud` for an empty cloud project.",
+            param_hint="--demo / --cloud",
+        )
+
     repo_paths = add_repo_paths if add_repo_paths else [Path.cwd()]
 
     # ── --add-repo against an existing project ──────────────────────────────

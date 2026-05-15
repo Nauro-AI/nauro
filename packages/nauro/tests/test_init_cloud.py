@@ -125,6 +125,67 @@ def test_init_cloud_renders_server_error(tmp_path, monkeypatch):
     assert registry.find_projects_by_name_v2("cloudproj") == []
 
 
+# ── D140: --demo + --cloud rejection ─────────────────────────────────────────
+
+
+def _strip_ansi(text: str) -> str:
+    """Strip ANSI CSI escape sequences (``\\x1b[…m``) without regex.
+
+    Typer renders BadParameter through Rich, which injects style escapes
+    around every flag token when the runner detects a colour-capable
+    terminal (CI runners with FORCE_COLOR=1, GH Actions, etc.). The escapes
+    split substrings like ``--demo`` into ``-\\x1b[0m-demo``, so a literal
+    ``"--demo" in output`` check fails on those runners. Stripping here
+    keeps the substring check colour-environment-independent.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "\x1b" and i + 1 < n and text[i + 1] == "[":
+            i += 2
+            while i < n and text[i] != "m":
+                i += 1
+            i += 1
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+def test_init_demo_plus_cloud_rejects_at_entry(tmp_path, monkeypatch):
+    """`nauro init --demo --cloud` must reject before any state is written.
+
+    Pre-D140 this silently dropped `--demo` inside the `--cloud` branch.
+    The combined invocation now exits 2 (Typer's BadParameter contract) with
+    a message naming both single-flag forms; no project is registered, no
+    network call is made, no `.nauro/config.json` is dropped in the cwd.
+    Pinning to exit code 2 instead of != 0 ensures an unrelated crash on the
+    same input would surface as a test failure rather than masquerading as
+    the intended rejection.
+    """
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("rejection must happen before any cloud call")
+
+    with patch.object(cloud_projects.httpx, "request", side_effect=explode):
+        result = runner.invoke(app, ["init", "--demo", "--cloud", "rejectproj"])
+
+    assert result.exit_code == 2, (
+        f"expected Typer BadParameter (exit 2), got exit={result.exit_code}; "
+        f"output={result.output!r}; exception={result.exception!r}"
+    )
+    raw_output = (result.output or "") + (str(result.exception) if result.exception else "")
+    combined_output = _strip_ansi(raw_output)
+    assert "--demo" in combined_output and "--cloud" in combined_output, (
+        f"expected both flag names in stripped output; got: {combined_output!r}"
+    )
+    assert registry.find_projects_by_name_v2("rejectproj") == []
+    assert not (tmp_path / ".nauro" / "config.json").exists()
+
+
 # ── add-repo against cloud-mode project ───────────────────────────────────────
 
 
