@@ -12,6 +12,7 @@ templating is gone; the one source of truth for the on-disk format is
 import json
 import re
 from collections.abc import Sequence
+from datetime import date as _date
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from nauro_core.decision_model import (
     Reversibility,
     format_decision,
 )
+from nauro_core.questions import OpenQuestionsFile, ResolveResult
 from nauro_core.state import migrate_legacy_state, prepare_state_update
 
 from nauro.constants import (
@@ -274,6 +276,28 @@ def append_question(store_path: Path, question: str) -> None:
 
     lines.insert(insert_idx, entry.rstrip())
     oq_path.write_text("\n".join(lines))
+
+
+def resolve_questions_in_file(
+    store_path: Path,
+    ids: list[str],
+    decision_num: int,
+    decision_date: _date,
+) -> ResolveResult:
+    """Move named open questions under ``## Resolved`` in open-questions.md.
+
+    Returns the :class:`~nauro_core.questions.ResolveResult` for caller-side
+    response shaping. Empty ``ids`` is a no-op; the file is not read or
+    rewritten.
+    """
+    if not ids:
+        return ResolveResult(file=OpenQuestionsFile(), moved_ids=(), unknown_ids=())
+    oq_path = store_path / OPEN_QUESTIONS_MD
+    content = oq_path.read_text() if oq_path.exists() else ""
+    file = OpenQuestionsFile.parse(content)
+    result = file.resolve(ids, decision_num, decision_date)
+    oq_path.write_text(result.file.format())
+    return result
 
 
 def update_state(store_path: Path, delta: str) -> None:

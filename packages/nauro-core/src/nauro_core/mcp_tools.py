@@ -396,6 +396,21 @@ PROPOSE_DECISION: ToolSpec = {
                     "for future reviewers."
                 ),
             },
+            "resolves_questions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Optional list of open-question timestamp ids (the "
+                    "'YYYY-MM-DD HH:MM UTC' inside each question's "
+                    "'- [timestamp]' prefix in open-questions.md) that this "
+                    "decision resolves. On confirm, the named questions are "
+                    "moved under a '## Resolved' subsection with a back-ref "
+                    "to this decision. Unknown ids are rejected at the "
+                    "boundary; ids already under '## Resolved' are a no-op. "
+                    "Call get_context (L0 surfaces the open questions) to "
+                    "discover the ids."
+                ),
+            },
             "skip_validation": {
                 "type": "boolean",
                 "default": False,
