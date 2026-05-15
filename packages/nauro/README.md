@@ -14,19 +14,36 @@ Requires Python 3.10+.
 
 ## Quickstart
 
+Watch Nauro catch a conflict in 30 seconds — no account, no MCP wiring, no restart:
+
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
 nauro init --demo
-nauro setup claude-code   # writes the MCP entry to <repo>/.mcp.json
+nauro check "Add a WebSocket endpoint for live task updates"
 ```
 
-Open Claude Code and ask:
+You'll see:
 
-> "Check if we should add a WebSocket endpoint for live task updates"
+```
+store:    local
+project:  demo-project
+approach: Add a WebSocket endpoint for live task updates
 
-The demo creates a sample project with 7 decisions, project state, and open questions. `check_decision` surfaces a conflict: the team already chose SSE over WebSocket because persistent connections weren't released during ECS rolling deploys. No account needed.
+Related decisions (5):
+  004-sse-over-websocket  SSE over WebSocket for live task updates  (score 5.0, status active, decided 2026-03-15)
+  002-rest-api-over-graphql  REST API over GraphQL for simplicity  (score 2.4, status active, decided 2026-03-15)
+  006-cursor-based-pagination  Cursor-based pagination, not offset  (score 1.3, status active, decided 2026-03-15)
+  003-monorepo-with-turborepo  Monorepo with Turborepo over polyrepo  (score 1.0, status active, decided 2026-03-15)
+  007-hard-delete-with-audit-log  Hard delete with audit log, no soft deletes  (score 0.5, status active, decided 2026-03-15)
 
-For real-project setup, cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme).
+Found 5 related decisions. Top match: D004 "SSE over WebSocket for live task updates" (status active, decided 2026-03-15, BM25 5.0). Call get_decision on each related decision before proposing.
+
+For full rationale, read decision files in ~/.nauro/projects/<project-id>/decisions/, or call the get_decision MCP tool after `nauro setup` + restart.
+```
+
+The demo project ruled out WebSocket because persistent connections weren't released during ECS rolling deploys. Without Nauro, any new agent would happily re-propose it.
+
+For real-project setup (`nauro init` / `nauro adopt`), cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme). Don't run `nauro setup` from `/tmp/nauro-demo` — that would wire the throwaway demo into your MCP client.
 
 ## Why Nauro?
 

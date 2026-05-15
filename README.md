@@ -2,13 +2,76 @@
 
 Set the doctrine once. Every agent inherits it.
 
-Nauro is an open-source system that gives AI agents persistent project context across tools and sessions.
+Nauro is an open-source system that gives AI agents persistent project context across Claude, Perplexity, Cursor, Codex, and any MCP client. It captures decisions, rejected options, rationale, and constraints, then checks every new proposal against that record — so agents stop re-suggesting approaches you already ruled out.
 
-It captures a project's decisions, rejected options, rationale, constraints, current state, and open questions, then makes that context available across Claude, Perplexity, Cursor, Codex, and any MCP client.
+## Install
 
-Nauro is designed for individuals and teams using multiple agents across coding, research, planning, documentation, and product work.
+```bash
+pipx install nauro   # or: pip install nauro
+```
 
-When an agent proposes work that conflicts with a recorded decision, Nauro surfaces the conflict in the session, before it ships.
+Requires Python 3.10+.
+
+## Quickstart
+
+Watch Nauro catch a conflict in 30 seconds — no account, no MCP wiring, no restart:
+
+```bash
+mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
+nauro init --demo
+nauro check "Add a WebSocket endpoint for live task updates"
+```
+
+`nauro init --demo` seeds a sample project with 7 architectural decisions. `nauro check` runs the same conflict-detection logic the MCP `check_decision` tool uses, against your local store. You'll see:
+
+```
+store:    local
+project:  demo-project
+approach: Add a WebSocket endpoint for live task updates
+
+Related decisions (5):
+  004-sse-over-websocket  SSE over WebSocket for live task updates  (score 5.0, status active, decided 2026-03-15)
+  002-rest-api-over-graphql  REST API over GraphQL for simplicity  (score 2.4, status active, decided 2026-03-15)
+  006-cursor-based-pagination  Cursor-based pagination, not offset  (score 1.3, status active, decided 2026-03-15)
+  003-monorepo-with-turborepo  Monorepo with Turborepo over polyrepo  (score 1.0, status active, decided 2026-03-15)
+  007-hard-delete-with-audit-log  Hard delete with audit log, no soft deletes  (score 0.5, status active, decided 2026-03-15)
+
+Found 5 related decisions. Top match: D004 "SSE over WebSocket for live task updates" (status active, decided 2026-03-15, BM25 5.0). Call get_decision on each related decision before proposing.
+
+For full rationale, read decision files in ~/.nauro/projects/<project-id>/decisions/, or call the get_decision MCP tool after `nauro setup` + restart.
+```
+
+The team already chose SSE over WebSocket because persistent WebSocket connections weren't released during ECS rolling deploys. Without Nauro, any new agent would happily re-propose WebSocket and waste a session debating it.
+
+That's the demo. To set up Nauro against your actual project, see [Set up Nauro for your project](#set-up-nauro-for-your-project) below — don't run `nauro setup` from `/tmp/nauro-demo` or you'll wire the throwaway demo into your real MCP client.
+
+## For your AI agent
+
+If a user said "set up Nauro" or "show me a demo," pick the matching path:
+
+### "Show me a demo" — current session, no restart
+
+```bash
+pipx install nauro
+mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
+nauro init --demo
+nauro check "Add a WebSocket endpoint for live task updates"
+```
+
+`nauro check` is the L1 surface: same retrieval the MCP `check_decision` tool uses, runnable from your current shell with no MCP wiring required. Surface D004 (SSE over WebSocket) to the user and explain it was chosen because persistent WebSocket connections weren't released during ECS rolling deploys. If the user then wants Nauro wired against their actual project (not the throwaway demo), continue to the "Set up Nauro for my project" path below.
+
+### "Set up Nauro for my project" — existing repo with code
+
+```bash
+pipx install nauro
+nauro adopt
+```
+
+`nauro adopt` registers the project, wires MCP across installed agents (Claude Code, Cursor, Codex), and installs a `/nauro-adopt` skill. Tell the user: "Restart your agent and invoke `/nauro-adopt` — I'll read your existing docs and seed Nauro's decision log."
+
+### Chat surfaces (Claude.ai, ChatGPT, Perplexity) — no shell
+
+Have the user run `nauro adopt` from a local terminal first, then point the chat agent at [`docs/adopt-prompt.md`](docs/adopt-prompt.md).
 
 ## Why Nauro
 
@@ -22,46 +85,29 @@ The context resets. The drift does not.
 
 Nauro gives agents a shared project record, then checks new proposals against the decisions already on file.
 
-## Install
+## Set up Nauro for your project
 
-```bash
-pipx install nauro   # or: pip install nauro
-```
+Pick one path based on what you're starting from.
 
-Requires Python 3.10+.
-
-## Quickstart
-
-Try the demo locally in 2 minutes — no account needed.
-
-1. Set up a sandbox: `mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo` (keeps the demo isolated from any existing project's `.nauro/config.json`).
-2. `nauro init --demo` — scaffold a sample project with 7 decisions, project state, and open questions.
-3. `nauro setup claude-code` — write the MCP entry to `<repo>/.mcp.json`.
-4. Open Claude Code and ask: *"Check if we should add a WebSocket endpoint for live task updates"*
-
-`check_decision` surfaces a conflict: the team already chose SSE over WebSocket because persistent connections weren't released during ECS rolling deploys.
-
-## Use with your project
+**New project — empty or near-empty repo, you'll capture decisions as you make them:**
 
 ```bash
 nauro init my-project
 nauro note "All processing stays in the request path, no background workers. Async queue added 3 failure modes we couldn't monitor in v1"
-nauro setup claude-code
+nauro setup claude-code   # or: nauro setup all
 ```
 
-`nauro init` writes a small `.nauro/config.json` into your repo (commit it — it links the repo to the project so any `nauro` command you run from inside this repo knows which project to use). To start with cloud sync from day one, use `nauro init --cloud my-project` instead.
+`nauro init` writes a small `.nauro/config.json` into your repo (commit it — it links the repo to the project so any `nauro` command run from inside the repo knows which project to use). To start with cloud sync from day one, use `nauro init --cloud my-project`.
 
-Agents propose decisions directly through MCP during sessions. When a proposal overlaps with existing decisions, you confirm before it's written.
-
-## Adopt an existing repo
-
-For a repo that already has docs — README, ADRs, Memory-Bank files, manifests:
+**Existing repo — already has docs (README, ADRs, Memory-Bank files, manifests) you want to seed Nauro from:**
 
 ```bash
 nauro adopt
 ```
 
-Run from the repo root. `nauro adopt` creates the project, wires MCP across your installed agents (Claude Code, Cursor, Codex), and drops a portable skill into your agent. Invoke `/nauro-adopt` in any connected agent and it reads your existing docs, surfaces decision candidates for you to keep or skip, then seeds the store one decision at a time. The agent does the reading — no API key required server-side.
+`nauro adopt` runs the full setup (project registration, MCP wiring across surfaces, skill installation) in one shot. After it finishes, restart your agent and invoke `/nauro-adopt` — the agent reads your existing docs, surfaces decision candidates for you to keep or skip, then seeds the store one decision at a time. The agent does the reading; no API key required server-side.
+
+Either path: agents propose decisions through MCP during sessions. When a proposal overlaps with existing decisions, you confirm before it's written.
 
 ## Use across surfaces
 
@@ -111,18 +157,6 @@ Nauro is decisional, not observational. Memory tools preserve conversation histo
 
 The `check_decision` → `propose_decision` → `confirm_decision` pipeline surfaces conflicts for you to confirm before they're written, across any connected surface. A decision recorded from one connected tool surfaces in every other one. Your decisions stay yours, not your platform's.
 
-## Your data
-
-**Local usage (free tier):** Everything runs on your machine. The store lives under `~/.nauro/` and never leaves the device unless you turn on cloud sync.
-
-**Cloud sync:** Project context (decisions, state, open questions — not source code) is stored encrypted in AWS S3 (SSE-S3). Each user's data is isolated under a unique prefix.
-
-**Remote MCP:** When connected, your project context is read from S3 and delivered to the AI tool. The AI tool's own data policies apply after delivery.
-
-## Pricing
-
-Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. A typical agent session uses 10–30 calls, so the free tier covers roughly 200+ sessions a month. See [nauro.ai/pricing](https://nauro.ai/pricing) for hosted tiers.
-
 ## MCP tools
 
 12 tools (8 read, 4 write) exposed to any connected MCP client:
@@ -135,12 +169,26 @@ Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. A
 - `search_decisions` — keyword search across decision titles and rationale (BM25)
 - `get_raw_file` — raw markdown content of any store file
 - `diff_since_last_session` — what changed since your last session (or N days ago)
-- `list_projects` — list projects you have access to (only needed when you have multiple — single-project users auto-resolve)
+- `list_projects` — list projects you have access to (remote-only; single-project users auto-resolve)
 
 **Write:**
 - `propose_decision` / `confirm_decision` — write decisions with conflict validation
 - `flag_question` — flag an unresolved question
 - `update_state` — report progress
+
+`nauro check "<approach>"` runs `check_decision` from the shell — useful for in-session demos and scripted conflict checks without MCP wiring.
+
+## Your data
+
+**Local usage (free tier):** Everything runs on your machine. The store lives under `~/.nauro/` and never leaves the device unless you turn on cloud sync.
+
+**Cloud sync:** Project context (decisions, state, open questions — not source code) is stored encrypted in AWS S3 (SSE-S3). Each user's data is isolated under a unique prefix.
+
+**Remote MCP:** When connected, your project context is read from S3 and delivered to the AI tool. The AI tool's own data policies apply after delivery.
+
+## Pricing
+
+Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. A typical agent session uses 10–30 calls, so the free tier covers roughly 200+ sessions a month. See [nauro.ai/pricing](https://nauro.ai/pricing) for hosted tiers.
 
 ## Contributing
 
