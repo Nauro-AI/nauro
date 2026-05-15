@@ -184,7 +184,7 @@ def test_init_cli(tmp_path, monkeypatch):
     assert "Initialized project 'myproject'" in result.output
     assert "Store:" in result.output
     pid, _entry = _v2_entry_for_name("myproject")
-    store = tmp_path / "nauro_home" / "projects" / pid
+    store = tmp_path / "projects" / pid
     assert (store / "project.md").exists()
 
 
@@ -307,7 +307,7 @@ def test_init_cli_add_repo_to_existing(tmp_path, monkeypatch):
     paths = entry["repo_paths"]
     assert str(repo2.resolve()) in paths
     # v2 registry shape
-    raw = json.loads((tmp_path / "nauro_home" / "registry.json").read_text())
+    raw = json.loads((tmp_path / "registry.json").read_text())
     assert raw["schema_version"] == 2
     assert pid in raw["projects"]
 

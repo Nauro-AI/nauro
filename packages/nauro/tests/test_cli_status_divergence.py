@@ -13,7 +13,6 @@ runner = CliRunner()
 
 
 def _setup_project(tmp_path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("testproj", [tmp_path])
     scaffold_project_store("testproj", store)
     monkeypatch.chdir(tmp_path)

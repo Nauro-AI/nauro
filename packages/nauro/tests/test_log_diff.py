@@ -205,7 +205,6 @@ class TestDiffSinceLastSession:
 
 class TestLogCommand:
     def test_log_shows_snapshots(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -223,7 +222,6 @@ class TestLogCommand:
         assert "second sync" in result.output
 
     def test_log_limit(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -240,7 +238,6 @@ class TestLogCommand:
         assert "v001" not in result.output
 
     def test_log_full(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -257,7 +254,6 @@ class TestLogCommand:
         assert "decisions/" in result.output
 
     def test_log_no_snapshots(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -269,7 +265,6 @@ class TestLogCommand:
         assert "No snapshots" in result.output
 
     def test_log_no_project(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         monkeypatch.chdir(tmp_path)
 
         result = runner.invoke(app, ["log"])
@@ -283,7 +278,6 @@ class TestLogCommand:
 class TestDiffCommand:
     def test_diff_no_args(self, tmp_path: Path, monkeypatch):
         """nauro diff — diff since last session."""
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -301,7 +295,6 @@ class TestDiffCommand:
 
     def test_diff_one_version(self, tmp_path: Path, monkeypatch):
         """nauro diff <version> — diff that version against latest."""
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -321,7 +314,6 @@ class TestDiffCommand:
 
     def test_diff_two_versions(self, tmp_path: Path, monkeypatch):
         """nauro diff <a> <b> — diff between two specific versions."""
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -343,7 +335,6 @@ class TestDiffCommand:
 
     def test_diff_invalid_version(self, tmp_path: Path, monkeypatch):
         """nauro diff with invalid version shows error."""
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -356,7 +347,6 @@ class TestDiffCommand:
         assert result.exit_code == 1
 
     def test_diff_no_project(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         monkeypatch.chdir(tmp_path)
 
         result = runner.invoke(app, ["diff"])
@@ -365,7 +355,6 @@ class TestDiffCommand:
 
     def test_diff_not_enough_snapshots(self, tmp_path: Path, monkeypatch):
         """nauro diff with < 2 snapshots shows helpful message."""
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -378,7 +367,6 @@ class TestDiffCommand:
 
     def test_diff_same_version(self, tmp_path: Path, monkeypatch):
         """nauro diff <latest> shows message that it's already latest."""
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -508,7 +496,6 @@ class TestDiffSinceLastSessionTimeBased:
 
 class TestDiffSinceFlag:
     def test_since_7d(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -526,7 +513,6 @@ class TestDiffSinceFlag:
         assert "v002" in result.output
 
     def test_since_plain_number(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -543,7 +529,6 @@ class TestDiffSinceFlag:
         assert "v001" in result.output
 
     def test_since_invalid_value(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])

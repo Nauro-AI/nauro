@@ -57,7 +57,7 @@ def test_init_local_no_network(tmp_path, monkeypatch):
     assert cfg["mode"] == "local"
     assert cfg["id"] == pid
     assert cfg["name"] == "localproj"
-    assert (tmp_path / "nauro_home" / "projects" / pid / "project.md").exists()
+    assert (tmp_path / "projects" / pid / "project.md").exists()
 
 
 # ── cloud mode ────────────────────────────────────────────────────────────────
@@ -99,7 +99,7 @@ def test_init_cloud_uses_server_minted_id(tmp_path, monkeypatch):
     cfg = load_repo_config(tmp_path)
     assert cfg["mode"] == "cloud"
     assert cfg["id"] == server_id
-    assert (tmp_path / "nauro_home" / "projects" / server_id / "project.md").exists()
+    assert (tmp_path / "projects" / server_id / "project.md").exists()
 
 
 def test_init_cloud_renders_server_error(tmp_path, monkeypatch):

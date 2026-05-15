@@ -17,7 +17,6 @@ from nauro.templates.scaffolds import scaffold_project_store
 
 @pytest.fixture()
 def project_store(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("testproj", [tmp_path])
     scaffold_project_store("testproj", store)
     return store

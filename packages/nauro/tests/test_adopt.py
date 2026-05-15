@@ -16,7 +16,6 @@ runner = CliRunner()
 
 def _adopt_env(monkeypatch, tmp_path: Path) -> Path:
     """Set up an isolated NAURO_HOME + HOME for adopt tests."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))  # diverts ~/.claude, ~/.codex, ~/.agents
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -67,7 +66,6 @@ def test_adopt_aborts_when_repo_already_adopted(tmp_path: Path, monkeypatch):
 
 def test_adopt_aborts_on_same_name_collision(tmp_path: Path, monkeypatch):
     """Pre-check fires when the v2 registry has a same-name project at a different repo."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     other_repo = tmp_path / "other-repo"
     other_repo.mkdir()
@@ -87,7 +85,6 @@ def test_adopt_aborts_on_same_name_collision(tmp_path: Path, monkeypatch):
 
 def test_collision_message_picks_first_repo_deterministically(tmp_path: Path, monkeypatch):
     """When the colliding project has multiple registered repos, the surfaced path is stable."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo_a = tmp_path / "repo-a"
     repo_b = tmp_path / "repo-b"
@@ -110,7 +107,6 @@ def test_collision_message_picks_first_repo_deterministically(tmp_path: Path, mo
 
 
 def test_adopt_print_prompt_outputs_canonical_body(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["adopt", "--print-prompt"])
@@ -120,7 +116,6 @@ def test_adopt_print_prompt_outputs_canonical_body(tmp_path: Path, monkeypatch):
 
 
 def test_adopt_print_prompt_conflicts_with_other_flags(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["adopt", "--print-prompt", "--name", "x"])
@@ -160,7 +155,6 @@ def test_adopt_materializes_skills_across_surfaces(tmp_path: Path, monkeypatch):
 
 
 def test_adopt_aborts_on_nonexistent_repo(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
 
     result = runner.invoke(app, ["adopt", "--repo", str(tmp_path / "missing")])
     assert result.exit_code != 0

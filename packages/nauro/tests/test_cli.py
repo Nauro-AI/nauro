@@ -23,7 +23,6 @@ def test_init_command(tmp_path: Path, monkeypatch):
     """nauro init should create an id-keyed project store."""
     from nauro.store.registry import find_projects_by_name_v2
 
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["init", "testproj"])
@@ -40,7 +39,6 @@ def test_init_command(tmp_path: Path, monkeypatch):
 
 def test_note_command(tmp_path: Path, monkeypatch):
     """nauro note should accept a message."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
@@ -54,7 +52,6 @@ def test_note_command(tmp_path: Path, monkeypatch):
 
 def test_sync_command(tmp_path: Path, monkeypatch):
     """nauro sync should capture a snapshot."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
@@ -66,7 +63,6 @@ def test_sync_command(tmp_path: Path, monkeypatch):
 
 def test_log_command(tmp_path: Path, monkeypatch):
     """nauro log should list snapshots."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
@@ -83,7 +79,6 @@ def test_log_command(tmp_path: Path, monkeypatch):
 
 def test_note_with_project_flag_overrides_cwd(tmp_path: Path, monkeypatch):
     """--project flag should resolve the named project regardless of cwd."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     # Register two projects
     store_a = register_project("alpha", [tmp_path / "repo_a"])
     store_b = register_project("beta", [tmp_path / "repo_b"])
@@ -110,7 +105,6 @@ def test_note_with_project_flag_overrides_cwd(tmp_path: Path, monkeypatch):
 
 def test_project_flag_unknown_name_gives_error(tmp_path: Path, monkeypatch):
     """--project with an unknown name should error and list available projects."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("realproj", [tmp_path])
     scaffold_project_store("realproj", store)
     monkeypatch.chdir(tmp_path)
@@ -123,7 +117,6 @@ def test_project_flag_unknown_name_gives_error(tmp_path: Path, monkeypatch):
 
 def test_no_project_flag_no_cwd_match_gives_error(tmp_path: Path, monkeypatch):
     """Missing --project and no cwd match should error with available projects."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("faraway", [tmp_path / "elsewhere"])
     scaffold_project_store("faraway", store)
 
@@ -141,7 +134,6 @@ def test_no_project_flag_no_cwd_match_gives_error(tmp_path: Path, monkeypatch):
 
 def test_no_cwd_match_suggests_project_by_dirname(tmp_path: Path, monkeypatch):
     """When cwd dirname matches a project name, suggest adding the repo path."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     old_repo = tmp_path / "old_location" / "myapp"
     old_repo.mkdir(parents=True)
     store = register_project("myapp", [old_repo])
@@ -160,7 +152,6 @@ def test_no_cwd_match_suggests_project_by_dirname(tmp_path: Path, monkeypatch):
 
 def test_sync_with_project_flag(tmp_path: Path, monkeypatch):
     """nauro sync --project should target the named project."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path / "repo"])
     scaffold_project_store("myproj", store)
 
@@ -176,7 +167,6 @@ def test_sync_with_project_flag(tmp_path: Path, monkeypatch):
 
 def test_log_with_project_flag(tmp_path: Path, monkeypatch):
     """nauro log --project should target the named project."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path / "repo"])
     scaffold_project_store("myproj", store)
     capture_snapshot(store, trigger="test")
@@ -192,7 +182,6 @@ def test_log_with_project_flag(tmp_path: Path, monkeypatch):
 
 def test_get_project_returns_entry(tmp_path: Path, monkeypatch):
     """get_project should return the entry dict for a known project."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     register_project("proj", [tmp_path / "repo"])
     entry = get_project("proj")
     assert entry is not None
@@ -201,5 +190,4 @@ def test_get_project_returns_entry(tmp_path: Path, monkeypatch):
 
 def test_get_project_returns_none_for_unknown(tmp_path: Path, monkeypatch):
     """get_project should return None for unknown projects."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     assert get_project("nonexistent") is None

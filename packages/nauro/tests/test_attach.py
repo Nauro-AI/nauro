@@ -24,7 +24,6 @@ EXAMPLE_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 
 
 def _seed_token(monkeypatch, tmp_path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     save_config({"auth": {"access_token": "test-token", "sub": "auth0|test"}})
 
 
@@ -67,7 +66,7 @@ def test_attach_happy_path(tmp_path, monkeypatch):
     assert cfg["id"] == EXAMPLE_PID
     assert cfg["name"] == "team-proj"
 
-    store_path = tmp_path / "nauro_home" / "projects" / EXAMPLE_PID
+    store_path = tmp_path / "projects" / EXAMPLE_PID
     assert store_path.is_dir()
 
 
@@ -86,4 +85,4 @@ def test_attach_non_member_writes_nothing(tmp_path, monkeypatch):
     assert "not found among your cloud projects" in result.output
     assert registry.get_project_v2(EXAMPLE_PID) is None
     assert not (tmp_path / ".nauro" / "config.json").exists()
-    assert not (tmp_path / "nauro_home" / "projects" / EXAMPLE_PID).exists()
+    assert not (tmp_path / "projects" / EXAMPLE_PID).exists()

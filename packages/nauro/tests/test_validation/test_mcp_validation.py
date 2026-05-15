@@ -19,7 +19,6 @@ def store(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch, store) -> AsyncClient:
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     transport = ASGITransport(app=app)
     return AsyncClient(transport=transport, base_url="http://test")
 

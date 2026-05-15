@@ -30,13 +30,11 @@ runner = CliRunner()
 
 def _post_migration_state(tmp_path, monkeypatch):
     """Simulate the post-manual-migration state: v2 registry + cloud repo config."""
-    nauro_home = tmp_path / "nauro_home"
-    nauro_home.mkdir()
     cloud_pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
     repo_root = tmp_path / "cloud_repo"
     repo_root.mkdir()
-    (nauro_home / "projects" / cloud_pid).mkdir(parents=True)
-    (nauro_home / REGISTRY_FILENAME).write_text(
+    (tmp_path / "projects" / cloud_pid).mkdir(parents=True)
+    (tmp_path / REGISTRY_FILENAME).write_text(
         json.dumps(
             {
                 "schema_version": REGISTRY_SCHEMA_VERSION_V2,
@@ -72,7 +70,7 @@ def test_repo_config_resolves_to_id_keyed_store(tmp_path, monkeypatch):
     monkeypatch.chdir(repo_root)
     name, store = resolve_target_project(None)
     assert name == "nauro"
-    assert store == tmp_path / "nauro_home" / "projects" / cloud_pid
+    assert store == tmp_path / "projects" / cloud_pid
 
 
 def test_resolution_walks_up_from_nested_dir(tmp_path, monkeypatch):
@@ -81,7 +79,7 @@ def test_resolution_walks_up_from_nested_dir(tmp_path, monkeypatch):
     nested.mkdir(parents=True)
     monkeypatch.chdir(nested)
     _name, store = resolve_target_project(None)
-    assert store == tmp_path / "nauro_home" / "projects" / cloud_pid
+    assert store == tmp_path / "projects" / cloud_pid
 
 
 def test_explicit_project_flag_overrides_repo_config(tmp_path, monkeypatch):
@@ -99,7 +97,7 @@ def test_explicit_project_flag_overrides_repo_config(tmp_path, monkeypatch):
     monkeypatch.chdir(repo_root)
     name, store = resolve_target_project("beta")
     assert name == "beta"
-    assert store == tmp_path / "nauro_home" / "projects" / other_pid
+    assert store == tmp_path / "projects" / other_pid
 
 
 # ── stdio _resolve_store mirrors the same precedence ─────────────────────────
@@ -109,7 +107,7 @@ def test_stdio_resolve_uses_repo_config_when_no_project_passed(tmp_path, monkeyp
     cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
     monkeypatch.chdir(repo_root)
     store = _resolve_store(None, None)
-    assert store == tmp_path / "nauro_home" / "projects" / cloud_pid
+    assert store == tmp_path / "projects" / cloud_pid
 
 
 def test_stdio_resolve_mismatched_project_id_errors(tmp_path, monkeypatch):
@@ -135,7 +133,7 @@ def test_stdio_resolve_explicit_id_matching_config(tmp_path, monkeypatch):
     cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
     monkeypatch.chdir(repo_root)
     store = _resolve_store(cloud_pid, str(repo_root))
-    assert store == tmp_path / "nauro_home" / "projects" / cloud_pid
+    assert store == tmp_path / "projects" / cloud_pid
 
 
 # ── integration: two projects coexist post-migration ─────────────────────────
@@ -159,12 +157,12 @@ def test_two_projects_each_resolve_to_own_store(tmp_path, monkeypatch):
     # cwd in cloud repo → cloud store
     monkeypatch.chdir(cloud_repo)
     _, store = resolve_target_project(None)
-    assert store == tmp_path / "nauro_home" / "projects" / cloud_pid
+    assert store == tmp_path / "projects" / cloud_pid
 
     # cwd in other repo → side store
     monkeypatch.chdir(other)
     _, store = resolve_target_project(None)
-    assert store == tmp_path / "nauro_home" / "projects" / side_pid
+    assert store == tmp_path / "projects" / side_pid
 
     # Cloud-mode config not corrupted by the new local-mode init in a different dir
     cfg = load_repo_config(cloud_repo)
