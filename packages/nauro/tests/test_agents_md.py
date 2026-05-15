@@ -5,7 +5,12 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.templates.agents_md import generate_agents_md, parse_manual_section
+from nauro.templates.agents_md import (
+    READ_TOOL_ROWS,
+    WRITE_TOOL_ROWS,
+    generate_agents_md,
+    parse_manual_section,
+)
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -36,6 +41,32 @@ def test_generate_includes_behavioral_instructions():
     assert "Propose a decision" in result
     assert "Flag a question" in result
     assert "Update state" in result
+
+
+def test_check_decision_categorized_as_read_tool():
+    """check_decision is a read-only tool — it must not appear under Write tools.
+
+    Guards the categorization fix landed alongside the stale-setup-docs PR.
+    """
+    result = generate_agents_md("myproj", "payload")
+    read_idx = result.index("**Read tools")
+    write_idx = result.index("**Write tools")
+    behavioral_idx = result.index("### When to use these tools")
+    read_block = result[read_idx:write_idx]
+    write_block = result[write_idx:behavioral_idx]
+    assert "check_decision" in read_block
+    assert "check_decision(" not in write_block
+
+
+def test_tool_counts_derived_from_row_catalogs():
+    """Section counts must always match list lengths — no hardcoded numbers."""
+    result = generate_agents_md("myproj", "payload")
+    read_count = len(READ_TOOL_ROWS)
+    write_count = len(WRITE_TOOL_ROWS)
+    total = read_count + write_count
+    assert f"these {total} tools are available" in result
+    assert f"**Read tools ({read_count}):**" in result
+    assert f"**Write tools ({write_count}):**" in result
 
 
 def test_generate_with_manual_section():

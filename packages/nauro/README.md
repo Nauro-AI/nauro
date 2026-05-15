@@ -16,7 +16,7 @@ Requires Python 3.10+.
 
 ```bash
 nauro init --demo
-nauro setup claude-code   # writes the MCP entry to ~/.claude/settings.json
+nauro setup claude-code   # writes the MCP entry to <repo>/.mcp.json
 ```
 
 Open Claude Code and ask:
