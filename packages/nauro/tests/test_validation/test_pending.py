@@ -2,8 +2,6 @@
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from nauro.validation.pending import (
     _store,
     clear_all,
@@ -12,13 +10,6 @@ from nauro.validation.pending import (
     remove_pending,
     store_pending,
 )
-
-
-@pytest.fixture(autouse=True)
-def _clean():
-    clear_all()
-    yield
-    clear_all()
 
 
 def test_store_and_retrieve():

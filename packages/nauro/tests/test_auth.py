@@ -19,10 +19,6 @@ from nauro.store.config import load_config, save_config
 runner = CliRunner()
 
 
-def _patch_home(monkeypatch, tmp_path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
-
-
 def _make_jwt(payload: dict) -> str:
     """Build a fake JWT (header.payload.signature) with the given payload."""
     header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=").decode()
@@ -118,7 +114,6 @@ def _simulate_callback_error(error: str = "access_denied"):
 
 class TestAuthLogin:
     def test_login_success(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
         monkeypatch.setenv("NAURO_API_URL", "https://test.api.example.com")
 
         fake_token = _make_jwt({"sub": "auth0|user123"})
@@ -177,7 +172,6 @@ class TestAuthLogin:
         assert config["auth"]["refresh_token"] == "refresh_xyz"
 
     def test_login_callback_error(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
 
         def fake_server_init(self, addr, handler_class):
             pass
@@ -212,7 +206,6 @@ class TestAuthLogin:
         assert "access_denied" in result.output
 
     def test_login_timeout(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
 
         def fake_server_init(self, addr, handler_class):
             pass
@@ -249,7 +242,6 @@ class TestAuthLogin:
         assert "timed out" in result.output
 
     def test_login_token_exchange_failure(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
 
         def fake_post(url, **kwargs):
             raise httpx.HTTPStatusError(
@@ -299,7 +291,6 @@ class TestAuthLogin:
 
 class TestAuthStatus:
     def test_status_authenticated(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
         save_config(
             {
                 "auth": {
@@ -317,13 +308,11 @@ class TestAuthStatus:
         assert "yes" in result.output  # refresh token present
 
     def test_status_not_authenticated(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
         result = runner.invoke(app, ["auth", "status"])
         assert result.exit_code == 1
         assert "Not authenticated" in result.output
 
     def test_status_no_refresh_token(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
         save_config(
             {
                 "auth": {
@@ -343,7 +332,6 @@ class TestAuthStatus:
 
 class TestAuthLogout:
     def test_logout(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
         save_config(
             {
                 "api_key": "sk-keep-this",
@@ -364,7 +352,6 @@ class TestAuthLogout:
         assert config["api_key"] == "sk-keep-this"
 
     def test_logout_not_authenticated(self, tmp_path, monkeypatch):
-        _patch_home(monkeypatch, tmp_path)
         result = runner.invoke(app, ["auth", "logout"])
         assert result.exit_code == 0
         assert "Not authenticated" in result.output
@@ -373,7 +360,6 @@ class TestAuthLogout:
         """Config file should have restricted permissions (0o600) after auth write."""
         import os
 
-        _patch_home(monkeypatch, tmp_path)
         save_config(
             {
                 "auth": {

@@ -28,13 +28,8 @@ from nauro.store.repo_config import load_repo_config, save_repo_config
 runner = CliRunner()
 
 
-def _patch_home(monkeypatch, tmp_path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
-
-
 def _post_migration_state(tmp_path, monkeypatch):
     """Simulate the post-manual-migration state: v2 registry + cloud repo config."""
-    _patch_home(monkeypatch, tmp_path)
     nauro_home = tmp_path / "nauro_home"
     nauro_home.mkdir()
     cloud_pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
@@ -94,7 +89,6 @@ def test_explicit_project_flag_overrides_repo_config(tmp_path, monkeypatch):
 
     Existing test_cli.py expectation; pinned here against the v2 path.
     """
-    _patch_home(monkeypatch, tmp_path)
     cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
     other_pid, _store = registry.register_project_v2(
         "beta",
@@ -127,7 +121,6 @@ def test_stdio_resolve_mismatched_project_id_errors(tmp_path, monkeypatch):
 
 
 def test_stdio_resolve_no_repo_no_project_errors(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     isolated = tmp_path / "isolated"
     isolated.mkdir()
     monkeypatch.chdir(isolated)

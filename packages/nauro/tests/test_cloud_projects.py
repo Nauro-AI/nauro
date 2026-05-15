@@ -17,13 +17,8 @@ from nauro.sync.cloud_projects import (
 )
 
 
-def _patch_home(monkeypatch, tmp_path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
-
-
 def _seed_token(monkeypatch, tmp_path, token: str = "test-token") -> None:
     """Write a config.json with an OAuth access token, mirroring `nauro auth login`."""
-    _patch_home(monkeypatch, tmp_path)
     save_config({"auth": {"access_token": token, "sub": "auth0|test"}})
 
 
@@ -119,7 +114,6 @@ def test_create_project_network_error_renders_message(tmp_path, monkeypatch):
 
 def test_no_token_raises_before_request(tmp_path, monkeypatch):
     """Without a stored token, the client refuses to issue a request."""
-    _patch_home(monkeypatch, tmp_path)
     # No save_config call → no auth section.
     with pytest.raises(CloudProjectError) as exc:
         create_project("demo")

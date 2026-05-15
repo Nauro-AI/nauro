@@ -6,7 +6,6 @@ import pytest
 
 from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
-from nauro.validation.pending import clear_all
 from nauro.validation.pipeline import (
     confirm_write,
     validate_proposed_write,
@@ -33,13 +32,6 @@ def store_with_existing(tmp_path: Path) -> Path:
         decision_type="data_model",
     )
     return store_path
-
-
-@pytest.fixture(autouse=True)
-def _clear_pending():
-    clear_all()
-    yield
-    clear_all()
 
 
 class TestTier1Rejection:
