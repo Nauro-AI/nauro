@@ -39,7 +39,6 @@ def demo_repo(tmp_path, monkeypatch):
     Returns (project_name, project_id, store_path, repo_path). The cwd is
     moved into the repo so resolve_target_project picks the right project.
     """
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     repo = tmp_path / "repo"
     repo.mkdir()
     pid, store_path = register_project_v2("demo-project", [repo], mode=REPO_CONFIG_MODE_LOCAL)
@@ -57,7 +56,6 @@ def no_decisions_repo(tmp_path, monkeypatch):
     distinct from a scaffolded store (which seeds 001-initial-setup.md and
     therefore has decisions).
     """
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     repo = tmp_path / "repo"
     repo.mkdir()
     pid, store_path = register_project_v2("bare-project", [repo], mode=REPO_CONFIG_MODE_LOCAL)
@@ -128,7 +126,6 @@ def test_json_output_has_no_pre_header(demo_repo):
 
 
 def test_no_project_resolution_errors(tmp_path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["check", DEMO_PROMPT])
     assert result.exit_code == 1
@@ -171,7 +168,6 @@ def test_rejected_status_exits_nonzero_json(demo_repo):
 
 
 def test_cloud_mode_project_prints_stale_notice(tmp_path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     repo = tmp_path / "repo"
     repo.mkdir()
     pid, store_path = register_project_v2(
@@ -224,7 +220,6 @@ def fake_posthog(monkeypatch):
 @pytest.fixture
 def telemetry_enabled(tmp_path, monkeypatch):
     """Seed NAURO_HOME with a consented config so capture() actually fires."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
     aid = "11111111-1111-4111-8111-111111111111"
     (tmp_path / "config.json").write_text(

@@ -26,7 +26,6 @@ from nauro.validation.pending import clear_all
 @pytest.fixture
 def store(tmp_path: Path, monkeypatch) -> Path:
     """Pre-scaffolded project store with known content."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store_path = register_project("testproj", [tmp_path / "repo"])
     scaffold_project_store("testproj", store_path)
 

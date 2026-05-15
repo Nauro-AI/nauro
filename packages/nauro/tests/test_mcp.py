@@ -53,7 +53,6 @@ def store(tmp_path: Path) -> Path:
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch) -> AsyncClient:
     """Async test client with a real project store."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
 
     store_path = tmp_path / "projects" / "testproj"
     scaffold_project_store("testproj", store_path)
@@ -385,7 +384,6 @@ async def test_update_state_endpoint(client, tmp_path):
 @pytest.mark.asyncio
 async def test_context_with_cwd_resolution(tmp_path, monkeypatch):
     """Test resolving project from cwd parameter."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
 
     from nauro.store.registry import register_project
 

@@ -19,11 +19,11 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_nauro_home(tmp_path, monkeypatch):
-    """Point NAURO_HOME at a tmp subdirectory so tests never see the dev's real store.
+    """Point NAURO_HOME at tmp_path so tests never see the dev's real store.
 
     Mirrors the isolation rationale of ``_isolate_cwd``: a stray NAURO_HOME in
     the dev's shell would leak the real ``~/.nauro/`` into the suite. Tests that
-    need a different layout (e.g. ``NAURO_HOME=tmp_path``) override on the same
-    monkeypatch instance; the later setenv wins.
+    need a different layout override on the same monkeypatch instance; the
+    later setenv wins.
     """
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path))

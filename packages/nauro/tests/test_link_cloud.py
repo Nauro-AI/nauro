@@ -27,7 +27,6 @@ CLOUD_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 
 
 def _seed_token(monkeypatch, tmp_path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     save_config({"auth": {"access_token": "test-token", "sub": "auth0|test"}})
 
 
@@ -60,7 +59,7 @@ def test_link_cloud_promotes_local_project(tmp_path, monkeypatch):
     matches = registry.find_projects_by_name_v2("linkproj")
     assert len(matches) == 1
     local_id, _entry = matches[0]
-    local_store = tmp_path / "nauro_home" / "projects" / local_id
+    local_store = tmp_path / "projects" / local_id
     assert local_store.is_dir()
 
     # Mark the store with a sentinel so we can prove the rename moved its contents
@@ -71,7 +70,7 @@ def test_link_cloud_promotes_local_project(tmp_path, monkeypatch):
         result = runner.invoke(app, ["link", "--cloud"])
     assert result.exit_code == 0, result.output
 
-    new_store = tmp_path / "nauro_home" / "projects" / CLOUD_PID
+    new_store = tmp_path / "projects" / CLOUD_PID
     assert new_store.is_dir()
     assert (new_store / "decisions" / "999-sentinel.md").exists()
     assert not local_store.exists()

@@ -159,7 +159,6 @@ def test_manual_section_preserved_across_regenerations(tmp_path: Path):
 
 
 def test_sync_writes_agents_md(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     repo = tmp_path / "repo"
@@ -181,7 +180,6 @@ def test_sync_writes_agents_md(tmp_path: Path, monkeypatch):
 
 
 def test_sync_multi_repo(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     repo1 = tmp_path / "repo1"
@@ -201,7 +199,6 @@ def test_sync_multi_repo(tmp_path: Path, monkeypatch):
 
 
 def test_sync_skips_missing_repo(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     real_repo = tmp_path / "real"
@@ -219,7 +216,6 @@ def test_sync_skips_missing_repo(tmp_path: Path, monkeypatch):
 
 
 def test_sync_preserves_manual_section(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     repo = tmp_path / "repo"

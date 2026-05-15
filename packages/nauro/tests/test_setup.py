@@ -16,7 +16,6 @@ runner = CliRunner()
 
 def _setup_project(tmp_path: Path, monkeypatch, repo_paths: list[Path] | None = None):
     """Helper to create a project with repos."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     if repo_paths is None:
         repo_paths = [tmp_path / "repo"]
         repo_paths[0].mkdir()
@@ -274,7 +273,6 @@ class TestLegacyCleanup:
 class TestProjectResolution:
     def test_project_flag_overrides_cwd(self, tmp_path: Path, monkeypatch):
         """--project flag overrides cwd resolution."""
-        monkeypatch.setenv("NAURO_HOME", str(tmp_path))
 
         repo_a = tmp_path / "repo_a"
         repo_b = tmp_path / "repo_b"

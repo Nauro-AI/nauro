@@ -50,7 +50,7 @@ def test_v2_round_trip(tmp_path, monkeypatch):
 def test_v2_save_stamps_schema_version(tmp_path, monkeypatch):
     """save_registry_v2 stamps schema_version=2 when caller omits it."""
     save_registry_v2({"projects": {}})
-    raw = json.loads((tmp_path / "nauro_home" / REGISTRY_FILENAME).read_text())
+    raw = json.loads((tmp_path / REGISTRY_FILENAME).read_text())
     assert raw["schema_version"] == REGISTRY_SCHEMA_VERSION_V2
 
 
@@ -69,9 +69,7 @@ def test_v2_loader_rejects_v1_with_migration_hint(tmp_path, monkeypatch):
 
 def test_v2_loader_rejects_unknown_schema_version(tmp_path, monkeypatch):
     """A future schema_version is rejected with an upgrade hint."""
-    nauro_home = tmp_path / "nauro_home"
-    nauro_home.mkdir()
-    (nauro_home / REGISTRY_FILENAME).write_text(json.dumps({"projects": {}, "schema_version": 99}))
+    (tmp_path / REGISTRY_FILENAME).write_text(json.dumps({"projects": {}, "schema_version": 99}))
     with pytest.raises(RegistrySchemaError) as exc:
         load_registry_v2()
     assert "99" in str(exc.value)

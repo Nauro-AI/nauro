@@ -45,7 +45,6 @@ def _mock_claude_cli(monkeypatch, *, on_path: bool = True, returncode: int = 0):
 
 def test_setup_cursor_writes_repo_mcp_json(tmp_path: Path, monkeypatch):
     """`nauro setup cursor` writes <repo>/.cursor/mcp.json for each project repo."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     repo = tmp_path / "myrepo"
     repo.mkdir()
     pid, store_path = register_project_v2("myproj", [repo])
@@ -64,7 +63,6 @@ def test_setup_cursor_writes_repo_mcp_json(tmp_path: Path, monkeypatch):
 
 def test_setup_cursor_remove_clears_entry(tmp_path: Path, monkeypatch):
     """`nauro setup cursor --remove` deletes the nauro entry."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -167,7 +165,6 @@ def test_setup_codex_no_op_when_remove_and_no_entry(tmp_path: Path):
 
 def test_setup_claude_code_subcommand_unchanged(tmp_path: Path, monkeypatch):
     """The existing `setup claude-code` command stays callable."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))  # divert ~/.claude search
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -195,7 +192,6 @@ def test_setup_top_level_help_lists_new_subcommands():
 def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatch):
     """`setup all` shells out to `claude mcp add` and writes Cursor + Codex
     configs and skill files across all three surfaces."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -223,7 +219,6 @@ def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatc
 
 
 def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -288,7 +283,6 @@ def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, m
     """``setup all --remove`` for one project must not strip the user-scope
     Claude/Codex skills or the codex MCP entry while another nauro project
     remains in the registry — those resources are shared."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo_a = tmp_path / "repo_a"
     repo_b = tmp_path / "repo_b"
@@ -332,7 +326,6 @@ def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, m
 def test_remove_clears_user_scope_when_last_project(tmp_path: Path, monkeypatch):
     """When removing the last project, the user-scope skill files and the
     codex MCP entry are fully cleared — nothing depends on them anymore."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -361,7 +354,6 @@ def test_standalone_codex_remove_preserves_when_projects_remain(tmp_path: Path, 
     """``nauro setup codex --remove`` must not strip ``~/.codex/config.toml``'s
     nauro entry while any projects remain in the registry. The standalone
     command is user-global; preservation guards still-active projects."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -385,7 +377,6 @@ def test_standalone_codex_remove_preserves_when_projects_remain(tmp_path: Path, 
 
 def test_setup_claude_code_advertises_nauro_check(tmp_path: Path, monkeypatch):
     """`setup claude-code` success output points users at the L1 surface."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -400,7 +391,6 @@ def test_setup_claude_code_advertises_nauro_check(tmp_path: Path, monkeypatch):
 
 def test_setup_claude_code_remove_does_not_advertise_nauro_check(tmp_path: Path, monkeypatch):
     """The hint only fires on the add path — removal output stays minimal."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -414,7 +404,6 @@ def test_setup_claude_code_remove_does_not_advertise_nauro_check(tmp_path: Path,
 
 
 def test_setup_cursor_advertises_nauro_check(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -427,7 +416,6 @@ def test_setup_cursor_advertises_nauro_check(tmp_path: Path, monkeypatch):
 
 
 def test_setup_all_advertises_nauro_check(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -446,7 +434,6 @@ def test_setup_codex_advertises_nauro_check(tmp_path: Path, monkeypatch):
     knowing they can demo conflict-detection from the shell before opening a
     Codex session.
     """
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path))
 
     result = runner.invoke(app, ["setup", "codex"])

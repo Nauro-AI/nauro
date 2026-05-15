@@ -662,7 +662,6 @@ def _minimal_v2_decision(path: Path, num: int, title: str) -> None:
 
 
 def test_note_decision_cli(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     store = register_project("myproj", [tmp_path])
@@ -676,7 +675,6 @@ def test_note_decision_cli(tmp_path: Path, monkeypatch):
 
 
 def test_note_question_auto_detect(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     store = register_project("myproj", [tmp_path])
@@ -689,7 +687,6 @@ def test_note_question_auto_detect(tmp_path: Path, monkeypatch):
 
 
 def test_note_question_flag(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     store = register_project("myproj", [tmp_path])
@@ -702,7 +699,6 @@ def test_note_question_flag(tmp_path: Path, monkeypatch):
 
 
 def test_note_no_project(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["note", "something"])
@@ -714,7 +710,6 @@ def test_note_no_project(tmp_path: Path, monkeypatch):
 
 
 def test_sync_cli(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     store = register_project("myproj", [tmp_path])
@@ -728,7 +723,6 @@ def test_sync_cli(tmp_path: Path, monkeypatch):
 
 
 def test_sync_with_message(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     from nauro.store.registry import register_project
 
     store = register_project("myproj", [tmp_path])
@@ -744,7 +738,6 @@ def test_sync_with_message(tmp_path: Path, monkeypatch):
 
 
 def test_sync_no_project(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["sync"])

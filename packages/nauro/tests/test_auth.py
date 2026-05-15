@@ -369,7 +369,7 @@ class TestAuthLogout:
                 }
             }
         )
-        config_path = tmp_path / "nauro_home" / "config.json"
+        config_path = tmp_path / "config.json"
         mode = os.stat(config_path).st_mode & 0o777
         assert mode == 0o600
 

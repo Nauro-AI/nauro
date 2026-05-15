@@ -13,7 +13,6 @@ from nauro.templates.scaffolds import scaffold_project_store
 
 
 def _setup_store(tmp_path, monkeypatch) -> Path:
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("testproj", [tmp_path])
     scaffold_project_store("testproj", store)
     return store

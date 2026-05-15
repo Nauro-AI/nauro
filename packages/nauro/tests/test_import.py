@@ -165,7 +165,6 @@ def test_import_preserves_existing_decisions(store: Path, full_memory_bank: Path
 
 
 def test_import_nonexistent_directory_cli(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
@@ -176,7 +175,6 @@ def test_import_nonexistent_directory_cli(tmp_path: Path, monkeypatch):
 
 
 def test_import_directory_without_project_brief_cli(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
@@ -193,7 +191,6 @@ def test_import_directory_without_project_brief_cli(tmp_path: Path, monkeypatch)
 
 
 def test_import_cli_full(tmp_path: Path, monkeypatch, full_memory_bank: Path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
@@ -212,7 +209,6 @@ def test_import_cli_full(tmp_path: Path, monkeypatch, full_memory_bank: Path):
 
 
 def test_import_cli_partial(tmp_path: Path, monkeypatch, partial_memory_bank: Path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
@@ -224,7 +220,6 @@ def test_import_cli_partial(tmp_path: Path, monkeypatch, partial_memory_bank: Pa
 
 
 def test_import_cli_no_flags(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
@@ -235,7 +230,6 @@ def test_import_cli_no_flags(tmp_path: Path, monkeypatch):
 
 
 def test_import_cli_with_project_flag(tmp_path: Path, monkeypatch, full_memory_bank: Path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     register_project("proj_a", [tmp_path / "a"])
     store_a = tmp_path / "projects" / "proj_a"
     scaffold_project_store("proj_a", store_a)
@@ -593,7 +587,6 @@ def test_import_adr_empty_directory(store: Path, tmp_path: Path):
 
 def test_import_adr_cli_integration(tmp_path: Path, monkeypatch, madr_directory: Path):
     """Test ADR import via CLI."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     store = register_project("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
