@@ -254,13 +254,18 @@ def tool_confirm_decision(store_path: Path, confirm_id: str) -> dict:
     return response
 
 
-@mcp_tool("check_decision")
-def tool_check_decision(
+def compute_check_decision(
     store_path: Path,
     proposed_approach: str,
     context: str | None = None,
 ) -> dict:
-    """Check for conflicts with existing decisions without writing anything."""
+    """Compute the check_decision result without emitting MCP telemetry.
+
+    Same return shape as :func:`tool_check_decision`. Call this from non-MCP
+    contexts (e.g. the ``nauro check`` CLI command) where the ``@mcp_tool``
+    decorator's ``mcp.tool_called`` emission would be wrong — those surfaces
+    emit their own events (``cli.command_invoked`` via Typer instrumentation).
+    """
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
@@ -335,6 +340,16 @@ def tool_check_decision(
         "related_decisions": related,
         "assessment": assessment,
     }
+
+
+@mcp_tool("check_decision")
+def tool_check_decision(
+    store_path: Path,
+    proposed_approach: str,
+    context: str | None = None,
+) -> dict:
+    """Check for conflicts with existing decisions without writing anything."""
+    return compute_check_decision(store_path, proposed_approach, context)
 
 
 # Compose the agent-facing docstring from canonical fragments so the

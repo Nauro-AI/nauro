@@ -34,9 +34,10 @@ Requires Python 3.10+.
 
 Try the demo locally in 2 minutes — no account needed.
 
-1. `nauro init --demo` — scaffold a sample project with 7 decisions, project state, and open questions.
-2. `nauro setup claude-code` — write the MCP entry to `<repo>/.mcp.json`.
-3. Open Claude Code and ask: *"Check if we should add a WebSocket endpoint for live task updates"*
+1. Set up a sandbox: `mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo` (keeps the demo isolated from any existing project's `.nauro/config.json`).
+2. `nauro init --demo` — scaffold a sample project with 7 decisions, project state, and open questions.
+3. `nauro setup claude-code` — write the MCP entry to `<repo>/.mcp.json`.
+4. Open Claude Code and ask: *"Check if we should add a WebSocket endpoint for live task updates"*
 
 `check_decision` surfaces a conflict: the team already chose SSE over WebSocket because persistent connections weren't released during ECS rolling deploys.
 

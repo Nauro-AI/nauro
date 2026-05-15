@@ -123,3 +123,24 @@ class TestBm25Retrieve:
     def test_top_k(self):
         related = bm25_retrieve(DECISIONS, "server session authentication", top_k=1)
         assert len(related) <= 1
+
+
+class TestBm25SilencesProgressBars:
+    """Guards the show_progress=False arguments on every bm25s call.
+
+    bm25s defaults show_progress to True, which writes tqdm progress bars to
+    stderr. That's invisible inside an MCP server process but pollutes the
+    `nauro check` CLI surface. A future bm25s upgrade flipping the default
+    back, or a refactor that drops the kwarg, would re-introduce the noise
+    silently without this guard.
+    """
+
+    def test_bm25_search_writes_nothing_to_stderr(self, capsys):
+        bm25_search(DECISIONS, "authentication OAuth provider")
+        captured = capsys.readouterr()
+        assert captured.err == "", f"unexpected stderr: {captured.err!r}"
+
+    def test_bm25_retrieve_writes_nothing_to_stderr(self, capsys):
+        bm25_retrieve(DECISIONS, "session caching")
+        captured = capsys.readouterr()
+        assert captured.err == "", f"unexpected stderr: {captured.err!r}"

@@ -50,6 +50,7 @@ def _register_commands() -> None:
         adopt,
         attach,
         auth,
+        check,
         config,
         diff,
         import_cmd,
@@ -70,6 +71,7 @@ def _register_commands() -> None:
     app.command(name="attach")(attach.attach)
     app.command(name="link")(link.link)
     app.command(name="note")(note.note)
+    app.command(name="check")(check.check)
     app.command(name="sync")(sync.sync)
     app.command(name="log")(log.log)
     app.command(name="diff")(diff.diff)
