@@ -125,6 +125,33 @@ def test_init_cloud_renders_server_error(tmp_path, monkeypatch):
     assert registry.find_projects_by_name_v2("cloudproj") == []
 
 
+# ── D140: --demo + --cloud rejection ─────────────────────────────────────────
+
+
+def test_init_demo_plus_cloud_rejects_at_entry(tmp_path, monkeypatch):
+    """`nauro init --demo --cloud` must reject before any state is written.
+
+    Pre-D140 this silently dropped `--demo` inside the `--cloud` branch.
+    The combined invocation now exits non-zero with a message naming both
+    single-flag forms; no project is registered, no network call is made,
+    and no `.nauro/config.json` is dropped in the cwd.
+    """
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("rejection must happen before any cloud call")
+
+    with patch.object(cloud_projects.httpx, "request", side_effect=explode):
+        result = runner.invoke(app, ["init", "--demo", "--cloud", "rejectproj"])
+
+    assert result.exit_code != 0
+    combined_output = (result.output or "") + (str(result.exception) if result.exception else "")
+    assert "--demo" in combined_output and "--cloud" in combined_output
+    assert registry.find_projects_by_name_v2("rejectproj") == []
+    assert not (tmp_path / ".nauro" / "config.json").exists()
+
+
 # ── add-repo against cloud-mode project ───────────────────────────────────────
 
 
