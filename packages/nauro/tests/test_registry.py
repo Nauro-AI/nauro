@@ -9,23 +9,15 @@ from nauro.store import registry
 from nauro.store.repo_config import load_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 
-
-def _patch_home(monkeypatch, tmp_path):
-    """Point NAURO_HOME at a temp directory."""
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
-
-
 # --- Registry CRUD ---
 
 
 def test_load_registry_empty(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     data = registry.load_registry()
     assert data == {"projects": {}, "schema_version": 1}
 
 
 def test_save_and_load_registry(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     data = {"projects": {"myproj": {"repo_paths": ["/tmp/repo"]}}}
     registry.save_registry(data)
     loaded = registry.load_registry()
@@ -34,7 +26,6 @@ def test_save_and_load_registry(tmp_path, monkeypatch):
 
 
 def test_register_project(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     store_path = registry.register_project("proj1", [repo])
@@ -46,7 +37,6 @@ def test_register_project(tmp_path, monkeypatch):
 
 
 def test_register_duplicate_raises(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("dup", [repo])
@@ -58,7 +48,6 @@ def test_register_duplicate_raises(tmp_path, monkeypatch):
 
 
 def test_add_repo(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"
     repo1.mkdir()
@@ -71,7 +60,6 @@ def test_add_repo(tmp_path, monkeypatch):
 
 
 def test_add_repo_idempotent(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("proj", [repo])
@@ -81,7 +69,6 @@ def test_add_repo_idempotent(tmp_path, monkeypatch):
 
 
 def test_add_repo_missing_project(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     try:
         registry.add_repo("nope", tmp_path)
         assert False, "Expected KeyError"
@@ -93,7 +80,6 @@ def test_add_repo_missing_project(tmp_path, monkeypatch):
 
 
 def test_resolve_project_exact(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("proj", [repo])
@@ -101,7 +87,6 @@ def test_resolve_project_exact(tmp_path, monkeypatch):
 
 
 def test_resolve_project_nested(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     nested = repo / "src" / "pkg"
     nested.mkdir(parents=True)
@@ -110,7 +95,6 @@ def test_resolve_project_nested(tmp_path, monkeypatch):
 
 
 def test_resolve_project_no_match(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("proj", [repo])
@@ -123,7 +107,6 @@ def test_resolve_project_no_match(tmp_path, monkeypatch):
 
 
 def test_find_stale_paths_none(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("proj", [repo])
@@ -131,7 +114,6 @@ def test_find_stale_paths_none(tmp_path, monkeypatch):
 
 
 def test_find_stale_paths_detects_missing(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("proj", [repo])
@@ -145,7 +127,6 @@ def test_find_stale_paths_detects_missing(tmp_path, monkeypatch):
 
 
 def test_suggest_project_matching_dirname(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "myapp"
     repo.mkdir()
     registry.register_project("myapp", [repo])
@@ -156,7 +137,6 @@ def test_suggest_project_matching_dirname(tmp_path, monkeypatch):
 
 
 def test_suggest_project_no_match(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "myapp"
     repo.mkdir()
     registry.register_project("myapp", [repo])
@@ -198,7 +178,6 @@ def _v2_entry_for_name(name: str) -> tuple[str, dict]:
 
 
 def test_init_cli(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["init", "myproject"])
     assert result.exit_code == 0
@@ -211,7 +190,6 @@ def test_init_cli(tmp_path, monkeypatch):
 
 def test_init_cli_writes_repo_config_local(tmp_path, monkeypatch):
     """`nauro init <name>` writes a local-mode .nauro/config.json into cwd."""
-    _patch_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["init", "configproj"])
     assert result.exit_code == 0
@@ -223,7 +201,6 @@ def test_init_cli_writes_repo_config_local(tmp_path, monkeypatch):
 
 
 def test_init_cli_with_add_repo(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "myrepo"
     repo.mkdir()
     result = runner.invoke(app, ["init", "proj2", "--add-repo", str(repo)])
@@ -240,7 +217,6 @@ def test_init_cli_duplicate(tmp_path, monkeypatch):
     --force; the registry-allows-dups invariant is verified by exercising
     each init from its own directory.
     """
-    _patch_home(monkeypatch, tmp_path)
     cwd1 = tmp_path / "cwd1"
     cwd2 = tmp_path / "cwd2"
     cwd1.mkdir()
@@ -257,7 +233,6 @@ def test_init_cli_refuses_overwrite_without_force(tmp_path, monkeypatch):
     """D136: a second `nauro init <other-name>` from the same cwd refuses
     to overwrite the existing .nauro/config.json without --force, naming
     the existing project so the caller can decide what to do."""
-    _patch_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     first = runner.invoke(app, ["init", "first"])
     assert first.exit_code == 0
@@ -275,7 +250,6 @@ def test_init_cli_refuses_overwrite_without_force(tmp_path, monkeypatch):
 def test_init_cli_force_overwrites(tmp_path, monkeypatch):
     """D136: --force replaces an existing .nauro/config.json with the new
     project's handle; the registry shows both."""
-    _patch_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     runner.invoke(app, ["init", "first"])
     result = runner.invoke(app, ["init", "second", "--force"])
@@ -290,7 +264,6 @@ def test_init_cli_add_repo_idempotent_on_same_id(tmp_path, monkeypatch):
     """D136: re-running `nauro init <existing-name> --add-repo <repo>`
     against a repo already pointing at that project succeeds (idempotent),
     because the existing config id matches the project's id."""
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     first = runner.invoke(app, ["init", "proj", "--add-repo", str(repo)])
@@ -302,7 +275,6 @@ def test_init_cli_add_repo_idempotent_on_same_id(tmp_path, monkeypatch):
 def test_init_cli_add_repo_refuses_overwrite_on_different_id(tmp_path, monkeypatch):
     """D136: --add-repo against a repo already linked to a *different*
     project refuses without --force, naming both projects."""
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     # Repo already linked to 'alpha'.
@@ -321,7 +293,6 @@ def test_init_cli_add_repo_refuses_overwrite_on_different_id(tmp_path, monkeypat
 
 def test_init_cli_add_repo_to_existing(tmp_path, monkeypatch):
     """nauro init <existing> --add-repo should add repo instead of failing."""
-    _patch_home(monkeypatch, tmp_path)
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"
     repo1.mkdir()
@@ -348,7 +319,6 @@ def test_init_add_repo_to_existing_writes_per_repo_config(tmp_path, monkeypatch)
     adopted?". Without it, downstream guards (``nauro adopt`` already-adopted
     check, the /nauro-adopt skill's Step 2) fail to detect the linkage.
     """
-    _patch_home(monkeypatch, tmp_path)
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"
     repo1.mkdir()
@@ -369,7 +339,6 @@ def test_init_add_repo_to_existing_writes_per_repo_config(tmp_path, monkeypatch)
 
 
 def test_remove_repo(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("proj", [repo])
@@ -380,7 +349,6 @@ def test_remove_repo(tmp_path, monkeypatch):
 
 
 def test_remove_repo_not_found(tmp_path, monkeypatch):
-    _patch_home(monkeypatch, tmp_path)
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("proj", [repo])

@@ -17,7 +17,6 @@ import pytest
 
 from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
-from nauro.validation.pending import clear_all
 from nauro.validation.pipeline import validate_proposed_write
 
 
@@ -34,13 +33,6 @@ def store(tmp_path: Path) -> Path:
         decision_type="data_model",
     )
     return store_path
-
-
-@pytest.fixture(autouse=True)
-def _clear_pending():
-    clear_all()
-    yield
-    clear_all()
 
 
 def test_propose_decision_without_anthropic(store, monkeypatch):

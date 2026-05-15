@@ -26,15 +26,10 @@ from nauro.sync import cloud_projects
 runner = CliRunner()
 
 
-def _patch_home(monkeypatch, tmp_path):
-    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
-
-
 def _seed_token(monkeypatch, tmp_path):
     """Make cloud_projects believe the user is authenticated."""
     from nauro.store.config import save_config
 
-    _patch_home(monkeypatch, tmp_path)
     save_config({"auth": {"access_token": "test-token", "sub": "auth0|test"}})
 
 
@@ -43,7 +38,6 @@ def _seed_token(monkeypatch, tmp_path):
 
 def test_init_local_no_network(tmp_path, monkeypatch):
     """`nauro init <name>` (no flag) must not contact the cloud."""
-    _patch_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
 
     def explode(*_args, **_kwargs):
@@ -226,7 +220,6 @@ def test_add_repo_to_cloud_project_errors_with_attach_hint(tmp_path, monkeypatch
 
 def test_add_repo_to_local_project_appends(tmp_path, monkeypatch):
     """The legacy --add-repo flow still extends a local-mode project."""
-    _patch_home(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     repo1 = tmp_path / "repo1"
     repo1.mkdir()

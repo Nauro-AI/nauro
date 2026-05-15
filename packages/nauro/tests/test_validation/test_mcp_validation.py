@@ -7,7 +7,6 @@ from httpx import ASGITransport, AsyncClient
 
 from nauro.mcp.server import app
 from nauro.templates.scaffolds import scaffold_project_store
-from nauro.validation.pending import clear_all
 
 
 @pytest.fixture
@@ -21,16 +20,8 @@ def store(tmp_path: Path) -> Path:
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch, store) -> AsyncClient:
     monkeypatch.setenv("NAURO_HOME", str(tmp_path))
-    clear_all()
     transport = ASGITransport(app=app)
     return AsyncClient(transport=transport, base_url="http://test")
-
-
-@pytest.fixture(autouse=True)
-def _clear_pending():
-    clear_all()
-    yield
-    clear_all()
 
 
 @pytest.mark.asyncio
