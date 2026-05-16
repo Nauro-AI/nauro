@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -24,20 +23,6 @@ else:
     import tomli as tomllib
 
 runner = CliRunner()
-
-
-def _mock_claude_cli(monkeypatch, *, on_path: bool = True, returncode: int = 0):
-    """Mock the `claude` CLI for any test that exercises the Claude Code path."""
-    monkeypatch.setattr(
-        "nauro.cli.commands.setup.shutil.which",
-        lambda cmd: "/usr/local/bin/claude" if (on_path and cmd == "claude") else None,
-    )
-    monkeypatch.setattr(
-        "nauro.cli.commands.setup.subprocess.run",
-        lambda argv, **kwargs: subprocess.CompletedProcess(
-            args=argv, returncode=returncode, stdout="", stderr=""
-        ),
-    )
 
 
 # ─── nauro setup cursor ─────────────────────────────────────────────────────
@@ -109,6 +94,30 @@ def test_configure_cursor_remove_preserves_other_servers(tmp_path: Path):
     result = json.loads((repo / ".cursor" / "mcp.json").read_text())
     assert "other" in result["mcpServers"]
     assert "nauro" not in result["mcpServers"]
+
+
+def test_configure_cursor_add_surfaces_parse_error_without_clobbering(tmp_path: Path):
+    """Hand-edited / corrupt `.cursor/mcp.json` surfaces a parse error
+    rather than crashing — same contract as `_configure_mcp` for `.mcp.json`."""
+    repo = tmp_path / "repo"
+    (repo / ".cursor").mkdir(parents=True)
+    (repo / ".cursor" / "mcp.json").write_text("{not json")
+
+    msg = _configure_cursor_for_repo(repo, remove=False)
+
+    assert "could not parse .cursor/mcp.json" in msg
+    assert (repo / ".cursor" / "mcp.json").read_text() == "{not json"
+
+
+def test_configure_cursor_remove_surfaces_parse_error(tmp_path: Path):
+    """Same parse-error contract on the `--remove` path."""
+    repo = tmp_path / "repo"
+    (repo / ".cursor").mkdir(parents=True)
+    (repo / ".cursor" / "mcp.json").write_text("{not json")
+
+    msg = _configure_cursor_for_repo(repo, remove=True)
+
+    assert "could not parse .cursor/mcp.json" in msg
 
 
 # ─── nauro setup codex ──────────────────────────────────────────────────────
@@ -190,22 +199,24 @@ def test_setup_top_level_help_lists_new_subcommands():
 
 
 def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatch):
-    """`setup all` shells out to `claude mcp add` and writes Cursor + Codex
-    configs and skill files across all three surfaces."""
+    """`setup all` writes `.mcp.json`, `.cursor/mcp.json`, and `~/.codex/config.toml`
+    plus the skill files across all three surfaces."""
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
-    _mock_claude_cli(monkeypatch)
 
     result = runner.invoke(app, ["setup", "all"])
     assert result.exit_code == 0, result.output
 
-    # MCP configs (Claude Code is wired via the mocked `claude mcp add` shellout
-    # — the actual .mcp.json write is the `claude` CLI's responsibility, so the
-    # multi-repo iteration test in test_setup.py covers the argv shape).
+    # Claude Code: project-scope .mcp.json at the repo root (per D142, written
+    # directly rather than via `claude mcp add`).
+    assert (repo / ".mcp.json").is_file()
+    mcp_data = json.loads((repo / ".mcp.json").read_text())
+    assert mcp_data["mcpServers"]["nauro"]["args"] == ["serve", "--stdio"]
+    # Cursor + Codex:
     assert (repo / ".cursor" / "mcp.json").is_file()
     assert (tmp_path / ".codex" / "config.toml").is_file()
 
@@ -225,12 +236,13 @@ def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
     _, store_path = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
-    _mock_claude_cli(monkeypatch)
 
     runner.invoke(app, ["setup", "all"])
     result = runner.invoke(app, ["setup", "all", "--remove"])
     assert result.exit_code == 0, result.output
 
+    # MCP configs gone:
+    assert not (repo / ".mcp.json").exists()
     # Skill files gone:
     assert not (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").exists()
     assert not (repo / ".cursor" / "rules" / "nauro-adopt.mdc").exists()
@@ -292,7 +304,6 @@ def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, m
     scaffold_project_store("proj-a", store_a)
     _, store_b = register_project_v2("proj-b", [repo_b])
     scaffold_project_store("proj-b", store_b)
-    _mock_claude_cli(monkeypatch)
 
     monkeypatch.chdir(repo_a)
     runner.invoke(app, ["setup", "all", "--project", "proj-a"])
@@ -316,9 +327,11 @@ def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, m
     assert data["mcp_servers"]["nauro"]["args"] == ["serve", "--stdio"]
 
     # Per-repo wiring for proj-a still got torn down.
+    assert not (repo_a / ".mcp.json").is_file()
     assert not (repo_a / ".cursor" / "mcp.json").is_file()
     assert not (repo_a / ".cursor" / "rules" / "nauro.mdc").is_file()
     # And proj-b's per-repo wiring stayed put.
+    assert (repo_b / ".mcp.json").is_file()
     assert (repo_b / ".cursor" / "mcp.json").is_file()
     assert (repo_b / ".cursor" / "rules" / "nauro.mdc").is_file()
 
@@ -332,7 +345,6 @@ def test_remove_clears_user_scope_when_last_project(tmp_path: Path, monkeypatch)
     _, store_path = register_project_v2("solo", [repo])
     scaffold_project_store("solo", store_path)
     monkeypatch.chdir(repo)
-    _mock_claude_cli(monkeypatch)
 
     runner.invoke(app, ["setup", "all"])
     result = runner.invoke(app, ["setup", "all", "--remove"])
@@ -382,7 +394,6 @@ def test_setup_claude_code_advertises_nauro_check(tmp_path: Path, monkeypatch):
     repo.mkdir()
     register_project_v2("myproj", [repo])
     monkeypatch.chdir(repo)
-    _mock_claude_cli(monkeypatch)
 
     result = runner.invoke(app, ["setup", "claude-code"])
     assert result.exit_code == 0, result.output
@@ -396,7 +407,6 @@ def test_setup_claude_code_remove_does_not_advertise_nauro_check(tmp_path: Path,
     repo.mkdir()
     register_project_v2("myproj", [repo])
     monkeypatch.chdir(repo)
-    _mock_claude_cli(monkeypatch)
 
     result = runner.invoke(app, ["setup", "claude-code", "--remove"])
     assert result.exit_code == 0, result.output
@@ -422,7 +432,6 @@ def test_setup_all_advertises_nauro_check(tmp_path: Path, monkeypatch):
     _, store_path = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
-    _mock_claude_cli(monkeypatch)
 
     result = runner.invoke(app, ["setup", "all"])
     assert result.exit_code == 0, result.output

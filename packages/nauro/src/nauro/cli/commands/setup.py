@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -99,72 +98,45 @@ def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
 
 
 def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
-    """Add or remove the Nauro MCP entry in Claude Code via the ``claude`` CLI.
+    """Add or remove the Nauro MCP entry in the repo's project-scope ``.mcp.json``.
 
-    Uses ``--scope project`` so the entry is written to ``<repo>/.mcp.json``,
-    making it shareable with collaborators via git — mirroring the Cursor
-    surface model. The shell-out is intentional: Claude Code's per-project
-    config layout has changed before; ``claude mcp add`` is the supported
-    entry point.
+    Writes the file directly. The format is documented in Anthropic's MCP
+    docs as a standardized shape, used by plugins shipping ``.mcp.json`` at
+    their roots and by enterprise ``managed-mcp.json`` deployments. Per D142,
+    this matches how ``_configure_cursor_for_repo`` handles ``.cursor/mcp.json``
+    and ``_configure_codex`` handles ``~/.codex/config.toml``, removing the
+    silent-skip failure mode users hit when the ``claude`` CLI was missing.
 
     Returns a one-line status string (indented for ``setup_all_surfaces``).
     """
-    if shutil.which("claude") is None:
-        if remove:
-            return "Claude Code CLI not found on PATH; nothing to remove."
-        return (
-            "Claude Code CLI not found on PATH; skipping Claude Code wiring "
-            "(run 'nauro setup claude-code' after installing it)."
-        )
-
+    config_path = repo_path / ".mcp.json"
     nauro_cmd = _find_nauro_command()
+    nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
 
-    if remove:
-        # Pre-check the file rather than parse `claude mcp remove` stderr —
-        # stderr wording is unstable across Claude Code versions, but the
-        # project-scope `.mcp.json` shape is the documented contract.
-        mcp_json = repo_path / ".mcp.json"
-        if not mcp_json.is_file():
-            return f"  {repo_path}: no nauro entry to remove"
+    if config_path.exists():
         try:
-            config = json.loads(mcp_json.read_text())
+            config = json.loads(config_path.read_text())
         except json.JSONDecodeError as exc:
             return f"  {repo_path}: could not parse .mcp.json — {exc}"
-        if "nauro" not in config.get("mcpServers", {}):
+    else:
+        config = {}
+
+    if remove:
+        servers = config.get("mcpServers", {})
+        if "nauro" not in servers:
             return f"  {repo_path}: no nauro entry to remove"
+        del servers["nauro"]
+        if not servers:
+            config.pop("mcpServers", None)
+        if config:
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+        else:
+            config_path.unlink()
+        return f"  {repo_path}: removed nauro from .mcp.json"
 
-        result = subprocess.run(
-            ["claude", "mcp", "remove", "nauro"],
-            cwd=repo_path,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            return f"  {repo_path}: removed nauro from .mcp.json"
-        return f"  {repo_path}: claude mcp remove failed — {(result.stderr or '').strip()}"
-
-    result = subprocess.run(
-        [
-            "claude",
-            "mcp",
-            "add",
-            "--scope",
-            "project",
-            "nauro",
-            "--",
-            nauro_cmd,
-            "serve",
-            "--stdio",
-        ],
-        cwd=repo_path,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        return f"  {repo_path}: wrote nauro to .mcp.json"
-    return f"  {repo_path}: claude mcp add failed — {(result.stderr or '').strip()}"
+    config.setdefault("mcpServers", {})["nauro"] = nauro_entry
+    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    return f"  {repo_path}: wrote nauro to .mcp.json"
 
 
 @setup_app.command(name="claude-code")
@@ -250,7 +222,10 @@ def _configure_cursor_for_repo(repo_path: Path, *, remove: bool) -> str:
     nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
 
     if config_path.exists():
-        config = json.loads(config_path.read_text())
+        try:
+            config = json.loads(config_path.read_text())
+        except json.JSONDecodeError as exc:
+            return f"  {repo_path}: could not parse .cursor/mcp.json — {exc}"
     else:
         config = {}
 
@@ -517,7 +492,7 @@ def setup_all_surfaces(
 
     lines: list[str] = []
 
-    # Claude Code (MCP per-repo via `claude mcp add --scope project` + skills global)
+    # Claude Code (MCP per-repo via direct `.mcp.json` write + skills global)
     for repo in project_repos:
         if not repo.is_dir():
             lines.append(f"  {repo}: repo path missing, skipped")
