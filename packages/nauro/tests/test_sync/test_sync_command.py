@@ -38,6 +38,7 @@ class TestSyncPullBeforePush:
 
         def mock_push(project_name, store_path):
             call_order.append("push")
+            return True
 
         monkeypatch.setattr(sync_mod, "_pull_from_cloud", mock_pull)
         monkeypatch.setattr(sync_mod, "_push_to_cloud", mock_push)
@@ -202,3 +203,111 @@ class TestSyncPreservesState:
         assert "Sprint 6: new sprint." in current
         assert "Sprint 5: shipping feature X." in history
         assert "Snapshot v" not in history
+
+
+def _scaffolded_cloud_project(name: str, repo_path: Path):
+    """Register a cloud-mode v2 project and scaffold its store. Returns the store path."""
+    from nauro.constants import REPO_CONFIG_MODE_CLOUD
+    from nauro.store.registry import register_project_v2
+    from nauro.templates.scaffolds import scaffold_project_store
+
+    _pid, store = register_project_v2(
+        name,
+        [repo_path],
+        mode=REPO_CONFIG_MODE_CLOUD,
+        server_url="https://example.test",
+    )
+    scaffold_project_store(name, store)
+    return store
+
+
+class TestSyncHonesty:
+    """sync() must not print 'Synced' unless an upload actually happened (or
+    none was expected). The four cases below cover the matrix:
+
+    cloud-mode + disabled creds → warn on stderr, exit 1
+    local-mode + disabled creds → Synced, exit 0
+    cloud-mode + enabled creds  → Synced, exit 0
+    """
+
+    def test_cloud_project_without_creds_warns_and_exits_one(self, tmp_path, monkeypatch):
+        _scaffolded_cloud_project("cloudproj", tmp_path)
+        # NAURO_HOME isolation in conftest already prevents real creds from leaking.
+        monkeypatch.delenv("NAURO_SYNC_BUCKET_NAME", raising=False)
+
+        result = runner.invoke(app, ["sync", "--project", "cloudproj"])
+        combined = result.output + (result.stderr or "")
+
+        assert result.exit_code == 1, combined
+        assert "Warning: this is a cloud-mode project" in combined
+        assert "Synced cloudproj" not in result.output
+
+    def test_local_project_without_creds_succeeds(self, project_store):
+        """Local-only projects sync cleanly even with no cloud creds — nothing
+        to upload is not an error."""
+        result = runner.invoke(app, ["sync"])
+        combined = result.output + (result.stderr or "")
+
+        assert result.exit_code == 0, combined
+        assert "Synced testproj" in result.output
+        assert "Warning: this is a cloud-mode project" not in combined
+
+    def test_cloud_project_with_creds_succeeds(self, tmp_path, monkeypatch):
+        """With creds configured and the push helpers mocked to succeed, the
+        cloud-mode project syncs and reports success."""
+        from nauro.sync.config import SyncConfig
+
+        _scaffolded_cloud_project("cloudwithauth", tmp_path)
+
+        enabled = SyncConfig(
+            bucket_name="bucket-x",
+            region="us-east-1",
+            access_key_id="key",
+            secret_access_key="secret",
+            enabled=True,
+            sanitized_sub="test-sub",
+        )
+
+        with (
+            patch("nauro.sync.config.load_sync_config", return_value=enabled),
+            patch("nauro.sync.remote.create_client", return_value=MagicMock()),
+            patch("nauro.sync.remote.push_file", return_value='"etag"'),
+            patch("nauro.sync.remote.list_remote", return_value=[]),
+        ):
+            result = runner.invoke(app, ["sync", "--project", "cloudwithauth"])
+
+        combined = result.output + (result.stderr or "")
+        assert result.exit_code == 0, combined
+        assert "Synced cloudwithauth" in result.output
+        assert "Warning: this is a cloud-mode project" not in combined
+
+
+class TestLinkCloudRefusesWithoutCreds:
+    """`nauro link --cloud` must refuse when CLI sync credentials are missing
+    instead of minting a cloud id the user cannot upload to."""
+
+    def test_link_cloud_refuses_when_sync_disabled(self, tmp_path, monkeypatch):
+        """A local-mode repo + no sync creds → refusal, no network call."""
+        from nauro.store.config import save_config
+
+        # Bring up a local-only project from scratch in the isolated NAURO_HOME.
+        save_config({"auth": {"access_token": "test-token", "sub": "auth0|test"}})
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+        init_result = runner.invoke(app, ["init", "blockedlink"])
+        assert init_result.exit_code == 0, init_result.output
+
+        # Ensure no sync creds leak in from the environment.
+        for var in (
+            "NAURO_SYNC_BUCKET_NAME",
+            "NAURO_SYNC_ACCESS_KEY_ID",
+            "NAURO_SYNC_SECRET_ACCESS_KEY",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+        result = runner.invoke(app, ["link", "--cloud"])
+        combined = result.output + (result.stderr or "")
+
+        assert result.exit_code == 1, combined
+        assert "Cannot link 'blockedlink' to the cloud" in combined

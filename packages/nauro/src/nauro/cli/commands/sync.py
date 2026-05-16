@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 from nauro.cli.utils import resolve_target_project
+from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.registry import (
     RegistrySchemaError,
     get_project_v2,
@@ -28,6 +29,21 @@ def _registry_repo_paths(project_key: str) -> list[str]:
         return list(v2_entry.get("repo_paths", []))
     registry = load_registry()
     return list(registry["projects"].get(project_key, {}).get("repo_paths", []))
+
+
+def _project_mode(project_key: str) -> str | None:
+    """Return the registered mode for ``project_key`` (cloud/local) or None if unknown.
+
+    Looks up the v2 registry by project_id. v1 entries have no mode field and
+    are treated as local-only for sync purposes.
+    """
+    try:
+        v2_entry = get_project_v2(project_key)
+    except RegistrySchemaError:
+        v2_entry = None
+    if v2_entry is None:
+        return None
+    return v2_entry.get("mode")
 
 
 def sync(
@@ -80,12 +96,18 @@ def sync(
     # Regenerate AGENTS.md in each associated repo
     updated_repos = regenerate_agents_md_for_project(project_key, store_path)
 
-    typer.echo(f"Synced {project_name} — snapshot v{version:03d}")
-    for repo_path in updated_repos:
-        typer.echo(f"  Updated AGENTS.md: {repo_path}")
+    pushed = _push_to_cloud(project_key, store_path)
 
-    # Push to S3 if sync is configured
-    _push_to_cloud(project_key, store_path)
+    if pushed:
+        typer.echo(f"Synced {project_name} — snapshot v{version:03d}")
+        for repo_path in updated_repos:
+            typer.echo(f"  Updated AGENTS.md: {repo_path}")
+    else:
+        typer.echo(
+            f"Snapshot v{version:03d} captured locally; not uploaded.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     # Run store validation and print warnings to stderr
     warnings = validate_store(store_path)
@@ -191,25 +213,45 @@ def _pull_from_cloud(project_name: str, store_path: Path) -> int:
     return merged
 
 
-def _push_to_cloud(project_name: str, store_path: Path) -> None:
-    """Push all store files to S3 after a local sync. Skip silently if not configured."""
+def _push_to_cloud(project_name: str, store_path: Path) -> bool:
+    """Push all store files to S3 after a local sync.
+
+    Returns True when the project is local-only (nothing to push is not an
+    error) or when the upload succeeded. Returns False only when the project
+    is cloud-mode but the CLI has no sync credentials configured — in that
+    case the user is warned and the caller should treat the sync as a
+    partial success.
+    """
+    if _project_mode(project_name) != REPO_CONFIG_MODE_CLOUD:
+        return True
+
     try:
         from nauro.sync.config import AuthRequiredError, load_sync_config, require_auth, s3_prefix
         from nauro.sync.merge import should_skip
         from nauro.sync.remote import create_client, push_file
         from nauro.sync.state import compute_sha256, load_state, save_state, update_file_state
     except ImportError:
-        return
+        typer.echo(
+            "Warning: this is a cloud-mode project but CLI sync credentials are not configured.\n"
+            "Your local snapshot is captured, but nothing was uploaded. See docs/cloud-sync.md.",
+            err=True,
+        )
+        return False
 
     config = load_sync_config()
     if not config.enabled:
-        return
+        typer.echo(
+            "Warning: this is a cloud-mode project but CLI sync credentials are not configured.\n"
+            "Your local snapshot is captured, but nothing was uploaded. See docs/cloud-sync.md.",
+            err=True,
+        )
+        return False
 
     try:
         sanitized_sub = require_auth(config)
     except AuthRequiredError as e:
         typer.echo(f"  {e}", err=True)
-        return
+        return False
 
     client = create_client(config)
     prefix = s3_prefix(sanitized_sub, project_name)
@@ -239,6 +281,7 @@ def _push_to_cloud(project_name: str, store_path: Path) -> None:
     save_state(store_path, state)
     if pushed:
         typer.echo(f"  Pushed {pushed} file(s) to S3")
+    return True
 
 
 def _cloud_setup_wizard() -> None:
@@ -246,6 +289,11 @@ def _cloud_setup_wizard() -> None:
     from nauro.store.config import load_config, save_config
 
     typer.echo("Cloud sync setup — configure AWS S3 credentials\n")
+    typer.echo(
+        "Note: this wizard configures direct-S3 access. It is being replaced by "
+        "server-managed credentials. Future installs will not need this step.\n",
+        err=True,
+    )
 
     bucket_name = typer.prompt("S3 bucket name")
     region = typer.prompt("AWS region", default="us-east-1")
@@ -309,6 +357,10 @@ def _cloud_setup_wizard() -> None:
 
 def _show_status(project_flag: str | None) -> None:
     """Show cloud sync status."""
+    # TODO(Tier 2 PR B): after presign endpoints ship, _show_status should report:
+    #   (a) which sync path this install uses (legacy direct-S3 vs presign)
+    #   (b) last successful sync time (from server response or local snapshot trailer)
+    # Today it only reads local config; neither field above is available.
     from nauro.sync.config import load_sync_config
 
     config = load_sync_config()
