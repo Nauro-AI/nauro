@@ -30,6 +30,7 @@ from nauro.store.repo_config import (
     save_repo_config,
 )
 from nauro.sync.cloud_projects import CloudProjectError, create_project
+from nauro.sync.config import load_sync_config
 
 
 def link(
@@ -78,6 +79,20 @@ def link(
         typer.echo(
             f"Local project id {local_id!r} is not in the v2 registry. "
             "Did you migrate ~/.nauro/registry.json?",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    # This guard is removed in Tier 2 PR B once presigned URLs ship.
+    if not load_sync_config().enabled:
+        typer.echo(
+            f"Cannot link '{name}' to the cloud: CLI sync credentials are not configured.\n"
+            "\n"
+            "Cloud sync currently requires AWS credentials that a Nauro administrator "
+            "provisions during onboarding. Expected order:\n"
+            "  1. Administrator hands you bucket name + access keys.\n"
+            "  2. You run 'nauro sync --cloud-setup' to configure them.\n"
+            "  3. You run 'nauro link --cloud'.",
             err=True,
         )
         raise typer.Exit(code=1)

@@ -27,7 +27,17 @@ CLOUD_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 
 
 def _seed_token(monkeypatch, tmp_path):
-    save_config({"auth": {"access_token": "test-token", "sub": "auth0|test"}})
+    save_config(
+        {
+            "auth": {"access_token": "test-token", "sub": "auth0|test"},
+            "sync": {
+                "bucket_name": "test-bucket",
+                "region": "us-east-1",
+                "access_key_id": "fake-key",
+                "secret_access_key": "fake-secret",
+            },
+        }
+    )
 
 
 def _create_response(name: str = "linkproj", project_id: str = CLOUD_PID):
