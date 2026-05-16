@@ -223,7 +223,7 @@ def _scaffolded_cloud_project(name: str, repo_path: Path):
 
 class TestSyncHonesty:
     """sync() must not print 'Synced' unless an upload actually happened (or
-    none was expected). The four cases below cover the matrix:
+    none was expected). The three cases below cover the matrix:
 
     cloud-mode + disabled creds → warn on stderr, exit 1
     local-mode + disabled creds → Synced, exit 0
