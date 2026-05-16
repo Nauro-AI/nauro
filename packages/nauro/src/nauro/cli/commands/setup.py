@@ -321,8 +321,11 @@ def _configure_codex(
         )
 
     if config_path.exists():
-        with config_path.open("rb") as f:
-            config = tomllib.load(f)
+        try:
+            with config_path.open("rb") as f:
+                config = tomllib.load(f)
+        except tomllib.TOMLDecodeError as exc:
+            return f"Codex: could not parse {config_path} — {exc}"
     else:
         config = {}
 

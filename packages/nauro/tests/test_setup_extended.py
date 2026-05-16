@@ -169,6 +169,33 @@ def test_setup_codex_no_op_when_remove_and_no_entry(tmp_path: Path):
     assert "no nauro entry to remove" in msg
 
 
+def test_configure_codex_add_surfaces_parse_error(tmp_path: Path):
+    """Hand-edited / corrupt `~/.codex/config.toml` surfaces a parse error
+    rather than crashing — same contract as the JSON handlers added in D142."""
+    config_path = tmp_path / ".codex" / "config.toml"
+    config_path.parent.mkdir()
+    config_path.write_text("this is not = valid [toml")
+
+    msg = _configure_codex(remove=False, config_path=config_path)
+
+    assert "Codex: could not parse" in msg
+    assert str(config_path) in msg
+    # File left untouched.
+    assert config_path.read_text() == "this is not = valid [toml"
+
+
+def test_configure_codex_remove_surfaces_parse_error(tmp_path: Path):
+    """Same parse-error contract on the `--remove` path."""
+    config_path = tmp_path / ".codex" / "config.toml"
+    config_path.parent.mkdir()
+    config_path.write_text("this is not = valid [toml")
+
+    msg = _configure_codex(remove=True, config_path=config_path)
+
+    assert "Codex: could not parse" in msg
+    assert str(config_path) in msg
+
+
 # ─── claude-code regression ──────────────────────────────────────────────────
 
 
