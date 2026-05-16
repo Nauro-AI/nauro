@@ -48,7 +48,7 @@ is useful. "Users" is not.]
 STATE_CURRENT_MD = """\
 # Current State
 
-_(No state recorded yet — call update_state to capture progress.)_
+_(No state recorded yet.)_
 """
 
 STACK_MD = """\
