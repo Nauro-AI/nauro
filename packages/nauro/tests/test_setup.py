@@ -1,7 +1,6 @@
 """Tests for nauro setup claude-code command."""
 
 import json
-import subprocess
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -25,173 +24,156 @@ def _setup_project(tmp_path: Path, monkeypatch, repo_paths: list[Path] | None = 
     return repo_paths
 
 
-def _mock_claude_cli(monkeypatch, *, on_path: bool = True, returncode: int = 0, stderr: str = ""):
-    """Mock the `claude` CLI for setup tests.
+class TestMCPConfigDirectWrite:
+    """`_configure_mcp` writes ``<repo>/.mcp.json`` directly (per D142).
 
-    Returns a list that captures every (argv, kwargs) call to subprocess.run
-    so individual tests can assert on shape (cwd, scope, etc.).
-    """
-    calls: list[tuple[list[str], dict]] = []
-
-    monkeypatch.setattr(
-        "nauro.cli.commands.setup.shutil.which",
-        lambda cmd: "/usr/local/bin/claude" if (on_path and cmd == "claude") else None,
-    )
-
-    def fake_run(argv, **kwargs):
-        calls.append((list(argv), dict(kwargs)))
-        return subprocess.CompletedProcess(
-            args=argv, returncode=returncode, stdout="", stderr=stderr
-        )
-
-    monkeypatch.setattr("nauro.cli.commands.setup.subprocess.run", fake_run)
-    return calls
-
-
-class TestMCPConfigShellout:
-    """`_configure_mcp` shells out to `claude mcp add/remove` (project scope).
-
-    The original direct-JSON path wrote to `~/.claude/claude_desktop_config.json`
-    (which is Claude *Desktop*); Claude Code reads `~/.claude.json` and per-repo
-    `<repo>/.mcp.json`. These tests lock in the shellout shape so the bug
-    can't regress.
+    The format is the documented Claude Code project-scope shape: an
+    ``mcpServers`` object map keyed by server name. These tests lock in the
+    file contents and merge behavior so the direct-write contract does not
+    silently regress.
     """
 
-    def test_add_path_argv_and_cwd(self, tmp_path: Path, monkeypatch):
+    def test_add_writes_mcp_json(self, tmp_path: Path):
         repo = tmp_path / "repo"
         repo.mkdir()
-        calls = _mock_claude_cli(monkeypatch)
 
         result = _configure_mcp(repo, remove=False)
 
-        assert len(calls) == 1
-        argv, kwargs = calls[0]
-        assert argv[:6] == ["claude", "mcp", "add", "--scope", "project", "nauro"]
-        assert argv[6] == "--"
-        # argv[7] is the resolved nauro binary path
-        assert argv[8:] == ["serve", "--stdio"]
-        assert kwargs.get("cwd") == repo
-        assert kwargs.get("check") is False
+        config = json.loads((repo / ".mcp.json").read_text())
+        assert "nauro" in config["mcpServers"]
+        entry = config["mcpServers"]["nauro"]
+        assert entry["args"] == ["serve", "--stdio"]
+        assert isinstance(entry["command"], str) and entry["command"]
         assert "wrote nauro to .mcp.json" in result
 
-    def test_remove_path_argv_and_cwd(self, tmp_path: Path, monkeypatch):
+    def test_add_preserves_existing_servers(self, tmp_path: Path):
+        """Existing servers in `.mcp.json` are preserved when we add nauro."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        # The remove path now pre-checks <repo>/.mcp.json and only invokes
-        # `claude mcp remove` when the nauro entry is actually present.
-        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"nauro": {}}}))
-        calls = _mock_claude_cli(monkeypatch)
+        existing = {"mcpServers": {"other": {"command": "/usr/local/bin/other", "args": ["serve"]}}}
+        (repo / ".mcp.json").write_text(json.dumps(existing))
+
+        result = _configure_mcp(repo, remove=False)
+
+        config = json.loads((repo / ".mcp.json").read_text())
+        assert config["mcpServers"]["other"] == existing["mcpServers"]["other"]
+        assert "nauro" in config["mcpServers"]
+        assert "wrote nauro to .mcp.json" in result
+
+    def test_add_overwrites_stale_nauro_entry(self, tmp_path: Path):
+        """A pre-existing `nauro` entry is overwritten with the current command path."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        stale = {"mcpServers": {"nauro": {"command": "/old/path/to/nauro", "args": ["different"]}}}
+        (repo / ".mcp.json").write_text(json.dumps(stale))
+
+        _configure_mcp(repo, remove=False)
+
+        config = json.loads((repo / ".mcp.json").read_text())
+        assert config["mcpServers"]["nauro"]["args"] == ["serve", "--stdio"]
+        assert config["mcpServers"]["nauro"]["command"] != "/old/path/to/nauro"
+
+    def test_add_surfaces_parse_error_without_clobbering(self, tmp_path: Path):
+        """Malformed `.mcp.json` on the add path surfaces a parse error and
+        leaves the existing file untouched."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".mcp.json").write_text("{not json")
+
+        result = _configure_mcp(repo, remove=False)
+
+        assert "could not parse .mcp.json" in result
+        assert (repo / ".mcp.json").read_text() == "{not json"
+
+    def test_remove_deletes_nauro_entry_and_unlinks_empty_file(self, tmp_path: Path):
+        """Remove the nauro entry; if mcpServers becomes empty, drop the file."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"nauro": {"command": "/x", "args": []}}})
+        )
 
         result = _configure_mcp(repo, remove=True)
 
-        assert len(calls) == 1
-        argv, kwargs = calls[0]
-        assert argv == ["claude", "mcp", "remove", "nauro"]
-        assert kwargs.get("cwd") == repo
         assert "removed nauro from .mcp.json" in result
+        assert not (repo / ".mcp.json").exists()
 
-    def test_skips_when_claude_not_on_path(self, tmp_path: Path, monkeypatch):
+    def test_remove_preserves_other_servers(self, tmp_path: Path):
+        """Removing nauro keeps other server entries and rewrites the file."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        calls = _mock_claude_cli(monkeypatch, on_path=False)
-
-        result = _configure_mcp(repo, remove=False)
-
-        assert calls == []  # subprocess.run never invoked
-        assert "skipping Claude Code wiring" in result
-
-    def test_remove_when_claude_not_on_path_says_nothing_to_remove(
-        self, tmp_path: Path, monkeypatch
-    ):
-        """On --remove with no `claude` CLI, surface a remove-shaped message
-        rather than telling the user to install Claude Code (which is the
-        add-path hint). Locks in the branched message."""
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        calls = _mock_claude_cli(monkeypatch, on_path=False)
+        (repo / ".mcp.json").write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "nauro": {"command": "/x", "args": []},
+                        "other": {"command": "/y", "args": []},
+                    }
+                }
+            )
+        )
 
         result = _configure_mcp(repo, remove=True)
 
-        assert calls == []
-        assert "nothing to remove" in result
-        assert "skipping Claude Code wiring" not in result
+        assert "removed nauro from .mcp.json" in result
+        config = json.loads((repo / ".mcp.json").read_text())
+        assert "nauro" not in config["mcpServers"]
+        assert "other" in config["mcpServers"]
 
-    def test_non_zero_exit_surfaces_stderr(self, tmp_path: Path, monkeypatch):
+    def test_remove_skips_when_no_mcp_json(self, tmp_path: Path):
+        """No `.mcp.json` at all → no-op."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        _mock_claude_cli(monkeypatch, returncode=1, stderr="some claude error")
-
-        result = _configure_mcp(repo, remove=False)
-
-        assert "some claude error" in result
-        assert "claude mcp add failed" in result
-
-    def test_remove_skips_when_no_mcp_json(self, tmp_path: Path, monkeypatch):
-        """No `.mcp.json` at all → no-op without invoking the CLI."""
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        calls = _mock_claude_cli(monkeypatch)
 
         result = _configure_mcp(repo, remove=True)
 
-        assert calls == []
         assert "no nauro entry to remove" in result
+        assert not (repo / ".mcp.json").exists()
 
-    def test_remove_skips_when_nauro_absent_from_mcp_json(self, tmp_path: Path, monkeypatch):
-        """`.mcp.json` exists but has no nauro entry → no-op without invoking CLI."""
+    def test_remove_skips_when_nauro_absent_from_mcp_json(self, tmp_path: Path):
+        """`.mcp.json` exists but has no nauro entry → no-op, file untouched."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"other": {}}}))
-        calls = _mock_claude_cli(monkeypatch)
+        original = json.dumps({"mcpServers": {"other": {}}})
+        (repo / ".mcp.json").write_text(original)
 
         result = _configure_mcp(repo, remove=True)
 
-        assert calls == []
         assert "no nauro entry to remove" in result
+        assert (repo / ".mcp.json").read_text() == original
 
-    def test_remove_handles_malformed_mcp_json(self, tmp_path: Path, monkeypatch):
+    def test_remove_handles_malformed_mcp_json(self, tmp_path: Path):
         """Malformed `.mcp.json` surfaces a parse error instead of crashing."""
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".mcp.json").write_text("{not json")
-        calls = _mock_claude_cli(monkeypatch)
 
         result = _configure_mcp(repo, remove=True)
 
-        assert calls == []
         assert "could not parse .mcp.json" in result
 
     def test_setup_all_iterates_per_repo(self, tmp_path: Path, monkeypatch):
-        """Multi-repo project: `setup all` invokes `claude mcp add` once per
-        repo with the matching cwd. Locks in the project-scope iteration that
-        the multi-repo flow depends on."""
+        """Multi-repo project: `setup all` writes `.mcp.json` once per repo."""
         from nauro.cli.commands.setup import setup_all_surfaces
 
         repo1 = tmp_path / "repo1"
         repo2 = tmp_path / "repo2"
         repo1.mkdir()
         repo2.mkdir()
-        # Pretend HOME exists so claude/codex skill dirs are writable.
+        # HOME redirect so claude/codex skill dirs land under tmp_path.
         monkeypatch.setenv("HOME", str(tmp_path))
-        calls = _mock_claude_cli(monkeypatch)
 
         setup_all_surfaces([repo1, repo2], remove=False)
 
-        # Two `claude mcp add` calls — one per repo, each with the right cwd.
-        add_calls = [(argv, kwargs) for argv, kwargs in calls if argv[2] == "add"]
-        assert len(add_calls) == 2
-        cwds = {kwargs.get("cwd") for _, kwargs in add_calls}
-        assert cwds == {repo1, repo2}
+        for repo in (repo1, repo2):
+            config = json.loads((repo / ".mcp.json").read_text())
+            assert "nauro" in config["mcpServers"]
 
 
 class TestAGENTSMD:
     def test_setup_regenerates_agents_md(self, tmp_path: Path, monkeypatch):
         """Setup regenerates AGENTS.md in all repos."""
         repos = _setup_project(tmp_path, monkeypatch)
-
-        # Mock claude CLI as missing — these tests don't care about wiring,
-        # only the surrounding code paths (legacy CLAUDE.md cleanup, AGENTS.md, etc.).
-        _mock_claude_cli(monkeypatch, on_path=False)
 
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
@@ -210,10 +192,6 @@ class TestNoClaudeMDInjection:
         repos = _setup_project(tmp_path, monkeypatch)
         assert not (repos[0] / "CLAUDE.md").exists()
 
-        # Mock claude CLI as missing — these tests don't care about wiring,
-        # only the surrounding code paths (legacy CLAUDE.md cleanup, AGENTS.md, etc.).
-        _mock_claude_cli(monkeypatch, on_path=False)
-
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
         assert not (repos[0] / "CLAUDE.md").exists()
@@ -223,10 +201,6 @@ class TestNoClaudeMDInjection:
         repos = _setup_project(tmp_path, monkeypatch)
         existing = "# My Project\n\nSome existing content.\n"
         (repos[0] / "CLAUDE.md").write_text(existing)
-
-        # Mock claude CLI as missing — these tests don't care about wiring,
-        # only the surrounding code paths (legacy CLAUDE.md cleanup, AGENTS.md, etc.).
-        _mock_claude_cli(monkeypatch, on_path=False)
 
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
@@ -242,10 +216,6 @@ class TestLegacyCleanup:
         content = f"# My Project\n\nKeep this.\n\n{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n"
         (repos[0] / "CLAUDE.md").write_text(content)
 
-        # Mock claude CLI as missing — these tests don't care about wiring,
-        # only the surrounding code paths (legacy CLAUDE.md cleanup, AGENTS.md, etc.).
-        _mock_claude_cli(monkeypatch, on_path=False)
-
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
 
@@ -260,10 +230,6 @@ class TestLegacyCleanup:
         repos = _setup_project(tmp_path, monkeypatch)
         content = f"{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n"
         (repos[0] / "CLAUDE.md").write_text(content)
-
-        # Mock claude CLI as missing — these tests don't care about wiring,
-        # only the surrounding code paths (legacy CLAUDE.md cleanup, AGENTS.md, etc.).
-        _mock_claude_cli(monkeypatch, on_path=False)
 
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
@@ -286,10 +252,6 @@ class TestProjectResolution:
 
         monkeypatch.chdir(repo_a)
 
-        # Mock claude CLI as missing — these tests don't care about wiring,
-        # only the surrounding code paths (legacy CLAUDE.md cleanup, AGENTS.md, etc.).
-        _mock_claude_cli(monkeypatch, on_path=False)
-
         result = runner.invoke(app, ["setup", "claude-code", "--project", "proj-b"])
         assert result.exit_code == 0
 
@@ -304,10 +266,6 @@ class TestProjectResolution:
         repo2.mkdir()
 
         _setup_project(tmp_path, monkeypatch, repo_paths=[repo1, repo2])
-
-        # Mock claude CLI as missing — these tests don't care about wiring,
-        # only the surrounding code paths (legacy CLAUDE.md cleanup, AGENTS.md, etc.).
-        _mock_claude_cli(monkeypatch, on_path=False)
 
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
