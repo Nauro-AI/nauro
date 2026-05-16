@@ -92,9 +92,7 @@ def link(
             "provisions during onboarding. Expected order:\n"
             "  1. Administrator hands you bucket name + access keys.\n"
             "  2. You run 'nauro sync --cloud-setup' to configure them.\n"
-            "  3. You run 'nauro link --cloud'.\n"
-            "\n"
-            "See docs/cloud-sync.md.",
+            "  3. You run 'nauro link --cloud'.",
             err=True,
         )
         raise typer.Exit(code=1)

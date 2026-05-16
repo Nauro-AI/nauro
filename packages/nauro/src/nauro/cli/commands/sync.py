@@ -233,7 +233,8 @@ def _push_to_cloud(project_name: str, store_path: Path) -> bool:
     except ImportError:
         typer.echo(
             "  Warning: this is a cloud-mode project but CLI sync credentials are not configured.\n"
-            "  Your local snapshot is captured, but nothing was uploaded. See docs/cloud-sync.md.",
+            "  Your local snapshot is captured, but nothing was uploaded.\n"
+            "  Run 'nauro sync --cloud-setup' to configure credentials.",
             err=True,
         )
         return False
@@ -242,7 +243,8 @@ def _push_to_cloud(project_name: str, store_path: Path) -> bool:
     if not config.enabled:
         typer.echo(
             "  Warning: this is a cloud-mode project but CLI sync credentials are not configured.\n"
-            "  Your local snapshot is captured, but nothing was uploaded. See docs/cloud-sync.md.",
+            "  Your local snapshot is captured, but nothing was uploaded.\n"
+            "  Run 'nauro sync --cloud-setup' to configure credentials.",
             err=True,
         )
         return False
