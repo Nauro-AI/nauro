@@ -1,11 +1,9 @@
 """Baseline test: the validation pipeline never imports anthropic.
 
-After Decision B (extraction retirement) the only Anthropic dependency in
-Nauro was extraction itself; with extraction removed, no production code path
-imports ``anthropic``. This test guards that property by simulating an env
-where ``anthropic`` cannot be imported and exercising propose_decision
-against overlapping titles — the path that originally surfaced the leak in
-the 2026-05-09 dogfood (Finding 1, when Tier 3 still lived).
+Earlier code paths in the validation pipeline imported the Anthropic SDK
+opportunistically; the dependency has since been removed. This test guards
+the property by simulating an environment where ``anthropic`` cannot be
+imported and exercising ``propose_decision`` with overlapping titles.
 """
 
 from __future__ import annotations
