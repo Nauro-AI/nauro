@@ -19,6 +19,19 @@ def test_app_shows_help():
     assert "nauro" in result.output.lower()
 
 
+def test_version_flag_matches_package_metadata():
+    """`nauro --version` reports the installed package version.
+
+    Regression guard: prior to 0.5.1 the version was hardcoded in
+    __init__.py and drifted from pyproject.toml across releases.
+    """
+    from importlib.metadata import version
+
+    result = runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert result.output.strip() == f"nauro {version('nauro')}"
+
+
 def test_init_command(tmp_path: Path, monkeypatch):
     """nauro init should create an id-keyed project store."""
     from nauro.store.registry import find_projects_by_name_v2
