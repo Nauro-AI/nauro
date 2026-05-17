@@ -5,8 +5,9 @@ plane. Both endpoints require an OAuth bearer token; the token is loaded
 from ``~/.nauro/config.json`` under the ``auth.access_token`` key — the same
 slot that ``nauro auth login`` writes.
 
-The server URL resolution mirrors ``nauro.cli.commands.auth``: ``NAURO_API_URL``
-env var first, then ``api_url`` in user config, then the public default.
+Server URL resolution is shared with the sync transport via
+``nauro.sync.remote.resolve_api_url`` (``NAURO_API_URL`` env var, then
+``api_url`` in user config, then the public default).
 
 Failure modes are collapsed into a single ``CloudProjectError`` with a
 human-readable message; both callers (``nauro init --cloud`` and ``nauro attach``,
@@ -19,13 +20,12 @@ benefit.
 
 from __future__ import annotations
 
-import os
 from typing import TypedDict
 
 import httpx
 
-from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.store.config import load_config
+from nauro.sync.remote import resolve_api_url
 
 _DEFAULT_TIMEOUT = 15.0
 
@@ -45,20 +45,6 @@ class CloudProjectError(Exception):
     The message is the user-facing rendering. Callers should print it and
     exit; no recovery is attempted at this layer.
     """
-
-
-def _resolve_api_url() -> str:
-    """Resolve the remote MCP server base URL.
-
-    Precedence: NAURO_API_URL env var → ``api_url`` config key → public default.
-    Mirrors the resolution in ``nauro.cli.commands.auth._resolve_auth_config``
-    so this client and the auth flow agree about which server is in play.
-    """
-    env_url = os.environ.get("NAURO_API_URL")
-    if env_url:
-        return env_url
-    config_url = str(load_config().get("api_url") or "")
-    return config_url or DEFAULT_API_URL
 
 
 def _load_access_token() -> str:
@@ -98,8 +84,7 @@ def _parse_project(raw: object) -> ProjectView:
 
 def _request(method: str, path: str, *, json_body: dict | None = None) -> httpx.Response:
     """Issue an authenticated request, translating transport failures."""
-    api_url = _resolve_api_url().rstrip("/")
-    url = f"{api_url}{path}"
+    url = f"{resolve_api_url()}{path}"
     headers = {
         "Authorization": f"Bearer {_load_access_token()}",
         "Accept": "application/json",

@@ -31,14 +31,13 @@ class PresignError(Exception):
 def resolve_api_url() -> str:
     """Resolve the remote MCP server base URL.
 
-    Mirrors ``nauro.sync.cloud_projects._resolve_api_url`` — env var first,
-    then ``api_url`` in user config, then the public default.
+    Precedence: ``NAURO_API_URL`` env var, then ``api_url`` in user config,
+    then the public default. Trailing slash stripped on every branch so
+    callers can append ``/path`` without doubling the separator.
     """
-    env_url = os.environ.get("NAURO_API_URL")
-    if env_url:
-        return env_url
+    env_url = os.environ.get("NAURO_API_URL") or ""
     config_url = str(load_config().get("api_url") or "")
-    return (config_url or DEFAULT_API_URL).rstrip("/")
+    return (env_url or config_url or DEFAULT_API_URL).rstrip("/")
 
 
 # The server batches up to 200 ops per /sync/presign call (see mcp-server
