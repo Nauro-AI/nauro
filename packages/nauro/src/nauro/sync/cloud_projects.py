@@ -1,17 +1,21 @@
 """HTTP client for the remote MCP server's project endpoints.
 
 Wraps ``POST /projects`` and ``GET /projects`` on the Nauro cloud control
-plane. Both endpoints require an OAuth bearer token; the token is loaded
-from ``~/.nauro/config.json`` under the ``auth.access_token`` key — the same
-slot that ``nauro auth login`` writes.
+plane. Both endpoints require an OAuth bearer token; auth is shared with
+the sync transport via ``with_token_refresh`` — a stale access token is
+refreshed transparently on 401 (when a refresh token is available), so a
+session that has only been idle still completes ``nauro init --cloud``
+and ``nauro attach`` without an interactive re-login.
 
 Server URL resolution is shared with the sync transport via
 ``nauro.sync.remote.resolve_api_url`` (``NAURO_API_URL`` env var, then
 ``api_url`` in user config, then the public default).
 
 Failure modes are collapsed into a single ``CloudProjectError`` with a
-human-readable message; both callers (``nauro init --cloud`` and ``nauro attach``,
-landing in 2c-B) just render the message.
+human-readable message; both callers just render the message. The 4xx
+auth branches distinguish ``401 after refresh attempt`` from ``403
+forbidden`` so the remediation hint matches the underlying cause instead
+of always telling the user to log in.
 
 ``created_at`` is passed through verbatim as an ISO 8601 string. No date
 parsing — that just creates timezone-normalization fragility for no caller
@@ -24,7 +28,7 @@ from typing import TypedDict
 
 import httpx
 
-from nauro.store.config import load_config
+from nauro.cli.commands.auth import AuthRefreshError, with_token_refresh
 from nauro.sync.remote import resolve_api_url
 
 _DEFAULT_TIMEOUT = 15.0
@@ -45,21 +49,6 @@ class CloudProjectError(Exception):
     The message is the user-facing rendering. Callers should print it and
     exit; no recovery is attempted at this layer.
     """
-
-
-def _load_access_token() -> str:
-    """Read the OAuth bearer token written by ``nauro auth login``.
-
-    Raises:
-        CloudProjectError: If no token is available.
-    """
-    auth = load_config().get("auth") or {}
-    token = auth.get("access_token") if isinstance(auth, dict) else None
-    if not token:
-        raise CloudProjectError(
-            "Not authenticated. Run 'nauro auth login' before targeting the cloud."
-        )
-    return str(token)
 
 
 def _parse_project(raw: object) -> ProjectView:
@@ -83,27 +72,56 @@ def _parse_project(raw: object) -> ProjectView:
 
 
 def _request(method: str, path: str, *, json_body: dict | None = None) -> httpx.Response:
-    """Issue an authenticated request, translating transport failures."""
+    """Issue an authenticated request, refreshing the token on 401.
+
+    Auth handling is delegated to :func:`with_token_refresh`: a fresh
+    request runs first, and a 401 triggers one refresh + retry before the
+    response surfaces here. Transport errors, refresh failures, and
+    persistent 4xx/5xx responses are all translated into
+    :class:`CloudProjectError` with a remediation hint matched to the
+    actual failure mode.
+    """
     url = f"{resolve_api_url()}{path}"
-    headers = {
-        "Authorization": f"Bearer {_load_access_token()}",
-        "Accept": "application/json",
-    }
-    try:
-        response = httpx.request(
-            method, url, headers=headers, json=json_body, timeout=_DEFAULT_TIMEOUT
+
+    def _call(token: str) -> httpx.Response:
+        return httpx.request(
+            method,
+            url,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
+            json=json_body,
+            timeout=_DEFAULT_TIMEOUT,
         )
+
+    try:
+        response = with_token_refresh(_call)
+    except AuthRefreshError as exc:
+        # ``AuthRefreshError`` messages already carry the right remediation
+        # for the case they describe (no refresh token / expired refresh /
+        # network failure to Auth0); appending another "run nauro auth
+        # login" line just makes them double-sentence and unclear.
+        raise CloudProjectError(f"Authentication failed: {exc}") from exc
     except httpx.HTTPError as exc:
         raise CloudProjectError(f"Network error contacting {url}: {exc}") from exc
 
-    if response.status_code in (401, 403):
+    if response.status_code == 401:
+        # Reached only after with_token_refresh already attempted a refresh
+        # and retry; a second 401 means the refreshed token was rejected by
+        # the server (revoked, server-side identity change, or maintenance).
         raise CloudProjectError(
-            f"Authentication failed ({response.status_code}). Run 'nauro auth login' and try again."
+            "Authentication rejected (401) even after refreshing the token. "
+            "Run 'nauro auth login' to re-authenticate."
+        )
+    if response.status_code == 403:
+        raise CloudProjectError(
+            f"Forbidden (403) from {url}. Your account does not have access to this resource."
         )
     if response.status_code >= 500:
         raise CloudProjectError(
             f"Server error ({response.status_code}) from {url}. "
-            f"The cloud control plane may be unavailable; try again shortly."
+            "The cloud control plane may be unavailable; try again shortly."
         )
     if response.status_code >= 400:
         # 4xx other than auth — surface server message verbatim where possible.
