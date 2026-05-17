@@ -37,7 +37,7 @@ GET_DECISION_BEFORE_PROPOSING = (
 PROPOSE_DECISION_OPERATIONS = (
     "Pick the right `operation`:\n"
     "- `add` (default) — genuinely new ground; no existing decision is being changed.\n"
-    "- `update` — rationale-only; provide `affected_decision_id`. Per D133 the "
+    "- `update` — rationale-only; provide `affected_decision_id`. The "
     "server rejects `title`, `confidence`, `decision_type`, `reversibility`, "
     "`files_affected`, and `rejected` at the boundary — use supersede for any "
     "of those.\n"

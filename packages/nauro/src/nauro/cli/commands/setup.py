@@ -211,7 +211,7 @@ def claude_code(
 # Cursor reads MCP servers from `<repo>/.cursor/mcp.json` (per-project).
 # User-global "Rules for AI" live in the IDE Settings UI, not a file path —
 # so MCP wiring is per-project here.
-# Docs: https://cursor.com/docs (checked: 2026-05-07)
+# Docs: https://cursor.com/docs
 
 
 def _configure_cursor_for_repo(repo_path: Path, *, remove: bool) -> str:
@@ -291,7 +291,7 @@ def cursor(
 
 # Codex reads MCP servers from `~/.codex/config.toml` under `[mcp_servers.<name>]`.
 # This is the user-global Codex CLI config and is shared with the IDE extension.
-# Docs: https://developers.openai.com/codex/mcp (checked: 2026-05-07)
+# Docs: https://developers.openai.com/codex/mcp
 
 
 def _default_codex_config_path() -> Path:

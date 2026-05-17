@@ -43,10 +43,10 @@ SURFACE_FRAGMENTS: dict[str, list[str]] = {
     ],
 }
 
-# Adopt's Step 7 step 3 restates D131/D133 operation semantics in its own
-# numbered-step + sub-bullet shape; the bullet-form PROPOSE_DECISION_OPERATIONS
-# fragment cannot be substituted there without breaking markdown indentation.
-# To prevent operation-content drift between MCP and adopt, assert adopt's
+# Adopt's Step 7 step 3 restates operation semantics in its own numbered-step
+# + sub-bullet shape; the bullet-form PROPOSE_DECISION_OPERATIONS fragment
+# cannot be substituted there without breaking markdown indentation. To
+# prevent operation-content drift between MCP and adopt, assert adopt's
 # rendered body still mentions every load-bearing anchor from the fragment.
 ADOPT_OPERATION_ANCHORS: tuple[str, ...] = (
     # The three operation names (backtick-quoted in the fragment; adopt uses
@@ -56,8 +56,6 @@ ADOPT_OPERATION_ANCHORS: tuple[str, ...] = (
     "supersede",
     # The kwarg every mutation requires
     "affected_decision_id",
-    # The decision number that introduced the metadata-rejection rule
-    "D133",
     # The six metadata fields rejected at the boundary on operation=update
     "title",
     "confidence",

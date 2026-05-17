@@ -222,7 +222,7 @@ def test_setup_top_level_help_lists_new_subcommands():
     assert "all" in result.output
 
 
-# ─── nauro setup all (PR-B2) ─────────────────────────────────────────────────
+# ─── nauro setup all ────────────────────────────────────────────────────────
 
 
 def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatch):

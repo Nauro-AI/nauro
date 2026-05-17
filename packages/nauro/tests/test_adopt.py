@@ -1,4 +1,4 @@
-"""Tests for ``nauro adopt`` (PR-B2)."""
+"""Tests for ``nauro adopt``."""
 
 from __future__ import annotations
 

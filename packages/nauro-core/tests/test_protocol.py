@@ -37,13 +37,13 @@ class TestFragmentAnchors:
         assert "before proposing" in GET_DECISION_BEFORE_PROPOSING
         assert "supersession status" in GET_DECISION_BEFORE_PROPOSING
 
-    def test_propose_decision_operations_names_all_three_and_d133(self) -> None:
+    def test_propose_decision_operations_names_all_three_and_metadata_rule(self) -> None:
         for op in ("add", "update", "supersede"):
             assert f"`{op}`" in PROPOSE_DECISION_OPERATIONS, op
         assert "`affected_decision_id`" in PROPOSE_DECISION_OPERATIONS
-        # D133: update is rationale-only; metadata changes are rejected
-        assert "D133" in PROPOSE_DECISION_OPERATIONS
+        # Update is rationale-only; metadata changes are rejected at the boundary
         assert "rationale-only" in PROPOSE_DECISION_OPERATIONS
+        assert "server rejects" in PROPOSE_DECISION_OPERATIONS
         for field in (
             "`title`",
             "`confidence`",

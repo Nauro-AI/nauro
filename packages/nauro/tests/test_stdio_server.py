@@ -342,12 +342,13 @@ class TestToolSpecDescriptionsReachAgent:
     def tools_by_name(self):
         return {t.name: t for t in mcp._tool_manager.list_tools()}
 
-    def test_propose_decision_operation_carries_d133_list(self, tools_by_name):
+    def test_propose_decision_operation_carries_metadata_rejection_list(self, tools_by_name):
         op = tools_by_name["propose_decision"].parameters["properties"]["operation"]
-        # Description should carry the canonical fragment text — the D133 6-field
-        # list, the operation enumeration, and the use-supersede guidance.
+        # Description should carry the canonical fragment text — the 6-field
+        # metadata-rejection list, the operation enumeration, and the
+        # use-supersede guidance.
         for needle in (
-            "D133",
+            "server rejects",
             "rationale-only",
             "`title`",
             "`confidence`",
@@ -358,7 +359,6 @@ class TestToolSpecDescriptionsReachAgent:
             "supersede",
         ):
             assert needle in op["description"], f"missing {needle!r} in operation description"
-        # Operation enum constraint should also be present (was missing pre-D134).
         assert op["enum"] == ["add", "update", "supersede"]
 
     @pytest.mark.parametrize(

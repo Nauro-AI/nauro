@@ -29,9 +29,9 @@ def test_load_adopt_body_returns_canonical_bytes():
     assert "Step 6a — Documented decisions" in body
     assert "Step 6b — Code-evidenced" in body
     assert "was Y considered; what pushed you toward X" in body
-    # All three D131/D133 operation variants must remain present so a
-    # cleanup edit cannot accidentally drop one — the structural test
-    # only validates calls that *are* there, not that all three exist.
+    # All three operation variants must remain present so a cleanup edit
+    # cannot accidentally drop one — the structural test only validates
+    # calls that *are* there, not that all three exist.
     for op in ("add", "update", "supersede"):
         assert f'operation="{op}"' in body, f"missing propose_decision variant: {op}"
     assert "Step 11 — Summary" in body
@@ -114,35 +114,36 @@ def test_docs_adopt_prompt_contains_canonical_body():
 
 # --- Retired phrases must not reappear in skill / docs surfaces ---
 #
-# Anchored to D124/D129/D130/D131 + PR #38. Scanned across every surface
-# in ``SKILL_SURFACES``; dogfood files inherit via the byte-equality test.
+# Each entry pairs a retired phrase with the reason it was retired, scanned
+# across every surface in ``SKILL_SURFACES``; dogfood files inherit via the
+# byte-equality test.
 
 RETIRED_PHRASES = [
-    ("LLM-based", "D130 removed Tier 3 LLM validation"),
-    ("Tier 3", "D130 removed Tier 3 LLM validation"),
-    ("nauro extract", "D129 retired the extract command"),
-    ("[extraction]", "D129 retired the [extraction] extra"),
-    ("Anthropic SDK", "D129 dropped Anthropic SDK as a runtime dep"),
-    ("Python 3.11+", "D124 lowered the Python floor to 3.10"),
+    ("LLM-based", "Tier 3 LLM validation was removed"),
+    ("Tier 3", "Tier 3 LLM validation was removed"),
+    ("nauro extract", "the extract command was retired"),
+    ("[extraction]", "the [extraction] extra was retired"),
+    ("Anthropic SDK", "Anthropic SDK was dropped as runtime dep"),
+    ("Python 3.11+", "the Python floor was lowered to 3.10"),
     (
         "propose_decision(title, rationale, rejected,",
-        "D131 made propose_decision operation-aware; rejected/confidence are no longer positional",
+        "propose_decision became operation-aware; rejected/confidence are no longer positional",
     ),
     (
         "bracketed-prompt placeholders in `project.md` / `stack.md` / `state_current.md`",
-        "PR #38 removed bracket-prompt scaffolding from state_current.md",
+        "bracket-prompt scaffolding was removed from state_current.md",
     ),
     (
         "The agent does not read source code, tests, IaC templates, or git history during adopt",
-        "D125 v2 reverses the docs-only stance — code is evidence on filesystem-capable surfaces",
+        "the docs-only stance was reversed — code is evidence on filesystem-capable surfaces",
     ),
     (
         "Step 5a — Clear decisions",
-        "D125 v2 renamed to Step 6a — Documented decisions",
+        "renamed to Step 6a — Documented decisions",
     ),
     (
         "Step 5b — Boundary candidates",
-        "D125 v2 split this into Step 6b (code-evidenced) + Step 6c (stack inventory)",
+        "split into Step 6b (code-evidenced) + Step 6c (stack inventory)",
     ),
 ]
 

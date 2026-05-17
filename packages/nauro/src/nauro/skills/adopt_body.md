@@ -13,7 +13,7 @@ The agent helps the user seed Nauro with context from the current repo. Before t
 The agent's behaviour depends on whether the surface can read the repo directly.
 
 - **Filesystem-capable surfaces** (Claude Code, Cursor, Codex CLI). The agent runs Steps 1–11 in full. Docs are read for rationale in Step 3; code, config, tests, manifests, and recent git history are inspected for evidence in Step 4; targeted probes in Step 6b turn evidence into rationale by asking the user.
-- **Chat surfaces** (Claude.ai, ChatGPT, Perplexity). The agent has no shell. It operates only on content the user pastes into the chat (Step 3b), and only against an already-adopted project per D127 (verified in Step 2). The code-evidence path (Step 4) and the Step 6b probes are unavailable; the agent does not ask the user to paste code in lieu of running shell commands. The skill skips from Step 3b directly to Step 5.
+- **Chat surfaces** (Claude.ai, ChatGPT, Perplexity). The agent has no shell. It operates only on content the user pastes into the chat (Step 3b), and only against an already-adopted project (verified in Step 2). The code-evidence path (Step 4) and the Step 6b probes are unavailable; the agent does not ask the user to paste code in lieu of running shell commands. The skill skips from Step 3b directly to Step 5.
 
 ## Step 1 — Detect repo root
 
@@ -110,13 +110,13 @@ Languages, frameworks, package managers, license, lint tooling, and similar fact
 
 ## Step 7 — Write loop
 
-For each kept candidate from 6a and each rationale-supplied 6b answer, the agent runs the full D131 / D133 protocol:
+For each kept candidate from 6a and each rationale-supplied 6b answer, the agent runs the full propose/confirm protocol:
 
 1. Call `check_decision(proposed_approach=<title or short description>, project_id=...)`. <!-- protocol:CHECK_DECISION_RETURNS -->
 2. <!-- protocol:GET_DECISION_BEFORE_PROPOSING --> Call signature: `get_decision(number=N, project_id=...)`.
 3. Classify the operation:
     - **add** (default; new ground, no existing decision covers it).
-    - **update** when the candidate augments an existing decision's rationale only. Per D133 the server consumes only `rationale` on update; `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, and `rejected` are rejected at the boundary — use supersede if any of those must change.
+    - **update** when the candidate augments an existing decision's rationale only. The server consumes only `rationale` on update; `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, and `rejected` are rejected at the boundary — use supersede if any of those must change.
     - **supersede** when the title or other metadata must change, or the candidate replaces or contradicts an existing decision. Pass the full new body and set `affected_decision_id`.
     - **skip** when the candidate is a duplicate (e.g. matches `001-initial-setup` or a candidate already seeded earlier in this same adopt run).
 4. Call `propose_decision` using the call signature for the chosen operation — these are operation-specific by design so an agent copying the template cannot accidentally send a field the server will reject:
@@ -124,7 +124,7 @@ For each kept candidate from 6a and each rationale-supplied 6b answer, the agent
       ```
       propose_decision(project_id=..., title=..., rationale=..., operation="add", rejected=..., confidence=...)
       ```
-    - For **update** (rationale-only — D133 rejects every other field at the boundary):
+    - For **update** (rationale-only — the server rejects every other field at the boundary):
       ```
       propose_decision(project_id=..., rationale=..., operation="update", affected_decision_id=...)
       ```
@@ -137,7 +137,7 @@ For each kept candidate from 6a and each rationale-supplied 6b answer, the agent
 5. Call `confirm_decision(confirm_id, project_id=...)`:
     - `add` + no conflicts → auto-confirm.
     - `add` + conflicts → surface the assessment verbatim, ask `confirm-anyway / edit / skip`; confirm only on user 'confirm'.
-    - `update` or `supersede` → always pending per D131. Surface the assessment first; confirm only on explicit user 'confirm'.
+    - `update` or `supersede` → always pending. Surface the assessment first; confirm only on explicit user 'confirm'.
 
 One propose+confirm per candidate. No batching.
 
