@@ -60,7 +60,7 @@ def test_adopt_aborts_when_repo_already_adopted(tmp_path: Path, monkeypatch):
     runner.invoke(app, ["adopt", "--name", "alpha"])
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "already adopted" in result.output.lower()
 
 
@@ -76,7 +76,7 @@ def test_adopt_aborts_on_same_name_collision(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(new_repo)
 
     result = runner.invoke(app, ["adopt"])  # infers name="alpha", collides
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "A project named 'alpha' already exists" in result.output
     assert "--name <unique-name>" in result.output
     assert "nauro attach" in result.output
@@ -119,7 +119,7 @@ def test_adopt_print_prompt_conflicts_with_other_flags(tmp_path: Path, monkeypat
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["adopt", "--print-prompt", "--name", "x"])
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "mutually exclusive" in result.output
 
 
@@ -157,7 +157,7 @@ def test_adopt_materializes_skills_across_surfaces(tmp_path: Path, monkeypatch):
 def test_adopt_aborts_on_nonexistent_repo(tmp_path: Path, monkeypatch):
 
     result = runner.invoke(app, ["adopt", "--repo", str(tmp_path / "missing")])
-    assert result.exit_code != 0
+    assert result.exit_code == 1
     assert "not a directory" in result.output
 
 

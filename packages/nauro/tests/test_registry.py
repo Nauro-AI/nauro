@@ -2,6 +2,7 @@
 
 import json
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -40,11 +41,8 @@ def test_register_duplicate_raises(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     registry.register_project("dup", [repo])
-    try:
+    with pytest.raises(ValueError):
         registry.register_project("dup", [repo])
-        assert False, "Expected ValueError"
-    except ValueError:
-        pass
 
 
 def test_add_repo(tmp_path, monkeypatch):
@@ -69,11 +67,8 @@ def test_add_repo_idempotent(tmp_path, monkeypatch):
 
 
 def test_add_repo_missing_project(tmp_path, monkeypatch):
-    try:
+    with pytest.raises(KeyError):
         registry.add_repo("nope", tmp_path)
-        assert False, "Expected KeyError"
-    except KeyError:
-        pass
 
 
 # --- resolve_project ---
