@@ -6,7 +6,7 @@ from pathlib import Path
 import typer
 
 from nauro.cli.utils import resolve_target_project
-from nauro.constants import REPO_CONFIG_MODE_CLOUD
+from nauro.constants import REPO_CONFIG_MODE_CLOUD, REPO_CONFIG_MODE_LOCAL
 from nauro.store.registry import (
     RegistrySchemaError,
     get_project_v2,
@@ -118,21 +118,29 @@ def sync(
 def _pull_from_cloud(project_name: str, store_path: Path) -> int:
     """Pull remote changes from the server before a local sync.
 
-    Dispatches on which transport is configured. Auth0 token wins over static
-    IAM credentials when both are present — that is the migration ramp for
-    installs created during the static-IAM era. Returns the number of files
-    merged/pulled, or 0 if nothing changed (or nothing is configured).
+    Dispatches on registry mode and which transport is configured:
+
+    * v2-local                              → no-op
+    * v2-cloud + Auth0 token                → presign path
+    * v2-cloud (no token), or v1 with static IAM creds → legacy direct-S3
+    * v1 with no static IAM creds           → no-op (preserves pre-PR-B behavior)
+
+    The v1+static-creds fall-through is load-bearing: a v1 user with both
+    an Auth0 token and static IAM creds must keep getting their data
+    pulled until they re-register through v2 (link --cloud or fresh init).
+    The presign path can't help — it requires a server-side ULID record.
     """
     from nauro.cli.commands.auth import load_access_token
+    from nauro.sync.config import load_sync_config
 
-    if load_access_token():
-        # Manifest/presign requires a server-side project record; local-mode
-        # projects have none, so silently no-op.
-        if _project_mode(project_name) != REPO_CONFIG_MODE_CLOUD:
-            return 0
+    mode = _project_mode(project_name)
+    if mode == REPO_CONFIG_MODE_LOCAL:
+        return 0
+    if mode == REPO_CONFIG_MODE_CLOUD and load_access_token():
         return _pull_via_presign(project_name, store_path)
-
-    return _pull_via_static_s3(project_name, store_path)
+    if mode == REPO_CONFIG_MODE_CLOUD or load_sync_config().enabled:
+        return _pull_via_static_s3(project_name, store_path)
+    return 0
 
 
 def _pull_via_presign(project_id: str, store_path: Path) -> int:
@@ -177,6 +185,11 @@ def _pull_via_presign(project_id: str, store_path: Path) -> int:
         rel = entry.get("path", "") if isinstance(entry, dict) else ""
         if not rel or should_skip(rel):
             continue
+        # Defense in depth — the server validates per-op on presign, but the
+        # manifest itself is currently trusted. Drop suspicious entries here.
+        if ".." in Path(rel).parts or rel.startswith("/"):
+            logger.warning("Skipping manifest entry with suspicious path: %r", rel)
+            continue
         remote_etag = entry.get("etag", "")
         if not file_changed_remotely(remote_etag, rel, state):
             continue
@@ -208,6 +221,9 @@ def _pull_via_presign(project_id: str, store_path: Path) -> int:
         logger.exception("Failed to request presigned URLs")
         typer.echo(f"  Warning: presign request failed ({exc})", err=True)
         return 0
+
+    if len(urls) < len(operations):
+        logger.warning("Presign returned %d URLs for %d ops", len(urls), len(operations))
 
     url_by_path = {
         entry["path"]: entry["url"]
@@ -356,22 +372,28 @@ def _pull_via_static_s3(project_name: str, store_path: Path) -> int:
 def _push_to_cloud(project_name: str, store_path: Path) -> bool:
     """Push store changes after a local sync.
 
-    Returns True when the project is local-only (nothing to push is not an
-    error) or when the upload succeeded. Returns False only when the project
-    is cloud-mode but the CLI has no transport configured — in that case the
-    user is warned and the caller treats the sync as a partial success.
+    Mirrors the pull dispatch:
 
-    Auth0 token wins over static IAM credentials when both are present.
+    * v2-local                              → True (nothing to push)
+    * v2-cloud + Auth0 token                → presign path
+    * v2-cloud (no token)                   → legacy direct-S3 (warns + False if no creds)
+    * v1 with static IAM creds              → legacy direct-S3
+    * v1 with no static IAM creds           → True (preserves pre-PR-B behavior)
+
+    The v1+static-creds fall-through prevents silent push-loss for users
+    still on the pre-v2 registry layout.
     """
-    if _project_mode(project_name) != REPO_CONFIG_MODE_CLOUD:
-        return True
-
     from nauro.cli.commands.auth import load_access_token
+    from nauro.sync.config import load_sync_config
 
-    if load_access_token():
+    mode = _project_mode(project_name)
+    if mode == REPO_CONFIG_MODE_LOCAL:
+        return True
+    if mode == REPO_CONFIG_MODE_CLOUD and load_access_token():
         return _push_via_presign(project_name, store_path)
-
-    return _push_via_static_s3(project_name, store_path)
+    if mode == REPO_CONFIG_MODE_CLOUD or load_sync_config().enabled:
+        return _push_via_static_s3(project_name, store_path)
+    return True
 
 
 def _push_via_presign(project_id: str, store_path: Path) -> bool:
@@ -417,6 +439,9 @@ def _push_via_presign(project_id: str, store_path: Path) -> bool:
         logger.exception("Failed to request presigned PUT URLs")
         typer.echo(f"  Warning: presign request failed ({exc})", err=True)
         return False
+
+    if len(urls) < len(operations):
+        logger.warning("Presign returned %d URLs for %d ops", len(urls), len(operations))
 
     url_by_path = {
         entry["path"]: entry["url"]

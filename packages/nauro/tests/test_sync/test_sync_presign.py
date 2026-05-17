@@ -22,7 +22,7 @@ import pytest
 
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
-from nauro.store.registry import register_project_v2
+from nauro.store.registry import register_project, register_project_v2
 from nauro.sync.state import (
     FileState,
     SyncState,
@@ -179,6 +179,54 @@ class TestModeDetection:
 
         ok = _push_to_cloud(store.name, store)
         assert ok is False
+
+    def test_v1_registry_entry_with_auth_token_falls_through_to_legacy(self, tmp_path, monkeypatch):
+        """v1 registry entries have no ``mode`` field; ``_project_mode`` returns
+        ``None`` for them. A v1 user with both an Auth0 token and static IAM
+        credentials must keep getting their data pushed via the legacy path —
+        the presign path can't address a project that has no server-side ULID
+        record.
+        """
+        # v1 register_project lives outside the v2 registry, so _project_mode
+        # returns None for this project_name.
+        store = register_project("v1proj", [tmp_path])
+        scaffold_project_store("v1proj", store)
+
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "sanitized_sub": "auth0-test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                },
+                "sync": {
+                    "bucket_name": "b",
+                    "region": "us-east-1",
+                    "access_key_id": "k",
+                    "secret_access_key": "s",
+                },
+            }
+        )
+
+        mock_client = MagicMock()
+
+        with (
+            patch("nauro.sync.remote.boto3.client", return_value=mock_client) as mock_boto,
+            patch("nauro.sync.remote.httpx.post") as mock_post,
+            patch("nauro.sync.remote.push_file", return_value='"e_static"') as mock_push_file,
+        ):
+            from nauro.cli.commands.sync import _push_to_cloud
+
+            ok = _push_to_cloud(store.name, store)
+
+        assert ok is True
+        # Legacy path: a boto3 client was created and push_file was invoked.
+        mock_boto.assert_called()
+        assert mock_push_file.called
+        # Presign endpoint never touched.
+        presign_calls = [c for c in mock_post.call_args_list if "/sync/presign" in c.args[0]]
+        assert presign_calls == []
 
 
 # --- pull flow ---
