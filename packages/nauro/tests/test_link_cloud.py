@@ -30,12 +30,6 @@ def _seed_token(monkeypatch, tmp_path):
     save_config(
         {
             "auth": {"access_token": "test-token", "sub": "auth0|test"},
-            "sync": {
-                "bucket_name": "test-bucket",
-                "region": "us-east-1",
-                "access_key_id": "fake-key",
-                "secret_access_key": "fake-secret",
-            },
         }
     )
 

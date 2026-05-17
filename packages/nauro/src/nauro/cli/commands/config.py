@@ -1,9 +1,9 @@
 """nauro config — inspect and remove Nauro configuration.
 
 The store layer (``set_config`` / ``save_config``) is written by feature-
-specific commands (``nauro auth login``, ``nauro sync --cloud-setup``,
-``nauro telemetry enable/disable``). This CLI surface is read-only +
-cleanup: list / get / unset, no generic ``set``.
+specific commands (``nauro auth login``, ``nauro telemetry
+enable/disable``). This CLI surface is read-only + cleanup: list / get /
+unset, no generic ``set``.
 """
 
 import typer

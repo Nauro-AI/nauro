@@ -1,7 +1,7 @@
 """Tests for nauro sync bidirectional pull-then-push behavior."""
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -54,61 +54,6 @@ class TestSyncPullBeforePush:
         assert "Synced testproj" in result.output
         # No "Pulling from remote" because sync is not configured
         assert "Pulling from remote" not in result.output
-
-    def test_pull_merges_remote_changes(self, project_store, tmp_path, monkeypatch):
-        """When remote has changes local doesn't, pull should merge them."""
-        from nauro.cli.commands.sync import _pull_from_cloud
-        from nauro.sync.config import SyncConfig
-        from nauro.sync.state import SyncState, save_state
-
-        # Set up sync state — file NOT in state (new remote file)
-        state = SyncState()
-        save_state(project_store, state)
-
-        mock_config = SyncConfig(
-            bucket_name="test-bucket",
-            region="us-east-1",
-            access_key_id="fake",
-            secret_access_key="fake",
-            enabled=True,
-            sanitized_sub="test-user-abc123",
-        )
-
-        remote_content = b"# Decision 037\nTest decision from remote"
-        mock_client = MagicMock()
-        mock_client.get_paginator.return_value.paginate.return_value = [
-            {
-                "Contents": [
-                    {
-                        "Key": "users/test-user-abc123/projects/testproj/decisions/037-test.md",
-                        "ETag": '"newetag"',
-                        "Size": len(remote_content),
-                    }
-                ]
-            }
-        ]
-        mock_client.get_object.return_value = {
-            "Body": MagicMock(read=lambda: remote_content),
-            "ETag": '"newetag"',
-        }
-
-        # Patch pull_file to write the content
-        def fake_pull(client, bucket, key, local_path):
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            local_path.write_bytes(remote_content)
-            return '"newetag"'
-
-        with (
-            patch("nauro.sync.config.load_sync_config", return_value=mock_config),
-            patch("nauro.sync.remote.create_client", return_value=mock_client),
-            patch("nauro.sync.remote.pull_file", side_effect=fake_pull),
-        ):
-            merged = _pull_from_cloud("testproj", project_store)
-
-        assert merged == 1
-        pulled_file = project_store / "decisions" / "037-test.md"
-        assert pulled_file.exists()
-        assert b"Test decision from remote" in pulled_file.read_bytes()
 
 
 class TestSyncPullNoConfig:
@@ -230,21 +175,20 @@ class TestSyncHonesty:
     cloud-mode + enabled creds  → Synced, exit 0
     """
 
-    def test_cloud_project_without_creds_warns_and_exits_one(self, tmp_path, monkeypatch):
+    def test_cloud_project_without_auth_warns_and_exits_one(self, tmp_path, monkeypatch):
         _scaffolded_cloud_project("cloudproj", tmp_path)
-        # NAURO_HOME isolation in conftest already prevents real creds from leaking.
-        monkeypatch.delenv("NAURO_SYNC_BUCKET_NAME", raising=False)
 
         result = runner.invoke(app, ["sync", "--project", "cloudproj"])
         combined = result.output + (result.stderr or "")
 
         assert result.exit_code == 1, combined
         assert "Warning: this is a cloud-mode project" in combined
+        assert "not authenticated" in combined
         assert "Synced cloudproj" not in result.output
 
-    def test_local_project_without_creds_succeeds(self, project_store):
-        """Local-only projects sync cleanly even with no cloud creds — nothing
-        to upload is not an error."""
+    def test_local_project_without_auth_succeeds(self, project_store):
+        """Local-only projects sync cleanly without auth — nothing to upload
+        is not an error."""
         result = runner.invoke(app, ["sync"])
         combined = result.output + (result.stderr or "")
 
@@ -252,27 +196,61 @@ class TestSyncHonesty:
         assert "Synced testproj" in result.output
         assert "Warning: this is a cloud-mode project" not in combined
 
-    def test_cloud_project_with_creds_succeeds(self, tmp_path, monkeypatch):
-        """With creds configured and the push helpers mocked to succeed, the
+    def test_cloud_project_with_token_succeeds(self, tmp_path, monkeypatch):
+        """With an Auth0 token and the presign helpers mocked to succeed, the
         cloud-mode project syncs and reports success."""
-        from nauro.sync.config import SyncConfig
+        import json
+        from unittest.mock import MagicMock
+
+        import httpx
+
+        from nauro.store.config import save_config
 
         _scaffolded_cloud_project("cloudwithauth", tmp_path)
-
-        enabled = SyncConfig(
-            bucket_name="bucket-x",
-            region="us-east-1",
-            access_key_id="key",
-            secret_access_key="secret",
-            enabled=True,
-            sanitized_sub="test-sub",
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
         )
 
+        def ok(payload):
+            return httpx.Response(
+                200,
+                content=json.dumps(payload).encode("utf-8"),
+                headers={"content-type": "application/json"},
+            )
+
+        def fake_post(url, **kwargs):
+            ops = kwargs.get("json", {}).get("operations", [])
+            return ok(
+                {
+                    "urls": [
+                        {
+                            "verb": op["verb"],
+                            "path": op["path"],
+                            "url": f"https://s3.example/{op['verb']}/{op['path']}",
+                            "expires_at": "2026-05-16T13:00:00Z",
+                        }
+                        for op in ops
+                    ]
+                }
+            )
+
+        put_response = MagicMock(spec=httpx.Response)
+        put_response.status_code = 200
+        put_response.headers = {"ETag": '"e_pushed"'}
+
         with (
-            patch("nauro.sync.config.load_sync_config", return_value=enabled),
-            patch("nauro.sync.remote.create_client", return_value=MagicMock()),
-            patch("nauro.sync.remote.push_file", return_value='"etag"'),
-            patch("nauro.sync.remote.list_remote", return_value=[]),
+            patch(
+                "nauro.sync.remote.httpx.get",
+                return_value=ok({"files": [], "next_cursor": None}),
+            ),
+            patch("nauro.sync.remote.httpx.post", side_effect=fake_post),
+            patch("nauro.sync.remote.httpx.put", return_value=put_response),
         ):
             result = runner.invoke(app, ["sync", "--project", "cloudwithauth"])
 
