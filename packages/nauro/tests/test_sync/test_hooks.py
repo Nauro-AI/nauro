@@ -1,126 +1,362 @@
-"""Tests for event-driven sync hooks (pull on session start, push after extraction)."""
+"""Tests for event-driven sync hooks (pull on session start, push after write).
 
+After the cutover to presign, ``hooks.py`` gates on:
+
+* Auth0 access token (no token → silent no-op so MCP writes never nag).
+* v2 cloud-mode registry entry (v1 or local-mode → silent no-op).
+
+The happy paths exercise the manifest/presign helpers via httpx mocks
+matching the patterns in ``test_sync_presign.py``.
+"""
+
+from __future__ import annotations
+
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
-from nauro.store.registry import register_project
-from nauro.sync.config import SyncConfig
+from nauro.constants import REPO_CONFIG_MODE_CLOUD
+from nauro.store.config import save_config
+from nauro.store.registry import register_project, register_project_v2
 from nauro.sync.hooks import (
     _renumber_decision_if_collision,
     pull_before_session,
     push_after_write,
 )
+from nauro.sync.state import (
+    FileState,
+    SyncState,
+    compute_sha256,
+    load_state,
+    save_state,
+)
 from nauro.templates.scaffolds import scaffold_project_store
 
-
-@pytest.fixture()
-def project_store(tmp_path: Path, monkeypatch):
-    store = register_project("testproj", [tmp_path])
-    scaffold_project_store("testproj", store)
-    return store
+CLOUD_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 
 
-def _mock_sync_config(enabled=True, sanitized_sub="test-user-abc123"):
-    return SyncConfig(
-        bucket_name="test-bucket",
-        region="us-east-1",
-        access_key_id="fake",
-        secret_access_key="fake",
-        enabled=enabled,
-        sanitized_sub=sanitized_sub,
+def _ok(status: int, payload: dict) -> httpx.Response:
+    return httpx.Response(
+        status,
+        content=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json"},
     )
 
 
-class TestPullBeforeSession:
-    def test_pull_from_s3_before_returning_context(self, project_store):
-        """SessionStart hook should pull from S3."""
-        mock_client = MagicMock()
-        mock_client.get_paginator.return_value.paginate.return_value = [{"Contents": []}]
+def _seed_token() -> None:
+    save_config(
+        {
+            "auth": {
+                "sub": "auth0|test",
+                "access_token": "tok_orig",
+                "refresh_token": "refresh_orig",
+            }
+        }
+    )
+
+
+def _scaffolded_cloud_project(name: str, repo_path: Path, project_id: str = CLOUD_PID) -> Path:
+    _pid, store = register_project_v2(
+        name,
+        [repo_path],
+        mode=REPO_CONFIG_MODE_CLOUD,
+        server_url="https://example.test",
+        project_id=project_id,
+    )
+    scaffold_project_store(name, store)
+    return store
+
+
+# --- gating: silent no-op semantics ---
+
+
+class TestSilentNoOpGating:
+    """The hooks must silent-no-op when not authenticated or when the
+    project is not v2 cloud-mode. Nagging the user on every MCP write
+    would be hostile; v1/local projects have no presign target."""
+
+    def test_pull_silent_when_not_authenticated(self, tmp_path):
+        store = _scaffolded_cloud_project("noauth", tmp_path)
+        # no _seed_token() — load_access_token() returns None
+
+        with patch("nauro.sync.remote.httpx.get") as mock_get:
+            result = pull_before_session(CLOUD_PID, store)
+
+        assert result == 0
+        mock_get.assert_not_called()
+
+    def test_push_silent_when_not_authenticated(self, tmp_path):
+        store = _scaffolded_cloud_project("noauth", tmp_path)
+        # no _seed_token()
+
+        with patch("nauro.sync.remote.httpx.post") as mock_post:
+            result = push_after_write(CLOUD_PID, store)
+
+        assert result == 0
+        mock_post.assert_not_called()
+
+    def test_pull_silent_for_v1_project(self, tmp_path):
+        """v1 entries have no v2 registry record → is_cloud_project False."""
+        store = register_project("v1proj", [tmp_path])
+        scaffold_project_store("v1proj", store)
+        _seed_token()
+
+        with patch("nauro.sync.remote.httpx.get") as mock_get:
+            result = pull_before_session("v1proj", store)
+
+        assert result == 0
+        mock_get.assert_not_called()
+
+    def test_push_silent_for_v1_project(self, tmp_path):
+        store = register_project("v1proj", [tmp_path])
+        scaffold_project_store("v1proj", store)
+        _seed_token()
+
+        with patch("nauro.sync.remote.httpx.post") as mock_post:
+            result = push_after_write("v1proj", store)
+
+        assert result == 0
+        mock_post.assert_not_called()
+
+    def test_pull_silent_for_v2_local_mode(self, tmp_path):
+        """v2 local-mode projects have no presign target → silent no-op."""
+        from nauro.constants import REPO_CONFIG_MODE_LOCAL
+
+        local_pid = "01KQ6AZGNA0B3QBF67NBXP3S46"
+        _pid, store = register_project_v2(
+            "localproj",
+            [tmp_path],
+            mode=REPO_CONFIG_MODE_LOCAL,
+            project_id=local_pid,
+        )
+        scaffold_project_store("localproj", store)
+        _seed_token()
+
+        with patch("nauro.sync.remote.httpx.get") as mock_get:
+            result = pull_before_session(local_pid, store)
+
+        assert result == 0
+        mock_get.assert_not_called()
+
+    def test_push_silent_for_v2_local_mode(self, tmp_path):
+        from nauro.constants import REPO_CONFIG_MODE_LOCAL
+
+        local_pid = "01KQ6AZGNA0B3QBF67NBXP3S46"
+        _pid, store = register_project_v2(
+            "localproj",
+            [tmp_path],
+            mode=REPO_CONFIG_MODE_LOCAL,
+            project_id=local_pid,
+        )
+        scaffold_project_store("localproj", store)
+        _seed_token()
+
+        with patch("nauro.sync.remote.httpx.post") as mock_post:
+            result = push_after_write(local_pid, store)
+
+        assert result == 0
+        mock_post.assert_not_called()
+
+
+# --- pull happy path ---
+
+
+class TestPullBeforeSessionPresign:
+    @pytest.fixture()
+    def cloud_store(self, tmp_path):
+        store = _scaffolded_cloud_project("pullproj", tmp_path)
+        _seed_token()
+        return store
+
+    def _manifest(self, files, next_cursor=None):
+        return _ok(200, {"files": files, "next_cursor": next_cursor})
+
+    def _presign(self, ops):
+        return _ok(
+            200,
+            {
+                "urls": [
+                    {
+                        "verb": op["verb"],
+                        "path": op["path"],
+                        "url": f"https://s3.example/{op['verb']}/{op['path']}",
+                        "expires_at": "2026-05-16T13:00:00Z",
+                    }
+                    for op in ops
+                ]
+            },
+        )
+
+    def test_empty_manifest_returns_zero_and_updates_last_sync(self, cloud_store):
+        empty = self._manifest([])
 
         with (
-            patch("nauro.sync.config.load_sync_config", return_value=_mock_sync_config()),
-            patch("nauro.sync.remote.create_client", return_value=mock_client),
+            patch("nauro.sync.remote.httpx.get", return_value=empty),
+            patch("nauro.sync.remote.httpx.post") as mock_post,
         ):
-            result = pull_before_session("testproj", project_store)
-
-        assert result == 0  # No remote changes
-        # Verify list_remote was called (via paginator)
-        mock_client.get_paginator.assert_called_once_with("list_objects_v2")
-
-    def test_pull_failure_is_non_blocking(self, project_store):
-        """If S3 pull fails, should return 0 and not raise."""
-        with (
-            patch("nauro.sync.config.load_sync_config", return_value=_mock_sync_config()),
-            patch("nauro.sync.remote.create_client", side_effect=Exception("network error")),
-        ):
-            result = pull_before_session("testproj", project_store)
+            result = pull_before_session(CLOUD_PID, cloud_store)
 
         assert result == 0
+        mock_post.assert_not_called()
+        state = load_state(cloud_store)
+        assert state.last_full_sync != ""
 
-    def test_pull_skips_when_not_configured(self, project_store):
-        """If sync is not configured, pull should be a no-op."""
-        config = _mock_sync_config(enabled=False)
-        with patch("nauro.sync.config.load_sync_config", return_value=config):
-            result = pull_before_session("testproj", project_store)
+    def test_changed_remote_file_is_fetched_and_written(self, cloud_store):
+        rel = "decisions/099-remote.md"
+        manifest = self._manifest(
+            [{"path": rel, "etag": '"new"', "size": 1, "last_modified": "x"}],
+        )
+        presign = self._presign([{"verb": "GET", "path": rel}])
 
-        assert result == 0
-
-    def test_pull_skips_when_auth_missing(self, project_store):
-        """If sanitized_sub is missing, pull should return 0."""
-        config = _mock_sync_config(enabled=True, sanitized_sub="")
-        with patch("nauro.sync.config.load_sync_config", return_value=config):
-            result = pull_before_session("testproj", project_store)
-
-        assert result == 0
-
-
-class TestPushAfterExtraction:
-    def test_push_to_s3_after_writing_decision(self, project_store):
-        """Post-extraction hook should push to S3."""
-        mock_client = MagicMock()
-        mock_client.put_object.return_value = {"ETag": '"newetag"'}
+        def fake_get(url, **kwargs):
+            if "/sync/manifest" in url:
+                return manifest
+            return httpx.Response(200, content=b"# 099\nfresh remote body\n")
 
         with (
-            patch("nauro.sync.config.load_sync_config", return_value=_mock_sync_config()),
-            patch("nauro.sync.remote.create_client", return_value=mock_client),
+            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.post", return_value=presign),
         ):
-            result = push_after_write("testproj", project_store)
+            result = pull_before_session(CLOUD_PID, cloud_store)
 
-        assert result > 0  # Should push store files
-        mock_client.put_object.assert_called()
+        assert result == 1
+        assert (cloud_store / rel).read_bytes() == b"# 099\nfresh remote body\n"
+        state = load_state(cloud_store)
+        assert state.files[rel].remote_etag == '"new"'
 
-    def test_push_failure_is_non_blocking(self, project_store):
-        """If S3 push fails, should return 0 and not raise."""
+    def test_pull_swallows_presign_error(self, cloud_store):
+        """A failed manifest fetch logs and returns 0, never raises."""
+        bad_manifest = httpx.Response(500, content=b"server error")
+        with patch("nauro.sync.remote.httpx.get", return_value=bad_manifest):
+            result = pull_before_session(CLOUD_PID, cloud_store)
+        assert result == 0
+
+    def test_pull_swallows_auth_refresh_error(self, cloud_store):
+        """A 401 with no refresh path returns 0, never raises."""
+        unauthorized = httpx.Response(401, content=b'{"error":"unauthorized"}')
+        save_config({"auth": {"access_token": "tok", "sub": "x"}})
+
+        with patch("nauro.sync.remote.httpx.get", return_value=unauthorized):
+            result = pull_before_session(CLOUD_PID, cloud_store)
+
+        assert result == 0
+
+
+# --- push happy path ---
+
+
+class TestPushAfterWritePresign:
+    @pytest.fixture()
+    def cloud_store(self, tmp_path):
+        store = _scaffolded_cloud_project("pushproj", tmp_path)
+        _seed_token()
+        return store
+
+    def _seed_synced_state(self, store: Path) -> None:
+        state = SyncState()
+        for f in store.rglob("*"):
+            if not f.is_file():
+                continue
+            rel = str(f.relative_to(store))
+            state.files[rel] = FileState(
+                local_sha256=compute_sha256(f),
+                remote_etag='"e0"',
+                last_sync="2026-05-16T00:00:00Z",
+            )
+        save_state(store, state)
+
+    def _presign(self, ops):
+        return _ok(
+            200,
+            {
+                "urls": [
+                    {
+                        "verb": op["verb"],
+                        "path": op["path"],
+                        "url": f"https://s3.example/PUT/{op['path']}",
+                        "expires_at": "2026-05-16T13:00:00Z",
+                    }
+                    for op in ops
+                ]
+            },
+        )
+
+    def test_no_local_changes_skips_presign_call(self, cloud_store):
+        self._seed_synced_state(cloud_store)
+
         with (
-            patch("nauro.sync.config.load_sync_config", return_value=_mock_sync_config()),
-            patch("nauro.sync.remote.create_client", side_effect=Exception("network error")),
+            patch("nauro.sync.remote.httpx.post") as mock_post,
+            patch("nauro.sync.remote.httpx.put") as mock_put,
         ):
-            result = push_after_write("testproj", project_store)
+            result = push_after_write(CLOUD_PID, cloud_store)
+
+        assert result == 0
+        mock_post.assert_not_called()
+        mock_put.assert_not_called()
+
+    def test_modified_file_minted_and_uploaded(self, cloud_store):
+        self._seed_synced_state(cloud_store)
+        (cloud_store / "stack.md").write_text("new stack picks\n")
+
+        put_response = MagicMock(spec=httpx.Response)
+        put_response.status_code = 200
+        put_response.headers = {"ETag": '"e_pushed"'}
+
+        def fake_post(url, **kwargs):
+            return self._presign(kwargs["json"]["operations"])
+
+        with (
+            patch("nauro.sync.remote.httpx.post", side_effect=fake_post) as mock_post,
+            patch("nauro.sync.remote.httpx.put", return_value=put_response) as mock_put,
+        ):
+            result = push_after_write(CLOUD_PID, cloud_store)
+
+        assert result == 1
+        body = mock_post.call_args.kwargs["json"]
+        assert body["project_id"] == CLOUD_PID
+        assert body["operations"] == [{"verb": "PUT", "path": "stack.md"}]
+        assert mock_put.call_count == 1
+
+        state = load_state(cloud_store)
+        assert state.files["stack.md"].remote_etag == '"e_pushed"'
+
+    def test_push_swallows_presign_error(self, cloud_store):
+        self._seed_synced_state(cloud_store)
+        (cloud_store / "stack.md").write_text("modified\n")
+
+        bad = httpx.Response(500, content=b"server error")
+        with patch("nauro.sync.remote.httpx.post", return_value=bad):
+            result = push_after_write(CLOUD_PID, cloud_store)
 
         assert result == 0
 
-    def test_push_skips_when_not_configured(self, project_store):
-        """If sync is not configured, push should be a no-op."""
-        config = _mock_sync_config(enabled=False)
-        with patch("nauro.sync.config.load_sync_config", return_value=config):
-            result = push_after_write("testproj", project_store)
+    def test_push_swallows_auth_refresh_error(self, cloud_store):
+        self._seed_synced_state(cloud_store)
+        (cloud_store / "stack.md").write_text("modified\n")
+
+        unauthorized = httpx.Response(401, content=b'{"error":"unauthorized"}')
+        save_config({"auth": {"access_token": "tok", "sub": "x"}})
+
+        with patch("nauro.sync.remote.httpx.post", return_value=unauthorized):
+            result = push_after_write(CLOUD_PID, cloud_store)
 
         assert result == 0
 
-    def test_push_skips_when_auth_missing(self, project_store):
-        """If sanitized_sub is missing, push should return 0."""
-        config = _mock_sync_config(enabled=True, sanitized_sub="")
-        with patch("nauro.sync.config.load_sync_config", return_value=config):
-            result = push_after_write("testproj", project_store)
 
-        assert result == 0
+# --- decision collision renumbering (unchanged from pre-port) ---
 
 
 class TestRenumberDecisionIfCollision:
+    @pytest.fixture()
+    def project_store(self, tmp_path):
+        store = register_project("renumproj", [tmp_path])
+        scaffold_project_store("renumproj", store)
+        return store
+
     def test_no_collision_passes_through(self, project_store):
-        """When no collision exists, rel and content are returned unchanged."""
         decisions_dir = project_store / "decisions"
         decisions_dir.mkdir(exist_ok=True)
         (decisions_dir / "001-existing.md").write_text("# 001 — Existing")
@@ -132,7 +368,6 @@ class TestRenumberDecisionIfCollision:
         assert out == content
 
     def test_collision_renumbers(self, project_store):
-        """When number collides with a different local file, incoming file is renumbered."""
         decisions_dir = project_store / "decisions"
         decisions_dir.mkdir(exist_ok=True)
         (decisions_dir / "003-local-decision.md").write_text("# 003 — Local decision")
@@ -149,7 +384,6 @@ class TestRenumberDecisionIfCollision:
         assert b"Remote content" in out
 
     def test_collision_skips_multiple_taken_numbers(self, project_store):
-        """Renumbering should find the first available number after all existing ones."""
         decisions_dir = project_store / "decisions"
         decisions_dir.mkdir(exist_ok=True)
         (decisions_dir / "005-a.md").write_text("# 005 — A")
@@ -166,7 +400,6 @@ class TestRenumberDecisionIfCollision:
         assert b"# 007 " in out
 
     def test_exact_filename_match_is_not_collision(self, project_store):
-        """If the exact same filename exists locally, it's a content update, not a collision."""
         decisions_dir = project_store / "decisions"
         decisions_dir.mkdir(exist_ok=True)
         (decisions_dir / "003-same-slug.md").write_text("# 003 — Same slug")
@@ -182,7 +415,6 @@ class TestRenumberDecisionIfCollision:
         assert out == content
 
     def test_non_decision_files_pass_through(self, project_store):
-        """Non-decision files should never be renumbered."""
         content = b"some content"
         rel, out = _renumber_decision_if_collision(project_store, "state.md", content)
 

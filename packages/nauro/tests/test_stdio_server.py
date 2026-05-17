@@ -511,65 +511,32 @@ class TestContentSizeLimits:
 
 
 class TestPullOnStartup:
-    def test_skips_when_sync_not_configured(self, store: Path, monkeypatch):
-        """No pull attempt when sync credentials are absent."""
-        monkeypatch.chdir(store.parent)
+    """Auth and cloud-mode gating moved into hooks.py; stdio_server only
+    resolves the project from cwd and delegates. These tests cover the
+    resolution flow — silent-no-op-when-not-authenticated and
+    silent-no-op-for-non-cloud are exercised in test_sync/test_hooks.py."""
 
-        disabled_config = type("SyncConfig", (), {"enabled": False})()
-        with patch("nauro.sync.config.load_sync_config", return_value=disabled_config):
-            with patch("nauro.sync.hooks.pull_before_session") as mock_pull:
-                _pull_on_startup()
-                mock_pull.assert_not_called()
-
-    def test_calls_pull_when_sync_configured(self, store: Path, monkeypatch, tmp_path):
-        """pull_before_session is called when sync is enabled and project is found."""
-        # cwd must resolve to our registered project
+    def test_calls_pull_when_project_resolves(self, store: Path, monkeypatch, tmp_path):
+        """pull_before_session is invoked unconditionally when a project resolves."""
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir(exist_ok=True)
         monkeypatch.chdir(repo_dir)
 
-        enabled_config = type(
-            "SyncConfig",
-            (),
-            {
-                "enabled": True,
-                "bucket_name": "test-bucket",
-                "region": "us-east-1",
-                "access_key_id": "key",
-                "secret_access_key": "secret",
-            },
-        )()
-
-        with patch("nauro.sync.config.load_sync_config", return_value=enabled_config):
-            with patch("nauro.sync.hooks.pull_before_session", return_value=3) as mock_pull:
-                _pull_on_startup()
-                mock_pull.assert_called_once_with("testproj", store)
+        with patch("nauro.sync.hooks.pull_before_session", return_value=3) as mock_pull:
+            _pull_on_startup()
+            mock_pull.assert_called_once_with("testproj", store)
 
     def test_does_not_raise_on_pull_failure(self, store: Path, monkeypatch, tmp_path):
-        """Server startup continues even if pull throws."""
+        """Server startup continues even if hooks throws."""
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir(exist_ok=True)
         monkeypatch.chdir(repo_dir)
 
-        enabled_config = type(
-            "SyncConfig",
-            (),
-            {
-                "enabled": True,
-                "bucket_name": "test-bucket",
-                "region": "us-east-1",
-                "access_key_id": "key",
-                "secret_access_key": "secret",
-            },
-        )()
-
-        with patch("nauro.sync.config.load_sync_config", return_value=enabled_config):
-            with patch(
-                "nauro.sync.hooks.pull_before_session",
-                side_effect=ConnectionError("S3 unreachable"),
-            ):
-                # Must not raise
-                _pull_on_startup()
+        with patch(
+            "nauro.sync.hooks.pull_before_session",
+            side_effect=ConnectionError("remote unreachable"),
+        ):
+            _pull_on_startup()  # must not raise
 
     def test_skips_when_no_project_in_cwd(self, store: Path, monkeypatch, tmp_path):
         """No pull attempt when cwd maps to no registered project."""
@@ -577,19 +544,6 @@ class TestPullOnStartup:
         unrelated_dir.mkdir()
         monkeypatch.chdir(unrelated_dir)
 
-        enabled_config = type(
-            "SyncConfig",
-            (),
-            {
-                "enabled": True,
-                "bucket_name": "test-bucket",
-                "region": "us-east-1",
-                "access_key_id": "key",
-                "secret_access_key": "secret",
-            },
-        )()
-
-        with patch("nauro.sync.config.load_sync_config", return_value=enabled_config):
-            with patch("nauro.sync.hooks.pull_before_session") as mock_pull:
-                _pull_on_startup()
-                mock_pull.assert_not_called()
+        with patch("nauro.sync.hooks.pull_before_session") as mock_pull:
+            _pull_on_startup()
+            mock_pull.assert_not_called()

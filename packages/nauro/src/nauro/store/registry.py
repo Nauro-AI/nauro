@@ -355,6 +355,23 @@ def get_project_v2(project_id: str) -> dict | None:
     return registry["projects"].get(project_id)  # type: ignore[no-any-return]
 
 
+def is_cloud_project(project_id: str) -> bool:
+    """True iff ``project_id`` is a v2 cloud-mode registry entry.
+
+    v1 entries (no ``mode`` field) and v2 local-mode entries return False.
+    Used by the auto-sync hooks and the status command to gate presign
+    calls — v1 has no server-side ULID and v2 local-mode is not
+    remote-backed, so neither has a presign target.
+    """
+    try:
+        entry = get_project_v2(project_id)
+    except RegistrySchemaError:
+        return False
+    if entry is None:
+        return False
+    return entry.get("mode") == REPO_CONFIG_MODE_CLOUD
+
+
 def find_projects_by_name_v2(name: str) -> list[tuple[str, dict]]:
     """Return every v2 project whose ``name`` field matches ``name``.
 

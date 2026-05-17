@@ -9,11 +9,16 @@ import pytest
 from nauro.constants import (
     REGISTRY_FILENAME,
     REGISTRY_SCHEMA_VERSION_V2,
+    REPO_CONFIG_MODE_CLOUD,
+    REPO_CONFIG_MODE_LOCAL,
 )
 from nauro.store import registry
 from nauro.store.registry import (
     RegistrySchemaError,
+    is_cloud_project,
     load_registry_v2,
+    register_project,
+    register_project_v2,
     save_registry_v2,
 )
 
@@ -79,3 +84,37 @@ def test_v2_save_rejects_non_v2_schema_version(tmp_path, monkeypatch):
     """save_registry_v2 refuses to write anything other than schema_version=2."""
     with pytest.raises(RegistrySchemaError):
         save_registry_v2({"projects": {}, "schema_version": 1})
+
+
+class TestIsCloudProject:
+    """Gate predicate for auto-sync and the status report. The presign
+    transport has no path for v1 entries (no server-side ULID) or v2
+    local-mode entries (not remote-backed), so both must return False."""
+
+    def test_returns_true_for_v2_cloud(self, tmp_path, monkeypatch):
+        pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+        register_project_v2(
+            "cloudproj",
+            [tmp_path],
+            mode=REPO_CONFIG_MODE_CLOUD,
+            project_id=pid,
+            server_url="https://example.test",
+        )
+        assert is_cloud_project(pid) is True
+
+    def test_returns_false_for_v2_local(self, tmp_path, monkeypatch):
+        pid = "01KQ6AZGNA0B3QBF67NBXP3S46"
+        register_project_v2(
+            "localproj",
+            [tmp_path],
+            mode=REPO_CONFIG_MODE_LOCAL,
+            project_id=pid,
+        )
+        assert is_cloud_project(pid) is False
+
+    def test_returns_false_for_missing_entry(self, tmp_path, monkeypatch):
+        assert is_cloud_project("01KMISSING00000000000000000") is False
+
+    def test_returns_false_for_v1_name(self, tmp_path, monkeypatch):
+        register_project("v1name", [tmp_path])
+        assert is_cloud_project("v1name") is False
