@@ -120,6 +120,32 @@ def test_link_cloud_on_already_cloud_repo_errors(tmp_path, monkeypatch):
     assert "already cloud-mode" in result.output
 
 
+def test_link_cloud_succeeds_with_only_auth_token(tmp_path, monkeypatch):
+    """After softening the Tier 1 1.3 guard, an Auth0 token alone is enough —
+    static IAM creds are no longer required to link.
+    """
+    save_config(
+        {
+            "auth": {"access_token": "test-token", "sub": "auth0|test"},
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+    init_result = runner.invoke(app, ["init", "auth-only-link"])
+    assert init_result.exit_code == 0, init_result.output
+
+    with patch.object(
+        cloud_projects.httpx, "request", side_effect=_create_response("auth-only-link")
+    ):
+        result = runner.invoke(app, ["link", "--cloud"])
+
+    assert result.exit_code == 0, result.output
+    new_entry = registry.get_project_v2(CLOUD_PID)
+    assert new_entry is not None
+    assert new_entry["mode"] == "cloud"
+
+
 def test_link_cloud_with_no_repo_config_errors(tmp_path, monkeypatch):
     """No `.nauro/config.json` above cwd → clear error, no network call."""
     _seed_token(monkeypatch, tmp_path)

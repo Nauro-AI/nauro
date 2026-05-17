@@ -16,7 +16,7 @@ import re
 import secrets
 import threading
 import webbrowser
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -41,6 +41,10 @@ REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
 
 class PartialAuthConfigError(Exception):
     """Raised when Auth0 domain/client_id are partially set at a single layer."""
+
+
+class AuthRefreshError(Exception):
+    """Raised when an Auth0 refresh-token exchange fails."""
 
 
 def _resolve_auth_config(
@@ -82,6 +86,98 @@ def _resolve_auth_config(
         or DEFAULT_AUTH0_AUDIENCE
     )
     return domain, client_id, api_url, audience
+
+
+def load_access_token() -> str | None:
+    """Read the OAuth bearer token written by ``nauro auth login``.
+
+    Returns ``None`` when no token is present. Callers that need to fail loudly
+    should render the "run nauro auth login" guidance themselves.
+    """
+    auth = load_config().get("auth") or {}
+    if not isinstance(auth, dict):
+        return None
+    token = auth.get("access_token")
+    return str(token) if token else None
+
+
+def refresh_access_token() -> str:
+    """Exchange the stored refresh token for a fresh access token.
+
+    Persists the new access token (and the new refresh token, if Auth0 rotates
+    it). Stored tokens are left intact on failure so the user can retry without
+    losing state.
+    """
+    config = load_config()
+    auth = config.get("auth") or {}
+    if not isinstance(auth, dict):
+        auth = {}
+    refresh_token = auth.get("refresh_token")
+    if not refresh_token:
+        raise AuthRefreshError("No refresh token stored. Run 'nauro auth login' to authenticate.")
+
+    try:
+        domain, client_id, _api_url, _audience = _resolve_auth_config(os.environ, config)
+    except PartialAuthConfigError as exc:
+        raise AuthRefreshError(str(exc)) from exc
+
+    try:
+        response = httpx.post(
+            f"https://{domain}/oauth/token",
+            json={
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "refresh_token": refresh_token,
+            },
+            timeout=15.0,
+        )
+    except httpx.HTTPError as exc:
+        raise AuthRefreshError(f"Network error contacting Auth0: {exc}") from exc
+
+    if response.status_code != 200:
+        try:
+            detail = response.json().get("error_description") or response.text
+        except (ValueError, AttributeError):
+            detail = response.text
+        raise AuthRefreshError(f"Refresh failed ({response.status_code}): {detail}")
+
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise AuthRefreshError(f"Auth0 returned non-JSON on refresh: {exc}") from exc
+
+    new_access_token = body.get("access_token")
+    if not isinstance(new_access_token, str) or not new_access_token:
+        raise AuthRefreshError("Auth0 refresh response did not include an access_token.")
+
+    auth["access_token"] = new_access_token
+    rotated_refresh = body.get("refresh_token")
+    if isinstance(rotated_refresh, str) and rotated_refresh:
+        auth["refresh_token"] = rotated_refresh
+    config["auth"] = auth
+    save_config(config)
+
+    return new_access_token
+
+
+def with_token_refresh(call: Callable[[str], httpx.Response]) -> httpx.Response:
+    """Run ``call(access_token)`` and refresh once on 401.
+
+    The first 401 triggers a refresh and a single retry. A second 401 (or any
+    other status) is returned to the caller — there is no infinite loop. A
+    failed refresh propagates as ``AuthRefreshError`` so the caller can guide
+    the user to ``nauro auth login``.
+    """
+    token = load_access_token()
+    if token is None:
+        raise AuthRefreshError("Not authenticated. Run 'nauro auth login' to authenticate.")
+
+    response = call(token)
+    if response.status_code != 401:
+        return response
+
+    new_token = refresh_access_token()
+    return call(new_token)
 
 
 def _sanitize_sub(sub: str) -> str:

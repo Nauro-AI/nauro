@@ -282,32 +282,27 @@ class TestSyncHonesty:
         assert "Warning: this is a cloud-mode project" not in combined
 
 
-class TestLinkCloudRefusesWithoutCreds:
-    """`nauro link --cloud` must refuse when CLI sync credentials are missing
-    instead of minting a cloud id the user cannot upload to."""
+class TestLinkCloudRefusesWithoutAuth:
+    """`nauro link --cloud` must refuse when the install has no Auth0 token —
+    presigned URLs are minted server-side from the bearer, so without one we
+    cannot upload, regardless of whether static IAM creds happen to be set.
+    """
 
-    def test_link_cloud_refuses_when_sync_disabled(self, tmp_path, monkeypatch):
-        """A local-mode repo + no sync creds → refusal, no network call."""
+    def test_link_cloud_refuses_when_not_authenticated(self, tmp_path, monkeypatch):
+        """A local-mode repo + no Auth0 token → refusal, no network call."""
         from nauro.store.config import save_config
 
-        # Bring up a local-only project from scratch in the isolated NAURO_HOME.
-        save_config({"auth": {"access_token": "test-token", "sub": "auth0|test"}})
+        # Empty config — no auth section means no access_token.
+        save_config({})
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
         init_result = runner.invoke(app, ["init", "blockedlink"])
         assert init_result.exit_code == 0, init_result.output
 
-        # Ensure no sync creds leak in from the environment.
-        for var in (
-            "NAURO_SYNC_BUCKET_NAME",
-            "NAURO_SYNC_ACCESS_KEY_ID",
-            "NAURO_SYNC_SECRET_ACCESS_KEY",
-        ):
-            monkeypatch.delenv(var, raising=False)
-
         result = runner.invoke(app, ["link", "--cloud"])
         combined = result.output + (result.stderr or "")
 
         assert result.exit_code == 1, combined
         assert "Cannot link 'blockedlink' to the cloud" in combined
+        assert "Run 'nauro auth login'" in combined

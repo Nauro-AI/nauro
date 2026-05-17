@@ -43,6 +43,22 @@ def require_auth(config: SyncConfig) -> str:
     return user_key
 
 
+def sync_is_configured() -> bool:
+    """Return True if either sync transport has credentials available.
+
+    The presign transport needs an Auth0 access token; the legacy direct-S3
+    transport needs static IAM credentials. ``SyncConfig.enabled`` only
+    reports the latter — this predicate covers both so callers (notably
+    ``_show_status``) can distinguish "not configured" from "configured but
+    via a specific transport".
+    """
+    from nauro.cli.commands.auth import load_access_token
+
+    if load_access_token():
+        return True
+    return load_sync_config().enabled
+
+
 def load_sync_config() -> SyncConfig:
     """Load sync config from ~/.nauro/config.json under the 'sync' key.
 
