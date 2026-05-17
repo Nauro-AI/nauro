@@ -19,6 +19,7 @@ from nauro_core.constants import (
     MAX_QUESTION_LENGTH,
     MAX_RATIONALE_LENGTH,
     MAX_TITLE_LENGTH,
+    STATE_CURRENT_FILENAME,
 )
 from nauro_core.decision_model import DecisionStatus
 from nauro_core.protocol import (
@@ -520,7 +521,7 @@ def tool_update_state(store_path: Path, delta: str) -> dict:
         return err
 
     warning = None
-    state_path = store_path / "state.md"
+    state_path = store_path / STATE_CURRENT_FILENAME
     if state_path.exists():
         state_content = state_path.read_text()
         delta_words = set(delta.lower().split())
