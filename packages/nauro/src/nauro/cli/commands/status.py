@@ -28,34 +28,26 @@ def _format_time_ago(iso_timestamp: str) -> str:
 def _count_remote_decisions(project_id: str) -> int | None:
     """Count decisions in the remote store via the manifest endpoint.
 
-    Returns None when not authenticated, the project is not v2 cloud-mode,
-    or the manifest fetch fails. The caller already renders None as
-    "could not reach remote".
+    Returns None when the manifest fetch fails. Callers must gate on
+    auth + cloud-mode before invoking this — the function does not
+    re-check, and a failed call against the wrong endpoint is the
+    caller's bug.
     """
     try:
-        from nauro.cli.commands.auth import load_access_token
-        from nauro.sync.hooks import _project_is_cloud
-
-        if not load_access_token():
-            return None
-        if not _project_is_cloud(project_id):
-            return None
-
         from nauro.sync.remote import PresignError, fetch_manifest
 
-        try:
-            manifest = fetch_manifest(project_id)
-        except PresignError:
-            return None
-        return sum(
-            1
-            for entry in manifest
-            if isinstance(entry, dict)
-            and entry.get("path", "").startswith("decisions/")
-            and entry.get("path", "").endswith(".md")
-        )
+        manifest = fetch_manifest(project_id)
+    except PresignError:
+        return None
     except Exception:
         return None
+    return sum(
+        1
+        for entry in manifest
+        if isinstance(entry, dict)
+        and entry.get("path", "").startswith("decisions/")
+        and entry.get("path", "").endswith(".md")
+    )
 
 
 def status(
@@ -76,22 +68,19 @@ def status(
 
     # Sync — gated on auth token + v2 cloud-mode (matches hooks.py semantics).
     # ``store_path.name`` is the project_id for v2; v1 entries pass their name
-    # here and silent-no-op inside _project_is_cloud.
+    # here and silent-no-op inside is_cloud_project.
     project_id = store_path.name
-    sync_enabled = False
-    try:
-        from nauro.cli.commands.auth import load_access_token
-        from nauro.sync.hooks import _project_is_cloud
+    from nauro.cli.commands.auth import load_access_token
+    from nauro.store.registry import is_cloud_project
 
-        if load_access_token() and _project_is_cloud(project_id):
-            sync_enabled = True
-            typer.echo("  Sync          active (event-driven, presign)")
-        elif not load_access_token():
-            typer.echo("  Sync          inactive — run `nauro auth login` to enable")
-        else:
-            typer.echo("  Sync          inactive — this project is local-only")
-    except ImportError:
+    has_token = bool(load_access_token())
+    sync_enabled = has_token and is_cloud_project(project_id)
+    if sync_enabled:
+        typer.echo("  Sync          active (event-driven, presign)")
+    elif not has_token:
         typer.echo("  Sync          inactive — run `nauro auth login` to enable")
+    else:
+        typer.echo("  Sync          inactive — this project is local-only")
 
     # MCP
     typer.echo("  MCP           active")

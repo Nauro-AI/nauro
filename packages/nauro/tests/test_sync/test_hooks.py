@@ -22,7 +22,6 @@ from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
 from nauro.store.registry import register_project, register_project_v2
 from nauro.sync.hooks import (
-    _project_is_cloud,
     _renumber_decision_if_collision,
     pull_before_session,
     push_after_write,
@@ -100,7 +99,7 @@ class TestSilentNoOpGating:
         mock_post.assert_not_called()
 
     def test_pull_silent_for_v1_project(self, tmp_path):
-        """v1 entries have no v2 registry record → _project_is_cloud False."""
+        """v1 entries have no v2 registry record → is_cloud_project False."""
         store = register_project("v1proj", [tmp_path])
         scaffold_project_store("v1proj", store)
         _seed_token()
@@ -160,34 +159,6 @@ class TestSilentNoOpGating:
 
         assert result == 0
         mock_post.assert_not_called()
-
-
-# --- _project_is_cloud helper ---
-
-
-class TestProjectIsCloud:
-    def test_returns_true_for_v2_cloud(self, tmp_path):
-        _scaffolded_cloud_project("cloudproj", tmp_path)
-        assert _project_is_cloud(CLOUD_PID) is True
-
-    def test_returns_false_for_v2_local(self, tmp_path):
-        from nauro.constants import REPO_CONFIG_MODE_LOCAL
-
-        local_pid = "01KQ6AZGNA0B3QBF67NBXP3S46"
-        register_project_v2(
-            "localproj",
-            [tmp_path],
-            mode=REPO_CONFIG_MODE_LOCAL,
-            project_id=local_pid,
-        )
-        assert _project_is_cloud(local_pid) is False
-
-    def test_returns_false_for_missing_entry(self):
-        assert _project_is_cloud("01KMISSING00000000000000000") is False
-
-    def test_returns_false_for_v1_name(self, tmp_path):
-        register_project("v1name", [tmp_path])
-        assert _project_is_cloud("v1name") is False
 
 
 # --- pull happy path ---

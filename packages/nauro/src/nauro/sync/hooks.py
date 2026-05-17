@@ -27,26 +27,9 @@ from pathlib import Path
 from nauro_core import extract_decision_number
 
 from nauro.cli.commands.auth import AuthRefreshError, load_access_token
-from nauro.constants import REPO_CONFIG_MODE_CLOUD
-from nauro.store.registry import RegistrySchemaError, get_project_v2
+from nauro.store.registry import is_cloud_project
 
 logger = logging.getLogger("nauro.sync")
-
-
-def _project_is_cloud(project_id: str) -> bool:
-    """True iff ``project_id`` is a v2 cloud-mode registry entry.
-
-    v1 entries (no ``mode`` field) and v2 local-mode entries return False:
-    the presign transport has no path for either. v1 has no server-side
-    ULID; v2 local-mode is by definition not remote-backed.
-    """
-    try:
-        entry = get_project_v2(project_id)
-    except RegistrySchemaError:
-        return False
-    if entry is None:
-        return False
-    return entry.get("mode") == REPO_CONFIG_MODE_CLOUD
 
 
 def _renumber_decision_if_collision(
@@ -123,7 +106,7 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
     """
     if not load_access_token():
         return 0
-    if not _project_is_cloud(project_id):
+    if not is_cloud_project(project_id):
         return 0
 
     try:
@@ -269,7 +252,7 @@ def push_after_write(project_id: str, store_path: Path) -> int:
     """
     if not load_access_token():
         return 0
-    if not _project_is_cloud(project_id):
+    if not is_cloud_project(project_id):
         return 0
 
     try:
