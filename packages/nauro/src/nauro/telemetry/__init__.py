@@ -1,9 +1,8 @@
 """Public telemetry API.
 
-Phase 1a: capture() is wired but emits nothing yet (no call sites). Phases 1b/1c
-add the call sites. identify_login/identify_logout are deliberately stubs that
-raise NotImplementedError — silent no-ops would let Phase 1b accidentally depend
-on identity work and silently corrupt analytics.
+identify_login/identify_logout raise rather than silent-no-op when called
+before the SDK is initialised — silent no-ops would let regressions go
+unnoticed.
 """
 
 from __future__ import annotations
@@ -23,9 +22,9 @@ logger = logging.getLogger("nauro.telemetry")
 def _should_emit() -> bool:
     """Three guards: opt-out env, missing PostHog key, fresh-install / opt-out consent.
 
-    The anonymous_id-set check from D117 is satisfied by get_telemetry_config()'s
-    contract: it generates and persists a UUID4 on first read, so cfg.anonymous_id
-    is never None by construction.
+    The anonymous_id-set check is satisfied by get_telemetry_config()'s
+    contract: it generates and persists a UUID4 on first read, so
+    cfg.anonymous_id is never None by construction.
     """
     if os.environ.get(NAURO_TELEMETRY_ENV) == "0":
         return False
@@ -40,9 +39,10 @@ def _should_emit() -> bool:
 def _get_distinct_id() -> str:
     """Resolve the PostHog distinct_id for this process.
 
-    Phase 1c (D119): prefer ``config.auth.user_id`` if logged in; otherwise the
-    anonymous_id from the telemetry section. The alias call in identify_login
-    ties pre-login anonymous events to the user_id post-login.
+    Prefers ``config.auth.user_id`` when logged in; otherwise the
+    anonymous_id from the telemetry section. The alias call in
+    identify_login ties pre-login anonymous events to the user_id
+    post-login.
     """
     auth = load_config().get("auth") or {}
     user_id = auth.get("user_id")
@@ -75,10 +75,9 @@ def capture(event_name: str, properties: dict[str, Any] | None = None) -> None:
 def _rotate_anonymous_id() -> str:
     """Mint a fresh UUID4 anonymous_id, persist it, leave consent fields untouched.
 
-    Used by ``nauro telemetry reset`` and (in Phase 1c) by identify_logout(). The
-    rotation is application-side only — PostHog's Python SDK is stateless w.r.t.
-    identity, so subsequent capture() calls will pick up the new id via
-    _get_distinct_id() without any SDK reset.
+    The rotation is application-side only — PostHog's Python SDK is
+    stateless w.r.t. identity, so subsequent capture() calls pick up the
+    new id via _get_distinct_id() without any SDK reset.
     """
     new_id = str(uuid.uuid4())
     data = load_config()
@@ -90,7 +89,7 @@ def _rotate_anonymous_id() -> str:
 
 
 def identify_login(user_id: str, email_hash: str) -> None:
-    """Merge anonymous identity into user_id on login (D119).
+    """Merge anonymous identity into user_id on login.
 
     Order is load-bearing: alias(previous_id=anonymous_id, distinct_id=user_id)
     FIRST, then set(distinct_id=user_id, properties={"email_hash"}). Reversed
@@ -115,7 +114,7 @@ def identify_login(user_id: str, email_hash: str) -> None:
 
 
 def identify_logout() -> None:
-    """Rotate anonymous_id on logout (D119) — no SDK reset.
+    """Rotate anonymous_id on logout — no SDK reset.
 
     posthog.reset() is a JS-SDK API; the Python SDK 7.x has no such method
     (every capture() takes an explicit distinct_id, so identity is stateless

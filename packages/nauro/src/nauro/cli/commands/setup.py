@@ -44,7 +44,7 @@ CLAUDE_MD_END = NAURO_BLOCK_END
 # Discoverability hint appended to every setup-add success path. `nauro check`
 # (the L1 surface) works from the current shell against the local store, so
 # users don't have to wait for an agent restart to see Nauro do something
-# useful. Imported by test_setup_extended.py to assert placement.
+# useful.
 CHECK_HINT_LINE = 'Try it now from this shell: nauro check "<approach>"'
 
 
@@ -100,12 +100,9 @@ def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
 def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
     """Add or remove the Nauro MCP entry in the repo's project-scope ``.mcp.json``.
 
-    Writes the file directly. The format is documented in Anthropic's MCP
-    docs as a standardized shape, used by plugins shipping ``.mcp.json`` at
-    their roots and by enterprise ``managed-mcp.json`` deployments. Per D142,
-    this matches how ``_configure_cursor_for_repo`` handles ``.cursor/mcp.json``
-    and ``_configure_codex`` handles ``~/.codex/config.toml``, removing the
-    silent-skip failure mode users hit when the ``claude`` CLI was missing.
+    Writes the file directly. Mirrors how ``_configure_cursor_for_repo``
+    handles ``.cursor/mcp.json`` and ``_configure_codex`` handles
+    ``~/.codex/config.toml``, so all three surface handlers share one shape.
 
     Returns a one-line status string (indented for ``setup_all_surfaces``).
     """

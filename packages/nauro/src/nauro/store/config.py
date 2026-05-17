@@ -91,8 +91,8 @@ def get_telemetry_config() -> TelemetryConfig:
 
     anonymous_id = section.get("anonymous_id")
     if not anonymous_id:
-        # anonymous_id is generated and persisted before consent so Phase 1
-        # can attach the consent record to a stable identity that already exists.
+        # anonymous_id is generated and persisted before consent so the
+        # consent record can attach to a stable identity that already exists.
         anonymous_id = str(uuid.uuid4())
         section["anonymous_id"] = anonymous_id
         section.setdefault("enabled", None)

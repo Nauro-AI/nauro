@@ -53,10 +53,10 @@ def _check_config_overwrite(
     force: bool,
 ) -> None:
     """Refuse to overwrite an existing ``.nauro/config.json`` whose project
-    differs from the one being initialized. Per D136, this closes the
-    silent-overwrite footgun where ``nauro init <new-name>`` (or
-    ``nauro init --demo``) would replace a real project's cwd config
-    without warning, breaking every subsequent cwd-walk-up resolution.
+    differs from the one being initialized. Closes the silent-overwrite
+    footgun where ``nauro init <new-name>`` (or ``nauro init --demo``)
+    would replace a real project's cwd config without warning, breaking
+    every subsequent cwd-walk-up resolution.
 
     No-op when no existing config is present, when the existing config
     advertises the same project *id* as ``expected_id`` (idempotent
@@ -136,10 +136,10 @@ def init(
     is provided, the repos are appended to the existing local-mode entry.
     Cloud-mode entries cannot be extended this way — use ``nauro attach``.
     """
-    # D140: --demo seeds 7 pre-written decisions directly to disk (D91); the
-    # --cloud path goes through propose_decision/confirm_decision, which has
-    # no batch-seed bypass. Reject the combination at command entry rather
-    # than silently dropping --demo inside the --cloud branch.
+    # --demo seeds pre-written decisions directly to disk; the --cloud path
+    # goes through propose_decision/confirm_decision, which has no batch-seed
+    # bypass. Reject the combination at command entry rather than silently
+    # dropping --demo inside the --cloud branch.
     if demo and cloud:
         raise typer.BadParameter(
             "Cannot combine --demo with --cloud — the demo fixture seeds "
@@ -170,15 +170,15 @@ def init(
                 )
                 raise typer.Exit(code=1)
             store_path = get_store_path_v2(pid)
-            # Pre-check every target repo before any state changes (D136).
+            # Pre-check every target repo before any state changes.
             for rp in repo_paths:
                 _check_config_overwrite(rp, pid, name, force)
             added = []
             for rp in repo_paths:
                 add_repo_v2(pid, rp)
                 # Per-repo config is the source of truth for "is this repo
-                # adopted?" (D111). The cloud-mode branch is rejected above,
-                # so all surviving entries here are local-mode.
+                # adopted?". The cloud-mode branch is rejected above, so all
+                # surviving entries here are local-mode.
                 save_repo_config(
                     rp,
                     {
@@ -195,9 +195,9 @@ def init(
             return
 
     # ── New project: cloud or local ────────────────────────────────────────
-    # Pre-check every target repo before allocating a new id (D136). For a
-    # fresh init we have no pid to compare against; any existing config is
-    # treated as a potential conflict and refused without --force. v2 allows
+    # Pre-check every target repo before allocating a new id. For a fresh
+    # init we have no pid to compare against; any existing config is treated
+    # as a potential conflict and refused without --force. v2 allows
     # duplicate names with distinct ids, so name-match alone cannot be a
     # safe idempotency signal — silently coalescing 'nauro init projA' from
     # a cwd already linked to a different projA would lose the user's

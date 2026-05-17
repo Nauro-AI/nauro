@@ -83,9 +83,9 @@ def note(
         typer.echo(f"Decision recorded in {project_name}:")
         typer.echo(f"  {filepath}")
 
-    # D143: refresh AGENTS.md so MCP-disconnected agents see the update
-    # without requiring a separate `nauro sync`. Mirrors the warn-then-regen
-    # sequence in `nauro sync` so stale registry paths surface consistently.
+    # Refresh AGENTS.md so MCP-disconnected agents see the update without
+    # requiring a separate `nauro sync`. Mirrors the warn-then-regen
+    # sequence in `nauro sync`.
     project_key = store_path.name
     for repo_str in _registry_repo_paths(project_key):
         if not Path(repo_str).is_dir():

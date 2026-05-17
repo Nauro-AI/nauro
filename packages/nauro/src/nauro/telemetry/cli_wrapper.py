@@ -5,8 +5,7 @@ recursively and wraps every command callback with a timing/success-tracking
 shim that emits exactly one cli.command_invoked event per invocation.
 
 Wrapping happens once at app construction (in cli/main.py) so individual
-command modules stay free of telemetry imports — no per-command code per
-the T1.4 spec.
+command modules stay free of telemetry imports.
 """
 
 from __future__ import annotations

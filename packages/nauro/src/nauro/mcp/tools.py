@@ -162,11 +162,11 @@ def tool_propose_decision(
             }
         affected_decision_id = resolved
 
-    # D133: confidence flows as None when the caller did not send it so the
-    # validation pipeline can distinguish caller intent from default. Reapply
-    # "medium" only for add/supersede where the value lands in the decision
-    # file. On update the disallowed-fields branch in validate_proposed_write
-    # uses the unset value to recognise "caller did not send confidence".
+    # confidence flows as None when the caller did not send it so the
+    # validation pipeline can distinguish caller intent from default.
+    # Reapply "medium" only for add/supersede where the value lands in the
+    # decision file; on update the disallowed-fields branch uses the unset
+    # value to recognise "caller did not send confidence".
     proposal_confidence: str | None
     if operation in ("add", "supersede") and confidence is None:
         proposal_confidence = "medium"

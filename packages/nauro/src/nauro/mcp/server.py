@@ -43,12 +43,11 @@ app = FastAPI(title="Nauro MCP Server", version="0.2.0")
 
 @app.middleware("http")
 async def _telemetry_transport_middleware(request, call_next):
-    """Set transport='http' for the duration of this request.
+    """Set transport='http' for this request.
 
-    Per D117 / Phase 1c T1.5, the mcp.tool_called event reads transport from
-    a ContextVar. Each FastAPI request runs in its own asyncio Task, which
-    gets a copy of the parent's context — so set_transport here is scoped to
-    this request and cannot leak to other transports.
+    The mcp.tool_called decorator reads transport from a ContextVar; each
+    FastAPI request runs in its own asyncio Task, so the value is
+    request-scoped and cannot leak to other transports.
     """
     from nauro.telemetry.transport import set_transport
 
@@ -111,11 +110,11 @@ def _resolve_store(project_id: str | None, cwd: str | None) -> Path:
 
     Delegates to :func:`nauro.store.resolution.resolve_store` and translates
     each typed :class:`StoreResolutionError` subclass into an appropriate
-    HTTP status code so existing callers keep their 4xx contracts. Per
-    D136 the mapping is: ``NoProjectError`` / ``ProjectNotFoundError`` /
-    ``StoreMissingError`` → 404 (resource not present);
-    ``ProjectIdMismatchError`` / ``MultipleProjectsError`` → 400 (caller
-    supplied an ambiguous or contradictory handle).
+    HTTP status code so existing callers keep their 4xx contracts.
+    ``NoProjectError`` / ``ProjectNotFoundError`` / ``StoreMissingError`` →
+    404 (resource not present); ``ProjectIdMismatchError`` /
+    ``MultipleProjectsError`` → 400 (caller supplied an ambiguous or
+    contradictory handle).
     """
     try:
         return resolve_store(project_id, cwd)

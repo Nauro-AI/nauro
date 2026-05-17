@@ -108,8 +108,8 @@ def protocol_tokens_in(text: str, *, only_unknown: bool = False) -> list[str]:
     """Return the fragment names of every ``<!-- protocol:NAME -->`` in ``text``.
 
     With ``only_unknown=True``, returns names that are not registered in
-    :data:`CANONICAL_FRAGMENTS` — used by source-template tests to catch typos
-    pointing at the source file, not at the rendered output.
+    :data:`CANONICAL_FRAGMENTS` — typos surface against the source file
+    rather than against the rendered output.
     """
     names: list[str] = []
     cursor = 0

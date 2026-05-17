@@ -1,6 +1,6 @@
 """nauro adopt — Bootstrap a project from an existing repo.
 
-Per D125 + D126 + D128, ``nauro adopt`` does in one shot:
+In one shot it:
 
   1. Detect repo root (or use --repo).
   2. Guard against re-adopting an already-adopted repo.

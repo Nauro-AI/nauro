@@ -40,11 +40,11 @@ REGISTRY_FILENAME = "registry.json"
 CONFIG_FILENAME = "config.json"
 PROJECTS_DIR = "projects"
 
-# Files checked for unfilled bracket prompts during validation.
-# Includes both state filenames so validation works on fresh stores
-# (state_current.md only) and pre-D94 stores (state.md until first update_state
-# migrates them). Missing files are skipped by the validator, so listing both
-# is safe.
+# Files checked for unfilled bracket prompts during validation. Includes
+# both state filenames so validation works on fresh stores
+# (state_current.md) and legacy stores (state.md until the first
+# update_state migrates them). Missing files are skipped by the validator,
+# so listing both is safe.
 VALIDATED_STORE_FILES = (PROJECT_MD, STATE_CURRENT_FILENAME, STATE_LEGACY_FILENAME, STACK_MD)
 
 # Files counted toward L0 token estimate

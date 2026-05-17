@@ -80,8 +80,8 @@ def _spec_kwargs(name: str) -> dict[str, Any]:
 def _param_desc(tool_name: str, param: str) -> str:
     """Pull a per-property description from the centralized ToolSpec.
 
-    Per D101 + D134, the local FastMCP stdio derives input schemas from
-    Python type hints; per-property descriptions are surfaced via
+    The local FastMCP stdio derives input schemas from Python type hints;
+    per-property descriptions are surfaced via
     ``Annotated[T, Field(description=...)]`` rather than passing
     ``input_schema`` through directly. Sourcing the description from the
     ToolSpec at module load time keeps the registry as the single source

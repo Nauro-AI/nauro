@@ -1,13 +1,11 @@
 """Lazy PostHog client singleton.
 
-Project key is read from NAURO_POSTHOG_KEY env var only in this PR — T4.1 will
-flip the default to an embedded prod key. Single-PR ownership keeps the
-"placeholder accidentally shipped" failure mode out of Phases 1a–1c.
+Project key is read from the NAURO_POSTHOG_KEY env var.
 
-No atexit handler and no posthog.shutdown() call anywhere: per D120 the CLI
-uses sync_mode=True, so each capture() blocks until sent — there is no daemon
-thread that needs flushing on exit. Adding shutdown would re-introduce the
-background-thread surface that feedback_daemon_removed exists to prevent.
+No atexit handler and no posthog.shutdown() call: the CLI uses
+sync_mode=True, so each capture() blocks until sent and there is no daemon
+thread to flush. Adding shutdown would re-introduce a background-thread
+surface in a short-lived process the user is watching exit.
 """
 
 from __future__ import annotations
@@ -33,9 +31,9 @@ def _resolve_project_key() -> str | None:
 def _strip_reserved(properties: dict[str, Any]) -> dict[str, Any]:
     """Drop any property whose key starts with $ip, $geoip_, or $user_agent.
 
-    Defense-in-depth per D120: PostHog v7 has paths that can re-add these
-    properties even with disable_geoip=True; this filter is the runtime
-    guarantee that the privacy contract holds across SDK upgrades.
+    Defense-in-depth: PostHog v7 has paths that can re-add these even with
+    disable_geoip=True; this filter is the runtime guarantee that the
+    privacy contract holds across SDK upgrades.
     """
     return {
         k: v
