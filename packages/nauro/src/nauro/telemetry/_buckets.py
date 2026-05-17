@@ -1,4 +1,4 @@
-"""Shared duration bucketing for D117 events.
+"""Shared duration bucketing for telemetry events.
 
 Same scheme used by `cli.command_invoked` and `mcp.tool_called` so dashboards
 can compare CLI vs MCP latency on the same axis.

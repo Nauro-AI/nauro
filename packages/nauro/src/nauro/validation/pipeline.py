@@ -28,11 +28,11 @@ from nauro.validation.tier2 import check_similarity
 
 logger = logging.getLogger("nauro.validation.pipeline")
 
-# D133: operation="update" appends rationale only — update_decision reads only
-# affected_decision_id + rationale. Any value in these fields would be silently
-# dropped on local stdio (and rejected on remote MCP); reject loudly at the
-# boundary so the wording in PROPOSE_DECISION_OPERATIONS holds on both
-# transports. Order mirrors mcp-server/src/mcp_server/validation.py:261-268.
+# operation="update" appends rationale only — update_decision reads only
+# affected_decision_id + rationale. Any value in these fields would be
+# silently dropped on local stdio (and rejected on remote MCP); reject
+# loudly at the boundary so the wording in PROPOSE_DECISION_OPERATIONS holds
+# on both transports.
 _UPDATE_DISALLOWED_FIELDS: tuple[str, ...] = (
     "title",
     "rejected",
@@ -89,7 +89,7 @@ def validate_proposed_write(
     Returns:
         ValidationResult with status and details.
     """
-    # --- D133: reject metadata fields on operation="update" ---
+    # --- reject metadata fields on operation="update" ---
     # update_decision writes only the new rationale onto the existing target;
     # any value in the disallowed fields would be silently dropped. Reject
     # loudly and point the caller at supersede. Sits before Tier 1 so the
@@ -116,7 +116,7 @@ def validate_proposed_write(
             log_validation(project_path, proposal, result.to_dict())
             return result
 
-    # --- D139: reject unknown resolves_questions ids at the boundary ---
+    # --- reject unknown resolves_questions ids at the boundary ---
     # Validate every supplied id exists in open-questions.md (either open
     # or already-resolved). Unknown ids reject before Tier 1 so the
     # assessment names the offending ids rather than slipping past the
@@ -142,7 +142,7 @@ def validate_proposed_write(
     # --- Tier 1: Structural screening ---
     # - update: rationale-only (length + minimum). The existing target supplies
     #   the title, so the standard "title empty" reject would otherwise prevent
-    #   title="" from being the legitimate rationale-only signal (per D133).
+    #   title="" from being the legitimate rationale-only signal.
     # - add / supersede: full structural screen.
     if operation == "update":
         rationale = (proposal.get("rationale") or "").strip()
@@ -319,8 +319,8 @@ def _execute_operation(
     — see tool_propose_decision). The return value reflects what was
     actually written so callers can echo ground truth.
 
-    Question resolution (D139) is applied best-effort after the decision
-    write — see :func:`_apply_question_resolves` for the failure posture.
+    Question resolution is applied best-effort after the decision write —
+    see :func:`_apply_question_resolves` for the failure posture.
     """
     if operation == "supersede" and affected_decision_id:
         decision_id = supersede_decision(affected_decision_id, proposal, project_path)
@@ -355,7 +355,7 @@ def _apply_question_resolves(
 
     Best-effort: the boundary already rejected unknown ids, so this can only
     fail on file I/O. Failures are logged with ``unresolved_ids`` and the
-    decision write stands — D132's posture for partial writes.
+    decision write stands.
     """
     ids = list(proposal.get("resolves_questions") or [])
     if not ids:

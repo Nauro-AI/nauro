@@ -1,7 +1,7 @@
-"""Typed event constructors for the D117 taxonomy.
+"""Typed event constructors.
 
-Each function returns a property dict — no emission, no side effects. Phase 1b/1c
-call sites pair these with telemetry.capture() so property-key drift cannot
+Each function returns a property dict — no emission, no side effects. Call
+sites pair these with telemetry.capture() so property-key drift cannot
 silently fork between events and the locked taxonomy in PRIVACY.md.
 """
 

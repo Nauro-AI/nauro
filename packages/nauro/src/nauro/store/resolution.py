@@ -7,14 +7,14 @@ module owns the rules and surfaces every failure as a typed exception so
 each transport can decide whether to show the welcome screen, return a
 specific error message, or translate to an HTTP status code.
 
-Per D101 + D111 + D136, the resolution order is:
+Resolution order:
 
   1. cwd's ``.nauro/config.json`` walk-up (id-keyed v2 store).
   2. ``project_id`` argument matched against v2 registry by name.
   3. ``project_id`` argument matched against v1 registry by name (legacy).
   4. ``cwd`` argument → v1 ``resolve_project`` (legacy).
 
-Before D136 both transports raised a bare ``ValueError`` and the wrappers
+Previously both transports raised a bare ``ValueError`` and the wrappers
 swallowed every failure into the same ``WELCOME_NO_PROJECT`` onboarding
 screen. The typed subclasses below let the wrappers reserve the welcome
 screen for the genuinely-no-project case and surface specific diagnostics
@@ -44,7 +44,7 @@ class StoreResolutionError(ValueError):
 
     Subclasses each name a failure category so callers can map them to the
     transport-appropriate output. Inherits ``ValueError`` so callers that
-    catch ``ValueError`` from the pre-D136 surface keep working.
+    catch ``ValueError`` from the legacy surface keep working.
     """
 
 

@@ -24,8 +24,8 @@ from nauro.telemetry.transport import current_transport
 def mcp_tool(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Wrap an MCP tool to emit ``mcp.tool_called`` exactly once per call.
 
-    Properties (D117 closed allowlist): tool_name, transport, success,
-    duration_bucket. Never tool args, return values, or exception details.
+    Closed allowlist: tool_name, transport, success, duration_bucket.
+    Never tool args, return values, or exception details.
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:

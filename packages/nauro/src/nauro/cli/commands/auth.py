@@ -370,7 +370,7 @@ def login() -> None:
     }
     save_config(config)
 
-    # Telemetry identity merge (D119). Auth state is already persisted above —
+    # Telemetry identity merge: auth state is already persisted above —
     # this block only handles the PostHog alias+set. Raw email never leaves
     # auth.py; identify_login receives only the SHA-256 hex digest.
     try:
@@ -424,9 +424,9 @@ def logout() -> None:
         typer.echo("Not authenticated — nothing to clear.")
         return
 
-    # Rotate the telemetry anonymous_id at logout (D119: rotate-on-logout,
-    # preserve consent). identify_logout only touches the telemetry section,
-    # so call ordering with del config["auth"] is independent for correctness.
+    # Rotate the telemetry anonymous_id at logout (preserves consent).
+    # identify_logout only touches the telemetry section, so call ordering
+    # with del config["auth"] is independent for correctness.
     try:
         from nauro.telemetry import identify_logout as _telemetry_identify_logout
 
