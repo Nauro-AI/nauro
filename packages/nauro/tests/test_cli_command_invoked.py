@@ -146,7 +146,8 @@ def test_emits_one_event_on_unexpected_exception(nauro_home, telemetry_key, fake
     app = _build_isolated_app(_boom)
     runner = CliRunner()
     result = runner.invoke(app, [])
-    assert result.exit_code != 0
+    assert result.exit_code == 1
+    assert isinstance(result.exception, RuntimeError)
 
     events = _command_events(fake_posthog)
     assert len(events) == 1

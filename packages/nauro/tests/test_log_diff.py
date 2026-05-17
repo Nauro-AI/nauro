@@ -538,4 +538,8 @@ class TestDiffSinceFlag:
         capture_snapshot(store, trigger="first")
 
         result = runner.invoke(app, ["diff", "--since", "abc"])
-        assert result.exit_code != 0
+        # typer.BadParameter is a Click UsageError → exit code 2. Anchor the
+        # message check to text without flag tokens (CI renders --since with
+        # rich-styled ANSI escapes that split the substring).
+        assert result.exit_code == 2
+        assert "Use a number or Nd" in result.output

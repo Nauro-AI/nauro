@@ -308,9 +308,9 @@ class TestAuthStatus:
         )
         result = runner.invoke(app, ["auth", "status"])
         assert result.exit_code == 0
-        assert "auth0|abc123" in result.output
-        assert "auth0-abc123" in result.output
-        assert "yes" in result.output  # refresh token present
+        assert "Authenticated as: auth0|abc123" in result.output
+        assert "Sanitized sub:    auth0-abc123" in result.output
+        assert "Refresh token:    yes" in result.output
 
     def test_status_not_authenticated(self, tmp_path, monkeypatch):
         result = runner.invoke(app, ["auth", "status"])
@@ -329,7 +329,7 @@ class TestAuthStatus:
         )
         result = runner.invoke(app, ["auth", "status"])
         assert result.exit_code == 0
-        assert "no" in result.output  # no refresh token
+        assert "Refresh token:    no" in result.output
 
 
 # --- auth logout ---
