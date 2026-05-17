@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import typer
 
-from nauro.cli.commands.auth import DEFAULT_API_URL
+from nauro.cli.commands.auth import DEFAULT_API_URL, load_access_token
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
     REPO_CONFIG_MODE_LOCAL,
@@ -30,7 +30,6 @@ from nauro.store.repo_config import (
     save_repo_config,
 )
 from nauro.sync.cloud_projects import CloudProjectError, create_project
-from nauro.sync.config import load_sync_config
 
 
 def link(
@@ -83,16 +82,11 @@ def link(
         )
         raise typer.Exit(code=1)
 
-    # This guard is removed in Tier 2 PR B once presigned URLs ship.
-    if not load_sync_config().enabled:
+    if not load_access_token():
         typer.echo(
-            f"Cannot link '{name}' to the cloud: CLI sync credentials are not configured.\n"
+            f"Cannot link '{name}' to the cloud: not authenticated.\n"
             "\n"
-            "Cloud sync currently requires AWS credentials that a Nauro administrator "
-            "provisions during onboarding. Expected order:\n"
-            "  1. Administrator hands you bucket name + access keys.\n"
-            "  2. You run 'nauro sync --cloud-setup' to configure them.\n"
-            "  3. You run 'nauro link --cloud'.",
+            "Run 'nauro auth login' first.",
             err=True,
         )
         raise typer.Exit(code=1)

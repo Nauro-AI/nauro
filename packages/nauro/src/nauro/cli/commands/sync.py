@@ -116,9 +116,149 @@ def sync(
 
 
 def _pull_from_cloud(project_name: str, store_path: Path) -> int:
-    """Pull remote changes from S3 before a local sync. Skip silently if not configured.
+    """Pull remote changes from the server before a local sync.
 
-    Returns the number of files merged/pulled, or 0 if nothing changed.
+    Dispatches on which transport is configured. Auth0 token wins over static
+    IAM credentials when both are present — that is the migration ramp for
+    installs created during the static-IAM era. Returns the number of files
+    merged/pulled, or 0 if nothing changed (or nothing is configured).
+    """
+    from nauro.cli.commands.auth import load_access_token
+
+    if load_access_token():
+        # Manifest/presign requires a server-side project record; local-mode
+        # projects have none, so silently no-op.
+        if _project_mode(project_name) != REPO_CONFIG_MODE_CLOUD:
+            return 0
+        return _pull_via_presign(project_name, store_path)
+
+    return _pull_via_static_s3(project_name, store_path)
+
+
+def _pull_via_presign(project_id: str, store_path: Path) -> int:
+    """New transport: GET /sync/manifest → POST /sync/presign → S3 GETs."""
+    from datetime import datetime, timezone
+
+    from nauro.cli.commands.auth import AuthRefreshError
+    from nauro.sync.merge import detect_conflict, resolve_conflict, should_skip
+    from nauro.sync.remote import (
+        PresignError,
+        fetch_manifest,
+        fetch_via_presigned_url,
+        get_via_presigned_url,
+        request_presigned_urls,
+    )
+    from nauro.sync.state import (
+        compute_sha256,
+        file_changed_locally,
+        file_changed_remotely,
+        load_state,
+        save_state,
+        update_file_state,
+    )
+
+    typer.echo("Pulling from remote...")
+
+    try:
+        manifest = fetch_manifest(project_id)
+    except AuthRefreshError as exc:
+        typer.echo(f"  {exc}", err=True)
+        return 0
+    except PresignError as exc:
+        logger.exception("Failed to fetch manifest")
+        typer.echo(f"  Warning: could not reach remote ({exc})", err=True)
+        return 0
+
+    state = load_state(store_path)
+
+    pulls: list[tuple[str, str]] = []
+    conflicts: list[tuple[str, str]] = []
+    for entry in manifest:
+        rel = entry.get("path", "") if isinstance(entry, dict) else ""
+        if not rel or should_skip(rel):
+            continue
+        remote_etag = entry.get("etag", "")
+        if not file_changed_remotely(remote_etag, rel, state):
+            continue
+
+        local_file = store_path / rel
+        local_changed = file_changed_locally(store_path, rel, state)
+
+        if not local_changed:
+            pulls.append((rel, remote_etag))
+            continue
+
+        local_sha = compute_sha256(local_file) if local_file.exists() else ""
+        if detect_conflict(rel, state, local_sha, remote_etag):
+            conflicts.append((rel, remote_etag))
+
+    if not pulls and not conflicts:
+        state.last_full_sync = datetime.now(timezone.utc).isoformat()
+        save_state(store_path, state)
+        typer.echo("  No remote changes")
+        return 0
+
+    operations = [{"verb": "GET", "path": rel} for rel, _etag in pulls + conflicts]
+    try:
+        urls = request_presigned_urls(project_id, operations)
+    except AuthRefreshError as exc:
+        typer.echo(f"  {exc}", err=True)
+        return 0
+    except PresignError as exc:
+        logger.exception("Failed to request presigned URLs")
+        typer.echo(f"  Warning: presign request failed ({exc})", err=True)
+        return 0
+
+    url_by_path = {
+        entry["path"]: entry["url"]
+        for entry in urls
+        if isinstance(entry, dict) and entry.get("verb") == "GET"
+    }
+    merged = 0
+
+    for rel, remote_etag in pulls:
+        url = url_by_path.get(rel)
+        if not url:
+            continue
+        local_file = store_path / rel
+        try:
+            get_via_presigned_url(url, local_file)
+            local_sha = compute_sha256(local_file)
+            update_file_state(state, rel, local_sha, remote_etag)
+            merged += 1
+        except PresignError:
+            logger.exception("Error pulling %s", rel)
+
+    for rel, remote_etag in conflicts:
+        url = url_by_path.get(rel)
+        if not url:
+            continue
+        local_file = store_path / rel
+        try:
+            remote_content = fetch_via_presigned_url(url)
+            merged_content = resolve_conflict(store_path, local_file, remote_content, rel, state)
+            local_file.write_bytes(merged_content)
+            local_sha = compute_sha256(local_file)
+            update_file_state(state, rel, local_sha, remote_etag)
+            merged += 1
+        except PresignError:
+            logger.exception("Error resolving conflict for %s", rel)
+
+    state.last_full_sync = datetime.now(timezone.utc).isoformat()
+    save_state(store_path, state)
+
+    if merged:
+        typer.echo(f"  Merged {merged} file(s) from remote")
+    else:
+        typer.echo("  No remote changes")
+
+    return merged
+
+
+def _pull_via_static_s3(project_name: str, store_path: Path) -> int:
+    """Legacy transport: direct S3 with static IAM credentials.
+
+    Removed in PR C (2026-08-15) once the install population has migrated.
     """
     try:
         from nauro.sync.config import AuthRequiredError, load_sync_config, require_auth, s3_prefix
@@ -214,17 +354,100 @@ def _pull_from_cloud(project_name: str, store_path: Path) -> int:
 
 
 def _push_to_cloud(project_name: str, store_path: Path) -> bool:
-    """Push all store files to S3 after a local sync.
+    """Push store changes after a local sync.
 
     Returns True when the project is local-only (nothing to push is not an
     error) or when the upload succeeded. Returns False only when the project
-    is cloud-mode but the CLI has no sync credentials configured — in that
-    case the user is warned and the caller should treat the sync as a
-    partial success.
+    is cloud-mode but the CLI has no transport configured — in that case the
+    user is warned and the caller treats the sync as a partial success.
+
+    Auth0 token wins over static IAM credentials when both are present.
     """
     if _project_mode(project_name) != REPO_CONFIG_MODE_CLOUD:
         return True
 
+    from nauro.cli.commands.auth import load_access_token
+
+    if load_access_token():
+        return _push_via_presign(project_name, store_path)
+
+    return _push_via_static_s3(project_name, store_path)
+
+
+def _push_via_presign(project_id: str, store_path: Path) -> bool:
+    """New transport: POST /sync/presign for changed files → S3 PUTs."""
+    from nauro.cli.commands.auth import AuthRefreshError
+    from nauro.sync.merge import should_skip
+    from nauro.sync.remote import (
+        PresignError,
+        put_via_presigned_url,
+        request_presigned_urls,
+    )
+    from nauro.sync.state import compute_sha256, load_state, save_state, update_file_state
+
+    state = load_state(store_path)
+
+    changed: list[tuple[str, str, Path]] = []
+    for local_file in store_path.rglob("*"):
+        if not local_file.is_file():
+            continue
+        try:
+            rel = str(local_file.relative_to(store_path))
+        except ValueError:
+            continue
+        if should_skip(rel) or rel.startswith(".conflict-backup") or rel.startswith("__pycache__"):
+            continue
+
+        local_sha = compute_sha256(local_file)
+        fs = state.files.get(rel)
+        if fs is None or fs.local_sha256 != local_sha:
+            changed.append((rel, local_sha, local_file))
+
+    if not changed:
+        save_state(store_path, state)
+        return True
+
+    operations = [{"verb": "PUT", "path": rel} for rel, _sha, _path in changed]
+    try:
+        urls = request_presigned_urls(project_id, operations)
+    except AuthRefreshError as exc:
+        typer.echo(f"  {exc}", err=True)
+        return False
+    except PresignError as exc:
+        logger.exception("Failed to request presigned PUT URLs")
+        typer.echo(f"  Warning: presign request failed ({exc})", err=True)
+        return False
+
+    url_by_path = {
+        entry["path"]: entry["url"]
+        for entry in urls
+        if isinstance(entry, dict) and entry.get("verb") == "PUT"
+    }
+
+    pushed = 0
+    for rel, local_sha, local_file in changed:
+        url = url_by_path.get(rel)
+        if not url:
+            continue
+        try:
+            new_etag = put_via_presigned_url(url, local_file)
+            if new_etag:
+                update_file_state(state, rel, local_sha, new_etag)
+                pushed += 1
+        except PresignError:
+            logger.exception("Failed to push %s", rel)
+
+    save_state(store_path, state)
+    if pushed:
+        typer.echo(f"  Pushed {pushed} file(s) to S3")
+    return True
+
+
+def _push_via_static_s3(project_name: str, store_path: Path) -> bool:
+    """Legacy transport: direct S3 with static IAM credentials.
+
+    Removed in PR C (2026-08-15) once the install population has migrated.
+    """
     try:
         from nauro.sync.config import AuthRequiredError, load_sync_config, require_auth, s3_prefix
         from nauro.sync.merge import should_skip
@@ -234,7 +457,7 @@ def _push_to_cloud(project_name: str, store_path: Path) -> bool:
         typer.echo(
             "  Warning: this is a cloud-mode project but CLI sync credentials are not configured.\n"
             "  Your local snapshot is captured, but nothing was uploaded.\n"
-            "  Run 'nauro sync --cloud-setup' to configure credentials.",
+            "  Run 'nauro auth login' or 'nauro sync --cloud-setup' to configure credentials.",
             err=True,
         )
         return False
@@ -244,7 +467,7 @@ def _push_to_cloud(project_name: str, store_path: Path) -> bool:
         typer.echo(
             "  Warning: this is a cloud-mode project but CLI sync credentials are not configured.\n"
             "  Your local snapshot is captured, but nothing was uploaded.\n"
-            "  Run 'nauro sync --cloud-setup' to configure credentials.",
+            "  Run 'nauro auth login' or 'nauro sync --cloud-setup' to configure credentials.",
             err=True,
         )
         return False
@@ -359,23 +582,32 @@ def _cloud_setup_wizard() -> None:
 
 def _show_status(project_flag: str | None) -> None:
     """Show cloud sync status."""
-    # TODO(Tier 2 PR B): after presign endpoints ship, _show_status should report:
-    #   (a) which sync path this install uses (legacy direct-S3 vs presign)
-    #   (b) last successful sync time (from server response or local snapshot trailer)
-    # Today it only reads local config; neither field above is available.
+    from nauro.cli.commands.auth import load_access_token
     from nauro.sync.config import load_sync_config
 
+    access_token = load_access_token()
     config = load_sync_config()
 
-    if not config.enabled:
-        typer.echo("Cloud sync: disabled")
-        typer.echo("Run 'nauro sync --cloud-setup' to configure.")
+    if access_token:
+        sync_path_label = "presign"
+    elif config.enabled:
+        sync_path_label = "legacy direct-S3"
+    else:
+        sync_path_label = "not configured"
+
+    typer.echo(f"Sync path: {sync_path_label}")
+
+    if sync_path_label == "not configured":
+        typer.echo(
+            "Run 'nauro auth login' to authenticate, "
+            "or 'nauro sync --cloud-setup' for legacy direct-S3."
+        )
         return
 
-    typer.echo("Cloud sync: enabled")
-    typer.echo(f"  Bucket: {config.bucket_name}")
-    typer.echo(f"  Region: {config.region}")
-    typer.echo(f"  Poll interval: {config.sync_interval}s")
+    if config.enabled:
+        typer.echo(f"  Bucket: {config.bucket_name}")
+        typer.echo(f"  Region: {config.region}")
+        typer.echo(f"  Poll interval: {config.sync_interval}s")
 
     # Show project-specific status if we can resolve one
     try:
@@ -390,7 +622,7 @@ def _show_status(project_flag: str | None) -> None:
 
     typer.echo(f"\nProject: {project_name}")
     typer.echo(f"  Files tracked: {len(state.files)}")
-    typer.echo(f"  Last full sync: {state.last_full_sync or 'never'}")
+    typer.echo(f"  Last successful sync: {state.last_full_sync or 'never'}")
 
     # Check for pending local changes
     from nauro.sync.state import file_changed_locally
@@ -409,34 +641,39 @@ def _show_status(project_flag: str | None) -> None:
     else:
         typer.echo("  Pending local changes: none")
 
-    # Check for pending remote changes
-    try:
-        from nauro.sync.config import s3_prefix
-        from nauro.sync.remote import create_client, list_remote
-        from nauro.sync.state import file_changed_remotely
+    # Remote-side enumeration is only meaningful for the legacy path; the
+    # presign path lists via /sync/manifest at sync time and does not expose
+    # the same read-only listing here. Keep the legacy probe for installs
+    # still on static IAM creds; PR C removes this block alongside the
+    # legacy transport.
+    if not access_token and config.enabled:
+        try:
+            from nauro.sync.config import s3_prefix
+            from nauro.sync.remote import create_client, list_remote
+            from nauro.sync.state import file_changed_remotely
 
-        client = create_client(config)
-        if not (config.user_id or config.sanitized_sub):
-            typer.echo("  Remote status unavailable: run 'nauro auth login' first", err=True)
-            return 0
-        user_key = config.user_id or config.sanitized_sub
-        prefix = s3_prefix(user_key, project_key)
-        remote_files = list_remote(client, config.bucket_name, prefix)
+            client = create_client(config)
+            if not (config.user_id or config.sanitized_sub):
+                typer.echo("  Remote status unavailable: run 'nauro auth login' first", err=True)
+                return
+            user_key = config.user_id or config.sanitized_sub
+            prefix = s3_prefix(user_key, project_key)
+            remote_files = list_remote(client, config.bucket_name, prefix)
 
-        pending_remote = []
-        for rf in remote_files:
-            rel = rf["key"].removeprefix(prefix)
-            if rel and file_changed_remotely(rf["etag"], rel, state):
-                pending_remote.append(rel)
+            pending_remote = []
+            for rf in remote_files:
+                rel = rf["key"].removeprefix(prefix)
+                if rel and file_changed_remotely(rf["etag"], rel, state):
+                    pending_remote.append(rel)
 
-        if pending_remote:
-            typer.echo(f"  Pending remote changes: {len(pending_remote)}")
-            for p in pending_remote[:5]:
-                typer.echo(f"    - {p}")
-        else:
-            typer.echo("  Pending remote changes: none")
-    except Exception as e:
-        typer.echo(f"  Remote check failed: {e}", err=True)
+            if pending_remote:
+                typer.echo(f"  Pending remote changes: {len(pending_remote)}")
+                for p in pending_remote[:5]:
+                    typer.echo(f"    - {p}")
+            else:
+                typer.echo("  Pending remote changes: none")
+        except Exception as e:
+            typer.echo(f"  Remote check failed: {e}", err=True)
 
     # Check for conflict backups
     backup_dir = store_path / ".conflict-backup"
