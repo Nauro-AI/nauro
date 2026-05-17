@@ -1,16 +1,52 @@
 """Event-driven sync hooks — pull on session start, push after writes.
 
-Replace the daemon's poll loop. Called by the MCP server after each
-write. Never block or crash — failures are logged only.
+Called by the MCP server (``stdio_server._pull_on_startup`` on entry,
+``mcp/tools._try_push`` after each write). Never block or crash —
+failures are logged only.
+
+Both hooks gate on Auth0 token presence and v2 cloud-mode at entry and
+silent-no-op when either is missing. The two no-op cases are:
+
+* Not authenticated. MCP writes happen on every tool call; nagging
+  ``run nauro auth login`` on every write would be hostile. The user
+  saw the prompt at session start (or onboarding) — here we just skip.
+* Project is not v2 cloud-mode. v1 entries have no server-side ULID
+  and v2 local-mode is not remote-backed. The presign endpoints can
+  address neither.
+
+Token refresh on 401 is handled inside ``request_presigned_urls`` and
+``fetch_manifest`` via ``with_token_refresh``. ``AuthRefreshError``
+escapes here as a swallowed log line.
 """
 
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro_core import extract_decision_number
 
+from nauro.cli.commands.auth import AuthRefreshError, load_access_token
+from nauro.constants import REPO_CONFIG_MODE_CLOUD
+from nauro.store.registry import RegistrySchemaError, get_project_v2
+
 logger = logging.getLogger("nauro.sync")
+
+
+def _project_is_cloud(project_id: str) -> bool:
+    """True iff ``project_id`` is a v2 cloud-mode registry entry.
+
+    v1 entries (no ``mode`` field) and v2 local-mode entries return False:
+    the presign transport has no path for either. v1 has no server-side
+    ULID; v2 local-mode is by definition not remote-backed.
+    """
+    try:
+        entry = get_project_v2(project_id)
+    except RegistrySchemaError:
+        return False
+    if entry is None:
+        return False
+    return entry.get("mode") == REPO_CONFIG_MODE_CLOUD
 
 
 def _renumber_decision_if_collision(
@@ -33,11 +69,9 @@ def _renumber_decision_if_collision(
     if not decisions_dir.exists():
         return rel, content
 
-    # Check if this exact filename already exists locally — no collision
     if (decisions_dir / filename).exists():
         return rel, content
 
-    # Check if another file with the same number prefix exists
     collision = False
     for f in decisions_dir.glob("*.md"):
         n = extract_decision_number(f.name)
@@ -48,7 +82,6 @@ def _renumber_decision_if_collision(
     if not collision:
         return rel, content
 
-    # Find next available number
     existing_nums = set()
     for f in decisions_dir.glob("*.md"):
         n = extract_decision_number(f.name)
@@ -61,7 +94,6 @@ def _renumber_decision_if_collision(
     new_filename = f"{next_num:03d}-{slug}"
     new_rel = f"decisions/{new_filename}"
 
-    # Update the heading inside the file content (e.g. "# 075 — Title" → "# 087 — Title")
     text = content.decode("utf-8", errors="replace")
     text = re.sub(
         rf"^# {incoming_num:03d}( [—-])",
@@ -81,16 +113,27 @@ def _renumber_decision_if_collision(
     return new_rel, content
 
 
-def pull_before_session(project_name: str, store_path: Path) -> int:
-    """Pull remote changes from S3 before a session starts.
+def pull_before_session(project_id: str, store_path: Path) -> int:
+    """Pull remote changes from the server before a session starts.
 
-    Returns the number of files pulled/merged, or 0 on failure/no changes.
-    Never raises — failures are logged and swallowed.
+    Silent no-op when not authenticated or when ``project_id`` is not a
+    v2 cloud-mode entry. Returns the number of files pulled/merged, or
+    0 on any swallowed failure. Never raises — auto-pull must not crash
+    session startup.
     """
+    if not load_access_token():
+        return 0
+    if not _project_is_cloud(project_id):
+        return 0
+
     try:
-        from nauro.sync.config import AuthRequiredError, load_sync_config, require_auth, s3_prefix
         from nauro.sync.merge import detect_conflict, resolve_conflict, should_skip
-        from nauro.sync.remote import create_client, list_remote
+        from nauro.sync.remote import (
+            PresignError,
+            fetch_manifest,
+            fetch_via_presigned_url,
+            request_presigned_urls,
+        )
         from nauro.sync.state import (
             compute_sha256,
             file_changed_locally,
@@ -102,114 +145,140 @@ def pull_before_session(project_name: str, store_path: Path) -> int:
     except ImportError:
         return 0
 
-    config = load_sync_config()
-    if not config.enabled:
-        return 0
-
     try:
-        sanitized_sub = require_auth(config)
-    except AuthRequiredError:
-        logger.warning("sync pull: auth not configured — run 'nauro auth login'")
+        manifest = fetch_manifest(project_id)
+    except AuthRefreshError as exc:
+        logger.warning("sync pull: %s", exc)
         return 0
-
-    try:
-        client = create_client(config)
-        prefix = s3_prefix(sanitized_sub, project_name)
-        remote_files = list_remote(client, config.bucket_name, prefix)
-    except Exception:
-        logger.warning("sync pull: could not reach remote for %s", project_name)
+    except PresignError as exc:
+        logger.warning("sync pull: manifest fetch failed: %s", exc)
         return 0
 
     state = load_state(store_path)
-    merged = 0
 
-    for rf in remote_files:
-        rel = rf["key"].removeprefix(prefix)
+    pulls: list[tuple[str, str]] = []
+    conflicts: list[tuple[str, str]] = []
+    for entry in manifest:
+        rel = entry.get("path", "") if isinstance(entry, dict) else ""
         if not rel or should_skip(rel):
             continue
-
-        remote_etag = rf["etag"]
-        remote_changed = file_changed_remotely(remote_etag, rel, state)
-        if not remote_changed:
+        # Server validates per-op on presign, but the manifest itself is
+        # currently trusted — drop suspicious entries before they hit disk.
+        if ".." in Path(rel).parts or rel.startswith("/"):
+            logger.warning("sync pull: skipping suspicious manifest entry %r", rel)
+            continue
+        remote_etag = entry.get("etag", "")
+        if not file_changed_remotely(remote_etag, rel, state):
             continue
 
         local_file = store_path / rel
         local_changed = file_changed_locally(store_path, rel, state)
+        if not local_changed:
+            pulls.append((rel, remote_etag))
+            continue
 
-        if remote_changed and not local_changed:
-            try:
-                # Pull to a temp location first so we can check for decision number collisions
-                response = client.get_object(Bucket=config.bucket_name, Key=prefix + rel)
-                remote_content = response["Body"].read()
-                remote_etag = rf["etag"]
+        local_sha = compute_sha256(local_file) if local_file.exists() else ""
+        if detect_conflict(rel, state, local_sha, remote_etag):
+            conflicts.append((rel, remote_etag))
 
-                actual_rel, remote_content = _renumber_decision_if_collision(
-                    store_path,
-                    rel,
-                    remote_content,
-                )
-                actual_file = store_path / actual_rel
-                actual_file.parent.mkdir(parents=True, exist_ok=True)
-                actual_file.write_bytes(remote_content)
+    if not pulls and not conflicts:
+        state.last_full_sync = datetime.now(timezone.utc).isoformat()
+        save_state(store_path, state)
+        return 0
 
-                local_sha = compute_sha256(actual_file)
-                update_file_state(state, actual_rel, local_sha, remote_etag)
-                merged += 1
-            except Exception:
-                logger.exception("sync pull: error pulling %s", rel)
-        elif remote_changed and local_changed:
-            local_sha = compute_sha256(local_file) if local_file.exists() else ""
-            if detect_conflict(rel, state, local_sha, remote_etag):
-                try:
-                    response = client.get_object(Bucket=config.bucket_name, Key=prefix + rel)
-                    remote_content = response["Body"].read()
+    operations = [{"verb": "GET", "path": rel} for rel, _etag in pulls + conflicts]
+    try:
+        urls = request_presigned_urls(project_id, operations)
+    except AuthRefreshError as exc:
+        logger.warning("sync pull: %s", exc)
+        return 0
+    except PresignError as exc:
+        logger.warning("sync pull: presign request failed: %s", exc)
+        return 0
 
-                    # For decisions, check if this is actually a different decision
-                    # with the same number (not a content conflict on the same file)
-                    actual_rel, remote_content = _renumber_decision_if_collision(
-                        store_path,
-                        rel,
-                        remote_content,
-                    )
-                    if actual_rel != rel:
-                        # It was a number collision, not a true conflict — write as new file
-                        actual_file = store_path / actual_rel
-                        actual_file.parent.mkdir(parents=True, exist_ok=True)
-                        actual_file.write_bytes(remote_content)
-                        local_sha = compute_sha256(actual_file)
-                        update_file_state(state, actual_rel, local_sha, remote_etag)
-                    else:
-                        merged_content = resolve_conflict(
-                            store_path, local_file, remote_content, rel, state
-                        )
-                        local_file.write_bytes(merged_content)
-                        local_sha = compute_sha256(local_file)
-                        update_file_state(state, rel, local_sha, remote_etag)
-                    merged += 1
-                except Exception:
-                    logger.exception("sync pull: error resolving conflict for %s", rel)
+    url_by_path = {
+        entry["path"]: entry["url"]
+        for entry in urls
+        if isinstance(entry, dict) and entry.get("verb") == "GET"
+    }
 
-    from datetime import datetime, timezone
+    merged = 0
+
+    for rel, remote_etag in pulls:
+        url = url_by_path.get(rel)
+        if not url:
+            continue
+        try:
+            remote_content = fetch_via_presigned_url(url)
+        except PresignError:
+            logger.exception("sync pull: error pulling %s", rel)
+            continue
+        actual_rel, remote_content = _renumber_decision_if_collision(
+            store_path, rel, remote_content
+        )
+        actual_file = store_path / actual_rel
+        actual_file.parent.mkdir(parents=True, exist_ok=True)
+        actual_file.write_bytes(remote_content)
+        local_sha = compute_sha256(actual_file)
+        update_file_state(state, actual_rel, local_sha, remote_etag)
+        merged += 1
+
+    for rel, remote_etag in conflicts:
+        url = url_by_path.get(rel)
+        if not url:
+            continue
+        try:
+            remote_content = fetch_via_presigned_url(url)
+        except PresignError:
+            logger.exception("sync pull: error resolving conflict for %s", rel)
+            continue
+        actual_rel, remote_content = _renumber_decision_if_collision(
+            store_path, rel, remote_content
+        )
+        if actual_rel != rel:
+            # Decision-number collision, not a content conflict — write as a new file.
+            actual_file = store_path / actual_rel
+            actual_file.parent.mkdir(parents=True, exist_ok=True)
+            actual_file.write_bytes(remote_content)
+            local_sha = compute_sha256(actual_file)
+            update_file_state(state, actual_rel, local_sha, remote_etag)
+        else:
+            local_file = store_path / rel
+            merged_content = resolve_conflict(store_path, local_file, remote_content, rel, state)
+            local_file.write_bytes(merged_content)
+            local_sha = compute_sha256(local_file)
+            update_file_state(state, rel, local_sha, remote_etag)
+        merged += 1
 
     state.last_full_sync = datetime.now(timezone.utc).isoformat()
     save_state(store_path, state)
 
     if merged:
-        logger.info("sync pull: merged %d file(s) for %s", merged, project_name)
+        logger.info("sync pull: merged %d file(s) for %s", merged, project_id)
 
     return merged
 
 
-def push_after_write(project_name: str, store_path: Path) -> int:
-    """Push store files to S3 after a local write (decision, question, state).
+def push_after_write(project_id: str, store_path: Path) -> int:
+    """Push changed local files after a write (decision, question, state).
 
-    Returns the number of files pushed, or 0 on failure/not configured.
-    Never raises — failures are logged only.
+    Silent no-op when not authenticated or when ``project_id`` is not a
+    v2 cloud-mode entry. Returns the number of files pushed, or 0 on any
+    swallowed failure. Never raises — auto-push must not surface errors
+    on every MCP tool call.
     """
+    if not load_access_token():
+        return 0
+    if not _project_is_cloud(project_id):
+        return 0
+
     try:
-        from nauro.sync.config import AuthRequiredError, load_sync_config, require_auth, s3_prefix
         from nauro.sync.merge import should_skip
-        from nauro.sync.remote import create_client, push_file
+        from nauro.sync.remote import (
+            PresignError,
+            put_via_presigned_url,
+            request_presigned_urls,
+        )
         from nauro.sync.state import (
             compute_sha256,
             file_changed_locally,
@@ -220,26 +289,9 @@ def push_after_write(project_name: str, store_path: Path) -> int:
     except ImportError:
         return 0
 
-    config = load_sync_config()
-    if not config.enabled:
-        return 0
-
-    try:
-        sanitized_sub = require_auth(config)
-    except AuthRequiredError:
-        logger.warning("sync push: auth not configured — run 'nauro auth login'")
-        return 0
-
-    try:
-        client = create_client(config)
-    except Exception:
-        logger.warning("sync push: could not create S3 client for %s", project_name)
-        return 0
-
-    prefix = s3_prefix(sanitized_sub, project_name)
     state = load_state(store_path)
-    pushed = 0
 
+    changed: list[tuple[str, str, Path]] = []
     for local_file in store_path.rglob("*"):
         if not local_file.is_file():
             continue
@@ -249,24 +301,48 @@ def push_after_write(project_name: str, store_path: Path) -> int:
             continue
         if should_skip(rel) or rel.startswith(".conflict-backup") or rel.startswith("__pycache__"):
             continue
-
-        # Skip files that haven't changed since the last push
         if not file_changed_locally(store_path, rel, state):
             continue
+        local_sha = compute_sha256(local_file)
+        changed.append((rel, local_sha, local_file))
 
+    if not changed:
+        save_state(store_path, state)
+        return 0
+
+    operations = [{"verb": "PUT", "path": rel} for rel, _sha, _path in changed]
+    try:
+        urls = request_presigned_urls(project_id, operations)
+    except AuthRefreshError as exc:
+        logger.warning("sync push: %s", exc)
+        return 0
+    except PresignError as exc:
+        logger.warning("sync push: presign request failed: %s", exc)
+        return 0
+
+    url_by_path = {
+        entry["path"]: entry["url"]
+        for entry in urls
+        if isinstance(entry, dict) and entry.get("verb") == "PUT"
+    }
+
+    pushed = 0
+    for rel, local_sha, local_file in changed:
+        url = url_by_path.get(rel)
+        if not url:
+            continue
         try:
-            local_sha = compute_sha256(local_file)
-            remote_key = prefix + rel
-            new_etag = push_file(client, config.bucket_name, local_file, remote_key)
-            if new_etag:
-                update_file_state(state, rel, local_sha, new_etag)
-                pushed += 1
-        except Exception:
+            new_etag = put_via_presigned_url(url, local_file)
+        except PresignError:
             logger.exception("sync push: failed to push %s", rel)
+            continue
+        if new_etag:
+            update_file_state(state, rel, local_sha, new_etag)
+            pushed += 1
 
     save_state(store_path, state)
 
     if pushed:
-        logger.info("sync push: pushed %d file(s) for %s", pushed, project_name)
+        logger.info("sync push: pushed %d file(s) for %s", pushed, project_id)
 
     return pushed

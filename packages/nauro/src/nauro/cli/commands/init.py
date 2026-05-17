@@ -18,7 +18,6 @@ repo instead.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import typer
@@ -45,8 +44,6 @@ from nauro.sync.cloud_projects import CloudProjectError, create_project
 from nauro.telemetry import capture
 from nauro.telemetry.events import project_created
 from nauro.templates.scaffolds import scaffold_project_store
-
-logger = logging.getLogger("nauro.cli.init")
 
 
 def _check_config_overwrite(
@@ -274,8 +271,6 @@ def init(
         typer.echo(f"  Project id: {pid}")
         typer.echo(f"  Store: {store_path}")
         typer.echo("  Includes: 7 decisions, project state, open questions, and a snapshot")
-
-        _try_demo_sync(name, store_path)
     else:
         scaffold_project_store(name, store_path)
         typer.echo(f"Initialized project '{name}'")
@@ -284,20 +279,3 @@ def init(
         for rp in repo_paths:
             typer.echo(f"  Repo:  {rp.resolve()}")
         typer.echo("  Next: run 'nauro sync' to capture the first snapshot")
-
-
-def _try_demo_sync(project_name: str, store_path: Path) -> None:
-    """Best-effort push demo project to S3 if auth is configured."""
-    try:
-        from nauro.sync.config import load_sync_config
-
-        config = load_sync_config()
-        if not config.enabled or not (config.user_id or config.sanitized_sub):
-            return
-
-        from nauro.sync.hooks import push_after_write
-
-        push_after_write(project_name, store_path)
-        typer.echo("  Synced to remote")
-    except Exception:
-        logger.debug("Demo sync failed (auth not configured?)", exc_info=True)

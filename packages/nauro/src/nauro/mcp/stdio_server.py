@@ -377,22 +377,13 @@ def update_state(
 
 
 def _pull_on_startup() -> None:
-    """Pull latest from S3 before accepting tool calls.
+    """Pull latest from remote before accepting tool calls.
 
     Runs synchronously before mcp.run() so the first tool call sees fresh state.
-    Never raises — failures are logged and the server starts with local state.
+    Auth and cloud-mode gating happen inside ``pull_before_session`` — here we
+    only resolve the project key from cwd. Never raises — failures are logged
+    and the server starts with local state.
     """
-    try:
-        from nauro.sync.config import load_sync_config
-
-        config = load_sync_config()
-        if not config.enabled:
-            logger.debug("session-start pull: sync not configured, skipping")
-            return
-    except Exception as e:
-        logger.warning("session-start pull: config load failed: %s", e)
-        return
-
     try:
         cwd = Path(os.getcwd())
         project_key: str | None = None
@@ -424,7 +415,7 @@ def _pull_on_startup() -> None:
         if pulled:
             logger.info("session-start pull: pulled %d file(s) for %s", pulled, project_key)
         else:
-            logger.debug("session-start pull: already up to date (%s)", project_key)
+            logger.debug("session-start pull: nothing to do for %s", project_key)
     except Exception as e:
         logger.warning("session-start pull: failed, continuing with local state: %s", e)
 

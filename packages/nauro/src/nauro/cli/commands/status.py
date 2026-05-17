@@ -25,21 +25,35 @@ def _format_time_ago(iso_timestamp: str) -> str:
         return ""
 
 
-def _count_remote_decisions(project_name: str) -> int | None:
-    """Count decisions in the remote S3 store. Returns None on failure."""
-    try:
-        from nauro.sync.config import load_sync_config, s3_prefix
-        from nauro.sync.remote import create_client, list_remote
+def _count_remote_decisions(project_id: str) -> int | None:
+    """Count decisions in the remote store via the manifest endpoint.
 
-        config = load_sync_config()
-        if not config.enabled or not (config.user_id or config.sanitized_sub):
+    Returns None when not authenticated, the project is not v2 cloud-mode,
+    or the manifest fetch fails. The caller already renders None as
+    "could not reach remote".
+    """
+    try:
+        from nauro.cli.commands.auth import load_access_token
+        from nauro.sync.hooks import _project_is_cloud
+
+        if not load_access_token():
+            return None
+        if not _project_is_cloud(project_id):
             return None
 
-        client = create_client(config)
-        user_key = config.user_id or config.sanitized_sub
-        prefix = s3_prefix(user_key, project_name) + "decisions/"
-        remote_files = list_remote(client, config.bucket_name, prefix)
-        return sum(1 for f in remote_files if f["key"].endswith(".md"))
+        from nauro.sync.remote import PresignError, fetch_manifest
+
+        try:
+            manifest = fetch_manifest(project_id)
+        except PresignError:
+            return None
+        return sum(
+            1
+            for entry in manifest
+            if isinstance(entry, dict)
+            and entry.get("path", "").startswith("decisions/")
+            and entry.get("path", "").endswith(".md")
+        )
     except Exception:
         return None
 
@@ -60,19 +74,24 @@ def status(
 
     typer.echo(f"Project: {project_name}\n")
 
-    # Sync
+    # Sync — gated on auth token + v2 cloud-mode (matches hooks.py semantics).
+    # ``store_path.name`` is the project_id for v2; v1 entries pass their name
+    # here and silent-no-op inside _project_is_cloud.
+    project_id = store_path.name
     sync_enabled = False
     try:
-        from nauro.sync.config import load_sync_config
+        from nauro.cli.commands.auth import load_access_token
+        from nauro.sync.hooks import _project_is_cloud
 
-        config = load_sync_config()
-        if config.enabled:
+        if load_access_token() and _project_is_cloud(project_id):
             sync_enabled = True
-            typer.echo(f"  Sync          active (event-driven, S3: {config.bucket_name})")
+            typer.echo("  Sync          active (event-driven, presign)")
+        elif not load_access_token():
+            typer.echo("  Sync          inactive — run `nauro auth login` to enable")
         else:
-            typer.echo("  Sync          inactive — run `nauro sync --cloud-setup` to enable")
+            typer.echo("  Sync          inactive — this project is local-only")
     except ImportError:
-        typer.echo("  Sync          inactive — run `nauro sync --cloud-setup` to enable")
+        typer.echo("  Sync          inactive — run `nauro auth login` to enable")
 
     # MCP
     typer.echo("  MCP           active")
@@ -87,7 +106,7 @@ def status(
     local_count = len(local_decisions)
 
     if sync_enabled:
-        remote_count = _count_remote_decisions(project_name)
+        remote_count = _count_remote_decisions(project_id)
         if remote_count is not None:
             if local_count == remote_count:
                 typer.echo(f"\n  Decisions: {local_count} local, {remote_count} remote (in sync)")
