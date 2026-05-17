@@ -185,7 +185,7 @@ def _sanitize_sub(sub: str) -> str:
 
     Must match the server-side logic in ``mcp-server/src/mcp_server/app.py``.
     """
-    safe = re.sub(r"[^a-zA-Z0-9_\\-]", "-", sub)
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "-", sub)
     return safe[:128]
 
 

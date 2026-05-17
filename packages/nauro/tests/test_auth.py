@@ -47,6 +47,11 @@ class TestSanitizeSub:
     def test_special_characters(self):
         assert _sanitize_sub("user@example.com") == "user-example-com"
 
+    def test_backslash_replaced(self):
+        result = _sanitize_sub("auth0\\evil")
+        assert "\\" not in result
+        assert result == "auth0-evil"
+
     def test_empty_string(self):
         assert _sanitize_sub("") == ""
 
