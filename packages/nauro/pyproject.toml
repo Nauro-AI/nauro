@@ -27,7 +27,6 @@ dependencies = [
     "uvicorn>=0.23",
     "httpx>=0.24",
     "mcp>=1.0",
-    "boto3>=1.28",
     "filelock>=3.0",
     "posthog>=7.0,<8.0",
     "tomli>=2.0; python_version<'3.11'",
@@ -82,7 +81,7 @@ module = "tests.*"
 check_untyped_defs = false
 
 [[tool.mypy.overrides]]
-module = ["mcp.*", "boto3.*", "botocore.*"]
+module = ["mcp.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

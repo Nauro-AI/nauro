@@ -12,6 +12,6 @@ runner = CliRunner()
 def test_serve_rejects_project_flag():
     """The --project flag was removed; passing it is a usage error."""
     result = runner.invoke(app, ["serve", "--project", "anything"])
-    assert result.exit_code != 0
+    assert result.exit_code == 2
     output = result.output + (result.stderr or "")
     assert "--project" in output or "No such option" in output or "no such option" in output

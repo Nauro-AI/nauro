@@ -45,8 +45,8 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 
 ## Config and credentials
 
-User config lives at `~/.nauro/config.json` (created by `nauro config set`):
-- `sync.bucket_name`, `sync.region`, `sync.access_key_id`, `sync.secret_access_key` → S3 sync credentials
+User config lives at `~/.nauro/config.json` (written by `nauro auth login` and other feature-specific commands; inspect with `nauro config get/list/unset`):
+- `auth.access_token`, `auth.refresh_token`, `auth.sub` → Auth0 bearer for the presign sync endpoints
 - Auth0 domain, client ID, API URL, and audience ship as defaults in `cli/commands/auth.py`; env vars (`NAURO_AUTH0_*`, `NAURO_API_URL`) or config keys override (domain + client_id must be set as a pair)
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
 
