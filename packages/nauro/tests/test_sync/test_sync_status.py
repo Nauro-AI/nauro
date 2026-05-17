@@ -1,7 +1,8 @@
-"""Tests for ``nauro sync --status`` reporting after the manifest+presign cutover.
+"""Tests for ``nauro sync --status`` reporting.
 
-Closes the Tier 1 1.6 TODO in ``_show_status``: the command must now report
-which transport is configured and the last successful sync time.
+After the legacy-transport removal, status is a two-state report:
+authenticated → server URL + per-project sync info; not authenticated →
+"run nauro auth login" guidance.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ def _scaffold(name: str = "statusproj", *, repo):
 
 
 class TestSyncPathReporting:
-    def test_auth_token_reports_presign(self, tmp_path, monkeypatch):
+    def test_auth_token_reports_authenticated(self, tmp_path, monkeypatch):
         _scaffold(repo=tmp_path)
         save_config(
             {
@@ -41,39 +42,17 @@ class TestSyncPathReporting:
 
         result = runner.invoke(app, ["sync", "--status"])
         assert result.exit_code == 0, result.output
-        assert "Sync path: presign" in result.output
+        assert "authenticated (presign)" in result.output
+        assert "Server:" in result.output
 
-    def test_static_creds_only_reports_legacy(self, tmp_path, monkeypatch):
-        _scaffold(repo=tmp_path)
-        save_config(
-            {
-                "sync": {
-                    "bucket_name": "b",
-                    "region": "us-east-1",
-                    "access_key_id": "k",
-                    "secret_access_key": "s",
-                },
-            }
-        )
-        monkeypatch.chdir(tmp_path)
-
-        result = runner.invoke(app, ["sync", "--status"])
-        assert result.exit_code == 0, result.output
-        assert "Sync path: legacy direct-S3" in result.output
-
-    def test_no_credentials_reports_not_configured(self, tmp_path, monkeypatch):
+    def test_no_credentials_reports_not_authenticated(self, tmp_path, monkeypatch):
         save_config({})
         monkeypatch.chdir(tmp_path)
-        for var in (
-            "NAURO_SYNC_BUCKET_NAME",
-            "NAURO_SYNC_ACCESS_KEY_ID",
-            "NAURO_SYNC_SECRET_ACCESS_KEY",
-        ):
-            monkeypatch.delenv(var, raising=False)
 
         result = runner.invoke(app, ["sync", "--status"])
         assert result.exit_code == 0, result.output
-        assert "Sync path: not configured" in result.output
+        assert "not authenticated" in result.output
+        assert "nauro auth login" in result.output
 
 
 class TestLastSyncTime:

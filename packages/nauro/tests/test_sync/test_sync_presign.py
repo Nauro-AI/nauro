@@ -1,14 +1,15 @@
-"""Tests for the new manifest + presign sync transport.
+"""Tests for the manifest + presign sync transport.
 
 Three concerns, three sections:
 
-* Mode detection (Auth0 token wins over static IAM creds when both are present).
+* Mode detection — cloud-mode + token routes through presign; cloud-mode
+  without a token warns and fails; non-cloud projects no-op.
 * Pull flow (manifest pagination, diff against state, presign GETs, conflict).
 * Push flow (SHA diff, presign PUTs, 401 refresh).
 
 All HTTP is mocked at the module's ``httpx`` import, matching the existing
 ``test_link_cloud`` and ``test_auth`` patterns — moto would not catch this
-layer (the CLI never talks to S3 directly on the new path).
+layer (the CLI never talks to S3 directly).
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import pytest
 
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
-from nauro.store.registry import register_project, register_project_v2
+from nauro.store.registry import register_project_v2
 from nauro.sync.state import (
     FileState,
     SyncState,
@@ -71,16 +72,14 @@ def _seed_token(access_token: str = "tok_orig", refresh_token: str = "refresh_or
 
 
 class TestModeDetection:
-    """The dispatch table from the prompt:
+    """Routing predicates for ``_pull_from_cloud`` / ``_push_to_cloud``:
 
-    * auth.access_token set         → new (presign)
-    * only sync.access_key_id       → legacy direct-S3
-    * both set                      → new (presign) — Auth0 wins
-    * neither + cloud-mode project  → warn + return False
-    * neither + local-mode project  → return 0 silently
+    * cloud-mode + Auth0 token       → presign
+    * cloud-mode without a token     → warn + return False (push), 0 (pull)
+    * non-cloud (v1 or v2-local)     → no-op
     """
 
-    def test_auth_token_picks_new_path(self, tmp_path, monkeypatch):
+    def test_cloud_mode_with_token_hits_manifest(self, tmp_path, monkeypatch):
         store = _scaffolded_cloud_project("authproj", tmp_path)
         _seed_token()
 
@@ -90,143 +89,64 @@ class TestModeDetection:
                 return_value=_ok(200, {"files": [], "next_cursor": None}),
             ) as mock_get,
             patch("nauro.sync.remote.httpx.post") as mock_post,
-            patch("nauro.sync.remote.boto3.client") as mock_boto,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
             _pull_from_cloud(store.name, store)
 
-        # Hit the manifest endpoint, not boto3.
         called_urls = [c.args[0] for c in mock_get.call_args_list]
         assert any("/sync/manifest" in url for url in called_urls)
-        mock_boto.assert_not_called()
         mock_post.assert_not_called()
 
-    def test_static_creds_only_uses_legacy_path(self, tmp_path, monkeypatch):
-        store = _scaffolded_cloud_project("staticproj", tmp_path)
-        save_config(
-            {
-                "sync": {
-                    "bucket_name": "b",
-                    "region": "us-east-1",
-                    "access_key_id": "k",
-                    "secret_access_key": "s",
-                },
-                "auth": {"sanitized_sub": "test-sub"},
-            }
-        )
-
-        mock_client = MagicMock()
-        mock_client.get_paginator.return_value.paginate.return_value = []
-
-        with (
-            patch("nauro.sync.remote.boto3.client", return_value=mock_client) as mock_boto,
-            patch("nauro.sync.remote.httpx.get") as mock_get,
-        ):
-            from nauro.cli.commands.sync import _pull_from_cloud
-
-            _pull_from_cloud(store.name, store)
-
-        mock_boto.assert_called_once()
-        # New path never touched.
-        manifest_calls = [c for c in mock_get.call_args_list if "/sync/manifest" in c.args[0]]
-        assert manifest_calls == []
-
-    def test_both_credentials_auth0_wins(self, tmp_path, monkeypatch):
-        store = _scaffolded_cloud_project("bothproj", tmp_path)
-        save_config(
-            {
-                "auth": {
-                    "sub": "auth0|test",
-                    "access_token": "tok_orig",
-                    "refresh_token": "refresh_orig",
-                },
-                "sync": {
-                    "bucket_name": "b",
-                    "region": "us-east-1",
-                    "access_key_id": "k",
-                    "secret_access_key": "s",
-                },
-            }
-        )
-
-        with (
-            patch(
-                "nauro.sync.remote.httpx.get",
-                return_value=_ok(200, {"files": [], "next_cursor": None}),
-            ) as mock_get,
-            patch("nauro.sync.remote.boto3.client") as mock_boto,
-        ):
-            from nauro.cli.commands.sync import _pull_from_cloud
-
-            _pull_from_cloud(store.name, store)
-
-        called_urls = [c.args[0] for c in mock_get.call_args_list]
-        assert any("/sync/manifest" in url for url in called_urls)
-        mock_boto.assert_not_called()
-
-    def test_neither_cred_cloud_project_warns_and_fails(self, tmp_path, monkeypatch):
+    def test_cloud_mode_without_token_push_warns_and_fails(self, tmp_path, monkeypatch):
         store = _scaffolded_cloud_project("strandedproj", tmp_path)
         save_config({})
-        for var in (
-            "NAURO_SYNC_BUCKET_NAME",
-            "NAURO_SYNC_ACCESS_KEY_ID",
-            "NAURO_SYNC_SECRET_ACCESS_KEY",
-        ):
-            monkeypatch.delenv(var, raising=False)
 
         from nauro.cli.commands.sync import _push_to_cloud
 
         ok = _push_to_cloud(store.name, store)
         assert ok is False
 
-    def test_v1_registry_entry_with_auth_token_falls_through_to_legacy(self, tmp_path, monkeypatch):
-        """v1 registry entries have no ``mode`` field; ``_project_mode`` returns
-        ``None`` for them. A v1 user with both an Auth0 token and static IAM
-        credentials must keep getting their data pushed via the legacy path —
-        the presign path can't address a project that has no server-side ULID
-        record.
-        """
-        # v1 register_project lives outside the v2 registry, so _project_mode
-        # returns None for this project_name.
-        store = register_project("v1proj", [tmp_path])
-        scaffold_project_store("v1proj", store)
+    def test_stale_legacy_config_keys_load_cleanly(self, tmp_path, monkeypatch):
+        """A user who upgraded from the legacy direct-S3 path still has
+        ``sync.access_key_id`` and friends in ``~/.nauro/config.json``. The
+        config loader must tolerate them as inert data and routing must go
+        through presign anyway."""
+        from nauro.store.config import load_config
 
+        store = _scaffolded_cloud_project("upgradedproj", tmp_path)
         save_config(
             {
                 "auth": {
                     "sub": "auth0|test",
-                    "sanitized_sub": "auth0-test",
                     "access_token": "tok_orig",
                     "refresh_token": "refresh_orig",
                 },
                 "sync": {
                     "bucket_name": "b",
                     "region": "us-east-1",
-                    "access_key_id": "k",
-                    "secret_access_key": "s",
+                    "access_key_id": "stale-akid",
+                    "secret_access_key": "stale-secret",
                 },
             }
         )
 
-        mock_client = MagicMock()
+        # Loader returns the dict intact; stale keys are present but inert.
+        data = load_config()
+        assert data["sync"]["access_key_id"] == "stale-akid"
 
         with (
-            patch("nauro.sync.remote.boto3.client", return_value=mock_client) as mock_boto,
-            patch("nauro.sync.remote.httpx.post") as mock_post,
-            patch("nauro.sync.remote.push_file", return_value='"e_static"') as mock_push_file,
+            patch(
+                "nauro.sync.remote.httpx.get",
+                return_value=_ok(200, {"files": [], "next_cursor": None}),
+            ) as mock_get,
         ):
-            from nauro.cli.commands.sync import _push_to_cloud
+            from nauro.cli.commands.sync import _pull_from_cloud
 
-            ok = _push_to_cloud(store.name, store)
+            _pull_from_cloud(store.name, store)
 
-        assert ok is True
-        # Legacy path: a boto3 client was created and push_file was invoked.
-        mock_boto.assert_called()
-        assert mock_push_file.called
-        # Presign endpoint never touched.
-        presign_calls = [c for c in mock_post.call_args_list if "/sync/presign" in c.args[0]]
-        assert presign_calls == []
+        called_urls = [c.args[0] for c in mock_get.call_args_list]
+        assert any("/sync/manifest" in url for url in called_urls)
 
 
 # --- pull flow ---
