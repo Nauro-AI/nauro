@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -68,8 +68,11 @@ def test_create_project_success_sends_bearer_and_body(tmp_path, monkeypatch):
     }
 
 
-def test_create_project_auth_failure_renders_message(tmp_path, monkeypatch):
-    """A 401 raises CloudProjectError with a clear, user-renderable message."""
+def test_create_project_401_without_refresh_token_raises_auth_login_hint(tmp_path, monkeypatch):
+    """A 401 with no refresh token: ``with_token_refresh`` raises
+    ``AuthRefreshError`` ("No refresh token stored…"), which the cloud
+    client surfaces as ``CloudProjectError`` whose message still points
+    the user at ``nauro auth login``."""
     _seed_token(monkeypatch, tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
@@ -80,8 +83,114 @@ def test_create_project_auth_failure_renders_message(tmp_path, monkeypatch):
         with pytest.raises(CloudProjectError) as exc:
             create_project("demo")
     msg = str(exc.value)
-    assert "401" in msg
+    assert "Authentication failed" in msg
     assert "nauro auth login" in msg
+
+
+def test_create_project_stale_token_refreshed_transparently(tmp_path, monkeypatch):
+    """Stale access token + valid refresh token: first 401 triggers a
+    silent refresh, the retry succeeds, and ``create_project`` returns
+    the new ``ProjectView`` without any user-visible auth error.
+
+    Regression for the D145 narrow-scope gap — before this fix,
+    ``nauro init --cloud`` cold-failed on an expired access token even
+    though the refresh token was still valid."""
+    save_config(
+        {
+            "auth": {
+                "access_token": "stale",
+                "refresh_token": "refresh_orig",
+                "sub": "auth0|test",
+            }
+        }
+    )
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+    calls: list[dict] = []
+
+    def handler(method, url, **kwargs):
+        calls.append({"headers": kwargs.get("headers")})
+        # First call: stale token rejected; second call: fresh token accepted.
+        if len(calls) == 1:
+            return httpx.Response(
+                401, json={"detail": "expired"}, request=httpx.Request(method, url)
+            )
+        return httpx.Response(
+            201,
+            json={
+                "project_id": "01KQ6AZGNA0B3QBF67NBXP3S45",
+                "name": "demo",
+                "role": "owner",
+                "created_at": "2026-04-27T10:11:12Z",
+            },
+            request=httpx.Request(method, url),
+        )
+
+    auth0_response = MagicMock(spec=httpx.Response)
+    auth0_response.status_code = 200
+    auth0_response.json.return_value = {"access_token": "fresh"}
+
+    with _stub_request(handler):
+        with patch("nauro.cli.commands.auth.httpx.post", return_value=auth0_response):
+            view = create_project("demo")
+
+    assert view["project_id"] == "01KQ6AZGNA0B3QBF67NBXP3S45"
+    assert len(calls) == 2
+    assert calls[0]["headers"]["Authorization"] == "Bearer stale"
+    assert calls[1]["headers"]["Authorization"] == "Bearer fresh"
+
+
+def test_create_project_persistent_401_after_refresh_raises_distinct_message(tmp_path, monkeypatch):
+    """Stale token + valid refresh + server still returns 401 after retry:
+    the message distinguishes "refresh worked but the new token was
+    rejected" from "refresh itself failed" so the user knows the issue
+    is server-side or revocation, not a missing refresh token."""
+    save_config(
+        {
+            "auth": {
+                "access_token": "stale",
+                "refresh_token": "refresh_orig",
+                "sub": "auth0|test",
+            }
+        }
+    )
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+    def handler(method, url, **kwargs):
+        return httpx.Response(401, json={"detail": "rejected"}, request=httpx.Request(method, url))
+
+    auth0_response = MagicMock(spec=httpx.Response)
+    auth0_response.status_code = 200
+    auth0_response.json.return_value = {"access_token": "fresh"}
+
+    with _stub_request(handler):
+        with patch("nauro.cli.commands.auth.httpx.post", return_value=auth0_response):
+            with pytest.raises(CloudProjectError) as exc:
+                create_project("demo")
+
+    msg = str(exc.value)
+    assert "401" in msg
+    assert "even after refreshing" in msg
+    assert "nauro auth login" in msg
+
+
+def test_create_project_403_renders_forbidden_message(tmp_path, monkeypatch):
+    """403 is distinct from 401: the user is authenticated but lacks
+    access to the resource. The error message should reflect that
+    instead of telling them to re-login."""
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+    def handler(method, url, **kwargs):
+        return httpx.Response(403, json={"detail": "no access"}, request=httpx.Request(method, url))
+
+    with _stub_request(handler):
+        with pytest.raises(CloudProjectError) as exc:
+            create_project("demo")
+    msg = str(exc.value)
+    assert "403" in msg
+    assert "Forbidden" in msg
+    assert "nauro auth login" not in msg
 
 
 def test_create_project_server_error_renders_message(tmp_path, monkeypatch):
