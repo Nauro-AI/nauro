@@ -135,7 +135,8 @@ Everything is stored as flat markdown in `~/.nauro/projects/` and matched agains
 ~/.nauro/projects/<name>/
   project.md          # goals, constraints
   stack.md            # languages, frameworks, infrastructure
-  state.md            # current focus, blockers
+  state_current.md    # current focus, blockers
+  state_history.md    # append-only history of completed work
   decisions/          # one markdown file per decision
   open-questions.md   # unresolved threads
   snapshots/          # versioned store captures
@@ -197,7 +198,7 @@ Contributions welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instruct
 ```bash
 uv sync --all-packages --all-extras
 uv run pytest packages/nauro-core/tests/ -x -q
-uv run pytest packages/nauro/tests/ -x -q -m "not integration"
+uv run pytest packages/nauro/tests/ -x -q
 ```
 
 ## Packages
