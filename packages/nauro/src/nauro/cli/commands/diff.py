@@ -1,7 +1,5 @@
 """nauro diff — Show changes between context snapshots."""
 
-import re
-
 import typer
 
 from nauro.cli.utils import resolve_target_project
@@ -11,12 +9,14 @@ from nauro.store.snapshot import list_snapshots
 
 def _parse_since(value: str) -> int:
     """Parse a --since value like '7d', '14d', or '30' into days."""
-    m = re.match(r"^(\d+)d?$", value.strip())
-    if not m:
+    v = value.strip()
+    if v.endswith("d"):
+        v = v[:-1]
+    if not v.isdigit():
         raise typer.BadParameter(
             f"Invalid --since value: {value!r}. Use a number or Nd (e.g., 7d)."
         )
-    return int(m.group(1))
+    return int(v)
 
 
 def diff(
