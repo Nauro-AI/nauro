@@ -2,28 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
 import typer
 from typer.testing import CliRunner
 
+from tests.conftest import FakeClient, seed_consented_config
+
 _EXPECTED_KEYS = {"command", "success", "duration_bucket", "nauro_version", "os"}
 _DISALLOWED_KEYS = {"args", "argv", "cwd", "env", "exit_code"}
-
-
-class FakeClient:
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    def capture(
-        self,
-        event: str,
-        distinct_id: str,
-        properties: dict[str, Any],
-    ) -> None:
-        self.events.append({"event": event, "distinct_id": distinct_id, "properties": properties})
 
 
 @pytest.fixture
@@ -35,38 +23,6 @@ def nauro_home(tmp_path, monkeypatch):
     repo.mkdir()
     monkeypatch.chdir(repo)
     return home
-
-
-@pytest.fixture
-def telemetry_key(monkeypatch):
-    monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-
-
-@pytest.fixture
-def fake_posthog(monkeypatch):
-    import nauro.telemetry.client as client_mod
-
-    fake = FakeClient()
-    client_mod._client = fake
-    yield fake
-    client_mod._client = None
-
-
-def _seed_consented_config(home, *, enabled: bool) -> str:
-    aid = "11111111-1111-4111-8111-111111111111"
-    (home / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": aid,
-                    "enabled": enabled,
-                    "consent_version": 1,
-                    "consented_at": "2026-04-30T00:00:00Z",
-                }
-            }
-        )
-    )
-    return aid
 
 
 def _command_events(fake: FakeClient) -> list[dict[str, Any]]:
@@ -86,7 +42,7 @@ def _build_isolated_app(callback) -> typer.Typer:
 
 
 def test_emits_one_event_on_success(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 
@@ -105,7 +61,7 @@ def test_emits_one_event_on_success(nauro_home, telemetry_key, fake_posthog):
 
 
 def test_emits_one_event_on_typer_exit_nonzero(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     def _fail() -> None:
         raise typer.Exit(code=1)
@@ -122,7 +78,7 @@ def test_emits_one_event_on_typer_exit_nonzero(nauro_home, telemetry_key, fake_p
 
 
 def test_emits_one_event_on_typer_exit_zero(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     def _early_exit() -> None:
         raise typer.Exit()  # default code=0
@@ -138,7 +94,7 @@ def test_emits_one_event_on_typer_exit_zero(nauro_home, telemetry_key, fake_post
 
 
 def test_emits_one_event_on_unexpected_exception(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     def _boom() -> None:
         raise RuntimeError("boom")
@@ -156,7 +112,7 @@ def test_emits_one_event_on_unexpected_exception(nauro_home, telemetry_key, fake
 
 
 def test_dotted_subcommand_path(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 
@@ -171,7 +127,7 @@ def test_dotted_subcommand_path(nauro_home, telemetry_key, fake_posthog):
 
 
 def test_no_event_when_enabled_false(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=False)
+    seed_consented_config(nauro_home, enabled=False)
 
     from nauro.cli.main import app
 
@@ -184,7 +140,7 @@ def test_no_event_when_enabled_false(nauro_home, telemetry_key, fake_posthog):
 
 def test_no_event_when_env_var_zero(nauro_home, telemetry_key, fake_posthog, monkeypatch):
     monkeypatch.setenv("NAURO_TELEMETRY", "0")
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 
@@ -196,7 +152,7 @@ def test_no_event_when_env_var_zero(nauro_home, telemetry_key, fake_posthog, mon
 
 
 def test_event_keys_exhaustive_no_disallowed(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 
@@ -222,7 +178,7 @@ def test_bucket_classification():
 
 
 def test_version_flag_does_not_emit(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 
@@ -234,7 +190,7 @@ def test_version_flag_does_not_emit(nauro_home, telemetry_key, fake_posthog):
 
 
 def test_help_flag_does_not_emit(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 

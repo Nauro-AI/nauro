@@ -12,7 +12,6 @@ Covers:
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -23,6 +22,7 @@ from nauro.demo import create_demo_project
 from nauro.mcp.tools import compute_check_decision, tool_check_decision
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
+from tests.conftest import seed_consented_config
 
 runner = CliRunner()
 
@@ -199,42 +199,11 @@ def test_cloud_mode_project_prints_stale_notice(tmp_path, monkeypatch):
 # --- telemetry: no mcp.tool_called from the CLI surface -----------------------
 
 
-class _FakeClient:
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    def capture(self, event: str, distinct_id: str, properties: dict[str, Any]) -> None:
-        self.events.append({"event": event, "properties": properties})
-
-
-@pytest.fixture
-def fake_posthog(monkeypatch):
-    import nauro.telemetry.client as client_mod
-
-    fake = _FakeClient()
-    client_mod._client = fake
-    yield fake
-    client_mod._client = None
-
-
 @pytest.fixture
 def telemetry_enabled(tmp_path, monkeypatch):
     """Seed NAURO_HOME with a consented config so capture() actually fires."""
     monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-    aid = "11111111-1111-4111-8111-111111111111"
-    (tmp_path / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": aid,
-                    "enabled": True,
-                    "consent_version": 1,
-                    "consented_at": "2026-04-30T00:00:00Z",
-                }
-            }
-        )
-    )
-    return aid
+    return seed_consented_config(tmp_path, enabled=True)
 
 
 def test_cli_check_emits_no_mcp_tool_called_event(

@@ -214,7 +214,7 @@ DEMO_DECISIONS: list[Decision] = [
 ]
 
 
-STATE_CURRENT_MD = f"""\
+DEMO_STATE_CURRENT_MD = f"""\
 # Current State
 
 Implementing user authentication \u2014 building JWT-based auth flow \
@@ -305,7 +305,7 @@ def create_demo_project(store_path: Path) -> None:
     snapshots_dir.mkdir(exist_ok=True)
 
     (store_path / constants.PROJECT_MD).write_text(PROJECT_MD)
-    (store_path / constants.STATE_CURRENT_FILENAME).write_text(STATE_CURRENT_MD)
+    (store_path / constants.STATE_CURRENT_FILENAME).write_text(DEMO_STATE_CURRENT_MD)
     (store_path / constants.STACK_MD).write_text(STACK_MD)
     (store_path / constants.OPEN_QUESTIONS_MD).write_text(OPEN_QUESTIONS_MD)
 
@@ -319,7 +319,7 @@ def create_demo_project(store_path: Path) -> None:
 
     files = {
         constants.PROJECT_MD: PROJECT_MD,
-        constants.STATE_CURRENT_FILENAME: STATE_CURRENT_MD,
+        constants.STATE_CURRENT_FILENAME: DEMO_STATE_CURRENT_MD,
         constants.STACK_MD: STACK_MD,
         constants.OPEN_QUESTIONS_MD: OPEN_QUESTIONS_MD,
         **decision_files,

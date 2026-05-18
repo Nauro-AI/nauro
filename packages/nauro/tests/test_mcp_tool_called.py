@@ -19,16 +19,10 @@ from typing import Any
 
 import pytest
 
+from tests.conftest import seed_consented_config
+
 _ALLOWED_KEYS = frozenset({"tool_name", "transport", "success", "duration_bucket"})
 _DURATION_PATTERN = re.compile(r"^(<10ms|10-100ms|100ms-1s|1-10s|>10s)$")
-
-
-class FakeClient:
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    def capture(self, event: str, distinct_id: str, properties: dict[str, Any]) -> None:
-        self.events.append({"event": event, "distinct_id": distinct_id, "properties": properties})
 
 
 @pytest.fixture
@@ -43,30 +37,7 @@ def nauro_home(tmp_path, monkeypatch):
 @pytest.fixture
 def telemetry_enabled(nauro_home, monkeypatch):
     monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-    aid = "11111111-1111-4111-8111-111111111111"
-    (nauro_home / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": aid,
-                    "enabled": True,
-                    "consent_version": 1,
-                    "consented_at": "2026-04-30T00:00:00Z",
-                }
-            }
-        )
-    )
-    return aid
-
-
-@pytest.fixture
-def fake_posthog(monkeypatch):
-    import nauro.telemetry.client as client_mod
-
-    fake = FakeClient()
-    client_mod._client = fake
-    yield fake
-    client_mod._client = None
+    return seed_consented_config(nauro_home, enabled=True)
 
 
 @pytest.fixture(autouse=True)

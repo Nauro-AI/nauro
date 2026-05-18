@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import importlib
-import json
 import socket
 import sys
 from unittest.mock import patch
 
 import pytest
+
+from tests.conftest import seed_consented_config
 
 
 @pytest.fixture
@@ -19,11 +20,6 @@ def nauro_home(tmp_path, monkeypatch):
     return home
 
 
-@pytest.fixture
-def telemetry_key(monkeypatch):
-    monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-
-
 @pytest.fixture(autouse=True)
 def _reset_client_singleton():
     """Each test gets a fresh client singleton — protects against leak across tests."""
@@ -32,23 +28,6 @@ def _reset_client_singleton():
     client_mod._client = None
     yield
     client_mod._client = None
-
-
-def _seed_consented_config(home, *, enabled: bool) -> str:
-    aid = "11111111-1111-4111-8111-111111111111"
-    (home / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": aid,
-                    "enabled": enabled,
-                    "consent_version": 1,
-                    "consented_at": "2026-04-30T00:00:00Z",
-                }
-            }
-        )
-    )
-    return aid
 
 
 def test_import_does_not_create_socket():
@@ -76,7 +55,7 @@ def test_should_emit_false_when_enabled_is_none(nauro_home, telemetry_key):
 
 
 def test_should_emit_false_when_enabled_is_false(nauro_home, telemetry_key):
-    _seed_consented_config(nauro_home, enabled=False)
+    seed_consented_config(nauro_home, enabled=False)
 
     from nauro.telemetry import _should_emit
 
@@ -85,7 +64,7 @@ def test_should_emit_false_when_enabled_is_false(nauro_home, telemetry_key):
 
 def test_should_emit_false_when_posthog_key_unset(nauro_home, monkeypatch):
     monkeypatch.delenv("NAURO_POSTHOG_KEY", raising=False)
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.telemetry import _should_emit
 
@@ -94,7 +73,7 @@ def test_should_emit_false_when_posthog_key_unset(nauro_home, monkeypatch):
 
 def test_should_emit_true_when_all_conditions_hold(nauro_home, telemetry_key, monkeypatch):
     monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.telemetry import _should_emit
 
@@ -103,7 +82,7 @@ def test_should_emit_true_when_all_conditions_hold(nauro_home, telemetry_key, mo
 
 def test_should_emit_false_when_env_var_disables(nauro_home, telemetry_key, monkeypatch):
     monkeypatch.setenv("NAURO_TELEMETRY", "0")
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.telemetry import _should_emit
 
@@ -149,7 +128,7 @@ def test_strip_reserved_preserves_unrelated_keys():
 
 
 def test_get_distinct_id_returns_anonymous_id(nauro_home):
-    aid = _seed_consented_config(nauro_home, enabled=True)
+    aid = seed_consented_config(nauro_home, enabled=True)
 
     from nauro.telemetry import _get_distinct_id
 

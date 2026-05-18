@@ -5,25 +5,11 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
 _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-
-
-class FakeClient:
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    def capture(
-        self,
-        event: str,
-        distinct_id: str,
-        properties: dict[str, Any],
-    ) -> None:
-        self.events.append({"event": event, "distinct_id": distinct_id, "properties": properties})
 
 
 @pytest.fixture
@@ -35,21 +21,6 @@ def nauro_home(tmp_path, monkeypatch):
     repo.mkdir()
     monkeypatch.chdir(repo)
     return home
-
-
-@pytest.fixture
-def telemetry_key(monkeypatch):
-    monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-
-
-@pytest.fixture
-def fake_posthog(monkeypatch):
-    import nauro.telemetry.client as client_mod
-
-    fake = FakeClient()
-    client_mod._client = fake
-    yield fake
-    client_mod._client = None
 
 
 def _seed_config(home, *, enabled, consent_version, consented_at, anonymous_id) -> None:
