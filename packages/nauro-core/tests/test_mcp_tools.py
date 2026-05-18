@@ -168,6 +168,12 @@ class TestBuildRemoteInstructions:
         assert STATIC in result
         assert WELCOME_NO_PROJECT in result
 
+    def test_zero_projects_welcome_before_static(self):
+        """D151: the per-user section must precede the static block so it
+        survives client-side truncation of ``initialize.instructions``."""
+        result = build_remote_instructions(STATIC, [])
+        assert result.index(WELCOME_NO_PROJECT) < result.index(STATIC)
+
     def test_one_project_orientation_only(self):
         """Single-project users get a name-only orientation line — no ULID.
 
@@ -182,6 +188,12 @@ class TestBuildRemoteInstructions:
         assert "auto-resolve" in result or "automatically" in result or "auto" in result
         # The old "Pass the matching project_id" directive is gone.
         assert "Pass the matching project_id" not in result
+
+    def test_one_project_orientation_before_static(self):
+        """D151: orientation line must precede the static block."""
+        projects = [{"project_id": ULID_ALPHA, "name": "nauro"}]
+        result = build_remote_instructions(STATIC, projects)
+        assert result.index("Connected to project") < result.index(STATIC)
 
     def test_two_projects_emits_full_ulids(self):
         """Regression: the multi-project branch renders full 26-char ULIDs.
@@ -203,6 +215,16 @@ class TestBuildRemoteInstructions:
         assert result.index("alpha") < result.index("Beta")
         # Inline form must NOT mention list_projects (no overflow hint)
         assert "Call list_projects" not in result
+
+    def test_two_projects_list_before_static(self):
+        """D151: the inline project list must precede the static block."""
+        projects = [
+            {"project_id": ULID_ALPHA, "name": "alpha"},
+            {"project_id": ULID_BETA, "name": "Beta"},
+        ]
+        result = build_remote_instructions(STATIC, projects)
+        # "You have N projects" is the heading line that opens the section.
+        assert result.index("You have 2 projects") < result.index(STATIC)
 
     def test_two_projects_directive_requires_explicit_id(self):
         """Multi-project rendering must tell the agent disambiguation is required."""
@@ -226,6 +248,16 @@ class TestBuildRemoteInstructions:
         # Names must NOT be enumerated in overflow mode
         for p in projects:
             assert p["name"] not in result
+
+    def test_overflow_pointer_before_static(self):
+        """D151: the overflow pointer must precede the static block."""
+        projects = [
+            {"project_id": f"01ID{i:022d}", "name": f"proj-{i}"}
+            for i in range(MAX_INLINE_PROJECTS + 2)
+        ]
+        result = build_remote_instructions(STATIC, projects)
+        # The "You have N projects." count line opens the overflow section.
+        assert result.index(f"You have {len(projects)} projects") < result.index(STATIC)
 
     def test_static_preserved_verbatim(self):
         projects = [{"project_id": "01ID00000000000000000000A1", "name": "x"}]
