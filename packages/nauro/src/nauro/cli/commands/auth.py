@@ -8,6 +8,7 @@ stored in ~/.nauro/config.json under the "auth" key.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import logging
@@ -243,56 +244,50 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         pass
 
 
-@auth_app.command()
-def login() -> None:
-    """Authenticate with Auth0 using Authorization Code + PKCE."""
-    try:
-        domain, client_id, api_url, audience = _resolve_auth_config(os.environ, load_config())
-    except PartialAuthConfigError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+def _run_callback_flow(domain: str, client_id: str, audience: str) -> tuple[str, str]:
+    """Drive the browser-based Auth0 callback flow and return ``(auth_code, code_verifier)``.
 
+    Generates PKCE material, starts a localhost server to receive the redirect,
+    opens the browser, and waits up to 120 seconds for Auth0 to deliver an
+    authorization code. The local server is always closed before returning,
+    even on the timeout/error paths.
+    """
     code_verifier, code_challenge = _generate_pkce()
     state = secrets.token_urlsafe(32)
 
-    # Reset handler state
     _CallbackHandler.auth_code = None
     _CallbackHandler.error = None
 
-    # Start local server to receive callback
     server = HTTPServer(("127.0.0.1", REDIRECT_PORT), _CallbackHandler)
     server_thread = threading.Thread(target=server.handle_request, daemon=True)
     server_thread.start()
 
-    # Build authorization URL
-    auth_params = urlencode(
-        {
-            "response_type": "code",
-            "client_id": client_id,
-            "redirect_uri": REDIRECT_URI,
-            "scope": AUTH0_SCOPES,
-            "audience": audience,
-            "state": state,
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-            "prompt": "login",
-        }
-    )
-    auth_url = f"https://{domain}/authorize?{auth_params}"
-
-    typer.echo("\nOpening browser to authenticate...\n")
-    typer.echo(f"If the browser doesn't open, visit:\n  {auth_url}\n")
-
     try:
-        webbrowser.open(auth_url)
-    except Exception:
-        pass
+        auth_params = urlencode(
+            {
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": REDIRECT_URI,
+                "scope": AUTH0_SCOPES,
+                "audience": audience,
+                "state": state,
+                "code_challenge": code_challenge,
+                "code_challenge_method": "S256",
+                "prompt": "login",
+            }
+        )
+        auth_url = f"https://{domain}/authorize?{auth_params}"
 
-    typer.echo("Waiting for authorization...")
+        typer.echo("\nOpening browser to authenticate...\n")
+        typer.echo(f"If the browser doesn't open, visit:\n  {auth_url}\n")
 
-    # Wait for callback (timeout after 120 seconds)
-    server_thread.join(timeout=120)
-    server.server_close()
+        with contextlib.suppress(Exception):
+            webbrowser.open(auth_url)
+
+        typer.echo("Waiting for authorization...")
+        server_thread.join(timeout=120)
+    finally:
+        server.server_close()
 
     if _CallbackHandler.error:
         typer.echo(f"Authorization failed: {_CallbackHandler.error}", err=True)
@@ -302,6 +297,20 @@ def login() -> None:
         typer.echo("Authorization timed out. Please try again.", err=True)
         raise typer.Exit(code=1)
 
+    return _CallbackHandler.auth_code, code_verifier
+
+
+@auth_app.command()
+def login() -> None:
+    """Authenticate with Auth0 using Authorization Code + PKCE."""
+    try:
+        domain, client_id, api_url, audience = _resolve_auth_config(os.environ, load_config())
+    except PartialAuthConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+    auth_code, code_verifier = _run_callback_flow(domain, client_id, audience)
+
     # Exchange code for tokens
     try:
         token_resp = httpx.post(
@@ -309,7 +318,7 @@ def login() -> None:
             json={
                 "grant_type": "authorization_code",
                 "client_id": client_id,
-                "code": _CallbackHandler.auth_code,
+                "code": auth_code,
                 "redirect_uri": REDIRECT_URI,
                 "code_verifier": code_verifier,
             },
