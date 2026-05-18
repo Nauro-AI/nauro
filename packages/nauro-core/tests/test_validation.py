@@ -10,6 +10,7 @@ from nauro_core.decision_model import (
 from nauro_core.validation import (
     check_bm25_similarity,
     compute_hash,
+    find_envelope_token,
     screen_structural,
 )
 
@@ -239,3 +240,47 @@ class TestScreenStructural:
         action, reason = screen_structural(self._proposal(rationale=None), set(), [])
         assert action == "reject"
         assert "Rationale is empty" in reason
+
+
+class TestFindEnvelopeToken:
+    def test_empty_string_is_none(self):
+        assert find_envelope_token("") is None
+
+    def test_plain_prose_is_none(self):
+        text = "Should we adopt OpenTelemetry for tracing across the gateway?"
+        assert find_envelope_token(text) is None
+
+    def test_closing_question_tag(self):
+        text = "How should we model tenants?</question>"
+        assert find_envelope_token(text) == "</question>"
+
+    def test_closing_rationale_tag(self):
+        text = "Picked Postgres for ACID guarantees.</rationale>"
+        assert find_envelope_token(text) == "</rationale>"
+
+    def test_closing_context_tag(self):
+        text = "Some context about the choice.</context>"
+        assert find_envelope_token(text) == "</context>"
+
+    def test_closing_parameter_tag(self):
+        text = "value here</parameter>"
+        assert find_envelope_token(text) == "</parameter>"
+
+    def test_closing_invoke_tag(self):
+        text = "trailing junk</invoke>"
+        assert find_envelope_token(text) == "</invoke>"
+
+    def test_opening_parameter_attr(self):
+        text = 'rest of the call <parameter name="context">leaked'
+        assert find_envelope_token(text) == "<parameter name="
+
+    def test_opening_invoke_attr(self):
+        text = 'wrapper <invoke name="propose_decision">'
+        assert find_envelope_token(text) == "<invoke name="
+
+    def test_self_referential_question_about_parameter_still_rejects(self):
+        # Users asking literally about the propose_decision tool's parameter
+        # surface area will trip the check. That's acceptable — they can
+        # rephrase (e.g. "the parameter named 'rationale'") to disambiguate.
+        text = "How should we describe the <parameter name='rationale'> field in docs?"
+        assert find_envelope_token(text) == "<parameter name="

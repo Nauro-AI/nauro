@@ -28,7 +28,7 @@ from nauro_core.protocol import (
     PROPOSE_DECISION_OPERATIONS,
     UPDATE_SUPERSEDE_CARE,
 )
-from nauro_core.validation import check_content_length
+from nauro_core.validation import check_content_length, find_envelope_token
 
 from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payload
 from nauro.onboarding import (
@@ -63,6 +63,29 @@ def _reject_if_too_long(value: str, label: str, max_length: int) -> dict | None:
     if msg:
         return {"store": "local", "status": "rejected", "reason": msg}
     return None
+
+
+def _reject_if_envelope_token(value: str, field_name: str) -> dict | None:
+    """Return a rejection dict if *value* contains an MCP envelope fragment.
+
+    Some non-Anthropic agent surfaces emit tool calls as XML and their MCP
+    bridges occasionally fail to extract <parameter> values cleanly, so the
+    envelope tail leaks into the string field. Reject before any I/O — see
+    nauro_core.validation.find_envelope_token.
+    """
+    token = find_envelope_token(value)
+    if not token:
+        return None
+    return {
+        "store": "local",
+        "status": "rejected",
+        "reason": (
+            f"{field_name} contains tool-use envelope fragment {token!r}. "
+            "This usually means the client failed to extract the parameter "
+            "value cleanly from an XML tool call. Resend the call with just "
+            "the prose content."
+        ),
+    }
 
 
 def _check_store_exists(store_path: Path) -> str | None:
@@ -143,6 +166,19 @@ def tool_propose_decision(
         _reject_if_too_long(title, "Title", MAX_TITLE_LENGTH),
         _reject_if_too_long(rationale, "Rationale", MAX_RATIONALE_LENGTH),
     ):
+        if err:
+            return err
+
+    # Reject tool-use envelope fragments that leaked from XML-emitting clients.
+    envelope_targets: list[tuple[str, str]] = [
+        ("title", title),
+        ("rationale", rationale),
+    ]
+    for idx, item in enumerate(rejected or []):
+        if isinstance(item, dict):
+            envelope_targets.append((f"rejected[{idx}].reason", item.get("reason", "") or ""))
+    for field_name, value in envelope_targets:
+        err = _reject_if_envelope_token(value, field_name)
         if err:
             return err
 
@@ -382,6 +418,12 @@ def tool_flag_question(
         _reject_if_too_long(question, "Question", MAX_QUESTION_LENGTH),
         _reject_if_too_long(context or "", "Context", MAX_CONTEXT_LENGTH) if context else None,
     ):
+        if err:
+            return err
+
+    # Reject tool-use envelope fragments that leaked from XML-emitting clients.
+    for field_name, value in (("question", question), ("context", context or "")):
+        err = _reject_if_envelope_token(value, field_name)
         if err:
             return err
 
