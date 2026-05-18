@@ -82,11 +82,12 @@ def _validate(data: dict) -> None:
     if not isinstance(data.get("name"), str) or not data["name"]:
         raise RepoConfigSchemaError("Repo config is missing required field 'name'.")
 
-    if mode == REPO_CONFIG_MODE_CLOUD:
-        if not isinstance(data.get("server_url"), str) or not data["server_url"]:
-            raise RepoConfigSchemaError(
-                "Cloud-mode repo config is missing required field 'server_url'."
-            )
+    if mode == REPO_CONFIG_MODE_CLOUD and (
+        not isinstance(data.get("server_url"), str) or not data["server_url"]
+    ):
+        raise RepoConfigSchemaError(
+            "Cloud-mode repo config is missing required field 'server_url'."
+        )
 
 
 def load_repo_config(repo_root: Path) -> dict:

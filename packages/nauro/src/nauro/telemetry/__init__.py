@@ -31,9 +31,7 @@ def _should_emit() -> bool:
     if _resolve_project_key() is None:
         return False
     cfg = get_telemetry_config()
-    if cfg.enabled is not True:
-        return False
-    return True
+    return cfg.enabled is True
 
 
 def _get_distinct_id() -> str:

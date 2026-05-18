@@ -79,9 +79,8 @@ def test_create_project_401_without_refresh_token_raises_auth_login_hint(tmp_pat
     def handler(method, url, **kwargs):
         return httpx.Response(401, json={"detail": "expired"}, request=httpx.Request(method, url))
 
-    with _stub_request(handler):
-        with pytest.raises(CloudProjectError) as exc:
-            create_project("demo")
+    with _stub_request(handler), pytest.raises(CloudProjectError) as exc:
+        create_project("demo")
     msg = str(exc.value)
     assert "Authentication failed" in msg
     assert "nauro auth login" in msg
@@ -130,9 +129,11 @@ def test_create_project_stale_token_refreshed_transparently(tmp_path, monkeypatc
     auth0_response.status_code = 200
     auth0_response.json.return_value = {"access_token": "fresh"}
 
-    with _stub_request(handler):
-        with patch("nauro.cli.commands.auth.httpx.post", return_value=auth0_response):
-            view = create_project("demo")
+    with (
+        _stub_request(handler),
+        patch("nauro.cli.commands.auth.httpx.post", return_value=auth0_response),
+    ):
+        view = create_project("demo")
 
     assert view["project_id"] == "01KQ6AZGNA0B3QBF67NBXP3S45"
     assert len(calls) == 2
@@ -163,10 +164,12 @@ def test_create_project_persistent_401_after_refresh_raises_distinct_message(tmp
     auth0_response.status_code = 200
     auth0_response.json.return_value = {"access_token": "fresh"}
 
-    with _stub_request(handler):
-        with patch("nauro.cli.commands.auth.httpx.post", return_value=auth0_response):
-            with pytest.raises(CloudProjectError) as exc:
-                create_project("demo")
+    with (
+        _stub_request(handler),
+        patch("nauro.cli.commands.auth.httpx.post", return_value=auth0_response),
+        pytest.raises(CloudProjectError) as exc,
+    ):
+        create_project("demo")
 
     msg = str(exc.value)
     assert "401" in msg
@@ -184,9 +187,8 @@ def test_create_project_403_renders_forbidden_message(tmp_path, monkeypatch):
     def handler(method, url, **kwargs):
         return httpx.Response(403, json={"detail": "no access"}, request=httpx.Request(method, url))
 
-    with _stub_request(handler):
-        with pytest.raises(CloudProjectError) as exc:
-            create_project("demo")
+    with _stub_request(handler), pytest.raises(CloudProjectError) as exc:
+        create_project("demo")
     msg = str(exc.value)
     assert "403" in msg
     assert "Forbidden" in msg
@@ -201,9 +203,8 @@ def test_create_project_server_error_renders_message(tmp_path, monkeypatch):
     def handler(method, url, **kwargs):
         return httpx.Response(503, request=httpx.Request(method, url))
 
-    with _stub_request(handler):
-        with pytest.raises(CloudProjectError) as exc:
-            create_project("demo")
+    with _stub_request(handler), pytest.raises(CloudProjectError) as exc:
+        create_project("demo")
     assert "503" in str(exc.value)
 
 
@@ -215,9 +216,8 @@ def test_create_project_network_error_renders_message(tmp_path, monkeypatch):
     def handler(method, url, **kwargs):
         raise httpx.ConnectError("dns failure")
 
-    with _stub_request(handler):
-        with pytest.raises(CloudProjectError) as exc:
-            create_project("demo")
+    with _stub_request(handler), pytest.raises(CloudProjectError) as exc:
+        create_project("demo")
     assert "Network error" in str(exc.value)
 
 
@@ -339,7 +339,6 @@ def test_malformed_project_payload_raises(tmp_path, monkeypatch):
             request=httpx.Request(method, url),
         )
 
-    with _stub_request(handler):
-        with pytest.raises(CloudProjectError) as exc:
-            create_project("demo")
+    with _stub_request(handler), pytest.raises(CloudProjectError) as exc:
+        create_project("demo")
     assert "missing required field" in str(exc.value)

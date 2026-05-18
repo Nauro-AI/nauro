@@ -10,6 +10,7 @@ command modules stay free of telemetry imports.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import platform
 import time
@@ -60,7 +61,7 @@ def instrument(func: Callable[..., Any], *, command_path: str) -> Callable[..., 
             success = False
             raise
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 capture(
                     "cli.command_invoked",
                     cli_command_invoked(
@@ -71,8 +72,6 @@ def instrument(func: Callable[..., Any], *, command_path: str) -> Callable[..., 
                         os_name=_OS,
                     ),
                 )
-            except Exception:
-                pass
 
     wrapper._nauro_instrumented = True  # type: ignore[attr-defined]
     return wrapper

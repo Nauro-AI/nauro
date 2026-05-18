@@ -107,13 +107,14 @@ def _check_collision(name: str, repo_root: Path) -> str | None:
     return None
 
 
+_Opt_repo = typer.Option(None, "--repo", help="Repo root (default: current working directory).")
+
+
 def adopt(
     name: str | None = typer.Option(
         None, "--name", help="Project name (default: repo directory basename)."
     ),
-    repo: Path | None = typer.Option(
-        None, "--repo", help="Repo root (default: current working directory)."
-    ),
+    repo: Path | None = _Opt_repo,
     print_prompt: bool = typer.Option(
         False,
         "--print-prompt",

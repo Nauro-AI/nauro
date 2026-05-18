@@ -87,7 +87,7 @@ def test_explicit_project_flag_overrides_repo_config(tmp_path, monkeypatch):
 
     Existing test_cli.py expectation; pinned here against the v2 path.
     """
-    cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
+    _cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
     other_pid, _store = registry.register_project_v2(
         "beta",
         [tmp_path / "beta_repo"],
@@ -112,7 +112,7 @@ def test_stdio_resolve_uses_repo_config_when_no_project_passed(tmp_path, monkeyp
 
 def test_stdio_resolve_mismatched_project_id_errors(tmp_path, monkeypatch):
     """When supplied project_id != repo config id, raise rather than silently swap."""
-    cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
+    _cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
     monkeypatch.chdir(repo_root)
     with pytest.raises(ValueError, match="does not match"):
         _resolve_store("01KZZZZZZZZZZZZZZZZZZZZZZZ", str(repo_root))

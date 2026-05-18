@@ -571,7 +571,7 @@ def test_reader_roundtrip_new_format(store: Path):
         source="commit",
     )
     decisions = _list_decisions(store)
-    d = [d for d in decisions if d.title == "Switch to WebSocket"][0]
+    d = next(d for d in decisions if d.title == "Switch to WebSocket")
     assert d.confidence.value == "high"
     assert d.decision_type is not None
     assert d.decision_type.value == "api_design"

@@ -84,7 +84,7 @@ def extract_stack_summary(stack_content: str) -> str:
         stripped = line.strip()
         if stripped.startswith("# ") or stripped.startswith("<!--"):
             continue
-        if stripped.startswith("- ") and not line.startswith("  ") or stripped.startswith("## "):
+        if (stripped.startswith("- ") and not line.startswith("  ")) or stripped.startswith("## "):
             lines.append(stripped)
     return "\n".join(lines)
 

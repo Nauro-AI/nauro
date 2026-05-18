@@ -103,13 +103,16 @@ def _check_config_overwrite(
     raise typer.Exit(code=1)
 
 
+_Opt_add_repo_paths = typer.Option(
+    None,
+    "--add-repo",
+    help="Repo directory to associate (can be repeated). Defaults to cwd.",
+)
+
+
 def init(
     name: str = typer.Argument(default="demo-project", help="Project name."),
-    add_repo_paths: list[Path] | None = typer.Option(
-        None,
-        "--add-repo",
-        help="Repo directory to associate (can be repeated). Defaults to cwd.",
-    ),
+    add_repo_paths: list[Path] | None = _Opt_add_repo_paths,
     demo: bool = typer.Option(
         False,
         "--demo",
@@ -210,7 +213,7 @@ def init(
             view = create_project(name)
         except CloudProjectError as exc:
             typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from exc
         try:
             pid, store_path = register_project_v2(
                 name,
@@ -221,7 +224,7 @@ def init(
             )
         except ValueError as exc:
             typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from exc
         capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
         for rp in repo_paths:
             save_repo_config(
@@ -251,7 +254,7 @@ def init(
         )
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
     capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
     for rp in repo_paths:
         save_repo_config(

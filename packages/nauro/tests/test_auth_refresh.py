@@ -98,9 +98,11 @@ class TestRefreshAccessToken:
             400,
             {"error": "invalid_grant", "error_description": "refresh token expired"},
         )
-        with patch("nauro.cli.commands.auth.httpx.post", return_value=bad):
-            with pytest.raises(AuthRefreshError):
-                refresh_access_token()
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", return_value=bad),
+            pytest.raises(AuthRefreshError),
+        ):
+            refresh_access_token()
 
         auth = load_config()["auth"]
         # Both tokens must survive a failed refresh — the user might retry.
@@ -110,12 +112,14 @@ class TestRefreshAccessToken:
     def test_refresh_network_error_leaves_tokens_intact(self):
         _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
 
-        with patch(
-            "nauro.cli.commands.auth.httpx.post",
-            side_effect=httpx.ConnectError("dns failure"),
+        with (
+            patch(
+                "nauro.cli.commands.auth.httpx.post",
+                side_effect=httpx.ConnectError("dns failure"),
+            ),
+            pytest.raises(AuthRefreshError),
         ):
-            with pytest.raises(AuthRefreshError):
-                refresh_access_token()
+            refresh_access_token()
 
         auth = load_config()["auth"]
         assert auth["access_token"] == "access_orig"
@@ -174,9 +178,11 @@ class TestWithTokenRefresh:
         call = MagicMock(return_value=unauthorized)
 
         bad_refresh = _mock_post(400, {"error": "invalid_grant"})
-        with patch("nauro.cli.commands.auth.httpx.post", return_value=bad_refresh):
-            with pytest.raises(AuthRefreshError):
-                with_token_refresh(call)
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", return_value=bad_refresh),
+            pytest.raises(AuthRefreshError),
+        ):
+            with_token_refresh(call)
 
         # Stored tokens preserved despite the failed refresh attempt.
         auth = load_config()["auth"]

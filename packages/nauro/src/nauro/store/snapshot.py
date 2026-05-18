@@ -209,13 +209,10 @@ def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
 
     all_snaps.sort(key=lambda s: s["datetime"])
 
-    # Find the most recent snapshot at or before the target
+    # Most recent snapshot at or before the target; falls back to the
+    # oldest snapshot when none predate the target.
     candidates = [s for s in all_snaps if s["datetime"] <= target]
-    if candidates:
-        best = candidates[-1]  # most recent one at or before target
-    else:
-        # No snapshot old enough — return the oldest available
-        best = all_snaps[0]
+    best = candidates[-1] if candidates else all_snaps[0]
 
     return {"version": best["version"], "timestamp": best["timestamp"]}
 

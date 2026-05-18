@@ -28,7 +28,7 @@ class TestSchemaValidation:
 
     def test_rejects_missing_title(self, store):
         proposal = {"rationale": "Some valid rationale here."}
-        action, reason = screen_structural(proposal, store)
+        action, _reason = screen_structural(proposal, store)
         assert action == "reject"
 
     def test_rejects_empty_rationale(self, store):
@@ -70,7 +70,7 @@ class TestMinimumContent:
             "title": "Use Redis",
             "rationale": "Fast in-memory cache with pub/sub support for our needs.",
         }
-        action, reason = screen_structural(proposal, store)
+        action, _reason = screen_structural(proposal, store)
         assert action == "pass"
 
 
@@ -94,7 +94,7 @@ class TestHashDedup:
             "title": "Use Redis",
             "rationale": "For caching and pub/sub functionality.",
         }
-        action, reason = screen_structural(proposal, store)
+        action, _reason = screen_structural(proposal, store)
         assert action == "pass"
 
     def test_case_insensitive_hash(self, store):
@@ -104,7 +104,7 @@ class TestHashDedup:
             "title": "use postgres",
             "rationale": "better json support.",
         }
-        action, reason = screen_structural(proposal, store)
+        action, _reason = screen_structural(proposal, store)
         assert action == "reject"
 
 
@@ -132,5 +132,5 @@ class TestTemporalDuplicate:
             "title": "Use Redis for Caching",
             "rationale": "Fast in-memory store for session data.",
         }
-        action, reason = screen_structural(proposal, store)
+        action, _reason = screen_structural(proposal, store)
         assert action == "pass"

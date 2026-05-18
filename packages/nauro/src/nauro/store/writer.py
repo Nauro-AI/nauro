@@ -257,10 +257,7 @@ def append_question(store_path: Path, question: str) -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     entry = f"- [{timestamp}] {question}\n"
 
-    if oq_path.exists():
-        content = oq_path.read_text()
-    else:
-        content = "# Open Questions\n"
+    content = oq_path.read_text() if oq_path.exists() else "# Open Questions\n"
 
     lines = content.split("\n")
     insert_idx = 1
