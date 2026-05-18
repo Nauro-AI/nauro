@@ -178,3 +178,37 @@ def screen_structural(
             )
 
     return ("pass", None)
+
+
+# Envelope token detection — see PR-A1 / 2026-05-17 incident.
+#
+# Some non-Anthropic agent surfaces emit tool calls as XML and their MCP
+# bridges occasionally fail to extract <parameter> values cleanly, so the
+# envelope tail (</question>, <parameter name="context">, </invoke>, etc.)
+# ends up appended to the string field the server receives. Writers must
+# reject these before they hit disk — we have already seen them persisted
+# in open-questions.md and in D099's rationale.
+_ENVELOPE_TOKENS: tuple[str, ...] = (
+    "</question>",
+    "</rationale>",
+    "</context>",
+    "</parameter>",
+    "</invoke>",
+    "<parameter name=",
+    "<invoke name=",
+)
+
+
+def find_envelope_token(text: str) -> str | None:
+    """Return the first envelope token present in *text*, or None.
+
+    The check is a literal substring scan against a small, closed token set
+    — these are tool-use envelope fragments that must never reach the store.
+    Plain string operations only.
+    """
+    if not text:
+        return None
+    for token in _ENVELOPE_TOKENS:
+        if token in text:
+            return token
+    return None
