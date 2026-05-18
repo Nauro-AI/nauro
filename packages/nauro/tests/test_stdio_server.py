@@ -194,9 +194,9 @@ class TestProposeDecisionResolvesQuestions:
         assert result["status"] == "confirmed"
         assert result.get("resolved_questions") == [question_id]
         oq = (store / "open-questions.md").read_text()
-        open_section = oq.split("## Resolved", 1)[0]
-        assert f"[{question_id}]" not in open_section
         assert "## Resolved" in oq
+        assert "[Resolved by D" in oq
+        assert f"[{question_id}]" in oq
 
     def test_unknown_id_rejects_at_boundary(self, store: Path):
         self._seed_question(store)

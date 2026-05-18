@@ -195,7 +195,19 @@ from nauro_core.protocol import (
     substitute_protocol_fragments as substitute_protocol_fragments,
 )
 from nauro_core.questions import (
+    Block as Block,
+)
+from nauro_core.questions import (
+    EntryBlock as EntryBlock,
+)
+from nauro_core.questions import (
+    HeaderBlock as HeaderBlock,
+)
+from nauro_core.questions import (
     OpenQuestionsFile as OpenQuestionsFile,
+)
+from nauro_core.questions import (
+    ProseBlock as ProseBlock,
 )
 from nauro_core.questions import (
     QuestionEntry as QuestionEntry,
@@ -205,6 +217,12 @@ from nauro_core.questions import (
 )
 from nauro_core.questions import (
     ResolveResult as ResolveResult,
+)
+from nauro_core.questions import (
+    TripleHashBlock as TripleHashBlock,
+)
+from nauro_core.questions import (
+    UnparsableBlock as UnparsableBlock,
 )
 from nauro_core.search import (
     bm25_retrieve as bm25_retrieve,

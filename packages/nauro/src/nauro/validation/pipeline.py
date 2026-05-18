@@ -392,5 +392,5 @@ def _unknown_question_ids(ids: list[str], project_path: Path) -> list[str]:
     if not oq_path.exists():
         return list(ids)
     file = OpenQuestionsFile.parse(oq_path.read_text())
-    known = set(file.open_ids) | set(file.resolved_ids)
+    known = file.known_question_ids
     return [tid for tid in ids if tid not in known]
