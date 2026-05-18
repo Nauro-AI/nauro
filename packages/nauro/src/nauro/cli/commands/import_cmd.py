@@ -301,10 +301,7 @@ def _extract_section(content: str, heading: str) -> str | None:
     start = m.end()
     # Find next ## heading or end of content
     next_heading = re.search(r"^##\s+", content[start:], re.MULTILINE)
-    if next_heading:
-        body = content[start : start + next_heading.start()]
-    else:
-        body = content[start:]
+    body = content[start : start + next_heading.start()] if next_heading else content[start:]
 
     body = body.strip()
     return body if body else None
@@ -337,13 +334,15 @@ def _import_progress(content: str) -> list[str]:
     return items
 
 
+_Opt_memory_bank = typer.Option(
+    None, "--memory-bank", help="Path to a Cline/Roo Code Memory Bank (.context/ directory)."
+)
+_Opt_adr = typer.Option(None, "--adr", help="Path to an Architecture Decision Records directory.")
+
+
 def import_cmd(
-    memory_bank: Path | None = typer.Option(
-        None, "--memory-bank", help="Path to a Cline/Roo Code Memory Bank (.context/ directory)."
-    ),
-    adr: Path | None = typer.Option(
-        None, "--adr", help="Path to an Architecture Decision Records directory."
-    ),
+    memory_bank: Path | None = _Opt_memory_bank,
+    adr: Path | None = _Opt_adr,
     project: str | None = typer.Option(
         None,
         "--project",

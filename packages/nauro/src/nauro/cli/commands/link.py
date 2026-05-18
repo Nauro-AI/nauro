@@ -61,7 +61,7 @@ def link(
         cfg = load_repo_config(repo_root)
     except RepoConfigSchemaError as exc:
         typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     if cfg.get("mode") != REPO_CONFIG_MODE_LOCAL:
         typer.echo(
@@ -95,7 +95,7 @@ def link(
         view = create_project(name)
     except CloudProjectError as exc:
         typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
     cloud_id = view["project_id"]
 
     try:
@@ -107,7 +107,7 @@ def link(
         )
     except (KeyError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     save_repo_config(
         repo_root,

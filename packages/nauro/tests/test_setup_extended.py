@@ -32,7 +32,7 @@ def test_setup_cursor_writes_repo_mcp_json(tmp_path: Path, monkeypatch):
     """`nauro setup cursor` writes <repo>/.cursor/mcp.json for each project repo."""
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    pid, store_path = register_project_v2("myproj", [repo])
+    _pid, store_path = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
 

@@ -89,7 +89,7 @@ def _frontmatter(surface: str, skill_name: str) -> str:
     if skill_name not in SKILL_DESCRIPTIONS:
         raise ValueError(f"unknown skill: {skill_name!r}")
     description = SKILL_DESCRIPTIONS[skill_name]
-    if surface == "claude_code" or surface == "codex":
+    if surface in ("claude_code", "codex"):
         return f"---\nname: {skill_name}\ndescription: {description}\n---\n\n"
     if surface == "cursor":
         return f"---\ndescription: {description}\nalwaysApply: false\n---\n\n"
@@ -108,8 +108,8 @@ def render_skill(surface: str, skill_name: str) -> str:
 
 __all__ = [
     "SKILL_DESCRIPTIONS",
-    "Surface",
     "SkillName",
+    "Surface",
     "load_adopt_body",
     "load_session_body",
     "render_skill",

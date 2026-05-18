@@ -119,9 +119,9 @@ def _resolve_store(project_id: str | None, cwd: str | None) -> Path:
     try:
         return resolve_store(project_id, cwd)
     except (NoProjectError, ProjectNotFoundError, StoreMissingError) as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ProjectIdMismatchError, MultipleProjectsError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # --- MCP tool endpoints ---
@@ -140,7 +140,7 @@ async def get_context(req: ContextRequest) -> dict:
     try:
         payload = tool_get_context(store_path, req.level)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"level": req.level, "content": payload}
 
 

@@ -43,7 +43,7 @@ def diff(
     Two arguments: diff between the two specified versions.
     --since Nd: diff between the nearest snapshot to N days ago and the latest.
     """
-    project_name, store_path = resolve_target_project(project)
+    _project_name, store_path = resolve_target_project(project)
 
     if since is not None:
         days = _parse_since(since)
@@ -71,7 +71,7 @@ def diff(
             result = diff_snapshots(store_path, version_a, latest)
         except FileNotFoundError as e:
             typer.echo(f"Error: {e}", err=True)
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=1) from e
         typer.echo(result)
         return
 
@@ -80,5 +80,5 @@ def diff(
         result = diff_snapshots(store_path, version_a, version_b)
     except FileNotFoundError as e:
         typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     typer.echo(result)

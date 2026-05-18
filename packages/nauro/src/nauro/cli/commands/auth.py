@@ -238,7 +238,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         html = f"<html><body><h2>{message}</h2></body></html>"
         self.wfile.write(html.encode())
 
-    def log_message(self, format, *args):  # noqa: A002
+    def log_message(self, format, *args):
         """Suppress default stderr logging."""
         pass
 
@@ -317,7 +317,7 @@ def login() -> None:
         token_resp.raise_for_status()
     except httpx.HTTPError as exc:
         typer.echo(f"Token exchange failed: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     body = token_resp.json()
 
@@ -335,7 +335,7 @@ def login() -> None:
         sub = payload["sub"]
     except (ValueError, KeyError) as exc:
         typer.echo(f"Failed to decode access token: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     sanitized_sub = _sanitize_sub(sub)
 
@@ -380,10 +380,7 @@ def login() -> None:
             or me_body.get("email")
             or ""
         )
-        if isinstance(email_raw, str):
-            email = email_raw.strip().lower()
-        else:
-            email = ""
+        email = email_raw.strip().lower() if isinstance(email_raw, str) else ""
         if user_id and email:
             from nauro.telemetry import identify_login as _telemetry_identify_login
 

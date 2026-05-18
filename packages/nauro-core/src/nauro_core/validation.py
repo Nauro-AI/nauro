@@ -35,7 +35,7 @@ TIER2_TOP_K = 5
 # positives are added, not a speculative blanket of generic verbs. Add
 # more only when a concrete failure case justifies it, and add a test to
 # lock the case in.
-TIER2_STOPWORDS = list(STOPWORDS_EN) + ["use"]
+TIER2_STOPWORDS = [*list(STOPWORDS_EN), "use"]
 
 # The scaffold-seeded "Initial project setup" decision is Nauro's own
 # bookkeeping — it records that the store was initialized, not a choice the

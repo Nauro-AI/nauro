@@ -55,7 +55,7 @@ class TestCheckSimilarity:
             "title": "Add dark mode to the UI",
             "rationale": "Users requested a dark theme for reduced eye strain.",
         }
-        action, similar = check_similarity(proposal, store)
+        action, _similar = check_similarity(proposal, store)
         assert action == "auto_confirm"
 
     def test_vocabulary_mismatch_detected(self, store):

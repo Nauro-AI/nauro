@@ -10,6 +10,7 @@ hardcoded — because the same decorated function services all transports.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import time
 from collections.abc import Callable
@@ -39,7 +40,7 @@ def mcp_tool(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
                 success = False
                 raise
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     capture(
                         "mcp.tool_called",
                         mcp_tool_called(
@@ -49,8 +50,6 @@ def mcp_tool(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
                             duration_bucket=bucket(time.perf_counter() - start),
                         ),
                     )
-                except Exception:
-                    pass
 
         return wrapper
 

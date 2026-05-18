@@ -33,7 +33,7 @@ def log(
     ),
 ) -> None:
     """List recent snapshots with version, timestamp, trigger, and change summary."""
-    project_name, store_path = resolve_target_project(project)
+    _project_name, store_path = resolve_target_project(project)
 
     if decisions:
         _show_decisions(store_path, show_all=all_decisions)

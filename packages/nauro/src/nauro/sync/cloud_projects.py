@@ -168,10 +168,7 @@ def list_projects() -> list[ProjectView]:
             f"Server returned non-JSON for GET /projects: {response.text!r}"
         ) from exc
 
-    if isinstance(payload, dict) and "projects" in payload:
-        items = payload["projects"]
-    else:
-        items = payload
+    items = payload["projects"] if isinstance(payload, dict) and "projects" in payload else payload
 
     if not isinstance(items, list):
         raise CloudProjectError(f"Unexpected /projects response shape (not a list): {items!r}")

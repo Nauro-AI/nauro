@@ -25,14 +25,16 @@ from nauro.store.registry import (
 from nauro.store.repo_config import save_repo_config
 from nauro.sync.cloud_projects import CloudProjectError, list_projects
 
+_Opt_repo_path = typer.Option(
+    None,
+    "--repo",
+    help="Repo directory to attach. Defaults to cwd.",
+)
+
 
 def attach(
     project_id: str = typer.Argument(..., help="Cloud project_id (ULID)."),
-    repo_path: Path | None = typer.Option(
-        None,
-        "--repo",
-        help="Repo directory to attach. Defaults to cwd.",
-    ),
+    repo_path: Path | None = _Opt_repo_path,
 ) -> None:
     """Attach the current repo to an existing cloud project."""
     repo_path = repo_path if repo_path is not None else Path.cwd()
@@ -40,7 +42,7 @@ def attach(
         projects = list_projects()
     except CloudProjectError as exc:
         typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from exc
 
     match = next((p for p in projects if p["project_id"] == project_id), None)
     if match is None:

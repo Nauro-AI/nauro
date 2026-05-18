@@ -221,13 +221,13 @@ class TestScreenStructural:
     def test_title_dedup_case_insensitive(self):
         proposal = self._proposal()
         recent = [{"title": "use fastapi for mcp server", "num": 42}]
-        action, reason = screen_structural(proposal, set(), recent)
+        action, _reason = screen_structural(proposal, set(), recent)
         assert action == "reject"
 
     def test_default_confidence_accepted(self):
         proposal = self._proposal()
         del proposal["confidence"]
-        action, reason = screen_structural(proposal, set(), [])
+        action, _reason = screen_structural(proposal, set(), [])
         assert action == "pass"
 
     def test_none_title(self):
