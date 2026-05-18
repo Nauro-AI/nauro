@@ -4,7 +4,6 @@ Pure functions that transform state content without any I/O. Callers are
 responsible for reading/writing files (local filesystem or S3).
 """
 
-import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -33,9 +32,10 @@ def _strip_current_header_footer(content: str) -> str:
     lines = content.split("\n")
     stripped: list[str] = []
     for line in lines:
-        if line.strip().startswith("# Current State"):
+        s = line.strip()
+        if s.startswith("# Current State"):
             continue
-        if re.match(r"^\*Last updated:\s.*\*$", line.strip()):
+        if s.startswith("*Last updated: ") and s.endswith("*"):
             continue
         stripped.append(line)
     return "\n".join(stripped).strip()

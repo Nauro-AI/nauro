@@ -13,7 +13,6 @@ from nauro.constants import (
     L0_TOKEN_LIMIT,
     STALE_SYNC_DAYS,
     STATE_CURRENT_FILENAME,
-    STATE_FIELD_LAST_SYNCED_ITALIC,
     STATE_LEGACY_FILENAME,
     VALIDATED_STORE_FILES,
 )
@@ -48,7 +47,14 @@ def validate_store(store_path: Path) -> list[str]:
         unfilled = []
         for m in re.finditer(r"\[([^\]]+)\]", content):
             p = m.group(1)
-            if re.match(r"\d{4}-\d{2}-\d{2}", p):
+            if (
+                len(p) >= 10
+                and p[4] == "-"
+                and p[7] == "-"
+                and p[:4].isdigit()
+                and p[5:7].isdigit()
+                and p[8:10].isdigit()
+            ):
                 continue
             # Check if this bracket is part of a markdown link [text](...)
             end = m.end()
@@ -66,9 +72,13 @@ def validate_store(store_path: Path) -> list[str]:
         state_path = store_path / STATE_LEGACY_FILENAME
     if state_path.exists():
         content = state_path.read_text()
-        sync_match = re.search(STATE_FIELD_LAST_SYNCED_ITALIC, content)
-        if sync_match:
-            synced_str = sync_match.group(1).strip()
+        synced_str: str | None = None
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("*Last synced:") and stripped.endswith("*"):
+                synced_str = stripped[len("*Last synced:") : -1].strip()
+                break
+        if synced_str is not None:
             try:
                 # Try parsing "YYYY-MM-DD HH:MM UTC" or "YYYY-MM-DD"
                 if "UTC" in synced_str:

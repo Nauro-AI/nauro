@@ -8,7 +8,6 @@ in by callers.
 from __future__ import annotations
 
 import hashlib
-import re
 
 from bm25s.stopwords import STOPWORDS_EN
 
@@ -115,7 +114,7 @@ def compute_hash(title: str, rationale: str) -> str:
 
 def _normalize_title(title: str) -> str:
     """Collapse whitespace and lowercase for title comparison."""
-    return re.sub(r"\s+", " ", title.lower().strip())
+    return " ".join(title.lower().split())
 
 
 def screen_structural(

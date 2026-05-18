@@ -3,7 +3,6 @@
 All reads from the .nauro/ project store go through this module.
 """
 
-import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,7 +18,6 @@ from nauro.constants import (
     STACK_MD,
     STATE_CURRENT_FILENAME,
     STATE_DIFF_FIELDS,
-    STATE_FIELD_LAST_SYNCED_BOLD,
     STATE_HISTORY_FILENAME,
     STATE_MD,
 )
@@ -200,9 +198,11 @@ def _build_l0_local(store_path: Path) -> str:
 
     # Local-specific: append "last synced" line from state
     state = files.get("state_current.md") or files.get("state.md", "")
-    synced = re.search(STATE_FIELD_LAST_SYNCED_BOLD, state)
-    if synced:
-        result += f"\n\n*Last synced: {synced.group(1).strip()}*"
+    marker = "**Last synced:**"
+    synced_line = next((line for line in state.splitlines() if marker in line), None)
+    if synced_line is not None:
+        value = synced_line.split(marker, 1)[1].strip()
+        result += f"\n\n*Last synced: {value}*"
 
     return result
 
@@ -364,8 +364,12 @@ def _diff_state(old: str, new: str) -> list[str]:
     changes = []
 
     def extract_field(content: str, field: str) -> str:
-        m = re.search(rf"\*\*{field}:\*\*\s*(.*)", content)
-        return m.group(1).strip() if m else ""
+        marker = f"**{field}:**"
+        for line in content.splitlines():
+            idx = line.find(marker)
+            if idx >= 0:
+                return line[idx + len(marker) :].strip()
+        return ""
 
     for field in STATE_DIFF_FIELDS:
         old_val = extract_field(old, field)

@@ -84,8 +84,6 @@ PRUNE_DAILY_DAYS = 30
 PRUNE_WEEKLY_DAYS = 180
 
 # ── State field patterns (used in parsing and diffing) ──
-STATE_FIELD_LAST_SYNCED_BOLD = r"\*\*Last synced:\*\*\s*(.*)"
-STATE_FIELD_LAST_SYNCED_ITALIC = r"\*Last synced:\s*(.*?)\*"
 STATE_DIFF_FIELDS = ("Sprint", "Focus", "Blockers")
 
 # ── Schema versioning ──
