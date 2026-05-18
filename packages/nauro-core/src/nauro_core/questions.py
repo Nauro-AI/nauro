@@ -98,15 +98,8 @@ class OpenQuestionsFile(BaseModel):
     def parse(cls, content: str) -> OpenQuestionsFile:
         """Parse ``open-questions.md`` content into an :class:`OpenQuestionsFile`."""
         lines = content.split("\n")
-        i = 0
         n = len(lines)
-
-        while i < n and not lines[i].strip():
-            i += 1
-        header = _DEFAULT_HEADER
-        if i < n and lines[i].startswith("# ") and not lines[i].startswith("## "):
-            header = lines[i].rstrip()
-            i += 1
+        header, i = _parse_header(lines, 0)
 
         intro: list[str] = []
         entries: list[QuestionEntry] = []
@@ -210,6 +203,22 @@ class OpenQuestionsFile(BaseModel):
             moved_ids=tuple(moved),
             unknown_ids=tuple(unknown),
         )
+
+
+def _parse_header(lines: list[str], i: int) -> tuple[str, int]:
+    """Skip leading blanks and capture the file-level ``# `` header if present.
+
+    Returns ``(header, next_i)``. The ``startswith("# ")`` / not-``startswith("## ")``
+    guard distinguishes the file header from section markers like ``## Resolved``.
+    """
+    n = len(lines)
+    while i < n and not lines[i].strip():
+        i += 1
+    header = _DEFAULT_HEADER
+    if i < n and lines[i].startswith("# ") and not lines[i].startswith("## "):
+        header = lines[i].rstrip()
+        i += 1
+    return header, i
 
 
 def _parse_entry(
