@@ -97,16 +97,24 @@ def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
     return not keys
 
 
-def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
-    """Add or remove the Nauro MCP entry in the repo's project-scope ``.mcp.json``.
+def _configure_json_mcp(
+    repo_path: Path,
+    *,
+    config_rel_path: str,
+    label: str,
+    remove: bool,
+) -> str:
+    """Add or remove the Nauro MCP entry in a JSON config file at ``repo_path / config_rel_path``.
 
-    Writes the file directly. Mirrors how ``_configure_cursor_for_repo``
-    handles ``.cursor/mcp.json`` and ``_configure_codex`` handles
-    ``~/.codex/config.toml``, so all three surface handlers share one shape.
+    Shared shape behind ``_configure_mcp`` (``.mcp.json``) and
+    ``_configure_cursor_for_repo`` (``.cursor/mcp.json``): load → parse →
+    mutate ``mcpServers["nauro"]`` → write. Both surfaces use the same key
+    name and entry shape, so the only per-surface variation is the relative
+    path and the human-readable ``label`` used in status messages.
 
     Returns a one-line status string (indented for ``setup_all_surfaces``).
     """
-    config_path = repo_path / ".mcp.json"
+    config_path = repo_path / config_rel_path
     nauro_cmd = _find_nauro_command()
     nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
 
@@ -114,7 +122,7 @@ def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
         try:
             config = json.loads(config_path.read_text())
         except json.JSONDecodeError as exc:
-            return f"  {repo_path}: could not parse .mcp.json — {exc}"
+            return f"  {repo_path}: could not parse {label} — {exc}"
     else:
         config = {}
 
@@ -129,11 +137,29 @@ def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
             config_path.write_text(json.dumps(config, indent=2) + "\n")
         else:
             config_path.unlink()
-        return f"  {repo_path}: removed nauro from .mcp.json"
+        return f"  {repo_path}: removed nauro from {label}"
 
     config.setdefault("mcpServers", {})["nauro"] = nauro_entry
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2) + "\n")
-    return f"  {repo_path}: wrote nauro to .mcp.json"
+    return f"  {repo_path}: wrote nauro to {label}"
+
+
+def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
+    """Add or remove the Nauro MCP entry in the repo's project-scope ``.mcp.json``.
+
+    Writes the file directly. Mirrors how ``_configure_cursor_for_repo``
+    handles ``.cursor/mcp.json`` and ``_configure_codex`` handles
+    ``~/.codex/config.toml``, so all three surface handlers share one shape.
+
+    Returns a one-line status string (indented for ``setup_all_surfaces``).
+    """
+    return _configure_json_mcp(
+        repo_path,
+        config_rel_path=".mcp.json",
+        label=".mcp.json",
+        remove=remove,
+    )
 
 
 @setup_app.command(name="claude-code")
@@ -213,36 +239,12 @@ def claude_code(
 
 def _configure_cursor_for_repo(repo_path: Path, *, remove: bool) -> str:
     """Add or remove the Nauro MCP entry in this repo's ``.cursor/mcp.json``."""
-    cursor_dir = repo_path / ".cursor"
-    config_path = cursor_dir / "mcp.json"
-    nauro_cmd = _find_nauro_command()
-    nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
-
-    if config_path.exists():
-        try:
-            config = json.loads(config_path.read_text())
-        except json.JSONDecodeError as exc:
-            return f"  {repo_path}: could not parse .cursor/mcp.json — {exc}"
-    else:
-        config = {}
-
-    if remove:
-        servers = config.get("mcpServers", {})
-        if "nauro" in servers:
-            del servers["nauro"]
-            if not servers:
-                config.pop("mcpServers", None)
-            if config:
-                config_path.write_text(json.dumps(config, indent=2) + "\n")
-            else:
-                config_path.unlink()
-            return f"  {repo_path}: removed nauro from .cursor/mcp.json"
-        return f"  {repo_path}: no nauro entry to remove"
-
-    config.setdefault("mcpServers", {})["nauro"] = nauro_entry
-    cursor_dir.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
-    return f"  {repo_path}: wrote nauro to .cursor/mcp.json"
+    return _configure_json_mcp(
+        repo_path,
+        config_rel_path=".cursor/mcp.json",
+        label=".cursor/mcp.json",
+        remove=remove,
+    )
 
 
 @setup_app.command(name="cursor")

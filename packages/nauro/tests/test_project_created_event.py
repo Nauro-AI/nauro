@@ -2,24 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
 from typer.testing import CliRunner
 
-
-class FakeClient:
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    def capture(
-        self,
-        event: str,
-        distinct_id: str,
-        properties: dict[str, Any],
-    ) -> None:
-        self.events.append({"event": event, "distinct_id": distinct_id, "properties": properties})
+from tests.conftest import FakeClient, seed_consented_config
 
 
 @pytest.fixture
@@ -33,38 +21,6 @@ def nauro_home(tmp_path, monkeypatch):
     return home
 
 
-@pytest.fixture
-def telemetry_key(monkeypatch):
-    monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-
-
-@pytest.fixture
-def fake_posthog(monkeypatch):
-    import nauro.telemetry.client as client_mod
-
-    fake = FakeClient()
-    client_mod._client = fake
-    yield fake
-    client_mod._client = None
-
-
-def _seed_consented_config(home, *, enabled: bool) -> str:
-    aid = "11111111-1111-4111-8111-111111111111"
-    (home / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": aid,
-                    "enabled": enabled,
-                    "consent_version": 1,
-                    "consented_at": "2026-04-30T00:00:00Z",
-                }
-            }
-        )
-    )
-    return aid
-
-
 def _events_named(fake: FakeClient, name: str) -> list[dict[str, Any]]:
     return [e for e in fake.events if e["event"] == name]
 
@@ -72,7 +28,7 @@ def _events_named(fake: FakeClient, name: str) -> list[dict[str, Any]]:
 def test_init_success_emits_project_created_with_schema_version(
     nauro_home, telemetry_key, fake_posthog
 ):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 
@@ -93,7 +49,7 @@ def test_init_success_emits_project_created_with_schema_version(
 def test_add_repo_branch_does_not_emit_project_created(
     nauro_home, telemetry_key, fake_posthog, tmp_path
 ):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 
@@ -119,7 +75,7 @@ def test_init_failure_does_not_emit_project_created(
 ):
     """--add-repo against a nonexistent multi-match scenario isn't reachable in v2;
     instead simulate failure by making register_project_v2 raise."""
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     import nauro.cli.commands.init as init_module
 
@@ -145,7 +101,7 @@ def test_init_failure_does_not_emit_project_created(
 
 
 def test_project_created_keys_are_exhaustive(nauro_home, telemetry_key, fake_posthog):
-    _seed_consented_config(nauro_home, enabled=True)
+    seed_consented_config(nauro_home, enabled=True)
 
     from nauro.cli.main import app
 

@@ -27,6 +27,8 @@ from typing import Any
 
 import pytest
 
+from tests.conftest import TEST_ANONYMOUS_ID
+
 _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 
@@ -57,11 +59,6 @@ def nauro_home(tmp_path, monkeypatch):
     return home
 
 
-@pytest.fixture
-def telemetry_key(monkeypatch):
-    monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-
-
 @pytest.fixture(autouse=True)
 def _reset_client_singleton():
     import nauro.telemetry.client as client_mod
@@ -82,7 +79,7 @@ def fake_posthog(monkeypatch):
 
 
 def _seed_telemetry_config(home, *, enabled: bool, anonymous_id: str | None = None) -> str:
-    aid = anonymous_id or "11111111-1111-4111-8111-111111111111"
+    aid = anonymous_id or TEST_ANONYMOUS_ID
     (home / "config.json").write_text(
         json.dumps(
             {
