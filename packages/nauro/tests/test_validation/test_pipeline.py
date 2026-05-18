@@ -416,12 +416,11 @@ class TestD139ResolvesQuestions:
         assert result.resolved_questions == ("2026-05-12 20:18 UTC",)
         oq_content = (store_with_questions / "open-questions.md").read_text()
         assert "## Resolved" in oq_content
+        # Resolved entry carries the back-ref prefix.
         assert "[Resolved by D" in oq_content
-        # q-one moved out of the open section
-        open_part = oq_content.split("## Resolved", 1)[0]
-        assert "[2026-05-12 20:18 UTC]" not in open_part
-        # q-two still in the open section
-        assert "[2026-05-11 15:29 UTC] q-two body text" in open_part
+        assert "[2026-05-12 20:18 UTC] q-one body text" in oq_content
+        # q-two stays open (no prefix).
+        assert "- [2026-05-11 15:29 UTC] q-two body text" in oq_content
 
     def test_resolves_through_pending_confirm(self, store_with_questions: Path) -> None:
         proposal = {

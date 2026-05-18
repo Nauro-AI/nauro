@@ -6,10 +6,17 @@ The authoritative shape for parsed open-questions.md content. Mirrors
 
 A question entry is identified by the UTC timestamp inside its
 ``[YYYY-MM-DD HH:MM UTC]`` prefix — the same id ``flag_question`` writes.
-Resolution sets ``resolved_by`` on the entry; ``format`` then emits it
-under a ``## Resolved`` subsection prefixed with ``[Resolved by Dnn on
-YYYY-MM-DD]``. ``parse_questions`` (in :mod:`nauro_core.parsing`) already
-filters that subsection out of L0 reads.
+Resolution sets ``resolved_by`` on the matching :class:`EntryBlock`;
+``format`` then re-emits it with the ``[Resolved by Dnn on
+YYYY-MM-DD]`` prefix. ``parse_questions`` (in :mod:`nauro_core.parsing`)
+already filters the ``## Resolved`` subsection out of L0 reads.
+
+The internal shape is a flat ``blocks`` list. Each markdown line maps to
+exactly one block (``HeaderBlock``, ``ProseBlock``, ``EntryBlock``,
+``TripleHashBlock``, ``UnparsableBlock``), so ``parse → format`` is
+byte-identical for any input that doesn't pass through ``resolve``. The
+``## Resolved`` divider is positional: its block index splits the list
+into open-section and resolved-section regions.
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date as _date
 from datetime import datetime
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +75,83 @@ class QuestionEntry(BaseModel):
         return [head, *self.continuation]
 
 
+class HeaderBlock(BaseModel):
+    """A ``##`` section header line. ``is_resolved_divider`` marks the
+    ``## Resolved`` boundary that partitions the file."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["header"] = "header"
+    text: str
+    is_resolved_divider: bool
+
+    def render_lines(self) -> list[str]:
+        return [self.text]
+
+
+class ProseBlock(BaseModel):
+    """A run of non-entry lines (free-form prose and blanks). Verbatim."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["prose"] = "prose"
+    lines: tuple[str, ...]
+
+    def render_lines(self) -> list[str]:
+        return list(self.lines)
+
+
+class EntryBlock(BaseModel):
+    """A parsed ``- [...]`` question entry plus its continuation lines."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["entry"] = "entry"
+    entry: QuestionEntry
+
+    def render_lines(self) -> list[str]:
+        return self.entry.render()
+
+
+class TripleHashBlock(BaseModel):
+    """A ``### `` topic header plus its directly-following body lines.
+
+    ``embedded_id`` is set when the head line contains a parseable
+    ``[YYYY-MM-DD HH:MM UTC]`` substring (treated as a question id for
+    boundary validation), otherwise None.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["triple_hash"] = "triple_hash"
+    lines: tuple[str, ...]
+    embedded_id: str | None
+
+    def render_lines(self) -> list[str]:
+        return list(self.lines)
+
+
+class UnparsableBlock(BaseModel):
+    """A line that started with ``- [`` but couldn't be parsed as an entry.
+
+    Preserved verbatim so that round-tripping never silently drops user content.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["unparsable"] = "unparsable"
+    lines: tuple[str, ...]
+
+    def render_lines(self) -> list[str]:
+        return list(self.lines)
+
+
+Block = Annotated[
+    HeaderBlock | ProseBlock | EntryBlock | TripleHashBlock | UnparsableBlock,
+    Field(discriminator="kind"),
+]
+
+
 @dataclass(frozen=True)
 class ResolveResult:
     """Outcome of :meth:`OpenQuestionsFile.resolve`.
@@ -91,8 +176,7 @@ class OpenQuestionsFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     header: str = _DEFAULT_HEADER
-    intro: list[str] = Field(default_factory=list)
-    entries: list[QuestionEntry] = Field(default_factory=list)
+    blocks: list[Block] = Field(default_factory=list)
 
     @classmethod
     def parse(cls, content: str) -> OpenQuestionsFile:
@@ -101,73 +185,122 @@ class OpenQuestionsFile(BaseModel):
         n = len(lines)
         header, i = _parse_header(lines, 0)
 
-        intro: list[str] = []
-        entries: list[QuestionEntry] = []
-        in_resolved_section = False
+        blocks: list[Block] = []
+        pending_prose: list[str] = []
+
+        def flush_prose() -> None:
+            if pending_prose:
+                blocks.append(ProseBlock(lines=tuple(pending_prose)))
+                pending_prose.clear()
 
         while i < n:
             line = lines[i]
-            stripped = line.strip()
 
-            if stripped.startswith("## "):
-                in_resolved_section = "resolved" in stripped.lower()
+            if line.startswith("## "):
+                flush_prose()
+                stripped = line.strip()
+                blocks.append(
+                    HeaderBlock(
+                        text=line.rstrip(),
+                        is_resolved_divider="resolved" in stripped.lower(),
+                    )
+                )
                 i += 1
                 continue
 
-            if not stripped:
-                if not entries:
-                    intro.append(line)
-                i += 1
+            if line.startswith("### "):
+                flush_prose()
+                head_line = line
+                triple_lines: list[str] = [head_line]
+                j = i + 1
+                while j < n:
+                    nxt = lines[j]
+                    if (
+                        not nxt.strip()
+                        or nxt.startswith("## ")
+                        or nxt.startswith("### ")
+                        or nxt.startswith("- [")
+                    ):
+                        break
+                    triple_lines.append(nxt)
+                    j += 1
+                embedded_id = _extract_embedded_id(head_line)
+                blocks.append(
+                    TripleHashBlock(
+                        lines=tuple(triple_lines),
+                        embedded_id=embedded_id,
+                    )
+                )
+                i = j
                 continue
 
             if line.startswith("- ["):
-                entry, consumed = _parse_entry(lines, i, in_resolved_section)
-                if entry is not None:
-                    entries.append(entry)
+                flush_prose()
+                entry, consumed = _parse_entry(lines, i)
+                if entry is None:
+                    blocks.append(UnparsableBlock(lines=(line,)))
+                    i += 1
+                else:
+                    blocks.append(EntryBlock(entry=entry))
                     i += consumed
-                    continue
+                continue
 
-            if not entries:
-                intro.append(line)
+            pending_prose.append(line)
             i += 1
 
-        while intro and not intro[-1].strip():
-            intro.pop()
+        flush_prose()
 
-        return cls(header=header, intro=intro, entries=entries)
+        return cls(header=header, blocks=blocks)
 
     def format(self) -> str:
         """Render the file back to markdown."""
         out: list[str] = [self.header]
-        if self.intro:
-            out.extend(self.intro)
-
-        open_entries = [e for e in self.entries if e.resolved_by is None]
-        resolved_entries = [e for e in self.entries if e.resolved_by is not None]
-
-        for entry in open_entries:
-            out.append("")
-            out.extend(entry.render())
-
-        if resolved_entries:
-            out.append("")
-            out.append(_RESOLVED_HEADER)
-            for entry in resolved_entries:
-                out.append("")
-                out.extend(entry.render())
-
-        out.append("")
+        for b in self.blocks:
+            out.extend(b.render_lines())
         return "\n".join(out)
 
     @property
+    def resolved_divider_idx(self) -> int | None:
+        """Index of the ``## Resolved`` HeaderBlock in :attr:`blocks`, or None."""
+        for idx, b in enumerate(self.blocks):
+            if isinstance(b, HeaderBlock) and b.is_resolved_divider:
+                return idx
+        return None
+
+    @property
     def open_ids(self) -> list[str]:
-        """Ids of currently-open questions."""
-        return [e.id for e in self.entries if e.resolved_by is None]
+        """Entry ids appearing before the ``## Resolved`` divider (or all if no divider)."""
+        divider = self.resolved_divider_idx
+        result: list[str] = []
+        for idx, b in enumerate(self.blocks):
+            if divider is not None and idx >= divider:
+                break
+            if isinstance(b, EntryBlock):
+                result.append(b.entry.id)
+        return result
 
     @property
     def resolved_ids(self) -> list[str]:
-        """Ids of already-resolved questions."""
-        return [e.id for e in self.entries if e.resolved_by is not None]
+        """Entry ids appearing after the ``## Resolved`` divider."""
+        divider = self.resolved_divider_idx
+        if divider is None:
+            return []
+        result: list[str] = []
+        for b in self.blocks[divider + 1 :]:
+            if isinstance(b, EntryBlock):
+                result.append(b.entry.id)
+        return result
+
+    @property
+    def known_question_ids(self) -> set[str]:
+        """All ids the file knows about: entry ids plus triple-hash embedded ids."""
+        known: set[str] = set()
+        for b in self.blocks:
+            if isinstance(b, EntryBlock):
+                known.add(b.entry.id)
+            elif isinstance(b, TripleHashBlock) and b.embedded_id is not None:
+                known.add(b.embedded_id)
+        return known
 
     def resolve(
         self,
@@ -175,33 +308,47 @@ class OpenQuestionsFile(BaseModel):
         decision_num: int,
         date: _date,
     ) -> ResolveResult:
-        """Mark entries with the given timestamp ids as resolved by ``decision_num``."""
+        """Mark entries with the given timestamp ids as resolved by ``decision_num``.
+
+        Blocks are flipped in place — they are never reordered. An entry
+        physically under ``## Resolved`` stays where it is. When no
+        ``## Resolved`` divider exists yet and at least one pre-divider
+        entry was flipped, a divider is appended after the existing blocks.
+        """
         if not ids:
             return ResolveResult(file=self, moved_ids=(), unknown_ids=())
 
         requested = list(dict.fromkeys(ids))
-        by_id = {e.id: e for e in self.entries}
         ref = ResolvedRef(decision_num=decision_num, date=date)
+        requested_set = set(requested)
+        entry_ids = {b.entry.id for b in self.blocks if isinstance(b, EntryBlock)}
+        moved = tuple(i for i in requested if i in entry_ids)
+        unknown = tuple(i for i in requested if i not in entry_ids)
 
-        new_entries = [
-            entry.model_copy(update={"resolved_by": ref})
-            if entry.id in requested and entry.resolved_by is None
-            else entry
-            for entry in self.entries
-        ]
-
-        moved: list[str] = []
-        unknown: list[str] = []
-        for ts_id in requested:
-            if ts_id in by_id:
-                moved.append(ts_id)
+        divider_idx = self.resolved_divider_idx
+        new_blocks: list[Block] = []
+        any_pre_divider_flip = False
+        for idx, b in enumerate(self.blocks):
+            if (
+                isinstance(b, EntryBlock)
+                and b.entry.id in requested_set
+                and b.entry.resolved_by is None
+            ):
+                new_entry = b.entry.model_copy(update={"resolved_by": ref})
+                new_blocks.append(EntryBlock(entry=new_entry))
+                if divider_idx is None or idx < divider_idx:
+                    any_pre_divider_flip = True
             else:
-                unknown.append(ts_id)
+                new_blocks.append(b)
+
+        if divider_idx is None and any_pre_divider_flip:
+            new_blocks.append(ProseBlock(lines=("",)))
+            new_blocks.append(HeaderBlock(text=_RESOLVED_HEADER, is_resolved_divider=True))
 
         return ResolveResult(
-            file=self.model_copy(update={"entries": new_entries}),
-            moved_ids=tuple(moved),
-            unknown_ids=tuple(unknown),
+            file=self.model_copy(update={"blocks": new_blocks}),
+            moved_ids=moved,
+            unknown_ids=unknown,
         )
 
 
@@ -221,13 +368,12 @@ def _parse_header(lines: list[str], i: int) -> tuple[str, int]:
     return header, i
 
 
-def _parse_entry(
-    lines: list[str], start: int, in_resolved_section: bool
-) -> tuple[QuestionEntry | None, int]:
+def _parse_entry(lines: list[str], start: int) -> tuple[QuestionEntry | None, int]:
     """Parse a single ``- [...] body`` entry starting at ``lines[start]``.
 
     Returns ``(entry, lines_consumed)``. ``entry`` is None when the line
-    can't be parsed; the caller advances past the unparsable line.
+    can't be parsed; the caller is responsible for preserving the original
+    line (typically as an :class:`UnparsableBlock`).
     """
     line = lines[start]
     if not line.startswith("- ["):
@@ -260,14 +406,6 @@ def _parse_entry(
     except ValueError:
         return None, 1
 
-    if in_resolved_section and resolved_ref is None:
-        # An open-form entry that landed under ## Resolved is parsable but
-        # has no ResolvedRef. Surface it as resolved with no ref so it
-        # doesn't reappear in the open section on round-trip; the caller
-        # can heal it on the next write by re-resolving with a real ref.
-        # In practice the writer always emits the resolved-prefix form.
-        pass
-
     continuation: list[str] = []
     j = start + 1
     while j < len(lines) and lines[j].startswith("  "):
@@ -299,3 +437,23 @@ def _parse_resolved_prefix(text: str) -> ResolvedRef | None:
         return ResolvedRef(decision_num=int(num_str), date=_date.fromisoformat(date_str))
     except (ValueError, TypeError):
         return None
+
+
+def _extract_embedded_id(line: str) -> str | None:
+    """Find a ``[YYYY-MM-DD HH:MM UTC]`` substring in ``line`` and return its id text.
+
+    Uses plain string ops (no regex). Returns the inner timestamp text if
+    parseable as the canonical format, else None.
+    """
+    start = line.find("[")
+    while start != -1:
+        end = line.find("]", start + 1)
+        if end == -1:
+            return None
+        candidate = line[start + 1 : end]
+        try:
+            datetime.strptime(candidate, _TIMESTAMP_FMT)
+            return candidate
+        except ValueError:
+            start = line.find("[", end + 1)
+    return None
