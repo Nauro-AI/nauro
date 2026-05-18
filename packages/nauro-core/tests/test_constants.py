@@ -18,6 +18,10 @@ from nauro_core.constants import (
     STATE_MD,
     VALID_CONFIDENCES,
 )
+from nauro_core.protocol import (
+    PROPOSE_DECISION_OPERATIONS,
+    RESOLVES_OPEN_QUESTIONS,
+)
 
 
 class TestLimits:
@@ -92,3 +96,15 @@ class TestMcpInstructions:
     def test_check_decision_lists_vendor_swap(self):
         """Vendor swaps are a common conflict surface (e.g. S3 ↔ R2)."""
         assert "vendor swap" in MCP_INSTRUCTIONS_STATIC
+
+    def test_propose_decision_operations_not_in_static(self) -> None:
+        """D151: relocated to the propose_decision.operation parameter so the
+        static block stays small enough for the per-user project section the
+        remote server prepends to survive client-side truncation of the
+        ``initialize.instructions`` field."""
+        assert PROPOSE_DECISION_OPERATIONS not in MCP_INSTRUCTIONS_STATIC
+
+    def test_resolves_open_questions_not_in_static(self) -> None:
+        """D151: relocated to the propose_decision.resolves_questions
+        parameter description, same budget reason as the operations fragment."""
+        assert RESOLVES_OPEN_QUESTIONS not in MCP_INSTRUCTIONS_STATIC
