@@ -351,6 +351,18 @@ class TestResolve:
         rendered = result.file.format()
         assert rendered.count("## Resolved") == 1
 
+    def test_triple_hash_only_id_reported_unknown_not_moved(self):
+        """An id that exists only inside a ``### [timestamp]`` block is not movable
+        via resolve, so resolve reports it in unknown_ids even though
+        known_question_ids includes it for boundary validation."""
+        content = "# Open Questions\n\n### [2026-05-12 20:18 UTC] Topic question\n  body line\n"
+        file = OpenQuestionsFile.parse(content)
+        assert "2026-05-12 20:18 UTC" in file.known_question_ids
+        result = file.resolve(["2026-05-12 20:18 UTC"], 200, date(2026, 5, 18))
+        assert result.moved_ids == ()
+        assert result.unknown_ids == ("2026-05-12 20:18 UTC",)
+        assert result.file.format() == content
+
 
 class TestEntryRender:
     def test_open_form(self):

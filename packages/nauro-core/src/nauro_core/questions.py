@@ -321,9 +321,9 @@ class OpenQuestionsFile(BaseModel):
         requested = list(dict.fromkeys(ids))
         ref = ResolvedRef(decision_num=decision_num, date=date)
         requested_set = set(requested)
-        known = self.known_question_ids
-        unknown = tuple(i for i in requested if i not in known)
-        moved = tuple(i for i in requested if i in known)
+        entry_ids = {b.entry.id for b in self.blocks if isinstance(b, EntryBlock)}
+        moved = tuple(i for i in requested if i in entry_ids)
+        unknown = tuple(i for i in requested if i not in entry_ids)
 
         divider_idx = self.resolved_divider_idx
         new_blocks: list[Block] = []
