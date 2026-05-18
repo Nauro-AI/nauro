@@ -180,14 +180,11 @@ def screen_structural(
     return ("pass", None)
 
 
-# Envelope token detection — see PR-A1 / 2026-05-17 incident.
-#
-# Some non-Anthropic agent surfaces emit tool calls as XML and their MCP
-# bridges occasionally fail to extract <parameter> values cleanly, so the
-# envelope tail (</question>, <parameter name="context">, </invoke>, etc.)
-# ends up appended to the string field the server receives. Writers must
-# reject these before they hit disk — we have already seen them persisted
-# in open-questions.md and in D099's rationale.
+# Some agent surfaces emit tool calls as XML and their MCP bridges may
+# fail to extract <parameter> values cleanly, so the envelope tail
+# (</question>, <parameter name="context">, </invoke>, etc.) ends up
+# appended to the string field the server receives. Writers must reject
+# these before they hit disk.
 _ENVELOPE_TOKENS: tuple[str, ...] = (
     "</question>",
     "</rationale>",
