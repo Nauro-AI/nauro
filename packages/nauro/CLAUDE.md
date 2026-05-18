@@ -12,7 +12,8 @@ The project store lives at `~/.nauro/projects/<project-name>/` — **not** insid
   projects/
     <project-name>/
       project.md                 # stable: goals, non-goals, users, constraints
-      state.md                   # volatile: current sprint, blockers, recent completions
+      state_current.md           # volatile: current sprint, blockers, recent completions
+      state_history.md           # append-only history of completed work
       stack.md                   # tech choices with rationale and rejected alternatives
       open-questions.md          # append-only unresolved threads
       decisions/
