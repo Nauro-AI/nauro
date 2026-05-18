@@ -61,6 +61,9 @@ def _save_conflict_backup(project_path: Path, relative_path: str, content: bytes
     return backup_path
 
 
+_SET_UNION_PATHS = ("open-questions.md", "state_history.md")
+
+
 def resolve_conflict(
     project_path: Path,
     local_path: Path,
@@ -74,6 +77,9 @@ def resolve_conflict(
     For everything else: last-write-wins with backup of the losing version.
     """
     local_content = local_path.read_bytes()
+
+    if relative_path in _SET_UNION_PATHS:
+        return _set_union_markdown(local_content, remote_content)
 
     if _is_append_only(relative_path) and _git_available():
         return _union_merge(local_content, remote_content, relative_path, state)
@@ -125,3 +131,115 @@ def _union_merge(
         merged = local_tmp.read_bytes()
         logger.info("Union merge completed for %s (exit code %d)", relative_path, result.returncode)
         return merged
+
+
+def _parse_sections(lines: list[str]) -> tuple[list[str], list[tuple[str, list[str]]]]:
+    """Split lines into a preamble and a list of (header, body) sections.
+
+    A section starts at any line beginning with "## " (level-2 ATX heading).
+    The preamble is everything before the first such header. Each section body
+    runs until the next "## " line or end of input.
+    """
+    preamble: list[str] = []
+    sections: list[tuple[str, list[str]]] = []
+    current_header: str | None = None
+    current_body: list[str] = []
+
+    for line in lines:
+        if line.startswith("## "):
+            if current_header is None:
+                # Close out the preamble; start the first section.
+                pass
+            else:
+                sections.append((current_header, current_body))
+            current_header = line
+            current_body = []
+            continue
+        if current_header is None:
+            preamble.append(line)
+        else:
+            current_body.append(line)
+
+    if current_header is not None:
+        sections.append((current_header, current_body))
+
+    return preamble, sections
+
+
+def _dedupe_preserve_order(lines: list[str]) -> list[str]:
+    """Drop exact-duplicate non-blank lines, preserving first occurrence order.
+
+    Blank lines are passed through unchanged (not deduped), so the merged
+    output keeps the visual structure of the inputs.
+    """
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        if line == "":
+            out.append(line)
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        out.append(line)
+    return out
+
+
+def _set_union_markdown(local: bytes, remote: bytes) -> bytes:
+    """Section-aware set-union merge for append-only markdown files.
+
+    Parses each side into a preamble plus a list of "## " sections, then emits
+    the deduped union of the preambles followed by, for each section header in
+    local order, the deduped union of that section's local and remote bodies.
+    Any sections that appear only in remote are appended at the end.
+
+    Pure function (no I/O); plain string ops only.
+    """
+    local_text = local.decode("utf-8")
+    remote_text = remote.decode("utf-8")
+
+    local_lines = local_text.split("\n")
+    remote_lines = remote_text.split("\n")
+
+    # split("\n") on a trailing-newline string yields a final "" element. That's
+    # actual content for the dedupe step (blank lines are preserved), so we drop
+    # the synthetic trailing "" and re-add a single newline at the end.
+    local_trailing_nl = local_text.endswith("\n")
+    remote_trailing_nl = remote_text.endswith("\n")
+    if local_trailing_nl and local_lines and local_lines[-1] == "":
+        local_lines = local_lines[:-1]
+    if remote_trailing_nl and remote_lines and remote_lines[-1] == "":
+        remote_lines = remote_lines[:-1]
+
+    local_preamble, local_sections = _parse_sections(local_lines)
+    remote_preamble, remote_sections = _parse_sections(remote_lines)
+
+    # Group sections by header so a header that appears multiple times in one
+    # source (the corrupted-file case where the whole document was duplicated)
+    # collapses into a single emitted section with the union of all bodies.
+    section_order: list[str] = []
+    bodies_by_header: dict[str, list[str]] = {}
+    for header, body in list(local_sections) + list(remote_sections):
+        if header not in bodies_by_header:
+            section_order.append(header)
+            bodies_by_header[header] = []
+        bodies_by_header[header].extend(body)
+
+    merged: list[str] = []
+    merged.extend(_dedupe_preserve_order(local_preamble + remote_preamble))
+
+    for header in section_order:
+        merged.append(header)
+        merged.extend(_dedupe_preserve_order(bodies_by_header[header]))
+
+    # Final pass: dedupe non-blank lines across the whole document. Within each
+    # section the body has already been deduped against itself, but a corrupted
+    # file may carry a stray "# Title" line (or repeated entries) inside a
+    # section body that also lives in the preamble. Drop those exact-duplicate
+    # non-blank lines while preserving blanks and first-occurrence order.
+    deduped = _dedupe_preserve_order(merged)
+
+    result = "\n".join(deduped)
+    if local_trailing_nl or remote_trailing_nl:
+        result += "\n"
+    return result.encode("utf-8")

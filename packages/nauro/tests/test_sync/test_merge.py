@@ -6,6 +6,7 @@ import pytest
 
 from nauro.sync.merge import (
     _is_append_only,
+    _set_union_markdown,
     detect_conflict,
     resolve_conflict,
     should_skip,
@@ -150,3 +151,216 @@ class TestResolveConflict:
 
         result_str = result.decode()
         assert "Question 1" in result_str
+
+
+class TestSetUnionMarkdown:
+    """Section-aware set-union merge for open-questions.md and state_history.md."""
+
+    def test_duplicate_top_level_header_collapses(self):
+        """Both sides carry the same preamble; merge keeps a single header."""
+        local = b"# Open Questions\n\n- A\n\n## Resolved\n- R1\n\n## Active\n- ACT1\n"
+        remote = b"# Open Questions\n\n- A\n\n## Resolved\n- R1\n\n## Active\n- ACT1\n"
+
+        result = _set_union_markdown(local, remote).decode()
+
+        assert result.count("# Open Questions") == 1
+        assert result.count("## Resolved") == 1
+        assert result.count("## Active") == 1
+        assert result.count("- A\n") == 1
+        assert result.count("- R1\n") == 1
+        assert result.count("- ACT1\n") == 1
+
+    def test_unique_entries_local_first_order(self):
+        """Local entries appear first; remote-only entries appended."""
+        local = b"# Open Questions\n- A\n- B\n- C\n"
+        remote = b"# Open Questions\n- A\n- B\n- D\n"
+
+        result = _set_union_markdown(local, remote).decode()
+
+        assert result.count("- A") == 1
+        assert result.count("- B") == 1
+        assert result.count("- C") == 1
+        assert result.count("- D") == 1
+        # Local-first ordering: A, B, C, then remote-only D.
+        pos_a = result.find("- A")
+        pos_b = result.find("- B")
+        pos_c = result.find("- C")
+        pos_d = result.find("- D")
+        assert pos_a < pos_b < pos_c < pos_d
+
+    def test_state_history_no_sections(self):
+        """state_history.md is preamble-only; merge does line-set union."""
+        local = b"L1\nL2\nL3\n"
+        remote = b"L1\nL3\nR1\n"
+
+        result = _set_union_markdown(local, remote).decode()
+
+        assert result.count("L1") == 1
+        assert result.count("L2") == 1
+        assert result.count("L3") == 1
+        assert result.count("R1") == 1
+        # Local-first order preserved.
+        assert result.find("L1") < result.find("L2") < result.find("L3") < result.find("R1")
+
+    def test_remote_preamble_entry_lands_in_preamble(self):
+        """A remote preamble entry merges into the preamble, not into a section."""
+        local = b"# Open Questions\n- local-q\n\n## Resolved\n- old-resolved\n"
+        remote = b"# Open Questions\n- remote-q\n\n## Resolved\n- new-resolved\n"
+
+        result = _set_union_markdown(local, remote).decode()
+
+        # Split on the Resolved header to isolate the preamble from the section.
+        preamble, _, resolved_section = result.partition("## Resolved")
+        assert "- local-q" in preamble
+        assert "- remote-q" in preamble
+        assert "- local-q" not in resolved_section
+        assert "- remote-q" not in resolved_section
+        assert "- old-resolved" in resolved_section
+        assert "- new-resolved" in resolved_section
+
+    def test_blank_lines_preserved(self):
+        """Blank lines are passed through, not collapsed into a single blank."""
+        local = b"# H\n\n- A\n\n## Resolved\n\n- R1\n"
+        remote = b"# H\n\n- B\n\n## Resolved\n\n- R2\n"
+
+        result = _set_union_markdown(local, remote).decode()
+
+        # There should still be a blank line after the top-level header in the
+        # merged output (we didn't collapse it away).
+        assert "# H\n\n" in result
+        # And a blank line right after the ## Resolved header.
+        assert "## Resolved\n\n" in result
+
+    def test_idempotent_on_identical_inputs(self):
+        """merge(content, content) yields content with no duplicate non-blank lines."""
+        content = b"# Open Questions\n\n- A\n- B\n\n## Resolved\n- R1\n\n## Active\n- ACT1\n"
+
+        once = _set_union_markdown(content, content).decode()
+        twice = _set_union_markdown(once.encode(), once.encode()).decode()
+
+        # No non-blank line duplicated on the first or second pass. Match whole
+        # lines (split on "\n") so a prefix like "- A" does not match "- ACT1".
+        once_lines = once.split("\n")
+        twice_lines = twice.split("\n")
+        for token in (
+            "# Open Questions",
+            "## Resolved",
+            "## Active",
+            "- A",
+            "- B",
+            "- R1",
+            "- ACT1",
+        ):
+            assert once_lines.count(token) == 1, f"{token!r} repeats in {once!r}"
+            assert twice_lines.count(token) == 1, f"{token!r} repeats in {twice!r}"
+
+    def test_decisions_do_not_route_to_set_union(self, tmp_path, monkeypatch):
+        """Decision conflicts stay on _union_merge, not _set_union_markdown."""
+        if not shutil.which("git"):
+            pytest.skip("git not available")
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "decisions").mkdir()
+        local_file = project_path / "decisions" / "001-foo.md"
+        local_file.write_text("# Decision 001\nLocal body\n")
+        remote_content = b"# Decision 001\nRemote body\n"
+
+        calls: list[str] = []
+
+        def spy(local: bytes, remote: bytes) -> bytes:
+            calls.append("set_union")
+            return local
+
+        monkeypatch.setattr("nauro.sync.merge._set_union_markdown", spy)
+
+        state = SyncState()
+        resolve_conflict(project_path, local_file, remote_content, "decisions/001-foo.md", state)
+
+        assert calls == []
+
+    def test_open_questions_routes_to_set_union(self, tmp_path, monkeypatch):
+        """open-questions.md conflicts go through _set_union_markdown."""
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        local_file = project_path / "open-questions.md"
+        local_file.write_text("# Open Questions\n- local\n")
+        remote_content = b"# Open Questions\n- remote\n"
+
+        calls: list[tuple[bytes, bytes]] = []
+
+        def spy(local: bytes, remote: bytes) -> bytes:
+            calls.append((local, remote))
+            return b"merged"
+
+        monkeypatch.setattr("nauro.sync.merge._set_union_markdown", spy)
+
+        state = SyncState()
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "open-questions.md", state
+        )
+
+        assert result == b"merged"
+        assert len(calls) == 1
+        assert calls[0][0] == b"# Open Questions\n- local\n"
+        assert calls[0][1] == remote_content
+
+    def test_state_history_routes_to_set_union(self, tmp_path, monkeypatch):
+        """state_history.md conflicts go through _set_union_markdown."""
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        local_file = project_path / "state_history.md"
+        local_file.write_text("local line\n")
+        remote_content = b"remote line\n"
+
+        calls: list[tuple[bytes, bytes]] = []
+
+        def spy(local: bytes, remote: bytes) -> bytes:
+            calls.append((local, remote))
+            return b"merged"
+
+        monkeypatch.setattr("nauro.sync.merge._set_union_markdown", spy)
+
+        state = SyncState()
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "state_history.md", state
+        )
+
+        assert result == b"merged"
+        assert len(calls) == 1
+
+    def test_real_world_duplicate_header_regression(self):
+        """A file already corrupted with a duplicated top-level header heals on resync.
+
+        Mirrors the observed open-questions.md pathology: the entire document
+        appears twice end-to-end. After merging two copies, the result should
+        have a single top-level header and a single copy of each section.
+        """
+        corrupted = (
+            b"# Open Questions\n"
+            b"\n"
+            b"- old-entry\n"
+            b"\n"
+            b"## Resolved\n"
+            b"- old-resolved\n"
+            b"\n"
+            b"## Active\n"
+            b"- old-active\n"
+            b"# Open Questions\n"
+            b"\n"
+            b"- old-entry\n"
+            b"\n"
+            b"## Resolved\n"
+            b"- old-resolved\n"
+            b"\n"
+            b"## Active\n"
+            b"- old-active\n"
+        )
+
+        result = _set_union_markdown(corrupted, corrupted).decode()
+
+        assert result.count("# Open Questions") == 1
+        assert result.count("## Resolved") == 1
+        assert result.count("## Active") == 1
+        assert result.count("- old-entry") == 1
+        assert result.count("- old-resolved") == 1
+        assert result.count("- old-active") == 1
