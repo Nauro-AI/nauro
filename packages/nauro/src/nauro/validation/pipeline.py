@@ -12,7 +12,7 @@ from pathlib import Path
 
 from nauro_core import extract_decision_number
 from nauro_core.constants import MIN_RATIONALE_LENGTH, OPEN_QUESTIONS_MD
-from nauro_core.questions import OpenQuestionsFile
+from nauro_core.questions import EntryBlock, OpenQuestionsFile
 
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.writer import (
@@ -116,25 +116,45 @@ def validate_proposed_write(
             log_validation(project_path, proposal, result.to_dict())
             return result
 
-    # --- reject unknown resolves_questions ids at the boundary ---
+    # --- reject unknown / ambiguous resolves_questions ids at the boundary ---
     # Validate every supplied id exists in open-questions.md (either open
     # or already-resolved). Unknown ids reject before Tier 1 so the
     # assessment names the offending ids rather than slipping past the
-    # gate and failing on the write side.
+    # gate and failing on the write side. Ambiguous ids (two entries
+    # sharing one legacy timestamp id, e.g. logged in the same minute)
+    # also reject — silently moving both entries under one back-reference
+    # is the bug class this branch closes.
     requested_resolves = list(proposal.get("resolves_questions") or [])
     if requested_resolves:
-        unknown = _unknown_question_ids(requested_resolves, project_path)
+        questions_file = _load_questions_file(project_path)
+        unknown = _unknown_question_ids(requested_resolves, questions_file)
         if unknown:
             result = ValidationResult(
                 status="rejected",
                 tier=0,
                 operation=operation,
                 assessment=(
-                    "resolves_questions contains unknown timestamp id(s): "
+                    "resolves_questions contains unknown id(s): "
                     + ", ".join(repr(x) for x in unknown)
                     + ". Call get_context (L0 lists every open question) to "
                     "see the canonical ids in open-questions.md."
                 ),
+            )
+            log_validation(project_path, proposal, result.to_dict())
+            return result
+
+        ambiguous = _ambiguous_question_ids(requested_resolves, questions_file)
+        if ambiguous:
+            offenders = "; ".join(
+                f"{requested!r} matches {len(counterparts)} entries — disambiguate "
+                f"to one of: {', '.join(counterparts)}"
+                for requested, counterparts in ambiguous.items()
+            )
+            result = ValidationResult(
+                status="rejected",
+                tier=0,
+                operation=operation,
+                assessment=("resolves_questions contains ambiguous id(s): " + offenders + "."),
             )
             log_validation(project_path, proposal, result.to_dict())
             return result
@@ -386,11 +406,48 @@ def _apply_question_resolves(
     return result.moved_ids
 
 
-def _unknown_question_ids(ids: list[str], project_path: Path) -> list[str]:
-    """Return any caller-supplied ids absent from open-questions.md."""
+def _load_questions_file(project_path: Path) -> OpenQuestionsFile | None:
+    """Parse open-questions.md once; return None when the file is missing."""
     oq_path = project_path / OPEN_QUESTIONS_MD
     if not oq_path.exists():
+        return None
+    return OpenQuestionsFile.parse(oq_path.read_text())
+
+
+def _unknown_question_ids(ids: list[str], questions_file: OpenQuestionsFile | None) -> list[str]:
+    """Return any caller-supplied ids absent from open-questions.md."""
+    if questions_file is None:
         return list(ids)
-    file = OpenQuestionsFile.parse(oq_path.read_text())
-    known = file.known_question_ids
+    known = questions_file.known_question_ids
     return [tid for tid in ids if tid not in known]
+
+
+def _ambiguous_question_ids(
+    ids: list[str], questions_file: OpenQuestionsFile | None
+) -> dict[str, list[str]]:
+    """Return caller-supplied ids that match more than one EntryBlock.
+
+    Maps each ambiguous id to a list of disambiguating Q### counterparts —
+    one slot per colliding EntryBlock. Slots that don't have a Q### id
+    are reported as ``<no-Q-id>`` so the caller sees how many entries
+    collide and which (if any) are addressable by Q### today. Silent
+    multi-move under one back-reference is the bug being closed; reject
+    at the boundary so the caller has to disambiguate before write.
+    """
+    if questions_file is None:
+        return {}
+    collisions = questions_file.ambiguous_ids
+    requested_ambiguous = [tid for tid in ids if tid in collisions]
+    if not requested_ambiguous:
+        return {}
+
+    # Walk the blocks once to gather per-id counterparts in document order.
+    counterparts: dict[str, list[str]] = {tid: [] for tid in requested_ambiguous}
+    for block in questions_file.blocks:
+        if not isinstance(block, EntryBlock):
+            continue
+        eid = block.entry.id
+        if eid in counterparts:
+            slot = f"Q{block.entry.num}" if block.entry.num is not None else "<no-Q-id>"
+            counterparts[eid].append(slot)
+    return counterparts

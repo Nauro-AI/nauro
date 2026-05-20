@@ -4,12 +4,16 @@ The authoritative shape for parsed open-questions.md content. Mirrors
 ``decision_model.Decision``: ``OpenQuestionsFile.parse`` reads markdown,
 ``format`` writes it back, and validation lives on the model.
 
-A question entry is identified by the UTC timestamp inside its
-``[YYYY-MM-DD HH:MM UTC]`` prefix — the same id ``flag_question`` writes.
-Resolution sets ``resolved_by`` on the matching :class:`EntryBlock`;
-``format`` then re-emits it with the ``[Resolved by Dnn on
-YYYY-MM-DD]`` prefix. ``parse_questions`` (in :mod:`nauro_core.parsing`)
-already filters the ``## Resolved`` subsection out of L0 reads.
+A question entry is identified by its ``[Q###]`` prefix (sequential int
+minted by the writer as ``max(num) + 1`` against the existing store).
+The parser also accepts the legacy ``[YYYY-MM-DD HH:MM UTC]`` form so
+entries written before the Q-form rollout keep round-tripping without
+rewrite. The discriminator is which of ``num`` / ``timestamp`` is set on
+:class:`QuestionEntry`. Resolution sets ``resolved_by`` on the matching
+:class:`EntryBlock`; ``format`` then re-emits it with the ``[Resolved by
+Dnn on YYYY-MM-DD]`` prefix. ``parse_questions`` (in
+:mod:`nauro_core.parsing`) already filters the ``## Resolved`` subsection
+out of L0 reads.
 
 The internal shape is a flat ``blocks`` list. Each markdown line maps to
 exactly one block (``HeaderBlock``, ``ProseBlock``, ``EntryBlock``,
@@ -26,7 +30,7 @@ from datetime import date as _date
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _TIMESTAMP_FMT = "%Y-%m-%d %H:%M UTC"
 _RESOLVED_HEADER = "## Resolved"
@@ -47,19 +51,34 @@ class ResolvedRef(BaseModel):
 class QuestionEntry(BaseModel):
     """A single question entry.
 
-    Open when ``resolved_by`` is None; resolved otherwise. The timestamp
-    doubles as the entry's stable id (``id`` property).
+    Open when ``resolved_by`` is None; resolved otherwise. Exactly one of
+    ``num`` (Q-form, the canonical id) or ``timestamp`` (legacy form,
+    accepted on parse so older entries round-trip without rewrite) must
+    be set; the validator below enforces this.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    timestamp: datetime
+    num: int | None = Field(default=None, ge=1)
+    timestamp: datetime | None = None
     body: str
     continuation: list[str] = Field(default_factory=list)
     resolved_by: ResolvedRef | None = None
 
+    @model_validator(mode="after")
+    def exactly_one_id(self) -> QuestionEntry:
+        if (self.num is None) == (self.timestamp is None):
+            raise ValueError(
+                "QuestionEntry requires exactly one of num or timestamp to be set; "
+                f"got num={self.num!r}, timestamp={self.timestamp!r}."
+            )
+        return self
+
     @property
     def id(self) -> str:
+        if self.num is not None:
+            return f"Q{self.num}"
+        assert self.timestamp is not None  # exactly_one_id validator
         return self.timestamp.strftime(_TIMESTAMP_FMT)
 
     def render(self) -> list[str]:
@@ -163,11 +182,16 @@ class ResolveResult:
             achieved).
         unknown_ids: Ids absent from the file. The caller decides whether
             to surface this as a hard rejection.
+        ambiguous_ids: Ids that matched more than one EntryBlock. When
+            non-empty no blocks were mutated — the input file is returned
+            unchanged. Defensive guard for callers that bypassed the
+            pipeline's ambiguity gate.
     """
 
     file: OpenQuestionsFile
     moved_ids: tuple[str, ...]
     unknown_ids: tuple[str, ...]
+    ambiguous_ids: tuple[str, ...] = ()
 
 
 class OpenQuestionsFile(BaseModel):
@@ -302,23 +326,53 @@ class OpenQuestionsFile(BaseModel):
                 known.add(b.embedded_id)
         return known
 
+    @property
+    def ambiguous_ids(self) -> dict[str, int]:
+        """EntryBlock ids that appear more than once in the file (id -> count).
+
+        Legacy timestamp ids can collide when two questions were logged
+        in the same minute. Q-form ids should be unique by construction,
+        but the property reports any collision so the boundary can reject
+        before mutation.
+        """
+        counts: dict[str, int] = {}
+        for b in self.blocks:
+            if isinstance(b, EntryBlock):
+                counts[b.entry.id] = counts.get(b.entry.id, 0) + 1
+        return {k: v for k, v in counts.items() if v > 1}
+
     def resolve(
         self,
         ids: list[str],
         decision_num: int,
         date: _date,
     ) -> ResolveResult:
-        """Mark entries with the given timestamp ids as resolved by ``decision_num``.
+        """Mark entries with the given ids as resolved by ``decision_num``.
 
         Blocks are flipped in place — they are never reordered. An entry
         physically under ``## Resolved`` stays where it is. When no
         ``## Resolved`` divider exists yet and at least one pre-divider
         entry was flipped, a divider is appended after the existing blocks.
+
+        If any requested id matches more than one EntryBlock, no blocks
+        are mutated and ``ResolveResult.ambiguous_ids`` reports the
+        offending ids. Defense in depth — the validation pipeline should
+        reject ambiguous ids before this call.
         """
         if not ids:
             return ResolveResult(file=self, moved_ids=(), unknown_ids=())
 
         requested = list(dict.fromkeys(ids))
+        ambiguous_map = self.ambiguous_ids
+        ambiguous_requested = tuple(i for i in requested if i in ambiguous_map)
+        if ambiguous_requested:
+            return ResolveResult(
+                file=self,
+                moved_ids=(),
+                unknown_ids=(),
+                ambiguous_ids=ambiguous_requested,
+            )
+
         ref = ResolvedRef(decision_num=decision_num, date=date)
         requested_set = set(requested)
         entry_ids = {b.entry.id for b in self.blocks if isinstance(b, EntryBlock)}
@@ -395,16 +449,19 @@ def _parse_entry(lines: list[str], start: int) -> tuple[QuestionEntry | None, in
         second_close = after_first.find("]")
         if second_close < 1:
             return None, 1
-        timestamp_str = after_first[1:second_close]
+        id_str = after_first[1:second_close]
         body = after_first[second_close + 1 :].lstrip()
     else:
-        timestamp_str = first_inside
+        id_str = first_inside
         body = after_first
 
-    try:
-        timestamp = datetime.strptime(timestamp_str, _TIMESTAMP_FMT)
-    except ValueError:
-        return None, 1
+    num = _parse_q_id(id_str)
+    timestamp: datetime | None = None
+    if num is None:
+        try:
+            timestamp = datetime.strptime(id_str, _TIMESTAMP_FMT)
+        except ValueError:
+            return None, 1
 
     continuation: list[str] = []
     j = start + 1
@@ -414,6 +471,7 @@ def _parse_entry(lines: list[str], start: int) -> tuple[QuestionEntry | None, in
 
     return (
         QuestionEntry(
+            num=num,
             timestamp=timestamp,
             body=body,
             continuation=continuation,
@@ -421,6 +479,26 @@ def _parse_entry(lines: list[str], start: int) -> tuple[QuestionEntry | None, in
         ),
         j - start,
     )
+
+
+def _parse_q_id(text: str) -> int | None:
+    """Parse a ``Q\\d+`` id string into the integer num, or None.
+
+    Plain string ops — file style avoids regex per ``_extract_embedded_id``.
+    Mirrors :class:`QuestionEntry`'s ``num`` ``ge=1`` constraint at the
+    parse layer so a literal ``[Q0]`` line degrades to ``UnparsableBlock``
+    via the strptime fallback rather than raising ``ValidationError`` out
+    of ``_parse_entry``.
+    """
+    if len(text) < 2 or text[0] != "Q":
+        return None
+    digits = text[1:]
+    if not digits.isdigit():
+        return None
+    num = int(digits)
+    if num < 1:
+        return None
+    return num
 
 
 def _parse_resolved_prefix(text: str) -> ResolvedRef | None:
@@ -440,10 +518,10 @@ def _parse_resolved_prefix(text: str) -> ResolvedRef | None:
 
 
 def _extract_embedded_id(line: str) -> str | None:
-    """Find a ``[YYYY-MM-DD HH:MM UTC]`` substring in ``line`` and return its id text.
+    """Find a ``[Q###]`` or ``[YYYY-MM-DD HH:MM UTC]`` substring in ``line``.
 
-    Uses plain string ops (no regex). Returns the inner timestamp text if
-    parseable as the canonical format, else None.
+    Returns the inner id text if either grammar parses, else None. Plain
+    string ops (no regex).
     """
     start = line.find("[")
     while start != -1:
@@ -451,6 +529,8 @@ def _extract_embedded_id(line: str) -> str | None:
         if end == -1:
             return None
         candidate = line[start + 1 : end]
+        if _parse_q_id(candidate) is not None:
+            return candidate
         try:
             datetime.strptime(candidate, _TIMESTAMP_FMT)
             return candidate

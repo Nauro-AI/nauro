@@ -28,7 +28,7 @@ from nauro_core.decision_model import (
     Reversibility,
     format_decision,
 )
-from nauro_core.questions import OpenQuestionsFile, ResolveResult
+from nauro_core.questions import EntryBlock, OpenQuestionsFile, ResolveResult
 from nauro_core.state import migrate_legacy_state, prepare_state_update
 
 from nauro.constants import (
@@ -252,27 +252,40 @@ def update_decision(
 
 
 def append_question(store_path: Path, question: str) -> None:
-    """Append a question to open-questions.md with timestamp."""
+    """Append a question to open-questions.md with a sequential ``Q###`` id.
+
+    Holds a FileLock on ``open-questions.md.lock`` while parsing the
+    current file and minting ``next_num = max(existing) + 1``. New entries
+    always use the Q-form; the parser still accepts legacy timestamp ids
+    on existing entries for round-trip preservation.
+    """
     oq_path = store_path / OPEN_QUESTIONS_MD
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    entry = f"- [{timestamp}] {question}\n"
+    lock_path = oq_path.with_name(oq_path.name + ".lock")
 
-    content = oq_path.read_text() if oq_path.exists() else "# Open Questions\n"
+    with FileLock(str(lock_path)):
+        content = oq_path.read_text() if oq_path.exists() else "# Open Questions\n"
+        existing_nums = [
+            b.entry.num
+            for b in OpenQuestionsFile.parse(content).blocks
+            if isinstance(b, EntryBlock) and b.entry.num is not None
+        ]
+        next_num = max(existing_nums, default=0) + 1
+        entry = f"- [Q{next_num}] {question}"
 
-    lines = content.split("\n")
-    insert_idx = 1
-    for i, line in enumerate(lines):
-        if line.startswith("# "):
-            insert_idx = i + 1
-            break
+        lines = content.split("\n")
+        insert_idx = 1
+        for i, line in enumerate(lines):
+            if line.startswith("# "):
+                insert_idx = i + 1
+                break
 
-    while insert_idx < len(lines) and (
-        lines[insert_idx].strip() == "" or lines[insert_idx].startswith("<!--")
-    ):
-        insert_idx += 1
+        while insert_idx < len(lines) and (
+            lines[insert_idx].strip() == "" or lines[insert_idx].startswith("<!--")
+        ):
+            insert_idx += 1
 
-    lines.insert(insert_idx, entry.rstrip())
-    oq_path.write_text("\n".join(lines))
+        lines.insert(insert_idx, entry)
+        oq_path.write_text("\n".join(lines))
 
 
 def resolve_questions_in_file(

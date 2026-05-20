@@ -225,8 +225,8 @@ with refresh tokens and RBAC.
 
 OPEN_QUESTIONS_MD = """\
 # Open Questions
-- [2026-03-14 10:00 UTC] Should we add rate limiting at the API gateway or application layer?
-- [2026-03-13 15:30 UTC] Redis vs in-memory caching for session storage?
+- [Q1] Should we add rate limiting at the API gateway or application layer?
+- [Q2] Redis vs in-memory caching for session storage?
 """
 
 PROJECT_MD = """\
