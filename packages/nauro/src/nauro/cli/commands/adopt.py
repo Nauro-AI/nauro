@@ -129,13 +129,39 @@ def adopt(
         "--no-setup-and-skills",
         help="Skip MCP wiring + skill materialization (for users with existing wiring).",
     ),
+    with_subagents: bool = typer.Option(
+        False,
+        "--with-subagents",
+        help=(
+            "Install Nauro's bundled workflow subagents (@nauro-planner, "
+            "@nauro-executor, @nauro-reviewer, @nauro-tech-lead) into "
+            "~/.claude/agents/. Off by default to avoid overwriting "
+            "customized files."
+        ),
+    ),
+    force_overwrite: bool = typer.Option(
+        False,
+        "--force-overwrite",
+        help=(
+            "Replace locally-modified ~/.claude/agents/nauro-*.md files when "
+            "--with-subagents is passed. Off by default; without this flag, "
+            "existing files are preserved."
+        ),
+    ),
 ) -> None:
     """Adopt an existing repo into Nauro: register, wire MCP, install skills."""
     if print_prompt:
-        if name is not None or repo is not None or no_setup_and_skills:
+        if (
+            name is not None
+            or repo is not None
+            or no_setup_and_skills
+            or with_subagents
+            or force_overwrite
+        ):
             typer.echo(
                 "Error: --print-prompt is mutually exclusive with --name, "
-                "--repo, and --no-setup-and-skills.",
+                "--repo, --no-setup-and-skills, --with-subagents, and "
+                "--force-overwrite.",
                 err=True,
             )
             raise typer.Exit(code=1)
@@ -196,7 +222,12 @@ def adopt(
     # ── wire MCP + materialize skills ──────────────────────────────────────
     if not no_setup_and_skills:
         typer.echo("\nWiring MCP and installing skills across surfaces:")
-        for line in setup_all_surfaces([repo_root], remove=False):
+        for line in setup_all_surfaces(
+            [repo_root],
+            remove=False,
+            with_subagents=with_subagents,
+            force_overwrite=force_overwrite,
+        ):
             typer.echo(line)
 
         warning = _smoke_test_wired_binary(_find_nauro_command())

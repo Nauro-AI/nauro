@@ -45,6 +45,8 @@ The demo project ruled out WebSocket because persistent connections weren't rele
 
 For real-project setup (`nauro init` / `nauro adopt`), cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme). Don't run `nauro setup` from `/tmp/nauro-demo` — that would wire the throwaway demo into your MCP client.
 
+`nauro adopt --with-subagents` additionally installs Nauro's bundled Claude Code workflow subagents (`@nauro-planner`, `@nauro-executor`, `@nauro-reviewer`, `@nauro-tech-lead`) into `~/.claude/agents/`. Off by default to avoid overwriting locally-customized files; pass `--force-overwrite` to replace customized files.
+
 ## Why Nauro?
 
 Memory tools record what agents saw and said. Nauro captures what you decided and rejected, then checks every session against those decisions before they drift.

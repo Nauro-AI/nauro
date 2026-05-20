@@ -107,6 +107,8 @@ nauro adopt
 
 `nauro adopt` runs the full setup (project registration, MCP wiring across surfaces, skill installation) in one shot. After it finishes, restart your agent and invoke `/nauro-adopt` — the agent reads your existing docs, surfaces decision candidates for you to keep or skip, then seeds the store one decision at a time. The agent does the reading; no API key required server-side.
 
+- Optional: pass `--with-subagents` to also install Nauro's bundled Claude Code workflow subagents (`@nauro-planner`, `@nauro-executor`, `@nauro-reviewer`, `@nauro-tech-lead`) into `~/.claude/agents/`. Off by default to avoid overwriting locally-customized files; pass `--force-overwrite` to replace customized ones. Browse the bodies without installing at [`packages/nauro/src/nauro/agents/`](packages/nauro/src/nauro/agents/).
+
 Either path: agents propose decisions through MCP during sessions. When a proposal overlaps with existing decisions, you confirm before it's written.
 
 ## Use across surfaces
