@@ -14,7 +14,7 @@ from pathlib import Path
 
 from nauro_core import MCP_INSTRUCTIONS_STATIC
 
-from nauro.skills import load_adopt_body, load_session_body
+from nauro.skills import load_adopt_body
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -24,7 +24,6 @@ def load_docs_adopt_prompt() -> str:
 
 
 SKILL_SURFACES: dict[str, Callable[[], str]] = {
-    "session_body.md": load_session_body,
     "adopt_body.md": load_adopt_body,
     "MCP_INSTRUCTIONS_STATIC": lambda: MCP_INSTRUCTIONS_STATIC,
     "docs/adopt-prompt.md": load_docs_adopt_prompt,

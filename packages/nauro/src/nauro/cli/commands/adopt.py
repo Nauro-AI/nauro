@@ -206,6 +206,6 @@ def adopt(
     typer.echo(
         "\nNext: restart your agent and invoke /nauro-adopt to seed context "
         "from this repo. Cursor users: if you `git add "
-        ".cursor/rules/nauro*.mdc`, collaborators on this repo get both the "
-        "/nauro-adopt and /nauro rules."
+        ".cursor/rules/nauro-adopt.mdc`, collaborators on this repo get the "
+        "/nauro-adopt rule."
     )

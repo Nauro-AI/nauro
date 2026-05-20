@@ -145,13 +145,10 @@ def test_adopt_materializes_skills_across_surfaces(tmp_path: Path, monkeypatch):
 
     # Claude Code: user-global
     assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
-    assert (tmp_path / ".claude" / "skills" / "nauro" / "SKILL.md").is_file()
     # Cursor: per-project (in target repo)
     assert (repo / ".cursor" / "rules" / "nauro-adopt.mdc").is_file()
-    assert (repo / ".cursor" / "rules" / "nauro.mdc").is_file()
     # Codex: user-global
     assert (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
-    assert (tmp_path / ".agents" / "skills" / "nauro" / "SKILL.md").is_file()
 
 
 def test_adopt_aborts_on_nonexistent_repo(tmp_path: Path, monkeypatch):

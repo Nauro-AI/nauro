@@ -18,11 +18,10 @@ from nauro_core import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
     NO_INVENT_RATIONALE,
-    RESOLVES_OPEN_QUESTIONS,
 )
 from nauro_core.protocol import protocol_tokens_in
 
-from nauro.skills import load_adopt_body, load_session_body, render_skill
+from nauro.skills import load_adopt_body, render_skill
 from tests._skill_surfaces import REPO_ROOT, load_docs_adopt_prompt
 
 # Per-surface fragment manifest. Each rendered surface must contain every
@@ -30,12 +29,6 @@ from tests._skill_surfaces import REPO_ROOT, load_docs_adopt_prompt
 # omits (e.g. session today does not surface propose_decision operations)
 # stay out of this map — silence is allowed, divergence is not.
 SURFACE_FRAGMENTS: dict[str, list[str]] = {
-    "session": [
-        CHECK_DECISION_RETURNS,
-        GET_DECISION_BEFORE_PROPOSING,
-        NO_INVENT_RATIONALE,
-        RESOLVES_OPEN_QUESTIONS,
-    ],
     "adopt": [
         CHECK_DECISION_RETURNS,
         GET_DECISION_BEFORE_PROPOSING,
@@ -71,10 +64,6 @@ ADOPT_OPERATION_ANCHORS: tuple[str, ...] = (
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _session_rendered() -> str:
-    return render_skill("claude_code", "nauro")
-
-
 def _adopt_rendered() -> str:
     return render_skill("claude_code", "nauro-adopt")
 
@@ -91,7 +80,7 @@ def _propose_decision_spec_text() -> str:
     return json.dumps(get_tool_spec("propose_decision"), ensure_ascii=False)
 
 
-_RENDERED_LOADERS = {"session": _session_rendered, "adopt": _adopt_rendered}
+_RENDERED_LOADERS = {"adopt": _adopt_rendered}
 
 
 @pytest.mark.parametrize(
@@ -136,7 +125,7 @@ def test_adopt_body_mentions_operation_anchor(anchor: str) -> None:
 
 @pytest.mark.parametrize(
     "surface,skill",
-    [(s, k) for s in ("claude_code", "cursor", "codex") for k in ("nauro", "nauro-adopt")],
+    [(s, k) for s in ("claude_code", "cursor", "codex") for k in ("nauro-adopt",)],
 )
 def test_rendered_skill_has_no_protocol_tokens(surface: str, skill: str) -> None:
     rendered = render_skill(surface, skill)
@@ -146,7 +135,6 @@ def test_rendered_skill_has_no_protocol_tokens(surface: str, skill: str) -> None
 
 
 def test_loaders_have_no_protocol_tokens() -> None:
-    assert protocol_tokens_in(load_session_body()) == []
     assert protocol_tokens_in(load_adopt_body()) == []
 
 
@@ -161,7 +149,7 @@ def test_docs_adopt_prompt_has_no_protocol_tokens() -> None:
 # Source templates: only known tokens allowed (catches typos at the source)
 # ─────────────────────────────────────────────────────────────────────────────
 
-SOURCE_TEMPLATE_FILES = ("session_body.md", "adopt_body.md")
+SOURCE_TEMPLATE_FILES = ("adopt_body.md",)
 
 
 @pytest.mark.parametrize("template_filename", SOURCE_TEMPLATE_FILES)
@@ -186,11 +174,8 @@ def test_source_template_has_only_known_tokens(template_filename: str) -> None:
 # render_skill() output, so the token-free assertion here is belt-and-braces.
 DISTRIBUTION_FILES = (
     ".claude/skills/nauro-adopt/SKILL.md",
-    ".claude/skills/nauro/SKILL.md",
     ".cursor/rules/nauro-adopt.mdc",
-    ".cursor/rules/nauro.mdc",
     ".agents/skills/nauro-adopt/SKILL.md",
-    ".agents/skills/nauro/SKILL.md",
     "docs/adopt-prompt.md",
 )
 
@@ -266,7 +251,6 @@ def _check_decision_docstring() -> str:
 @pytest.mark.parametrize(
     "surface_name,getter",
     [
-        ("session (rendered)", _session_rendered),
         ("adopt (rendered)", _adopt_rendered),
         ("docs/adopt-prompt.md", load_docs_adopt_prompt),
         ("propose_decision ToolSpec", _propose_decision_spec_text),
