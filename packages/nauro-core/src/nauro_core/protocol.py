@@ -58,10 +58,11 @@ NO_INVENT_RATIONALE = (
 
 RESOLVES_OPEN_QUESTIONS = (
     "When a proposal closes one of `get_context`'s open questions, include "
-    "the question's `[YYYY-MM-DD HH:MM UTC]` timestamp in "
-    "`resolves_questions`. The named entries move under `## Resolved` with a "
-    "back-reference to the new decision on confirm; unknown ids reject at "
-    "the boundary."
+    "the question's `[Q###]` id in `resolves_questions`. Legacy "
+    "`[YYYY-MM-DD HH:MM UTC]` ids are still accepted for entries that "
+    "predate the Q-form rollout. The named entries move under "
+    "`## Resolved` with a back-reference to the new decision on confirm; "
+    "unknown or ambiguous ids reject at the boundary."
 )
 
 CANONICAL_FRAGMENTS: dict[str, str] = {

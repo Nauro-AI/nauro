@@ -357,7 +357,9 @@ class TestD133UpdateRejectsMetadata:
 
 class TestD139ResolvesQuestions:
     """D139: propose_decision can pass `resolves_questions` to move named
-    open-questions.md entries under ``## Resolved`` on confirm.
+    open-questions.md entries under ``## Resolved`` on confirm. Q-form
+    ids are the canonical scheme; legacy timestamp ids remain accepted
+    for entries that predate the Q-form rollout.
     """
 
     RATIONALE = (
@@ -367,8 +369,20 @@ class TestD139ResolvesQuestions:
 
     @pytest.fixture
     def store_with_questions(self, tmp_path: Path) -> Path:
+        """Q-form fixture — the canonical id scheme."""
         store_path = tmp_path / "projects" / "d139"
         scaffold_project_store("d139", store_path)
+        oq = store_path / "open-questions.md"
+        oq.write_text("# Open Questions\n\n- [Q1] q-one body text\n- [Q2] q-two body text\n")
+        return store_path
+
+    @pytest.fixture
+    def store_with_legacy_questions(self, tmp_path: Path) -> Path:
+        """Legacy timestamp fixture — kept so the reject-path and
+        dual-grammar acceptance tests can still target the legacy id
+        grammar that older stores may carry forward."""
+        store_path = tmp_path / "projects" / "d139-legacy"
+        scaffold_project_store("d139-legacy", store_path)
         oq = store_path / "open-questions.md"
         oq.write_text(
             "# Open Questions\n"
@@ -378,19 +392,21 @@ class TestD139ResolvesQuestions:
         )
         return store_path
 
-    def test_unknown_id_rejects_at_boundary(self, store_with_questions: Path) -> None:
+    def test_unknown_id_rejects_at_boundary(self, store_with_legacy_questions: Path) -> None:
         proposal = {
             "title": "A decision that names a bogus question",
             "rationale": self.RATIONALE,
             "resolves_questions": ["2099-01-01 00:00 UTC"],
         }
-        result = validate_proposed_write(proposal, store_with_questions)
+        result = validate_proposed_write(proposal, store_with_legacy_questions)
         assert result.status == "rejected"
         assert result.tier == 0
         assert "2099-01-01 00:00 UTC" in result.assessment
         assert "resolves_questions" in result.assessment
 
-    def test_unknown_id_rejection_lists_every_offender(self, store_with_questions: Path) -> None:
+    def test_unknown_id_rejection_lists_every_offender(
+        self, store_with_legacy_questions: Path
+    ) -> None:
         proposal = {
             "title": "A decision that names two bogus questions",
             "rationale": self.RATIONALE,
@@ -400,7 +416,7 @@ class TestD139ResolvesQuestions:
                 "2026-05-12 20:18 UTC",  # this one IS valid
             ],
         }
-        result = validate_proposed_write(proposal, store_with_questions)
+        result = validate_proposed_write(proposal, store_with_legacy_questions)
         assert result.status == "rejected"
         for bad in ("2099-01-01 00:00 UTC", "2099-02-02 00:00 UTC"):
             assert bad in result.assessment
@@ -409,24 +425,40 @@ class TestD139ResolvesQuestions:
         proposal = {
             "title": "A decision that closes the first open question",
             "rationale": self.RATIONALE,
-            "resolves_questions": ["2026-05-12 20:18 UTC"],
+            "resolves_questions": ["Q1"],
         }
         result = validate_proposed_write(proposal, store_with_questions)
         assert result.status == "confirmed"
-        assert result.resolved_questions == ("2026-05-12 20:18 UTC",)
+        assert result.resolved_questions == ("Q1",)
         oq_content = (store_with_questions / "open-questions.md").read_text()
         assert "## Resolved" in oq_content
         # Resolved entry carries the back-ref prefix.
         assert "[Resolved by D" in oq_content
+        assert "[Q1] q-one body text" in oq_content
+        # Q2 stays open (no prefix).
+        assert "- [Q2] q-two body text" in oq_content
+
+    def test_legacy_timestamp_id_still_accepted(self, store_with_legacy_questions: Path) -> None:
+        """Dual-grammar acceptance: entries that predate the Q-form
+        rollout keep their legacy timestamp ids and resolves_questions
+        must still move them."""
+        proposal = {
+            "title": "A decision that closes a legacy-id question",
+            "rationale": self.RATIONALE,
+            "resolves_questions": ["2026-05-12 20:18 UTC"],
+        }
+        result = validate_proposed_write(proposal, store_with_legacy_questions)
+        assert result.status == "confirmed"
+        assert result.resolved_questions == ("2026-05-12 20:18 UTC",)
+        oq_content = (store_with_legacy_questions / "open-questions.md").read_text()
+        assert "## Resolved" in oq_content
         assert "[2026-05-12 20:18 UTC] q-one body text" in oq_content
-        # q-two stays open (no prefix).
-        assert "- [2026-05-11 15:29 UTC] q-two body text" in oq_content
 
     def test_resolves_through_pending_confirm(self, store_with_questions: Path) -> None:
         proposal = {
             "title": "A decision that closes via the pending path",
             "rationale": self.RATIONALE,
-            "resolves_questions": ["2026-05-12 20:18 UTC"],
+            "resolves_questions": ["Q1"],
         }
         result = validate_proposed_write(proposal, store_with_questions, skip_validation=True)
         assert result.status == "pending_confirmation"
@@ -437,7 +469,7 @@ class TestD139ResolvesQuestions:
 
         confirm_response = confirm_write(result.confirm_id, store_with_questions)
         assert confirm_response["status"] == "confirmed"
-        assert confirm_response.get("resolved_questions") == ["2026-05-12 20:18 UTC"]
+        assert confirm_response.get("resolved_questions") == ["Q1"]
         oq_after = (store_with_questions / "open-questions.md").read_text()
         assert "## Resolved" in oq_after
 
@@ -446,21 +478,21 @@ class TestD139ResolvesQuestions:
         oq.write_text(
             "# Open Questions\n"
             "\n"
-            "- [2026-05-11 15:29 UTC] q-two\n"
+            "- [Q2] q-two\n"
             "\n"
             "## Resolved\n"
             "\n"
-            "- [Resolved by D100 on 2026-05-01] [2026-04-30 10:00 UTC] q-old\n"
+            "- [Resolved by D100 on 2026-05-01] [Q1] q-old\n"
         )
         proposal = {
             "title": "A decision that names an already-resolved question",
             "rationale": self.RATIONALE,
-            "resolves_questions": ["2026-04-30 10:00 UTC"],
+            "resolves_questions": ["Q1"],
         }
         result = validate_proposed_write(proposal, store_with_questions)
         # Should NOT reject — already-resolved counts as known.
         assert result.status == "confirmed"
-        assert result.resolved_questions == ("2026-04-30 10:00 UTC",)
+        assert result.resolved_questions == ("Q1",)
         # And the resolved-section back-ref to D100 is preserved.
         assert "[Resolved by D100 on 2026-05-01]" in oq.read_text()
 
@@ -487,7 +519,7 @@ class TestD139ResolvesQuestions:
         proposal = {
             "title": "Supersedes the seed and closes a question",
             "rationale": self.RATIONALE,
-            "resolves_questions": ["2026-05-12 20:18 UTC"],
+            "resolves_questions": ["Q1"],
         }
         decisions = sorted(
             (store_with_questions / "decisions").glob("*.md"),
@@ -507,6 +539,60 @@ class TestD139ResolvesQuestions:
         confirm = confirm_write(result.confirm_id, store_with_questions)
         assert confirm["status"] == "confirmed"
         assert confirm["operation"] == "supersede"
-        assert confirm.get("resolved_questions") == ["2026-05-12 20:18 UTC"]
+        assert confirm.get("resolved_questions") == ["Q1"]
         oq_content = (store_with_questions / "open-questions.md").read_text()
         assert "## Resolved" in oq_content
+
+
+class TestAmbiguousResolvesQuestionsRejected:
+    """Silent multi-move under one back-reference is the bug being
+    closed. Two entries sharing the same id (e.g. same-minute legacy
+    timestamps) must reject at the boundary instead of being moved
+    together.
+    """
+
+    RATIONALE = (
+        "A sufficiently long rationale that comfortably exceeds the structural "
+        "minimum length so the ambiguity branch is what is exercised."
+    )
+
+    @pytest.fixture
+    def store_with_colliding_questions(self, tmp_path: Path) -> Path:
+        store_path = tmp_path / "projects" / "ambiguous"
+        scaffold_project_store("ambiguous", store_path)
+        oq = store_path / "open-questions.md"
+        # Two questions logged in the same minute share the legacy
+        # timestamp id — the original bug shape.
+        oq.write_text(
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] first colliding question\n"
+            "- [2026-05-12 20:18 UTC] second colliding question\n"
+        )
+        return store_path
+
+    def test_ambiguous_id_rejects_at_boundary(self, store_with_colliding_questions: Path) -> None:
+        proposal = {
+            "title": "A decision that names a duplicated id",
+            "rationale": self.RATIONALE,
+            "resolves_questions": ["2026-05-12 20:18 UTC"],
+        }
+        result = validate_proposed_write(proposal, store_with_colliding_questions)
+        assert result.status == "rejected"
+        assert result.tier == 0
+        assert "2026-05-12 20:18 UTC" in result.assessment
+        assert "ambiguous" in result.assessment
+        # Two colliding legacy entries, neither has a Q### counterpart yet.
+        assert "<no-Q-id>" in result.assessment
+        assert "disambiguate" in result.assessment
+
+    def test_ambiguous_id_does_not_mutate_file(self, store_with_colliding_questions: Path) -> None:
+        oq_before = (store_with_colliding_questions / "open-questions.md").read_text()
+        proposal = {
+            "title": "A decision that names a duplicated id",
+            "rationale": self.RATIONALE,
+            "resolves_questions": ["2026-05-12 20:18 UTC"],
+        }
+        validate_proposed_write(proposal, store_with_colliding_questions)
+        oq_after = (store_with_colliding_questions / "open-questions.md").read_text()
+        assert oq_after == oq_before

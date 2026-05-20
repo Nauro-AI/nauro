@@ -176,12 +176,12 @@ class TestProposeDecisionResolvesQuestions:
     """
 
     def _seed_question(self, store: Path) -> str:
-        """Write one question with a deterministic timestamp; return its id."""
-        ts = "2026-05-12 20:18 UTC"
+        """Write one question with a Q-form id; return its id."""
+        qid = "Q1"
         (store / "open-questions.md").write_text(
-            f"# Open Questions\n\n- [{ts}] should we ship D139?\n"
+            f"# Open Questions\n\n- [{qid}] should we ship D139?\n"
         )
-        return ts
+        return qid
 
     def test_known_id_moves_to_resolved(self, store: Path):
         question_id = self._seed_question(store)

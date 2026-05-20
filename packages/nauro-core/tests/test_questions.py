@@ -1,8 +1,9 @@
 """Tests for nauro_core.questions."""
 
-from datetime import date
+from datetime import date, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from nauro_core.questions import (
     EntryBlock,
@@ -396,3 +397,203 @@ class TestBlockTypes:
         assert EntryBlock is not None
         assert TripleHashBlock is not None
         assert UnparsableBlock is not None
+
+
+class TestQuestionEntryIdValidator:
+    def test_requires_one_of_num_or_timestamp(self):
+        with pytest.raises(ValidationError):
+            QuestionEntry(body="missing both")
+
+    def test_rejects_both_num_and_timestamp(self):
+        with pytest.raises(ValidationError):
+            QuestionEntry(num=1, timestamp=datetime(2026, 5, 19, 22, 13), body="both")
+
+    def test_num_only_renders_q_form(self):
+        entry = QuestionEntry(num=17, body="qbody")
+        assert entry.id == "Q17"
+        assert entry.render() == ["- [Q17] qbody"]
+
+    def test_timestamp_only_renders_legacy_form(self):
+        entry = QuestionEntry(timestamp=datetime(2026, 5, 19, 22, 13), body="qbody")
+        assert entry.id == "2026-05-19 22:13 UTC"
+        assert entry.render() == ["- [2026-05-19 22:13 UTC] qbody"]
+
+    def test_resolved_prefix_keeps_q_form(self):
+        entry = QuestionEntry(
+            num=42,
+            body="qbody",
+            resolved_by=ResolvedRef(decision_num=7, date=date(2026, 5, 19)),
+        )
+        assert entry.render() == ["- [Resolved by D7 on 2026-05-19] [Q42] qbody"]
+
+
+class TestParseQForm:
+    def test_parse_q_form_open(self):
+        content = "# Open Questions\n\n- [Q1] new id body\n"
+        file = OpenQuestionsFile.parse(content)
+        assert file.open_ids == ["Q1"]
+        entry_blocks = [b for b in file.blocks if isinstance(b, EntryBlock)]
+        assert entry_blocks[0].entry.num == 1
+        assert entry_blocks[0].entry.timestamp is None
+
+    def test_parse_q_form_resolved(self):
+        content = "# Open Questions\n\n## Resolved\n\n- [Resolved by D7 on 2026-05-19] [Q3] body\n"
+        file = OpenQuestionsFile.parse(content)
+        assert file.resolved_ids == ["Q3"]
+        entry_blocks = [b for b in file.blocks if isinstance(b, EntryBlock)]
+        assert entry_blocks[0].entry.num == 3
+        assert entry_blocks[0].entry.resolved_by == ResolvedRef(
+            decision_num=7, date=date(2026, 5, 19)
+        )
+
+    def test_parse_q_form_round_trip_byte_identical(self):
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] first\n"
+            "- [Q17] seventeenth\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D7 on 2026-05-19] [Q2] resolved q\n"
+        )
+        assert OpenQuestionsFile.parse(content).format() == content
+
+    def test_mixed_grammar_parse(self):
+        """Both id forms parse from a single file."""
+        content = (
+            "# Open Questions\n\n- [Q1] new-form open\n- [2026-05-12 20:18 UTC] legacy-form open\n"
+        )
+        file = OpenQuestionsFile.parse(content)
+        assert file.open_ids == ["Q1", "2026-05-12 20:18 UTC"]
+
+    def test_mixed_grammar_round_trip_byte_identical(self):
+        """Any input not touched by resolve must round-trip verbatim."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q5] new-form open\n"
+            "- [2026-05-12 20:18 UTC] legacy-form open\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D11 on 2026-05-14] [Q2] new-form resolved\n"
+            "- [Resolved by D12 on 2026-05-01] [2026-04-30 10:00 UTC] legacy-form resolved\n"
+        )
+        assert OpenQuestionsFile.parse(content).format() == content
+
+    def test_known_question_ids_includes_both_forms(self):
+        content = "# Open Questions\n\n- [Q1] new\n- [2026-05-12 20:18 UTC] legacy\n"
+        file = OpenQuestionsFile.parse(content)
+        assert file.known_question_ids == {"Q1", "2026-05-12 20:18 UTC"}
+
+    def test_extract_embedded_id_accepts_q_form(self):
+        """### topic heads may embed Q-form ids; boundary validation needs them."""
+        content = "# Open Questions\n\n### [Q9] Topic with Q-form id\nnarrative\n"
+        file = OpenQuestionsFile.parse(content)
+        triple = next(b for b in file.blocks if isinstance(b, TripleHashBlock))
+        assert triple.embedded_id == "Q9"
+        assert "Q9" in file.known_question_ids
+
+    def test_parse_q_zero_degrades_to_unparsable_block(self):
+        """`[Q0]` must not raise: ``num`` carries ``ge=1`` and a Q-id of 0
+        would crash the whole file. The parser treats it as malformed
+        Q-grammar and lands the line in UnparsableBlock, preserving the
+        round-trip-for-unmodified-blocks contract."""
+        content = "# Open Questions\n\n- [Q0] body\n"
+        file = OpenQuestionsFile.parse(content)
+        kinds = [type(b).__name__ for b in file.blocks]
+        assert "UnparsableBlock" in kinds
+        unparsable = next(b for b in file.blocks if isinstance(b, UnparsableBlock))
+        assert unparsable.lines == ("- [Q0] body",)
+
+    def test_parse_q_zero_round_trip_byte_identical(self):
+        content = "# Open Questions\n\n- [Q0] body\n"
+        assert OpenQuestionsFile.parse(content).format() == content
+
+    @pytest.mark.parametrize(
+        "head",
+        ["[Q-3]", "[Q]", "[Qabc]", "[Q1.5]", "[Q 5]"],
+    )
+    def test_parse_malformed_q_grammar_falls_through_to_unparsable(self, head):
+        """Anything that's not a strictly-positive integer after ``Q`` is
+        not a Q-id. The strptime fallback also fails, so the line lands
+        in UnparsableBlock and the file round-trips verbatim."""
+        content = f"# Open Questions\n\n- {head} body\n"
+        file = OpenQuestionsFile.parse(content)
+        kinds = [type(b).__name__ for b in file.blocks]
+        assert "UnparsableBlock" in kinds
+        assert file.format() == content
+
+
+class TestResolveQForm:
+    def test_resolve_by_q_id(self):
+        file = OpenQuestionsFile.parse("# Open Questions\n\n- [Q1] body\n")
+        result = file.resolve(["Q1"], 7, date(2026, 5, 19))
+        assert result.moved_ids == ("Q1",)
+        assert result.unknown_ids == ()
+        assert result.ambiguous_ids == ()
+        rendered = result.file.format()
+        assert "- [Resolved by D7 on 2026-05-19] [Q1] body" in rendered
+
+    def test_resolve_legacy_id_still_works(self):
+        """Dual-grammar acceptance: legacy timestamp ids must keep resolving."""
+        file = OpenQuestionsFile.parse("# Open Questions\n\n- [2026-05-12 20:18 UTC] legacy\n")
+        result = file.resolve(["2026-05-12 20:18 UTC"], 7, date(2026, 5, 19))
+        assert result.moved_ids == ("2026-05-12 20:18 UTC",)
+        assert result.ambiguous_ids == ()
+
+    def test_resolve_mixed_request(self):
+        file = OpenQuestionsFile.parse(
+            "# Open Questions\n\n- [Q1] new\n- [2026-05-12 20:18 UTC] legacy\n"
+        )
+        result = file.resolve(["Q1", "2026-05-12 20:18 UTC"], 7, date(2026, 5, 19))
+        assert set(result.moved_ids) == {"Q1", "2026-05-12 20:18 UTC"}
+
+
+class TestResolveRejectsAmbiguous:
+    """Same-minute timestamp collision must not silently move both
+    entries under one back-reference."""
+
+    def _collision_file(self) -> OpenQuestionsFile:
+        # Two legacy entries sharing the same id — the production bug shape.
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] first colliding question\n"
+            "- [2026-05-12 20:18 UTC] second colliding question\n"
+        )
+        return OpenQuestionsFile.parse(content)
+
+    def test_ambiguous_ids_property_reports_collision(self):
+        assert self._collision_file().ambiguous_ids == {"2026-05-12 20:18 UTC": 2}
+
+    def test_ambiguous_ids_empty_when_unique(self):
+        file = OpenQuestionsFile.parse("# Open Questions\n\n- [Q1] one\n- [Q2] two\n")
+        assert file.ambiguous_ids == {}
+
+    def test_resolve_rejects_ambiguous_without_mutation(self):
+        file = self._collision_file()
+        before = file.format()
+        result = file.resolve(["2026-05-12 20:18 UTC"], 7, date(2026, 5, 19))
+        assert result.ambiguous_ids == ("2026-05-12 20:18 UTC",)
+        assert result.moved_ids == ()
+        assert result.unknown_ids == ()
+        # No mutation: identical file returned.
+        assert result.file.format() == before
+
+    def test_resolve_returns_unchanged_file_when_one_id_ambiguous(self):
+        """Even a partial-ambiguity request rejects entirely — defense in
+        depth means we never partial-mutate when ambiguity is detected."""
+        file = OpenQuestionsFile.parse(
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] unambiguous\n"
+            "- [2026-05-12 20:18 UTC] dup\n"
+            "- [2026-05-12 20:18 UTC] dup again\n"
+        )
+        before = file.format()
+        result = file.resolve(["Q1", "2026-05-12 20:18 UTC"], 7, date(2026, 5, 19))
+        assert result.ambiguous_ids == ("2026-05-12 20:18 UTC",)
+        assert result.moved_ids == ()
+        assert result.file.format() == before

@@ -181,17 +181,20 @@ def test_question_append(store: Path):
     append_question(store, "Should we use GraphQL?")
     content = (store / "open-questions.md").read_text()
     assert "Should we use GraphQL?" in content
-    assert "UTC]" in content
+    assert "[Q1]" in content
 
 
 def test_question_multiple(store: Path):
     append_question(store, "First question?")
     append_question(store, "Second question?")
     content = (store / "open-questions.md").read_text()
-    lines = [line for line in content.split("\n") if line.startswith("- [") and "UTC]" in line]
+    lines = [line for line in content.split("\n") if line.startswith("- [Q")]
     assert len(lines) == 2
-    # Newest first (inserted at top)
+    # Newest first (inserted at top); ids increment sequentially.
+    assert "[Q2]" in lines[0]
     assert "Second question?" in lines[0]
+    assert "[Q1]" in lines[1]
+    assert "First question?" in lines[1]
 
 
 # --- State update tests ---
