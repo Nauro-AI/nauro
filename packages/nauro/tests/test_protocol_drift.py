@@ -227,8 +227,8 @@ RETIRED_PARAPHRASES = (
     "`check_decision` does not judge conflicts — the agent reads the decision bodies",
     # Pre-refactor adopt_body intro wording for NO_INVENT_RATIONALE
     "it does not invent rationale from code or prose",
-    # Pre-D133 update-operation wording — D133 made update rationale-only and
-    # rejected metadata changes; the bare "augment with new rationale or scope"
+    # Retired update-operation wording — update is now rationale-only and
+    # rejects metadata changes; the bare "augment with new rationale or scope"
     # phrasing would silently mislead an agent into trying to pass metadata.
     "augment an existing decision with new rationale or scope",
     # UPDATE_SUPERSEDE_CARE iterations — pre-PR "reclassified" wording implied
@@ -240,8 +240,8 @@ RETIRED_PARAPHRASES = (
     "be re-proposed later",
 )
 # NOTE: The PR-#44 hedge that retired the "server rejects ... at the boundary"
-# phrasing has been promoted back per D134 — both transports now enforce
-# D133's metadata rejection, so the active wording is accurate again. The
+# phrasing has been promoted back — both transports now enforce the metadata
+# rejection at the boundary, so the active wording is accurate again. The
 # guard entries from the hedge commit are deliberately removed; revert this
 # only if local enforcement is rolled back.
 

@@ -201,7 +201,7 @@ def test_question_multiple(store: Path):
 
 
 def test_update_state_creates_state_current(store: Path):
-    """update_state writes to state_current.md (scaffolded directly post-D94)."""
+    """update_state writes to state_current.md (scaffolded directly)."""
     update_state(store, "Implemented auth module")
     current = (store / "state_current.md").read_text()
     assert "# Current State" in current
@@ -233,7 +233,7 @@ def test_update_state_history_accumulates(store: Path):
 
 
 def test_update_state_migration_preserves_legacy(tmp_path: Path):
-    """Pre-D94 stores: state.md only → first update_state migrates to state_current.md."""
+    """Legacy stores: state.md only → first update_state migrates to state_current.md."""
     store = tmp_path / "legacy-store"
     (store / "decisions").mkdir(parents=True)
     (store / "snapshots").mkdir()
@@ -604,7 +604,7 @@ def test_validate_unfilled_prompts(store: Path):
 def test_validate_stale_sync(tmp_path: Path):
     store = tmp_path / "projects" / "stale"
     scaffold_project_store("stale", store)
-    # Validator prefers state_current.md (post-D94 default) for staleness check.
+    # Validator prefers state_current.md (the default) for staleness check.
     state = store / "state_current.md"
     old_date = (datetime.now(timezone.utc) - timedelta(days=10)).strftime("%Y-%m-%d")
     state.write_text(f"# Current State\n*Last synced: {old_date}*\n")

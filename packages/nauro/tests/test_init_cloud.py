@@ -119,7 +119,7 @@ def test_init_cloud_renders_server_error(tmp_path, monkeypatch):
     assert registry.find_projects_by_name_v2("cloudproj") == []
 
 
-# ── D140: --demo + --cloud rejection ─────────────────────────────────────────
+# ── --demo + --cloud rejection ───────────────────────────────────────────────
 
 
 def _strip_ansi(text: str) -> str:
@@ -150,7 +150,7 @@ def _strip_ansi(text: str) -> str:
 def test_init_demo_plus_cloud_rejects_at_entry(tmp_path, monkeypatch):
     """`nauro init --demo --cloud` must reject before any state is written.
 
-    Pre-D140 this silently dropped `--demo` inside the `--cloud` branch.
+    Previously this silently dropped `--demo` inside the `--cloud` branch.
     The combined invocation now exits 2 (Typer's BadParameter contract) with
     a message naming both single-flag forms; no project is registered, no
     network call is made, no `.nauro/config.json` is dropped in the cwd.

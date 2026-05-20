@@ -1,7 +1,7 @@
 """Tests for the ``nauro check`` CLI command.
 
 Covers:
-- The demo prompt retrieves the canonical SSE-over-WebSocket decision (D004).
+- The demo prompt retrieves the canonical SSE-over-WebSocket decision.
 - ``--json`` emits a parseable result with the same shape as the human path.
 - Project-resolution and store-state error paths exit non-zero with guidance.
 - Cloud-mode projects surface a "may be stale" notice on stderr.
@@ -83,7 +83,7 @@ def test_helper_and_wrapper_return_same_shape(demo_repo):
     assert "assessment" in helper
 
 
-# --- happy path: demo prompt retrieves D004 ----------------------------------
+# --- happy path: demo prompt retrieves the SSE-over-WebSocket decision ------
 
 
 def test_demo_prompt_returns_sse_decision(demo_repo):

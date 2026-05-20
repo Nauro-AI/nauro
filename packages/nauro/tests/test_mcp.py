@@ -156,7 +156,7 @@ class TestL2Payload:
         assert "Snapshot Diff" not in payload
 
 
-# --- Decisions summary tests (D77) ---
+# --- Decisions summary tests ---
 
 
 class TestL0DecisionsSummary:

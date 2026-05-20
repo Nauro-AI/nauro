@@ -171,7 +171,7 @@ def test_setup_codex_no_op_when_remove_and_no_entry(tmp_path: Path):
 
 def test_configure_codex_add_surfaces_parse_error(tmp_path: Path):
     """Hand-edited / corrupt `~/.codex/config.toml` surfaces a parse error
-    rather than crashing — same contract as the JSON handlers added in D142."""
+    rather than crashing — same contract as the JSON handlers."""
     config_path = tmp_path / ".codex" / "config.toml"
     config_path.parent.mkdir()
     config_path.write_text("this is not = valid [toml")
@@ -238,7 +238,7 @@ def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatc
     result = runner.invoke(app, ["setup", "all"])
     assert result.exit_code == 0, result.output
 
-    # Claude Code: project-scope .mcp.json at the repo root (per D142, written
+    # Claude Code: project-scope .mcp.json at the repo root (written
     # directly rather than via `claude mcp add`).
     assert (repo / ".mcp.json").is_file()
     mcp_data = json.loads((repo / ".mcp.json").read_text())

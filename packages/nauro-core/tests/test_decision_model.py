@@ -63,7 +63,7 @@ MINIMAL_V2_FILENAME = "042-use-a-shared-helper-for-slug-generation.md"
 
 
 # Fixture 2 — multiple rejected alternatives, names include an em-dash and a
-# colon (the kind of content D98 carries in the real store).
+# colon.
 RICH_V2 = """\
 ---
 date: 2026-04-16
@@ -478,10 +478,9 @@ class TestDecisionConstruction:
 class TestSupersessionRefValidator:
     """The supersedes / superseded_by validator: plain integer string only.
 
-    Convention is "70", not "070" or "070-some-slug" or "D70". The prior
-    session's D69/D70/D105 backfill standardized on this form, and
-    writer.supersede_decision now canonicalizes filename stems before
-    writing. The model-level validator is the backstop.
+    Convention is "70", not "070" or "070-some-slug" or "D70" — the canonical
+    writer canonicalizes filename stems before writing, and the model-level
+    validator is the backstop.
     """
 
     def test_plain_integer_accepted(self) -> None:

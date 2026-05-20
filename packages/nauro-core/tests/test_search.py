@@ -1,4 +1,4 @@
-"""Tests for BM25 search (D93)."""
+"""Tests for BM25 search."""
 
 from datetime import date
 
@@ -63,7 +63,7 @@ class TestBm25Search:
         assert any("FastAPI" in r["title"] for r in results)
 
     def test_vocabulary_mismatch_case(self):
-        """The Redis/Memcached case from D93 motivation."""
+        """The Redis/Memcached vocabulary-mismatch case BM25 was introduced for."""
         results = bm25_search(DECISIONS, "Use Redis for session caching")
         assert any("Memcached" in r["title"] for r in results)
 

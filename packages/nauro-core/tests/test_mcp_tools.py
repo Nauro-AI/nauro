@@ -169,8 +169,8 @@ class TestBuildRemoteInstructions:
         assert WELCOME_NO_PROJECT in result
 
     def test_zero_projects_welcome_before_static(self):
-        """D151: the per-user section must precede the static block so it
-        survives client-side truncation of ``initialize.instructions``."""
+        """The per-user section must precede the static block so it survives
+        client-side truncation of ``initialize.instructions``."""
         result = build_remote_instructions(STATIC, [])
         assert result.index(WELCOME_NO_PROJECT) < result.index(STATIC)
 
@@ -190,7 +190,7 @@ class TestBuildRemoteInstructions:
         assert "Pass the matching project_id" not in result
 
     def test_one_project_orientation_before_static(self):
-        """D151: orientation line must precede the static block."""
+        """Orientation line must precede the static block."""
         projects = [{"project_id": ULID_ALPHA, "name": "nauro"}]
         result = build_remote_instructions(STATIC, projects)
         assert result.index("Connected to project") < result.index(STATIC)
@@ -217,7 +217,7 @@ class TestBuildRemoteInstructions:
         assert "Call list_projects" not in result
 
     def test_two_projects_list_before_static(self):
-        """D151: the inline project list must precede the static block."""
+        """The inline project list must precede the static block."""
         projects = [
             {"project_id": ULID_ALPHA, "name": "alpha"},
             {"project_id": ULID_BETA, "name": "Beta"},
@@ -250,7 +250,7 @@ class TestBuildRemoteInstructions:
             assert p["name"] not in result
 
     def test_overflow_pointer_before_static(self):
-        """D151: the overflow pointer must precede the static block."""
+        """The overflow pointer must precede the static block."""
         projects = [
             {"project_id": f"01ID{i:022d}", "name": f"proj-{i}"}
             for i in range(MAX_INLINE_PROJECTS + 2)

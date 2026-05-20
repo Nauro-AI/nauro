@@ -122,7 +122,7 @@ def test_stdio_resolve_no_repo_no_project_errors(tmp_path, monkeypatch):
     isolated = tmp_path / "isolated"
     isolated.mkdir()
     monkeypatch.chdir(isolated)
-    # D136: typed NoProjectError carries the new welcome anchor.
+    # Typed NoProjectError carries the welcome anchor.
     from nauro.store.resolution import NoProjectError
 
     with pytest.raises(NoProjectError, match="No Nauro project found"):

@@ -137,7 +137,7 @@ def test_regen_with_neither_section_writes_fresh(tmp_path: Path):
 
 
 def test_regen_strips_stale_attribution_footer_from_manual_section(tmp_path: Path):
-    """Regression: a pre-D135 ``nauro.dev`` attribution footer that ended up
+    """Regression: a legacy ``nauro.dev`` attribution footer that ended up
     embedded under ``# Manual`` (because the parser's footer marker was tied
     to the current canonical URL) must not survive regen.
 

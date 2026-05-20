@@ -208,7 +208,7 @@ def test_init_cli_with_add_repo(tmp_path, monkeypatch):
 def test_init_cli_duplicate(tmp_path, monkeypatch):
     """v2 allows duplicate names — id is unique. Two `nauro init dup`
     invocations from separate cwds both succeed and create distinct
-    entries. From the SAME cwd, D136's overwrite guard refuses without
+    entries. From the SAME cwd, the overwrite guard refuses without
     --force; the registry-allows-dups invariant is verified by exercising
     each init from its own directory.
     """
@@ -225,9 +225,9 @@ def test_init_cli_duplicate(tmp_path, monkeypatch):
 
 
 def test_init_cli_refuses_overwrite_without_force(tmp_path, monkeypatch):
-    """D136: a second `nauro init <other-name>` from the same cwd refuses
-    to overwrite the existing .nauro/config.json without --force, naming
-    the existing project so the caller can decide what to do."""
+    """A second `nauro init <other-name>` from the same cwd refuses to
+    overwrite the existing .nauro/config.json without --force, naming the
+    existing project so the caller can decide what to do."""
     monkeypatch.chdir(tmp_path)
     first = runner.invoke(app, ["init", "first"])
     assert first.exit_code == 0
@@ -243,7 +243,7 @@ def test_init_cli_refuses_overwrite_without_force(tmp_path, monkeypatch):
 
 
 def test_init_cli_force_overwrites(tmp_path, monkeypatch):
-    """D136: --force replaces an existing .nauro/config.json with the new
+    """--force replaces an existing .nauro/config.json with the new
     project's handle; the registry shows both."""
     monkeypatch.chdir(tmp_path)
     runner.invoke(app, ["init", "first"])
@@ -256,9 +256,9 @@ def test_init_cli_force_overwrites(tmp_path, monkeypatch):
 
 
 def test_init_cli_add_repo_idempotent_on_same_id(tmp_path, monkeypatch):
-    """D136: re-running `nauro init <existing-name> --add-repo <repo>`
-    against a repo already pointing at that project succeeds (idempotent),
-    because the existing config id matches the project's id."""
+    """Re-running `nauro init <existing-name> --add-repo <repo>` against
+    a repo already pointing at that project succeeds (idempotent), because
+    the existing config id matches the project's id."""
     repo = tmp_path / "repo"
     repo.mkdir()
     first = runner.invoke(app, ["init", "proj", "--add-repo", str(repo)])
@@ -268,8 +268,8 @@ def test_init_cli_add_repo_idempotent_on_same_id(tmp_path, monkeypatch):
 
 
 def test_init_cli_add_repo_refuses_overwrite_on_different_id(tmp_path, monkeypatch):
-    """D136: --add-repo against a repo already linked to a *different*
-    project refuses without --force, naming both projects."""
+    """--add-repo against a repo already linked to a *different* project
+    refuses without --force, naming both projects."""
     repo = tmp_path / "repo"
     repo.mkdir()
     # Repo already linked to 'alpha'.
@@ -310,9 +310,9 @@ def test_init_cli_add_repo_to_existing(tmp_path, monkeypatch):
 def test_init_add_repo_to_existing_writes_per_repo_config(tmp_path, monkeypatch):
     """Regression: `--add-repo` against same-name project must write `.nauro/config.json`.
 
-    Per D111 the per-repo config is the source of truth for "is this repo
-    adopted?". Without it, downstream guards (``nauro adopt`` already-adopted
-    check, the /nauro-adopt skill's Step 2) fail to detect the linkage.
+    The per-repo config is the source of truth for "is this repo adopted?".
+    Without it, downstream guards (``nauro adopt`` already-adopted check,
+    the /nauro-adopt skill's Step 2) fail to detect the linkage.
     """
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"

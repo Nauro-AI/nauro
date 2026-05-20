@@ -1,4 +1,4 @@
-"""Tests for nauro note auto-regen of AGENTS.md (D143).
+"""Tests for nauro note auto-regen of AGENTS.md.
 
 `nauro note` writes a decision or question to the store and then regenerates
 AGENTS.md in every associated repo so MCP-disconnected agents see the update

@@ -130,8 +130,7 @@ class Decision(BaseModel):
     def _validate_supersession_ref(cls, v: str | None) -> str | None:
         """Enforce plain integer string: "70", not "070" or "070-slug" or "D70".
 
-        Canonicalizes the format that ``writer.supersede_decision`` writes and
-        that the prior session's D69/D70/D105 backfill standardized on.
+        Canonicalizes the format that ``writer.supersede_decision`` writes.
         """
         if v is None:
             return v

@@ -64,7 +64,7 @@ def check_bm25_similarity(
     top_k: int = TIER2_TOP_K,
     stopwords: list[str] | None = None,
 ) -> tuple[str, list[dict]]:
-    """Tier-2 BM25 similarity check (D93). Shared by local and remote surfaces.
+    """Tier-2 BM25 similarity check. Shared by local and remote surfaces.
 
     Filters the scaffold-seed decision (bookkeeping, not a user choice) and
     delegates retrieval to ``nauro_core.search.bm25_retrieve``, which also

@@ -281,7 +281,7 @@ def _mb_with(tmp_path: Path, name: str, **files: str) -> Path:
 
 
 def test_active_context_lands_in_state_current_not_legacy(store: Path, tmp_path: Path):
-    """Pre-D94 stores may carry a legacy state.md alongside state_current.md.
+    """Legacy stores may carry a state.md alongside state_current.md.
     Verify import writes only to state_current.md, never the legacy file."""
     legacy_marker = "# Legacy state — should not be touched\n"
     (store / "state.md").write_text(legacy_marker)

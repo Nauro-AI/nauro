@@ -1,8 +1,7 @@
 """Regression tests for `tool_update_state` keyword-overlap warning.
 
-Post-D94 the current state lives in `state_current.md`; the hardcoded
-`state.md` literal silently disabled the overlap-warning branch on every
-modern store.
+The current state lives in `state_current.md`; the hardcoded `state.md`
+literal silently disabled the overlap-warning branch on every modern store.
 """
 
 from pathlib import Path

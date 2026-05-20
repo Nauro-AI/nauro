@@ -1,4 +1,4 @@
-"""Tier 2 validation — BM25 similarity (D93).
+"""Tier 2 validation — BM25 similarity.
 
 Thin adapter over ``nauro_core.validation.check_bm25_similarity``. The
 filtering, stopword list, and retrieval live in nauro-core so the remote
