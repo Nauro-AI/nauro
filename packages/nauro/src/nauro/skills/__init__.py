@@ -22,7 +22,7 @@ from typing import Literal
 from nauro_core.protocol import substitute_protocol_fragments
 
 Surface = Literal["claude_code", "cursor", "codex"]
-SkillName = Literal["nauro", "nauro-adopt"]
+SkillName = Literal["nauro-adopt"]
 
 SKILL_DESCRIPTIONS: dict[str, str] = {
     "nauro-adopt": (
@@ -33,11 +33,6 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "evidence, then surfaces targeted probes that turn evidence into "
         "rationale. On chat surfaces, operates on pasted content against an "
         "already-adopted project."
-    ),
-    "nauro": (
-        "Nauro session-time guidance. Reminds the agent to call get_context "
-        "at session start, check_decision before architectural changes, and "
-        "update_state after meaningful progress."
     ),
 }
 
@@ -67,20 +62,9 @@ def load_adopt_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
-def load_session_body() -> str:
-    """Return the canonical ``/nauro`` session-time skill body (no frontmatter).
-
-    Protocol-fragment tokens in the source template are resolved before return.
-    """
-    raw = resources.files(__package__).joinpath("session_body.md").read_text(encoding="utf-8")
-    return substitute_protocol_fragments(_strip_template_header(raw))
-
-
 def _load_body(skill_name: str) -> str:
     if skill_name == "nauro-adopt":
         return load_adopt_body()
-    if skill_name == "nauro":
-        return load_session_body()
     raise ValueError(f"unknown skill: {skill_name!r}")
 
 
@@ -111,6 +95,5 @@ __all__ = [
     "SkillName",
     "Surface",
     "load_adopt_body",
-    "load_session_body",
     "render_skill",
 ]

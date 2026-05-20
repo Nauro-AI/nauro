@@ -2,9 +2,9 @@
 
 Five claims about Nauro's MCP tools recur in multiple surfaces:
 ``MCP_INSTRUCTIONS_STATIC`` (delivered via the MCP ``initialize.instructions``
-field), the ``/nauro`` session skill body, and the ``/nauro-adopt`` skill body.
-Restating them in each surface produced paraphrase-level drift that gave agents
-slightly different rules depending on which surface they read.
+field) and the ``/nauro-adopt`` skill body. Restating them in each surface
+produced paraphrase-level drift that gave agents slightly different rules
+depending on which surface they read.
 
 This module owns the canonical wording. Surfaces compose by either:
 

@@ -82,10 +82,11 @@ def _find_nauro_command() -> str:
 def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
     """Return True iff no other nauro projects remain in the registry.
 
-    User-scope artifacts (``~/.claude/skills/nauro*``, ``~/.agents/skills/nauro*``,
-    and the ``nauro`` entry in ``~/.codex/config.toml``) are shared by every
-    registered project on the machine, so a per-project teardown must not
-    strip them while other projects still depend on them.
+    User-scope artifacts (``~/.claude/skills/nauro-adopt``,
+    ``~/.agents/skills/nauro-adopt``, and the ``nauro`` entry in
+    ``~/.codex/config.toml``) are shared by every registered project on the
+    machine, so a per-project teardown must not strip them while other
+    projects still depend on them.
     """
     try:
         registry = load_registry_v2()
@@ -370,7 +371,7 @@ def codex(
 # Cursor skills ship per-project (Cursor's "User Rules" live in the IDE
 # Settings UI, not a file path).
 
-SKILL_NAMES: tuple[str, ...] = ("nauro", "nauro-adopt")
+SKILL_NAMES: tuple[str, ...] = ("nauro-adopt",)
 
 
 def _claude_skill_dir() -> Path:
@@ -408,7 +409,7 @@ def _remove_skill_file(target: Path, *, stop_above: Path) -> str:
 
 
 def materialize_skills_claude_code(*, remove: bool, clear_user_scope: bool = True) -> list[str]:
-    """Install or remove the two Nauro skills under ``~/.claude/skills/``.
+    """Install or remove the Nauro skill(s) under ``~/.claude/skills/``.
 
     ``clear_user_scope`` gates the remove path: when False, the skill files
     are preserved because other registered nauro projects still depend on
@@ -419,7 +420,7 @@ def materialize_skills_claude_code(*, remove: bool, clear_user_scope: bool = Tru
 
     base = _claude_skill_dir()
     if remove and not clear_user_scope:
-        return ["  preserved ~/.claude/skills/nauro* (other nauro projects still registered)"]
+        return ["  preserved ~/.claude/skills/nauro-adopt (other nauro projects still registered)"]
 
     results: list[str] = []
     for name in SKILL_NAMES:
@@ -432,7 +433,7 @@ def materialize_skills_claude_code(*, remove: bool, clear_user_scope: bool = Tru
 
 
 def materialize_skills_codex(*, remove: bool, clear_user_scope: bool = True) -> list[str]:
-    """Install or remove the two Nauro skills under ``~/.agents/skills/``.
+    """Install or remove the Nauro skill(s) under ``~/.agents/skills/``.
 
     ``clear_user_scope`` gates the remove path: when False, the skill files
     are preserved because other registered nauro projects still depend on
@@ -443,7 +444,7 @@ def materialize_skills_codex(*, remove: bool, clear_user_scope: bool = True) -> 
 
     base = _codex_skill_dir()
     if remove and not clear_user_scope:
-        return ["  preserved ~/.agents/skills/nauro* (other nauro projects still registered)"]
+        return ["  preserved ~/.agents/skills/nauro-adopt (other nauro projects still registered)"]
 
     results: list[str] = []
     for name in SKILL_NAMES:
@@ -487,7 +488,7 @@ def setup_all_surfaces(
     ``current_project_key`` is the registry key (v2 id or v1 name) for the
     project being torn down. When ``remove=True``, it is excluded from the
     "are there other projects?" check so per-project teardown only clears
-    user-scope artifacts (Claude/Codex skills, ``~/.codex/config.toml``)
+    user-scope artifacts (Claude/Codex skill, ``~/.codex/config.toml``)
     when this is the last project on the machine.
     """
     clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True

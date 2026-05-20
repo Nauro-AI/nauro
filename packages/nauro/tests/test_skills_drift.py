@@ -1,7 +1,7 @@
 """Drift tests for the canonical Nauro skill bodies and dogfood files.
 
-The canonical body lives at ``packages/nauro/src/nauro/skills/{adopt,session}_body.md``.
-``load_adopt_body()`` / ``load_session_body()`` return that body via importlib.resources.
+The canonical body lives at ``packages/nauro/src/nauro/skills/adopt_body.md``.
+``load_adopt_body()`` returns that body via importlib.resources.
 ``render_skill(surface, skill_name)`` is the single source of truth for both
 materialized files (written into user-global / per-repo surface dirs at
 ``nauro adopt`` time) and the committed dogfood files at the repo root.
@@ -12,9 +12,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from nauro_core import MCP_INSTRUCTIONS_STATIC
 
-from nauro.skills import load_adopt_body, load_session_body, render_skill
+from nauro.skills import load_adopt_body, render_skill
 from tests._skill_surfaces import REPO_ROOT, SKILL_SURFACES, load_docs_adopt_prompt
 
 
@@ -37,15 +36,6 @@ def test_load_adopt_body_returns_canonical_bytes():
     assert "Step 11 — Summary" in body
 
 
-def test_load_session_body_returns_canonical_bytes():
-    body = load_session_body()
-    assert body.endswith("\n")
-    assert 500 < len(body) < 5000
-    assert "call get_context" in body
-    assert "call check_decision" in body
-    assert "call update_state" in body
-
-
 # --- render_skill produces frontmatter + body ---
 
 
@@ -57,19 +47,19 @@ def test_render_skill_claude_code_adopt_frontmatter():
     assert body == load_adopt_body()
 
 
-def test_render_skill_cursor_session_frontmatter():
-    rendered = render_skill("cursor", "nauro")
+def test_render_skill_cursor_adopt_frontmatter():
+    rendered = render_skill("cursor", "nauro-adopt")
     fm = rendered.split("\n---\n", 1)[0]
     assert "description:" in fm
     assert "alwaysApply: false" in fm
     assert "name:" not in fm
     body = rendered.split("\n---\n", 1)[1].lstrip("\n")
-    assert body == load_session_body()
+    assert body == load_adopt_body()
 
 
 def test_render_skill_unknown_surface_raises():
     with pytest.raises(ValueError):
-        render_skill("emacs", "nauro")
+        render_skill("emacs", "nauro-adopt")
 
 
 def test_render_skill_unknown_skill_raises():
@@ -82,11 +72,8 @@ def test_render_skill_unknown_skill_raises():
 DOGFOOD_FILES = [
     # (path_relative_to_repo_root, surface, skill_name)
     (".claude/skills/nauro-adopt/SKILL.md", "claude_code", "nauro-adopt"),
-    (".claude/skills/nauro/SKILL.md", "claude_code", "nauro"),
     (".cursor/rules/nauro-adopt.mdc", "cursor", "nauro-adopt"),
-    (".cursor/rules/nauro.mdc", "cursor", "nauro"),
     (".agents/skills/nauro-adopt/SKILL.md", "codex", "nauro-adopt"),
-    (".agents/skills/nauro/SKILL.md", "codex", "nauro"),
 ]
 
 
@@ -209,37 +196,4 @@ def test_adopt_body_step_references_resolve_to_headings():
     assert not missing, (
         f"adopt_body.md has Step references without matching headings: "
         f"{sorted(missing)}; headings present: {sorted(headings)}"
-    )
-
-
-# --- session_body.md ↔ MCP_INSTRUCTIONS_STATIC alignment ---
-#
-# Both teach the agent the same lifecycle and refusal contract. Render parity
-# catches drift within each surface, but the two surfaces can drift relative
-# to each other invisibly. Anchor the load-bearing shared phrases that live
-# inline in both surfaces — case-insensitive so sentence-start capitalization
-# differences don't trigger false failures.
-#
-# Canonical protocol claims (BM25 retrieval, get_decision-before-proposing,
-# no-invent-rationale) have their own source-of-truth fragments in
-# nauro_core.protocol; verbatim-presence is enforced by test_protocol_drift.
-# Only phrase-level shared anchors that are NOT fragments stay here.
-
-SHARED_SESSION_MCP_PHRASES = [
-    # Refusal contract — first-principles cannot replace project history
-    "first-principles reasoning is not a substitute",
-    # Anti-evasion — the rule applies even when the agent disagrees
-    "push back or refuse",
-]
-
-
-@pytest.mark.parametrize("phrase", SHARED_SESSION_MCP_PHRASES)
-def test_session_body_and_mcp_instructions_share_phrase(phrase: str) -> None:
-    """Phrases that anchor shared agent guidance must appear in both surfaces."""
-    needle = phrase.lower()
-    assert needle in load_session_body().lower(), (
-        f"session_body.md is missing shared anchor {phrase!r}"
-    )
-    assert needle in MCP_INSTRUCTIONS_STATIC.lower(), (
-        f"MCP_INSTRUCTIONS_STATIC is missing shared anchor {phrase!r}"
     )

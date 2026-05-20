@@ -249,11 +249,8 @@ def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatc
 
     # Skill files (materialized):
     assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
-    assert (tmp_path / ".claude" / "skills" / "nauro" / "SKILL.md").is_file()
     assert (repo / ".cursor" / "rules" / "nauro-adopt.mdc").is_file()
-    assert (repo / ".cursor" / "rules" / "nauro.mdc").is_file()
     assert (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
-    assert (tmp_path / ".agents" / "skills" / "nauro" / "SKILL.md").is_file()
 
 
 def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
@@ -342,9 +339,7 @@ def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, m
     assert result.exit_code == 0, result.output
 
     # User-scope artifacts preserved — proj-b still depends on them.
-    assert (tmp_path / ".claude" / "skills" / "nauro" / "SKILL.md").is_file()
     assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
-    assert (tmp_path / ".agents" / "skills" / "nauro" / "SKILL.md").is_file()
     assert (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
 
     codex_config = tmp_path / ".codex" / "config.toml"
@@ -356,11 +351,9 @@ def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, m
     # Per-repo wiring for proj-a still got torn down.
     assert not (repo_a / ".mcp.json").is_file()
     assert not (repo_a / ".cursor" / "mcp.json").is_file()
-    assert not (repo_a / ".cursor" / "rules" / "nauro.mdc").is_file()
     # And proj-b's per-repo wiring stayed put.
     assert (repo_b / ".mcp.json").is_file()
     assert (repo_b / ".cursor" / "mcp.json").is_file()
-    assert (repo_b / ".cursor" / "rules" / "nauro.mdc").is_file()
 
 
 def test_remove_clears_user_scope_when_last_project(tmp_path: Path, monkeypatch):
@@ -377,9 +370,7 @@ def test_remove_clears_user_scope_when_last_project(tmp_path: Path, monkeypatch)
     result = runner.invoke(app, ["setup", "all", "--remove"])
     assert result.exit_code == 0, result.output
 
-    assert not (tmp_path / ".claude" / "skills" / "nauro" / "SKILL.md").exists()
     assert not (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").exists()
-    assert not (tmp_path / ".agents" / "skills" / "nauro" / "SKILL.md").exists()
     assert not (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").exists()
 
     codex_config = tmp_path / ".codex" / "config.toml"
