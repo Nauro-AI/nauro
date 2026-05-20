@@ -25,6 +25,31 @@ else:
 runner = CliRunner()
 
 
+def _strip_ansi(text: str) -> str:
+    """Strip ANSI CSI escape sequences so substring checks survive Rich styling.
+
+    Typer renders --help through Rich, which wraps each flag token in bold
+    escapes when the runner detects a colour-capable terminal (CI with
+    FORCE_COLOR=1 etc.). The escapes split ``--with-subagents`` into
+    ``-\\x1b[0m\\x1b[1m-with\\x1b[0m\\x1b[1m-subagents``, breaking literal
+    ``"--with-subagents" in output`` checks. NO_COLOR only suppresses colour,
+    not bold/dim — stripping here is the only environment-independent fix.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == "\x1b" and i + 1 < n and text[i + 1] == "[":
+            i += 2
+            while i < n and text[i] != "m":
+                i += 1
+            i += 1
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
 # ─── nauro setup cursor ─────────────────────────────────────────────────────
 
 
@@ -466,3 +491,91 @@ def test_setup_codex_advertises_nauro_check(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["setup", "codex"])
     assert result.exit_code == 0, result.output
     assert CHECK_HINT_LINE in result.output
+
+
+# ─── nauro setup all --with-subagents ───────────────────────────────────────
+
+
+def test_setup_all_with_subagents_installs_and_removes_files(tmp_path: Path, monkeypatch):
+    """Round-trip: ``setup all --with-subagents`` writes nauro-*.md files;
+    ``setup all --remove --with-subagents`` clears them when no other projects remain."""
+    from nauro.agents import AGENT_NAMES, render_agent
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    runner.invoke(app, ["setup", "all", "--with-subagents"])
+    for name in AGENT_NAMES:
+        target = tmp_path / ".claude" / "agents" / f"{name}.md"
+        assert target.is_file()
+        assert target.read_text(encoding="utf-8") == render_agent("claude_code", name)
+
+    result = runner.invoke(app, ["setup", "all", "--remove", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+    for name in AGENT_NAMES:
+        assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+
+
+def test_setup_all_with_subagents_remove_preserves_customized_files(tmp_path: Path, monkeypatch):
+    """The remove path must leave locally-modified bundled files alone.
+
+    Symmetric to the add path's preserve behavior: byte-equal files are
+    unlinked, modified files stay so the user's edits aren't lost.
+    """
+    from nauro.agents import AGENT_NAMES
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    runner.invoke(app, ["setup", "all", "--with-subagents"])
+
+    target = tmp_path / ".claude" / "agents" / "nauro-planner.md"
+    custom = "---\nname: nauro-planner\n---\n\nlocal tweak\n"
+    target.write_text(custom, encoding="utf-8")
+
+    result = runner.invoke(app, ["setup", "all", "--remove", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+
+    # nauro-planner was modified → preserved
+    assert target.read_text(encoding="utf-8") == custom
+    # The other three matched the bundled content → unlinked
+    for name in AGENT_NAMES:
+        if name == "nauro-planner":
+            continue
+        assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+    assert "preserved" in result.output
+    assert "locally modified" in result.output
+
+
+def test_setup_all_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
+    """Off-by-default: ``setup all`` without the flag installs nothing under agents/."""
+    from nauro.agents import AGENT_NAMES
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "all"])
+    assert result.exit_code == 0, result.output
+    for name in AGENT_NAMES:
+        assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+
+
+def test_setup_all_help_lists_with_subagents():
+    """``setup all --help`` advertises the new flag for discovery."""
+    result = runner.invoke(app, ["setup", "all", "--help"])
+    assert result.exit_code == 0
+    output = _strip_ansi(result.output)
+    assert "--with-subagents" in output
+    assert "--force-overwrite" in output

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from nauro.agents import AGENT_NAMES, render_agent
 from nauro.cli.main import app
 from nauro.skills import load_adopt_body
 from nauro.store.registry import find_projects_by_name_v2, register_project_v2
@@ -162,3 +163,96 @@ def test_adopt_top_level_cli_help_lists_adopt():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "adopt" in result.output
+
+
+# ─── --with-subagents ───────────────────────────────────────────────────────
+
+
+def _agent_path(home: Path, agent: str) -> Path:
+    return home / ".claude" / "agents" / f"{agent}.md"
+
+
+def test_adopt_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
+    """``nauro adopt`` without ``--with-subagents`` must not write any nauro-* agents."""
+    _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 0, result.output
+
+    for name in AGENT_NAMES:
+        assert not _agent_path(tmp_path, name).exists()
+
+
+def test_adopt_with_subagents_installs_all_four(tmp_path: Path, monkeypatch):
+    """``--with-subagents`` materializes every bundled agent byte-equal to render_agent()."""
+    _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+
+    for name in AGENT_NAMES:
+        target = _agent_path(tmp_path, name)
+        assert target.is_file(), f"missing {target}"
+        assert target.read_text(encoding="utf-8") == render_agent("claude_code", name)
+
+
+def test_adopt_with_subagents_preserves_customized_file(tmp_path: Path, monkeypatch):
+    """A locally-modified ``nauro-planner.md`` must be left alone without ``--force-overwrite``."""
+    _adopt_env(monkeypatch, tmp_path)
+    custom = "---\nname: nauro-planner\n---\n\ncustom body\n"
+    target = _agent_path(tmp_path, "nauro-planner")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(custom, encoding="utf-8")
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+
+    assert target.read_text(encoding="utf-8") == custom
+    assert "preserved" in result.output
+    assert "nauro-planner" in result.output
+
+
+def test_adopt_with_subagents_force_overwrite_replaces_customized_file(tmp_path: Path, monkeypatch):
+    """``--force-overwrite`` replaces a locally-modified bundled agent."""
+    _adopt_env(monkeypatch, tmp_path)
+    custom = "---\nname: nauro-planner\n---\n\ncustom body\n"
+    target = _agent_path(tmp_path, "nauro-planner")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(custom, encoding="utf-8")
+
+    result = runner.invoke(
+        app, ["adopt", "--name", "alpha", "--with-subagents", "--force-overwrite"]
+    )
+    assert result.exit_code == 0, result.output
+
+    assert target.read_text(encoding="utf-8") == render_agent("claude_code", "nauro-planner")
+
+
+def test_adopt_with_subagents_does_not_touch_user_authored_planner_md(tmp_path: Path, monkeypatch):
+    """A user's ``~/.claude/agents/planner.md`` (no ``nauro-`` prefix) is never touched.
+
+    This is the load-bearing test for namespacing: visitors who picked up
+    ``planner`` from a different source — or who wrote their own — must
+    not have their files replaced when they opt in to Nauro's bundle.
+    """
+    _adopt_env(monkeypatch, tmp_path)
+    user_planner = tmp_path / ".claude" / "agents" / "planner.md"
+    user_planner.parent.mkdir(parents=True, exist_ok=True)
+    original = "---\nname: planner\n---\n\nuser's own planner body\n"
+    user_planner.write_text(original, encoding="utf-8")
+
+    result = runner.invoke(
+        app, ["adopt", "--name", "alpha", "--with-subagents", "--force-overwrite"]
+    )
+    assert result.exit_code == 0, result.output
+
+    assert user_planner.read_text(encoding="utf-8") == original
+
+
+def test_adopt_print_prompt_conflicts_with_with_subagents(tmp_path: Path, monkeypatch):
+    """``--print-prompt`` plus ``--with-subagents`` is rejected as mutually exclusive."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--print-prompt", "--with-subagents"])
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.output

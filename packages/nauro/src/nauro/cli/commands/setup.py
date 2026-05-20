@@ -382,6 +382,10 @@ def _codex_skill_dir() -> Path:
     return Path.home() / ".agents" / "skills"
 
 
+def _claude_agent_dir() -> Path:
+    return Path.home() / ".claude" / "agents"
+
+
 def _materialize_skill_file(target: Path, content: str) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
@@ -471,6 +475,95 @@ def materialize_skills_cursor_for_repo(repo: Path, *, remove: bool) -> list[str]
     return results
 
 
+# ─── Agent materialization ──────────────────────────────────────────────────
+
+
+# Subagents are rendered from canonical bodies in nauro.agents and written into
+# the user's surface directories. On Claude Code, that's ``~/.claude/agents/``.
+# Unlike skills, agents are namespaced (``nauro-*``) and opt-in: an existing
+# customized ``nauro-<name>.md`` is preserved unless the caller passes
+# ``force_overwrite=True``. User-authored files without the ``nauro-`` prefix
+# (e.g. a personal ``~/.claude/agents/planner.md``) are never touched.
+
+
+def materialize_agents(
+    surface: str,
+    *,
+    remove: bool,
+    force_overwrite: bool = False,
+    clear_user_scope: bool = True,
+) -> list[str]:
+    """Install or remove the bundled ``nauro-*`` subagent files.
+
+    Currently only the Claude Code surface is implemented. Cursor and Codex
+    surfaces emit a single "skipped" line rather than crashing so the
+    install path can call this unconditionally per the user's flag choice.
+
+    Add path (per agent):
+      - file absent → write bundled body.
+      - file present and byte-equal → no-op.
+      - file present and differs → preserve unless ``force_overwrite=True``.
+
+    Remove path (per agent):
+      - file absent → skip.
+      - file byte-equals bundled body → unlink.
+      - file differs → preserve (locally modified).
+
+    ``clear_user_scope`` mirrors the skill helpers: when False on the
+    remove path, agents are preserved because other registered nauro
+    projects still rely on them.
+    """
+    from nauro.agents import AGENT_NAMES, render_agent
+
+    if surface != "claude_code":
+        try:
+            # Exercise the stub so a future surface implementation doesn't
+            # need to remember to remove this branch — once render_agent
+            # stops raising, the stub message goes away naturally.
+            render_agent(surface, AGENT_NAMES[0])
+        except NotImplementedError:
+            return [f"  skipped ~/.{surface} agents (not yet implemented)"]
+        except ValueError as exc:
+            return [f"  skipped agents on surface {surface!r}: {exc}"]
+
+    base = _claude_agent_dir()
+    if remove and not clear_user_scope:
+        return ["  preserved ~/.claude/agents/nauro-* (other nauro projects still registered)"]
+
+    results: list[str] = []
+    for name in AGENT_NAMES:
+        target = base / f"{name}.md"
+        bundled = render_agent("claude_code", name)
+        if remove:
+            if not target.is_file():
+                results.append(f"  no agent at {target}")
+                continue
+            current = target.read_text(encoding="utf-8")
+            if current == bundled:
+                target.unlink()
+                results.append(f"  removed {target}")
+            else:
+                results.append(f"  preserved {target} (locally modified)")
+            continue
+
+        if target.is_file():
+            current = target.read_text(encoding="utf-8")
+            if current == bundled:
+                results.append(f"  unchanged {target}")
+            elif force_overwrite:
+                target.write_text(bundled, encoding="utf-8")
+                results.append(f"  overwrote {target}")
+            else:
+                results.append(
+                    f"  preserved {target} (locally modified; pass --force-overwrite to replace)"
+                )
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(bundled, encoding="utf-8")
+            results.append(f"  installed {target}")
+    return results
+
+
 # ─── nauro setup all ────────────────────────────────────────────────────────
 
 
@@ -479,6 +572,8 @@ def setup_all_surfaces(
     *,
     remove: bool = False,
     current_project_key: str | None = None,
+    with_subagents: bool = False,
+    force_overwrite: bool = False,
 ) -> list[str]:
     """Wire MCP and materialize skills across Claude Code, Cursor, Codex.
 
@@ -490,6 +585,13 @@ def setup_all_surfaces(
     "are there other projects?" check so per-project teardown only clears
     user-scope artifacts (Claude/Codex skill, ``~/.codex/config.toml``)
     when this is the last project on the machine.
+
+    ``with_subagents`` opts into installing or removing the bundled
+    ``nauro-*`` workflow subagents under ``~/.claude/agents/``. Off by
+    default so existing flows that pre-date the subagent bundle keep
+    their previous behavior. ``force_overwrite`` is only meaningful when
+    ``with_subagents`` is True and ``remove`` is False — it replaces
+    locally-modified bundled files instead of preserving them.
     """
     clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True
 
@@ -510,6 +612,19 @@ def setup_all_surfaces(
         )
     except Exception as exc:
         lines.append(f"Claude Code skills: error — {exc}")
+
+    if with_subagents:
+        try:
+            lines.extend(
+                materialize_agents(
+                    "claude_code",
+                    remove=remove,
+                    force_overwrite=force_overwrite,
+                    clear_user_scope=clear_user_scope,
+                )
+            )
+        except Exception as exc:
+            lines.append(f"Claude Code agents: error — {exc}")
 
     # Cursor (MCP per-repo + skills per-repo)
     for repo in project_repos:
@@ -545,6 +660,25 @@ def all_(
     remove: bool = typer.Option(
         False, "--remove", help="Remove Nauro integration instead of adding it."
     ),
+    with_subagents: bool = typer.Option(
+        False,
+        "--with-subagents",
+        help=(
+            "Install Nauro's bundled workflow subagents (@nauro-planner, "
+            "@nauro-executor, @nauro-reviewer, @nauro-tech-lead) into "
+            "~/.claude/agents/. Off by default to avoid overwriting "
+            "customized files."
+        ),
+    ),
+    force_overwrite: bool = typer.Option(
+        False,
+        "--force-overwrite",
+        help=(
+            "Replace locally-modified ~/.claude/agents/nauro-*.md files when "
+            "--with-subagents is passed. Off by default; without this flag, "
+            "existing files are preserved."
+        ),
+    ),
 ) -> None:
     """Configure Claude Code, Cursor, and Codex CLI in one call."""
     project_name, _store_path = resolve_target_project(project)
@@ -564,7 +698,13 @@ def all_(
     project_repos = [Path(rp) for rp in entry["repo_paths"]]
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro for project '{project_name}' across all surfaces:\n")
-    for line in setup_all_surfaces(project_repos, remove=remove, current_project_key=project_key):
+    for line in setup_all_surfaces(
+        project_repos,
+        remove=remove,
+        current_project_key=project_key,
+        with_subagents=with_subagents,
+        force_overwrite=force_overwrite,
+    ):
         typer.echo(line)
 
     if not remove:
