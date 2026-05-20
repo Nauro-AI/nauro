@@ -25,7 +25,7 @@ def _setup_project(tmp_path: Path, monkeypatch, repo_paths: list[Path] | None = 
 
 
 class TestMCPConfigDirectWrite:
-    """`_configure_mcp` writes ``<repo>/.mcp.json`` directly (per D142).
+    """`_configure_mcp` writes ``<repo>/.mcp.json`` directly.
 
     The format is the documented Claude Code project-scope shape: an
     ``mcpServers`` object map keyed by server name. These tests lock in the

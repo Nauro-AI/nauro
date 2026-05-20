@@ -1,4 +1,4 @@
-"""Tests for Tier 2 BM25 similarity validation (D93)."""
+"""Tests for Tier 2 BM25 similarity validation."""
 
 from pathlib import Path
 
@@ -59,7 +59,7 @@ class TestCheckSimilarity:
         assert action == "auto_confirm"
 
     def test_vocabulary_mismatch_detected(self, store):
-        """BM25 with stemming catches vocabulary mismatches (D93 motivation)."""
+        """BM25 with stemming catches vocabulary mismatches."""
         append_decision(
             store,
             "Chose Memcached for session state",

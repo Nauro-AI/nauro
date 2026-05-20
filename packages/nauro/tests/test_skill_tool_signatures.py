@@ -27,8 +27,8 @@ The parser is a deliberate naive walker, not a Python parser. It works
 because surfaces follow a narrow convention: positional args are
 parameter-name placeholders (``check_decision(proposed_approach)``),
 kwargs are ``name=opaque_value``. Values are ignored except
-``operation="..."`` so the D133 per-operation required-set exception
-for ``propose_decision`` can be applied.
+``operation="..."`` so the per-operation required-set exception for
+``propose_decision`` can be applied.
 
 The misspelled-tool guard uses a prefix allowlist derived from
 ``ALL_TOOLS`` (``propose_``, ``check_``, …) because a wide-open
@@ -244,7 +244,7 @@ def _kwarg_value(kwargs: dict[str, str], key: str) -> str:
 
 
 def _required_for_call(spec: ToolSpec, kwargs: dict[str, str]) -> set[str]:
-    """Effective required-param set, applying the D133 update exception.
+    """Effective required-param set, applying the update-operation exception.
 
     ``propose_decision(operation="update")`` only accepts ``rationale`` +
     ``affected_decision_id`` at the server boundary, so ``title`` is
@@ -356,10 +356,10 @@ _RETIRED_PROPOSE_DECISION_POSITIONALS: tuple[str, ...] = (
     "confidence",
 )
 
-# D133: propose_decision(operation="update") only accepts a narrow set of
-# fields. title / confidence / decision_type / reversibility /
-# files_affected / rejected are all rejected at the server boundary —
-# use operation="supersede" if any of those must change.
+# propose_decision(operation="update") only accepts a narrow set of fields.
+# title / confidence / decision_type / reversibility / files_affected /
+# rejected are all rejected at the server boundary — use
+# operation="supersede" if any of those must change.
 _UPDATE_ALLOWED_KWARGS: frozenset[str] = frozenset(
     {"project_id", "rationale", "operation", "affected_decision_id", "skip_validation"}
 )
@@ -367,7 +367,7 @@ _UPDATE_ALLOWED_KWARGS: frozenset[str] = frozenset(
 
 @pytest.mark.parametrize("surface_name,loader", _SURFACE_PARAMS)
 def test_no_retired_propose_decision_positional_shape(surface_name: str, loader) -> None:
-    """D131 retired the positional ``(title, rationale, rejected, confidence)`` shape.
+    """The positional ``(title, rationale, rejected, confidence)`` shape is retired.
 
     Detected via the parsed positional list (not a substring match) so
     cosmetic edits to the template still trip the guard. Complements the
@@ -381,8 +381,8 @@ def test_no_retired_propose_decision_positional_shape(surface_name: str, loader)
         if tuple(positional) == _RETIRED_PROPOSE_DECISION_POSITIONALS:
             pytest.fail(
                 f"{_at(surface_name, text, call.offset)}: propose_decision({call.args}) "
-                "uses the retired positional contract — D131 requires the "
-                "operation-aware signature"
+                "uses the retired positional contract — the operation-aware "
+                "signature is required"
             )
 
 
@@ -390,8 +390,9 @@ def test_no_retired_propose_decision_positional_shape(surface_name: str, loader)
 def test_propose_decision_multi_kwarg_calls_specify_operation(surface_name: str, loader) -> None:
     """Every multi-kwarg propose_decision template must include ``operation``.
 
-    Per D131 the agent owns the add/update/supersede classification.
-    Calls with 0 or 1 kwarg are abbreviated references, not full templates.
+    The agent owns the add/update/supersede classification, so every full
+    call must specify it. Calls with 0 or 1 kwarg are abbreviated
+    references, not full templates.
     """
     text = loader()
     for call in _iter_well_formed_calls(text):
@@ -402,13 +403,13 @@ def test_propose_decision_multi_kwarg_calls_specify_operation(surface_name: str,
             continue
         assert "operation" in kwargs, (
             f"{_at(surface_name, text, call.offset)}: propose_decision({call.args}) "
-            "is missing the operation kwarg — D131 requires operation-aware calls"
+            "is missing the operation kwarg — operation-aware calls are required"
         )
 
 
 @pytest.mark.parametrize("surface_name,loader", _SURFACE_PARAMS)
-def test_propose_decision_update_kwargs_within_d133_allowlist(surface_name: str, loader) -> None:
-    """D133: ``propose_decision(operation="update")`` accepts only a narrow set.
+def test_propose_decision_update_kwargs_within_allowlist(surface_name: str, loader) -> None:
+    """``propose_decision(operation="update")`` accepts only a narrow set.
 
     ``title``, ``confidence``, ``decision_type``, ``reversibility``,
     ``files_affected``, ``rejected`` are rejected at the server boundary
@@ -424,7 +425,7 @@ def test_propose_decision_update_kwargs_within_d133_allowlist(surface_name: str,
         extra = set(kwargs) - _UPDATE_ALLOWED_KWARGS
         assert not extra, (
             f"{_at(surface_name, text, call.offset)}: "
-            f"propose_decision({call.args}) includes D133-rejected fields "
+            f"propose_decision({call.args}) includes boundary-rejected fields "
             f'for operation="update": {sorted(extra)}; '
             f"allowed = {sorted(_UPDATE_ALLOWED_KWARGS)}"
         )

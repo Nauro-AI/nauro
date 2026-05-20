@@ -1,4 +1,4 @@
-"""BM25 search over decisions (D93).
+"""BM25 search over decisions.
 
 Builds an in-memory BM25 index per call using bm25s + PyStemmer.
 Index text: title + rationale for each decision.

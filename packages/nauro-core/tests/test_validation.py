@@ -85,8 +85,8 @@ class TestCheckBm25Similarity:
         assert related == []
 
     def test_vocabulary_mismatch_flagged(self):
-        # D93 motivating case: BM25 + stemming catches vocabulary mismatches
-        # that substring and naive word-set matching miss.
+        # BM25 + stemming catches vocabulary mismatches that substring and
+        # naive word-set matching miss.
         existing = [
             self._decision(
                 2,

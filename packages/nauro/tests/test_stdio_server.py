@@ -57,15 +57,15 @@ class TestResolveStore:
         assert result == store
 
     def test_raises_on_unknown_project(self, store: Path):
-        # D136: unknown name in v2 falls through to v1 legacy; if also
-        # missing there, ProjectNotFoundError carries the "registry" anchor.
+        # Unknown name in v2 falls through to v1 legacy; if also missing
+        # there, ProjectNotFoundError carries the "registry" anchor.
         from nauro.store.resolution import ProjectNotFoundError
 
         with pytest.raises(ProjectNotFoundError, match="registry"):
             _resolve_store("nonexistent", None)
 
     def test_raises_on_no_project_or_cwd(self, store: Path):
-        # D136: NoProjectError reserved for the genuinely-no-project case.
+        # NoProjectError is reserved for the genuinely-no-project case.
         # Wrapper code maps only this subclass to WELCOME_NO_PROJECT.
         from nauro.store.resolution import NoProjectError
 
@@ -168,7 +168,7 @@ class TestProposeDecision:
 
 
 class TestProposeDecisionResolvesQuestions:
-    """D139 wired through the stdio FastMCP layer.
+    """propose_decision.resolves_questions wired through the stdio FastMCP layer.
 
     Asserts the Annotated[list[str], ...] wrapper forwards the param into
     tool_propose_decision and the resolved-questions response field is
@@ -179,7 +179,7 @@ class TestProposeDecisionResolvesQuestions:
         """Write one question with a Q-form id; return its id."""
         qid = "Q1"
         (store / "open-questions.md").write_text(
-            f"# Open Questions\n\n- [{qid}] should we ship D139?\n"
+            f"# Open Questions\n\n- [{qid}] should we ship the feature?\n"
         )
         return qid
 
@@ -187,7 +187,7 @@ class TestProposeDecisionResolvesQuestions:
         question_id = self._seed_question(store)
         result = propose_decision(
             project_id="testproj",
-            title="Ship D139",
+            title="Ship the feature",
             rationale="Decision that closes the seeded open question.",
             resolves_questions=[question_id],
         )
@@ -231,11 +231,12 @@ class TestProposeDecisionResolvesQuestions:
 
 
 class TestWelcomeDisambiguation:
-    """D136: WELCOME_NO_PROJECT is reserved for the genuinely-no-project
-    case. Specific failures (bogus project_id, missing store on disk,
-    mismatched cwd config) must surface their own diagnostic instead of
-    the onboarding screen suggesting `nauro init`, which is the wrong
-    remedy when the caller already has a (mis-)configured project."""
+    """WELCOME_NO_PROJECT is reserved for the genuinely-no-project case.
+
+    Specific failures (bogus project_id, missing store on disk, mismatched
+    cwd config) must surface their own diagnostic instead of the onboarding
+    screen suggesting `nauro init`, which is the wrong remedy when the
+    caller already has a (mis-)configured project."""
 
     def test_unknown_project_id_surfaces_specific_error(self, store: Path):
         """Bogus project_id keyword on a dict-returning tool → guidance
@@ -255,8 +256,8 @@ class TestWelcomeDisambiguation:
 
     def test_no_project_resolvable_still_returns_welcome(self, store: Path):
         """The genuine onboarding case — no project_id, no cwd config —
-        keeps the welcome screen. D136 narrows what counts as the
-        onboarding case; this asserts the narrowing didn't lose it."""
+        keeps the welcome screen. This asserts the narrowing of the
+        onboarding case didn't lose the legitimate trigger."""
         # Drop the registry so no project can resolve from cwd or by name.
         from nauro.store.registry import _registry_file
 
@@ -330,9 +331,9 @@ class TestToolRegistration:
 
 
 class TestToolSpecDescriptionsReachAgent:
-    """D134 P1: per-property descriptions in nauro_core.mcp_tools must reach
-    agents via FastMCP's tools/list inputSchema (not just the parent tool
-    description). Pre-D134 the local stdio's _spec_kwargs forwarded only
+    """Per-property descriptions in nauro_core.mcp_tools must reach agents
+    via FastMCP's tools/list inputSchema, not just the parent tool
+    description. Previously the local stdio's _spec_kwargs forwarded only
     title/description/annotations; FastMCP regenerated the inputSchema from
     function signatures, stripping every per-property description and enum.
     Annotated[T, Field(description=...)] + Literal[...] in the wrappers
@@ -437,9 +438,9 @@ class TestToolSpecDescriptionsReachAgent:
         ],
     )
     def test_project_id_property_alignment_with_toolspec(self, tools_by_name, tool):
-        """D135: the local stdio's tools/list must advertise `project_id` as
-        the property name on every tool that takes a project handle —
-        matching the central ToolSpec (and the remote MCP). Pre-rename the
+        """The local stdio's tools/list must advertise `project_id` as the
+        property name on every tool that takes a project handle — matching
+        the central ToolSpec (and the remote MCP). Before the rename the
         wrappers exposed `project`, which produced cross-transport schema
         drift: an agent inspecting tools/list saw different property names
         depending on which transport they connected through."""

@@ -1,4 +1,4 @@
-"""Phase 1c T1.7 / T1.7b — identity lifecycle (D119 + C1 correction).
+"""Telemetry identity lifecycle.
 
 Covers:
 1. Login order: alias(previous_id, distinct_id) FIRST, then set(distinct_id, props).
@@ -33,7 +33,7 @@ _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 
 class FakeClient:
-    """Records call sequence so order-sensitive assertions (D119 alias-then-set) hold."""
+    """Records call sequence so order-sensitive assertions (alias-then-set) hold."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
@@ -105,7 +105,7 @@ def test_login_calls_alias_then_set_in_correct_order(nauro_home, telemetry_key, 
 
     identify_login(user_id="auth0|user-a", email_hash="deadbeef" * 8)
 
-    # Exactly two calls, alias first, set second (D119 load-bearing order).
+    # Exactly two calls, alias first, set second (load-bearing order).
     assert len(fake_posthog.calls) == 2
     assert fake_posthog.calls[0][0] == "alias"
     assert fake_posthog.calls[0][1] == {"previous_id": aid, "distinct_id": "auth0|user-a"}

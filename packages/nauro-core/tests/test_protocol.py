@@ -172,10 +172,10 @@ class TestMcpInstructionsComposition:
     surface verbatim, and must be fully resolved (no leftover tokens).
 
     ``PROPOSE_DECISION_OPERATIONS`` and ``RESOLVES_OPEN_QUESTIONS`` are
-    deliberately omitted from the static block per D151 — they live on the
-    matching ``propose_decision`` ToolSpec parameter descriptions instead,
-    where the agent reads them at the moment of use. The positive splice
-    asserts below pin those relocations.
+    deliberately omitted from the static block — they live on the matching
+    ``propose_decision`` ToolSpec parameter descriptions instead, where the
+    agent reads them at the moment of use. The positive splice asserts
+    below pin those relocations.
     """
 
     REQUIRED_FRAGMENTS = (
@@ -193,7 +193,7 @@ class TestMcpInstructionsComposition:
         assert protocol_tokens_in(MCP_INSTRUCTIONS_STATIC) == []
 
     def test_propose_decision_operations_in_operation_parameter(self) -> None:
-        """Relocation guard (D151): the fragment must appear verbatim on the
+        """Relocation guard: the fragment must appear verbatim on the
         ``propose_decision.operation`` parameter description so the agent
         still reads operation semantics at the moment of use."""
         spec = get_tool_spec("propose_decision")
@@ -201,7 +201,7 @@ class TestMcpInstructionsComposition:
         assert PROPOSE_DECISION_OPERATIONS in op_desc
 
     def test_resolves_open_questions_in_resolves_questions_parameter(self) -> None:
-        """Relocation guard (D151): the fragment must appear verbatim on the
+        """Relocation guard: the fragment must appear verbatim on the
         ``propose_decision.resolves_questions`` parameter description so the
         ids-and-boundary contract stays bound to the parameter the agent
         actually passes."""

@@ -91,9 +91,8 @@ def test_create_project_stale_token_refreshed_transparently(tmp_path, monkeypatc
     silent refresh, the retry succeeds, and ``create_project`` returns
     the new ``ProjectView`` without any user-visible auth error.
 
-    Regression for the D145 narrow-scope gap — before this fix,
-    ``nauro init --cloud`` cold-failed on an expired access token even
-    though the refresh token was still valid."""
+    Regression: before this fix, ``nauro init --cloud`` cold-failed on an
+    expired access token even though the refresh token was still valid."""
     save_config(
         {
             "auth": {

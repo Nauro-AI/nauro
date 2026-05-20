@@ -7,7 +7,7 @@ Covers:
    ("stdio") flips it back.
 3. A tool that raises emits one event with success=False AND re-raises.
 4. Property allowlist is closed — exactly four keys, never tool args, return
-   values, project_id, or exception strings (D117 never-sent list).
+   values, project_id, or exception strings.
 """
 
 from __future__ import annotations
@@ -136,7 +136,7 @@ def test_failing_tool_emits_one_event_with_success_false(
     props = tool_events[0]["properties"]
     assert props["tool_name"] == "synthetic_failure"
     assert props["success"] is False
-    # No exception leakage in the event payload (D117 never-sent list).
+    # No exception leakage in the event payload.
     assert set(props.keys()) == _ALLOWED_KEYS
     assert "secret_payload" not in json.dumps(tool_events[0])
 

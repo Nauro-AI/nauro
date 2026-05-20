@@ -1,4 +1,4 @@
-"""Tests for search_decisions (D77 step 2)."""
+"""Tests for search_decisions."""
 
 from pathlib import Path
 
