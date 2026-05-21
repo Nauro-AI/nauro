@@ -45,7 +45,7 @@ nauro adopt
 
 `nauro adopt` registers the project, wires MCP across Claude Code, Cursor, and Codex, and installs a `/nauro-adopt` skill. Restart your agent and invoke `/nauro-adopt`.
 
-Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bundled Claude Code subagents. The typical workflow:
+Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bundled Claude Code subagents into `~/.claude/agents/`. The typical workflow:
 
 - `@nauro-planner` before non-trivial work. Drafts a plan and classifies doctrine risk (GREEN/AMBER/RED) against your decision log.
 - `@nauro-executor` after a plan is agreed. Implements it, runs tests, opens a PR.
@@ -58,7 +58,7 @@ Chat surfaces (Claude.ai, ChatGPT, Perplexity): run `nauro adopt` from a termina
 
 ```bash
 nauro auth login
-nauro link --cloud
+nauro link --cloud   # one-time: promote the local project to cloud
 nauro sync
 ```
 
