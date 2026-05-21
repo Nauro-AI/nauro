@@ -1,7 +1,5 @@
 # Nauro
 
-Set the doctrine once. Every agent inherits it.
-
 Nauro gives AI agents persistent project context across Claude, Cursor, Codex, ChatGPT, and any MCP client. It captures decisions and rejected options, then checks new proposals against them so agents stop re-suggesting approaches you already ruled out.
 
 **Status:** Beta. 1.0 will be the first production release.
