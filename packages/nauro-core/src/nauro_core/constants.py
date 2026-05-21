@@ -39,6 +39,18 @@ OPEN_QUESTIONS_MD = "open-questions.md"
 DECISIONS_DIR = "decisions"
 SNAPSHOTS_DIR = "snapshots"
 
+# ── Empty-state guidance ──
+# Returned by `check_decision` when the store has no decisions yet. Shared
+# between local (nauro) and remote (mcp-server) so the empty-store onboarding
+# text cannot drift between surfaces.
+NO_DECISIONS_TO_CHECK = (
+    "No existing decisions to check against.\n"
+    "\n"
+    "Use propose_decision to record your first architectural decision, "
+    "then check_decision can help verify new approaches against "
+    "your recorded decisions."
+)
+
 # ── Decision types ──
 DECISION_TYPES: tuple[str, ...] = (
     "architecture",

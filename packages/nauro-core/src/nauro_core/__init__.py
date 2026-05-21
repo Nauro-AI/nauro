@@ -5,6 +5,7 @@ Re-export facade — public API symbols from all modules.
 
 from importlib.metadata import version
 
+from nauro_core import operations as operations
 from nauro_core.constants import (
     DECISION_HASHES_FILE as DECISION_HASHES_FILE,
 )
@@ -55,6 +56,9 @@ from nauro_core.constants import (
 )
 from nauro_core.constants import (
     MIN_RATIONALE_LENGTH as MIN_RATIONALE_LENGTH,
+)
+from nauro_core.constants import (
+    NO_DECISIONS_TO_CHECK as NO_DECISIONS_TO_CHECK,
 )
 from nauro_core.constants import (
     OPEN_QUESTIONS_MD as OPEN_QUESTIONS_MD,

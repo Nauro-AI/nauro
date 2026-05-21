@@ -5,9 +5,9 @@ agent or developer with the ``nauro`` CLI installed can run conflict-detection
 in the current session without restarting their MCP client. The output is the
 same retrieval the MCP ``check_decision`` tool returns; nothing is written.
 
-CLI invocations skip the ``@mcp_tool`` decorator's telemetry side-effects by
-calling :func:`nauro.mcp.tools.compute_check_decision` directly — the Typer
-instrumentation already emits ``cli.command_invoked`` for every command.
+CLI invocations call the kernel operation directly so the ``@mcp_tool``
+decorator's ``mcp.tool_called`` event never fires from the CLI surface;
+the Typer instrumentation already emits ``cli.command_invoked``.
 """
 
 from __future__ import annotations
@@ -15,10 +15,12 @@ from __future__ import annotations
 import json
 
 import typer
+from nauro_core.operations import CheckDecisionResult, check_decision
 
 from nauro.cli.utils import resolve_target_project
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
-from nauro.mcp.tools import compute_check_decision
+from nauro.onboarding import WELCOME_NO_PROJECT
+from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import RegistrySchemaError, get_project_v2
 
 
@@ -42,31 +44,27 @@ def _render_human(
     project_name: str,
     approach: str,
     store_path_str: str,
-    result: dict,
+    result: CheckDecisionResult,
 ) -> str:
     """Render the check_decision result as human-readable terminal output."""
     lines: list[str] = []
-    lines.append(f"store:    {result.get('store', 'local')}")
+    lines.append("store:    local")
     lines.append(f"project:  {project_name}")
     lines.append(f"approach: {approach}")
     lines.append("")
 
-    related = result.get("related_decisions", [])
-    if not related:
-        lines.append(result.get("assessment", "No related decisions found."))
+    if not result.related_decisions:
+        lines.append(result.assessment or "No related decisions found.")
         return "\n".join(lines)
 
-    lines.append(f"Related decisions ({len(related)}):")
-    for d in related:
-        did = d.get("id", "?")
-        title = d.get("title", "")
-        score = d.get("score", 0.0)
-        status = d.get("status", "")
-        date = d.get("date", "")
-        lines.append(f"  {did}  {title}  (score {score:.1f}, status {status}, decided {date})")
+    lines.append(f"Related decisions ({len(result.related_decisions)}):")
+    for d in result.related_decisions:
+        lines.append(
+            f"  {d.id}  {d.title}  (score {d.score:.1f}, status {d.status}, decided {d.date})"
+        )
 
     lines.append("")
-    lines.append(result.get("assessment", ""))
+    lines.append(result.assessment)
     lines.append("")
     lines.append(
         f"For full rationale, read decision files in {store_path_str}/decisions/, "
@@ -97,6 +95,20 @@ def check(
     """
     project_name, store_path = resolve_target_project(project)
 
+    # Missing store is a CLI-side concern: the operation expects a live Store,
+    # so we surface the onboarding hint before constructing one.
+    if not store_path.exists():
+        envelope = {
+            "store": "local",
+            "status": "error",
+            "guidance": WELCOME_NO_PROJECT,
+        }
+        if json_output:
+            typer.echo(json.dumps(envelope, indent=2))
+        else:
+            typer.echo(WELCOME_NO_PROJECT, err=True)
+        raise typer.Exit(code=1)
+
     # Cloud-mode notice. We always read local data; the warning goes to stderr
     # so --json output stays parseable.
     if _is_cloud_project(store_path.name):
@@ -106,24 +118,17 @@ def check(
             err=True,
         )
 
-    result = compute_check_decision(store_path, approach)
-    # Any non-empty status field is an error-shaped response from compute_check_decision
-    # (currently "error" for missing store, "rejected" for over-length input).
-    # Both human and JSON paths must exit 1 on those — a script piping --json
-    # and checking $? would otherwise silently treat input-too-long as success.
-    is_error = result.get("status") in ("error", "rejected")
+    result = check_decision(FilesystemStore(store_path), approach)
 
     if json_output:
-        typer.echo(json.dumps(result, indent=2))
-        if is_error:
+        envelope = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
+        typer.echo(json.dumps(envelope, indent=2))
+        if result.error is not None:
             raise typer.Exit(code=1)
         return
 
-    if result.get("status") == "error":
-        typer.echo(result.get("guidance", "Error"), err=True)
-        raise typer.Exit(code=1)
-    if result.get("status") == "rejected":
-        typer.echo(result.get("reason", "Rejected"), err=True)
+    if result.error is not None:
+        typer.echo(result.error.reason, err=True)
         raise typer.Exit(code=1)
 
     typer.echo(_render_human(project_name, approach, str(store_path), result))

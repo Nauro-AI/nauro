@@ -504,11 +504,16 @@ class TestContentSizeLimits:
         assert f"{MAX_DELTA_LENGTH}" in result["reason"]
 
     def test_check_decision_approach_over_limit(self, store: Path):
-        from nauro.mcp.tools import MAX_APPROACH_LENGTH, tool_check_decision
+        from nauro_core.constants import MAX_APPROACH_LENGTH
+
+        from nauro.mcp.tools import tool_check_decision
 
         result = tool_check_decision(store, "A" * (MAX_APPROACH_LENGTH + 1))
-        assert result["status"] == "rejected"
-        assert f"{MAX_APPROACH_LENGTH}" in result["reason"]
+        # Rejection envelope: structured error, related_decisions stay empty.
+        assert result["related_decisions"] == []
+        assert result["assessment"] == ""
+        assert result["error"]["kind"] == "rejected"
+        assert f"{MAX_APPROACH_LENGTH}" in result["error"]["reason"]
 
 
 class TestPullOnStartup:

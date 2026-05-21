@@ -3,7 +3,14 @@
 These constants are returned when a user has no project store or when a
 project exists but has no decisions/snapshots yet.  They give the LLM
 enough context to guide the user toward a productive first experience.
+
+``NO_DECISIONS_TO_CHECK`` is the shared cross-surface string and lives in
+``nauro_core.constants`` so the same empty-store text reaches users on
+local and cloud transports. The re-export here preserves the import path
+existing callers use.
 """
+
+from nauro_core.constants import NO_DECISIONS_TO_CHECK as NO_DECISIONS_TO_CHECK
 
 WELCOME_NO_PROJECT = (
     "Welcome to Nauro! No project store found.\n"
@@ -28,14 +35,6 @@ NO_SNAPSHOTS_YET = (
     "\n"
     "Snapshots are created automatically when decisions are written "
     "or state is updated. Use propose_decision or update_state to get started."
-)
-
-NO_DECISIONS_TO_CHECK = (
-    "No existing decisions to check against.\n"
-    "\n"
-    "Use propose_decision to record your first architectural decision, "
-    "then check_decision can help verify new approaches against "
-    "your recorded decisions."
 )
 
 NO_CONTEXT_YET = (

@@ -1,4 +1,4 @@
-"""Kernel tests for the ``results`` module shell shipped in PR 0."""
+"""Kernel tests for the operations ``results`` module shell."""
 
 from __future__ import annotations
 

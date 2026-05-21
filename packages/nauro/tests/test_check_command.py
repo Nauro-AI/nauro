@@ -5,8 +5,9 @@ Covers:
 - ``--json`` emits a parseable result with the same shape as the human path.
 - Project-resolution and store-state error paths exit non-zero with guidance.
 - Cloud-mode projects surface a "may be stale" notice on stderr.
-- The CLI does NOT emit ``mcp.tool_called`` telemetry (the helper-extraction
-  fix) — only the auto-instrumented ``cli.command_invoked`` event fires.
+- The CLI does NOT emit ``mcp.tool_called`` telemetry — it calls the kernel
+  operation directly so only the auto-instrumented ``cli.command_invoked``
+  event fires.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.constants import REPO_CONFIG_MODE_CLOUD, REPO_CONFIG_MODE_LOCAL
 from nauro.demo import create_demo_project
-from nauro.mcp.tools import compute_check_decision, tool_check_decision
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from tests.conftest import seed_consented_config
@@ -52,9 +52,9 @@ def demo_repo(tmp_path, monkeypatch):
 def no_decisions_repo(tmp_path, monkeypatch):
     """Register a v2 project whose store has no decisions/ directory at all.
 
-    Hits the ``not _has_decisions(store_path)`` branch in compute_check_decision —
-    distinct from a scaffolded store (which seeds 001-initial-setup.md and
-    therefore has decisions).
+    Hits the empty-store branch in ``check_decision`` — distinct from a
+    scaffolded store (which seeds 001-initial-setup.md and therefore has
+    decisions).
     """
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -64,23 +64,6 @@ def no_decisions_repo(tmp_path, monkeypatch):
     # scaffold_project_store so decisions/ never gets populated.
     monkeypatch.chdir(repo)
     return "bare-project", pid, store_path, repo
-
-
-# --- compute_check_decision (helper) preserves wrapper output -----------------
-
-
-def test_helper_and_wrapper_return_same_shape(demo_repo):
-    """compute_check_decision and tool_check_decision must return identical
-    dicts — the refactor that extracted the helper must not have drifted the
-    response shape that MCP callers depend on.
-    """
-    _, _, store_path, _ = demo_repo
-    helper = compute_check_decision(store_path, DEMO_PROMPT)
-    wrapper = tool_check_decision(store_path, DEMO_PROMPT)
-    assert helper == wrapper
-    assert helper["store"] == "local"
-    assert "related_decisions" in helper
-    assert "assessment" in helper
 
 
 # --- happy path: demo prompt retrieves the SSE-over-WebSocket decision ------
@@ -134,7 +117,7 @@ def test_no_project_resolution_errors(tmp_path, monkeypatch):
 
 def test_no_decisions_store_returns_no_decisions_message(no_decisions_repo):
     """A store with no decisions/ directory hits the NO_DECISIONS_TO_CHECK
-    branch in compute_check_decision and surfaces the onboarding hint."""
+    branch in the operation and surfaces the onboarding hint."""
     result = runner.invoke(app, ["check", DEMO_PROMPT])
     assert result.exit_code == 0, result.output
     # The NO_DECISIONS_TO_CHECK constant points the user at `nauro note`.
@@ -160,8 +143,10 @@ def test_rejected_status_exits_nonzero_json(demo_repo):
     result = runner.invoke(app, ["check", overlong, "--json"])
     assert result.exit_code == 1
     payload = json.loads(result.output)
-    assert payload["status"] == "rejected"
-    assert "reason" in payload
+    # Rejection envelope: structured error block, no top-level "status".
+    assert payload["error"]["kind"] == "rejected"
+    assert "reason" in payload["error"]
+    assert "status" not in payload
 
 
 # --- cloud-mode notice -------------------------------------------------------

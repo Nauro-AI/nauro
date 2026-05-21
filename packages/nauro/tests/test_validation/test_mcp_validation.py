@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from nauro_core.constants import NO_DECISIONS_TO_CHECK
 
 from nauro.mcp.server import app
 from nauro.templates.scaffolds import scaffold_project_store
@@ -89,7 +90,13 @@ async def test_confirm_decision_invalid_id(client):
 
 @pytest.mark.asyncio
 async def test_check_decision_no_matches(client):
-    """Checking an approach with no related decisions."""
+    """Checking an approach against a scaffold-only store.
+
+    The scaffold-seeded "Initial project setup" decision is excluded from
+    retrieval (mirrors tier-2 validation), so a fresh store with only that
+    seed flows into the empty-state branch with the ``NO_DECISIONS_TO_CHECK``
+    onboarding assessment.
+    """
     resp = await client.post(
         "/check_decision",
         json={
@@ -100,7 +107,7 @@ async def test_check_decision_no_matches(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["related_decisions"] == []
-    assert data["assessment"] == "No related decisions found."
+    assert data["assessment"] == NO_DECISIONS_TO_CHECK
     assert "potential_conflicts" not in data
 
 

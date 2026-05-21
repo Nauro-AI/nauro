@@ -13,7 +13,6 @@ from pathlib import Path
 
 from nauro_core import extract_decision_number
 from nauro_core.constants import (
-    MAX_APPROACH_LENGTH,
     MAX_CONTEXT_LENGTH,
     MAX_DELTA_LENGTH,
     MAX_QUESTION_LENGTH,
@@ -22,6 +21,7 @@ from nauro_core.constants import (
     STATE_CURRENT_FILENAME,
 )
 from nauro_core.decision_model import DecisionStatus
+from nauro_core.operations import check_decision as _check_decision_op
 from nauro_core.protocol import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -33,9 +33,9 @@ from nauro_core.validation import check_content_length, find_envelope_token
 from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payload
 from nauro.onboarding import (
     NO_CONTEXT_YET,
-    NO_DECISIONS_TO_CHECK,
     WELCOME_NO_PROJECT,
 )
+from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import (
     _list_decisions,
     resolve_decision_id,
@@ -291,94 +291,6 @@ def tool_confirm_decision(store_path: Path, confirm_id: str) -> dict:
     return response
 
 
-def compute_check_decision(
-    store_path: Path,
-    proposed_approach: str,
-    context: str | None = None,
-) -> dict:
-    """Compute the check_decision result without emitting MCP telemetry.
-
-    Same return shape as :func:`tool_check_decision`. Call this from non-MCP
-    contexts (e.g. the ``nauro check`` CLI command) where the ``@mcp_tool``
-    decorator's ``mcp.tool_called`` emission would be wrong — those surfaces
-    emit their own events (``cli.command_invoked`` via Typer instrumentation).
-    """
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
-    for err in (
-        _reject_if_too_long(proposed_approach, "Proposed approach", MAX_APPROACH_LENGTH),
-        _reject_if_too_long(context or "", "Context", MAX_CONTEXT_LENGTH) if context else None,
-    ):
-        if err:
-            return err
-
-    if not _has_decisions(store_path):
-        return {
-            "store": "local",
-            "related_decisions": [],
-            "assessment": NO_DECISIONS_TO_CHECK,
-        }
-
-    pseudo_proposal = {
-        "title": proposed_approach[:100],
-        "rationale": proposed_approach + (f" {context}" if context else ""),
-    }
-
-    t2_action, similar_decisions = check_similarity(pseudo_proposal, store_path)
-
-    if t2_action == "auto_confirm" or not similar_decisions:
-        return {
-            "store": "local",
-            "related_decisions": [],
-            "assessment": "No related decisions found.",
-        }
-
-    # Map BM25 hits to full decision metadata (date, status).
-    all_decisions = _list_decisions(store_path)
-    by_id = {f"decision-{d.num:03d}": d for d in all_decisions}
-
-    related = []
-    for hit in similar_decisions:
-        did = hit.get("id", "")
-        decision = by_id.get(did)
-        canonical_id = resolve_decision_id(store_path, did) or did
-        related.append(
-            {
-                "id": canonical_id,
-                "title": hit.get("title", ""),
-                "score": hit.get("similarity", 0.0),
-                "status": decision.status.value if decision else "active",
-                "date": str(decision.date) if decision and decision.date else "",
-            }
-        )
-
-    # Deterministic assessment from BM25 facts.
-    top = related[0]
-    top_num = extract_decision_number(top["id"])
-    top_label = f"D{top_num:03d}" if top_num is not None else top["id"]
-    top_line = (
-        f'Top match: {top_label} "{top["title"]}"'
-        f" (status {top['status']}, decided {top['date']}, BM25 {top['score']:.1f})."
-    )
-
-    if len(related) == 1:
-        target = f"get_decision({top_num})" if top_num is not None else "get_decision"
-        assessment = f"{top_line} Call {target} before proposing."
-    else:
-        assessment = (
-            f"Found {len(related)} related decisions. {top_line}"
-            f" Call get_decision on each related decision before proposing."
-        )
-
-    return {
-        "store": "local",
-        "related_decisions": related,
-        "assessment": assessment,
-    }
-
-
 @mcp_tool("check_decision")
 def tool_check_decision(
     store_path: Path,
@@ -386,7 +298,12 @@ def tool_check_decision(
     context: str | None = None,
 ) -> dict:
     """Check for conflicts with existing decisions without writing anything."""
-    return compute_check_decision(store_path, proposed_approach, context)
+    guidance = _check_store_exists(store_path)
+    if guidance:
+        return {"store": "local", "status": "error", "guidance": guidance}
+
+    result = _check_decision_op(FilesystemStore(store_path), proposed_approach, context)
+    return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
 # Compose the agent-facing docstring from canonical fragments so the

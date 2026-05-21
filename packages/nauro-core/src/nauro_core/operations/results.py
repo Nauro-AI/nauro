@@ -2,13 +2,15 @@
 
 Each operation returns a per-operation ``*Result`` model so transports
 shape responses from typed attributes rather than loosely-typed dicts.
-PR 0 lands the ``RelatedDecision`` submodel; ``CheckDecisionResult`` and
-``ErrorPayload`` ship with the ``check_decision`` operation cutover.
+``RelatedDecision`` and ``ErrorPayload`` are shared submodels reused by
+multiple operations; per-operation ``Result`` models live alongside.
 """
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RelatedDecision(BaseModel):
@@ -27,3 +29,37 @@ class RelatedDecision(BaseModel):
     status: str
     date: str
     rationale_preview: str
+
+
+class ErrorPayload(BaseModel):
+    """Structured error envelope returned on rejection or operation failure.
+
+    ``kind`` discriminates between caller-fixable rejections (input over
+    length, malformed argument) and operation-side failures. ``guidance``
+    carries an onboarding string when the rejection has a remedial action
+    the caller can take.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: Literal["rejected", "error"]
+    reason: str
+    guidance: str | None = None
+
+
+class CheckDecisionResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.check_decision`.
+
+    On the success path ``related_decisions`` contains zero or more
+    :class:`RelatedDecision` hits and ``assessment`` carries the
+    deterministic human-readable summary. On the rejection path
+    ``error`` is populated; ``related_decisions`` stays empty and
+    ``assessment`` stays empty. ``store`` is not part of the model;
+    transport adapters add it back at serialization time.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    related_decisions: list[RelatedDecision] = Field(default_factory=list)
+    assessment: str = ""
+    error: ErrorPayload | None = None
