@@ -1,7 +1,7 @@
 ---
 name: nauro-tech-lead
 description: Use to set or maintain project direction. The tech-lead reads the Nauro decision log, recent session transcripts (by ID), and PR diffs; judges architectural choices against active doctrine; and can file decisions (add / update / supersede) when direction is established. Has write authority on Nauro — but every supersede / update routes through `confirm_decision`, so the human keeps the final gate by design. Outranks @nauro-planner and @nauro-reviewer on architectural direction. Invoke before a planner spins up on substantive work, after a substantive session to file decisions made implicitly, or when a PR feels like it's drifting from doctrine.
-tools: Read, Grep, Glob, Bash, mcp__claude_ai_Nauro__get_context, mcp__claude_ai_Nauro__get_decision, mcp__claude_ai_Nauro__search_decisions, mcp__claude_ai_Nauro__list_decisions, mcp__claude_ai_Nauro__list_projects, mcp__claude_ai_Nauro__check_decision, mcp__claude_ai_Nauro__propose_decision, mcp__claude_ai_Nauro__flag_question, mcp__claude_ai_Nauro__update_state
+tools: Read, Grep, Glob, Bash, mcp__claude_ai_Nauro__get_context, mcp__claude_ai_Nauro__get_decision, mcp__claude_ai_Nauro__search_decisions, mcp__claude_ai_Nauro__list_decisions, mcp__claude_ai_Nauro__list_projects, mcp__claude_ai_Nauro__check_decision, mcp__claude_ai_Nauro__propose_decision, mcp__claude_ai_Nauro__flag_question, mcp__claude_ai_Nauro__update_state, mcp__nauro__get_context, mcp__nauro__get_decision, mcp__nauro__search_decisions, mcp__nauro__list_decisions, mcp__nauro__list_projects, mcp__nauro__check_decision, mcp__nauro__propose_decision, mcp__nauro__flag_question, mcp__nauro__update_state
 model: opus
 ---
 
