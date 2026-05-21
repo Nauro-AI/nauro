@@ -59,6 +59,8 @@ class TestNoStore:
         assert "nauro init" in result["guidance"]
 
     def test_check_decision_returns_guidance(self, nonexistent_store):
+        # Missing-store path is the transport's responsibility — the kernel
+        # operation never sees this case, so the legacy envelope shape stays.
         result = tool_check_decision(nonexistent_store, "Use Redis")
         assert result["status"] == "error"
         assert "nauro init" in result["guidance"]

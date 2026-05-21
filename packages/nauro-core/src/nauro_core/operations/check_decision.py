@@ -1,0 +1,140 @@
+"""``check_decision`` — surface conflicts between a proposed approach and the store.
+
+Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
+all call this function with the same arguments and receive the same
+:class:`CheckDecisionResult`. Each transport's adapter wraps the call to
+add transport-specific framing (``store`` field, telemetry emission,
+exit-code handling), but the retrieval, ranking, and assessment text are
+shared by construction.
+"""
+
+from __future__ import annotations
+
+from bm25s.stopwords import STOPWORDS_EN
+
+from nauro_core.constants import (
+    MAX_APPROACH_LENGTH,
+    MAX_CONTEXT_LENGTH,
+    NO_DECISIONS_TO_CHECK,
+)
+from nauro_core.decision_model import Decision, parse_decision
+from nauro_core.operations.results import (
+    CheckDecisionResult,
+    ErrorPayload,
+    RelatedDecision,
+)
+from nauro_core.operations.store import Store
+from nauro_core.parsing import extract_decision_number
+from nauro_core.search import bm25_retrieve
+from nauro_core.validation import check_content_length
+
+# Scaffold-seed bookkeeping decision is excluded from retrieval; full
+# rationale lives in ``nauro_core/validation.py:40-51``. The convention
+# match (num == 1 and exact title) is the same one tier-2 validation uses,
+# so both surfaces agree on what counts as the seed.
+_SCAFFOLD_SEED_TITLE = "Initial project setup"
+
+# Extended stopword list for ``check_decision`` retrieval. Mirrors the
+# tier-2 ``TIER2_STOPWORDS`` curation (``nauro_core/validation.py:20-38``):
+# bm25s's default English list omits common action verbs that appear in
+# almost every decision title, so adding ``"use"`` collapses the
+# false-positive matches that otherwise surface as near-neighbours on
+# every call.
+_CHECK_DECISION_STOPWORDS = [*list(STOPWORDS_EN), "use"]
+
+
+def check_decision(
+    store: Store,
+    proposed_approach: str,
+    context: str | None = None,
+) -> CheckDecisionResult:
+    """Return the conflict-check result for ``proposed_approach``.
+
+    Args:
+        store: Storage adapter providing ``list_decisions`` / ``read_decision``.
+        proposed_approach: Free-form description of the approach to check.
+        context: Optional additional context concatenated into the retrieval
+            query. Subject to ``MAX_CONTEXT_LENGTH``.
+
+    Returns:
+        :class:`CheckDecisionResult`. On the rejection path ``error`` is
+        populated and ``related_decisions`` / ``assessment`` stay empty.
+    """
+    rejection = check_content_length(proposed_approach, "Proposed approach", MAX_APPROACH_LENGTH)
+    if rejection:
+        return CheckDecisionResult(error=ErrorPayload(kind="rejected", reason=rejection))
+    if context:
+        rejection = check_content_length(context, "Context", MAX_CONTEXT_LENGTH)
+        if rejection:
+            return CheckDecisionResult(error=ErrorPayload(kind="rejected", reason=rejection))
+
+    decisions = _parse_all_decisions(store)
+    decisions = [d for d in decisions if not (d.num == 1 and d.title == _SCAFFOLD_SEED_TITLE)]
+    if not decisions:
+        return CheckDecisionResult(assessment=NO_DECISIONS_TO_CHECK)
+
+    # Match the pre-cutover BM25 input envelope: title-style head (capped
+    # at 100) joined to the full approach + context (capped at 200). The
+    # bm25s tokenizer is order-insensitive, but the 100/200 cap shapes
+    # which tokens reach the index — preserving the prior caller's
+    # ``pseudo_proposal`` truncation locks the same retrieval surface.
+    approach_head = proposed_approach[:100]
+    body_text = proposed_approach + (f" {context}" if context else "")
+    query_text = f"{approach_head}. {body_text[:200]}"
+    hits = bm25_retrieve(decisions, query_text, top_k=5, stopwords=_CHECK_DECISION_STOPWORDS)
+    if not hits:
+        return CheckDecisionResult(assessment="No related decisions found.")
+
+    by_num = {d.num: d for d in decisions}
+    related = [_hit_to_related(hit, by_num) for hit in hits]
+
+    return CheckDecisionResult(
+        related_decisions=related,
+        assessment=_assessment(related),
+    )
+
+
+def _parse_all_decisions(store: Store) -> list[Decision]:
+    """Read every decision from ``store`` and parse it via the v2 model."""
+    parsed: list[Decision] = []
+    for stem in store.list_decisions():
+        body = store.read_decision(stem)
+        if body is None:
+            continue
+        parsed.append(parse_decision(body, f"{stem}.md"))
+    return parsed
+
+
+def _hit_to_related(hit: dict, by_num: dict[int, Decision]) -> RelatedDecision:
+    """Lift a ``bm25_retrieve`` hit into the canonical D141 shape."""
+    num = hit["number"]
+    decision = by_num.get(num)
+    canonical_id = f"decision-{num:03d}"
+    status = decision.status.value if decision else "active"
+    date = decision.date.isoformat() if decision and decision.date else ""
+    return RelatedDecision(
+        id=canonical_id,
+        title=hit.get("title", ""),
+        score=hit.get("similarity", 0.0),
+        status=status,
+        date=date,
+        rationale_preview=hit.get("rationale_preview", ""),
+    )
+
+
+def _assessment(related: list[RelatedDecision]) -> str:
+    """Build the deterministic single-line assessment from retrieval facts."""
+    top = related[0]
+    top_num = extract_decision_number(top.id)
+    top_label = f"D{top_num:03d}" if top_num is not None else top.id
+    top_line = (
+        f'Top match: {top_label} "{top.title}"'
+        f" (status {top.status}, decided {top.date}, BM25 {top.score:.1f})."
+    )
+    if len(related) == 1:
+        target = f"get_decision({top_num})" if top_num is not None else "get_decision"
+        return f"{top_line} Call {target} before proposing."
+    return (
+        f"Found {len(related)} related decisions. {top_line}"
+        " Call get_decision on each related decision before proposing."
+    )
