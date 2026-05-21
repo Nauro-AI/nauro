@@ -579,3 +579,106 @@ def test_setup_all_help_lists_with_subagents():
     output = _strip_ansi(result.output)
     assert "--with-subagents" in output
     assert "--force-overwrite" in output
+    assert "--with-skills" in output
+
+
+# ─── nauro setup all --with-skills ──────────────────────────────────────────
+
+
+def test_setup_all_default_does_not_install_ship_task(tmp_path: Path, monkeypatch):
+    """Off-by-default: ``setup all`` without ``--with-skills`` installs only /nauro-adopt."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "all"])
+    assert result.exit_code == 0, result.output
+
+    # nauro-adopt installed everywhere; nauro-ship-task absent everywhere.
+    assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
+    assert not (tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md").exists()
+    assert not (tmp_path / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md").exists()
+    assert not (repo / ".cursor" / "rules" / "nauro-ship-task.mdc").exists()
+
+
+def test_setup_all_with_skills_installs_ship_task_everywhere(tmp_path: Path, monkeypatch):
+    """``--with-skills`` round-trips: install writes, ``--remove --with-skills`` clears."""
+    from nauro.skills import render_skill
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    install = runner.invoke(app, ["setup", "all", "--with-skills"])
+    assert install.exit_code == 0, install.output
+
+    claude = tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md"
+    codex = tmp_path / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md"
+    cursor = repo / ".cursor" / "rules" / "nauro-ship-task.mdc"
+    assert claude.read_text(encoding="utf-8") == render_skill("claude_code", "nauro-ship-task")
+    assert codex.read_text(encoding="utf-8") == render_skill("codex", "nauro-ship-task")
+    assert cursor.read_text(encoding="utf-8") == render_skill("cursor", "nauro-ship-task")
+
+    remove = runner.invoke(app, ["setup", "all", "--remove", "--with-skills"])
+    assert remove.exit_code == 0, remove.output
+
+    assert not claude.exists()
+    assert not codex.exists()
+    assert not cursor.exists()
+
+
+def test_setup_all_with_skills_emits_notice_when_subagents_off(tmp_path: Path, monkeypatch):
+    """The body references @nauro-* subagents; the user-facing add path warns."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "all", "--with-skills"])
+    assert result.exit_code == 0, result.output
+    assert "nauro-ship-task references the bundled @nauro-* subagents" in result.output
+
+
+def test_setup_all_with_skills_and_subagents_suppresses_notice(tmp_path: Path, monkeypatch):
+    """When both flags are passed, no notice — prerequisites met."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "all", "--with-skills", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+    assert "nauro-ship-task references the bundled @nauro-* subagents" not in result.output
+
+
+def test_setup_all_remove_without_with_skills_leaves_ship_task_intact(tmp_path: Path, monkeypatch):
+    """If the user installed ``--with-skills`` and removes without the flag,
+    the opt-in skill files persist — the remove path mirrors the install path's
+    name set so partial cleanups are explicit, not silent."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    runner.invoke(app, ["setup", "all", "--with-skills"])
+    claude = tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md"
+    assert claude.is_file()
+
+    remove = runner.invoke(app, ["setup", "all", "--remove"])  # no --with-skills
+    assert remove.exit_code == 0, remove.output
+
+    # nauro-adopt is cleared (the always-installed set), nauro-ship-task is not.
+    assert not (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").exists()
+    assert claude.is_file()

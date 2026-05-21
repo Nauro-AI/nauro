@@ -370,8 +370,15 @@ def codex(
 # the user's surface directories. Claude Code and Codex skills are user-global;
 # Cursor skills ship per-project (Cursor's "User Rules" live in the IDE
 # Settings UI, not a file path).
+#
+# ``SKILL_NAMES`` is the always-installed set — the core onboarding skill.
+# ``OPT_IN_SKILL_NAMES`` is materialized only when the caller passes
+# ``with_skills=True``; today that is just ``nauro-ship-task``, which
+# references the bundled ``@nauro-*`` subagents and is opt-in for the same
+# reason those subagents are.
 
 SKILL_NAMES: tuple[str, ...] = ("nauro-adopt",)
+OPT_IN_SKILL_NAMES: tuple[str, ...] = ("nauro-ship-task",)
 
 
 def _claude_skill_dir() -> Path:
@@ -412,22 +419,39 @@ def _remove_skill_file(target: Path, *, stop_above: Path) -> str:
     return f"  removed {target}"
 
 
-def materialize_skills_claude_code(*, remove: bool, clear_user_scope: bool = True) -> list[str]:
+def _resolved_skill_names(with_skills: bool) -> tuple[str, ...]:
+    """Return the union of always-installed skills and opt-in skills.
+
+    ``with_skills=False`` (the default for callers that pre-date the flag)
+    installs only the core onboarding skills in ``SKILL_NAMES``.
+    ``with_skills=True`` extends with ``OPT_IN_SKILL_NAMES`` so future opt-in
+    skills can ride alongside ``nauro-ship-task`` under the same flag.
+    """
+    return SKILL_NAMES + OPT_IN_SKILL_NAMES if with_skills else SKILL_NAMES
+
+
+def materialize_skills_claude_code(
+    *,
+    remove: bool,
+    clear_user_scope: bool = True,
+    with_skills: bool = False,
+) -> list[str]:
     """Install or remove the Nauro skill(s) under ``~/.claude/skills/``.
 
     ``clear_user_scope`` gates the remove path: when False, the skill files
     are preserved because other registered nauro projects still depend on
     them. Defaults to True so direct unit callers and the add path retain
-    their previous behavior.
+    their previous behavior. ``with_skills`` extends the install/remove set
+    with ``OPT_IN_SKILL_NAMES`` (today: ``nauro-ship-task``).
     """
     from nauro.skills import render_skill
 
     base = _claude_skill_dir()
     if remove and not clear_user_scope:
-        return ["  preserved ~/.claude/skills/nauro-adopt (other nauro projects still registered)"]
+        return ["  preserved ~/.claude/skills/nauro-* (other nauro projects still registered)"]
 
     results: list[str] = []
-    for name in SKILL_NAMES:
+    for name in _resolved_skill_names(with_skills):
         target = base / name / "SKILL.md"
         if remove:
             results.append(_remove_skill_file(target, stop_above=base))
@@ -436,22 +460,28 @@ def materialize_skills_claude_code(*, remove: bool, clear_user_scope: bool = Tru
     return results
 
 
-def materialize_skills_codex(*, remove: bool, clear_user_scope: bool = True) -> list[str]:
+def materialize_skills_codex(
+    *,
+    remove: bool,
+    clear_user_scope: bool = True,
+    with_skills: bool = False,
+) -> list[str]:
     """Install or remove the Nauro skill(s) under ``~/.agents/skills/``.
 
     ``clear_user_scope`` gates the remove path: when False, the skill files
     are preserved because other registered nauro projects still depend on
     them. Defaults to True so direct unit callers and the add path retain
-    their previous behavior.
+    their previous behavior. ``with_skills`` extends the install/remove set
+    with ``OPT_IN_SKILL_NAMES`` (today: ``nauro-ship-task``).
     """
     from nauro.skills import render_skill
 
     base = _codex_skill_dir()
     if remove and not clear_user_scope:
-        return ["  preserved ~/.agents/skills/nauro-adopt (other nauro projects still registered)"]
+        return ["  preserved ~/.agents/skills/nauro-* (other nauro projects still registered)"]
 
     results: list[str] = []
-    for name in SKILL_NAMES:
+    for name in _resolved_skill_names(with_skills):
         target = base / name / "SKILL.md"
         if remove:
             results.append(_remove_skill_file(target, stop_above=base))
@@ -460,13 +490,21 @@ def materialize_skills_codex(*, remove: bool, clear_user_scope: bool = True) -> 
     return results
 
 
-def materialize_skills_cursor_for_repo(repo: Path, *, remove: bool) -> list[str]:
-    """Install or remove Cursor rules under ``<repo>/.cursor/rules/``."""
+def materialize_skills_cursor_for_repo(
+    repo: Path,
+    *,
+    remove: bool,
+    with_skills: bool = False,
+) -> list[str]:
+    """Install or remove Cursor rules under ``<repo>/.cursor/rules/``.
+
+    ``with_skills`` extends the install/remove set with ``OPT_IN_SKILL_NAMES``.
+    """
     from nauro.skills import render_skill
 
     base = repo / ".cursor" / "rules"
     results: list[str] = []
-    for name in SKILL_NAMES:
+    for name in _resolved_skill_names(with_skills):
         target = base / f"{name}.mdc"
         if remove:
             results.append(_remove_skill_file(target, stop_above=base))
@@ -574,6 +612,7 @@ def setup_all_surfaces(
     current_project_key: str | None = None,
     with_subagents: bool = False,
     force_overwrite: bool = False,
+    with_skills: bool = False,
 ) -> list[str]:
     """Wire MCP and materialize skills across Claude Code, Cursor, Codex.
 
@@ -592,6 +631,13 @@ def setup_all_surfaces(
     their previous behavior. ``force_overwrite`` is only meaningful when
     ``with_subagents`` is True and ``remove`` is False — it replaces
     locally-modified bundled files instead of preserving them.
+
+    ``with_skills`` opts into installing the bundled opt-in skills (today
+    just ``nauro-ship-task``). Independent of ``with_subagents`` so users
+    can adopt skills and subagents on separate cadences, though
+    ``nauro-ship-task`` references the bundled ``@nauro-*`` subagents in
+    its body — caller surfaces ``with_skills`` without ``with_subagents``
+    should warn the user.
     """
     clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True
 
@@ -608,7 +654,11 @@ def setup_all_surfaces(
             lines.append(f"Claude Code MCP ({repo}): error — {exc}")
     try:
         lines.extend(
-            materialize_skills_claude_code(remove=remove, clear_user_scope=clear_user_scope)
+            materialize_skills_claude_code(
+                remove=remove,
+                clear_user_scope=clear_user_scope,
+                with_skills=with_skills,
+            )
         )
     except Exception as exc:
         lines.append(f"Claude Code skills: error — {exc}")
@@ -635,7 +685,9 @@ def setup_all_surfaces(
         except Exception as exc:
             lines.append(f"Cursor MCP ({repo}): error — {exc}")
         try:
-            lines.extend(materialize_skills_cursor_for_repo(repo, remove=remove))
+            lines.extend(
+                materialize_skills_cursor_for_repo(repo, remove=remove, with_skills=with_skills)
+            )
         except Exception as exc:
             lines.append(f"Cursor skills ({repo}): error — {exc}")
 
@@ -645,11 +697,23 @@ def setup_all_surfaces(
     except Exception as exc:
         lines.append(f"Codex MCP: error — {exc}")
     try:
-        lines.extend(materialize_skills_codex(remove=remove, clear_user_scope=clear_user_scope))
+        lines.extend(
+            materialize_skills_codex(
+                remove=remove,
+                clear_user_scope=clear_user_scope,
+                with_skills=with_skills,
+            )
+        )
     except Exception as exc:
         lines.append(f"Codex skills: error — {exc}")
 
     return lines
+
+
+SHIP_TASK_NEEDS_SUBAGENTS_NOTICE = (
+    "nauro-ship-task references the bundled @nauro-* subagents; pass "
+    "`--with-subagents` to install them too."
+)
 
 
 @setup_app.command(name="all")
@@ -679,6 +743,15 @@ def all_(
             "existing files are preserved."
         ),
     ),
+    with_skills: bool = typer.Option(
+        False,
+        "--with-skills",
+        help=(
+            "Install Nauro's bundled opt-in skills (today: /nauro-ship-task) "
+            "alongside the always-installed /nauro-adopt skill. Independent "
+            "of --with-subagents."
+        ),
+    ),
 ) -> None:
     """Configure Claude Code, Cursor, and Codex CLI in one call."""
     project_name, _store_path = resolve_target_project(project)
@@ -704,8 +777,12 @@ def all_(
         current_project_key=project_key,
         with_subagents=with_subagents,
         force_overwrite=force_overwrite,
+        with_skills=with_skills,
     ):
         typer.echo(line)
+
+    if not remove and with_skills and not with_subagents:
+        typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
 
     if not remove:
         typer.echo(f"\n{CHECK_HINT_LINE}")
