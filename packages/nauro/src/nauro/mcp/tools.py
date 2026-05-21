@@ -22,6 +22,7 @@ from nauro_core.constants import (
 from nauro_core.decision_model import DecisionStatus
 from nauro_core.operations import check_decision as _check_decision_op
 from nauro_core.operations import get_decision as _get_decision_op
+from nauro_core.operations import get_raw_file as _get_raw_file_op
 from nauro_core.protocol import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -377,24 +378,35 @@ def tool_get_raw_file(store_path: Path, path: str) -> dict:
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    file_path = store_path / path
-    # Prevent path traversal
+
+    # Adapter-side traversal check. Distinct from the kernel-side
+    # file-not-found case so callers get a clear "Invalid path" signal
+    # before any Store I/O.
+    resolved = (store_path / path).resolve()
     try:
-        file_path.resolve().relative_to(store_path.resolve())
+        resolved.relative_to(store_path.resolve())
     except ValueError:
-        return {"store": "local", "error": f"Invalid path: {path}"}
-    if not file_path.exists():
-        # List available files as a hint
+        return {
+            "store": "local",
+            "error": {"kind": "error", "reason": f"Invalid path: {path}"},
+        }
+
+    result = _get_raw_file_op(FilesystemStore(store_path), path)
+    envelope: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
+
+    # On miss, build the "available files" hint locally — file
+    # enumeration outside the decisions/ directory is outside the
+    # Store protocol's locked surface. Cap at 20 entries so the miss
+    # envelope stays bounded for stores with many markdown files.
+    if result.error is not None:
         available = []
         for f in sorted(store_path.rglob("*.md")):
             rel = f.relative_to(store_path)
             if not str(rel).startswith("snapshots/"):
                 available.append(str(rel))
-        hint = ""
-        if available:
-            hint = "\n\nAvailable files:\n" + "\n".join(f"- {f}" for f in available[:20])
-        return {"store": "local", "error": f"File not found: {path}{hint}"}
-    return {"store": "local", "content": file_path.read_text()}
+        envelope["available_files"] = available[:20]
+
+    return envelope
 
 
 @mcp_tool("list_decisions")
