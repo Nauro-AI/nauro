@@ -29,7 +29,11 @@ from pathlib import Path
 
 import typer
 
-from nauro.cli.commands.setup import _find_nauro_command, setup_all_surfaces
+from nauro.cli.commands.setup import (
+    SHIP_TASK_NEEDS_SUBAGENTS_NOTICE,
+    _find_nauro_command,
+    setup_all_surfaces,
+)
 from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
 from nauro.store.registry import find_projects_by_name_v2, register_project_v2
@@ -148,6 +152,15 @@ def adopt(
             "existing files are preserved."
         ),
     ),
+    with_skills: bool = typer.Option(
+        False,
+        "--with-skills",
+        help=(
+            "Install Nauro's bundled opt-in skills (today: /nauro-ship-task) "
+            "alongside the always-installed /nauro-adopt skill. Independent "
+            "of --with-subagents."
+        ),
+    ),
 ) -> None:
     """Adopt an existing repo into Nauro: register, wire MCP, install skills."""
     if print_prompt:
@@ -157,11 +170,12 @@ def adopt(
             or no_setup_and_skills
             or with_subagents
             or force_overwrite
+            or with_skills
         ):
             typer.echo(
                 "Error: --print-prompt is mutually exclusive with --name, "
-                "--repo, --no-setup-and-skills, --with-subagents, and "
-                "--force-overwrite.",
+                "--repo, --no-setup-and-skills, --with-subagents, "
+                "--force-overwrite, and --with-skills.",
                 err=True,
             )
             raise typer.Exit(code=1)
@@ -227,8 +241,12 @@ def adopt(
             remove=False,
             with_subagents=with_subagents,
             force_overwrite=force_overwrite,
+            with_skills=with_skills,
         ):
             typer.echo(line)
+
+        if with_skills and not with_subagents:
+            typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
 
         warning = _smoke_test_wired_binary(_find_nauro_command())
         if warning:

@@ -256,3 +256,98 @@ def test_adopt_print_prompt_conflicts_with_with_subagents(tmp_path: Path, monkey
     result = runner.invoke(app, ["adopt", "--print-prompt", "--with-subagents"])
     assert result.exit_code == 1
     assert "mutually exclusive" in result.output
+
+
+# ─── --with-skills ──────────────────────────────────────────────────────────
+
+
+def _ship_task_paths(home: Path, repo: Path) -> tuple[Path, Path, Path]:
+    """Return the (claude, codex, cursor) target paths for the bundled
+    /nauro-ship-task skill in an isolated HOME."""
+    return (
+        home / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md",
+        home / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md",
+        repo / ".cursor" / "rules" / "nauro-ship-task.mdc",
+    )
+
+
+def test_adopt_default_does_not_install_ship_task_skill(tmp_path: Path, monkeypatch):
+    """Bare ``nauro adopt`` (no ``--with-skills``) leaves nauro-ship-task uninstalled."""
+    repo = _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 0, result.output
+
+    claude, codex, cursor = _ship_task_paths(tmp_path, repo)
+    assert not claude.exists()
+    assert not codex.exists()
+    assert not cursor.exists()
+    # And the always-installed /nauro-adopt skill is still present.
+    assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
+
+
+def test_adopt_with_skills_installs_ship_task_across_surfaces(tmp_path: Path, monkeypatch):
+    """``--with-skills`` materializes nauro-ship-task byte-equal to render_skill()."""
+    from nauro.skills import render_skill
+
+    repo = _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
+    assert result.exit_code == 0, result.output
+
+    claude, codex, cursor = _ship_task_paths(tmp_path, repo)
+    assert claude.is_file()
+    assert codex.is_file()
+    assert cursor.is_file()
+    assert claude.read_text(encoding="utf-8") == render_skill("claude_code", "nauro-ship-task")
+    assert codex.read_text(encoding="utf-8") == render_skill("codex", "nauro-ship-task")
+    assert cursor.read_text(encoding="utf-8") == render_skill("cursor", "nauro-ship-task")
+
+
+def test_adopt_with_skills_without_subagents_emits_notice(tmp_path: Path, monkeypatch):
+    """The skill body references @nauro-* subagents; the install path warns."""
+    _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
+    assert result.exit_code == 0, result.output
+    assert "nauro-ship-task references the bundled @nauro-* subagents" in result.output
+
+
+def test_adopt_with_skills_and_subagents_does_not_emit_notice(tmp_path: Path, monkeypatch):
+    """When both flags are passed, the notice is suppressed — prerequisites met."""
+    _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+    assert "nauro-ship-task references the bundled @nauro-* subagents" not in result.output
+
+
+def test_adopt_remove_clears_ship_task_when_last_project(tmp_path: Path, monkeypatch):
+    """``setup all --remove`` after a ``--with-skills`` install removes the new files too.
+
+    There is no ``nauro adopt --remove`` flag; teardown goes through ``nauro
+    setup all --remove``, which shares ``materialize_skills_*`` with adopt's
+    install path. Verify the round-trip on the new bundled skill.
+    """
+    repo = _adopt_env(monkeypatch, tmp_path)
+
+    install = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
+    assert install.exit_code == 0, install.output
+    claude, codex, cursor = _ship_task_paths(tmp_path, repo)
+    assert claude.is_file()
+
+    remove = runner.invoke(app, ["setup", "all", "--remove", "--with-skills"])
+    assert remove.exit_code == 0, remove.output
+
+    assert not claude.exists()
+    assert not codex.exists()
+    assert not cursor.exists()
+
+
+def test_adopt_print_prompt_conflicts_with_with_skills(tmp_path: Path, monkeypatch):
+    """``--print-prompt`` plus ``--with-skills`` is rejected as mutually exclusive."""
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--print-prompt", "--with-skills"])
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.output

@@ -22,7 +22,7 @@ from typing import Literal
 from nauro_core.protocol import substitute_protocol_fragments
 
 Surface = Literal["claude_code", "cursor", "codex"]
-SkillName = Literal["nauro-adopt"]
+SkillName = Literal["nauro-adopt", "nauro-ship-task"]
 
 SKILL_DESCRIPTIONS: dict[str, str] = {
     "nauro-adopt": (
@@ -33,6 +33,15 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "evidence, then surfaces targeted probes that turn evidence into "
         "rationale. On chat surfaces, operates on pasted content against an "
         "already-adopted project."
+    ),
+    "nauro-ship-task": (
+        "Run the full planner -> executor -> reviewer -> tech-lead -> "
+        "user-confirm -> push chain for a non-trivial code change against "
+        "Nauro's bundled @nauro-* subagents. Gates on the user whenever the "
+        "planner or executor will file a Nauro decision; runs @nauro-tech-lead "
+        "Mode C between reviewer-APPROVE and the push gate to catch doctrine "
+        "drift the reviewer missed. Invoke explicitly with /nauro-ship-task "
+        "<description>. Requires `nauro adopt --with-subagents` to have run."
     ),
 }
 
@@ -62,9 +71,21 @@ def load_adopt_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
+def load_ship_task_body() -> str:
+    """Return the canonical ``/nauro-ship-task`` skill body (no frontmatter).
+
+    The body has no protocol-fragment tokens today, but goes through the same
+    substitution pass so future canonical claims can be added at the source.
+    """
+    raw = resources.files(__package__).joinpath("ship_task_body.md").read_text(encoding="utf-8")
+    return substitute_protocol_fragments(_strip_template_header(raw))
+
+
 def _load_body(skill_name: str) -> str:
     if skill_name == "nauro-adopt":
         return load_adopt_body()
+    if skill_name == "nauro-ship-task":
+        return load_ship_task_body()
     raise ValueError(f"unknown skill: {skill_name!r}")
 
 
@@ -95,5 +116,6 @@ __all__ = [
     "SkillName",
     "Surface",
     "load_adopt_body",
+    "load_ship_task_body",
     "render_skill",
 ]

@@ -13,7 +13,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from nauro.skills import load_adopt_body, render_skill
+from nauro.skills import load_adopt_body, load_ship_task_body, render_skill
 from tests._skill_surfaces import REPO_ROOT, SKILL_SURFACES, load_docs_adopt_prompt
 
 
@@ -34,6 +34,27 @@ def test_load_adopt_body_returns_canonical_bytes():
     for op in ("add", "update", "supersede"):
         assert f'operation="{op}"' in body, f"missing propose_decision variant: {op}"
     assert "Step 11 — Summary" in body
+
+
+def test_load_ship_task_body_returns_canonical_bytes():
+    body = load_ship_task_body()
+    assert body.endswith("\n")
+    assert 1000 < len(body) < 25000
+    # Anchor on key chain markers so a cleanup edit cannot accidentally drop
+    # a load-bearing step heading.
+    assert "## Prerequisites" in body
+    assert "## Pre-step" in body
+    assert "@nauro-planner" in body
+    assert "@nauro-executor" in body
+    assert "@nauro-reviewer" in body
+    assert "@nauro-tech-lead" in body
+    # Nauro-strict gate language must remain — the chain always gates on
+    # propose_decision firing, not the personal /ship-task low-stakes path.
+    assert "propose_decision" in body
+    # Tech-lead Mode C pass sits between reviewer-APPROVE and the push gate.
+    assert "Mode C" in body
+    # Required prerequisite reference to the bundled subagents flag.
+    assert "--with-subagents" in body
 
 
 # --- render_skill produces frontmatter + body ---
@@ -57,6 +78,24 @@ def test_render_skill_cursor_adopt_frontmatter():
     assert body == load_adopt_body()
 
 
+def test_render_skill_claude_code_ship_task_frontmatter():
+    rendered = render_skill("claude_code", "nauro-ship-task")
+    assert rendered.startswith("---\nname: nauro-ship-task\n")
+    assert "description:" in rendered.split("\n---\n", 1)[0]
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_ship_task_body()
+
+
+def test_render_skill_cursor_ship_task_frontmatter():
+    rendered = render_skill("cursor", "nauro-ship-task")
+    fm = rendered.split("\n---\n", 1)[0]
+    assert "description:" in fm
+    assert "alwaysApply: false" in fm
+    assert "name:" not in fm
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_ship_task_body()
+
+
 def test_render_skill_unknown_surface_raises():
     with pytest.raises(ValueError):
         render_skill("emacs", "nauro-adopt")
@@ -74,6 +113,9 @@ DOGFOOD_FILES = [
     (".claude/skills/nauro-adopt/SKILL.md", "claude_code", "nauro-adopt"),
     (".cursor/rules/nauro-adopt.mdc", "cursor", "nauro-adopt"),
     (".agents/skills/nauro-adopt/SKILL.md", "codex", "nauro-adopt"),
+    (".claude/skills/nauro-ship-task/SKILL.md", "claude_code", "nauro-ship-task"),
+    (".cursor/rules/nauro-ship-task.mdc", "cursor", "nauro-ship-task"),
+    (".agents/skills/nauro-ship-task/SKILL.md", "codex", "nauro-ship-task"),
 ]
 
 
