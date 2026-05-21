@@ -7,9 +7,7 @@ alwaysApply: false
 
 Orchestrate a non-trivial code change end-to-end using Nauro's bundled `@nauro-planner`, `@nauro-executor`, `@nauro-reviewer`, and `@nauro-tech-lead` subagents, with Nauro doctrine gates at every architectural choice.
 
-Task: $ARGUMENTS
-
-If $ARGUMENTS is empty, ask the user for a one-paragraph task description and wait for it before proceeding.
+Take the user's task description from the prompt that invoked this skill. If they did not include one, ask for a one-paragraph description and wait for it before proceeding.
 
 ## Prerequisites
 
