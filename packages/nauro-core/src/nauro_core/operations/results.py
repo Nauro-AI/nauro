@@ -78,3 +78,20 @@ class GetDecisionResult(BaseModel):
 
     content: str | None = None
     error: ErrorPayload | None = None
+
+
+class GetRawFileResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.get_raw_file`.
+
+    On the success path ``content`` holds the file's text body. On the
+    miss path ``error`` is populated with ``kind="error"``. The ``store``
+    field is not part of the model; transport adapters add it back at
+    serialization time. Hints such as ``available_files`` are not part of
+    the kernel result either — they belong to the adapter since the Store
+    protocol does not expose general file enumeration.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    content: str | None = None
+    error: ErrorPayload | None = None

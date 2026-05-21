@@ -27,8 +27,12 @@ class FilesystemStore:
         self._store_path = store_path
 
     def read_file(self, path: str) -> str | None:
-        target = self._store_path / path
-        if not target.exists():
+        target = (self._store_path / path).resolve()
+        try:
+            target.relative_to(self._store_path.resolve())
+        except ValueError:
+            return None
+        if not target.exists() or not target.is_file():
             return None
         return target.read_text()
 

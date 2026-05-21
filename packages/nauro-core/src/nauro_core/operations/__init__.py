@@ -9,8 +9,10 @@ emit no telemetry; transports own event emission.
 from nauro_core.operations._in_memory_store import InMemoryStore as InMemoryStore
 from nauro_core.operations.check_decision import check_decision as check_decision
 from nauro_core.operations.get_decision import get_decision as get_decision
+from nauro_core.operations.get_raw_file import get_raw_file as get_raw_file
 from nauro_core.operations.results import CheckDecisionResult as CheckDecisionResult
 from nauro_core.operations.results import GetDecisionResult as GetDecisionResult
+from nauro_core.operations.results import GetRawFileResult as GetRawFileResult
 from nauro_core.operations.store import Store as Store
 
 from . import results as results
@@ -18,9 +20,11 @@ from . import results as results
 __all__ = [
     "CheckDecisionResult",
     "GetDecisionResult",
+    "GetRawFileResult",
     "InMemoryStore",
     "Store",
     "check_decision",
     "get_decision",
+    "get_raw_file",
     "results",
 ]
