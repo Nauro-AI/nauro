@@ -63,3 +63,18 @@ class CheckDecisionResult(BaseModel):
     related_decisions: list[RelatedDecision] = Field(default_factory=list)
     assessment: str = ""
     error: ErrorPayload | None = None
+
+
+class GetDecisionResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.get_decision`.
+
+    On the success path ``content`` holds the decision's markdown body.
+    On the miss path ``error`` is populated with ``kind="error"``; the
+    ``store`` field is not part of the model and is added by transport
+    adapters at serialization time.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    content: str | None = None
+    error: ErrorPayload | None = None
