@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from nauro_core import extract_decision_number
 from nauro_core.constants import (
     MAX_CONTEXT_LENGTH,
     MAX_DELTA_LENGTH,
@@ -22,6 +21,7 @@ from nauro_core.constants import (
 )
 from nauro_core.decision_model import DecisionStatus
 from nauro_core.operations import check_decision as _check_decision_op
+from nauro_core.operations import get_decision as _get_decision_op
 from nauro_core.protocol import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -432,13 +432,8 @@ def tool_get_decision(store_path: Path, number: int) -> dict:
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    decisions_dir = store_path / "decisions"
-    if decisions_dir.exists():
-        for f in sorted(decisions_dir.glob("*.md")):
-            n = extract_decision_number(f.name)
-            if n is not None and n == number:
-                return {"store": "local", "content": f.read_text()}
-    return {"store": "local", "error": f"Decision {number} not found"}
+    result = _get_decision_op(FilesystemStore(store_path), number)
+    return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
 @mcp_tool("diff_since_last_session")
