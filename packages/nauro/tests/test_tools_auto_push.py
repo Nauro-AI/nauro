@@ -26,7 +26,7 @@ class TestConfirmDecisionAutoPush:
             "operation": "add",
         }
         with (
-            patch("nauro.mcp.tools.confirm_write", return_value=fake_confirm_result),
+            patch("nauro.mcp.tools._confirm_write", return_value=fake_confirm_result),
             patch("nauro.mcp.tools._try_push") as mock_push,
         ):
             result = tool_confirm_decision(store, "abc123")
@@ -38,7 +38,7 @@ class TestConfirmDecisionAutoPush:
         """push_after_write is NOT called when confirm_write returns an error."""
         fake_error_result = {"error": "Invalid or expired confirm_id."}
         with (
-            patch("nauro.mcp.tools.confirm_write", return_value=fake_error_result),
+            patch("nauro.mcp.tools._confirm_write", return_value=fake_error_result),
             patch("nauro.mcp.tools._try_push") as mock_push,
         ):
             result = tool_confirm_decision(store, "bad-id")
@@ -55,7 +55,7 @@ class TestConfirmDecisionAutoPush:
             "operation": "add",
         }
         with (
-            patch("nauro.mcp.tools.confirm_write", return_value=fake_confirm_result),
+            patch("nauro.mcp.tools._confirm_write", return_value=fake_confirm_result),
             patch(
                 "nauro.sync.hooks.push_after_write",
                 side_effect=Exception("S3 down"),

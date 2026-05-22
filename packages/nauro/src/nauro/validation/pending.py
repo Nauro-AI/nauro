@@ -1,14 +1,17 @@
 """Pending confirmation store for two-way MCP writes.
 
-Delegates to nauro_core.PendingStore. Module-level function API preserved
-for backward compatibility with existing callers.
+Module-level function API preserved while the confirm path still calls
+module-level helpers; the actual storage delegates to the kernel-owned
+:class:`~nauro_core.pending.PendingStore` so the validated
+``propose_decision`` and ``confirm_decision`` paths share one singleton.
+Retires once the confirm path moves into the kernel directly.
 """
 
 from __future__ import annotations
 
-from nauro_core.pending import PendingStore
+from nauro_core.operations.propose_decision import _get_pending_store
 
-_store = PendingStore()
+_store = _get_pending_store()
 
 
 def store_pending(proposal: dict, validation_result: dict) -> str:

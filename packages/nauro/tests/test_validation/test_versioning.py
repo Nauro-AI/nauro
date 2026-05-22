@@ -9,8 +9,8 @@ from nauro.store.reader import (
     get_decision_history,
     list_active_decisions,
 )
-from nauro.store.writer import append_decision, supersede_decision, update_decision
 from nauro.templates.scaffolds import scaffold_project_store
+from tests._writer_compat import append_decision, supersede_decision, update_decision
 
 
 @pytest.fixture

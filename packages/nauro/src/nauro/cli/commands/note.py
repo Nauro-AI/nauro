@@ -1,36 +1,13 @@
 """nauro note — Add a decision or question to the project store."""
 
-from pathlib import Path
-
 import typer
+from nauro_core.constants import DECISIONS_DIR
 from nauro_core.operations import flag_question as _flag_question_op
+from nauro_core.operations.propose_decision import _write_decision_direct
 
 from nauro.cli.utils import resolve_target_project
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.registry import (
-    RegistrySchemaError,
-    get_project_v2,
-    load_registry,
-)
-from nauro.store.writer import append_decision
-from nauro.templates.agents_md import regenerate_agents_md_for_project
-
-
-def _registry_repo_paths(project_key: str) -> list[str]:
-    """Return repo paths for ``project_key`` from v2 (preferred) or v1 registry.
-
-    Local duplicate of the same-named helper in ``cli.commands.sync``. Kept
-    local rather than shared because both call sites are small CLI commands
-    and a cross-command helper for two callers is premature.
-    """
-    try:
-        v2_entry = get_project_v2(project_key)
-    except RegistrySchemaError:
-        v2_entry = None
-    if v2_entry is not None:
-        return list(v2_entry.get("repo_paths", []))
-    registry = load_registry()
-    return list(registry["projects"].get(project_key, {}).get("repo_paths", []))
+from nauro.templates.agents_md_regen import warn_then_regen
 
 
 def note(
@@ -67,21 +44,25 @@ def note(
 ) -> None:
     """Record a decision or question in the project store."""
     project_name, store_path = resolve_target_project(project)
+    fs_store = FilesystemStore(store_path)
 
     is_question = question or (text.rstrip().endswith("?") and not decision)
 
     if is_question:
-        _flag_question_op(FilesystemStore(store_path), text, None)
+        _flag_question_op(fs_store, text, None)
         typer.echo(f"Question added to {project_name}:")
         typer.echo(f"  {text}")
         typer.echo(f"  File: {store_path / 'open-questions.md'}")
     else:
-        filepath = append_decision(
-            store_path,
-            title=text,
-            rationale=rationale,
-            confidence=confidence,
+        decision_id = _write_decision_direct(
+            fs_store,
+            {
+                "title": text,
+                "rationale": rationale,
+                "confidence": confidence,
+            },
         )
+        filepath = store_path / DECISIONS_DIR / f"{decision_id}.md"
         typer.echo(f"Decision recorded in {project_name}:")
         typer.echo(f"  {filepath}")
 
@@ -89,13 +70,10 @@ def note(
     # requiring a separate `nauro sync`. Mirrors the warn-then-regen
     # sequence in `nauro sync`.
     project_key = store_path.name
-    for repo_str in _registry_repo_paths(project_key):
-        if not Path(repo_str).is_dir():
-            typer.echo(
-                f"  Warning: repo path does not exist, skipping AGENTS.md: {repo_str}\n"
-                f"  Fix: remove from registry or update path in ~/.nauro/registry.json",
-                err=True,
-            )
-    updated_repos = regenerate_agents_md_for_project(project_key, store_path)
+    updated_repos = warn_then_regen(
+        project_key,
+        store_path,
+        warn=lambda msg: typer.echo(msg, err=True),
+    )
     for repo_path in updated_repos:
         typer.echo(f"  Updated AGENTS.md: {repo_path}")

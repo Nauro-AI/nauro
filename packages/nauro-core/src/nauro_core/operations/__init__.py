@@ -16,6 +16,7 @@ from nauro_core.operations.get_context import get_context as get_context
 from nauro_core.operations.get_decision import get_decision as get_decision
 from nauro_core.operations.get_raw_file import get_raw_file as get_raw_file
 from nauro_core.operations.list_decisions import list_decisions as list_decisions
+from nauro_core.operations.propose_decision import propose_decision as propose_decision
 from nauro_core.operations.results import CheckDecisionResult as CheckDecisionResult
 from nauro_core.operations.results import DecisionSummary as DecisionSummary
 from nauro_core.operations.results import (
@@ -26,6 +27,8 @@ from nauro_core.operations.results import GetContextResult as GetContextResult
 from nauro_core.operations.results import GetDecisionResult as GetDecisionResult
 from nauro_core.operations.results import GetRawFileResult as GetRawFileResult
 from nauro_core.operations.results import ListDecisionsResult as ListDecisionsResult
+from nauro_core.operations.results import ProposeDecisionResult as ProposeDecisionResult
+from nauro_core.operations.results import RelatedDecision as RelatedDecision
 from nauro_core.operations.results import SearchDecisionsResult as SearchDecisionsResult
 from nauro_core.operations.results import SearchHit as SearchHit
 from nauro_core.operations.results import UpdateStateResult as UpdateStateResult
@@ -45,6 +48,8 @@ __all__ = [
     "GetRawFileResult",
     "InMemoryStore",
     "ListDecisionsResult",
+    "ProposeDecisionResult",
+    "RelatedDecision",
     "SearchDecisionsResult",
     "SearchHit",
     "Store",
@@ -56,6 +61,7 @@ __all__ = [
     "get_decision",
     "get_raw_file",
     "list_decisions",
+    "propose_decision",
     "results",
     "search_decisions",
     "update_state",

@@ -20,9 +20,9 @@ from nauro.mcp.stdio_server import (
 )
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import register_project
-from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
 from nauro.validation.pending import clear_all
+from tests._writer_compat import append_decision
 
 
 def _append_question(store_path: Path, question: str) -> None:
@@ -148,7 +148,7 @@ class TestProposeDecision:
         )
         assert result["status"] == "pending_confirmation"
         assert "confirm_id" in result
-        assessment = result["validation"]["assessment"].lower()
+        assessment = result["assessment"].lower()
         assert "skip_validation" in assessment or "skipped" in assessment
 
     def test_skip_validation_still_runs_tier1(self, store: Path):
@@ -223,7 +223,7 @@ class TestProposeDecisionResolvesQuestions:
             resolves_questions=["2099-01-01 00:00 UTC"],
         )
         assert result["status"] == "rejected"
-        assessment = result["validation"]["assessment"]
+        assessment = result["assessment"]
         assert "2099-01-01 00:00 UTC" in assessment
         assert "resolves_questions" in assessment
 

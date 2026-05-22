@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class RelatedDecision(BaseModel):
     """A decision surfaced by retrieval as related to a proposed approach.
 
-    The shape is the canonical D141 form: enriched with status/date and a
+    The canonical retrieval-hit shape: enriched with status/date and a
     rationale preview so any transport can render the same hit without
     re-fetching the underlying decision body.
     """
@@ -243,4 +243,43 @@ class DiffSinceLastSessionResult(BaseModel):
 
     diff: str | None = None
     cutoff_date_used: str | None = None
+    error: ErrorPayload | None = None
+
+
+class ProposeDecisionResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.propose_decision`.
+
+    Three statuses cover every branch the validation pipeline returns:
+
+    * ``confirmed`` — the kernel executed the write. ``decision_id``
+      carries the on-disk file stem and ``touched_decisions`` lists every
+      decision file the kernel rewrote (new id for add, new + old for
+      supersede, updated id for update).
+    * ``pending_confirmation`` — the kernel deferred the write because
+      Tier 2 surfaced similarity, the caller asked for ``skip_validation``,
+      or the operation is ``update``/``supersede``. ``confirm_id`` carries
+      the pending-store handle.
+    * ``rejected`` — Tier 1 structural failure, ``operation="update"`` with
+      disallowed metadata, or unknown/ambiguous ``resolves_questions``
+      ids. ``assessment`` names the offending field. ``error`` is set when
+      a multi-object write hit a half-state mid-sequence.
+
+    ``similar_decisions`` carries the canonical :class:`RelatedDecision`
+    shape ``check_decision`` already returns. ``resolved_questions``
+    lists the ``open-questions.md`` ids the kernel moved under
+    ``## Resolved`` on the success path. The ``store`` field is not part
+    of the model; transport adapters add it back at serialization time.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["confirmed", "pending_confirmation", "rejected"]
+    tier: int
+    operation: Literal["add", "update", "supersede", "reject"]
+    similar_decisions: list[RelatedDecision] = Field(default_factory=list)
+    assessment: str = ""
+    confirm_id: str | None = None
+    decision_id: str | None = None
+    touched_decisions: list[str] = Field(default_factory=list)
+    resolved_questions: list[str] = Field(default_factory=list)
     error: ErrorPayload | None = None

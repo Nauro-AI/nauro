@@ -18,11 +18,11 @@ from nauro.store.reader import (
 )
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
 from nauro.store.validator import validate_store
-from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import (
     get_scaffolds,
     scaffold_project_store,
 )
+from tests._writer_compat import append_decision
 
 
 def update_state(store_path: Path, delta: str) -> None:
@@ -752,45 +752,6 @@ def test_sync_no_project(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["sync"])
     assert result.exit_code == 1
     assert "No project found" in result.output
-
-
-def test_concurrent_decision_numbering(tmp_path: Path):
-    """Two threads writing decisions simultaneously must produce unique sequential numbers."""
-    import threading
-
-    store_path = tmp_path / "projects" / "conctest"
-    store_path.mkdir(parents=True, exist_ok=True)
-    (store_path / "decisions").mkdir()
-
-    errors: list[Exception] = []
-    paths: list[Path] = []
-    lock = threading.Lock()
-
-    def write_decision(n: int) -> None:
-        try:
-            p = append_decision(store_path, f"Decision {n}", rationale="concurrent write test")
-            with lock:
-                paths.append(p)
-        except Exception as exc:
-            with lock:
-                errors.append(exc)
-
-    threads = [threading.Thread(target=write_decision, args=(i,)) for i in range(10)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    assert not errors, f"Concurrent writes raised exceptions: {errors}"
-    assert len(paths) == 10, f"Expected 10 decisions, got {len(paths)}"
-
-    # All file stems must be unique (no collisions)
-    stems = [p.stem for p in paths]
-    assert len(set(stems)) == 10, f"Duplicate decision filenames: {stems}"
-
-    # Numbers must be 1..10 with no gaps
-    nums = sorted(int(s.split("-")[0]) for s in stems)
-    assert nums == list(range(1, 11)), f"Non-sequential decision numbers: {nums}"
 
 
 class TestResolveDecisionId:

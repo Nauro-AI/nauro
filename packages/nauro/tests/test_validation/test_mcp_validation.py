@@ -56,7 +56,7 @@ async def test_propose_decision_rejected(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "rejected"
-    assert data["validation"]["tier"] == 1
+    assert data["tier"] == 1
 
 
 @pytest.mark.asyncio
@@ -114,7 +114,7 @@ async def test_check_decision_no_matches(client):
 @pytest.mark.asyncio
 async def test_check_decision_with_matches_returns_heuristic_assessment(client, tmp_path):
     """When BM25 finds matches, the assessment uses the locked heuristic shape."""
-    from nauro.store.writer import append_decision
+    from tests._writer_compat import append_decision
 
     store_path = tmp_path / "projects" / "testproj"
     append_decision(
@@ -147,7 +147,7 @@ async def test_check_decision_with_matches_returns_heuristic_assessment(client, 
 @pytest.mark.asyncio
 async def test_propose_decision_with_operation_supersede(client, tmp_path):
     """propose_decision with operation='supersede' threads through to confirm."""
-    from nauro.store.writer import append_decision
+    from tests._writer_compat import append_decision
 
     store_path = tmp_path / "projects" / "testproj"
     append_decision(
@@ -300,7 +300,7 @@ async def test_supersede_end_to_end_via_check_then_propose(client, tmp_path):
     marked superseded and the new one active — even when Tier 2 doesn't
     re-surface similarity for the new proposal text (Ship-blocker 2)."""
     from nauro.store.reader import _list_decisions
-    from nauro.store.writer import append_decision
+    from tests._writer_compat import append_decision
 
     store_path = tmp_path / "projects" / "testproj"
     append_decision(
@@ -349,7 +349,7 @@ async def test_supersede_end_to_end_via_check_then_propose(client, tmp_path):
         assert confirm_data["operation"] == "supersede"
     else:
         assert propose_data["status"] == "confirmed"
-        assert propose_data["validation"]["operation"] == "supersede"
+        assert propose_data["operation"] == "supersede"
 
     decisions = _list_decisions(store_path)
     by_title = {d.title: d for d in decisions}

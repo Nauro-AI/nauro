@@ -11,8 +11,8 @@ from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payl
 from nauro.mcp.server import app
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import capture_snapshot
-from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
+from tests._writer_compat import append_decision
 
 
 def update_state(store_path: Path, delta: str) -> None:
@@ -199,7 +199,7 @@ class TestL0DecisionsSummary:
 
     def test_l0_summary_excludes_superseded(self, tmp_path: Path):
         """L0 summary shows only active decisions (superseded excluded)."""
-        from nauro.store.writer import supersede_decision
+        from tests._writer_compat import supersede_decision
 
         store_path = tmp_path / "projects" / "testproj"
         scaffold_project_store("testproj", store_path)

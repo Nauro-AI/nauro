@@ -93,20 +93,13 @@ class TestEmptyStore:
 
     def test_propose_decision_works_on_empty_store(self, empty_store):
         """First decision should work normally — not blocked by empty state."""
-        with patch("nauro.mcp.tools.validate_proposed_write") as mock_validate:
-            mock_validate.return_value.status = "confirmed"
-            mock_validate.return_value._decision_id = "001"
-            mock_validate.return_value.confirm_id = None
-            mock_validate.return_value.tier = "t1"
-            mock_validate.return_value.operation = "add"
-            mock_validate.return_value.similar_decisions = []
-            mock_validate.return_value.conflicts = []
-            mock_validate.return_value.assessment = ""
-            mock_validate.return_value.suggested_refinements = []
+        with patch("nauro.mcp.tools._try_push"):
             result = tool_propose_decision(
-                empty_store, title="Use Postgres", rationale="ACID compliance"
+                empty_store,
+                title="Use Postgres for primary storage",
+                rationale="ACID compliance for the transactional workload across the platform.",
             )
-            assert result["status"] == "confirmed"
+        assert result["status"] == "confirmed"
 
     def test_flag_question_works_on_empty_store(self, empty_store):
         """Questions should work fine even with no decisions."""

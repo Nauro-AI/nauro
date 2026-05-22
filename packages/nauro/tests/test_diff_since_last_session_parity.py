@@ -30,8 +30,8 @@ from nauro.mcp.tools import tool_diff_since_last_session
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.store.snapshot import capture_snapshot, load_snapshot
-from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
+from tests._writer_compat import append_decision
 
 
 def _backdate_snapshot(store_path: Path, version: int, days_ago: int) -> None:

@@ -107,15 +107,7 @@ class TestProposeDecisionRejectsEnvelope:
         assert "rejected[0].reason contains tool-use envelope fragment" in result["reason"]
 
     def test_clean_inputs_still_validate(self, store: Path):
-        with patch("nauro.mcp.tools.validate_proposed_write") as mock_validate:
-            mock_validate.return_value.status = "confirmed"
-            mock_validate.return_value._decision_id = "001"
-            mock_validate.return_value.confirm_id = None
-            mock_validate.return_value.tier = "t1"
-            mock_validate.return_value.operation = "add"
-            mock_validate.return_value.similar_decisions = []
-            mock_validate.return_value.assessment = ""
-            mock_validate.return_value.resolved_questions = []
+        with patch("nauro.mcp.tools._try_push"):
             result = tool_propose_decision(
                 store,
                 title="Use Postgres for primary storage",

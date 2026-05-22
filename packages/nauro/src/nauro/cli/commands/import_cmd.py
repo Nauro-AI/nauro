@@ -11,12 +11,31 @@ from typing import Any
 
 import typer
 from nauro_core.operations import update_state as _update_state_op
+from nauro_core.operations.propose_decision import _write_decision_direct
 
 from nauro.cli.utils import resolve_target_project
 from nauro.constants import PROJECT_MD, STACK_MD
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import capture_snapshot
-from nauro.store.writer import append_decision
+
+
+def _import_append_decision(
+    store_path: Path,
+    title: str,
+    rationale: str | None = None,
+    rejected: list[dict] | None = None,
+    confidence: str = "medium",
+) -> None:
+    """Adapter for the import paths: write a decision via the kernel."""
+    _write_decision_direct(
+        FilesystemStore(store_path),
+        {
+            "title": title,
+            "rationale": rationale,
+            "rejected": rejected,
+            "confidence": confidence,
+        },
+    )
 
 
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
@@ -160,7 +179,7 @@ def _parse_and_import_decisions(content: str, store_path: Path) -> int:
         title = blocks[i].strip()
         body = blocks[i + 1].strip() if i + 1 < len(blocks) else ""
         rationale = body if body else None
-        append_decision(store_path, title, rationale=rationale)
+        _import_append_decision(store_path, title, rationale=rationale)
         count += 1
 
     return count
@@ -222,7 +241,7 @@ def _import_adrs(adr_dir: Path, store_path: Path) -> dict[str, Any]:
                 for alt in rejected
             ]
 
-        append_decision(
+        _import_append_decision(
             store_path,
             title=title,
             rationale=rationale,
