@@ -19,10 +19,10 @@ Requires Python 3.10+.
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
 nauro init --demo
-nauro check "Add a WebSocket endpoint for live task updates"
+nauro check-decision "Add a WebSocket endpoint for live task updates"
 ```
 
-The demo includes a decision that rejected WebSocket for SSE. `nauro check` runs the MCP `check_decision` tool against your local store and surfaces that decision before your agent re-proposes it.
+The demo includes a decision that rejected WebSocket for SSE. `nauro check-decision` runs the MCP `check_decision` tool against your local store and surfaces that decision before your agent re-proposes it.
 
 ## Adopt Nauro in your project
 
@@ -72,7 +72,7 @@ Codex users: add `mcp_oauth_callback_port = 8765` to the top of `~/.codex/config
 
 **Write:** `propose_decision` / `confirm_decision`, `flag_question`, `update_state`.
 
-`nauro check "<approach>"` runs `check_decision` from the shell.
+`nauro check-decision "<approach>"` runs `check_decision` from the shell.
 
 ## Packages
 

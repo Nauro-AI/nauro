@@ -24,6 +24,7 @@ from nauro_core.operations.results import DecisionSummary as DecisionSummary
 from nauro_core.operations.results import (
     DiffSinceLastSessionResult as DiffSinceLastSessionResult,
 )
+from nauro_core.operations.results import ErrorPayload as ErrorPayload
 from nauro_core.operations.results import FlagQuestionResult as FlagQuestionResult
 from nauro_core.operations.results import GetContextResult as GetContextResult
 from nauro_core.operations.results import GetDecisionResult as GetDecisionResult
@@ -45,6 +46,7 @@ __all__ = [
     "ConfirmDecisionResult",
     "DecisionSummary",
     "DiffSinceLastSessionResult",
+    "ErrorPayload",
     "FlagQuestionResult",
     "GetContextResult",
     "GetDecisionResult",
