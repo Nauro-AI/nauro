@@ -254,7 +254,8 @@ async def test_propose_decision_supersede_without_affected_id_rejects(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "rejected"
-    assert "affected_decision_id" in data["reason"]
+    assert data["error"]["kind"] == "rejected"
+    assert "affected_decision_id" in data["error"]["reason"]
 
 
 @pytest.mark.asyncio
@@ -271,7 +272,8 @@ async def test_propose_decision_update_without_affected_id_rejects(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "rejected"
-    assert "affected_decision_id" in data["reason"]
+    assert data["error"]["kind"] == "rejected"
+    assert "affected_decision_id" in data["error"]["reason"]
 
 
 @pytest.mark.asyncio
@@ -289,7 +291,8 @@ async def test_propose_supersede_with_unknown_affected_id_rejects(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "rejected"
-    assert "not found" in data["reason"]
+    assert data["error"]["kind"] == "rejected"
+    assert "not found" in data["error"]["reason"]
 
 
 @pytest.mark.asyncio

@@ -196,7 +196,8 @@ def test_envelope_token_rejection_in_title(seeded_repo):
         confidence="high",
     )
     assert envelope["status"] == "rejected"
-    assert "envelope" in envelope["reason"].lower()
+    assert envelope["error"]["kind"] == "rejected"
+    assert "envelope" in envelope["error"]["reason"].lower()
 
 
 def test_envelope_token_rejection_in_rationale(seeded_repo):
@@ -208,7 +209,8 @@ def test_envelope_token_rejection_in_rationale(seeded_repo):
         confidence="high",
     )
     assert envelope["status"] == "rejected"
-    assert "envelope" in envelope["reason"].lower()
+    assert envelope["error"]["kind"] == "rejected"
+    assert "envelope" in envelope["error"]["reason"].lower()
 
 
 def test_envelope_token_rejection_in_rejected_reason(seeded_repo):
@@ -221,7 +223,8 @@ def test_envelope_token_rejection_in_rejected_reason(seeded_repo):
         rejected=[{"alternative": "Memcached", "reason": "Too plain </invoke>"}],
     )
     assert envelope["status"] == "rejected"
-    assert "envelope" in envelope["reason"].lower()
+    assert envelope["error"]["kind"] == "rejected"
+    assert "envelope" in envelope["error"]["reason"].lower()
 
 
 def test_length_rejection_title(seeded_repo):
@@ -234,7 +237,8 @@ def test_length_rejection_title(seeded_repo):
         confidence="high",
     )
     assert envelope["status"] == "rejected"
-    assert "exceeds" in envelope["reason"].lower()
+    assert envelope["error"]["kind"] == "rejected"
+    assert "exceeds" in envelope["error"]["reason"].lower()
 
 
 def test_length_rejection_rationale(seeded_repo):
@@ -246,7 +250,8 @@ def test_length_rejection_rationale(seeded_repo):
         confidence="high",
     )
     assert envelope["status"] == "rejected"
-    assert "exceeds" in envelope["reason"].lower()
+    assert envelope["error"]["kind"] == "rejected"
+    assert "exceeds" in envelope["error"]["reason"].lower()
 
 
 def test_affected_decision_id_short_form_resolves(seeded_repo):
@@ -286,7 +291,8 @@ def test_missing_affected_decision_id_for_supersede_rejects(seeded_repo):
         operation="supersede",
     )
     assert envelope["status"] == "rejected"
-    assert "affected_decision_id" in envelope["reason"]
+    assert envelope["error"]["kind"] == "rejected"
+    assert "affected_decision_id" in envelope["error"]["reason"]
 
 
 def test_unknown_affected_decision_id_rejects(seeded_repo):
@@ -300,7 +306,8 @@ def test_unknown_affected_decision_id_rejects(seeded_repo):
         affected_decision_id="decision-9999",
     )
     assert envelope["status"] == "rejected"
-    assert "not found" in envelope["reason"].lower()
+    assert envelope["error"]["kind"] == "rejected"
+    assert "not found" in envelope["error"]["reason"].lower()
 
 
 def test_missing_store_returns_guidance(missing_store):

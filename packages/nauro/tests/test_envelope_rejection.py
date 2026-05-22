@@ -38,8 +38,9 @@ class TestFlagQuestionRejectsEnvelope:
         )
 
         assert result["status"] == "rejected"
-        assert "question contains tool-use envelope fragment" in result["reason"]
-        assert "</question>" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert "question contains tool-use envelope fragment" in result["error"]["reason"]
+        assert "</question>" in result["error"]["reason"]
         # File must not have been mutated.
         assert oq_path.read_text() == before
 
@@ -54,7 +55,8 @@ class TestFlagQuestionRejectsEnvelope:
         )
 
         assert result["status"] == "rejected"
-        assert "context contains tool-use envelope fragment" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert "context contains tool-use envelope fragment" in result["error"]["reason"]
         assert oq_path.read_text() == before
 
     def test_clean_inputs_still_write(self, store: Path):
@@ -79,8 +81,9 @@ class TestProposeDecisionRejectsEnvelope:
             ),
         )
         assert result["status"] == "rejected"
-        assert "rationale contains tool-use envelope fragment" in result["reason"]
-        assert "</rationale>" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert "rationale contains tool-use envelope fragment" in result["error"]["reason"]
+        assert "</rationale>" in result["error"]["reason"]
 
     def test_title_with_envelope_token_is_rejected(self, store: Path):
         result = tool_propose_decision(
@@ -89,7 +92,8 @@ class TestProposeDecisionRejectsEnvelope:
             rationale="ACID guarantees and strong tooling beat operational cost.",
         )
         assert result["status"] == "rejected"
-        assert "title contains tool-use envelope fragment" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert "title contains tool-use envelope fragment" in result["error"]["reason"]
 
     def test_rejected_alternative_reason_envelope_is_rejected(self, store: Path):
         result = tool_propose_decision(
@@ -104,7 +108,8 @@ class TestProposeDecisionRejectsEnvelope:
             ],
         )
         assert result["status"] == "rejected"
-        assert "rejected[0].reason contains tool-use envelope fragment" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert "rejected[0].reason contains tool-use envelope fragment" in result["error"]["reason"]
 
     def test_clean_inputs_still_validate(self, store: Path):
         with patch("nauro.mcp.tools._try_push"):
