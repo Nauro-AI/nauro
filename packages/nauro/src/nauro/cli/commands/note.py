@@ -3,14 +3,16 @@
 from pathlib import Path
 
 import typer
+from nauro_core.operations import flag_question as _flag_question_op
 
 from nauro.cli.utils import resolve_target_project
+from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import (
     RegistrySchemaError,
     get_project_v2,
     load_registry,
 )
-from nauro.store.writer import append_decision, append_question
+from nauro.store.writer import append_decision
 from nauro.templates.agents_md import regenerate_agents_md_for_project
 
 
@@ -69,7 +71,7 @@ def note(
     is_question = question or (text.rstrip().endswith("?") and not decision)
 
     if is_question:
-        append_question(store_path, text)
+        _flag_question_op(FilesystemStore(store_path), text, None)
         typer.echo(f"Question added to {project_name}:")
         typer.echo(f"  {text}")
         typer.echo(f"  File: {store_path / 'open-questions.md'}")

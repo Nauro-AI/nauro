@@ -208,6 +208,24 @@ class UpdateStateResult(BaseModel):
     error: ErrorPayload | None = None
 
 
+class FlagQuestionResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.flag_question`.
+
+    ``status="ok"`` signals the kernel appended a new ``Q###`` entry to
+    ``open-questions.md``. ``num`` carries the minted identifier. The
+    error path stays unset on the kernel side; length validation,
+    envelope-token rejection, and similarity hinting live on the adapter
+    and surface through a separate envelope shape. ``store`` is not part
+    of the model; transport adapters add it back at serialization time.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    num: int | None = None
+    error: ErrorPayload | None = None
+
+
 class DiffSinceLastSessionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.diff_since_last_session`.
 

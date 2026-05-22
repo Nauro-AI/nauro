@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
+from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations import update_state as _update_state_op
 from typer.testing import CliRunner
 
@@ -18,13 +19,18 @@ from nauro.store.snapshot import (
     find_snapshot_near_date,
     load_snapshot,
 )
-from nauro.store.writer import append_decision, append_question
+from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
 
 
 def update_state(store_path: Path, delta: str) -> None:
     """Thin wrapper preserving the pre-cutover ``writer.update_state`` shape."""
     _update_state_op(FilesystemStore(store_path), delta)
+
+
+def append_question(store_path: Path, question: str) -> None:
+    """Thin wrapper preserving the pre-cutover ``writer.append_question`` shape."""
+    _flag_question_op(FilesystemStore(store_path), question, None)
 
 
 def diff_since_last_session(store_path: Path, days: int | None = None) -> str:

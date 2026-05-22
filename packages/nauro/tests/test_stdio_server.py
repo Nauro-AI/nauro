@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from nauro_core.operations import flag_question as _flag_question_op
 
 from nauro.mcp.stdio_server import (
     _pull_on_startup,
@@ -17,10 +18,16 @@ from nauro.mcp.stdio_server import (
     propose_decision,
     update_state,
 )
+from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import register_project
-from nauro.store.writer import append_decision, append_question
+from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
 from nauro.validation.pending import clear_all
+
+
+def _append_question(store_path: Path, question: str) -> None:
+    """Thin wrapper preserving the pre-cutover ``writer.append_question`` shape."""
+    _flag_question_op(FilesystemStore(store_path), question, None)
 
 
 @pytest.fixture
@@ -33,7 +40,7 @@ def store(tmp_path: Path, monkeypatch) -> Path:
         "# Stack\n- **Python 3.11** \u2014 primary language\n- **FastAPI** \u2014 HTTP framework\n"
     )
     append_decision(store_path, "Use FastAPI", rationale="Good async support for our web server.")
-    append_question(store_path, "Should we add caching?")
+    _append_question(store_path, "Should we add caching?")
 
     return store_path
 

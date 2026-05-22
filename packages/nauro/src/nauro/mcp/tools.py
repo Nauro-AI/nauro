@@ -22,6 +22,7 @@ from nauro_core.constants import (
 )
 from nauro_core.operations import check_decision as _check_decision_op
 from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
+from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations import get_context as _get_context_op
 from nauro_core.operations import get_decision as _get_decision_op
 from nauro_core.operations import get_raw_file as _get_raw_file_op
@@ -48,7 +49,6 @@ from nauro.store.snapshot import (
     load_snapshot,
     resolve_diff_snapshots,
 )
-from nauro.store.writer import append_question
 from nauro.telemetry.decorators import mcp_tool
 from nauro.validation.pipeline import confirm_write, validate_proposed_write
 from nauro.validation.tier2 import check_similarity
@@ -430,10 +430,15 @@ def tool_flag_question(
     text = question
     if context:
         text = f"{question} (context: {context})"
-    append_question(store_path, text)
+    result = _flag_question_op(FilesystemStore(store_path), text, None)
     capture_snapshot(store_path, trigger=f"question: {question}")
 
-    response: dict = {"store": "local", "status": "ok"}
+    response: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
+    # The kernel result carries ``num`` for callers that want the minted id;
+    # the pre-cutover envelope did not, so drop it to preserve byte-identity
+    # for the local surface envelope. Adapters that want the id can read it
+    # from the on-disk file or call the kernel directly.
+    response.pop("num", None)
     if hint:
         response["hint"] = hint
     _try_push(store_path)

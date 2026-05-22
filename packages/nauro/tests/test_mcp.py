@@ -4,19 +4,25 @@ from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations import update_state as _update_state_op
 
 from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payload
 from nauro.mcp.server import app
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import capture_snapshot
-from nauro.store.writer import append_decision, append_question
+from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
 
 
 def update_state(store_path: Path, delta: str) -> None:
     """Thin wrapper preserving the pre-cutover ``writer.update_state`` shape."""
     _update_state_op(FilesystemStore(store_path), delta)
+
+
+def append_question(store_path: Path, question: str) -> None:
+    """Thin wrapper preserving the pre-cutover ``writer.append_question`` shape."""
+    _flag_question_op(FilesystemStore(store_path), question, None)
 
 
 @pytest.fixture

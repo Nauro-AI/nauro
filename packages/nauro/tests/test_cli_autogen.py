@@ -92,16 +92,15 @@ class TestAutogenCoverage:
 
     def test_allowlist_matches_registry_minus_list_projects(self) -> None:
         """Every registry tool except ``list_projects`` and the write tools
-        that remain transport-only (``propose_decision``, ``confirm_decision``,
-        ``flag_question``) must be in the allowlist. ``list_projects`` stays
-        out because local installs auto-resolve to a single project.
+        that remain transport-only (``propose_decision``, ``confirm_decision``)
+        must be in the allowlist. ``list_projects`` stays out because local
+        installs auto-resolve to a single project.
         """
         registry_names = {spec["name"] for spec in ALL_TOOLS}
         expected = registry_names - {
             "list_projects",
             "propose_decision",
             "confirm_decision",
-            "flag_question",
         }
         assert AUTOGEN_ALLOWLIST == expected
 
