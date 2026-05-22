@@ -27,6 +27,7 @@ from nauro_core.operations import get_decision as _get_decision_op
 from nauro_core.operations import get_raw_file as _get_raw_file_op
 from nauro_core.operations import list_decisions as _list_decisions_op
 from nauro_core.operations import search_decisions as _search_decisions_op
+from nauro_core.operations import update_state as _update_state_op
 from nauro_core.protocol import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -48,15 +49,11 @@ from nauro.store.snapshot import (
     resolve_diff_snapshots,
 )
 from nauro.store.writer import append_question
-from nauro.store.writer import update_state as _write_state
 from nauro.telemetry.decorators import mcp_tool
 from nauro.validation.pipeline import confirm_write, validate_proposed_write
 from nauro.validation.tier2 import check_similarity
 
 logger = logging.getLogger("nauro.mcp.tools")
-
-# Single source of truth for stop-words used in contradiction checks
-_STOP_WORDS = {"the", "a", "an", "to", "and", "or", "is", "was", "-"}
 
 
 def _reject_if_too_long(value: str, label: str, max_length: int) -> dict | None:
@@ -553,29 +550,20 @@ def tool_update_state(store_path: Path, delta: str) -> dict:
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
 
-    # Content size limits
+    # Length validation stays adapter-side — the kernel writes whatever the
+    # adapter passes through.
     err = _reject_if_too_long(delta, "Delta", MAX_DELTA_LENGTH)
     if err:
         return err
 
-    warning = None
-    state_path = store_path / STATE_CURRENT_FILENAME
-    if state_path.exists():
-        state_content = state_path.read_text()
-        delta_words = set(delta.lower().split())
-        for line in state_content.split("\n"):
-            if line.startswith("- ") and "none yet" not in line:
-                line_words = set(line.lower().split())
-                overlap = delta_words & line_words - _STOP_WORDS
-                if len(overlap) >= 3:
-                    warning = f"State update shares keywords with existing entry: {line.strip()}"
-                    break
+    result = _update_state_op(FilesystemStore(store_path), delta)
+    envelope: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
-    _write_state(store_path, delta)
-    capture_snapshot(store_path, trigger=f"state: {delta}")
+    # Adapter-side side effects only run on the success path. ``noop``
+    # means the kernel had no existing state file to update — skip the
+    # snapshot/push to mirror the pre-cutover early-return semantics.
+    if result.status != "noop":
+        capture_snapshot(store_path, trigger=f"state: {delta}")
+        _try_push(store_path)
 
-    response: dict = {"store": "local", "status": "ok"}
-    if warning:
-        response["warning"] = warning
-    _try_push(store_path)
-    return response
+    return envelope

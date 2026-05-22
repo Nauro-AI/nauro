@@ -15,6 +15,7 @@ from nauro_core.operations.results import (
     RelatedDecision,
     SearchDecisionsResult,
     SearchHit,
+    UpdateStateResult,
 )
 
 
@@ -353,3 +354,51 @@ def test_diff_since_last_session_result_is_frozen() -> None:
     result = DiffSinceLastSessionResult(diff="body")
     with pytest.raises(ValidationError):
         result.diff = "reassigned"
+
+
+def test_update_state_result_default_status_ok() -> None:
+    result = UpdateStateResult()
+    assert result.status == "ok"
+    assert result.warning is None
+    assert result.error is None
+
+
+def test_update_state_result_noop_status() -> None:
+    result = UpdateStateResult(status="noop")
+    assert result.status == "noop"
+    assert result.warning is None
+
+
+def test_update_state_result_with_warning() -> None:
+    result = UpdateStateResult(status="ok", warning="overlap caution")
+    assert result.warning == "overlap caution"
+
+
+def test_update_state_result_exclude_none_strips_empties() -> None:
+    noop = UpdateStateResult(status="noop")
+    assert noop.model_dump(mode="json", exclude_none=True) == {"status": "noop"}
+
+    plain = UpdateStateResult(status="ok")
+    assert plain.model_dump(mode="json", exclude_none=True) == {"status": "ok"}
+
+    with_warning = UpdateStateResult(status="ok", warning="careful")
+    assert with_warning.model_dump(mode="json", exclude_none=True) == {
+        "status": "ok",
+        "warning": "careful",
+    }
+
+
+def test_update_state_result_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        UpdateStateResult(status="ok", unexpected_field="value")
+
+
+def test_update_state_result_rejects_invalid_status() -> None:
+    with pytest.raises(ValidationError):
+        UpdateStateResult(status="weird")
+
+
+def test_update_state_result_is_frozen() -> None:
+    result = UpdateStateResult(status="ok")
+    with pytest.raises(ValidationError):
+        result.status = "noop"

@@ -20,7 +20,7 @@ import pytest
 from nauro_core.mcp_tools import ALL_TOOLS
 from typer.testing import CliRunner
 
-from nauro.cli.autogen import READ_TOOL_ALLOWLIST
+from nauro.cli.autogen import AUTOGEN_ALLOWLIST
 from nauro.cli.main import app
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.demo import create_demo_project
@@ -62,17 +62,17 @@ def empty_repo(tmp_path: Path, monkeypatch) -> tuple[str, str, Path, Path]:
 
 
 class TestAutogenCoverage:
-    def test_every_read_tool_in_allowlist_is_registered(self) -> None:
+    def test_every_allowlisted_tool_is_registered(self) -> None:
         registered = _registered_command_names()
-        for name in READ_TOOL_ALLOWLIST:
+        for name in AUTOGEN_ALLOWLIST:
             kebab = name.replace("_", "-")
             assert kebab in registered, (
                 f"Auto-gen allowlist references {name!r} but no '{kebab}' command is registered."
             )
 
-    def test_no_write_tool_is_registered_via_autogen(self) -> None:
+    def test_write_tool_only_surfaces_when_explicitly_allowlisted(self) -> None:
         """A write tool added to ALL_TOOLS must NOT surface as an auto-gen
-        CLI command unless explicitly added to READ_TOOL_ALLOWLIST.
+        CLI command unless explicitly added to AUTOGEN_ALLOWLIST.
         """
         registered = _registered_command_names()
         write_tools = {
@@ -80,21 +80,30 @@ class TestAutogenCoverage:
         }
         for name in write_tools:
             kebab = name.replace("_", "-")
-            assert kebab not in registered, (
-                f"Write tool {name!r} surfaced as '{kebab}' — the auto-gen "
-                "allowlist must stay closed."
-            )
+            if name in AUTOGEN_ALLOWLIST:
+                assert kebab in registered, (
+                    f"Allowlisted write tool {name!r} did not surface as '{kebab}'."
+                )
+            else:
+                assert kebab not in registered, (
+                    f"Write tool {name!r} surfaced as '{kebab}' — the auto-gen "
+                    "allowlist must stay closed."
+                )
 
-    def test_allowlist_matches_registry_read_tools_minus_list_projects(self) -> None:
-        """All read-only registry tools except list_projects should be in
-        the allowlist. list_projects is local-resolution-only and excluded
-        intentionally; any other read tool we forgot to allowlist is a bug.
+    def test_allowlist_matches_registry_minus_list_projects(self) -> None:
+        """Every registry tool except ``list_projects`` and the write tools
+        that remain transport-only (``propose_decision``, ``confirm_decision``,
+        ``flag_question``) must be in the allowlist. ``list_projects`` stays
+        out because local installs auto-resolve to a single project.
         """
-        registry_read_tools = {
-            spec["name"] for spec in ALL_TOOLS if spec["annotations"].get("readOnlyHint", False)
+        registry_names = {spec["name"] for spec in ALL_TOOLS}
+        expected = registry_names - {
+            "list_projects",
+            "propose_decision",
+            "confirm_decision",
+            "flag_question",
         }
-        expected = registry_read_tools - {"list_projects"}
-        assert READ_TOOL_ALLOWLIST == expected
+        assert AUTOGEN_ALLOWLIST == expected
 
 
 # ── Per-tool happy + error paths ────────────────────────────────────────────
