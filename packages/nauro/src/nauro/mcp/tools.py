@@ -19,10 +19,10 @@ from nauro_core.constants import (
     MAX_TITLE_LENGTH,
     STATE_CURRENT_FILENAME,
 )
-from nauro_core.decision_model import DecisionStatus
 from nauro_core.operations import check_decision as _check_decision_op
 from nauro_core.operations import get_decision as _get_decision_op
 from nauro_core.operations import get_raw_file as _get_raw_file_op
+from nauro_core.operations import list_decisions as _list_decisions_op
 from nauro_core.protocol import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -38,12 +38,11 @@ from nauro.onboarding import (
 )
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import (
-    _list_decisions,
-    resolve_decision_id,
-    search_decisions,
+    diff_since_last_session as _diff_since_last_session,
 )
 from nauro.store.reader import (
-    diff_since_last_session as _diff_since_last_session,
+    resolve_decision_id,
+    search_decisions,
 )
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.writer import append_question
@@ -419,23 +418,8 @@ def tool_list_decisions(
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    decisions = _list_decisions(store_path)
-    if not include_superseded:
-        decisions = [d for d in decisions if d.status is DecisionStatus.active]
-    decisions.sort(key=lambda d: d.num, reverse=True)
-    items = []
-    for d in decisions[:limit]:
-        items.append(
-            {
-                "number": d.num,
-                "title": d.title,
-                "date": d.date.isoformat() if d.date else None,
-                "status": str(d.status.value),
-                "type": str(d.decision_type.value) if d.decision_type else None,
-                "confidence": str(d.confidence.value),
-            }
-        )
-    return {"store": "local", "decisions": items}
+    result = _list_decisions_op(FilesystemStore(store_path), limit, include_superseded)
+    return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
 @mcp_tool("get_decision")
