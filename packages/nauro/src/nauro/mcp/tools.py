@@ -21,6 +21,7 @@ from nauro_core.constants import (
     STATE_MD,
 )
 from nauro_core.operations import check_decision as _check_decision_op
+from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
 from nauro_core.operations import get_context as _get_context_op
 from nauro_core.operations import get_decision as _get_decision_op
 from nauro_core.operations import get_raw_file as _get_raw_file_op
@@ -39,13 +40,13 @@ from nauro.onboarding import (
     WELCOME_NO_PROJECT,
 )
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.reader import (
-    diff_since_last_session as _diff_since_last_session,
+from nauro.store.reader import resolve_decision_id
+from nauro.store.snapshot import (
+    capture_snapshot,
+    list_snapshots,
+    load_snapshot,
+    resolve_diff_snapshots,
 )
-from nauro.store.reader import (
-    resolve_decision_id,
-)
-from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
 from nauro.store.writer import append_question
 from nauro.store.writer import update_state as _write_state
 from nauro.telemetry.decorators import mcp_tool
@@ -512,8 +513,23 @@ def tool_diff_since_last_session(
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    diff = _diff_since_last_session(store_path, days)
-    return {"store": "local", "diff": diff}
+
+    baseline, latest, cutoff = resolve_diff_snapshots(store_path, days)
+    result = _diff_since_last_session_op(
+        FilesystemStore(store_path),
+        baseline,
+        latest,
+        cutoff_date_used=cutoff,
+    )
+    envelope = result.model_dump(mode="json", exclude_none=True)
+    # Pre-cutover the session-scoped branch surfaced "Not enough
+    # snapshots…" for zero snapshots; the kernel's (None, None) branch
+    # renders "No snapshots available." (the more accurate string).
+    # Rewrite at the adapter so byte-identical parity with the pre-cutover
+    # local CLI/MCP output is preserved.
+    if days is None and baseline is None and latest is None:
+        envelope["diff"] = "Not enough snapshots to compute a diff (need at least 2)."
+    return {"store": "local", **envelope}
 
 
 @mcp_tool("search_decisions")

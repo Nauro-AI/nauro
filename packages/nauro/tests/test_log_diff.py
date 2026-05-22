@@ -1,22 +1,50 @@
-"""Tests for nauro log, nauro diff, and store/reader.py."""
+"""Tests for nauro log, nauro diff, and the diff kernel + adapter wiring."""
 
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.constants import SNAPSHOTS_DIR
-from nauro.mcp.tools import tool_get_context
-from nauro.store.reader import (
-    diff_since_last_session,
-    diff_snapshots,
+from nauro.mcp.tools import tool_diff_since_last_session, tool_get_context
+from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.snapshot import (
+    capture_snapshot,
+    find_snapshot_near_date,
+    load_snapshot,
 )
-from nauro.store.snapshot import capture_snapshot, find_snapshot_near_date, load_snapshot
 from nauro.store.writer import append_decision, append_question, update_state
 from nauro.templates.scaffolds import scaffold_project_store
+
+
+def diff_since_last_session(store_path: Path, days: int | None = None) -> str:
+    """Test shim — return the diff string from the local MCP adapter.
+
+    Goes through ``tool_diff_since_last_session`` so the existing
+    string-assertion tests exercise the same adapter the CLI and MCP
+    surfaces use. The envelope shape itself is pinned separately by the
+    parity tests.
+    """
+    envelope = tool_diff_since_last_session(store_path, days)
+    return envelope.get("diff") or ""
+
+
+def diff_snapshots(store_path: Path, version_a: int, version_b: int) -> str:
+    """Test shim — mirror the pre-cutover two-version diff helper.
+
+    Loads both versions from disk (raising ``FileNotFoundError`` to match
+    the pre-cutover contract) and renders via the kernel. The two-version
+    CLI path uses this same shape; surface tests pin it.
+    """
+    baseline = load_snapshot(store_path, version_a)
+    latest = load_snapshot(store_path, version_b)
+    result = _diff_since_last_session_op(FilesystemStore(store_path), baseline, latest)
+    return result.diff or ""
+
 
 runner = CliRunner()
 
@@ -389,6 +417,48 @@ class TestDiffCommand:
         result = runner.invoke(app, ["diff", "1"])
         assert result.exit_code == 0
         assert "already the latest" in result.output
+
+    def test_diff_registered_but_missing_store(self, tmp_path: Path, monkeypatch):
+        """A registered project whose store directory was deleted must
+        surface the WELCOME_NO_PROJECT guidance on stderr and exit
+        nonzero. The no-args (session-scoped) path routes through
+        ``tool_diff_since_last_session`` which short-circuits with an
+        error envelope when ``store_path.exists()`` is False; the CLI
+        must respect that envelope rather than swallowing it as an empty
+        diff string.
+        """
+        import shutil
+
+        from nauro.store.registry import register_project
+
+        store = register_project("myproj", [tmp_path])
+        scaffold_project_store("myproj", store)
+        monkeypatch.chdir(tmp_path)
+
+        # Delete the project store directory; the registry still points
+        # at it, so resolve_target_project succeeds but the store is gone.
+        shutil.rmtree(store)
+
+        result = runner.invoke(app, ["diff"])
+        assert result.exit_code == 1
+        assert "Welcome to Nauro" in result.output
+        assert "nauro init" in result.output
+
+    def test_diff_since_registered_but_missing_store(self, tmp_path: Path, monkeypatch):
+        """Same regression coverage for the ``--since Nd`` path."""
+        import shutil
+
+        from nauro.store.registry import register_project
+
+        store = register_project("myproj", [tmp_path])
+        scaffold_project_store("myproj", store)
+        monkeypatch.chdir(tmp_path)
+
+        shutil.rmtree(store)
+
+        result = runner.invoke(app, ["diff", "--since", "7d"])
+        assert result.exit_code == 1
+        assert "Welcome to Nauro" in result.output
 
 
 # --- Helpers for time-based snapshot fixtures ---

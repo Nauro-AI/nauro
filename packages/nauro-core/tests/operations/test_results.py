@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from nauro_core.operations.results import (
     DecisionSummary,
+    DiffSinceLastSessionResult,
     ErrorPayload,
     GetContextResult,
     GetDecisionResult,
@@ -312,3 +313,43 @@ def test_get_context_result_is_frozen() -> None:
     result = GetContextResult(content="body")
     with pytest.raises(ValidationError):
         result.content = "reassigned"
+
+
+def test_diff_since_last_session_result_success_with_diff() -> None:
+    result = DiffSinceLastSessionResult(diff="Changes from v001 → v002\n")
+    assert result.diff == "Changes from v001 → v002\n"
+    assert result.cutoff_date_used is None
+    assert result.error is None
+
+
+def test_diff_since_last_session_result_cutoff_date_used_round_trips() -> None:
+    result = DiffSinceLastSessionResult(
+        diff="No snapshots available.",
+        cutoff_date_used="2026-04-24T10:00:00+00:00",
+    )
+    assert result.cutoff_date_used == "2026-04-24T10:00:00+00:00"
+
+
+def test_diff_since_last_session_result_exclude_none_strips_empties() -> None:
+    success = DiffSinceLastSessionResult(diff="body")
+    assert success.model_dump(mode="json", exclude_none=True) == {"diff": "body"}
+
+    with_cutoff = DiffSinceLastSessionResult(
+        diff="No snapshots available.",
+        cutoff_date_used="2026-04-24T10:00:00+00:00",
+    )
+    assert with_cutoff.model_dump(mode="json", exclude_none=True) == {
+        "diff": "No snapshots available.",
+        "cutoff_date_used": "2026-04-24T10:00:00+00:00",
+    }
+
+
+def test_diff_since_last_session_result_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        DiffSinceLastSessionResult(diff="body", unexpected_field="value")
+
+
+def test_diff_since_last_session_result_is_frozen() -> None:
+    result = DiffSinceLastSessionResult(diff="body")
+    with pytest.raises(ValidationError):
+        result.diff = "reassigned"

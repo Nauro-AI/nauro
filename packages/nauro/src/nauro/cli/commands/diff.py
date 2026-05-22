@@ -1,10 +1,12 @@
 """nauro diff — Show changes between context snapshots."""
 
 import typer
+from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
 
 from nauro.cli.utils import resolve_target_project
-from nauro.store.reader import diff_since_last_session, diff_snapshots
-from nauro.store.snapshot import list_snapshots
+from nauro.mcp.tools import tool_diff_since_last_session
+from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.snapshot import list_snapshots, load_snapshot
 
 
 def _parse_since(value: str) -> int:
@@ -47,38 +49,47 @@ def diff(
 
     if since is not None:
         days = _parse_since(since)
-        result = diff_since_last_session(store_path, days=days)
-        typer.echo(result)
+        envelope = tool_diff_since_last_session(store_path, days)
+        if envelope.get("status") == "error":
+            typer.echo(envelope.get("guidance", ""), err=True)
+            raise typer.Exit(code=1)
+        typer.echo(envelope.get("diff") or "")
         return
 
     if version_a is None:
-        # No args: diff since last session
-        result = diff_since_last_session(store_path)
-        typer.echo(result)
+        envelope = tool_diff_since_last_session(store_path, None)
+        if envelope.get("status") == "error":
+            typer.echo(envelope.get("guidance", ""), err=True)
+            raise typer.Exit(code=1)
+        typer.echo(envelope.get("diff") or "")
         return
 
     if version_b is None:
-        # One arg: diff between version_a and latest
         snapshots = list_snapshots(store_path)
         if not snapshots:
             typer.echo("Error: no snapshots found. Run 'nauro sync' to create one", err=True)
             raise typer.Exit(code=1)
-        latest = snapshots[0]["version"]
-        if version_a == latest:
+        latest_version = snapshots[0]["version"]
+        if version_a == latest_version:
             typer.echo(f"Version {version_a} is already the latest snapshot.")
             return
         try:
-            result = diff_snapshots(store_path, version_a, latest)
+            baseline_snap = load_snapshot(store_path, version_a)
+            latest_snap = load_snapshot(store_path, latest_version)
         except FileNotFoundError as e:
             typer.echo(f"Error: {e}", err=True)
             raise typer.Exit(code=1) from e
-        typer.echo(result)
+        result = _diff_since_last_session_op(
+            FilesystemStore(store_path), baseline_snap, latest_snap
+        )
+        typer.echo(result.diff or "")
         return
 
-    # Two args: diff between version_a and version_b
     try:
-        result = diff_snapshots(store_path, version_a, version_b)
+        baseline_snap = load_snapshot(store_path, version_a)
+        latest_snap = load_snapshot(store_path, version_b)
     except FileNotFoundError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1) from e
-    typer.echo(result)
+    result = _diff_since_last_session_op(FilesystemStore(store_path), baseline_snap, latest_snap)
+    typer.echo(result.diff or "")

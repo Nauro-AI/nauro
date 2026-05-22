@@ -187,3 +187,23 @@ class SearchDecisionsResult(BaseModel):
 
     results: list[SearchHit] = Field(default_factory=list)
     error: ErrorPayload | None = None
+
+
+class DiffSinceLastSessionResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.diff_since_last_session`.
+
+    ``diff`` carries the human-readable diff body. The "not enough
+    snapshots" and "only one snapshot covers the requested range" cases
+    populate ``diff`` with their respective sentinel strings rather than
+    surfacing as errors — pre-cutover behaviour the surface tests pin.
+    ``cutoff_date_used`` echoes the baseline snapshot timestamp when the
+    adapter resolved the baseline via a time-based lookup; it stays
+    unset for session-scoped diffs. ``store`` is not part of the model;
+    transport adapters add it back at serialization time.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    diff: str | None = None
+    cutoff_date_used: str | None = None
+    error: ErrorPayload | None = None

@@ -51,6 +51,9 @@ NO_DECISIONS_TO_CHECK = (
     "your recorded decisions."
 )
 
+# ── State field patterns (used in parsing and diffing) ──
+STATE_DIFF_FIELDS = ("Sprint", "Focus", "Blockers")
+
 # ── Decision types ──
 DECISION_TYPES: tuple[str, ...] = (
     "architecture",

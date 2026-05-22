@@ -8,12 +8,18 @@ emit no telemetry; transports own event emission.
 
 from nauro_core.operations._in_memory_store import InMemoryStore as InMemoryStore
 from nauro_core.operations.check_decision import check_decision as check_decision
+from nauro_core.operations.diff_since_last_session import (
+    diff_since_last_session as diff_since_last_session,
+)
 from nauro_core.operations.get_context import get_context as get_context
 from nauro_core.operations.get_decision import get_decision as get_decision
 from nauro_core.operations.get_raw_file import get_raw_file as get_raw_file
 from nauro_core.operations.list_decisions import list_decisions as list_decisions
 from nauro_core.operations.results import CheckDecisionResult as CheckDecisionResult
 from nauro_core.operations.results import DecisionSummary as DecisionSummary
+from nauro_core.operations.results import (
+    DiffSinceLastSessionResult as DiffSinceLastSessionResult,
+)
 from nauro_core.operations.results import GetContextResult as GetContextResult
 from nauro_core.operations.results import GetDecisionResult as GetDecisionResult
 from nauro_core.operations.results import GetRawFileResult as GetRawFileResult
@@ -28,6 +34,7 @@ from . import results as results
 __all__ = [
     "CheckDecisionResult",
     "DecisionSummary",
+    "DiffSinceLastSessionResult",
     "GetContextResult",
     "GetDecisionResult",
     "GetRawFileResult",
@@ -37,6 +44,7 @@ __all__ = [
     "SearchHit",
     "Store",
     "check_decision",
+    "diff_since_last_session",
     "get_context",
     "get_decision",
     "get_raw_file",
