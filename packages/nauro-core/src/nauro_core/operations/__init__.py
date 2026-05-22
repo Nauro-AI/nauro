@@ -26,8 +26,10 @@ from nauro_core.operations.results import GetRawFileResult as GetRawFileResult
 from nauro_core.operations.results import ListDecisionsResult as ListDecisionsResult
 from nauro_core.operations.results import SearchDecisionsResult as SearchDecisionsResult
 from nauro_core.operations.results import SearchHit as SearchHit
+from nauro_core.operations.results import UpdateStateResult as UpdateStateResult
 from nauro_core.operations.search_decisions import search_decisions as search_decisions
 from nauro_core.operations.store import Store as Store
+from nauro_core.operations.update_state import update_state as update_state
 
 from . import results as results
 
@@ -43,6 +45,7 @@ __all__ = [
     "SearchDecisionsResult",
     "SearchHit",
     "Store",
+    "UpdateStateResult",
     "check_decision",
     "diff_since_last_session",
     "get_context",
@@ -51,4 +54,5 @@ __all__ = [
     "list_decisions",
     "results",
     "search_decisions",
+    "update_state",
 ]

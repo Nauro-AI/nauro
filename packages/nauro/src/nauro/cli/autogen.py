@@ -28,11 +28,13 @@ from nauro.cli.utils import resolve_target_project
 from nauro.mcp import tools as mcp_tools
 from nauro.telemetry.transport import set_transport
 
-# Read tools that should auto-generate a CLI command. list_projects is
+# Tools that should auto-generate a CLI command. list_projects is
 # excluded — local installs auto-resolve to a single project and do not
-# need a discovery entry point. Any tool name added here must have a
-# matching ``tool_<name>`` adapter in ``nauro.mcp.tools``.
-READ_TOOL_ALLOWLIST: frozenset[str] = frozenset(
+# need a discovery entry point. Write tools opt in explicitly so future
+# additions to ALL_TOOLS cannot reach the CLI through this generator by
+# accident. Any tool name added here must have a matching ``tool_<name>``
+# adapter in ``nauro.mcp.tools``.
+AUTOGEN_ALLOWLIST: frozenset[str] = frozenset(
     {
         "get_context",
         "get_raw_file",
@@ -41,6 +43,7 @@ READ_TOOL_ALLOWLIST: frozenset[str] = frozenset(
         "diff_since_last_session",
         "search_decisions",
         "check_decision",
+        "update_state",
     }
 )
 
@@ -254,21 +257,21 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
 
 
 def register_autogen_commands(app: typer.Typer) -> None:
-    """Register one Typer command per allowlisted read tool on ``app``.
+    """Register one Typer command per allowlisted tool on ``app``.
 
     The allowlist is verified against ``ALL_TOOLS`` so a typo in either
     surface fails loudly at import time.
     """
     registry_names = {spec["name"] for spec in ALL_TOOLS}
-    unknown = READ_TOOL_ALLOWLIST - registry_names
+    unknown = AUTOGEN_ALLOWLIST - registry_names
     if unknown:
         raise RuntimeError(
             f"Auto-gen allowlist references unknown tools: {sorted(unknown)}. "
-            "Update READ_TOOL_ALLOWLIST in cli/autogen.py."
+            "Update AUTOGEN_ALLOWLIST in cli/autogen.py."
         )
 
     for spec in ALL_TOOLS:
-        if spec["name"] not in READ_TOOL_ALLOWLIST:
+        if spec["name"] not in AUTOGEN_ALLOWLIST:
             continue
         command_name = _command_name(spec["name"])
         callback = _make_command(spec)

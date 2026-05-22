@@ -189,6 +189,25 @@ class SearchDecisionsResult(BaseModel):
     error: ErrorPayload | None = None
 
 
+class UpdateStateResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.update_state`.
+
+    ``status="ok"`` signals the kernel wrote a new ``state_current.md``
+    body (and appended history when a prior body existed). ``status="noop"``
+    signals the store had no existing state file at all — the adapter
+    short-circuits snapshot capture and cloud push on this branch.
+    ``warning`` carries an optional keyword-overlap caution. ``error``
+    stays unset on the kernel path; length validation lives on the
+    adapter side and surfaces through a separate envelope shape.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["ok", "noop"] = "ok"
+    warning: str | None = None
+    error: ErrorPayload | None = None
+
+
 class DiffSinceLastSessionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.diff_since_last_session`.
 

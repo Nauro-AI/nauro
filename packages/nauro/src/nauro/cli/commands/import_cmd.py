@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from nauro_core.operations import update_state as _update_state_op
 
 from nauro.cli.utils import resolve_target_project
 from nauro.constants import PROJECT_MD, STACK_MD
+from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import capture_snapshot
-from nauro.store.writer import append_decision, update_state
+from nauro.store.writer import append_decision
 
 
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
@@ -83,7 +85,7 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
 
     delta = _compose_state_delta(active_body, progress_items)
     if delta is not None:
-        update_state(store_path, delta)
+        _update_state_op(FilesystemStore(store_path), delta)
 
     return counts
 

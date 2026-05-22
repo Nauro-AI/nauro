@@ -29,15 +29,11 @@ from nauro_core.decision_model import (
     format_decision,
 )
 from nauro_core.questions import EntryBlock, OpenQuestionsFile, ResolveResult
-from nauro_core.state import migrate_legacy_state, prepare_state_update
 
 from nauro.constants import (
     DECISIONS_DIR,
     OPEN_QUESTIONS_MD,
     SLUG_MAX_LENGTH,
-    STATE_CURRENT_FILENAME,
-    STATE_HISTORY_FILENAME,
-    STATE_MD,
 )
 
 
@@ -308,28 +304,3 @@ def resolve_questions_in_file(
     result = file.resolve(ids, decision_num, decision_date)
     oq_path.write_text(result.file.format())
     return result
-
-
-def update_state(store_path: Path, delta: str) -> None:
-    """Replace the current state with *delta*, archiving the previous state."""
-    current_path = store_path / STATE_CURRENT_FILENAME
-    history_path = store_path / STATE_HISTORY_FILENAME
-    legacy_path = store_path / STATE_MD
-
-    current_content: str | None = None
-    if current_path.exists():
-        current_content = current_path.read_text()
-    elif legacy_path.exists():
-        legacy_content = legacy_path.read_text()
-        migrated = migrate_legacy_state(legacy_content)
-        current_path.write_text(migrated.current_content)
-        current_content = migrated.current_content
-    else:
-        return
-
-    result = prepare_state_update(delta, current_content)
-    current_path.write_text(result.current_content)
-
-    if result.history_entry is not None:
-        existing_history = history_path.read_text() if history_path.exists() else ""
-        history_path.write_text(existing_history + result.history_entry)

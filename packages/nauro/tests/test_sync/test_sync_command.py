@@ -73,7 +73,12 @@ class TestSyncPreservesState:
     RICH_STATE = "Sprint 5: shipping feature X.\nBlockers: none.\nNext: write release notes."
 
     def _seed_rich_state(self, store):
-        from nauro.store.writer import update_state
+        from nauro_core.operations import update_state as _update_state_op
+
+        from nauro.store.filesystem_store import FilesystemStore
+
+        def update_state(store_path, delta):
+            _update_state_op(FilesystemStore(store_path), delta)
 
         update_state(store, self.RICH_STATE)
 
@@ -131,7 +136,12 @@ class TestSyncPreservesState:
     def test_legitimate_state_rotation_still_works(self, project_store):
         """Sanity check: update_state() calls between syncs still archive prior
         state into state_history.md — sync just stops doing this itself."""
-        from nauro.store.writer import update_state
+        from nauro_core.operations import update_state as _update_state_op
+
+        from nauro.store.filesystem_store import FilesystemStore
+
+        def update_state(store_path, delta):
+            _update_state_op(FilesystemStore(store_path), delta)
 
         self._seed_rich_state(project_store)
 

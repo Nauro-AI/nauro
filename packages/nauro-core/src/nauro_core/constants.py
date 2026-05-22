@@ -54,6 +54,17 @@ NO_DECISIONS_TO_CHECK = (
 # ── State field patterns (used in parsing and diffing) ──
 STATE_DIFF_FIELDS = ("Sprint", "Focus", "Blockers")
 
+# ── State keyword-overlap warning (used in update_state) ──
+# Surfaced when an incoming delta heavily mirrors a bullet already in
+# ``state_current.md`` — usually a sign the agent is re-reporting work
+# rather than logging new progress. The stop-word set drops generic
+# connectives so the overlap signal stays meaningful at the three-word
+# threshold.
+STATE_OVERLAP_MIN_KEYWORDS = 3
+STATE_OVERLAP_STOP_WORDS: frozenset[str] = frozenset(
+    {"the", "a", "an", "to", "and", "or", "is", "was", "-"}
+)
+
 # ── Decision types ──
 DECISION_TYPES: tuple[str, ...] = (
     "architecture",

@@ -5,21 +5,34 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from nauro_core.operations import update_state as _update_state_op
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.mcp.tools import tool_get_context
+from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import (
     _list_decisions,
     resolve_decision_id,
 )
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
 from nauro.store.validator import validate_store
-from nauro.store.writer import append_decision, append_question, update_state
+from nauro.store.writer import append_decision, append_question
 from nauro.templates.scaffolds import (
     get_scaffolds,
     scaffold_project_store,
 )
+
+
+def update_state(store_path: Path, delta: str) -> None:
+    """Thin wrapper around the kernel for the legacy test surface.
+
+    Pre-cutover the tests called ``writer.update_state`` directly; the
+    write path now lives in :mod:`nauro_core.operations.update_state`.
+    Kept as a helper to preserve the test bodies verbatim.
+    """
+    _update_state_op(FilesystemStore(store_path), delta)
+
 
 runner = CliRunner()
 
