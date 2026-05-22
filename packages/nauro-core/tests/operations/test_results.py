@@ -13,6 +13,7 @@ from nauro_core.operations.results import (
     GetContextResult,
     GetDecisionResult,
     ListDecisionsResult,
+    ProposeDecisionResult,
     RelatedDecision,
     SearchDecisionsResult,
     SearchHit,
@@ -442,3 +443,122 @@ def test_flag_question_result_is_frozen() -> None:
     result = FlagQuestionResult(num=1)
     with pytest.raises(ValidationError):
         result.num = 2
+
+
+def test_propose_decision_result_required_fields() -> None:
+    """``status``, ``tier``, and ``operation`` are required; other fields
+    are optional with sensible defaults."""
+    result = ProposeDecisionResult(status="confirmed", tier=2, operation="add")
+    assert result.status == "confirmed"
+    assert result.tier == 2
+    assert result.operation == "add"
+    assert result.similar_decisions == []
+    assert result.assessment == ""
+    assert result.confirm_id is None
+    assert result.decision_id is None
+    assert result.touched_decisions == []
+    assert result.resolved_questions == []
+    assert result.error is None
+
+
+def test_propose_decision_result_confirmed_envelope() -> None:
+    result = ProposeDecisionResult(
+        status="confirmed",
+        tier=2,
+        operation="add",
+        decision_id="042-adopt-postgres",
+        touched_decisions=["042-adopt-postgres"],
+        assessment="No similar existing decisions found.",
+    )
+    dumped = result.model_dump(mode="json", exclude_none=True)
+    assert dumped == {
+        "status": "confirmed",
+        "tier": 2,
+        "operation": "add",
+        "similar_decisions": [],
+        "assessment": "No similar existing decisions found.",
+        "decision_id": "042-adopt-postgres",
+        "touched_decisions": ["042-adopt-postgres"],
+        "resolved_questions": [],
+    }
+
+
+def test_propose_decision_result_pending_envelope() -> None:
+    related = RelatedDecision(
+        id="decision-042",
+        title="Adopt PostgreSQL",
+        score=0.5,
+        status="active",
+        date="2026-01-01",
+        rationale_preview="x",
+    )
+    result = ProposeDecisionResult(
+        status="pending_confirmation",
+        tier=2,
+        operation="add",
+        confirm_id="ab12cd34",
+        similar_decisions=[related],
+        assessment="Tier 2 found similar decisions; awaiting confirmation.",
+    )
+    dumped = result.model_dump(mode="json", exclude_none=True)
+    assert dumped["status"] == "pending_confirmation"
+    assert dumped["confirm_id"] == "ab12cd34"
+    assert len(dumped["similar_decisions"]) == 1
+    assert "decision_id" not in dumped
+
+
+def test_propose_decision_result_rejected_envelope() -> None:
+    result = ProposeDecisionResult(
+        status="rejected",
+        tier=1,
+        operation="reject",
+        assessment="Title is empty.",
+    )
+    dumped = result.model_dump(mode="json", exclude_none=True)
+    assert dumped["status"] == "rejected"
+    assert dumped["tier"] == 1
+    assert dumped["operation"] == "reject"
+    assert dumped["assessment"] == "Title is empty."
+    assert "confirm_id" not in dumped
+    assert "decision_id" not in dumped
+    assert "error" not in dumped
+
+
+def test_propose_decision_result_rejected_with_error_payload() -> None:
+    result = ProposeDecisionResult(
+        status="rejected",
+        tier=2,
+        operation="reject",
+        assessment="supersede half-state.",
+        error=ErrorPayload(kind="error", reason="old decision not flipped"),
+        touched_decisions=["003-new-decision"],
+    )
+    dumped = result.model_dump(mode="json", exclude_none=True)
+    assert dumped["error"] == {"kind": "error", "reason": "old decision not flipped"}
+    assert dumped["touched_decisions"] == ["003-new-decision"]
+
+
+def test_propose_decision_result_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        ProposeDecisionResult(
+            status="confirmed",
+            tier=2,
+            operation="add",
+            unexpected_field="value",
+        )
+
+
+def test_propose_decision_result_rejects_invalid_status() -> None:
+    with pytest.raises(ValidationError):
+        ProposeDecisionResult(status="weird", tier=2, operation="add")
+
+
+def test_propose_decision_result_rejects_invalid_operation() -> None:
+    with pytest.raises(ValidationError):
+        ProposeDecisionResult(status="confirmed", tier=2, operation="invalid")
+
+
+def test_propose_decision_result_is_frozen() -> None:
+    result = ProposeDecisionResult(status="confirmed", tier=2, operation="add")
+    with pytest.raises(ValidationError):
+        result.status = "rejected"

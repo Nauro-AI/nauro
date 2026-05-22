@@ -106,7 +106,7 @@ def _parse_all_decisions(store: Store) -> list[Decision]:
 
 
 def _hit_to_related(hit: dict, by_num: dict[int, Decision]) -> RelatedDecision:
-    """Lift a ``bm25_retrieve`` hit into the canonical D141 shape."""
+    """Lift a ``bm25_retrieve`` hit into the canonical retrieval-hit shape."""
     num = hit["number"]
     decision = by_num.get(num)
     canonical_id = f"decision-{num:03d}"

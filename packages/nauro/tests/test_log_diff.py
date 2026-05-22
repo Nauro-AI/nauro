@@ -19,8 +19,8 @@ from nauro.store.snapshot import (
     find_snapshot_near_date,
     load_snapshot,
 )
-from nauro.store.writer import append_decision
 from nauro.templates.scaffolds import scaffold_project_store
+from tests._writer_compat import append_decision
 
 
 def update_state(store_path: Path, delta: str) -> None:

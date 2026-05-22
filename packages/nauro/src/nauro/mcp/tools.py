@@ -27,6 +27,7 @@ from nauro_core.operations import get_context as _get_context_op
 from nauro_core.operations import get_decision as _get_decision_op
 from nauro_core.operations import get_raw_file as _get_raw_file_op
 from nauro_core.operations import list_decisions as _list_decisions_op
+from nauro_core.operations import propose_decision as _propose_decision_op
 from nauro_core.operations import search_decisions as _search_decisions_op
 from nauro_core.operations import update_state as _update_state_op
 from nauro_core.protocol import (
@@ -35,7 +36,7 @@ from nauro_core.protocol import (
     PROPOSE_DECISION_OPERATIONS,
     UPDATE_SUPERSEDE_CARE,
 )
-from nauro_core.validation import check_content_length, find_envelope_token
+from nauro_core.validation import check_bm25_similarity, check_content_length, find_envelope_token
 
 from nauro.onboarding import (
     NO_CONTEXT_YET,
@@ -50,8 +51,8 @@ from nauro.store.snapshot import (
     resolve_diff_snapshots,
 )
 from nauro.telemetry.decorators import mcp_tool
-from nauro.validation.pipeline import confirm_write, validate_proposed_write
-from nauro.validation.tier2 import check_similarity
+from nauro.templates.agents_md_regen import warn_then_regen
+from nauro.validation.pending import get_pending, remove_pending
 
 logger = logging.getLogger("nauro.mcp.tools")
 
@@ -268,53 +269,52 @@ def tool_propose_decision(
         affected_decision_id = resolved
 
     # confidence flows as None when the caller did not send it so the
-    # validation pipeline can distinguish caller intent from default.
-    # Reapply "medium" only for add/supersede where the value lands in the
-    # decision file; on update the disallowed-fields branch uses the unset
-    # value to recognise "caller did not send confidence".
+    # kernel can distinguish caller intent from default. Reapply "medium"
+    # only for add/supersede where the value lands in the decision file;
+    # on update the disallowed-fields branch uses the unset value to
+    # recognise "caller did not send confidence".
     proposal_confidence: str | None
     if operation in ("add", "supersede") and confidence is None:
         proposal_confidence = "medium"
     else:
         proposal_confidence = confidence
 
-    proposal = {
-        "title": title,
-        "rationale": rationale,
-        "rejected": rejected,
-        "confidence": proposal_confidence,
-        "decision_type": decision_type,
-        "reversibility": reversibility,
-        "files_affected": files_affected,
-        "resolves_questions": list(resolves_questions) if resolves_questions else [],
-        "source": "mcp",
-    }
-
-    result = validate_proposed_write(
-        proposal,
-        store_path,
-        skip_validation=skip_validation,
+    result = _propose_decision_op(
+        FilesystemStore(store_path),
+        title=title,
+        rationale=rationale,
         operation=operation,
         affected_decision_id=affected_decision_id,
+        rejected=rejected,
+        confidence=proposal_confidence,
+        decision_type=decision_type,
+        reversibility=reversibility,
+        files_affected=files_affected,
+        resolves_questions=resolves_questions,
+        skip_validation=skip_validation,
+        source="mcp",
     )
 
-    response: dict = {
-        "store": "local",
-        "status": result.status,
-        "validation": {
-            "tier": result.tier,
-            "operation": result.operation,
-            "similar_decisions": result.similar_decisions,
-            "assessment": result.assessment,
-        },
-    }
+    dumped = result.model_dump(mode="json", exclude_none=True)
+    # touched_decisions is consumed by the adapter to drive AGENTS.md regen;
+    # it is not part of the local stdio envelope contract. Pop it before
+    # surfacing so byte-identity with the pre-cutover surface is preserved.
+    touched = dumped.pop("touched_decisions", []) or []
+    # similar_decisions stays empty on most branches; keep it omitted when
+    # absent so the envelope stays tight on the success path.
+    if not dumped.get("similar_decisions"):
+        dumped.pop("similar_decisions", None)
+    # resolved_questions only surfaces when the kernel moved at least one id.
+    if not dumped.get("resolved_questions"):
+        dumped.pop("resolved_questions", None)
 
-    if result.status == "confirmed" and hasattr(result, "_decision_id"):
-        response["decision_id"] = result._decision_id
-    if result.confirm_id:
-        response["confirm_id"] = result.confirm_id
-    if result.resolved_questions:
-        response["resolved_questions"] = list(result.resolved_questions)
+    response: dict = {"store": "local", **dumped}
+
+    if result.status == "confirmed":
+        capture_snapshot(store_path, trigger=f"decision: {result.decision_id}")
+        if touched:
+            warn_then_regen(store_path.name, store_path)
+        _try_push(store_path)
 
     return response
 
@@ -353,10 +353,63 @@ def tool_confirm_decision(store_path: Path, confirm_id: str) -> dict:
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    result = confirm_write(confirm_id, store_path)
+    result = _confirm_write(confirm_id, store_path)
     response = {"store": "local", **result}
     if result.get("status") == "confirmed":
+        if result.get("touched_decisions"):
+            warn_then_regen(store_path.name, store_path)
         _try_push(store_path)
+    # touched_decisions is consumed adapter-side; not part of the local
+    # surface envelope. Pop after the regen sequence runs.
+    response.pop("touched_decisions", None)
+    return response
+
+
+def _confirm_write(confirm_id: str, store_path: Path) -> dict:
+    """Confirm a pending proposal and write it via the kernel.
+
+    The pending entry stored by ``propose_decision`` carries the original
+    proposal dict plus the operation classification and any
+    ``affected_decision_id``. We replay it through the kernel's private
+    execute path so the on-disk format and ``touched_decisions``
+    enumeration stay consistent across the auto-confirm and
+    pending-confirm branches; the local shim retires when the kernel
+    owns the confirm path.
+    """
+    from nauro_core.operations.propose_decision import _execute_operation
+
+    pending = get_pending(confirm_id)
+    if not pending:
+        return {"error": "Invalid or expired confirm_id."}
+
+    data = pending["proposal"]
+    proposal = data["proposal"]
+    operation = data["operation"]
+    affected_decision_id = data["affected_decision_id"]
+
+    store = FilesystemStore(store_path)
+    decision_id, actual_operation, touched, resolved_ids, error = _execute_operation(
+        store, operation, proposal, affected_decision_id
+    )
+    remove_pending(confirm_id)
+
+    if error is not None:
+        return {
+            "status": "rejected",
+            "error": {"kind": error.kind, "reason": error.reason},
+            "operation": actual_operation,
+            "touched_decisions": list(touched),
+        }
+
+    response: dict = {
+        "status": "confirmed",
+        "decision_id": decision_id,
+        "title": proposal.get("title", ""),
+        "operation": actual_operation,
+        "touched_decisions": list(touched),
+    }
+    if resolved_ids:
+        response["resolved_questions"] = list(resolved_ids)
     return response
 
 
@@ -420,10 +473,15 @@ def tool_flag_question(
 
     hint = None
     try:
-        _, similar = check_similarity(pseudo_proposal, store_path)
+        from nauro.store.reader import _list_decisions
+
+        _, similar = check_bm25_similarity(pseudo_proposal, _list_decisions(store_path))
         if similar and similar[0].get("similarity", 0) > 0.7:
             top = similar[0]
-            hint = f"This question appears to be addressed by {top['id']}: {top['title']}."
+            hint = (
+                f"This question appears to be addressed by "
+                f"decision-{top['number']:03d}: {top['title']}."
+            )
     except Exception:
         pass
 

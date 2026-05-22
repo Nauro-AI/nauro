@@ -1,8 +1,8 @@
 """Filesystem-backed ``Store`` implementation for the local CLI + stdio MCP.
 
 Adapts the existing ``~/.nauro/projects/<name>/`` layout to the kernel's
-:class:`~nauro_core.operations.Store` protocol. Writes hold a FileLock to
-match the rest of the local writer module; reads are unlocked.
+:class:`~nauro_core.operations.Store` protocol. Writes hold a per-target
+FileLock; reads are unlocked.
 """
 
 from __future__ import annotations
@@ -36,8 +36,10 @@ class FilesystemStore:
             return None
         return target.read_text()
 
-    # Sequential decision-file creation is owned by writer.py's existing FileLock
-    # contract; this Store's write_file targets non-decision content paths.
+    # Per-write FileLock only — no cross-file lock to serialize decision
+    # numbering across concurrent writers. Collisions (two writers minting
+    # the same num because they raced between list/write) are caught and
+    # repaired on the next sync-pull.
     def write_file(self, path: str, content: str) -> None:
         target = self._store_path / path
         target.parent.mkdir(parents=True, exist_ok=True)
