@@ -1,23 +1,39 @@
-"""Payload builders for MCP tool responses.
+"""Internal payload builders used by AGENTS.md generation and the store validator.
 
-Thin wrappers around store.reader — all logic lives there.
+The MCP ``get_context`` tool boundary returns the kernel's dict envelope
+(see :func:`nauro.mcp.tools.tool_get_context`); these helpers stay string-
+returning because their callers — AGENTS.md regen, L0 token-budget
+validation — assemble their own surrounding markdown and only need the
+context body.
 """
 
 from pathlib import Path
 
-from nauro.store.reader import read_project_context
+from nauro_core.operations import get_context as _get_context_op
+
+from nauro.store.filesystem_store import FilesystemStore
+
+
+def _context_text(store_path: Path, level: int) -> str:
+    result = _get_context_op(FilesystemStore(store_path), level)
+    # Internal callers (AGENTS.md regen, validator) always pass a valid
+    # level today, so the kernel rejection branch is unreachable. Assert
+    # rather than swallow — surface any future drift loudly instead of
+    # rendering an empty payload into a published markdown file.
+    assert result.error is None, f"unexpected get_context error: {result.error}"
+    return result.content or ""
 
 
 def build_l0_payload(store_path: Path) -> str:
     """Build L0 payload (~2,000-4,000 tokens)."""
-    return read_project_context(store_path, level=0)
+    return _context_text(store_path, 0)
 
 
 def build_l1_payload(store_path: Path) -> str:
     """Build L1 payload (~4,000-6,000 tokens)."""
-    return read_project_context(store_path, level=1)
+    return _context_text(store_path, 1)
 
 
 def build_l2_payload(store_path: Path) -> str:
     """Build L2 payload (full content)."""
-    return read_project_context(store_path, level=2)
+    return _context_text(store_path, 2)

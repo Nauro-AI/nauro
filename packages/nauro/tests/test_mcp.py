@@ -148,12 +148,18 @@ class TestL2Payload:
         append_decision(store, "New after snap 1", rationale="Testing diff")
         capture_snapshot(store, trigger="second")
 
-        payload = build_l2_payload(store)
-        assert "Snapshot Diff" in payload
+        # Snapshot-diff trailer is a transport-side decoration; surface it
+        # via tool_get_context, not the internal build_l2_payload helper.
+        from nauro.mcp.tools import tool_get_context
+
+        envelope = tool_get_context(store, 2)
+        assert "Snapshot Diff" in envelope["content"]
 
     def test_no_diff_without_snapshots(self, store: Path):
-        payload = build_l2_payload(store)
-        assert "Snapshot Diff" not in payload
+        from nauro.mcp.tools import tool_get_context
+
+        envelope = tool_get_context(store, 2)
+        assert "Snapshot Diff" not in envelope["content"]
 
 
 # --- Decisions summary tests ---
@@ -287,7 +293,9 @@ async def test_context_l0(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["level"] == 0
-    assert "content" in data
+    # ``content`` is now the kernel envelope dict, carrying its own ``content`` body.
+    assert data["content"]["store"] == "local"
+    assert isinstance(data["content"]["content"], str)
 
 
 @pytest.mark.asyncio
@@ -296,7 +304,8 @@ async def test_context_l1(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["level"] == 1
-    assert isinstance(data["content"], str) and len(data["content"]) > 0
+    body = data["content"]["content"]
+    assert isinstance(body, str) and len(body) > 0
 
 
 @pytest.mark.asyncio
@@ -305,7 +314,8 @@ async def test_context_l2(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["level"] == 2
-    assert isinstance(data["content"], str) and len(data["content"]) > 0
+    body = data["content"]["content"]
+    assert isinstance(body, str) and len(body) > 0
 
 
 @pytest.mark.asyncio

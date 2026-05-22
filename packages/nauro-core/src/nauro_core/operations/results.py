@@ -80,6 +80,25 @@ class GetDecisionResult(BaseModel):
     error: ErrorPayload | None = None
 
 
+class GetContextResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.get_context`.
+
+    On the success path ``content`` holds the assembled L0/L1/L2 markdown
+    payload. On the rejection path ``error`` is populated with
+    ``kind="rejected"`` (invalid level); ``content`` stays unset. The
+    ``store`` field is not part of the model; transport adapters add it
+    back at serialization time. The result intentionally stays a single
+    text field — the kernel-side ``build_l0/l1/l2`` already return
+    assembled markdown, so structured sub-fields would duplicate that
+    work without buying the surface anything.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    content: str | None = None
+    error: ErrorPayload | None = None
+
+
 class GetRawFileResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.get_raw_file`.
 

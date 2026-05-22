@@ -7,17 +7,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from nauro_core import extract_decision_number, parse_decision
-from nauro_core.context import build_l0, build_l1, build_l2
 from nauro_core.decision_model import Decision, DecisionStatus
 
 from nauro.constants import (
     DECISIONS_DIR,
     OPEN_QUESTIONS_MD,
-    PROJECT_MD,
     STACK_MD,
-    STATE_CURRENT_FILENAME,
     STATE_DIFF_FIELDS,
-    STATE_HISTORY_FILENAME,
     STATE_MD,
 )
 from nauro.store.snapshot import find_snapshot_near_date, list_snapshots, load_snapshot
@@ -101,124 +97,6 @@ def get_decision_history(store_path: Path, decision_id: str) -> list[Decision]:
         current = nxt
 
     return chain
-
-
-def read_project_context(store_path: Path, level: int = 0) -> str:
-    """Read and assemble context at the given tier level.
-
-    L0 (concise): state + stack summary + top 5 questions + last 3 decisions
-    L1 (working set): full stack + last 10 decisions + full questions
-    L2 (full): all decisions + full questions + snapshot diff
-
-    Args:
-        store_path: Path to the project store directory.
-        level: Context tier (0, 1, or 2).
-
-    Returns:
-        Assembled context string.
-    """
-    if level == 0:
-        return _build_l0_local(store_path)
-    elif level == 1:
-        return _build_l1_local(store_path)
-    else:
-        return _build_l2_local(store_path)
-
-
-def _load_files(store_path: Path, include_project: bool = True) -> dict[str, str]:
-    """Load store files into a dict for nauro_core context builders.
-
-    Prefers state_current.md; falls back to state.md for pre-upgrade stores.
-    """
-    files: dict[str, str] = {}
-    if include_project:
-        files["project.md"] = _read_file(store_path / PROJECT_MD)
-
-    current_state = _read_file(store_path / STATE_CURRENT_FILENAME)
-    if current_state:
-        files["state_current.md"] = current_state
-    else:
-        files["state.md"] = _read_file(store_path / STATE_MD)
-
-    files["stack.md"] = _read_file(store_path / STACK_MD)
-    files["questions.md"] = _read_file(store_path / OPEN_QUESTIONS_MD)
-    return files
-
-
-def _build_l0_local(store_path: Path) -> str:
-    """Build L0 payload with local-specific behavior.
-
-    Local L0 omits project.md (included via AGENTS.md instead) and
-    appends a "last synced" line from state.md.
-    """
-    files = _load_files(store_path, include_project=False)
-    decisions = _list_decisions(store_path)
-
-    result = build_l0(files, decisions)
-
-    # Local-specific: append "last synced" line from state
-    state = files.get("state_current.md") or files.get("state.md", "")
-    marker = "**Last synced:**"
-    synced_line = next((line for line in state.splitlines() if marker in line), None)
-    if synced_line is not None:
-        value = synced_line.split(marker, 1)[1].strip()
-        result += f"\n\n*Last synced: {value}*"
-
-    return result
-
-
-def _build_l1_local(store_path: Path) -> str:
-    """Build L1 payload — delegates to nauro_core."""
-    files = _load_files(store_path, include_project=True)
-    decisions = _list_decisions(store_path)
-    return build_l1(files, decisions)
-
-
-def _build_l2_local(store_path: Path) -> str:
-    """Build L2 payload with local-specific snapshot diff."""
-    files = _load_files(store_path)
-    # L2 includes state history
-    history = _read_file(store_path / STATE_HISTORY_FILENAME)
-    if history:
-        files["state_history.md"] = history
-    decisions = _list_decisions(store_path)
-
-    result = build_l2(files, decisions)
-
-    # Local-specific: append snapshot diff
-    snapshots = list_snapshots(store_path)
-    if len(snapshots) >= 2:
-        prev = load_snapshot(store_path, snapshots[1]["version"])
-        curr = load_snapshot(store_path, snapshots[0]["version"])
-        diff_lines = _file_level_diff(prev, curr)
-        if diff_lines:
-            diff_section = (
-                f"## Snapshot Diff (v{prev['version']:03d} → v{curr['version']:03d})\n\n"
-                + "\n".join(diff_lines)
-            )
-            if result:
-                result += "\n\n" + diff_section
-            else:
-                result = diff_section
-
-    return result
-
-
-def _file_level_diff(prev: dict, curr: dict) -> list[str]:
-    """Compute a simple file-level diff between two snapshots."""
-    prev_files = prev.get("files", {})
-    curr_files = curr.get("files", {})
-    all_keys = sorted(set(prev_files) | set(curr_files))
-
-    lines = []
-    for key in all_keys:
-        if key not in prev_files:
-            lines.append(f"+ Added: {key}")
-        elif key not in curr_files:
-            lines.append(f"- Removed: {key}")
-        elif prev_files[key] != curr_files[key]:
-            lines.append(f"~ Modified: {key}")
-    return lines
 
 
 def diff_snapshots(store_path: Path, version_a: int, version_b: int) -> str:
