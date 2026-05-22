@@ -1,4 +1,4 @@
-"""Shared fixtures for the validation test subdirectory."""
+"""Shared fixtures for the write-integration test subdirectory."""
 
 import pytest
 from nauro_core.operations.propose_decision import _get_pending_store

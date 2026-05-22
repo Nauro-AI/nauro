@@ -110,7 +110,7 @@ uv run ruff format --check packages/
 ## Conventions
 
 - No Jinja2 — f-strings and string templates only
-- All store reads/writes go through `packages/nauro/src/nauro/store/` (reader, writer, snapshot, registry)
+- All store I/O goes through `nauro.store.filesystem_store.FilesystemStore` implementing the `nauro_core.operations.Store` protocol; helpers in `reader.py` and `snapshot.py` support reads and snapshot capture respectively
 - Tests: pytest with `tmp_path` fixture to avoid touching real `~/.nauro/`
 - Linting: ruff
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
@@ -129,10 +129,14 @@ packages/nauro/
       server.py            # FastAPI MCP server
       payloads.py          # L0/L1/L2 payload builders
     store/
-      registry.py          # ~/.nauro/registry.json CRUD + resolve_project()
-      reader.py            # read from project store
-      writer.py            # write decisions, questions, state
+      filesystem_store.py  # Store-protocol implementation backed by ~/.nauro/projects/
+      reader.py            # read helpers
       snapshot.py          # capture, list, load snapshots
+      registry.py          # ~/.nauro/registry.json CRUD + resolve_project()
+      repo_config.py       # per-repo .nauro/config.json read/write
+      resolution.py        # project-name resolution from CWD
+      config.py            # ~/.nauro/config.json read/write
+      validator.py         # structural checks on store contents
     templates/
       scaffolds.py         # nauro init template strings
       agents_md.py         # AGENTS.md generation
