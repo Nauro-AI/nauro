@@ -130,9 +130,9 @@ class TestBm25SilencesProgressBars:
 
     bm25s defaults show_progress to True, which writes tqdm progress bars to
     stderr. That's invisible inside an MCP server process but pollutes the
-    `nauro check` CLI surface. A future bm25s upgrade flipping the default
-    back, or a refactor that drops the kwarg, would re-introduce the noise
-    silently without this guard.
+    `nauro check-decision` CLI surface. A future bm25s upgrade flipping the
+    default back, or a refactor that drops the kwarg, would re-introduce the
+    noise silently without this guard.
     """
 
     def test_bm25_search_writes_nothing_to_stderr(self, capsys):

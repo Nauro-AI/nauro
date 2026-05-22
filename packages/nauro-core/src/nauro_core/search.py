@@ -32,7 +32,7 @@ def bm25_search(
 
     corpus = [f"{d.title} {d.rationale}" for d in decisions]
     # show_progress=False — bm25s defaults to True; the tqdm output is invisible
-    # in MCP server stderr but pollutes the `nauro check` CLI surface.
+    # in MCP server stderr but pollutes the `nauro check-decision` CLI surface.
     corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer, show_progress=False)
 
     retriever = bm25s.BM25()

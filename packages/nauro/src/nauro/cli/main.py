@@ -7,6 +7,7 @@ config, auth, telemetry.
 
 import typer
 
+from nauro.cli.autogen import register_autogen_commands
 from nauro.telemetry import consent
 from nauro.telemetry.cli_wrapper import instrument_app
 
@@ -50,9 +51,7 @@ def _register_commands() -> None:
         adopt,
         attach,
         auth,
-        check,
         config,
-        diff,
         import_cmd,
         init,
         link,
@@ -71,10 +70,8 @@ def _register_commands() -> None:
     app.command(name="attach")(attach.attach)
     app.command(name="link")(link.link)
     app.command(name="note")(note.note)
-    app.command(name="check")(check.check)
     app.command(name="sync")(sync.sync)
     app.command(name="log")(log.log)
-    app.command(name="diff")(diff.diff)
     app.command(name="import")(import_cmd.import_cmd)
     app.command(name="serve")(serve.serve)
     app.add_typer(setup.setup_app, name="setup")
@@ -86,6 +83,7 @@ def _register_commands() -> None:
 
 
 _register_commands()
+register_autogen_commands(app)
 instrument_app(app)
 
 if __name__ == "__main__":

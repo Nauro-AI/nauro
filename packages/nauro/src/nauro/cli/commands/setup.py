@@ -41,11 +41,11 @@ setup_app = typer.Typer(help="Configure tool integrations.")
 CLAUDE_MD_START = NAURO_BLOCK_START
 CLAUDE_MD_END = NAURO_BLOCK_END
 
-# Discoverability hint appended to every setup-add success path. `nauro check`
-# (the L1 surface) works from the current shell against the local store, so
-# users don't have to wait for an agent restart to see Nauro do something
-# useful.
-CHECK_HINT_LINE = 'Try it now from this shell: nauro check "<approach>"'
+# Discoverability hint appended to every setup-add success path.
+# `nauro check-decision` (the L1 surface) works from the current shell
+# against the local store, so users don't have to wait for an agent
+# restart to see Nauro do something useful.
+CHECK_HINT_LINE = 'Try it now from this shell: nauro check-decision "<approach>"'
 
 
 def _remove_claude_md(repo_path: Path) -> str | None:
