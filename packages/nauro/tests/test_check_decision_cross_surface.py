@@ -160,3 +160,61 @@ def test_rejection_envelope_matches_across_stores(both_stores):
     )
     assert fs_result.error is not None
     assert fs_result.error.kind == "rejected"
+
+
+def _envelope(store_label: str, result) -> dict:
+    """Mirror the adapter envelope construction used by tool wrappers."""
+    return {"store": store_label, **result.model_dump(mode="json", exclude_none=True)}
+
+
+def test_envelope_byte_identical_modulo_store_field(both_stores):
+    """Envelopes are byte-identical once the store discriminator is substituted.
+
+    Pins the wire-shape guarantee: once the ``"store"`` field is normalised,
+    the JSON-serialised envelope from FilesystemStore is byte-equal to the
+    one from CloudStore. Any field-ordering, default-elision, or coercion
+    drift between the two surfaces shows up here, even when the underlying
+    ``CheckDecisionResult`` model dumps still compare equal as dicts.
+    """
+    fs_store, cloud = both_stores
+
+    fs_result = check_decision(fs_store, PROPOSED_APPROACH)
+    cloud_result = check_decision(cloud, PROPOSED_APPROACH)
+
+    # Happy path: similar_decisions is non-empty because D001 matches.
+    assert fs_result.related_decisions, "fixture should surface decision-001"
+
+    local_envelope = _envelope("local", fs_result)
+    remote_envelope = _envelope("remote", cloud_result)
+    remote_envelope["store"] = "local"
+
+    import json as _json
+
+    local_bytes = _json.dumps(local_envelope, sort_keys=True).encode()
+    remote_bytes = _json.dumps(remote_envelope, sort_keys=True).encode()
+    assert local_bytes == remote_bytes
+
+
+def test_envelope_byte_identical_empty_result_branch(both_stores):
+    """Empty-result envelopes also stay byte-identical across surfaces."""
+    fs_store, cloud = both_stores
+
+    # An approach with no overlap with the seeded decisions; retrieval
+    # returns no hits from either store.
+    no_match_approach = "Adopt a fictional widget library for sprocket rendering"
+
+    fs_result = check_decision(fs_store, no_match_approach)
+    cloud_result = check_decision(cloud, no_match_approach)
+
+    assert fs_result.related_decisions == []
+    assert cloud_result.related_decisions == []
+
+    local_envelope = _envelope("local", fs_result)
+    remote_envelope = _envelope("remote", cloud_result)
+    remote_envelope["store"] = "local"
+
+    import json as _json
+
+    local_bytes = _json.dumps(local_envelope, sort_keys=True).encode()
+    remote_bytes = _json.dumps(remote_envelope, sort_keys=True).encode()
+    assert local_bytes == remote_bytes

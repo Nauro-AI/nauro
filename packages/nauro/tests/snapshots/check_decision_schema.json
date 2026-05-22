@@ -1,0 +1,151 @@
+{
+  "CheckDecisionResult": {
+    "$defs": {
+      "ErrorPayload": {
+        "additionalProperties": false,
+        "description": "Structured error envelope returned on rejection or operation failure.\n\n``kind`` discriminates between caller-fixable rejections (input over\nlength, malformed argument) and operation-side failures. ``guidance``\ncarries an onboarding string when the rejection has a remedial action\nthe caller can take.",
+        "properties": {
+          "guidance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Guidance"
+          },
+          "kind": {
+            "enum": [
+              "rejected",
+              "error"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "reason"
+        ],
+        "title": "ErrorPayload",
+        "type": "object"
+      },
+      "RelatedDecision": {
+        "additionalProperties": false,
+        "description": "A decision surfaced by retrieval as related to a proposed approach.\n\nThe canonical retrieval-hit shape: enriched with status/date and a\nrationale preview so any transport can render the same hit without\nre-fetching the underlying decision body.",
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "rationale_preview": {
+            "title": "Rationale Preview",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "score",
+          "status",
+          "date",
+          "rationale_preview"
+        ],
+        "title": "RelatedDecision",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "Return shape for :func:`nauro_core.operations.check_decision`.\n\nOn the success path ``related_decisions`` contains zero or more\n:class:`RelatedDecision` hits and ``assessment`` carries the\ndeterministic human-readable summary. On the rejection path\n``error`` is populated; ``related_decisions`` stays empty and\n``assessment`` stays empty. ``store`` is not part of the model;\ntransport adapters add it back at serialization time.",
+    "properties": {
+      "assessment": {
+        "default": "",
+        "title": "Assessment",
+        "type": "string"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ErrorPayload"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "related_decisions": {
+        "items": {
+          "$ref": "#/$defs/RelatedDecision"
+        },
+        "title": "Related Decisions",
+        "type": "array"
+      }
+    },
+    "title": "CheckDecisionResult",
+    "type": "object"
+  },
+  "RelatedDecision": {
+    "additionalProperties": false,
+    "description": "A decision surfaced by retrieval as related to a proposed approach.\n\nThe canonical retrieval-hit shape: enriched with status/date and a\nrationale preview so any transport can render the same hit without\nre-fetching the underlying decision body.",
+    "properties": {
+      "date": {
+        "title": "Date",
+        "type": "string"
+      },
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "rationale_preview": {
+        "title": "Rationale Preview",
+        "type": "string"
+      },
+      "score": {
+        "title": "Score",
+        "type": "number"
+      },
+      "status": {
+        "title": "Status",
+        "type": "string"
+      },
+      "title": {
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "title",
+      "score",
+      "status",
+      "date",
+      "rationale_preview"
+    ],
+    "title": "RelatedDecision",
+    "type": "object"
+  }
+}
