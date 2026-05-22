@@ -95,3 +95,38 @@ class GetRawFileResult(BaseModel):
 
     content: str | None = None
     error: ErrorPayload | None = None
+
+
+class DecisionSummary(BaseModel):
+    """One row in :class:`ListDecisionsResult`.
+
+    Carries the same row fields the pre-cutover ``tool_list_decisions``
+    envelope exposed (``number``, ``title``, ``date``, ``status``,
+    ``type``, ``confidence``). ``date`` and ``type`` stay optional so
+    decisions written without those frontmatter fields still serialize;
+    the adapter's ``exclude_none=True`` template choice drops the keys
+    when they are unset.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    number: int
+    title: str
+    date: str | None = None
+    status: str
+    type: str | None = None
+    confidence: str
+
+
+class ListDecisionsResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.list_decisions`.
+
+    ``decisions`` carries the projected rows, sorted by decision number
+    descending and truncated to the caller-supplied ``limit``. The
+    ``store`` field is not part of the model; transport adapters add it
+    back at serialization time.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    decisions: list[DecisionSummary] = Field(default_factory=list)
