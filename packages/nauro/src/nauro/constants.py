@@ -83,9 +83,6 @@ PRUNE_KEEP_ALL_DAYS = 7
 PRUNE_DAILY_DAYS = 30
 PRUNE_WEEKLY_DAYS = 180
 
-# ── State field patterns (used in parsing and diffing) ──
-STATE_DIFF_FIELDS = ("Sprint", "Focus", "Blockers")
-
 # ── Schema versioning ──
 SCHEMA_VERSION = 1
 

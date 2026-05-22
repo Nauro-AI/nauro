@@ -262,3 +262,53 @@ def load_snapshot(store_path: Path, version: int) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Snapshot v{version:03d} not found.")
     return json.loads(path.read_text())  # type: ignore[no-any-return]
+
+
+def resolve_diff_snapshots(
+    store_path: Path,
+    days: int | None,
+) -> tuple[dict | None, dict | None, str | None]:
+    """Assemble the (baseline, latest, cutoff_date_used) tuple for the kernel.
+
+    Snapshot discovery sits outside the locked Store protocol, so the
+    adapter does the I/O and threads the loaded dicts into the kernel.
+
+    Mapping back to the kernel's sentinel branches:
+
+    * ``days=None`` + 0 snapshots → ``(None, None, None)``. Adapters
+      rewrite the kernel's ``No snapshots available.`` rendering to
+      ``Not enough snapshots…`` so byte-identical CLI/MCP parity with
+      pre-cutover output is preserved.
+    * ``days=None`` + 1 snapshot → ``(None, latest, None)``. Kernel
+      sentinel: ``Not enough snapshots…``
+    * ``days=None`` + 2+ snapshots → previous-to-latest pair.
+    * ``days=N`` + 0 snapshots → ``(None, None, None)``. Kernel
+      sentinel: ``No snapshots available.``
+    * ``days=N`` + baseline == latest → the matched pair; kernel renders
+      ``Only one snapshot covers the requested range…``.
+    * ``days=N`` otherwise → resolved baseline/latest pair plus the
+      baseline timestamp as ``cutoff_date_used``.
+    """
+    snapshots = list_snapshots(store_path)
+
+    if days is not None:
+        if not snapshots:
+            return None, None, None
+        target = datetime.now(timezone.utc) - timedelta(days=days)
+        baseline_meta = find_snapshot_near_date(store_path, target)
+        if baseline_meta is None:
+            return None, None, None
+        latest_version = snapshots[0]["version"]
+        baseline_version = baseline_meta["version"]
+        baseline_snapshot = load_snapshot(store_path, baseline_version)
+        latest_snapshot = load_snapshot(store_path, latest_version)
+        return baseline_snapshot, latest_snapshot, baseline_meta["timestamp"]
+
+    if not snapshots:
+        return None, None, None
+    if len(snapshots) < 2:
+        latest_snapshot = load_snapshot(store_path, snapshots[0]["version"])
+        return None, latest_snapshot, None
+    baseline_snapshot = load_snapshot(store_path, snapshots[1]["version"])
+    latest_snapshot = load_snapshot(store_path, snapshots[0]["version"])
+    return baseline_snapshot, latest_snapshot, None
