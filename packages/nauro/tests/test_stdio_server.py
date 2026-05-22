@@ -480,7 +480,9 @@ class TestContentSizeLimits:
             rationale="Valid rationale that meets the minimum length requirement.",
         )
         # Should not be rejected for size
-        assert result.get("status") != "rejected" or "length" not in result.get("reason", "")
+        assert result.get("status") != "rejected" or "length" not in result.get("error", {}).get(
+            "reason", ""
+        )
 
     def test_propose_title_over_limit(self, store: Path):
         from nauro.mcp.tools import MAX_TITLE_LENGTH
@@ -492,7 +494,8 @@ class TestContentSizeLimits:
             rationale="Valid rationale that meets the minimum length requirement.",
         )
         assert result["status"] == "rejected"
-        assert f"{MAX_TITLE_LENGTH}" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert f"{MAX_TITLE_LENGTH}" in result["error"]["reason"]
 
     def test_propose_rationale_over_limit(self, store: Path):
         from nauro.mcp.tools import MAX_RATIONALE_LENGTH
@@ -503,21 +506,24 @@ class TestContentSizeLimits:
             rationale="X" * (MAX_RATIONALE_LENGTH + 1),
         )
         assert result["status"] == "rejected"
-        assert f"{MAX_RATIONALE_LENGTH}" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert f"{MAX_RATIONALE_LENGTH}" in result["error"]["reason"]
 
     def test_flag_question_over_limit(self, store: Path):
         from nauro.mcp.tools import MAX_QUESTION_LENGTH, tool_flag_question
 
         result = tool_flag_question(store, "Q" * (MAX_QUESTION_LENGTH + 1))
         assert result["status"] == "rejected"
-        assert f"{MAX_QUESTION_LENGTH}" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert f"{MAX_QUESTION_LENGTH}" in result["error"]["reason"]
 
     def test_update_state_over_limit(self, store: Path):
         from nauro.mcp.tools import MAX_DELTA_LENGTH, tool_update_state
 
         result = tool_update_state(store, "D" * (MAX_DELTA_LENGTH + 1))
         assert result["status"] == "rejected"
-        assert f"{MAX_DELTA_LENGTH}" in result["reason"]
+        assert result["error"]["kind"] == "rejected"
+        assert f"{MAX_DELTA_LENGTH}" in result["error"]["reason"]
 
     def test_check_decision_approach_over_limit(self, store: Path):
         from nauro_core.constants import MAX_APPROACH_LENGTH

@@ -20,6 +20,7 @@ from nauro_core.constants import (
     STATE_CURRENT_FILENAME,
     STATE_MD,
 )
+from nauro_core.operations import ErrorPayload
 from nauro_core.operations import check_decision as _check_decision_op
 from nauro_core.operations import confirm_decision as _confirm_decision_op
 from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
@@ -61,7 +62,11 @@ def _reject_if_too_long(value: str, label: str, max_length: int) -> dict | None:
     """Return a rejection dict if *value* exceeds *max_length*, else None."""
     msg = check_content_length(value, label, max_length)
     if msg:
-        return {"store": "local", "status": "rejected", "reason": msg}
+        return {
+            "store": "local",
+            "status": "rejected",
+            "error": ErrorPayload(kind="rejected", reason=msg).model_dump(exclude_none=True),
+        }
     return None
 
 
@@ -76,15 +81,16 @@ def _reject_if_envelope_token(value: str, field_name: str) -> dict | None:
     token = find_envelope_token(value)
     if not token:
         return None
+    reason = (
+        f"{field_name} contains tool-use envelope fragment {token!r}. "
+        "This usually means the client failed to extract the parameter "
+        "value cleanly from an XML tool call. Resend the call with just "
+        "the prose content."
+    )
     return {
         "store": "local",
         "status": "rejected",
-        "reason": (
-            f"{field_name} contains tool-use envelope fragment {token!r}. "
-            "This usually means the client failed to extract the parameter "
-            "value cleanly from an XML tool call. Resend the call with just "
-            "the prose content."
-        ),
+        "error": ErrorPayload(kind="rejected", reason=reason).model_dump(exclude_none=True),
     }
 
 
@@ -257,14 +263,20 @@ def tool_propose_decision(
             return {
                 "store": "local",
                 "status": "rejected",
-                "reason": f"operation={operation!r} requires affected_decision_id",
+                "error": ErrorPayload(
+                    kind="rejected",
+                    reason=f"operation={operation!r} requires affected_decision_id",
+                ).model_dump(exclude_none=True),
             }
         resolved = resolve_decision_id(store_path, affected_decision_id)
         if resolved is None:
             return {
                 "store": "local",
                 "status": "rejected",
-                "reason": (f"affected_decision_id={affected_decision_id!r} not found in store"),
+                "error": ErrorPayload(
+                    kind="rejected",
+                    reason=f"affected_decision_id={affected_decision_id!r} not found in store",
+                ).model_dump(exclude_none=True),
             }
         affected_decision_id = resolved
 

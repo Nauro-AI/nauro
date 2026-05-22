@@ -177,7 +177,8 @@ def test_length_rejection_matches_across_tool_and_cli(seeded_repo):
     tool_envelope = tool_update_state(store_path, overlong)
     assert tool_envelope["store"] == "local"
     assert tool_envelope["status"] == "rejected"
-    assert "exceeds" in tool_envelope["reason"].lower()
+    assert tool_envelope["error"]["kind"] == "rejected"
+    assert "exceeds" in tool_envelope["error"]["reason"].lower()
 
     exit_code, cli_envelope, output = _cli_envelope([overlong])
     # The auto-gen exit-code branch fires on the ``error`` / ``status: "error"``

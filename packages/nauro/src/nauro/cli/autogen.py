@@ -210,12 +210,19 @@ def _emit_envelope(envelope: dict) -> None:
 
 
 def _exit_for_envelope(envelope: dict) -> None:
-    """If the envelope signals an error, print guidance to stderr and exit 1."""
+    """If the envelope signals an error, print guidance to stderr and exit 1.
+
+    Caller-fixable rejections (``status: "rejected"``) carry a structured
+    ``error`` payload but stay exit 0 — they are not transport-level errors
+    and the envelope on stdout already carries the reason.
+    """
     if envelope.get("status") == "error":
         guidance = envelope.get("guidance") or ""
         if guidance:
             typer.echo(guidance, err=True)
         raise typer.Exit(code=1)
+    if envelope.get("status") == "rejected":
+        return
     if envelope.get("error"):
         err = envelope["error"]
         reason = err.get("reason") if isinstance(err, dict) else str(err)
