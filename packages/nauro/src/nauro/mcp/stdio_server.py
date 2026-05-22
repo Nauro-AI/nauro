@@ -114,13 +114,13 @@ def get_context(
         Literal["L0", "L1", "L2"] | int,
         Field(description=_param_desc("get_context", "level")),
     ] = "L0",
-) -> str:
+) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
     except NoProjectError:
-        return WELCOME_NO_PROJECT
+        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     except StoreResolutionError as exc:
-        return str(exc)
+        return {"store": "local", "status": "error", "guidance": str(exc)}
     # tool_get_context accepts both int and string levels.
     return tool_get_context(store_path, level)
 

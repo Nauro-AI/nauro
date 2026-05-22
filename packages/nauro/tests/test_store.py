@@ -8,10 +8,9 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
+from nauro.mcp.tools import tool_get_context
 from nauro.store.reader import (
     _list_decisions,
-    _load_files,
-    read_project_context,
     resolve_decision_id,
 )
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
@@ -23,6 +22,11 @@ from nauro.templates.scaffolds import (
 )
 
 runner = CliRunner()
+
+
+def read_project_context(store_path: Path, level: int = 0) -> str:
+    """Local test helper — keeps the existing assertions using str content."""
+    return tool_get_context(store_path, level)["content"]
 
 
 @pytest.fixture
@@ -255,27 +259,6 @@ def test_update_state_first_write_empty_store(tmp_path: Path):
 
 
 # --- Reader split-state tests ---
-
-
-def test_load_files_returns_state_current_key(store: Path):
-    """When state_current.md exists, _load_files returns it under that key."""
-    (store / "state_current.md").write_text("# Current State\n\nNew format")
-    files = _load_files(store)
-    assert "state_current.md" in files
-    assert "state.md" not in files
-
-
-def test_load_files_falls_back_to_state_md(tmp_path: Path):
-    """When only legacy state.md exists, _load_files returns it under state.md key."""
-    store = tmp_path / "legacy-store"
-    store.mkdir()
-    (store / "project.md").write_text("# Project\n")
-    (store / "state.md").write_text("# State\n\nLegacy content\n")
-    (store / "stack.md").write_text("# Stack\n")
-    (store / "open-questions.md").write_text("# Questions\n")
-    files = _load_files(store)
-    assert "state.md" in files
-    assert "state_current.md" not in files
 
 
 def test_l2_loads_state_history(store: Path):

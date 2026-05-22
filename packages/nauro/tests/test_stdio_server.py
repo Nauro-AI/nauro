@@ -76,21 +76,30 @@ class TestResolveStore:
 class TestGetContext:
     def test_l0_returns_current_state(self, store: Path):
         result = get_context(project_id="testproj", level=0)
-        assert "## Current State" in result
+        assert "## Current State" in result["content"]
 
     def test_l1_returns_full_stack(self, store: Path):
         result = get_context(project_id="testproj", level=1)
-        assert "# Stack" in result
-        assert "Python 3.11" in result
+        assert "# Stack" in result["content"]
+        assert "Python 3.11" in result["content"]
 
     def test_l2_returns_full_content(self, store: Path):
         result = get_context(project_id="testproj", level=2)
-        assert "Use FastAPI" in result
-        assert "Should we add caching?" in result
+        assert "Use FastAPI" in result["content"]
+        assert "Should we add caching?" in result["content"]
 
-    def test_invalid_level_raises(self, store: Path):
+    def test_invalid_level_rejection(self, store: Path):
+        # Invalid numeric levels surface as a kernel rejection envelope —
+        # `_coerce_level` rejects strings before reaching the kernel, so the
+        # ValueError path on string input is exercised separately below.
+        result = get_context(project_id="testproj", level=5)
+        assert result["store"] == "local"
+        assert result["error"]["kind"] == "rejected"
+        assert "Invalid level" in result["error"]["reason"]
+
+    def test_invalid_string_level_raises(self, store: Path):
         with pytest.raises(ValueError, match="Invalid level"):
-            get_context(project_id="testproj", level=5)
+            get_context(project_id="testproj", level="L9")
 
 
 class TestProposeDecision:

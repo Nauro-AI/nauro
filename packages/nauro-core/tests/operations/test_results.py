@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from nauro_core.operations.results import (
     DecisionSummary,
     ErrorPayload,
+    GetContextResult,
     GetDecisionResult,
     ListDecisionsResult,
     RelatedDecision,
@@ -276,3 +277,38 @@ def test_search_decisions_result_is_frozen() -> None:
     result = SearchDecisionsResult()
     with pytest.raises(ValidationError):
         result.results = [SearchHit(number=1, title="x", status="active", score=0.5)]
+
+
+def test_get_context_result_success_with_content() -> None:
+    result = GetContextResult(content="# Current State\n\nShipping v1.\n")
+    assert result.content == "# Current State\n\nShipping v1.\n"
+    assert result.error is None
+
+
+def test_get_context_result_error_with_payload() -> None:
+    result = GetContextResult(error=ErrorPayload(kind="rejected", reason="Invalid level: 7"))
+    assert result.content is None
+    assert result.error is not None
+    assert result.error.kind == "rejected"
+    assert result.error.reason == "Invalid level: 7"
+
+
+def test_get_context_result_exclude_none_strips_empties() -> None:
+    success = GetContextResult(content="body")
+    assert success.model_dump(mode="json", exclude_none=True) == {"content": "body"}
+
+    miss = GetContextResult(error=ErrorPayload(kind="rejected", reason="Invalid level: 9"))
+    assert miss.model_dump(mode="json", exclude_none=True) == {
+        "error": {"kind": "rejected", "reason": "Invalid level: 9"},
+    }
+
+
+def test_get_context_result_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        GetContextResult(content="body", unexpected_field="value")
+
+
+def test_get_context_result_is_frozen() -> None:
+    result = GetContextResult(content="body")
+    with pytest.raises(ValidationError):
+        result.content = "reassigned"

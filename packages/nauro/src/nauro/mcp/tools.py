@@ -18,8 +18,10 @@ from nauro_core.constants import (
     MAX_RATIONALE_LENGTH,
     MAX_TITLE_LENGTH,
     STATE_CURRENT_FILENAME,
+    STATE_MD,
 )
 from nauro_core.operations import check_decision as _check_decision_op
+from nauro_core.operations import get_context as _get_context_op
 from nauro_core.operations import get_decision as _get_decision_op
 from nauro_core.operations import get_raw_file as _get_raw_file_op
 from nauro_core.operations import list_decisions as _list_decisions_op
@@ -32,7 +34,6 @@ from nauro_core.protocol import (
 )
 from nauro_core.validation import check_content_length, find_envelope_token
 
-from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payload
 from nauro.onboarding import (
     NO_CONTEXT_YET,
     WELCOME_NO_PROJECT,
@@ -44,7 +45,7 @@ from nauro.store.reader import (
 from nauro.store.reader import (
     resolve_decision_id,
 )
-from nauro.store.snapshot import capture_snapshot
+from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
 from nauro.store.writer import append_question
 from nauro.store.writer import update_state as _write_state
 from nauro.telemetry.decorators import mcp_tool
@@ -125,21 +126,91 @@ def _coerce_level(level: int | str) -> int:
     return level
 
 
+def _last_synced_trailer(store_path: Path) -> str:
+    """Return the italicised ``*Last synced: ...*`` trailer or empty string.
+
+    Mirrors the pre-cutover local-L0 behaviour: scan state_current.md
+    (with legacy state.md fallback) for the ``**Last synced:**`` marker
+    and render the value into an italic line the kernel content can be
+    appended to. No-op when the marker is absent.
+    """
+    state = ""
+    current = store_path / STATE_CURRENT_FILENAME
+    if current.exists():
+        state = current.read_text()
+    else:
+        legacy = store_path / STATE_MD
+        if legacy.exists():
+            state = legacy.read_text()
+    marker = "**Last synced:**"
+    line = next((line for line in state.splitlines() if marker in line), None)
+    if line is None:
+        return ""
+    value = line.split(marker, 1)[1].strip()
+    return f"*Last synced: {value}*"
+
+
+def _snapshot_diff_section(store_path: Path) -> str:
+    """Render the trailing ``## Snapshot Diff (...)`` block, if any.
+
+    Reads the two most recent snapshots and produces a file-level diff
+    summary. Returns the empty string when there are fewer than two
+    snapshots or the diff has no entries.
+    """
+    snapshots = list_snapshots(store_path)
+    if len(snapshots) < 2:
+        return ""
+    prev = load_snapshot(store_path, snapshots[1]["version"])
+    curr = load_snapshot(store_path, snapshots[0]["version"])
+    prev_files = prev.get("files", {})
+    curr_files = curr.get("files", {})
+    lines: list[str] = []
+    for key in sorted(set(prev_files) | set(curr_files)):
+        if key not in prev_files:
+            lines.append(f"+ Added: {key}")
+        elif key not in curr_files:
+            lines.append(f"- Removed: {key}")
+        elif prev_files[key] != curr_files[key]:
+            lines.append(f"~ Modified: {key}")
+    if not lines:
+        return ""
+    header = f"## Snapshot Diff (v{prev['version']:03d} → v{curr['version']:03d})"
+    return header + "\n\n" + "\n".join(lines)
+
+
 @mcp_tool("get_context")
-def tool_get_context(store_path: Path, level: int | str) -> str:
+def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
     """Return project context at the requested detail level."""
     guidance = _check_store_exists(store_path)
     if guidance:
-        return guidance
+        return {"store": "local", "status": "error", "guidance": guidance}
+
     level_int = _coerce_level(level)
-    builders = {0: build_l0_payload, 1: build_l1_payload, 2: build_l2_payload}
-    builder = builders.get(level_int)
-    if builder is None:
-        raise ValueError(f"Invalid level: {level}. Use 0, 1, 2 or 'L0', 'L1', 'L2'.")
-    result = builder(store_path)
-    if not result.strip() or not _has_decisions(store_path):
-        return (result + "\n\n" + NO_CONTEXT_YET).strip() if result.strip() else NO_CONTEXT_YET
-    return result
+    result = _get_context_op(FilesystemStore(store_path), level_int)
+    envelope: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
+
+    # Kernel-side rejection (invalid level) flows through unchanged; only
+    # decorate the success path.
+    if result.error is not None:
+        return envelope
+
+    content = result.content or ""
+
+    if level_int == 0:
+        trailer = _last_synced_trailer(store_path)
+        if trailer:
+            content = f"{content}\n\n{trailer}" if content else trailer
+
+    if level_int == 2:
+        diff_section = _snapshot_diff_section(store_path)
+        if diff_section:
+            content = f"{content}\n\n{diff_section}" if content else diff_section
+
+    if not content.strip() or not _has_decisions(store_path):
+        content = (content + "\n\n" + NO_CONTEXT_YET).strip() if content.strip() else NO_CONTEXT_YET
+
+    envelope["content"] = content
+    return envelope
 
 
 @mcp_tool("propose_decision")

@@ -141,6 +141,11 @@ async def get_context(req: ContextRequest) -> dict:
         payload = tool_get_context(store_path, req.level)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    # Kernel-side rejections (invalid level) surface as an ``error`` field
+    # on the envelope; preserve the pre-cutover 400 status by re-raising.
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if error and error.get("kind") == "rejected":
+        raise HTTPException(status_code=400, detail=error.get("reason", "Invalid level"))
     return {"level": req.level, "content": payload}
 
 

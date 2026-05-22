@@ -45,8 +45,9 @@ def empty_store(tmp_path: Path) -> Path:
 class TestNoStore:
     def test_get_context_returns_guidance(self, nonexistent_store):
         result = tool_get_context(nonexistent_store, 0)
-        assert "nauro init" in result
-        assert "Welcome" in result
+        assert result["status"] == "error"
+        assert "nauro init" in result["guidance"]
+        assert "Welcome" in result["guidance"]
 
     def test_propose_decision_returns_guidance(self, nonexistent_store):
         result = tool_propose_decision(nonexistent_store, title="Test", rationale="Testing")
@@ -82,7 +83,8 @@ class TestNoStore:
 class TestEmptyStore:
     def test_get_context_includes_no_context_guidance(self, empty_store):
         result = tool_get_context(empty_store, 0)
-        assert "no context data yet" in result or "propose_decision" in result
+        content = result["content"]
+        assert "no context data yet" in content or "propose_decision" in content
 
     def test_check_decision_returns_no_decisions_guidance(self, empty_store):
         result = tool_check_decision(empty_store, "Use Redis")
