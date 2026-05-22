@@ -8,6 +8,7 @@ emit no telemetry; transports own event emission.
 
 from nauro_core.operations._in_memory_store import InMemoryStore as InMemoryStore
 from nauro_core.operations.check_decision import check_decision as check_decision
+from nauro_core.operations.confirm_decision import confirm_decision as confirm_decision
 from nauro_core.operations.diff_since_last_session import (
     diff_since_last_session as diff_since_last_session,
 )
@@ -18,6 +19,7 @@ from nauro_core.operations.get_raw_file import get_raw_file as get_raw_file
 from nauro_core.operations.list_decisions import list_decisions as list_decisions
 from nauro_core.operations.propose_decision import propose_decision as propose_decision
 from nauro_core.operations.results import CheckDecisionResult as CheckDecisionResult
+from nauro_core.operations.results import ConfirmDecisionResult as ConfirmDecisionResult
 from nauro_core.operations.results import DecisionSummary as DecisionSummary
 from nauro_core.operations.results import (
     DiffSinceLastSessionResult as DiffSinceLastSessionResult,
@@ -40,6 +42,7 @@ from . import results as results
 
 __all__ = [
     "CheckDecisionResult",
+    "ConfirmDecisionResult",
     "DecisionSummary",
     "DiffSinceLastSessionResult",
     "FlagQuestionResult",
@@ -55,6 +58,7 @@ __all__ = [
     "Store",
     "UpdateStateResult",
     "check_decision",
+    "confirm_decision",
     "diff_since_last_session",
     "flag_question",
     "get_context",

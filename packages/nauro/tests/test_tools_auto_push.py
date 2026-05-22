@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from nauro_core.operations.propose_decision import _get_pending_store
 
 from nauro.mcp.tools import tool_confirm_decision, tool_flag_question, tool_update_state
 from nauro.templates.scaffolds import scaffold_project_store
@@ -16,55 +17,61 @@ def store(tmp_path: Path) -> Path:
     return store_path
 
 
+@pytest.fixture(autouse=True)
+def _clear_pending():
+    _get_pending_store().clear_all()
+    yield
+    _get_pending_store().clear_all()
+
+
+def _seed_pending_add(title: str = "Use Redis for hot caching") -> str:
+    """Seed a pending ``add`` entry the kernel can replay on confirm."""
+    return _get_pending_store().store(
+        {
+            "proposal": {
+                "title": title,
+                "rationale": (
+                    "In-memory cache for hot read paths across the API tier and pub/sub channels."
+                ),
+                "confidence": "medium",
+            },
+            "operation": "add",
+            "affected_decision_id": None,
+        },
+        {"tier": 1, "operation": "add", "similar_decisions": [], "assessment": "seed"},
+    )
+
+
 class TestConfirmDecisionAutoPush:
     def test_sync_triggers_after_confirm(self, store):
-        """push_after_write is called when confirm_write succeeds."""
-        fake_confirm_result = {
-            "status": "confirmed",
-            "decision_id": "decision-001",
-            "title": "Use Redis",
-            "operation": "add",
-        }
-        with (
-            patch("nauro.mcp.tools._confirm_write", return_value=fake_confirm_result),
-            patch("nauro.mcp.tools._try_push") as mock_push,
-        ):
-            result = tool_confirm_decision(store, "abc123")
+        """push_after_write is called when the kernel confirms the pending entry."""
+        confirm_id = _seed_pending_add()
+        with patch("nauro.mcp.tools._try_push") as mock_push:
+            result = tool_confirm_decision(store, confirm_id)
 
         assert result["status"] == "confirmed"
         mock_push.assert_called_once_with(store)
 
     def test_sync_not_called_on_error(self, store):
-        """push_after_write is NOT called when confirm_write returns an error."""
-        fake_error_result = {"error": "Invalid or expired confirm_id."}
-        with (
-            patch("nauro.mcp.tools._confirm_write", return_value=fake_error_result),
-            patch("nauro.mcp.tools._try_push") as mock_push,
-        ):
+        """push_after_write is NOT called when the confirm_id is unknown."""
+        with patch("nauro.mcp.tools._try_push") as mock_push:
             result = tool_confirm_decision(store, "bad-id")
 
-        assert "error" in result
+        assert result["status"] == "rejected"
+        assert result["error"]["kind"] == "rejected"
         mock_push.assert_not_called()
 
     def test_sync_failure_does_not_block_confirm(self, store):
         """If push_after_write raises, the confirmation result is still returned."""
-        fake_confirm_result = {
-            "status": "confirmed",
-            "decision_id": "decision-001",
-            "title": "Use Redis",
-            "operation": "add",
-        }
-        with (
-            patch("nauro.mcp.tools._confirm_write", return_value=fake_confirm_result),
-            patch(
-                "nauro.sync.hooks.push_after_write",
-                side_effect=Exception("S3 down"),
-            ),
+        confirm_id = _seed_pending_add()
+        with patch(
+            "nauro.sync.hooks.push_after_write",
+            side_effect=Exception("S3 down"),
         ):
-            result = tool_confirm_decision(store, "abc123")
+            result = tool_confirm_decision(store, confirm_id)
 
         assert result["status"] == "confirmed"
-        assert result["decision_id"] == "decision-001"
+        assert result["decision_id"]
 
 
 class TestFlagQuestionAutoPush:
