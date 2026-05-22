@@ -69,16 +69,13 @@ The reviewer's bug-finding pass and the tech-lead's doctrine pass are deliberate
 
 ### 7. GATE — push confirmation (user)
 
-When the reviewer returns APPROVE / APPROVE WITH NITS and the tech-lead returns GREEN (or AMBER with surfaced constraints), surface:
+When the reviewer returns APPROVE / APPROVE WITH NITS and the tech-lead returns GREEN (or AMBER with surfaced constraints), surface — in this order — before asking for the push:
 
-- The drafted PR description (full text)
-- A one-paragraph diff summary
-- The reviewer's verdict and any nits
-- The tech-lead's verdict and any AMBER constraints
-- Any Nauro decisions filed during the chain (numbers + one-line rationale)
-- "Push and open PR?"
+1. **A general summary of what's about to ship.** One short paragraph naming the branch, the commit hash, the file count + line delta, and the test result. Reviewer's verdict and any nits. Tech-lead's verdict and any AMBER constraints. Any Nauro decisions filed during the chain (numbers + one-line rationale each).
+2. **The drafted PR description (full body, verbatim).** Paste the executor's PR body inside a fenced block exactly as it will land on GitHub — do not abbreviate, do not paraphrase, do not link to "the executor's output above". The user reads this body to decide whether to push; if it's not in front of them, the gate isn't really firing.
+3. **Then ask: "Push and open PR?"** Wait for explicit approval. No push without an explicit "yes" / "go" / "push" reply.
 
-Wait for explicit approval.
+If the body would be long, that's fine — paste it anyway. Skipping the verbatim body is a chain failure.
 
 ### 8. Push
 
