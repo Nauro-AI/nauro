@@ -1,0 +1,190 @@
+"""Kernel-level tests for ``operations.flag_question``.
+
+Each test seeds an :class:`~nauro_core.operations.InMemoryStore` so the
+scan-mint-insert plumbing exercises the locked Store protocol without
+any filesystem dependency. Surface-level wiring (snapshot capture, push
+hooks, length validation, similarity hinting, envelope-token rejection)
+lives in the consumer package; the kernel must never reach into those
+primitives.
+"""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from nauro_core.constants import OPEN_QUESTIONS_MD
+from nauro_core.operations import (
+    FlagQuestionResult,
+    InMemoryStore,
+    flag_question,
+)
+
+
+def test_returns_result_type() -> None:
+    result = flag_question(InMemoryStore(), "Should we ship X?")
+    assert isinstance(result, FlagQuestionResult)
+
+
+def test_empty_store_seeds_default_header_and_writes_q1() -> None:
+    store = InMemoryStore()
+    result = flag_question(store, "Should we ship X?")
+    assert result.status == "ok"
+    assert result.num == 1
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert content.startswith("# Open Questions")
+    assert "- [Q1] Should we ship X?" in content
+
+
+def test_existing_entries_mint_next_sequential_id() -> None:
+    seed = "# Open Questions\n- [Q3] First seeded question\n- [Q5] Second seeded question\n"
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    result = flag_question(store, "Third question")
+    assert result.status == "ok"
+    assert result.num == 6
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert "- [Q6] Third question" in content
+    # The two seeded entries survive verbatim.
+    assert "- [Q3] First seeded question" in content
+    assert "- [Q5] Second seeded question" in content
+
+
+def test_new_entry_inserts_after_header() -> None:
+    seed = "# Open Questions\n- [Q1] First\n"
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    flag_question(store, "Second")
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    lines = content.split("\n")
+    # Header, then new entry on top, then prior entry.
+    assert lines[0] == "# Open Questions"
+    assert lines[1] == "- [Q2] Second"
+    assert lines[2] == "- [Q1] First"
+
+
+def test_new_entry_skips_leading_html_comment() -> None:
+    seed = "# Open Questions\n<!-- managed automatically -->\n- [Q1] First\n"
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    flag_question(store, "Second")
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    lines = content.split("\n")
+    assert lines[0] == "# Open Questions"
+    assert lines[1] == "<!-- managed automatically -->"
+    assert lines[2] == "- [Q2] Second"
+    assert lines[3] == "- [Q1] First"
+
+
+def test_new_entry_skips_blank_line_after_header() -> None:
+    seed = "# Open Questions\n\n- [Q1] First\n"
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    flag_question(store, "Second")
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    lines = content.split("\n")
+    assert lines[0] == "# Open Questions"
+    assert lines[1] == ""
+    assert lines[2] == "- [Q2] Second"
+    assert lines[3] == "- [Q1] First"
+
+
+def test_repeated_writes_accumulate_sequential_ids() -> None:
+    store = InMemoryStore()
+    first = flag_question(store, "One")
+    second = flag_question(store, "Two")
+    third = flag_question(store, "Three")
+    assert (first.num, second.num, third.num) == (1, 2, 3)
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert content.count("- [Q") == 3
+
+
+def test_context_argument_is_currently_ignored() -> None:
+    """The adapter composes ``context`` into the question body, so the
+    kernel's ``context`` parameter has no effect on the written line."""
+    store = InMemoryStore()
+    result = flag_question(store, "Composed body", context="should not appear")
+    assert result.status == "ok"
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert "- [Q1] Composed body" in content
+    assert "should not appear" not in content
+
+
+def test_result_exclude_none_strips_unset_error() -> None:
+    result = flag_question(InMemoryStore(), "One")
+    dumped = result.model_dump(mode="json", exclude_none=True)
+    assert dumped == {"status": "ok", "num": 1}
+
+
+def test_result_is_frozen() -> None:
+    result = flag_question(InMemoryStore(), "One")
+    with pytest.raises(ValidationError):
+        result.status = "ok"
+
+
+def test_result_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        FlagQuestionResult(status="ok", num=1, unexpected_field="value")
+
+
+def test_store_field_absent_from_result_model_dump() -> None:
+    result = flag_question(InMemoryStore(), "One")
+    dumped = result.model_dump(mode="json")
+    assert "store" not in dumped
+
+
+# --- Import-graph negative constraint ---
+#
+# The kernel must not depend on snapshot capture, sync hooks, or
+# pathlib — those are transport-side concerns that the locked Store
+# protocol abstracts over. Pinning the constraint as an AST scan keeps
+# the no-drift-by-construction guarantee from accidentally regressing
+# through a casual import.
+
+
+def _kernel_imports() -> set[str]:
+    module_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "nauro_core"
+        / "operations"
+        / "flag_question.py"
+    )
+    tree = ast.parse(module_path.read_text())
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            for alias in node.names:
+                imported.add(f"{module}.{alias.name}")
+                imported.add(alias.name)
+                imported.add(module)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                imported.add(alias.name)
+    return imported
+
+
+def test_kernel_does_not_import_snapshot_or_sync_or_path() -> None:
+    imported = _kernel_imports()
+    forbidden_names = {
+        "nauro.store.snapshot",
+        "nauro.sync.hooks",
+        "capture_snapshot",
+        "push_after_write",
+        "pull_before_session",
+    }
+    leaked = forbidden_names & imported
+    assert not leaked, (
+        f"kernel imports adapter-side primitives: {leaked}; "
+        "those live on the transport, not in the kernel."
+    )
+    assert "pathlib" not in imported and "pathlib.Path" not in imported, (
+        "kernel imports pathlib; the Store protocol abstracts paths as strings."
+    )

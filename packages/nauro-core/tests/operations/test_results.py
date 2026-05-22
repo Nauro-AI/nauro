@@ -9,6 +9,7 @@ from nauro_core.operations.results import (
     DecisionSummary,
     DiffSinceLastSessionResult,
     ErrorPayload,
+    FlagQuestionResult,
     GetContextResult,
     GetDecisionResult,
     ListDecisionsResult,
@@ -402,3 +403,42 @@ def test_update_state_result_is_frozen() -> None:
     result = UpdateStateResult(status="ok")
     with pytest.raises(ValidationError):
         result.status = "noop"
+
+
+def test_flag_question_result_default_status_ok() -> None:
+    result = FlagQuestionResult()
+    assert result.status == "ok"
+    assert result.num is None
+    assert result.error is None
+
+
+def test_flag_question_result_with_num() -> None:
+    result = FlagQuestionResult(status="ok", num=42)
+    assert result.num == 42
+
+
+def test_flag_question_result_exclude_none_strips_empties() -> None:
+    bare = FlagQuestionResult()
+    assert bare.model_dump(mode="json", exclude_none=True) == {"status": "ok"}
+
+    with_num = FlagQuestionResult(num=7)
+    assert with_num.model_dump(mode="json", exclude_none=True) == {
+        "status": "ok",
+        "num": 7,
+    }
+
+
+def test_flag_question_result_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        FlagQuestionResult(status="ok", num=1, unexpected_field="value")
+
+
+def test_flag_question_result_rejects_invalid_status() -> None:
+    with pytest.raises(ValidationError):
+        FlagQuestionResult(status="noop", num=1)
+
+
+def test_flag_question_result_is_frozen() -> None:
+    result = FlagQuestionResult(num=1)
+    with pytest.raises(ValidationError):
+        result.num = 2

@@ -11,6 +11,7 @@ from nauro_core.operations.check_decision import check_decision as check_decisio
 from nauro_core.operations.diff_since_last_session import (
     diff_since_last_session as diff_since_last_session,
 )
+from nauro_core.operations.flag_question import flag_question as flag_question
 from nauro_core.operations.get_context import get_context as get_context
 from nauro_core.operations.get_decision import get_decision as get_decision
 from nauro_core.operations.get_raw_file import get_raw_file as get_raw_file
@@ -20,6 +21,7 @@ from nauro_core.operations.results import DecisionSummary as DecisionSummary
 from nauro_core.operations.results import (
     DiffSinceLastSessionResult as DiffSinceLastSessionResult,
 )
+from nauro_core.operations.results import FlagQuestionResult as FlagQuestionResult
 from nauro_core.operations.results import GetContextResult as GetContextResult
 from nauro_core.operations.results import GetDecisionResult as GetDecisionResult
 from nauro_core.operations.results import GetRawFileResult as GetRawFileResult
@@ -37,6 +39,7 @@ __all__ = [
     "CheckDecisionResult",
     "DecisionSummary",
     "DiffSinceLastSessionResult",
+    "FlagQuestionResult",
     "GetContextResult",
     "GetDecisionResult",
     "GetRawFileResult",
@@ -48,6 +51,7 @@ __all__ = [
     "UpdateStateResult",
     "check_decision",
     "diff_since_last_session",
+    "flag_question",
     "get_context",
     "get_decision",
     "get_raw_file",
