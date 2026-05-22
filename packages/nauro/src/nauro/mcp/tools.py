@@ -21,6 +21,7 @@ from nauro_core.constants import (
     STATE_MD,
 )
 from nauro_core.operations import check_decision as _check_decision_op
+from nauro_core.operations import confirm_decision as _confirm_decision_op
 from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations import get_context as _get_context_op
@@ -52,7 +53,6 @@ from nauro.store.snapshot import (
 )
 from nauro.telemetry.decorators import mcp_tool
 from nauro.templates.agents_md_regen import warn_then_regen
-from nauro.validation.pending import get_pending, remove_pending
 
 logger = logging.getLogger("nauro.mcp.tools")
 
@@ -353,63 +353,24 @@ def tool_confirm_decision(store_path: Path, confirm_id: str) -> dict:
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    result = _confirm_write(confirm_id, store_path)
-    response = {"store": "local", **result}
-    if result.get("status") == "confirmed":
-        if result.get("touched_decisions"):
+
+    result = _confirm_decision_op(FilesystemStore(store_path), confirm_id)
+    dumped = result.model_dump(mode="json", exclude_none=True)
+    # touched_decisions is consumed adapter-side to drive AGENTS.md regen;
+    # it is not part of the local stdio envelope contract. Pop before
+    # surfacing so byte-identity with the pre-cutover surface is preserved.
+    touched = dumped.pop("touched_decisions", []) or []
+    # resolved_questions only surfaces when the kernel moved at least one id.
+    if not dumped.get("resolved_questions"):
+        dumped.pop("resolved_questions", None)
+
+    response: dict = {"store": "local", **dumped}
+
+    if result.status == "confirmed":
+        if touched:
             warn_then_regen(store_path.name, store_path)
         _try_push(store_path)
-    # touched_decisions is consumed adapter-side; not part of the local
-    # surface envelope. Pop after the regen sequence runs.
-    response.pop("touched_decisions", None)
-    return response
 
-
-def _confirm_write(confirm_id: str, store_path: Path) -> dict:
-    """Confirm a pending proposal and write it via the kernel.
-
-    The pending entry stored by ``propose_decision`` carries the original
-    proposal dict plus the operation classification and any
-    ``affected_decision_id``. We replay it through the kernel's private
-    execute path so the on-disk format and ``touched_decisions``
-    enumeration stay consistent across the auto-confirm and
-    pending-confirm branches; the local shim retires when the kernel
-    owns the confirm path.
-    """
-    from nauro_core.operations.propose_decision import _execute_operation
-
-    pending = get_pending(confirm_id)
-    if not pending:
-        return {"error": "Invalid or expired confirm_id."}
-
-    data = pending["proposal"]
-    proposal = data["proposal"]
-    operation = data["operation"]
-    affected_decision_id = data["affected_decision_id"]
-
-    store = FilesystemStore(store_path)
-    decision_id, actual_operation, touched, resolved_ids, error = _execute_operation(
-        store, operation, proposal, affected_decision_id
-    )
-    remove_pending(confirm_id)
-
-    if error is not None:
-        return {
-            "status": "rejected",
-            "error": {"kind": error.kind, "reason": error.reason},
-            "operation": actual_operation,
-            "touched_decisions": list(touched),
-        }
-
-    response: dict = {
-        "status": "confirmed",
-        "decision_id": decision_id,
-        "title": proposal.get("title", ""),
-        "operation": actual_operation,
-        "touched_decisions": list(touched),
-    }
-    if resolved_ids:
-        response["resolved_questions"] = list(resolved_ids)
     return response
 
 

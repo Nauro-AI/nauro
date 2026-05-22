@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from nauro_core.operations import flag_question as _flag_question_op
+from nauro_core.operations.propose_decision import _get_pending_store
 
 from nauro.mcp.stdio_server import (
     _pull_on_startup,
@@ -21,7 +22,6 @@ from nauro.mcp.stdio_server import (
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
-from nauro.validation.pending import clear_all
 from tests._writer_compat import append_decision
 
 
@@ -47,9 +47,9 @@ def store(tmp_path: Path, monkeypatch) -> Path:
 
 @pytest.fixture(autouse=True)
 def _clear_pending():
-    clear_all()
+    _get_pending_store().clear_all()
     yield
-    clear_all()
+    _get_pending_store().clear_all()
 
 
 class TestResolveStore:
