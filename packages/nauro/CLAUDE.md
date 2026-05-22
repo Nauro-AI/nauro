@@ -37,7 +37,7 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 - `nauro note <text>` — append a decision (default) or question (if text ends with `?` or `--question` flag)
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
-- `nauro diff [version]` — semantic diff between snapshots
+- `nauro diff-since-last-session [--days N]` — semantic diff against the previous snapshot (or N days back when supplied)
 - `nauro serve` — start the MCP server on localhost:7432
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records

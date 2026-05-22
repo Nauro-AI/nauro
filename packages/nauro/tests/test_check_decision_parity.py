@@ -1,11 +1,12 @@
 """Surface-level parity for the local ``check_decision`` adapters.
 
-After the kernel cutover, all three local surfaces (CLI ``nauro check``,
-local stdio MCP ``check_decision`` tool, FastAPI ``/check_decision``) must
-produce the same envelope for the same proposal against the same store.
-This file pins the envelope shape across the three adapter wirings; the
-cross-store layer-3 test (``test_check_decision_cross_surface``) covers
-local-vs-cloud parity once the cloud Store exists.
+After the kernel cutover, all three local surfaces (CLI
+``nauro check-decision``, local stdio MCP ``check_decision`` tool,
+FastAPI ``/check_decision``) must produce the same envelope for the
+same proposal against the same store. This file pins the envelope
+shape across the three adapter wirings; the cross-store layer-3 test
+(``test_check_decision_cross_surface``) covers local-vs-cloud parity
+once the cloud Store exists.
 """
 
 from __future__ import annotations
@@ -43,9 +44,9 @@ def demo_repo(tmp_path, monkeypatch):
 
 def _cli_envelope(store_path: Path) -> dict:
     runner = CliRunner()
-    result = runner.invoke(cli_app, ["check", DEMO_PROMPT, "--json"])
+    result = runner.invoke(cli_app, ["check-decision", DEMO_PROMPT])
     assert result.exit_code == 0, result.output
-    return json.loads(result.output)
+    return json.loads(result.stdout)
 
 
 def _stdio_envelope(pid: str) -> dict:
@@ -101,9 +102,9 @@ def test_rejection_envelope_matches_across_surfaces(demo_repo):
     overlong = "x" * 10_000
 
     runner = CliRunner()
-    cli_raw = runner.invoke(cli_app, ["check", overlong, "--json"])
+    cli_raw = runner.invoke(cli_app, ["check-decision", overlong])
     assert cli_raw.exit_code == 1, cli_raw.output
-    cli = json.loads(cli_raw.output)
+    cli = json.loads(cli_raw.stdout)
 
     stdio = stdio_check_decision(proposed_approach=overlong, project_id=pid)
 

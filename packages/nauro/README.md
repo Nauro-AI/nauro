@@ -19,26 +19,26 @@ Watch Nauro catch a conflict in 30 seconds — no account, no MCP wiring, no res
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
 nauro init --demo
-nauro check "Add a WebSocket endpoint for live task updates"
+nauro check-decision "Add a WebSocket endpoint for live task updates"
 ```
 
-You'll see:
+You'll see a JSON envelope with the related decisions and a deterministic assessment, e.g.:
 
-```
-store:    local
-project:  demo-project
-approach: Add a WebSocket endpoint for live task updates
-
-Related decisions (5):
-  004-sse-over-websocket  SSE over WebSocket for live task updates  (score 5.0, status active, decided 2026-03-15)
-  002-rest-api-over-graphql  REST API over GraphQL for simplicity  (score 2.4, status active, decided 2026-03-15)
-  006-cursor-based-pagination  Cursor-based pagination, not offset  (score 1.3, status active, decided 2026-03-15)
-  003-monorepo-with-turborepo  Monorepo with Turborepo over polyrepo  (score 1.0, status active, decided 2026-03-15)
-  007-hard-delete-with-audit-log  Hard delete with audit log, no soft deletes  (score 0.5, status active, decided 2026-03-15)
-
-Found 5 related decisions. Top match: D004 "SSE over WebSocket for live task updates" (status active, decided 2026-03-15, BM25 5.0). Call get_decision on each related decision before proposing.
-
-For full rationale, read decision files in ~/.nauro/projects/<project-id>/decisions/, or call the get_decision MCP tool after `nauro setup` + restart.
+```json
+{
+  "store": "local",
+  "related_decisions": [
+    {
+      "id": "decision-004",
+      "title": "SSE over WebSocket for live task updates",
+      "score": 5.0,
+      "status": "active",
+      "date": "2026-03-15",
+      "rationale_preview": "Server-Sent Events (SSE) for pushing live task updates..."
+    }
+  ],
+  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live task updates\"..."
+}
 ```
 
 The demo project ruled out WebSocket because persistent connections weren't released during ECS rolling deploys. Without Nauro, any new agent would happily re-propose it.

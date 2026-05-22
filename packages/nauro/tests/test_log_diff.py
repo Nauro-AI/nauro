@@ -316,7 +316,7 @@ class TestLogCommand:
 
 class TestDiffCommand:
     def test_diff_no_args(self, tmp_path: Path, monkeypatch):
-        """nauro diff — diff since last session."""
+        """nauro diff-since-last-session — diff since last session."""
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
@@ -327,104 +327,39 @@ class TestDiffCommand:
         append_decision(store, "Use Redis")
         capture_snapshot(store, trigger="second")
 
-        result = runner.invoke(app, ["diff"])
+        result = runner.invoke(app, ["diff-since-last-session"])
         assert result.exit_code == 0
-        assert "v001" in result.output
-        assert "v002" in result.output
-
-    def test_diff_one_version(self, tmp_path: Path, monkeypatch):
-        """nauro diff <version> — diff that version against latest."""
-        from nauro.store.registry import register_project
-
-        store = register_project("myproj", [tmp_path])
-        scaffold_project_store("myproj", store)
-        monkeypatch.chdir(tmp_path)
-
-        capture_snapshot(store, trigger="v1")
-        append_decision(store, "Decision A")
-        capture_snapshot(store, trigger="v2")
-        append_decision(store, "Decision B")
-        capture_snapshot(store, trigger="v3")
-
-        result = runner.invoke(app, ["diff", "1"])
-        assert result.exit_code == 0
-        assert "v001" in result.output
-        assert "v003" in result.output
-
-    def test_diff_two_versions(self, tmp_path: Path, monkeypatch):
-        """nauro diff <a> <b> — diff between two specific versions."""
-        from nauro.store.registry import register_project
-
-        store = register_project("myproj", [tmp_path])
-        scaffold_project_store("myproj", store)
-        monkeypatch.chdir(tmp_path)
-
-        capture_snapshot(store, trigger="v1")
-        append_decision(store, "Decision A")
-        capture_snapshot(store, trigger="v2")
-        append_decision(store, "Decision B")
-        capture_snapshot(store, trigger="v3")
-
-        result = runner.invoke(app, ["diff", "1", "2"])
-        assert result.exit_code == 0
-        assert "v001" in result.output
-        assert "v002" in result.output
-        # Should NOT mention v003
-        assert "v003" not in result.output
-
-    def test_diff_invalid_version(self, tmp_path: Path, monkeypatch):
-        """nauro diff with invalid version shows error."""
-        from nauro.store.registry import register_project
-
-        store = register_project("myproj", [tmp_path])
-        scaffold_project_store("myproj", store)
-        monkeypatch.chdir(tmp_path)
-
-        capture_snapshot(store, trigger="v1")
-
-        result = runner.invoke(app, ["diff", "999"])
-        assert result.exit_code == 1
+        envelope = json.loads(result.stdout)
+        assert "v001" in envelope["diff"]
+        assert "v002" in envelope["diff"]
 
     def test_diff_no_project(self, tmp_path: Path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
-        result = runner.invoke(app, ["diff"])
+        result = runner.invoke(app, ["diff-since-last-session"])
         assert result.exit_code == 1
         assert "No project found" in result.output
 
     def test_diff_not_enough_snapshots(self, tmp_path: Path, monkeypatch):
-        """nauro diff with < 2 snapshots shows helpful message."""
+        """nauro diff-since-last-session with < 2 snapshots shows helpful message."""
         from nauro.store.registry import register_project
 
         store = register_project("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
-        result = runner.invoke(app, ["diff"])
+        result = runner.invoke(app, ["diff-since-last-session"])
         assert result.exit_code == 0
-        assert "Not enough snapshots" in result.output
-
-    def test_diff_same_version(self, tmp_path: Path, monkeypatch):
-        """nauro diff <latest> shows message that it's already latest."""
-        from nauro.store.registry import register_project
-
-        store = register_project("myproj", [tmp_path])
-        scaffold_project_store("myproj", store)
-        monkeypatch.chdir(tmp_path)
-
-        capture_snapshot(store, trigger="v1")
-
-        result = runner.invoke(app, ["diff", "1"])
-        assert result.exit_code == 0
-        assert "already the latest" in result.output
+        envelope = json.loads(result.stdout)
+        assert "Not enough snapshots" in envelope["diff"]
 
     def test_diff_registered_but_missing_store(self, tmp_path: Path, monkeypatch):
         """A registered project whose store directory was deleted must
         surface the WELCOME_NO_PROJECT guidance on stderr and exit
-        nonzero. The no-args (session-scoped) path routes through
+        nonzero. The auto-gen command routes through
         ``tool_diff_since_last_session`` which short-circuits with an
         error envelope when ``store_path.exists()`` is False; the CLI
-        must respect that envelope rather than swallowing it as an empty
+        respects that envelope rather than swallowing it as an empty
         diff string.
         """
         import shutil
@@ -439,26 +374,10 @@ class TestDiffCommand:
         # at it, so resolve_target_project succeeds but the store is gone.
         shutil.rmtree(store)
 
-        result = runner.invoke(app, ["diff"])
+        result = runner.invoke(app, ["diff-since-last-session"])
         assert result.exit_code == 1
         assert "Welcome to Nauro" in result.output
         assert "nauro init" in result.output
-
-    def test_diff_since_registered_but_missing_store(self, tmp_path: Path, monkeypatch):
-        """Same regression coverage for the ``--since Nd`` path."""
-        import shutil
-
-        from nauro.store.registry import register_project
-
-        store = register_project("myproj", [tmp_path])
-        scaffold_project_store("myproj", store)
-        monkeypatch.chdir(tmp_path)
-
-        shutil.rmtree(store)
-
-        result = runner.invoke(app, ["diff", "--since", "7d"])
-        assert result.exit_code == 1
-        assert "Welcome to Nauro" in result.output
 
 
 # --- Helpers for time-based snapshot fixtures ---
@@ -570,57 +489,3 @@ class TestDiffSinceLastSessionTimeBased:
         """days=7 with no snapshots returns graceful message."""
         result = diff_since_last_session(store, days=7)
         assert "No snapshots" in result
-
-
-# --- CLI: nauro diff --since tests ---
-
-
-class TestDiffSinceFlag:
-    def test_since_7d(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
-
-        store = register_project("myproj", [tmp_path])
-        scaffold_project_store("myproj", store)
-        monkeypatch.chdir(tmp_path)
-
-        capture_snapshot(store, trigger="first")
-        _backdate_snapshot(store, 1, days_ago=14)
-        append_decision(store, "Decision A")
-        capture_snapshot(store, trigger="second")
-
-        result = runner.invoke(app, ["diff", "--since", "7d"])
-        assert result.exit_code == 0
-        assert "v001" in result.output
-        assert "v002" in result.output
-
-    def test_since_plain_number(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
-
-        store = register_project("myproj", [tmp_path])
-        scaffold_project_store("myproj", store)
-        monkeypatch.chdir(tmp_path)
-
-        capture_snapshot(store, trigger="first")
-        _backdate_snapshot(store, 1, days_ago=14)
-        append_decision(store, "Decision A")
-        capture_snapshot(store, trigger="second")
-
-        result = runner.invoke(app, ["diff", "--since", "7"])
-        assert result.exit_code == 0
-        assert "v001" in result.output
-
-    def test_since_invalid_value(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
-
-        store = register_project("myproj", [tmp_path])
-        scaffold_project_store("myproj", store)
-        monkeypatch.chdir(tmp_path)
-
-        capture_snapshot(store, trigger="first")
-
-        result = runner.invoke(app, ["diff", "--since", "abc"])
-        # typer.BadParameter is a Click UsageError → exit code 2. Anchor the
-        # message check to text without flag tokens (CI renders --since with
-        # rich-styled ANSI escapes that split the substring).
-        assert result.exit_code == 2
-        assert "Use a number or Nd" in result.output
