@@ -130,3 +130,41 @@ class ListDecisionsResult(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     decisions: list[DecisionSummary] = Field(default_factory=list)
+
+
+class SearchHit(BaseModel):
+    """One ranked row in :class:`SearchDecisionsResult`.
+
+    Carries the BM25 row fields the pre-cutover ``tool_search_decisions``
+    envelope exposed (``number``, ``title``, ``date``, ``status``,
+    ``relevance_snippet``, ``score``). ``date`` and ``relevance_snippet``
+    stay optional so decisions without a parsed date or without a snippet
+    extraction still serialize; the adapter's ``exclude_none=True``
+    template choice drops the keys when they are unset.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    number: int
+    title: str
+    date: str | None = None
+    status: str
+    relevance_snippet: str | None = None
+    score: float
+
+
+class SearchDecisionsResult(BaseModel):
+    """Return shape for :func:`nauro_core.operations.search_decisions`.
+
+    On the success path ``results`` carries the ranked hits, sorted by
+    BM25 score descending and truncated to the caller-supplied ``limit``.
+    On the rejection path ``error`` is populated with ``kind="rejected"``
+    (empty/whitespace query); ``results`` stays empty. The ``store``
+    field is not part of the model; transport adapters add it back at
+    serialization time.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    results: list[SearchHit] = Field(default_factory=list)
+    error: ErrorPayload | None = None

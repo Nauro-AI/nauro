@@ -9,7 +9,6 @@ from pathlib import Path
 from nauro_core import extract_decision_number, parse_decision
 from nauro_core.context import build_l0, build_l1, build_l2
 from nauro_core.decision_model import Decision, DecisionStatus
-from nauro_core.search import bm25_search
 
 from nauro.constants import (
     DECISIONS_DIR,
@@ -66,45 +65,6 @@ def resolve_decision_id(project_path: Path, identifier: str) -> str | None:
 def list_active_decisions(store_path: Path) -> list[Decision]:
     """Return only decisions with status=active."""
     return [d for d in _list_decisions(store_path) if d.status is DecisionStatus.active]
-
-
-def search_decisions(
-    store_path: Path,
-    query: str,
-    limit: int = 10,
-) -> dict:
-    """Search decisions by keyword across titles and rationale text.
-
-    Case-insensitive substring matching. Multi-word queries match if ANY
-    word appears in title or rationale. Includes superseded decisions.
-    Results sorted by decision number descending (most recent first).
-
-    Args:
-        store_path: Path to the project store directory.
-        query: Search text (must be non-empty).
-        limit: Maximum results to return (default 10).
-
-    Returns:
-        Dict with store indicator, results list, total_matches, and query.
-    """
-    if not query or not query.strip():
-        return {
-            "store": "local",
-            "error": (
-                "search_decisions requires a non-empty query."
-                " Use list_decisions to browse all decisions."
-            ),
-        }
-
-    all_decisions = _list_decisions(store_path)
-    results = bm25_search(all_decisions, query, limit=limit)
-
-    return {
-        "store": "local",
-        "results": results,
-        "total_matches": len(results),
-        "query": query,
-    }
 
 
 def get_decision_history(store_path: Path, decision_id: str) -> list[Decision]:

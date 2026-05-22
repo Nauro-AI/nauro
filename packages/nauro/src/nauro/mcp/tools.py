@@ -23,6 +23,7 @@ from nauro_core.operations import check_decision as _check_decision_op
 from nauro_core.operations import get_decision as _get_decision_op
 from nauro_core.operations import get_raw_file as _get_raw_file_op
 from nauro_core.operations import list_decisions as _list_decisions_op
+from nauro_core.operations import search_decisions as _search_decisions_op
 from nauro_core.protocol import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -42,7 +43,6 @@ from nauro.store.reader import (
 )
 from nauro.store.reader import (
     resolve_decision_id,
-    search_decisions,
 )
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.writer import append_question
@@ -455,7 +455,8 @@ def tool_search_decisions(
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    return search_decisions(store_path, query, limit)
+    result = _search_decisions_op(FilesystemStore(store_path), query, limit)
+    return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
 @mcp_tool("update_state")

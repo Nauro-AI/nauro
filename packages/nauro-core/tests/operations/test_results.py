@@ -11,6 +11,8 @@ from nauro_core.operations.results import (
     GetDecisionResult,
     ListDecisionsResult,
     RelatedDecision,
+    SearchDecisionsResult,
+    SearchHit,
 )
 
 
@@ -174,3 +176,103 @@ def test_list_decisions_result_is_frozen() -> None:
         result.decisions = [
             DecisionSummary(number=1, title="x", status="active", confidence="medium")
         ]
+
+
+def test_search_hit_full_row_shape() -> None:
+    hit = SearchHit(
+        number=42,
+        title="Adopt PostgreSQL",
+        date="2026-01-01",
+        status="active",
+        relevance_snippet="ACID semantics matter here.",
+        score=1.875,
+    )
+    assert hit.model_dump(mode="json") == {
+        "number": 42,
+        "title": "Adopt PostgreSQL",
+        "date": "2026-01-01",
+        "status": "active",
+        "relevance_snippet": "ACID semantics matter here.",
+        "score": 1.875,
+    }
+
+
+def test_search_hit_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        SearchHit(
+            number=1,
+            title="x",
+            status="active",
+            score=0.5,
+            unexpected_field="value",
+        )
+
+
+def test_search_hit_is_frozen() -> None:
+    hit = SearchHit(number=1, title="x", status="active", score=0.5)
+    with pytest.raises(ValidationError):
+        hit.title = "reassigned"
+
+
+def test_search_hit_exclude_none_strips_unset_snippet() -> None:
+    hit = SearchHit(number=1, title="x", status="active", score=0.5)
+    assert hit.model_dump(mode="json", exclude_none=True) == {
+        "number": 1,
+        "title": "x",
+        "status": "active",
+        "score": 0.5,
+    }
+
+
+def test_search_decisions_result_default_empty() -> None:
+    result = SearchDecisionsResult()
+    assert result.results == []
+    assert result.error is None
+    assert result.model_dump(mode="json", exclude_none=True) == {"results": []}
+
+
+def test_search_decisions_result_holds_hits() -> None:
+    hit = SearchHit(
+        number=1,
+        title="x",
+        date="2026-01-01",
+        status="active",
+        relevance_snippet="snippet",
+        score=1.0,
+    )
+    result = SearchDecisionsResult(results=[hit])
+    dumped = result.model_dump(mode="json", exclude_none=True)
+    assert dumped == {
+        "results": [
+            {
+                "number": 1,
+                "title": "x",
+                "date": "2026-01-01",
+                "status": "active",
+                "relevance_snippet": "snippet",
+                "score": 1.0,
+            }
+        ]
+    }
+
+
+def test_search_decisions_result_error_payload() -> None:
+    result = SearchDecisionsResult(
+        error=ErrorPayload(kind="rejected", reason="empty query"),
+    )
+    assert result.results == []
+    assert result.model_dump(mode="json", exclude_none=True) == {
+        "results": [],
+        "error": {"kind": "rejected", "reason": "empty query"},
+    }
+
+
+def test_search_decisions_result_rejects_unknown_fields() -> None:
+    with pytest.raises(ValidationError):
+        SearchDecisionsResult(results=[], unexpected_field="value")
+
+
+def test_search_decisions_result_is_frozen() -> None:
+    result = SearchDecisionsResult()
+    with pytest.raises(ValidationError):
+        result.results = [SearchHit(number=1, title="x", status="active", score=0.5)]

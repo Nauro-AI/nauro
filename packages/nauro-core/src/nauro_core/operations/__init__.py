@@ -16,6 +16,9 @@ from nauro_core.operations.results import DecisionSummary as DecisionSummary
 from nauro_core.operations.results import GetDecisionResult as GetDecisionResult
 from nauro_core.operations.results import GetRawFileResult as GetRawFileResult
 from nauro_core.operations.results import ListDecisionsResult as ListDecisionsResult
+from nauro_core.operations.results import SearchDecisionsResult as SearchDecisionsResult
+from nauro_core.operations.results import SearchHit as SearchHit
+from nauro_core.operations.search_decisions import search_decisions as search_decisions
 from nauro_core.operations.store import Store as Store
 
 from . import results as results
@@ -27,10 +30,13 @@ __all__ = [
     "GetRawFileResult",
     "InMemoryStore",
     "ListDecisionsResult",
+    "SearchDecisionsResult",
+    "SearchHit",
     "Store",
     "check_decision",
     "get_decision",
     "get_raw_file",
     "list_decisions",
     "results",
+    "search_decisions",
 ]
