@@ -13,7 +13,7 @@ from __future__ import annotations
 
 
 def strip_ansi(text: str) -> str:
-    """Strip ANSI CSI escape sequences without regex (per ``feedback_no_regex``)."""
+    """Strip ANSI CSI escape sequences using plain string ops (no regex)."""
     out: list[str] = []
     i = 0
     n = len(text)

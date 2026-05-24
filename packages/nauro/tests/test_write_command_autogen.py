@@ -263,8 +263,8 @@ class TestConfirmDecisionRejections:
     def test_unknown_confirm_id_rejection_envelope(self, seeded_repo) -> None:
         result = runner.invoke(app, ["confirm-decision", "no-such-id"])
         # Unknown confirm_ids land status="rejected" with a structured
-        # ErrorPayload; per D202 the wrapper exits 0 — the envelope on
-        # stdout carries the reason and the user can fix the call.
+        # ErrorPayload; the wrapper exits 0 — the envelope on stdout
+        # carries the reason and the user can fix the call.
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.stdout)
         assert envelope["status"] == "rejected"
