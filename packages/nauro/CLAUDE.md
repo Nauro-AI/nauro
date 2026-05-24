@@ -38,9 +38,13 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
 - `nauro diff-since-last-session [--days N]` — semantic diff against the previous snapshot (or N days back when supplied)
+- `nauro propose-decision <title> <rationale> [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` — propose a decision; auto-confirms on Tier 2 clean, otherwise returns a `confirm_id`
+- `nauro confirm-decision <confirm_id>` — confirm a previously proposed decision
 - `nauro serve` — start the MCP server on localhost:7432
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
+
+`list[str]` flags (`--files-affected`, `--resolves-questions`) repeat: `--files-affected a.py --files-affected b.py`. `list[dict]` flags (`--rejected`) take a single JSON value: inline (`'[{...}]'`), `@file.json`, or `-` to read from stdin.
 
 ## MCP tools (12 total in `nauro_core.mcp_tools` — 8 read, 4 write)
 

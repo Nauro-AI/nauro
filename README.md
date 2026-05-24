@@ -72,7 +72,16 @@ Codex users: add `mcp_oauth_callback_port = 8765` to the top of `~/.codex/config
 
 **Write:** `propose_decision` / `confirm_decision`, `flag_question`, `update_state`.
 
-`nauro check-decision "<approach>"` runs `check_decision` from the shell.
+`nauro check-decision "<approach>"` runs `check_decision` from the shell. The write tools surface the same way:
+
+```bash
+nauro propose-decision "Adopt Redis" "In-memory cache for hot read paths" \
+    --files-affected src/cache.py --files-affected src/api.py \
+    --rejected '[{"alternative": "Memcached", "reason": "Less feature-rich"}]'
+nauro confirm-decision <confirm_id>   # only needed on Tier 2 match
+```
+
+Repeat `--files-affected` for each entry. `--rejected` accepts inline JSON, `@file.json`, or `-` to read from stdin.
 
 ## Packages
 
