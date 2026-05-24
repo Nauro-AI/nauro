@@ -16,6 +16,7 @@ from nauro.cli.commands.setup import (
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
+from tests._ansi import strip_ansi
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -23,31 +24,6 @@ else:
     import tomli as tomllib
 
 runner = CliRunner()
-
-
-def _strip_ansi(text: str) -> str:
-    """Strip ANSI CSI escape sequences so substring checks survive Rich styling.
-
-    Typer renders --help through Rich, which wraps each flag token in bold
-    escapes when the runner detects a colour-capable terminal (CI with
-    FORCE_COLOR=1 etc.). The escapes split ``--with-subagents`` into
-    ``-\\x1b[0m\\x1b[1m-with\\x1b[0m\\x1b[1m-subagents``, breaking literal
-    ``"--with-subagents" in output`` checks. NO_COLOR only suppresses colour,
-    not bold/dim — stripping here is the only environment-independent fix.
-    """
-    out: list[str] = []
-    i = 0
-    n = len(text)
-    while i < n:
-        if text[i] == "\x1b" and i + 1 < n and text[i + 1] == "[":
-            i += 2
-            while i < n and text[i] != "m":
-                i += 1
-            i += 1
-        else:
-            out.append(text[i])
-            i += 1
-    return "".join(out)
 
 
 # ─── nauro setup cursor ─────────────────────────────────────────────────────
@@ -576,7 +552,7 @@ def test_setup_all_help_lists_with_subagents():
     """``setup all --help`` advertises the new flag for discovery."""
     result = runner.invoke(app, ["setup", "all", "--help"])
     assert result.exit_code == 0
-    output = _strip_ansi(result.output)
+    output = strip_ansi(result.output)
     assert "--with-subagents" in output
     assert "--force-overwrite" in output
     assert "--with-skills" in output

@@ -22,6 +22,7 @@ from nauro.cli.main import app
 from nauro.store import registry
 from nauro.store.repo_config import load_repo_config
 from nauro.sync import cloud_projects
+from tests._ansi import strip_ansi
 
 runner = CliRunner()
 
@@ -122,31 +123,6 @@ def test_init_cloud_renders_server_error(tmp_path, monkeypatch):
 # ── --demo + --cloud rejection ───────────────────────────────────────────────
 
 
-def _strip_ansi(text: str) -> str:
-    """Strip ANSI CSI escape sequences (``\\x1b[…m``) without regex.
-
-    Typer renders BadParameter through Rich, which injects style escapes
-    around every flag token when the runner detects a colour-capable
-    terminal (CI runners with FORCE_COLOR=1, GH Actions, etc.). The escapes
-    split substrings like ``--demo`` into ``-\\x1b[0m-demo``, so a literal
-    ``"--demo" in output`` check fails on those runners. Stripping here
-    keeps the substring check colour-environment-independent.
-    """
-    out: list[str] = []
-    i = 0
-    n = len(text)
-    while i < n:
-        if text[i] == "\x1b" and i + 1 < n and text[i + 1] == "[":
-            i += 2
-            while i < n and text[i] != "m":
-                i += 1
-            i += 1
-        else:
-            out.append(text[i])
-            i += 1
-    return "".join(out)
-
-
 def test_init_demo_plus_cloud_rejects_at_entry(tmp_path, monkeypatch):
     """`nauro init --demo --cloud` must reject before any state is written.
 
@@ -172,7 +148,7 @@ def test_init_demo_plus_cloud_rejects_at_entry(tmp_path, monkeypatch):
         f"output={result.output!r}; exception={result.exception!r}"
     )
     raw_output = (result.output or "") + (str(result.exception) if result.exception else "")
-    combined_output = _strip_ansi(raw_output)
+    combined_output = strip_ansi(raw_output)
     assert "--demo" in combined_output and "--cloud" in combined_output, (
         f"expected both flag names in stripped output; got: {combined_output!r}"
     )

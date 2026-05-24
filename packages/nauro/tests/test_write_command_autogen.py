@@ -34,6 +34,7 @@ from nauro.mcp import tools as mcp_tools
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
+from tests._ansi import strip_ansi
 from tests._writer_compat import append_decision
 
 runner = CliRunner()
@@ -360,7 +361,7 @@ class TestFlagShapes:
         )
         # typer.BadParameter renders to stderr at exit 2.
         assert result.exit_code == 2
-        assert "--rejected" in result.output
+        assert "--rejected" in strip_ansi(result.output)
         assert "invalid JSON" in result.output
 
     def test_rejected_wrong_shape_exits_two(self, seeded_repo) -> None:
@@ -375,5 +376,5 @@ class TestFlagShapes:
             ],
         )
         assert result.exit_code == 2
-        assert "--rejected" in result.output
+        assert "--rejected" in strip_ansi(result.output)
         assert "expected JSON array of objects" in result.output
