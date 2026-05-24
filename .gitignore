@@ -16,3 +16,5 @@ AGENTS.md
 .claude/*
 !.claude/skills/
 **/.claude/settings.local.json
+.cursor/
+.mcp.json
