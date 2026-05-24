@@ -11,10 +11,8 @@ against the same store. The participating wirings here:
   only write tool whose stdio surface preserves the dict (the others —
   ``flag_question`` / ``update_state`` — string-render for FastMCP).
 
-The ``propose_decision`` CLI auto-gen path is intentionally skipped: it
-is not on the auto-generated allowlist (the four read-only tools are
-listed in ``cli.commands.tools``), and there is no separate Typer
-command for ``propose_decision`` either. The HTTP MCP server exposes
+The CLI auto-gen surface for ``propose_decision`` is pinned separately
+in ``test_write_command_autogen.py``. The HTTP MCP server exposes
 ``/propose_decision`` but the FastAPI surface is pinned separately in
 ``test_mcp.py``.
 

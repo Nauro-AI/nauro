@@ -1,16 +1,20 @@
 """Auto-generate Typer CLI commands from the ToolSpec registry.
 
 Walks ``nauro_core.mcp_tools.ALL_TOOLS`` and, for each tool name in the
-read allowlist, registers a Typer command that calls the matching
+allowlist, registers a Typer command that calls the matching
 ``tool_<name>`` adapter in ``nauro.mcp.tools`` and prints the resulting
-envelope as JSON. Auto-generation keeps the CLI surface in lockstep with
-the MCP surface for read-only tools.
+envelope as JSON. Auto-generation keeps the CLI surface in lockstep
+with the MCP surface.
 
 The allowlist is explicit (not derived from the ``readOnlyHint``
-annotation) so that future read-tool additions to the registry surface
-through this generator only when the maintainer opts them in, and so
-write tools added to the registry later can never reach the CLI through
-this path by accident.
+annotation) so future additions to the registry — read or write —
+surface through this generator only when the maintainer opts them in.
+
+``list[str]`` properties map to repeated Typer flags (Typer aggregates
+them natively). ``list[dict]`` properties map to a single JSON-valued
+flag parsed at dispatch time by ``cli._json_input``; that helper raises
+``typer.BadParameter`` on malformed input so Typer renders to stderr at
+exit 2 without ever invoking the adapter.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ import click
 import typer
 from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 
+from nauro.cli._json_input import parse_json_list_of_dicts
 from nauro.cli.utils import resolve_target_project
 from nauro.mcp import tools as mcp_tools
 from nauro.telemetry.transport import set_transport
@@ -45,6 +50,8 @@ AUTOGEN_ALLOWLIST: frozenset[str] = frozenset(
         "check_decision",
         "update_state",
         "flag_question",
+        "propose_decision",
+        "confirm_decision",
     }
 )
 
@@ -187,6 +194,29 @@ def _optional_param(name: str, prop: dict[str, Any]) -> tuple[Any, Any]:
                 help=desc,
             ),
         )
+    if prop_type == "array":
+        items_type = (prop.get("items") or {}).get("type")
+        if items_type == "string":
+            return (
+                list[str],
+                typer.Option(
+                    None,
+                    _option_flag(name),
+                    help=f"{desc} Repeat the flag for each value.",
+                ),
+            )
+        if items_type == "object":
+            return (
+                str | None,
+                typer.Option(
+                    None,
+                    _option_flag(name),
+                    help=(
+                        f"{desc} Pass JSON: literal '[{{...}}]', '@file.json', or '-' for stdin."
+                    ),
+                    metavar="JSON",
+                ),
+            )
     raise ValueError(
         f"Unsupported optional property type {prop_type!r} for {name!r}. "
         "Extend the type-coercion table in cli/autogen.py."
@@ -244,6 +274,19 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         p.name for p in params if p.name not in {"project", "json_output"}
     ]
 
+    # Properties declared as ``array of object`` arrive as raw strings from
+    # Typer and must be JSON-parsed before reaching the adapter. Precompute
+    # the names once at command-construction time.
+    props: dict[str, Any] = spec["input_schema"].get("properties", {}) or {}
+    json_array_names: list[str] = [
+        name
+        for name in schema_arg_names
+        if (
+            props.get(name, {}).get("type") == "array"
+            and (props.get(name, {}).get("items") or {}).get("type") == "object"
+        )
+    ]
+
     def command(**kwargs: Any) -> None:
         project = kwargs.pop("project", None)
         # --json is a parity no-op; JSON is the only output mode.
@@ -252,6 +295,12 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         _project_name, store_path = resolve_target_project(project)
 
         set_transport("cli")
+
+        for name in json_array_names:
+            raw = kwargs.get(name)
+            if raw is None:
+                continue
+            kwargs[name] = parse_json_list_of_dicts(raw, _option_flag(name))
 
         adapter_kwargs = {name: kwargs[name] for name in schema_arg_names if name in kwargs}
         envelope = adapter(store_path, **adapter_kwargs)
