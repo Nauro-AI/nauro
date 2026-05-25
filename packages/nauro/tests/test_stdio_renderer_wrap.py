@@ -1,10 +1,12 @@
 """Block-shape contract for the local stdio MCP read tools.
 
-Read tools listed in ``nauro_core.renderers.RENDERERS`` must return two
-``TextContent`` blocks: a human-formatted summary at ``[0]`` and the
-JSON envelope at ``[1]``. Write tools, ``get_raw_file``,
-``diff_since_last_session``, and pre-resolution error responses stay
-single-block (or stay strings).
+Read tools listed in ``nauro_core.renderers.RENDERERS`` return a
+``CallToolResult`` carrying both ``content`` (two ``TextContent`` blocks:
+a human-formatted summary at ``[0]`` and the JSON envelope at ``[1]``)
+and ``structuredContent`` (the same envelope as a typed dict for clients
+on the 2025-06-18 protocol revision and later). Write tools,
+``get_raw_file``, ``diff_since_last_session``, and pre-resolution error
+responses stay single-block (or stay strings).
 
 Mirrors ``TestContentBlockShape`` from the remote MCP router so both
 transports stay in sync.
@@ -16,7 +18,7 @@ import json
 from pathlib import Path
 
 import pytest
-from mcp.types import TextContent
+from mcp.types import CallToolResult, TextContent
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _get_pending_store
 
@@ -67,7 +69,9 @@ class TestTwoBlockReadTools:
     """Renderer-scoped read tools return ``[human, json]`` content blocks."""
 
     def test_get_context_returns_two_blocks(self, seeded_store: Path):
-        blocks = get_context(project_id="blockshape", level=0)
+        result = get_context(project_id="blockshape", level=0)
+        assert isinstance(result, CallToolResult)
+        blocks = result.content
         assert len(blocks) == 2
         assert all(isinstance(b, TextContent) and b.type == "text" for b in blocks)
         envelope = json.loads(blocks[1].text)
@@ -79,7 +83,9 @@ class TestTwoBlockReadTools:
         assert "## Current State" in blocks[0].text
 
     def test_list_decisions_returns_two_blocks(self, seeded_store: Path):
-        blocks = list_decisions(project_id="blockshape")
+        result = list_decisions(project_id="blockshape")
+        assert isinstance(result, CallToolResult)
+        blocks = result.content
         assert len(blocks) == 2
         envelope = json.loads(blocks[1].text)
         assert envelope["store"] == "local"
@@ -91,7 +97,9 @@ class TestTwoBlockReadTools:
         # scaffold_project_store seeds D001 (initial-setup); the fixture
         # appends D002 = "Use FastAPI". Ask for D002 so the title
         # assertion is independent of the scaffold's seed text.
-        blocks = get_decision(number=2, project_id="blockshape")
+        result = get_decision(number=2, project_id="blockshape")
+        assert isinstance(result, CallToolResult)
+        blocks = result.content
         assert len(blocks) == 2
         envelope = json.loads(blocks[1].text)
         assert envelope["store"] == "local"
@@ -100,7 +108,9 @@ class TestTwoBlockReadTools:
         assert "Use FastAPI" in blocks[0].text
 
     def test_search_decisions_returns_two_blocks(self, seeded_store: Path):
-        blocks = search_decisions(query="FastAPI", project_id="blockshape")
+        result = search_decisions(query="FastAPI", project_id="blockshape")
+        assert isinstance(result, CallToolResult)
+        blocks = result.content
         assert len(blocks) == 2
         envelope = json.loads(blocks[1].text)
         assert envelope["store"] == "local"
@@ -109,14 +119,51 @@ class TestTwoBlockReadTools:
         assert "FastAPI" in blocks[0].text
 
     def test_check_decision_returns_two_blocks(self, seeded_store: Path):
-        blocks = check_decision(
+        result = check_decision(
             proposed_approach="Use FastAPI with async endpoints for the API server",
             project_id="blockshape",
         )
+        assert isinstance(result, CallToolResult)
+        blocks = result.content
         assert len(blocks) == 2
         envelope = json.loads(blocks[1].text)
         assert envelope["store"] == "local"
         assert "related_decisions" in envelope
+
+
+class TestStructuredContentParity:
+    """Renderer-scoped read tools must emit ``structuredContent`` mirroring
+    the JSON envelope at ``content[1].text``. Clients on the 2025-06-18
+    protocol revision read the structured field; older clients fall back
+    to the JSON-as-text block."""
+
+    def test_get_context_structured_matches_json_envelope(self, seeded_store: Path):
+        result = get_context(project_id="blockshape", level=0)
+        assert isinstance(result.structuredContent, dict)
+        assert result.structuredContent == json.loads(result.content[1].text)
+
+    def test_list_decisions_structured_matches_json_envelope(self, seeded_store: Path):
+        result = list_decisions(project_id="blockshape")
+        assert isinstance(result.structuredContent, dict)
+        assert result.structuredContent == json.loads(result.content[1].text)
+
+    def test_get_decision_structured_matches_json_envelope(self, seeded_store: Path):
+        result = get_decision(number=2, project_id="blockshape")
+        assert isinstance(result.structuredContent, dict)
+        assert result.structuredContent == json.loads(result.content[1].text)
+
+    def test_search_decisions_structured_matches_json_envelope(self, seeded_store: Path):
+        result = search_decisions(query="FastAPI", project_id="blockshape")
+        assert isinstance(result.structuredContent, dict)
+        assert result.structuredContent == json.loads(result.content[1].text)
+
+    def test_check_decision_structured_matches_json_envelope(self, seeded_store: Path):
+        result = check_decision(
+            proposed_approach="Use FastAPI with async endpoints for the API server",
+            project_id="blockshape",
+        )
+        assert isinstance(result.structuredContent, dict)
+        assert result.structuredContent == json.loads(result.content[1].text)
 
 
 class TestSingleBlockReads:
@@ -166,34 +213,42 @@ class TestSingleBlockWrites:
 
 class TestErrorAndFallbackPaths:
     """Renderer-scoped tools that hit a structured error envelope still
-    emit two blocks; renderer failures fall back to JSON-only."""
+    emit two blocks; renderer failures fall back to JSON-only. In both
+    cases ``structuredContent`` still mirrors the JSON envelope."""
 
     def test_overlong_check_decision_keeps_two_blocks(self, seeded_store: Path):
         from nauro_core.constants import MAX_APPROACH_LENGTH
 
         overlong = "x" * (MAX_APPROACH_LENGTH + 1)
-        blocks = check_decision(proposed_approach=overlong, project_id="blockshape")
+        result = check_decision(proposed_approach=overlong, project_id="blockshape")
+        blocks = result.content
         assert len(blocks) == 2
         # Human block leads with the Error: header.
         assert blocks[0].text.startswith("Error:")
         envelope = json.loads(blocks[1].text)
         assert envelope["error"]["kind"] == "rejected"
+        # The structured field mirrors the same envelope verbatim.
+        assert result.structuredContent == envelope
 
     def test_renderer_failure_falls_back_to_json_only(self, seeded_store: Path, monkeypatch):
         """If a renderer raises unexpectedly, the wrapper must not lose
         the response; it falls back to a single JSON block so programmatic
-        consumers still get a parseable envelope."""
+        consumers still get a parseable envelope. ``structuredContent``
+        still carries the same envelope so 2025-06-18 clients keep
+        parsing without depending on the text block."""
         import nauro.mcp.stdio_server as stdio_mod
 
         def explode(_result):
             raise RuntimeError("renderer kaboom")
 
         monkeypatch.setitem(stdio_mod._RENDERERS, "list_decisions", explode)
-        blocks = list_decisions(project_id="blockshape")
+        result = list_decisions(project_id="blockshape")
+        blocks = result.content
         assert len(blocks) == 1
         envelope = json.loads(blocks[0].text)
         assert envelope["store"] == "local"
         assert "decisions" in envelope
+        assert result.structuredContent == envelope
 
     def test_pre_resolution_error_still_two_blocks_on_renderer_scope(self, seeded_store: Path):
         """Store-resolution failures inside a renderer-scoped tool flow
@@ -201,9 +256,11 @@ class TestErrorAndFallbackPaths:
         guidance string and the JSON block carries the error envelope."""
         # Unknown project_id triggers StoreResolutionError; the function
         # still wraps the error dict via the renderer (Error: ... header).
-        blocks = get_context(project_id="does-not-exist")
+        result = get_context(project_id="does-not-exist")
+        blocks = result.content
         assert len(blocks) == 2
         envelope = json.loads(blocks[1].text)
         assert envelope["store"] == "local"
         assert envelope["status"] == "error"
         assert "guidance" in envelope
+        assert result.structuredContent == envelope

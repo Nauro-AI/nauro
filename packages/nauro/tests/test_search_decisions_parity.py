@@ -90,11 +90,13 @@ def empty_repo(tmp_path, monkeypatch):
 
 
 def _stdio_envelope(pid: str, query: str, *, limit: int = 10) -> dict:
-    # stdio search_decisions now returns a two-block list[TextContent]; the
-    # JSON envelope is at content[1].text — see stdio_server module
-    # docstring for the contract.
-    blocks = stdio_search_decisions(query=query, limit=limit, project_id=pid)
-    return json.loads(blocks[1].text)
+    # stdio search_decisions returns a CallToolResult carrying both the
+    # two-block content list and a typed structuredContent envelope —
+    # see stdio_server module docstring for the contract.
+    result = stdio_search_decisions(query=query, limit=limit, project_id=pid)
+    envelope = json.loads(result.content[1].text)
+    assert result.structuredContent == envelope
+    return envelope
 
 
 def _tool_envelope(store_path: Path, query: str, *, limit: int = 10) -> dict:
