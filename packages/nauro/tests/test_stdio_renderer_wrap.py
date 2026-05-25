@@ -220,9 +220,7 @@ class TestErrorAndFallbackPaths:
         assert "decisions" in envelope
         assert result.structuredContent is None
 
-    def test_pre_resolution_error_still_single_block_on_renderer_scope(
-        self, seeded_store: Path
-    ):
+    def test_pre_resolution_error_still_single_block_on_renderer_scope(self, seeded_store: Path):
         """Store-resolution failures inside a renderer-scoped tool flow
         through the renderer wrapper and surface as a single-block shape
         with no ``structuredContent``."""
