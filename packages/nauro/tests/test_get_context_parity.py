@@ -20,7 +20,6 @@ Two compressions vs. the ``check_decision`` parity test:
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from pathlib import Path
 
@@ -31,6 +30,7 @@ from nauro_core.decision_model import (
     DecisionStatus,
     format_decision,
 )
+from nauro_core.renderers import RENDERERS
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.mcp.stdio_server import get_context as stdio_get_context
@@ -104,15 +104,17 @@ def missing_store(tmp_path, monkeypatch):
     return nonexistent
 
 
-def _stdio_envelope(pid: str, level) -> dict:
-    # stdio get_context returns a CallToolResult carrying both the
-    # two-block content list and a typed structuredContent envelope —
-    # see stdio_server module docstring for the contract. This helper
-    # validates the two surfaces mirror each other on every call.
+def _stdio_rendered(pid: str, level) -> str:
+    """Return the rendered stdio surface text for the parity comparison.
+
+    Renderer-scoped read tools now return a single ``content[0]`` block
+    carrying the renderer output. Parity against the direct tool envelope
+    runs through ``RENDERERS["get_context"]``.
+    """
     result = stdio_get_context(project_id=pid, level=level)
-    envelope = json.loads(result.content[1].text)
-    assert result.structuredContent == envelope
-    return envelope
+    assert len(result.content) == 1
+    assert result.structuredContent is None
+    return result.content[0].text
 
 
 def _tool_envelope(store_path: Path, level) -> dict:
@@ -122,35 +124,32 @@ def _tool_envelope(store_path: Path, level) -> dict:
 @pytest.mark.parametrize("level", ["L0", "L1", "L2"])
 def test_hit_envelope_matches_across_surfaces(seeded_repo, level):
     pid, store_path = seeded_repo
-    stdio = _stdio_envelope(pid, level)
     tool = _tool_envelope(store_path, level)
-    assert stdio == tool
-    assert stdio["store"] == "local"
-    assert isinstance(stdio["content"], str)
-    assert "Use Auth0" in stdio["content"]
+    assert _stdio_rendered(pid, level) == RENDERERS["get_context"](tool)
+    assert tool["store"] == "local"
+    assert isinstance(tool["content"], str)
+    assert "Use Auth0" in tool["content"]
 
 
 def test_empty_store_envelope_matches_across_surfaces(empty_repo):
     pid, store_path = empty_repo
-    stdio = _stdio_envelope(pid, "L0")
     tool = _tool_envelope(store_path, "L0")
-    assert stdio == tool
+    assert _stdio_rendered(pid, "L0") == RENDERERS["get_context"](tool)
     # Empty stores surface the NO_CONTEXT_YET trailer via the content body;
     # the envelope itself stays the dict shape.
-    assert stdio["store"] == "local"
-    assert "no context data yet" in stdio["content"] or "propose_decision" in stdio["content"]
+    assert tool["store"] == "local"
+    assert "no context data yet" in tool["content"] or "propose_decision" in tool["content"]
 
 
 def test_invalid_level_rejection_matches_across_surfaces(seeded_repo):
     pid, store_path = seeded_repo
     # Use a numeric level outside {0,1,2} so _coerce_level passes it through
     # and the kernel surfaces the rejection.
-    stdio = _stdio_envelope(pid, 7)
     tool = _tool_envelope(store_path, 7)
-    assert stdio == tool
-    assert stdio["store"] == "local"
-    assert stdio["error"]["kind"] == "rejected"
-    assert "Invalid level" in stdio["error"]["reason"]
+    assert _stdio_rendered(pid, 7) == RENDERERS["get_context"](tool)
+    assert tool["store"] == "local"
+    assert tool["error"]["kind"] == "rejected"
+    assert "Invalid level" in tool["error"]["reason"]
 
 
 def test_missing_store_guidance_matches_across_surfaces(missing_store):

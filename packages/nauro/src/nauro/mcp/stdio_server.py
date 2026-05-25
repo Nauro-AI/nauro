@@ -16,13 +16,11 @@ The shared `nauro_core.mcp_tools.ALL_TOOLS` registry contains 12 tools.
 `list_projects` is remote-only — local installs auto-resolve to the
 single project store, so the discovery tool is not registered here.
 
-Read tools listed in ``nauro_core.renderers.RENDERERS`` return a
-``CallToolResult`` carrying both ``content`` and ``structuredContent``:
-``content`` holds the two-block ``[human, json]`` shape so older clients
-that read ``content[1].text`` keep parsing the same envelope, and
-``structuredContent`` carries the same envelope as a typed dict for
-clients on protocol revision 2025-06-18 and later. FastMCP's session
-layer negotiates 2025-06-18 automatically when the client advertises it.
+Renderer-scoped read tools listed in ``nauro_core.renderers.RENDERERS``
+return a ``CallToolResult`` with a single ``TextContent`` block:
+``content[0]`` carries the renderer output. Other tools — write tools,
+``get_raw_file``, ``diff_since_last_session`` — keep their existing
+single-block shape.
 """
 
 from __future__ import annotations
@@ -78,39 +76,25 @@ NOT_A_NAURO_REPO = (
 
 
 def _wrap_with_renderer(tool_name: str, result: dict) -> CallToolResult:
-    """Compose the read-tool response with both ``content`` and ``structuredContent``.
+    """Wrap a renderer-scoped read-tool result in a single ``TextContent`` block.
 
     Mirrors the remote MCP dispatcher (``mcp_server.mcp_router._build_tool_result``):
-    ``content[0]`` carries the human-formatted summary from
-    ``nauro_core.renderers.RENDERERS[tool_name]``; ``content[1]`` carries
-    the unchanged JSON envelope so older clients pinned to the prior
-    transitional shape stay byte-stable. ``structuredContent`` carries
-    the same envelope as a typed dict for clients on the 2025-06-18
-    protocol revision and later. A renderer raising falls back to
-    JSON-only — a presentation bug must not swallow a response.
+    ``content[0]`` carries the renderer output from
+    ``nauro_core.renderers.RENDERERS[tool_name]``. A renderer raising — or a
+    tool name with no renderer mapped — falls back to a JSON dump of the
+    envelope in ``content[0]`` so a presentation bug never swallows a
+    response.
     """
     json_text = json.dumps(result, indent=2, default=str)
     renderer = _RENDERERS.get(tool_name)
     if renderer is None:
-        return CallToolResult(
-            content=[TextContent(type="text", text=json_text)],
-            structuredContent=result,
-        )
+        return CallToolResult(content=[TextContent(type="text", text=json_text)])
     try:
         rendered = renderer(result)
     except Exception:
         logger.exception("renderer failed for tool=%s; falling back to JSON-only", tool_name)
-        return CallToolResult(
-            content=[TextContent(type="text", text=json_text)],
-            structuredContent=result,
-        )
-    return CallToolResult(
-        content=[
-            TextContent(type="text", text=rendered),
-            TextContent(type="text", text=json_text),
-        ],
-        structuredContent=result,
-    )
+        return CallToolResult(content=[TextContent(type="text", text=json_text)])
+    return CallToolResult(content=[TextContent(type="text", text=rendered)])
 
 
 def _spec_kwargs(name: str) -> dict[str, Any]:

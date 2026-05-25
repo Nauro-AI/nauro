@@ -19,10 +19,10 @@ Two compressions vs. the ``check_decision`` parity test:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
+from nauro_core.renderers import RENDERERS
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.demo import create_demo_project
@@ -47,14 +47,17 @@ def demo_repo(tmp_path, monkeypatch):
     return pid, store_path
 
 
-def _stdio_envelope(pid: str, number: int) -> dict:
-    # stdio get_decision returns a CallToolResult carrying both the
-    # two-block content list and a typed structuredContent envelope —
-    # see stdio_server module docstring for the contract.
+def _stdio_rendered(pid: str, number: int) -> str:
+    """Return the rendered stdio surface text for the parity comparison.
+
+    Renderer-scoped read tools now return a single ``content[0]`` block
+    carrying the renderer output. Parity against the direct tool envelope
+    runs through ``RENDERERS["get_decision"]``.
+    """
     result = stdio_get_decision(number=number, project_id=pid)
-    envelope = json.loads(result.content[1].text)
-    assert result.structuredContent == envelope
-    return envelope
+    assert len(result.content) == 1
+    assert result.structuredContent is None
+    return result.content[0].text
 
 
 def _tool_envelope(store_path: Path, number: int) -> dict:
@@ -64,14 +67,13 @@ def _tool_envelope(store_path: Path, number: int) -> dict:
 
 def test_stdio_and_tool_match_on_success_path(demo_repo):
     pid, store_path = demo_repo
-    stdio = _stdio_envelope(pid, EXISTING_NUMBER)
     tool = _tool_envelope(store_path, EXISTING_NUMBER)
-    assert stdio == tool
+    assert _stdio_rendered(pid, EXISTING_NUMBER) == RENDERERS["get_decision"](tool)
 
 
 def test_success_envelope_carries_content(demo_repo):
-    pid, _ = demo_repo
-    envelope = _stdio_envelope(pid, EXISTING_NUMBER)
+    _pid, store_path = demo_repo
+    envelope = _tool_envelope(store_path, EXISTING_NUMBER)
     assert envelope["store"] == "local"
     assert "content" in envelope
     assert envelope["content"]
@@ -81,11 +83,10 @@ def test_success_envelope_carries_content(demo_repo):
 
 def test_not_found_envelope_matches_across_surfaces(demo_repo):
     pid, store_path = demo_repo
-    stdio = _stdio_envelope(pid, MISSING_NUMBER)
     tool = _tool_envelope(store_path, MISSING_NUMBER)
-    assert stdio == tool
+    assert _stdio_rendered(pid, MISSING_NUMBER) == RENDERERS["get_decision"](tool)
     # Locked rejection envelope shape.
-    assert stdio["store"] == "local"
-    assert "content" not in stdio
-    assert stdio["error"]["kind"] == "error"
-    assert str(MISSING_NUMBER) in stdio["error"]["reason"]
+    assert tool["store"] == "local"
+    assert "content" not in tool
+    assert tool["error"]["kind"] == "error"
+    assert str(MISSING_NUMBER) in tool["error"]["reason"]

@@ -1,6 +1,5 @@
 """Tests for the Nauro MCP stdio server tools."""
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -27,19 +26,16 @@ from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
 
 
-def _envelope(result: CallToolResult) -> dict:
-    """Decode the JSON envelope from a renderer-wrapped read-tool response.
+def _rendered(result: CallToolResult) -> str:
+    """Return the renderer output from a renderer-wrapped read-tool response.
 
-    Read tools listed in ``nauro_core.renderers.RENDERERS`` return a
-    ``CallToolResult`` carrying two text content blocks (human-formatted
-    summary at ``[0]``, JSON envelope at ``[1]``) and a typed
-    ``structuredContent`` dict mirroring that envelope. Tests that need
-    the structured envelope decode ``content[1].text`` and validate
-    parity with ``structuredContent`` in one shot.
+    Renderer-scoped read tools listed in ``nauro_core.renderers.RENDERERS``
+    return a ``CallToolResult`` carrying a single ``TextContent`` block at
+    ``content[0]`` whose text is the renderer output. Tests that need to
+    assert on the rendered surface use this helper to skip the boilerplate.
     """
-    envelope = json.loads(result.content[1].text)
-    assert result.structuredContent == envelope
-    return envelope
+    assert len(result.content) == 1
+    return result.content[0].text
 
 
 def _append_question(store_path: Path, question: str) -> None:
@@ -99,27 +95,27 @@ class TestResolveStore:
 
 class TestGetContext:
     def test_l0_returns_current_state(self, store: Path):
-        result = _envelope(get_context(project_id="testproj", level=0))
-        assert "## Current State" in result["content"]
+        rendered = _rendered(get_context(project_id="testproj", level=0))
+        assert "## Current State" in rendered
 
     def test_l1_returns_full_stack(self, store: Path):
-        result = _envelope(get_context(project_id="testproj", level=1))
-        assert "# Stack" in result["content"]
-        assert "Python 3.11" in result["content"]
+        rendered = _rendered(get_context(project_id="testproj", level=1))
+        assert "# Stack" in rendered
+        assert "Python 3.11" in rendered
 
     def test_l2_returns_full_content(self, store: Path):
-        result = _envelope(get_context(project_id="testproj", level=2))
-        assert "Use FastAPI" in result["content"]
-        assert "Should we add caching?" in result["content"]
+        rendered = _rendered(get_context(project_id="testproj", level=2))
+        assert "Use FastAPI" in rendered
+        assert "Should we add caching?" in rendered
 
     def test_invalid_level_rejection(self, store: Path):
         # Invalid numeric levels surface as a kernel rejection envelope —
+        # the renderer surfaces the rejection reason in its Error: block.
         # `_coerce_level` rejects strings before reaching the kernel, so the
         # ValueError path on string input is exercised separately below.
-        result = _envelope(get_context(project_id="testproj", level=5))
-        assert result["store"] == "local"
-        assert result["error"]["kind"] == "rejected"
-        assert "Invalid level" in result["error"]["reason"]
+        rendered = _rendered(get_context(project_id="testproj", level=5))
+        assert rendered.startswith("Error:")
+        assert "Invalid level" in rendered
 
     def test_invalid_string_level_raises(self, store: Path):
         with pytest.raises(ValueError, match="Invalid level"):
@@ -311,14 +307,15 @@ class TestConfirmDecision:
 
 class TestCheckDecision:
     def test_check_no_conflicts(self, store: Path):
-        result = _envelope(
+        rendered = _rendered(
             check_decision(
                 proposed_approach="Use a completely novel distributed tracing approach",
                 project_id="testproj",
             )
         )
-        assert "related_decisions" in result
-        assert "assessment" in result
+        # Renderer surfaces either the "Found N related decisions" header
+        # plus a call-to-action footer, or the empty-state guidance.
+        assert "related decision" in rendered.lower() or "no related decisions" in rendered.lower()
 
 
 class TestFlagQuestion:
