@@ -19,6 +19,7 @@ Two compressions vs. the ``check_decision`` parity test:
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -89,7 +90,11 @@ def empty_repo(tmp_path, monkeypatch):
 
 
 def _stdio_envelope(pid: str, query: str, *, limit: int = 10) -> dict:
-    return stdio_search_decisions(query=query, limit=limit, project_id=pid)
+    # stdio search_decisions now returns a two-block list[TextContent]; the
+    # JSON envelope is at content[1].text — see stdio_server module
+    # docstring for the contract.
+    blocks = stdio_search_decisions(query=query, limit=limit, project_id=pid)
+    return json.loads(blocks[1].text)
 
 
 def _tool_envelope(store_path: Path, query: str, *, limit: int = 10) -> dict:
