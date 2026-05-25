@@ -94,9 +94,9 @@ Repeat `--files-affected` for each entry. `--rejected` accepts inline JSON, `@fi
 
 The hosted MCP server (`mcp.nauro.ai`) lives in a private repository.
 
-## Contributing
+## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and [CLAUDE.md](CLAUDE.md) for architecture. Bugs and feature requests: [GitHub Issues](https://github.com/Nauro-AI/nauro/issues).
+See [CLAUDE.md](CLAUDE.md) for architecture. Bugs and feature requests: [GitHub Issues](https://github.com/Nauro-AI/nauro/issues).
 
 ```bash
 uv sync --all-packages --all-extras
