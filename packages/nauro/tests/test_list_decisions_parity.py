@@ -19,7 +19,6 @@ Two compressions vs. the ``check_decision`` parity test:
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from pathlib import Path
 
@@ -30,6 +29,7 @@ from nauro_core.decision_model import (
     DecisionStatus,
     format_decision,
 )
+from nauro_core.renderers import RENDERERS
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.demo import create_demo_project
@@ -65,16 +65,19 @@ def empty_repo(tmp_path, monkeypatch):
     return pid, store_path
 
 
-def _stdio_envelope(pid: str, *, limit: int = 20, include_superseded: bool = False) -> dict:
-    # stdio list_decisions returns a CallToolResult carrying both the
-    # two-block content list and a typed structuredContent envelope —
-    # see stdio_server module docstring for the contract.
+def _stdio_rendered(pid: str, *, limit: int = 20, include_superseded: bool = False) -> str:
+    """Return the rendered stdio surface text for the parity comparison.
+
+    Renderer-scoped read tools now return a single ``content[0]`` block
+    carrying the renderer output. Parity against the direct tool envelope
+    runs through ``RENDERERS["list_decisions"]``.
+    """
     result = stdio_list_decisions(
         project_id=pid, limit=limit, include_superseded=include_superseded
     )
-    envelope = json.loads(result.content[1].text)
-    assert result.structuredContent == envelope
-    return envelope
+    assert len(result.content) == 1
+    assert result.structuredContent is None
+    return result.content[0].text
 
 
 def _tool_envelope(store_path: Path, *, limit: int = 20, include_superseded: bool = False) -> dict:
@@ -84,24 +87,22 @@ def _tool_envelope(store_path: Path, *, limit: int = 20, include_superseded: boo
 
 def test_empty_store_envelope_matches_across_surfaces(empty_repo):
     pid, store_path = empty_repo
-    stdio = _stdio_envelope(pid)
     tool = _tool_envelope(store_path)
-    assert stdio == tool
-    assert stdio == {"store": "local", "decisions": []}
+    assert _stdio_rendered(pid) == RENDERERS["list_decisions"](tool)
+    assert tool == {"store": "local", "decisions": []}
 
 
 def test_populated_store_envelope_matches_across_surfaces(demo_repo):
     pid, store_path = demo_repo
-    stdio = _stdio_envelope(pid)
     tool = _tool_envelope(store_path)
-    assert stdio == tool
+    assert _stdio_rendered(pid) == RENDERERS["list_decisions"](tool)
     # Locked envelope shape: store + decisions list, no error / status keys.
-    assert stdio["store"] == "local"
-    assert isinstance(stdio["decisions"], list)
-    assert stdio["decisions"], "demo project seeds 7 active decisions"
+    assert tool["store"] == "local"
+    assert isinstance(tool["decisions"], list)
+    assert tool["decisions"], "demo project seeds 7 active decisions"
     # All demo decisions are active and seeded with date + decision_type,
     # so every row carries the full set of optional keys.
-    for row in stdio["decisions"]:
+    for row in tool["decisions"]:
         for key in ("number", "title", "date", "status", "type", "confidence"):
             assert key in row, f"missing field {key!r} in row {row!r}"
         assert row["status"] == "active"
@@ -109,17 +110,17 @@ def test_populated_store_envelope_matches_across_surfaces(demo_repo):
 
 def test_include_superseded_toggle_matches_across_surfaces(demo_repo):
     pid, store_path = demo_repo
-    stdio_default = _stdio_envelope(pid, include_superseded=False)
     tool_default = _tool_envelope(store_path, include_superseded=False)
-    assert stdio_default == tool_default
+    assert _stdio_rendered(pid, include_superseded=False) == RENDERERS["list_decisions"](
+        tool_default
+    )
 
-    stdio_with = _stdio_envelope(pid, include_superseded=True)
     tool_with = _tool_envelope(store_path, include_superseded=True)
-    assert stdio_with == tool_with
+    assert _stdio_rendered(pid, include_superseded=True) == RENDERERS["list_decisions"](tool_with)
 
     # Demo project has only active decisions, so both toggles return the
-    # same set; the parity assertion is the load-bearing one.
-    assert stdio_default == stdio_with
+    # same envelope; the parity assertion is the load-bearing one.
+    assert tool_default == tool_with
 
 
 def test_exclude_none_strips_unset_type_across_surfaces(tmp_path, monkeypatch):
@@ -151,11 +152,10 @@ def test_exclude_none_strips_unset_type_across_surfaces(tmp_path, monkeypatch):
     (decisions_dir / "001-decision-without-a-type.md").write_text(body)
     monkeypatch.chdir(repo)
 
-    stdio = _stdio_envelope(pid)
     tool = _tool_envelope(store_path)
-    assert stdio == tool
-    assert len(stdio["decisions"]) == 1
-    row = stdio["decisions"][0]
+    assert _stdio_rendered(pid) == RENDERERS["list_decisions"](tool)
+    assert len(tool["decisions"]) == 1
+    row = tool["decisions"][0]
     assert "type" not in row
     assert row == {
         "number": 1,

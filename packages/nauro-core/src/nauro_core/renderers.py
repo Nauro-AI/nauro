@@ -3,8 +3,8 @@
 Each renderer is a pure function: takes the result dict that the
 ``tools_read`` adapter (or ``list_user_projects``) produced and returns a
 formatted text block intended for chat-UI consumption. The dispatcher
-pairs the rendered text with the unchanged JSON envelope so programmatic
-consumers can still parse the structured payload from ``content[1]``.
+emits the rendered text as the sole ``content[0]`` block of the MCP
+``tools/call`` response.
 
 Renderers must not perform I/O, hit S3/DDB, or import anything that
 would. They must not mutate the input dict.

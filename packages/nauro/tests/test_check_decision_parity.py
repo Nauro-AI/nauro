@@ -7,6 +7,11 @@ same proposal against the same store. This file pins the envelope
 shape across the three adapter wirings; the cross-store layer-3 test
 (``test_check_decision_cross_surface``) covers local-vs-cloud parity
 once the cloud Store exists.
+
+The stdio MCP surface now returns a single rendered ``content[0]``
+text block; the parity assertion against the other surfaces is the
+identity ``stdio.content[0].text == RENDERERS["check_decision"](envelope)``
+where ``envelope`` is the kernel result that drives every other surface.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from nauro_core.renderers import RENDERERS
 from typer.testing import CliRunner
 
 from nauro.cli.main import app as cli_app
@@ -49,17 +55,18 @@ def _cli_envelope(store_path: Path) -> dict:
     return json.loads(result.stdout)
 
 
-def _stdio_envelope(pid: str) -> dict:
-    # stdio check_decision returns a CallToolResult carrying both the
-    # two-block content list and a typed structuredContent envelope —
-    # see stdio_server module docstring for the contract. The two
-    # surfaces must mirror each other; this helper validates parity
-    # while returning the canonical envelope dict for the cross-surface
-    # comparison.
-    result = stdio_check_decision(proposed_approach=DEMO_PROMPT, project_id=pid)
-    envelope = json.loads(result.content[1].text)
-    assert result.structuredContent == envelope
-    return envelope
+def _stdio_rendered(pid: str, proposed_approach: str = DEMO_PROMPT) -> str:
+    """Return the rendered stdio surface text for the parity comparison.
+
+    Renderer-scoped read tools now return a single ``content[0]`` block
+    carrying the renderer output. The stdio surface participates in
+    parity by emitting the same renderer output the other surfaces would
+    produce for their (identical) kernel envelope.
+    """
+    result = stdio_check_decision(proposed_approach=proposed_approach, project_id=pid)
+    assert len(result.content) == 1
+    assert result.structuredContent is None
+    return result.content[0].text
 
 
 def _http_envelope(pid: str) -> dict:
@@ -83,15 +90,17 @@ def _tool_envelope(store_path: Path) -> dict:
 def test_cli_stdio_http_match_on_success_path(demo_repo):
     pid, store_path = demo_repo
     cli = _cli_envelope(store_path)
-    stdio = _stdio_envelope(pid)
     http = _http_envelope(pid)
     tool = _tool_envelope(store_path)
-    assert cli == stdio == http == tool
+    assert cli == http == tool
+    # stdio collapses to the rendered surface; parity is that the rendered
+    # text is what the shared renderer would produce for the same envelope.
+    assert _stdio_rendered(pid) == RENDERERS["check_decision"](tool)
 
 
 def test_success_envelope_contains_d141_canonical_fields(demo_repo):
-    pid, _ = demo_repo
-    envelope = _stdio_envelope(pid)
+    pid, store_path = demo_repo
+    envelope = _tool_envelope(store_path)
     assert envelope["store"] == "local"
     assert "related_decisions" in envelope
     assert "assessment" in envelope
@@ -115,10 +124,6 @@ def test_rejection_envelope_matches_across_surfaces(demo_repo):
     assert cli_raw.exit_code == 1, cli_raw.output
     cli = json.loads(cli_raw.stdout)
 
-    stdio_result = stdio_check_decision(proposed_approach=overlong, project_id=pid)
-    stdio = json.loads(stdio_result.content[1].text)
-    assert stdio_result.structuredContent == stdio
-
     client = TestClient(fastapi_app)
     response = client.post(
         "/check_decision",
@@ -129,7 +134,12 @@ def test_rejection_envelope_matches_across_surfaces(demo_repo):
 
     tool = tool_check_decision(store_path, overlong)
 
-    assert cli == stdio == http == tool
+    assert cli == http == tool
+    # stdio surfaces the kernel rejection through the renderer's error block;
+    # parity is that the rendered text matches what the renderer would emit
+    # for the same envelope every other surface returned.
+    stdio_rendered = _stdio_rendered(pid, overlong)
+    assert stdio_rendered == RENDERERS["check_decision"](tool)
     # Locked rejection envelope shape (closes D141 for this operation).
     assert cli["store"] == "local"
     assert cli["related_decisions"] == []

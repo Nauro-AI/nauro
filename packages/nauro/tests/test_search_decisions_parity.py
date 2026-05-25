@@ -19,7 +19,6 @@ Two compressions vs. the ``check_decision`` parity test:
 
 from __future__ import annotations
 
-import json
 from datetime import date
 from pathlib import Path
 
@@ -30,6 +29,7 @@ from nauro_core.decision_model import (
     DecisionStatus,
     format_decision,
 )
+from nauro_core.renderers import RENDERERS
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.mcp.stdio_server import search_decisions as stdio_search_decisions
@@ -89,14 +89,18 @@ def empty_repo(tmp_path, monkeypatch):
     return pid, store_path
 
 
-def _stdio_envelope(pid: str, query: str, *, limit: int = 10) -> dict:
-    # stdio search_decisions returns a CallToolResult carrying both the
-    # two-block content list and a typed structuredContent envelope —
-    # see stdio_server module docstring for the contract.
+def _stdio_rendered(pid: str, query: str, *, limit: int = 10) -> str:
+    """Return the rendered stdio surface text for the parity comparison.
+
+    Renderer-scoped read tools now return a single ``content[0]`` block
+    carrying the renderer output. The stdio surface participates in
+    parity by emitting the same renderer output the direct tool envelope
+    drives through ``RENDERERS["search_decisions"]``.
+    """
     result = stdio_search_decisions(query=query, limit=limit, project_id=pid)
-    envelope = json.loads(result.content[1].text)
-    assert result.structuredContent == envelope
-    return envelope
+    assert len(result.content) == 1
+    assert result.structuredContent is None
+    return result.content[0].text
 
 
 def _tool_envelope(store_path: Path, query: str, *, limit: int = 10) -> dict:
@@ -106,44 +110,40 @@ def _tool_envelope(store_path: Path, query: str, *, limit: int = 10) -> dict:
 
 def test_hit_envelope_matches_across_surfaces(seeded_repo):
     pid, store_path = seeded_repo
-    stdio = _stdio_envelope(pid, "Auth0")
     tool = _tool_envelope(store_path, "Auth0")
-    assert stdio == tool
-    assert stdio["store"] == "local"
-    assert "results" in stdio
-    assert stdio["results"], "Auth0 query must surface at least one hit"
-    hit = stdio["results"][0]
+    assert _stdio_rendered(pid, "Auth0") == RENDERERS["search_decisions"](tool)
+    assert tool["store"] == "local"
+    assert "results" in tool
+    assert tool["results"], "Auth0 query must surface at least one hit"
+    hit = tool["results"][0]
     # Locked row shape: number, title, status, score are always present;
     # date + relevance_snippet present when populated.
     for key in ("number", "title", "status", "score"):
         assert key in hit, f"missing field {key!r} in row {hit!r}"
     # The dropped envelope keys must not surface.
-    assert "total_matches" not in stdio
-    assert "query" not in stdio
+    assert "total_matches" not in tool
+    assert "query" not in tool
 
 
 def test_empty_store_envelope_matches_across_surfaces(empty_repo):
     pid, store_path = empty_repo
-    stdio = _stdio_envelope(pid, "anything")
     tool = _tool_envelope(store_path, "anything")
-    assert stdio == tool
-    assert stdio == {"store": "local", "results": []}
+    assert _stdio_rendered(pid, "anything") == RENDERERS["search_decisions"](tool)
+    assert tool == {"store": "local", "results": []}
 
 
 def test_empty_query_rejection_matches_across_surfaces(seeded_repo):
     pid, store_path = seeded_repo
-    stdio = _stdio_envelope(pid, "")
     tool = _tool_envelope(store_path, "")
-    assert stdio == tool
-    assert stdio["store"] == "local"
-    assert stdio["results"] == []
-    assert stdio["error"]["kind"] == "rejected"
-    assert "non-empty" in stdio["error"]["reason"]
+    assert _stdio_rendered(pid, "") == RENDERERS["search_decisions"](tool)
+    assert tool["store"] == "local"
+    assert tool["results"] == []
+    assert tool["error"]["kind"] == "rejected"
+    assert "non-empty" in tool["error"]["reason"]
 
 
 def test_limit_truncates_across_surfaces(seeded_repo):
     pid, store_path = seeded_repo
-    stdio = _stdio_envelope(pid, "Auth0 FastAPI", limit=1)
     tool = _tool_envelope(store_path, "Auth0 FastAPI", limit=1)
-    assert stdio == tool
-    assert len(stdio["results"]) <= 1
+    assert _stdio_rendered(pid, "Auth0 FastAPI", limit=1) == RENDERERS["search_decisions"](tool)
+    assert len(tool["results"]) <= 1
