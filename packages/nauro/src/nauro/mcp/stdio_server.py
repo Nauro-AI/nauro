@@ -17,11 +17,12 @@ The shared `nauro_core.mcp_tools.ALL_TOOLS` registry contains 12 tools.
 single project store, so the discovery tool is not registered here.
 
 Read tools listed in ``nauro_core.renderers.RENDERERS`` return a
-``list[TextContent]`` with two blocks: a human-formatted summary at
-``[0]`` and the JSON envelope at ``[1]``. This mirrors the remote MCP
-dispatcher so chat clients (Claude Code, claude.ai) get the same
-two-block shape regardless of transport. Programmatic consumers — tests,
-CLI, subagents — decode the envelope from ``content[1].text``.
+``CallToolResult`` carrying both ``content`` and ``structuredContent``:
+``content`` holds the two-block ``[human, json]`` shape so older clients
+that read ``content[1].text`` keep parsing the same envelope, and
+``structuredContent`` carries the same envelope as a typed dict for
+clients on protocol revision 2025-06-18 and later. FastMCP's session
+layer negotiates 2025-06-18 automatically when the client advertises it.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from mcp.server import FastMCP
-from mcp.types import TextContent, ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from nauro_core.constants import MCP_INSTRUCTIONS
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
 from nauro_core.renderers import RENDERERS as _RENDERERS
@@ -76,29 +77,40 @@ NOT_A_NAURO_REPO = (
 )
 
 
-def _wrap_with_renderer(tool_name: str, result: dict) -> list[TextContent]:
-    """Compose two text content blocks for a read-tool response.
+def _wrap_with_renderer(tool_name: str, result: dict) -> CallToolResult:
+    """Compose the read-tool response with both ``content`` and ``structuredContent``.
 
-    Mirrors the remote MCP dispatcher (``mcp_server.mcp_router._build_content_blocks``):
+    Mirrors the remote MCP dispatcher (``mcp_server.mcp_router._build_tool_result``):
     ``content[0]`` carries the human-formatted summary from
     ``nauro_core.renderers.RENDERERS[tool_name]``; ``content[1]`` carries
-    the unchanged JSON envelope so programmatic consumers stay byte-stable.
-    A renderer raising falls back to JSON-only — a presentation bug must
-    not swallow a response.
+    the unchanged JSON envelope so older clients pinned to the prior
+    transitional shape stay byte-stable. ``structuredContent`` carries
+    the same envelope as a typed dict for clients on the 2025-06-18
+    protocol revision and later. A renderer raising falls back to
+    JSON-only — a presentation bug must not swallow a response.
     """
     json_text = json.dumps(result, indent=2, default=str)
     renderer = _RENDERERS.get(tool_name)
     if renderer is None:
-        return [TextContent(type="text", text=json_text)]
+        return CallToolResult(
+            content=[TextContent(type="text", text=json_text)],
+            structuredContent=result,
+        )
     try:
         rendered = renderer(result)
     except Exception:
         logger.exception("renderer failed for tool=%s; falling back to JSON-only", tool_name)
-        return [TextContent(type="text", text=json_text)]
-    return [
-        TextContent(type="text", text=rendered),
-        TextContent(type="text", text=json_text),
-    ]
+        return CallToolResult(
+            content=[TextContent(type="text", text=json_text)],
+            structuredContent=result,
+        )
+    return CallToolResult(
+        content=[
+            TextContent(type="text", text=rendered),
+            TextContent(type="text", text=json_text),
+        ],
+        structuredContent=result,
+    )
 
 
 def _spec_kwargs(name: str) -> dict[str, Any]:
@@ -138,7 +150,7 @@ _resolve_store = resolve_store
 _resolve_via_repo_config = resolve_via_repo_config
 
 
-@mcp.tool(structured_output=False, **_spec_kwargs("get_context"))
+@mcp.tool(**_spec_kwargs("get_context"))
 def get_context(
     project_id: Annotated[
         str | None, Field(description=_param_desc("get_context", "project_id"))
@@ -148,7 +160,7 @@ def get_context(
         Literal["L0", "L1", "L2"] | int,
         Field(description=_param_desc("get_context", "level")),
     ] = "L0",
-) -> list[TextContent]:
+) -> CallToolResult:
     try:
         store_path = _resolve_store(project_id, cwd)
     except NoProjectError:
@@ -178,7 +190,7 @@ def get_raw_file(
     return tool_get_raw_file(store_path, path)
 
 
-@mcp.tool(structured_output=False, **_spec_kwargs("list_decisions"))
+@mcp.tool(**_spec_kwargs("list_decisions"))
 def list_decisions(
     project_id: Annotated[
         str | None, Field(description=_param_desc("list_decisions", "project_id"))
@@ -188,7 +200,7 @@ def list_decisions(
     include_superseded: Annotated[
         bool, Field(description=_param_desc("list_decisions", "include_superseded"))
     ] = False,
-) -> list[TextContent]:
+) -> CallToolResult:
     try:
         store_path = _resolve_store(project_id, cwd)
     except NoProjectError:
@@ -200,14 +212,14 @@ def list_decisions(
     return _wrap_with_renderer("list_decisions", result)
 
 
-@mcp.tool(structured_output=False, **_spec_kwargs("get_decision"))
+@mcp.tool(**_spec_kwargs("get_decision"))
 def get_decision(
     number: Annotated[int, Field(description=_param_desc("get_decision", "number"))],
     project_id: Annotated[
         str | None, Field(description=_param_desc("get_decision", "project_id"))
     ] = None,
     cwd: str | None = None,
-) -> list[TextContent]:
+) -> CallToolResult:
     try:
         store_path = _resolve_store(project_id, cwd)
     except NoProjectError:
@@ -239,7 +251,7 @@ def diff_since_last_session(
     return tool_diff_since_last_session(store_path, days)
 
 
-@mcp.tool(structured_output=False, **_spec_kwargs("search_decisions"))
+@mcp.tool(**_spec_kwargs("search_decisions"))
 def search_decisions(
     query: Annotated[str, Field(description=_param_desc("search_decisions", "query"))],
     limit: Annotated[int, Field(description=_param_desc("search_decisions", "limit"))] = 10,
@@ -247,7 +259,7 @@ def search_decisions(
         str | None, Field(description=_param_desc("search_decisions", "project_id"))
     ] = None,
     cwd: str | None = None,
-) -> list[TextContent]:
+) -> CallToolResult:
     try:
         store_path = _resolve_store(project_id, cwd)
     except NoProjectError:
@@ -259,7 +271,7 @@ def search_decisions(
     return _wrap_with_renderer("search_decisions", result)
 
 
-@mcp.tool(structured_output=False, **_spec_kwargs("check_decision"))
+@mcp.tool(**_spec_kwargs("check_decision"))
 def check_decision(
     proposed_approach: Annotated[
         str, Field(description=_param_desc("check_decision", "proposed_approach"))
@@ -271,7 +283,7 @@ def check_decision(
         str | None, Field(description=_param_desc("check_decision", "project_id"))
     ] = None,
     cwd: str | None = None,
-) -> list[TextContent]:
+) -> CallToolResult:
     try:
         store_path = _resolve_store(project_id, cwd)
     except NoProjectError:

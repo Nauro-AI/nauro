@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from mcp.types import TextContent
+from mcp.types import CallToolResult
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _get_pending_store
 
@@ -27,15 +27,19 @@ from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
 
 
-def _envelope(blocks: list[TextContent]) -> dict:
+def _envelope(result: CallToolResult) -> dict:
     """Decode the JSON envelope from a renderer-wrapped read-tool response.
 
-    Read tools listed in ``nauro_core.renderers.RENDERERS`` return two
-    text content blocks: a human-formatted summary at ``[0]`` and the
-    JSON envelope at ``[1]``. Tests that need the structured envelope
-    decode ``[1].text`` directly.
+    Read tools listed in ``nauro_core.renderers.RENDERERS`` return a
+    ``CallToolResult`` carrying two text content blocks (human-formatted
+    summary at ``[0]``, JSON envelope at ``[1]``) and a typed
+    ``structuredContent`` dict mirroring that envelope. Tests that need
+    the structured envelope decode ``content[1].text`` and validate
+    parity with ``structuredContent`` in one shot.
     """
-    return json.loads(blocks[1].text)
+    envelope = json.loads(result.content[1].text)
+    assert result.structuredContent == envelope
+    return envelope
 
 
 def _append_question(store_path: Path, question: str) -> None:

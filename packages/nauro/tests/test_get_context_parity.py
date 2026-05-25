@@ -105,11 +105,14 @@ def missing_store(tmp_path, monkeypatch):
 
 
 def _stdio_envelope(pid: str, level) -> dict:
-    # stdio get_context now returns a two-block list[TextContent]; the
-    # JSON envelope is at content[1].text — see stdio_server module
-    # docstring for the contract.
-    blocks = stdio_get_context(project_id=pid, level=level)
-    return json.loads(blocks[1].text)
+    # stdio get_context returns a CallToolResult carrying both the
+    # two-block content list and a typed structuredContent envelope —
+    # see stdio_server module docstring for the contract. This helper
+    # validates the two surfaces mirror each other on every call.
+    result = stdio_get_context(project_id=pid, level=level)
+    envelope = json.loads(result.content[1].text)
+    assert result.structuredContent == envelope
+    return envelope
 
 
 def _tool_envelope(store_path: Path, level) -> dict:
