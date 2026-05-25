@@ -19,6 +19,7 @@ Two compressions vs. the ``check_decision`` parity test:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -47,7 +48,11 @@ def demo_repo(tmp_path, monkeypatch):
 
 
 def _stdio_envelope(pid: str, number: int) -> dict:
-    return stdio_get_decision(number=number, project_id=pid)
+    # stdio get_decision now returns a two-block list[TextContent]; the
+    # JSON envelope is at content[1].text — see stdio_server module
+    # docstring for the contract.
+    blocks = stdio_get_decision(number=number, project_id=pid)
+    return json.loads(blocks[1].text)
 
 
 def _tool_envelope(store_path: Path, number: int) -> dict:

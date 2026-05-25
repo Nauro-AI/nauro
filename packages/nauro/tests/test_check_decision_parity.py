@@ -50,7 +50,11 @@ def _cli_envelope(store_path: Path) -> dict:
 
 
 def _stdio_envelope(pid: str) -> dict:
-    return stdio_check_decision(proposed_approach=DEMO_PROMPT, project_id=pid)
+    # stdio check_decision now returns a two-block list[TextContent]; the
+    # JSON envelope is at content[1].text — see stdio_server module
+    # docstring for the contract.
+    blocks = stdio_check_decision(proposed_approach=DEMO_PROMPT, project_id=pid)
+    return json.loads(blocks[1].text)
 
 
 def _http_envelope(pid: str) -> dict:
@@ -106,7 +110,8 @@ def test_rejection_envelope_matches_across_surfaces(demo_repo):
     assert cli_raw.exit_code == 1, cli_raw.output
     cli = json.loads(cli_raw.stdout)
 
-    stdio = stdio_check_decision(proposed_approach=overlong, project_id=pid)
+    stdio_blocks = stdio_check_decision(proposed_approach=overlong, project_id=pid)
+    stdio = json.loads(stdio_blocks[1].text)
 
     client = TestClient(fastapi_app)
     response = client.post(

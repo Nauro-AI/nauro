@@ -20,6 +20,7 @@ Two compressions vs. the ``check_decision`` parity test:
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -104,7 +105,11 @@ def missing_store(tmp_path, monkeypatch):
 
 
 def _stdio_envelope(pid: str, level) -> dict:
-    return stdio_get_context(project_id=pid, level=level)
+    # stdio get_context now returns a two-block list[TextContent]; the
+    # JSON envelope is at content[1].text — see stdio_server module
+    # docstring for the contract.
+    blocks = stdio_get_context(project_id=pid, level=level)
+    return json.loads(blocks[1].text)
 
 
 def _tool_envelope(store_path: Path, level) -> dict:

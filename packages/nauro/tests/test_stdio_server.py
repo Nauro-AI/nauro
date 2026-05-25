@@ -1,9 +1,11 @@
 """Tests for the Nauro MCP stdio server tools."""
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from mcp.types import TextContent
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _get_pending_store
 
@@ -23,6 +25,17 @@ from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
+
+
+def _envelope(blocks: list[TextContent]) -> dict:
+    """Decode the JSON envelope from a renderer-wrapped read-tool response.
+
+    Read tools listed in ``nauro_core.renderers.RENDERERS`` return two
+    text content blocks: a human-formatted summary at ``[0]`` and the
+    JSON envelope at ``[1]``. Tests that need the structured envelope
+    decode ``[1].text`` directly.
+    """
+    return json.loads(blocks[1].text)
 
 
 def _append_question(store_path: Path, question: str) -> None:
@@ -82,16 +95,16 @@ class TestResolveStore:
 
 class TestGetContext:
     def test_l0_returns_current_state(self, store: Path):
-        result = get_context(project_id="testproj", level=0)
+        result = _envelope(get_context(project_id="testproj", level=0))
         assert "## Current State" in result["content"]
 
     def test_l1_returns_full_stack(self, store: Path):
-        result = get_context(project_id="testproj", level=1)
+        result = _envelope(get_context(project_id="testproj", level=1))
         assert "# Stack" in result["content"]
         assert "Python 3.11" in result["content"]
 
     def test_l2_returns_full_content(self, store: Path):
-        result = get_context(project_id="testproj", level=2)
+        result = _envelope(get_context(project_id="testproj", level=2))
         assert "Use FastAPI" in result["content"]
         assert "Should we add caching?" in result["content"]
 
@@ -99,7 +112,7 @@ class TestGetContext:
         # Invalid numeric levels surface as a kernel rejection envelope —
         # `_coerce_level` rejects strings before reaching the kernel, so the
         # ValueError path on string input is exercised separately below.
-        result = get_context(project_id="testproj", level=5)
+        result = _envelope(get_context(project_id="testproj", level=5))
         assert result["store"] == "local"
         assert result["error"]["kind"] == "rejected"
         assert "Invalid level" in result["error"]["reason"]
@@ -294,9 +307,11 @@ class TestConfirmDecision:
 
 class TestCheckDecision:
     def test_check_no_conflicts(self, store: Path):
-        result = check_decision(
-            proposed_approach="Use a completely novel distributed tracing approach",
-            project_id="testproj",
+        result = _envelope(
+            check_decision(
+                proposed_approach="Use a completely novel distributed tracing approach",
+                project_id="testproj",
+            )
         )
         assert "related_decisions" in result
         assert "assessment" in result
