@@ -99,6 +99,12 @@ class TestAutogenCoverage:
         expected = registry_names - {"list_projects"}
         assert AUTOGEN_ALLOWLIST == expected
 
+    def test_confirm_decision_not_autogen_allowlisted(self) -> None:
+        """Sentinel: confirm_decision was removed with the trust-model
+        relocation. It must stay out of the auto-gen allowlist so a future
+        reintroduction in the registry does not silently surface a CLI."""
+        assert "confirm_decision" not in AUTOGEN_ALLOWLIST
+
 
 # ── Per-tool happy + error paths ────────────────────────────────────────────
 

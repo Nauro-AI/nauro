@@ -51,7 +51,6 @@ AUTOGEN_ALLOWLIST: frozenset[str] = frozenset(
         "update_state",
         "flag_question",
         "propose_decision",
-        "confirm_decision",
     }
 )
 

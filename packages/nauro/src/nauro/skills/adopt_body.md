@@ -30,7 +30,7 @@ If the file is missing, try two fallbacks before aborting:
 
 Abort only when both fallbacks miss, with: "This repo is not adopted yet. Run 'nauro adopt' from the repo root, restart this agent, then invoke /nauro-adopt again."
 
-Pass `id` as the `project_id` argument on every subsequent MCP call (`propose_decision`, `confirm_decision`, `update_state`, `flag_question`, `get_context`, `list_decisions`, `check_decision`, `get_decision`). Do not omit `project_id` even though the tool descriptions say it's optional — auto-resolve routes to the user's default project, which is **not** the project this skill is seeding when both local-mode and cloud-mode projects coexist.
+Pass `id` as the `project_id` argument on every subsequent MCP call (`propose_decision`, `update_state`, `flag_question`, `get_context`, `list_decisions`, `check_decision`, `get_decision`). Do not omit `project_id` even though the tool descriptions say it's optional — auto-resolve routes to the user's default project, which is **not** the project this skill is seeding when both local-mode and cloud-mode projects coexist.
 
 ## Step 3 — Read documentation
 
@@ -110,7 +110,7 @@ Languages, frameworks, package managers, license, lint tooling, and similar fact
 
 ## Step 7 — Write loop
 
-For each kept candidate from 6a and each rationale-supplied 6b answer, the agent runs the full propose/confirm protocol:
+For each kept candidate from 6a and each rationale-supplied 6b answer, the agent runs the full propose protocol:
 
 1. Call `check_decision(proposed_approach=<title or short description>, project_id=...)`. <!-- protocol:CHECK_DECISION_RETURNS -->
 2. <!-- protocol:GET_DECISION_BEFORE_PROPOSING --> Call signature: `get_decision(number=N, project_id=...)`.
@@ -134,12 +134,9 @@ For each kept candidate from 6a and each rationale-supplied 6b answer, the agent
       ```
 
    `rationale` is drawn from explicit Step 3 source text (6a) or the user's probe answer (6b). `confidence` defaults to `medium`; use `high` only when a source explicitly says "accepted" or "approved". Include rejected alternatives only when the source names them or the user supplies them in the probe answer.
-5. Call `confirm_decision(confirm_id, project_id=...)`:
-    - `add` + no conflicts → auto-confirm.
-    - `add` + conflicts → surface the assessment verbatim, ask `confirm-anyway / edit / skip`; confirm only on user 'confirm'.
-    - `update` or `supersede` → always pending. Surface the assessment first; confirm only on explicit user 'confirm'.
+5. After `propose_decision`, the kernel commits immediately on Tier 1 clean. If `similar_decisions` is non-empty, surface those hits to the user before drafting the next candidate; the human approval gate is the chat-session moment before this call, not a second tool call after it.
 
-One propose+confirm per candidate. No batching.
+One `propose_decision` per candidate. No batching across candidates without surfacing each `similar_decisions` response first.
 
 ## Step 8 — State composition (one update_state call)
 

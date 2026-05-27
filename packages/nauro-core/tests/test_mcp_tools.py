@@ -22,7 +22,6 @@ EXPECTED_TOOL_NAMES = {
     "search_decisions",
     "check_decision",
     "propose_decision",
-    "confirm_decision",
     "flag_question",
     "update_state",
     "list_projects",
@@ -39,12 +38,12 @@ READ_TOOLS = {
     "list_projects",
 }
 
-WRITE_TOOLS = {"propose_decision", "confirm_decision", "flag_question", "update_state"}
+WRITE_TOOLS = {"propose_decision", "flag_question", "update_state"}
 
 
 class TestRegistry:
-    def test_twelve_tools(self):
-        assert len(ALL_TOOLS) == 12
+    def test_eleven_tools(self):
+        assert len(ALL_TOOLS) == 11
 
     def test_all_expected_names(self):
         names = {spec["name"] for spec in ALL_TOOLS}
@@ -53,6 +52,13 @@ class TestRegistry:
     def test_unique_names(self):
         names = [spec["name"] for spec in ALL_TOOLS]
         assert len(names) == len(set(names))
+
+    def test_confirm_decision_not_in_registry(self):
+        """Sentinel: confirm_decision was removed with the trust-model
+        relocation. The single-call propose_decision flow has no
+        separate confirm tool."""
+        names = {spec["name"] for spec in ALL_TOOLS}
+        assert "confirm_decision" not in names
 
 
 class TestSpecShape:

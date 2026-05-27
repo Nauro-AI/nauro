@@ -13,7 +13,6 @@ import pytest
 
 from nauro.mcp.tools import (
     tool_check_decision,
-    tool_confirm_decision,
     tool_flag_question,
     tool_get_context,
     tool_propose_decision,
@@ -51,11 +50,6 @@ class TestNoStore:
 
     def test_propose_decision_returns_guidance(self, nonexistent_store):
         result = tool_propose_decision(nonexistent_store, title="Test", rationale="Testing")
-        assert result["status"] == "error"
-        assert "nauro init" in result["guidance"]
-
-    def test_confirm_decision_returns_guidance(self, nonexistent_store):
-        result = tool_confirm_decision(nonexistent_store, "fake-id")
         assert result["status"] == "error"
         assert "nauro init" in result["guidance"]
 

@@ -7,12 +7,12 @@ Tool metadata (descriptions, titles, annotations) is centralized in
 `nauro_core.mcp_tools` — edit there, not here — so the local stdio server
 and the remote HTTP server stay in sync.
 
-MCP tools registered here (11 — 7 read, 4 write):
+MCP tools registered here (10 — 7 read, 3 write):
   get_context, get_raw_file, list_decisions, get_decision,
   diff_since_last_session, search_decisions, check_decision,
-  propose_decision, confirm_decision, flag_question, update_state
+  propose_decision, flag_question, update_state
 
-The shared `nauro_core.mcp_tools.ALL_TOOLS` registry contains 12 tools.
+The shared `nauro_core.mcp_tools.ALL_TOOLS` registry contains 11 tools.
 `list_projects` is remote-only — local installs auto-resolve to the
 single project store, so the discovery tool is not registered here.
 
@@ -40,7 +40,6 @@ from pydantic import Field
 
 from nauro.mcp.tools import (
     tool_check_decision,
-    tool_confirm_decision,
     tool_diff_since_last_session,
     tool_flag_question,
     tool_get_context,
@@ -324,10 +323,6 @@ def propose_decision(
         list[str] | None,
         Field(description=_param_desc("propose_decision", "resolves_questions")),
     ] = None,
-    skip_validation: Annotated[
-        bool,
-        Field(description=_param_desc("propose_decision", "skip_validation")),
-    ] = False,
     project_id: Annotated[
         str | None,
         Field(description=_param_desc("propose_decision", "project_id")),
@@ -352,25 +347,7 @@ def propose_decision(
         reversibility=reversibility,
         files_affected=files_affected,
         resolves_questions=resolves_questions,
-        skip_validation=skip_validation,
     )
-
-
-@mcp.tool(**_spec_kwargs("confirm_decision"))
-def confirm_decision(
-    confirm_id: Annotated[str, Field(description=_param_desc("confirm_decision", "confirm_id"))],
-    project_id: Annotated[
-        str | None, Field(description=_param_desc("confirm_decision", "project_id"))
-    ] = None,
-    cwd: str | None = None,
-) -> dict:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        return {"store": "local", "status": "error", "guidance": str(exc)}
-    return tool_confirm_decision(store_path, confirm_id)
 
 
 @mcp.tool(**_spec_kwargs("flag_question"))

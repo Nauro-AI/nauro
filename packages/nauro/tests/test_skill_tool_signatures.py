@@ -361,7 +361,7 @@ _RETIRED_PROPOSE_DECISION_POSITIONALS: tuple[str, ...] = (
 # rejected are all rejected at the server boundary — use
 # operation="supersede" if any of those must change.
 _UPDATE_ALLOWED_KWARGS: frozenset[str] = frozenset(
-    {"project_id", "rationale", "operation", "affected_decision_id", "skip_validation"}
+    {"project_id", "rationale", "operation", "affected_decision_id"}
 )
 
 

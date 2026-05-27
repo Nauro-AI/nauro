@@ -37,7 +37,6 @@ from nauro_core.constants import OPEN_QUESTIONS_MD  # noqa: E402
 from nauro_core.operations import propose_decision  # noqa: E402
 from nauro_core.operations.propose_decision import (  # noqa: E402
     _execute_operation,
-    _get_pending_store,
     _write_decision_direct,
 )
 
@@ -48,11 +47,6 @@ CloudStore = cloud_store_module.CloudStore
 TEST_BUCKET = "nauro-propose-decision-cross-surface-test"
 TEST_USER_ID = "01TEST" + "0" * 20
 TEST_PROJECT_ID = "01TESTPROJECT00000000000"
-
-
-@pytest.fixture(autouse=True)
-def _reset_pending_store() -> None:
-    _get_pending_store().clear_all()
 
 
 @pytest.fixture
@@ -107,7 +101,7 @@ def test_add_confirmed_decision_file_byte_identical(both_stores):
 
     assert fs_result.status == "confirmed"
     assert cloud_result.status == "confirmed"
-    # Envelope identity: confirm_id and decision_id round-trip the same.
+    # Envelope identity: decision_id and side-channel fields round-trip the same.
     assert _dump(fs_result) == _dump(cloud_result)
     # Byte-identical decision file.
     fs_body = fs_store.read_decision(fs_result.decision_id)
@@ -124,8 +118,8 @@ def test_supersede_byte_identical_new_and_flipped_old(both_stores):
     assert fs_stem == cloud_stem
 
     # Drive the supersede through the kernel's private execute path so
-    # the test is deterministic (auto_confirm vs pending behavior depends
-    # on BM25 outcome; the kernel write path is what we are pinning).
+    # the test is deterministic — the kernel write path is what we are
+    # pinning here, independent of Tier 2 advisory similarity outcomes.
     proposal = {
         "title": "Switch to managed PostgreSQL provider",
         "rationale": "Reduces operational burden; the self-hosting rationale no longer applies.",

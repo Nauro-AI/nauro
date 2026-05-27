@@ -1,7 +1,7 @@
 """Phase 1c T1.5 — mcp.tool_called decorator tests.
 
 Covers:
-1. All 11 canonical MCP tools emit one mcp.tool_called event per call with the
+1. All 10 canonical MCP tools emit one mcp.tool_called event per call with the
    right tool_name, transport (read from ContextVar), success, duration_bucket.
 2. ContextVar plumbing — set_transport("http") flips transport, set_transport
    ("stdio") flips it back.
@@ -160,14 +160,13 @@ def test_event_properties_never_contain_args_or_returns(
     assert set(tool_events[0]["properties"].keys()) == _ALLOWED_KEYS
 
 
-def test_all_eleven_tools_decorated():
-    """The 11-tool taxonomy is locked. New tools must opt into instrumentation."""
+def test_all_ten_tools_decorated():
+    """The 10-tool taxonomy is locked. New tools must opt into instrumentation."""
     from nauro.mcp import tools
 
     expected = {
         "tool_get_context",
         "tool_propose_decision",
-        "tool_confirm_decision",
         "tool_check_decision",
         "tool_flag_question",
         "tool_get_raw_file",

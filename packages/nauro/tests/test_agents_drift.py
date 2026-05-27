@@ -41,7 +41,7 @@ AGENT_ANCHORS: dict[str, tuple[str, ...]] = {
     ),
     "nauro-tech-lead": (
         "How to run — three modes",
-        "Never call `confirm_decision`",
+        "Never file without user approval.",
         "Mode A: Direction-setting",
     ),
 }

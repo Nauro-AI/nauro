@@ -454,7 +454,6 @@ def test_propose_decision_result_required_fields() -> None:
     assert result.operation == "add"
     assert result.similar_decisions == []
     assert result.assessment == ""
-    assert result.confirm_id is None
     assert result.decision_id is None
     assert result.touched_decisions == []
     assert result.resolved_questions == []
@@ -483,7 +482,9 @@ def test_propose_decision_result_confirmed_envelope() -> None:
     }
 
 
-def test_propose_decision_result_pending_envelope() -> None:
+def test_propose_decision_result_confirmed_envelope_with_advisory_similars() -> None:
+    """Tier 2 hits ride along on the confirmed envelope as advisory
+    context; the write committed on the same call."""
     related = RelatedDecision(
         id="decision-042",
         title="Adopt PostgreSQL",
@@ -493,18 +494,19 @@ def test_propose_decision_result_pending_envelope() -> None:
         rationale_preview="x",
     )
     result = ProposeDecisionResult(
-        status="pending_confirmation",
+        status="confirmed",
         tier=2,
         operation="add",
-        confirm_id="ab12cd34",
+        decision_id="050-adopt-postgres-readreplicas",
+        touched_decisions=["050-adopt-postgres-readreplicas"],
         similar_decisions=[related],
-        assessment="Tier 2 found similar decisions; awaiting confirmation.",
+        assessment="Tier 2 surfaced similar decisions; review them before further writes.",
     )
     dumped = result.model_dump(mode="json", exclude_none=True)
-    assert dumped["status"] == "pending_confirmation"
-    assert dumped["confirm_id"] == "ab12cd34"
+    assert dumped["status"] == "confirmed"
+    assert dumped["decision_id"] == "050-adopt-postgres-readreplicas"
     assert len(dumped["similar_decisions"]) == 1
-    assert "decision_id" not in dumped
+    assert dumped["similar_decisions"][0]["id"] == "decision-042"
 
 
 def test_propose_decision_result_rejected_envelope() -> None:
@@ -519,7 +521,6 @@ def test_propose_decision_result_rejected_envelope() -> None:
     assert dumped["tier"] == 1
     assert dumped["operation"] == "reject"
     assert dumped["assessment"] == "Title is empty."
-    assert "confirm_id" not in dumped
     assert "decision_id" not in dumped
     assert "error" not in dumped
 

@@ -22,7 +22,6 @@ from nauro_core.constants import (
 )
 from nauro_core.operations import ErrorPayload
 from nauro_core.operations import check_decision as _check_decision_op
-from nauro_core.operations import confirm_decision as _confirm_decision_op
 from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations import get_context as _get_context_op
@@ -231,7 +230,6 @@ def tool_propose_decision(
     reversibility: str | None = None,
     files_affected: list[str] | None = None,
     resolves_questions: list[str] | None = None,
-    skip_validation: bool = False,
 ) -> dict:
     """Propose a new decision through the validation pipeline."""
     guidance = _check_store_exists(store_path)
@@ -303,7 +301,6 @@ def tool_propose_decision(
         reversibility=reversibility,
         files_affected=files_affected,
         resolves_questions=resolves_questions,
-        skip_validation=skip_validation,
         source="mcp",
     )
 
@@ -354,36 +351,7 @@ Args:
     decision_type: Optional category string.
     reversibility: Optional "easy" | "moderate" | "hard".
     files_affected: Optional list of file paths.
-    skip_validation: When True, skip Tier 2 and queue a confirm_id after
-        Tier 1 passes. Use when the caller already ran ``check_decision``.
 """
-
-
-@mcp_tool("confirm_decision")
-def tool_confirm_decision(store_path: Path, confirm_id: str) -> dict:
-    """Confirm a previously proposed decision."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
-    result = _confirm_decision_op(FilesystemStore(store_path), confirm_id)
-    dumped = result.model_dump(mode="json", exclude_none=True)
-    # touched_decisions is consumed adapter-side to drive AGENTS.md regen;
-    # it is not part of the local stdio envelope contract. Pop before
-    # surfacing so byte-identity with the pre-cutover surface is preserved.
-    touched = dumped.pop("touched_decisions", []) or []
-    # resolved_questions only surfaces when the kernel moved at least one id.
-    if not dumped.get("resolved_questions"):
-        dumped.pop("resolved_questions", None)
-
-    response: dict = {"store": "local", **dumped}
-
-    if result.status == "confirmed":
-        if touched:
-            warn_then_regen(store_path.name, store_path)
-        _try_push(store_path)
-
-    return response
 
 
 @mcp_tool("check_decision")

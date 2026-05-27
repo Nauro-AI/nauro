@@ -16,9 +16,6 @@ from nauro_core.constants import (
     DECISIONS_DIR as DECISIONS_DIR,
 )
 from nauro_core.constants import (
-    EXPIRY_MINUTES as EXPIRY_MINUTES,
-)
-from nauro_core.constants import (
     L0_DECISIONS_SUMMARY_LIMIT as L0_DECISIONS_SUMMARY_LIMIT,
 )
 from nauro_core.constants import (
@@ -167,9 +164,6 @@ from nauro_core.parsing import (
 )
 from nauro_core.parsing import (
     parse_questions as parse_questions,
-)
-from nauro_core.pending import (
-    PendingStore as PendingStore,
 )
 from nauro_core.protocol import (
     CANONICAL_FRAGMENTS as CANONICAL_FRAGMENTS,

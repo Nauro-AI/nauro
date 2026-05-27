@@ -26,7 +26,6 @@ side-effects (snapshot, AGENTS.md regen, push) fire only on
 from __future__ import annotations
 
 import pytest
-from nauro_core.operations.propose_decision import _get_pending_store
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.mcp import tools as mcp_tools
@@ -36,12 +35,6 @@ from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
-
-
-@pytest.fixture(autouse=True)
-def _reset_pending_store() -> None:
-    """Each test starts with a clean kernel pending store."""
-    _get_pending_store().clear_all()
 
 
 @pytest.fixture(autouse=True)
@@ -113,9 +106,10 @@ def test_confirmed_envelope_no_touched_decisions(seeded_repo):
     assert "touched_decisions" not in envelope
 
 
-def test_pending_envelope_carries_confirm_id_and_similars(seeded_repo):
-    """A Tier 2 hit routes to pending; the envelope exposes ``confirm_id``
-    and the ``similar_decisions`` list."""
+def test_tier2_hit_still_confirms_with_advisory_similars(seeded_repo):
+    """A Tier 2 hit no longer gates the write — the kernel commits on the
+    same call and the envelope exposes ``similar_decisions`` as advisory
+    context for the agent to surface to the user."""
     _pid, store_path = seeded_repo
     append_decision(
         store_path,
@@ -129,12 +123,11 @@ def test_pending_envelope_carries_confirm_id_and_similars(seeded_repo):
         confidence="high",
     )
     assert envelope["store"] == "local"
-    assert envelope["status"] == "pending_confirmation"
+    assert envelope["status"] == "confirmed"
     assert envelope["tier"] == 2
     assert envelope["operation"] == "add"
-    assert envelope.get("confirm_id")
+    assert envelope.get("decision_id")
     assert envelope.get("similar_decisions"), "Tier 2 hit must include similar_decisions"
-    assert "decision_id" not in envelope
     assert "touched_decisions" not in envelope
 
 
@@ -274,9 +267,9 @@ def test_affected_decision_id_short_form_resolves(seeded_repo):
         operation="supersede",
         affected_decision_id=short_form,
     )
-    # The id resolved; either confirmed or pending_confirmation per
-    # Tier 2 outcome — never rejected with "not found".
-    assert envelope["status"] in ("confirmed", "pending_confirmation")
+    # The id resolved; kernel commits on the same call — never rejected
+    # with "not found".
+    assert envelope["status"] == "confirmed"
 
 
 def test_missing_affected_decision_id_for_supersede_rejects(seeded_repo):
@@ -362,22 +355,16 @@ def test_regen_runs_only_on_confirmed(seeded_repo, monkeypatch):
     # Test-local override takes precedence over the autouse fixture's stub.
     monkeypatch.setattr(mcp_tools, "warn_then_regen", _regen)
 
-    # Pending Tier 2 — no regen.
-    append_decision(
-        store_path,
-        "Adopt PostgreSQL primary database",
-        rationale="Mature ecosystem with strong JSON support and excellent tooling.",
-    )
+    # Tier 1 reject — no regen.
     tool_propose_decision(
         store_path,
-        title="Use PostgreSQL for the data layer",
-        rationale="Better JSON handling than alternatives for our application data.",
+        title="",
+        rationale="A sufficiently long rationale that comfortably exceeds the minimum.",
         confidence="high",
     )
     assert regen_called == []
 
-    # Confirmed add — regen fires (touched_decisions populated). A
-    # totally orthogonal proposal so Tier 2 stays in the auto_confirm branch.
+    # Confirmed add — regen fires (touched_decisions populated).
     second = tool_propose_decision(
         store_path,
         title="Add dark mode toggle to the settings page",
