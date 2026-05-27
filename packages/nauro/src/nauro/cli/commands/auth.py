@@ -35,7 +35,7 @@ DEFAULT_AUTH0_DOMAIN = "dev-q1kuoa1a154u26iw.us.auth0.com"
 DEFAULT_AUTH0_CLIENT_ID = "FoVl59QaztJou17Xqr3e2QYOupAr1Ke3"
 DEFAULT_API_URL = "https://mcp.nauro.ai"
 DEFAULT_AUTH0_AUDIENCE = "https://mcp.nauro.ai/mcp"
-AUTH0_SCOPES = "openid profile offline_access read:context write:context"
+AUTH0_SCOPES = "openid profile email offline_access read:context write:context"
 REDIRECT_PORT = 18457
 REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
 
