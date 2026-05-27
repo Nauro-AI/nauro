@@ -41,7 +41,7 @@ def _render_l0_open_questions(content: str) -> str:
     Walks the parsed block list rather than ``parse_questions`` so the
     entry's ``timestamp`` survives for the age projection. Entries
     physically under ``## Resolved`` are skipped via the divider index.
-    A ``(open NN days — consider closing or deferring)`` line is prepended
+    A ``(open NN days; consider closing or deferring)`` line is prepended
     when ``entry.timestamp`` is set and the entry is older than
     :data:`_L0_AGE_PROJECTION_DAYS`. Q-form entries without a timestamp
     render without the projection.
@@ -68,7 +68,7 @@ def _render_l0_open_questions(content: str) -> str:
         if entry.timestamp is not None:
             age_days = (today - entry.timestamp.date()).days
             if age_days > _L0_AGE_PROJECTION_DAYS:
-                lines.append(f"(open {age_days} days — consider closing or deferring)")
+                lines.append(f"(open {age_days} days; consider closing or deferring)")
         lines.extend(entry.render())
         rendered += 1
 

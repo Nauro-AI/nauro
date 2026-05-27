@@ -271,7 +271,7 @@ class TestBuildL0OpenQuestionsAgeProjection:
         content = f"# Open Questions\n\n- [{_legacy_id(target)}] Old question?\n"
         result = build_l0(self._files(content), [])
         assert "## Open Questions" in result
-        assert "(open 31 days — consider closing or deferring)" in result
+        assert "(open 31 days; consider closing or deferring)" in result
         assert "Old question?" in result
 
     def test_legacy_entry_29_days_old_skips_projection(self):
