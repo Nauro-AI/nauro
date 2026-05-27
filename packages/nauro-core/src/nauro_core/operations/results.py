@@ -249,53 +249,18 @@ class DiffSinceLastSessionResult(BaseModel):
     error: ErrorPayload | None = None
 
 
-class ConfirmDecisionResult(BaseModel):
-    """Return shape for :func:`nauro_core.operations.confirm_decision`.
-
-    Two statuses cover every branch the confirm path returns:
-
-    * ``confirmed`` — the kernel executed the deferred write. ``decision_id``
-      carries the on-disk file stem; ``operation`` echoes the actual write
-      classification (``add`` / ``update`` / ``supersede``);
-      ``touched_decisions`` lists every decision file the kernel rewrote so
-      the adapter can drive AGENTS.md regen. ``title`` echoes the original
-      proposal title; ``resolved_questions`` lists ``open-questions.md`` ids
-      moved under ``## Resolved``.
-    * ``rejected`` — the ``confirm_id`` is unknown or expired, or the
-      deferred write hit a half-state mid-sequence. ``error`` carries the
-      structured payload; ``operation`` is ``reject`` on the unknown-id
-      branch or echoes the deferred operation on the half-state branch.
-      ``touched_decisions`` may carry the partial write list when a
-      half-state surfaces.
-
-    ``store`` is not part of the model; transport adapters add it back at
-    serialization time.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    status: Literal["confirmed", "rejected"]
-    operation: Literal["add", "update", "supersede", "reject"]
-    decision_id: str | None = None
-    touched_decisions: list[str] = Field(default_factory=list)
-    resolved_questions: list[str] = Field(default_factory=list)
-    title: str | None = None
-    error: ErrorPayload | None = None
-
-
 class ProposeDecisionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.propose_decision`.
 
-    Three statuses cover every branch the validation pipeline returns:
+    Two statuses cover every branch the validation pipeline returns:
 
     * ``confirmed`` — the kernel executed the write. ``decision_id``
       carries the on-disk file stem and ``touched_decisions`` lists every
       decision file the kernel rewrote (new id for add, new + old for
-      supersede, updated id for update).
-    * ``pending_confirmation`` — the kernel deferred the write because
-      Tier 2 surfaced similarity, the caller asked for ``skip_validation``,
-      or the operation is ``update``/``supersede``. ``confirm_id`` carries
-      the pending-store handle.
+      supersede, updated id for update). ``similar_decisions`` carries any
+      Tier 2 BM25 hits as advisory context — the agent surfaces them to
+      the human alongside the write rather than treating them as a
+      blocking gate.
     * ``rejected`` — Tier 1 structural failure, ``operation="update"`` with
       disallowed metadata, or unknown/ambiguous ``resolves_questions``
       ids. ``assessment`` names the offending field. ``error`` is set when
@@ -310,12 +275,11 @@ class ProposeDecisionResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    status: Literal["confirmed", "pending_confirmation", "rejected"]
+    status: Literal["confirmed", "rejected"]
     tier: int
     operation: Literal["add", "update", "supersede", "reject"]
     similar_decisions: list[RelatedDecision] = Field(default_factory=list)
     assessment: str = ""
-    confirm_id: str | None = None
     decision_id: str | None = None
     touched_decisions: list[str] = Field(default_factory=list)
     resolved_questions: list[str] = Field(default_factory=list)

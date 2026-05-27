@@ -357,16 +357,15 @@ async def test_log_decision_endpoint(client, tmp_path):
     assert resp.status_code == 200
     data = resp.json()
     # Now goes through propose pipeline
-    assert data["status"] in ("confirmed", "pending_confirmation")
+    assert data["status"] == "confirmed"
 
-    if data["status"] == "confirmed":
-        # Verify the decision was written
-        decisions_dir = tmp_path / "projects" / "testproj" / "decisions"
-        assert any("use-sqlite-for-tests" in f.name for f in decisions_dir.glob("*.md"))
+    # Verify the decision was written
+    decisions_dir = tmp_path / "projects" / "testproj" / "decisions"
+    assert any("use-sqlite-for-tests" in f.name for f in decisions_dir.glob("*.md"))
 
-        # Verify snapshot was triggered
-        snapshots_dir = tmp_path / "projects" / "testproj" / "snapshots"
-        assert len(list(snapshots_dir.glob("v*.json"))) >= 1
+    # Verify snapshot was triggered
+    snapshots_dir = tmp_path / "projects" / "testproj" / "snapshots"
+    assert len(list(snapshots_dir.glob("v*.json"))) >= 1
 
 
 @pytest.mark.asyncio

@@ -19,13 +19,13 @@ Pause only at the two explicit gates marked GATE below.
 
 ## Pre-step — Doctrine triage before the planner spins up
 
-Before invoking `@nauro-planner`, the parent session confirms the planner will run `check_decision` first. The planner's contract already requires this, but the chain enforces it explicitly: if the planner returns a RED verdict (proposal directly contradicts an active decision) and drafts a supersede, the chain pauses before the executor sees anything. The user gates the supersede via `confirm_decision`; only on confirmation does the executor see the approved plan. This is the doctrine equivalent of GATE 1 firing early — a RED that the user does not resolve never reaches code.
+Before invoking `@nauro-planner`, the parent session confirms the planner will run `check_decision` first. The planner's contract already requires this, but the chain enforces it explicitly: if the planner returns a RED verdict (proposal directly contradicts an active decision) and drafts a supersede, the chain pauses before the executor sees anything. The user approves the supersede in chat; only after explicit approval does the planner file via `propose_decision` (which commits immediately) and the executor see the approved plan. This is the doctrine equivalent of GATE 1 firing early — a RED that the user does not resolve never reaches code.
 
 ### 1. Plan
 
 Invoke the `@nauro-planner` subagent with the task description. The planner runs `check_decision` against the proposed approach, classifies as GREEN / AMBER / RED, reads related decision bodies via `get_decision`, investigates the code, and returns a plan in the PR-template shape (Why / Approach / What changes / What's deferred / Test plan), plus the verdict line and any decision number it drafted.
 
-If the planner returns RED with a supersede draft, the chain pauses here. Surface the draft to the user. Only on `confirm_decision` (or an explicit "override RED on the cited decision, proceed") does the chain continue to the executor.
+If the planner returns RED with a supersede draft, the chain pauses here. Surface the draft to the user. Only on explicit user approval (or an explicit "override RED on the cited decision, proceed") does the chain continue to the executor.
 
 ### 2. GATE — plan approval (always when `propose_decision` is in play)
 
@@ -84,6 +84,6 @@ On approval, push the branch and open the PR with the drafted description as the
 ## Rules
 
 - Push and `gh pr create` happen only with explicit user approval at GATE 7.
-- `confirm_decision` happens only with explicit user approval — the planner / executor / tech-lead draft and `propose_decision`, never confirm. Parallel `propose_decision` is safe; parallel `confirm_decision` is not — confirm sequentially.
+- `propose_decision` happens only with explicit user approval — the planner / executor / tech-lead draft, the user approves in chat, then the planner files. The kernel commits immediately on Tier 1 clean.
 - If anything fails or surprises mid-chain (a tool errors, tests fail unexpectedly, a verdict is incoherent), stop and surface to the user rather than recovering silently.
-- The chain is doctrine-aware end-to-end: every architectural choice flows through `check_decision` (at planning), `propose_decision` (when the choice lands), and `confirm_decision` (under user control). Skipping any of those silently is a chain failure, not a shortcut.
+- The chain is doctrine-aware end-to-end: every architectural choice flows through `check_decision` (at planning) and `propose_decision` (when the choice lands, after user approval). Skipping either silently is a chain failure, not a shortcut.

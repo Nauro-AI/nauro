@@ -18,11 +18,9 @@ from pathlib import Path
 import pytest
 from mcp.types import CallToolResult, TextContent
 from nauro_core.operations import flag_question as _flag_question_op
-from nauro_core.operations.propose_decision import _get_pending_store
 
 from nauro.mcp.stdio_server import (
     check_decision,
-    confirm_decision,
     diff_since_last_session,
     flag_question,
     get_context,
@@ -37,13 +35,6 @@ from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
-
-
-@pytest.fixture(autouse=True)
-def _clear_pending():
-    _get_pending_store().clear_all()
-    yield
-    _get_pending_store().clear_all()
 
 
 @pytest.fixture
@@ -170,11 +161,6 @@ class TestSingleBlockWrites:
         )
         assert isinstance(result, dict)
         assert "status" in result
-
-    def test_confirm_decision_returns_dict(self, seeded_store: Path):
-        # An invalid id surfaces an error envelope, still a dict.
-        result = confirm_decision(confirm_id="nonexistent", project_id="blockshape")
-        assert isinstance(result, dict)
 
     def test_flag_question_returns_string(self, seeded_store: Path):
         result = flag_question(question="Need WebSocket?", project_id="blockshape")

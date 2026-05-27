@@ -22,9 +22,6 @@ L1_DECISIONS_SUMMARY_LIMIT = 10
 VALID_CONFIDENCES: set[str] = {"high", "medium", "low"}
 MIN_RATIONALE_LENGTH = 20
 
-# ── Pending confirmation ──
-EXPIRY_MINUTES = 10
-
 # ── Decision hash dedup ──
 DECISION_HASHES_FILE = ".decision-hashes.json"
 

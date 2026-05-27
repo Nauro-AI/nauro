@@ -1,12 +1,11 @@
-"""Tests for auto-push after MCP tool writes (confirm_decision, flag_question, update_state)."""
+"""Tests for auto-push after MCP tool writes (propose_decision, flag_question, update_state)."""
 
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from nauro_core.operations.propose_decision import _get_pending_store
 
-from nauro.mcp.tools import tool_confirm_decision, tool_flag_question, tool_update_state
+from nauro.mcp.tools import tool_flag_question, tool_propose_decision, tool_update_state
 from nauro.templates.scaffolds import scaffold_project_store
 
 
@@ -17,58 +16,49 @@ def store(tmp_path: Path) -> Path:
     return store_path
 
 
-@pytest.fixture(autouse=True)
-def _clear_pending():
-    _get_pending_store().clear_all()
-    yield
-    _get_pending_store().clear_all()
-
-
-def _seed_pending_add(title: str = "Use Redis for hot caching") -> str:
-    """Seed a pending ``add`` entry the kernel can replay on confirm."""
-    return _get_pending_store().store(
-        {
-            "proposal": {
-                "title": title,
-                "rationale": (
+class TestProposeDecisionAutoPush:
+    def test_sync_triggers_after_confirmed_propose(self, store):
+        """push_after_write is called when propose_decision commits."""
+        with patch("nauro.mcp.tools._try_push") as mock_push:
+            result = tool_propose_decision(
+                store,
+                title="Use Redis for hot caching",
+                rationale=(
                     "In-memory cache for hot read paths across the API tier and pub/sub channels."
                 ),
-                "confidence": "medium",
-            },
-            "operation": "add",
-            "affected_decision_id": None,
-        },
-        {"tier": 1, "operation": "add", "similar_decisions": [], "assessment": "seed"},
-    )
-
-
-class TestConfirmDecisionAutoPush:
-    def test_sync_triggers_after_confirm(self, store):
-        """push_after_write is called when the kernel confirms the pending entry."""
-        confirm_id = _seed_pending_add()
-        with patch("nauro.mcp.tools._try_push") as mock_push:
-            result = tool_confirm_decision(store, confirm_id)
+                confidence="medium",
+            )
 
         assert result["status"] == "confirmed"
         mock_push.assert_called_once_with(store)
 
-    def test_sync_not_called_on_error(self, store):
-        """push_after_write is NOT called when the confirm_id is unknown."""
+    def test_sync_not_called_on_rejection(self, store):
+        """push_after_write is NOT called when the kernel rejects the proposal."""
         with patch("nauro.mcp.tools._try_push") as mock_push:
-            result = tool_confirm_decision(store, "bad-id")
+            result = tool_propose_decision(
+                store,
+                title="",
+                rationale="A sufficiently long rationale that comfortably exceeds the minimum.",
+                confidence="medium",
+            )
 
         assert result["status"] == "rejected"
-        assert result["error"]["kind"] == "rejected"
         mock_push.assert_not_called()
 
-    def test_sync_failure_does_not_block_confirm(self, store):
-        """If push_after_write raises, the confirmation result is still returned."""
-        confirm_id = _seed_pending_add()
+    def test_sync_failure_does_not_block_propose(self, store):
+        """If push_after_write raises, the propose result is still returned."""
         with patch(
             "nauro.sync.hooks.push_after_write",
             side_effect=Exception("S3 down"),
         ):
-            result = tool_confirm_decision(store, confirm_id)
+            result = tool_propose_decision(
+                store,
+                title="Use Redis for hot caching",
+                rationale=(
+                    "In-memory cache for hot read paths across the API tier and pub/sub channels."
+                ),
+                confidence="medium",
+            )
 
         assert result["status"] == "confirmed"
         assert result["decision_id"]

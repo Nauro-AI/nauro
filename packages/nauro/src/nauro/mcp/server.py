@@ -4,8 +4,7 @@ Runs on localhost:7432 (configurable). No auth in v1 — local only.
 
 MCP tools:
   - nauro.get_context(level)          → Return project context at L0/L1/L2 detail
-  - nauro.propose_decision()          → Propose a decision with validation
-  - nauro.confirm_decision()          → Confirm a pending decision
+  - nauro.propose_decision()          → Record a decision (single-call commit)
   - nauro.check_decision()            → Check for conflicts without writing
   - nauro.flag_question()             → Flag an open question for human review
   - nauro.update_state()              → Update current project state
@@ -21,7 +20,6 @@ from pydantic import BaseModel
 
 from nauro.mcp.tools import (
     tool_check_decision,
-    tool_confirm_decision,
     tool_flag_question,
     tool_get_context,
     tool_propose_decision,
@@ -75,13 +73,6 @@ class ProposeDecisionRequest(BaseModel):
     decision_type: str | None = None
     reversibility: str | None = None
     files_affected: list[str] | None = None
-    skip_validation: bool = False
-
-
-class ConfirmDecisionRequest(BaseModel):
-    project_id: str | None = None
-    cwd: str | None = None
-    confirm_id: str
 
 
 class CheckDecisionRequest(BaseModel):
@@ -164,18 +155,7 @@ async def propose_decision(req: ProposeDecisionRequest) -> dict:
         decision_type=req.decision_type,
         reversibility=req.reversibility,
         files_affected=req.files_affected,
-        skip_validation=req.skip_validation,
     )
-
-
-@app.post("/confirm_decision")
-async def confirm_decision_endpoint(req: ConfirmDecisionRequest) -> dict:
-    """Confirm a previously proposed decision."""
-    store_path = _resolve_store(req.project_id, req.cwd)
-    result = tool_confirm_decision(store_path, req.confirm_id)
-    if "error" in result:
-        raise HTTPException(status_code=400, detail=result["error"])
-    return result
 
 
 @app.post("/check_decision")

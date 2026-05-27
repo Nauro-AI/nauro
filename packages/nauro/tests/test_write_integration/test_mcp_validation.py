@@ -76,19 +76,6 @@ async def test_propose_decision_short_rationale(client):
 
 
 @pytest.mark.asyncio
-async def test_confirm_decision_invalid_id(client):
-    """Confirming with invalid ID returns error."""
-    resp = await client.post(
-        "/confirm_decision",
-        json={
-            "project_id": "testproj",
-            "confirm_id": "nonexistent-uuid",
-        },
-    )
-    assert resp.status_code == 400
-
-
-@pytest.mark.asyncio
 async def test_check_decision_no_matches(client):
     """Checking an approach against a scaffold-only store.
 
@@ -175,17 +162,9 @@ async def test_propose_decision_with_operation_supersede(client, tmp_path):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["status"] == "pending_confirmation"
-    confirm_id = data["confirm_id"]
-
-    resp = await client.post(
-        "/confirm_decision",
-        json={"project_id": "testproj", "confirm_id": confirm_id},
-    )
-    assert resp.status_code == 200
-    confirm_data = resp.json()
-    assert confirm_data["status"] == "confirmed"
-    assert confirm_data["operation"] == "supersede"
+    # The kernel commits the supersede on the same call.
+    assert data["status"] == "confirmed"
+    assert data["operation"] == "supersede"
 
 
 @pytest.mark.asyncio
@@ -237,7 +216,7 @@ async def test_legacy_log_decision_endpoint(client, tmp_path):
     assert resp.status_code == 200
     data = resp.json()
     # Should go through propose pipeline
-    assert data["status"] in ("confirmed", "rejected", "pending_confirmation")
+    assert data["status"] in ("confirmed", "rejected")
 
 
 @pytest.mark.asyncio
@@ -338,21 +317,10 @@ async def test_supersede_end_to_end_via_check_then_propose(client, tmp_path):
     )
     assert propose_resp.status_code == 200
     propose_data = propose_resp.json()
-    # Either pending_confirmation (Tier 2 also surfaced similarity) or
-    # confirmed (Tier 2 missed; fast path executed the supersede). Both are
-    # valid; what matters is the post-state.
-    if propose_data["status"] == "pending_confirmation":
-        confirm_resp = await client.post(
-            "/confirm_decision",
-            json={"project_id": "testproj", "confirm_id": propose_data["confirm_id"]},
-        )
-        assert confirm_resp.status_code == 200
-        confirm_data = confirm_resp.json()
-        assert confirm_data["status"] == "confirmed"
-        assert confirm_data["operation"] == "supersede"
-    else:
-        assert propose_data["status"] == "confirmed"
-        assert propose_data["operation"] == "supersede"
+    # The kernel commits the supersede on the same call regardless of
+    # whether Tier 2 surfaces advisory similarity hits.
+    assert propose_data["status"] == "confirmed"
+    assert propose_data["operation"] == "supersede"
 
     decisions = _list_decisions(store_path)
     by_title = {d.title: d for d in decisions}

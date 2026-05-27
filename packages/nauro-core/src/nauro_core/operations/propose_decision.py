@@ -9,9 +9,10 @@ all call this function with the same arguments and receive the same
 * ``operation="update"`` disallowed-fields rejection.
 * ``resolves_questions`` boundary validation (unknown ids, ambiguous
   ids).
-* Tier 2 BM25 similarity over the in-store decision corpus.
-* Pending-state mint when validation defers (Tier 2 hit, ``skip_validation``,
-  ``update`` / ``supersede``).
+* Tier 2 BM25 similarity over the in-store decision corpus. Hits surface
+  as advisory ``similar_decisions`` on the same response; they do not
+  block the write. The human approval gate is enforced at the
+  chat-session layer before the agent fires this call.
 * Multi-object writes on supersede (new decision then flipped old) and
   ``resolves_questions`` ingestion. The writes are sequential and
   best-effort: a failure on the second write returns a structured
@@ -55,7 +56,6 @@ from nauro_core.operations.results import (
 )
 from nauro_core.operations.store import Store
 from nauro_core.parsing import extract_decision_number
-from nauro_core.pending import PendingStore
 from nauro_core.questions import EntryBlock, OpenQuestionsFile
 from nauro_core.validation import (
     check_bm25_similarity,
@@ -79,19 +79,6 @@ _UPDATE_DISALLOWED_FIELDS: tuple[str, ...] = (
 
 _SLUG_MAX_LENGTH = 60
 
-# Module-global pending store shared by every kernel call; the confirm
-# path reads from this same singleton.
-_pending_store = PendingStore()
-
-
-def _get_pending_store() -> PendingStore:
-    """Return the module-global pending store.
-
-    Exposed for tests that want to inspect or reset pending state without
-    importing the private module attribute.
-    """
-    return _pending_store
-
 
 def propose_decision(
     store: Store,
@@ -106,17 +93,17 @@ def propose_decision(
     reversibility: Literal["easy", "moderate", "hard"] | None = None,
     files_affected: list[str] | None = None,
     resolves_questions: list[str] | None = None,
-    skip_validation: bool = False,
     source: str | None = None,
 ) -> ProposeDecisionResult:
-    """Run the proposal through the validation pipeline and write on confirm.
+    """Run the proposal through the validation pipeline and commit on Tier 1 clean.
 
     Returns:
-        :class:`ProposeDecisionResult` with ``status`` of ``confirmed`` /
-        ``pending_confirmation`` / ``rejected``. On the confirmed path
-        ``decision_id`` and ``touched_decisions`` are set. On the pending
-        path ``confirm_id`` is set. On the rejected path ``assessment``
-        names the reason and ``error`` carries the structured payload.
+        :class:`ProposeDecisionResult` with ``status`` of ``confirmed`` or
+        ``rejected``. On the confirmed path ``decision_id`` and
+        ``touched_decisions`` are set; ``similar_decisions`` carries any
+        Tier 2 BM25 advisory hits for the agent to surface alongside the
+        write. On the rejected path ``assessment`` names the reason and
+        ``error`` carries the structured payload.
     """
     proposal: dict = {
         "title": title,
@@ -205,90 +192,50 @@ def propose_decision(
             assessment=reason or "Structural validation failed.",
         )
 
-    # --- skip_validation: skip Tier 2, return confirm_id after Tier 1 ---
-    if skip_validation:
-        confirm_id = _pending_store.store(
-            {
-                "proposal": proposal,
-                "operation": operation,
-                "affected_decision_id": affected_decision_id,
-            },
-            {
-                "tier": 1,
-                "operation": operation,
-                "similar_decisions": [],
-                "assessment": "Validation skipped (skip_validation=true). "
-                "Structural checks passed.",
-            },
-        )
-        return ProposeDecisionResult(
-            status="pending_confirmation",
-            tier=1,
-            operation=operation,
-            assessment="Validation skipped (skip_validation=true). Structural checks passed.",
-            confirm_id=confirm_id,
-        )
-
-    # --- Tier 2: BM25 similarity ---
+    # --- Tier 2: BM25 similarity (advisory only — does not gate the write) ---
     parsed_decisions = _parse_all_decisions(store)
-    t2_action, similar_raw = check_bm25_similarity(proposal, parsed_decisions)
-
-    if t2_action == "auto_confirm":
-        # No similar decisions surfaced — execute the caller-supplied
-        # operation. Preserves supersede/update intent even when BM25
-        # misses the affected decision.
-        decision_id, actual_operation, touched, resolved_ids, error = _execute_operation(
-            store, operation, proposal, affected_decision_id
-        )
-        if error is not None:
-            return ProposeDecisionResult(
-                status="rejected",
-                tier=2,
-                operation="reject",
-                assessment=error.reason,
-                error=error,
-                touched_decisions=list(touched),
-            )
-        return ProposeDecisionResult(
-            status="confirmed",
-            tier=2,
-            operation=actual_operation,
-            assessment="No similar existing decisions found.",
-            similar_decisions=[],
-            decision_id=decision_id,
-            touched_decisions=list(touched),
-            resolved_questions=list(resolved_ids),
-        )
-
-    # Tier 2 found similar decisions — route through pending.
+    _t2_action, similar_raw = check_bm25_similarity(proposal, parsed_decisions)
     similar_models = _to_related_decisions(similar_raw, parsed_decisions)
-    confirm_id = _pending_store.store(
-        {
-            "proposal": proposal,
-            "operation": operation,
-            "affected_decision_id": affected_decision_id,
-        },
-        {
-            "tier": 2,
-            "operation": operation,
-            "similar_decisions": [m.model_dump(mode="json") for m in similar_models],
-            "assessment": "Tier 2 found similar decisions; awaiting confirmation.",
-        },
+
+    # --- Commit ---
+    decision_id, actual_operation, touched, resolved_ids, error = _execute_operation(
+        store, operation, proposal, affected_decision_id
     )
+    if error is not None:
+        return ProposeDecisionResult(
+            status="rejected",
+            tier=2,
+            operation="reject",
+            assessment=error.reason,
+            error=error,
+            touched_decisions=list(touched),
+            similar_decisions=similar_models,
+        )
+
+    if similar_models:
+        assessment = (
+            "Tier 2 surfaced similar decisions; review them and confirm with the "
+            "user before proposing further related writes."
+        )
+    else:
+        assessment = "No similar existing decisions found."
+
     return ProposeDecisionResult(
-        status="pending_confirmation",
+        status="confirmed",
         tier=2,
-        operation=operation,
+        operation=actual_operation,
+        assessment=assessment,
         similar_decisions=similar_models,
-        assessment="Tier 2 found similar decisions; awaiting confirmation.",
-        confirm_id=confirm_id,
+        decision_id=decision_id,
+        touched_decisions=list(touched),
+        resolved_questions=list(resolved_ids),
     )
 
 
 def _write_decision_direct(store: Store, proposal: dict) -> str:
     """Write a proposal as a new decision and return the resulting decision id.
 
-    Private helper shared by the validated ``propose_decision`` confirm path
+    Private helper shared by the validated ``propose_decision`` write path
     and CLI write paths (``nauro note``) that bypass the validation
     pipeline. Updates the in-store hash index after a successful write so
     subsequent Tier 1 checks catch exact duplicates.

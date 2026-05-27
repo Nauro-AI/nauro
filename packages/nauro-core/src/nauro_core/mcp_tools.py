@@ -261,9 +261,8 @@ CHECK_DECISION: ToolSpec = {
         "Use this to consult the project's decision history before committing "
         'to an approach — especially when the user asks "should we...", '
         '"what if we...", "can we...", or "check if...". If check_decision '
-        "returns no related decisions and you want to record the choice, call "
-        "propose_decision next with skip_validation=true to avoid redundant "
-        "BM25 work."
+        "returns no related decisions and you want to record the choice, "
+        "call propose_decision next."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -289,23 +288,19 @@ PROPOSE_DECISION: ToolSpec = {
     "name": "propose_decision",
     "title": "Propose a decision",
     "description": (
-        "Propose a new architectural decision for validation and recording.\n"
+        "Record an architectural decision. The kernel commits on Tier 1 "
+        "structural validation pass; the write is single-call.\n"
         "\n"
-        "Runs a deterministic validation pipeline before queueing the write:\n"
-        "- Tier 1: Structural validation (required fields, length limits)\n"
-        "- Tier 2: BM25 similarity check against existing decisions\n"
+        "Tier 2 BM25 similarity is advisory: any hits return on "
+        "similar_decisions in the response and do not block the write. "
+        "Review similar_decisions before drafting and surface them to the "
+        "user; the human-in-the-loop gate is the chat-session approval "
+        "before this call, not a second tool call after it.\n"
         "\n"
-        "When Tier 2 finds similar decisions, returns status=pending_confirmation "
-        "with a confirm_id; the agent must call confirm_decision to commit. When "
-        "no similar decisions exist, the write happens immediately.\n"
-        "\n"
-        "If you already called check_decision for this approach and read the "
-        "related decisions, pass skip_validation=true to skip Tier 2. Tier 1 "
-        "structural validation always runs.\n"
-        "\n"
-        "Call this when you choose between two or more approaches, replace or "
-        "remove a dependency, establish a new pattern, or cut scope. Always "
-        "include what was rejected and why."
+        "Call this when you choose between two or more approaches, replace "
+        "or remove a dependency, establish a new pattern, or cut scope. "
+        "Always include what was rejected and why. Do not propose without "
+        "explicit user consent on the drafted body."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
     "input_schema": {
@@ -405,50 +400,9 @@ PROPOSE_DECISION: ToolSpec = {
                     "(L0 surfaces the open questions) to discover the ids."
                 ),
             },
-            "skip_validation": {
-                "type": "boolean",
-                "default": False,
-                "description": (
-                    "Skip Tier 2 BM25 matching (Tier 1 always runs). Use when you "
-                    "already called check_decision and read the related decisions."
-                ),
-            },
             "project_id": _PROJECT_PARAM,
         },
         "required": ["title", "rationale"],
-    },
-}
-
-CONFIRM_DECISION: ToolSpec = {
-    "name": "confirm_decision",
-    "title": "Confirm proposed decision",
-    "description": (
-        "Confirm a previously proposed decision, committing it to the store.\n"
-        "\n"
-        "Only needed when propose_decision returns status=pending_confirmation. "
-        "The confirm_id expires after 10 minutes — if it has expired, call "
-        "propose_decision again to get a fresh id. Calling confirm_decision "
-        "twice with the same id is safe; only the first call writes.\n"
-        "\n"
-        "On the cloud HTTP MCP, treat each propose→confirm as a single "
-        "uninterrupted pair: call confirm_decision before issuing another "
-        "propose_decision (or any other write). Pending state lives in "
-        "process memory on the serving instance; interleaving writes can "
-        "land the confirm on a different instance and surface as an "
-        '"Invalid or expired confirm_id" error well inside the 10-minute '
-        "TTL. The local stdio MCP has no equivalent constraint."
-    ),
-    "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": True},
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "confirm_id": {
-                "type": "string",
-                "description": "The confirm_id returned by propose_decision.",
-            },
-            "project_id": _PROJECT_PARAM,
-        },
-        "required": ["confirm_id"],
     },
 }
 
@@ -554,7 +508,6 @@ ALL_TOOLS: tuple[ToolSpec, ...] = (
     SEARCH_DECISIONS,
     CHECK_DECISION,
     PROPOSE_DECISION,
-    CONFIRM_DECISION,
     FLAG_QUESTION,
     UPDATE_STATE,
     LIST_PROJECTS,

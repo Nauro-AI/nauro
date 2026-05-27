@@ -1,12 +1,16 @@
 """Kernel-level tests for ``operations.propose_decision``.
 
 Each test seeds an :class:`~nauro_core.operations.InMemoryStore` so the
-Tier 1 / Tier 2 plumbing, pending mint, multi-object write, and
-``resolves_questions`` ingestion exercise the locked Store protocol
-without any filesystem dependency. Surface-level wiring (snapshot
-capture, push hooks, length validation, envelope-token rejection,
-``affected_decision_id`` resolution, AGENTS.md regen) lives in the
-consumer package; the kernel must never reach into those primitives.
+Tier 1 / Tier 2 plumbing, multi-object write, and ``resolves_questions``
+ingestion exercise the locked Store protocol without any filesystem
+dependency. Surface-level wiring (snapshot capture, push hooks, length
+validation, envelope-token rejection, ``affected_decision_id``
+resolution, AGENTS.md regen) lives in the consumer package; the kernel
+must never reach into those primitives.
+
+The single-call flow commits on Tier 1 clean; Tier 2 BM25 hits surface
+as advisory ``similar_decisions`` on the same response rather than
+gating the write.
 """
 
 from __future__ import annotations
@@ -30,13 +34,6 @@ from nauro_core.operations import (
     ProposeDecisionResult,
     propose_decision,
 )
-from nauro_core.operations.propose_decision import _get_pending_store
-
-
-@pytest.fixture(autouse=True)
-def _reset_pending_store() -> None:
-    """Each test starts with a clean pending store."""
-    _get_pending_store().clear_all()
 
 
 def _seed_decision(
@@ -112,7 +109,6 @@ def test_result_exclude_none_strips_unset_fields() -> None:
         confidence="medium",
     )
     dumped = result.model_dump(mode="json", exclude_none=True)
-    assert "confirm_id" not in dumped
     assert "error" not in dumped
     assert dumped["status"] == "confirmed"
 
@@ -169,50 +165,51 @@ def test_add_auto_confirm_branch_when_unrelated_decisions_exist() -> None:
     assert result.decision_id is not None
 
 
-# ── add: Tier 2 pending path ────────────────────────────────────────────
+# ── Tier 2 advisory similar_decisions ──────────────────────────────────
 
 
-def test_add_similar_decision_routes_to_pending() -> None:
-    store = _store_with(
-        _seed_decision(
-            1,
-            "Adopt PostgreSQL primary database",
-            "Mature ecosystem with strong JSON support and excellent tooling.",
-        ),
-    )
-    result = propose_decision(
-        store,
-        title="Use PostgreSQL for the data layer",
-        rationale="Better JSON handling than alternatives for our application data.",
-        confidence="medium",
-    )
-    assert result.status == "pending_confirmation"
-    assert result.tier == 2
-    assert result.operation == "add"
-    assert result.confirm_id is not None
-    assert len(result.similar_decisions) >= 1
-    assert result.decision_id is None
-    # No decision file written on the pending branch.
-    assert store.list_decisions() == ["001-adopt-postgresql-primary-database"]
+class TestAdvisorySimilarDecisions:
+    """Tier 2 BM25 hits surface as advisory ``similar_decisions`` on the
+    same response. The write still commits — the human approval gate
+    lives at the chat-session layer, not in the kernel."""
 
+    def test_similar_decision_still_confirms_and_surfaces_advisory_hits(self) -> None:
+        store = _store_with(
+            _seed_decision(
+                1,
+                "Adopt PostgreSQL primary database",
+                "Mature ecosystem with strong JSON support and excellent tooling.",
+            ),
+        )
+        result = propose_decision(
+            store,
+            title="Use PostgreSQL for the data layer",
+            rationale="Better JSON handling than alternatives for our application data.",
+            confidence="medium",
+        )
+        # The write committed on the same call — no pending state.
+        assert result.status == "confirmed"
+        assert result.tier == 2
+        assert result.operation == "add"
+        assert result.decision_id is not None
+        # The Tier 2 hit rides along as advisory context.
+        assert len(result.similar_decisions) >= 1
+        # The decision file landed on disk despite the similarity hit.
+        assert result.decision_id in store.list_decisions()
+        assert "similar" in result.assessment.lower()
 
-def test_pending_branch_skip_validation_true() -> None:
-    """``skip_validation=True`` mints a confirm_id after Tier 1 only."""
-    store = InMemoryStore()
-    result = propose_decision(
-        store,
-        title="Adopt Redis for hot caching",
-        rationale="In-memory cache for the hot read paths across the API tier.",
-        confidence="medium",
-        skip_validation=True,
-    )
-    assert result.status == "pending_confirmation"
-    assert result.tier == 1
-    assert result.operation == "add"
-    assert result.confirm_id is not None
-    assert result.similar_decisions == []
-    # No decision file written.
-    assert store.list_decisions() == []
+    def test_no_similar_decision_returns_empty_advisory_list(self) -> None:
+        store = _store_with(
+            _seed_decision(1, "Adopt PostgreSQL", "ACID transactional semantics."),
+        )
+        result = propose_decision(
+            store,
+            title="Add dark mode toggle to settings page",
+            rationale="Users have requested a dark theme for reduced eye strain.",
+            confidence="medium",
+        )
+        assert result.status == "confirmed"
+        assert result.similar_decisions == []
 
 
 # ── supersede ───────────────────────────────────────────────────────────
@@ -234,37 +231,27 @@ def test_supersede_writes_both_files_and_flips_frontmatter() -> None:
         operation="supersede",
         affected_decision_id="decision-001",
     )
-    # Supersede skips Tier 2 only when no similarity surfaces; with the
-    # seeded match it routes to pending. Confirm via the kernel's
-    # private execute path mirrors what the adapter does on confirm.
-    if result.status == "pending_confirmation":
-        from nauro_core.operations.propose_decision import _execute_operation
-
-        pending = _get_pending_store().get(result.confirm_id)
-        assert pending is not None
-        data = pending["proposal"]
-        decision_id, actual_op, touched, _resolved, error = _execute_operation(
-            store,
-            data["operation"],
-            data["proposal"],
-            data["affected_decision_id"],
-        )
-        assert error is None
-        assert actual_op == "supersede"
-        assert decision_id is not None
-        assert set(touched) >= {decision_id, "001-adopt-postgresql-primary-database"}
-        new_body = store.read_decision(decision_id)
-        assert new_body is not None
-        assert "supersedes:" in new_body
-        old_body = store.read_decision("001-adopt-postgresql-primary-database")
-        assert old_body is not None
-        assert "status: superseded" in old_body
-        assert "superseded_by:" in old_body
+    # The kernel commits the supersede write on the same call. Tier 2
+    # advisory similar_decisions may ride along; the write stands.
+    assert result.status == "confirmed"
+    assert result.operation == "supersede"
+    assert result.decision_id is not None
+    assert set(result.touched_decisions) >= {
+        result.decision_id,
+        "001-adopt-postgresql-primary-database",
+    }
+    new_body = store.read_decision(result.decision_id)
+    assert new_body is not None
+    assert "supersedes:" in new_body
+    old_body = store.read_decision("001-adopt-postgresql-primary-database")
+    assert old_body is not None
+    assert "status: superseded" in old_body
+    assert "superseded_by:" in old_body
 
 
-def test_supersede_pending_forced_when_no_similarity() -> None:
-    """``operation="supersede"`` flowing through the Tier 2 auto_confirm
-    branch still executes the write at the kernel level."""
+def test_supersede_no_similarity_still_executes_write() -> None:
+    """``operation="supersede"`` with no Tier 2 hit still performs the
+    multi-object write on the same call."""
     store = _store_with(
         _seed_decision(1, "Adopt PostgreSQL", "ACID transactional semantics."),
     )
@@ -279,8 +266,6 @@ def test_supersede_pending_forced_when_no_similarity() -> None:
         operation="supersede",
         affected_decision_id="decision-001",
     )
-    # Without similarity the kernel takes the auto-confirm branch and
-    # performs the supersede write.
     assert result.status == "confirmed"
     assert result.operation == "supersede"
     assert set(result.touched_decisions) == {
@@ -313,30 +298,16 @@ def test_update_appends_rationale_paragraph() -> None:
         operation="update",
         affected_decision_id="decision-001",
     )
-    # update against a similar-titled seed routes through pending; confirm
-    # via the kernel's private execute path mirrors what the adapter
-    # does on confirm.
-    if result.status == "pending_confirmation":
-        from nauro_core.operations.propose_decision import _execute_operation
-
-        pending = _get_pending_store().get(result.confirm_id)
-        assert pending is not None
-        data = pending["proposal"]
-        decision_id, actual_op, touched, _resolved, error = _execute_operation(
-            store,
-            data["operation"],
-            data["proposal"],
-            data["affected_decision_id"],
-        )
-        assert error is None
-        assert actual_op == "update"
-        assert decision_id == "001-adopt-postgresql"
-        assert touched == ("001-adopt-postgresql",)
-        body = store.read_decision(decision_id)
-        assert body is not None
-        assert "managed-extensions clause" in body
-        # The version frontmatter incremented.
-        assert "version: 2" in body
+    # The kernel commits the rationale append on the same call.
+    assert result.status == "confirmed"
+    assert result.operation == "update"
+    assert result.decision_id == "001-adopt-postgresql"
+    assert result.touched_decisions == ["001-adopt-postgresql"]
+    body = store.read_decision("001-adopt-postgresql")
+    assert body is not None
+    assert "managed-extensions clause" in body
+    # The version frontmatter incremented.
+    assert "version: 2" in body
 
 
 def test_update_disallowed_field_rejected_loudly() -> None:

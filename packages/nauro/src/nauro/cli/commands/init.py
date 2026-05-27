@@ -140,9 +140,9 @@ def init(
     Cloud-mode entries cannot be extended this way — use ``nauro attach``.
     """
     # --demo seeds pre-written decisions directly to disk; the --cloud path
-    # goes through propose_decision/confirm_decision, which has no batch-seed
-    # bypass. Reject the combination at command entry rather than silently
-    # dropping --demo inside the --cloud branch.
+    # goes through propose_decision, which has no batch-seed bypass. Reject
+    # the combination at command entry rather than silently dropping --demo
+    # inside the --cloud branch.
     if demo and cloud:
         raise typer.BadParameter(
             "Cannot combine --demo with --cloud — the demo fixture seeds "

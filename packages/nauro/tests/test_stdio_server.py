@@ -6,13 +6,11 @@ from unittest.mock import patch
 import pytest
 from mcp.types import CallToolResult
 from nauro_core.operations import flag_question as _flag_question_op
-from nauro_core.operations.propose_decision import _get_pending_store
 
 from nauro.mcp.stdio_server import (
     _pull_on_startup,
     _resolve_store,
     check_decision,
-    confirm_decision,
     flag_question,
     get_context,
     get_raw_file,
@@ -56,13 +54,6 @@ def store(tmp_path: Path, monkeypatch) -> Path:
     _append_question(store_path, "Should we add caching?")
 
     return store_path
-
-
-@pytest.fixture(autouse=True)
-def _clear_pending():
-    _get_pending_store().clear_all()
-    yield
-    _get_pending_store().clear_all()
 
 
 class TestResolveStore:
@@ -152,48 +143,15 @@ class TestProposeDecision:
         snapshots = list((store / "snapshots").glob("v*.json"))
         assert len(snapshots) >= 1
 
-    def test_skip_validation_returns_confirm_id(self, store: Path):
-        result = propose_decision(
-            project_id="testproj",
-            title="Skip Validation Decision",
-            rationale="Testing skip_validation returns a confirm_id without tier-2/tier-3.",
-            skip_validation=True,
-        )
-        assert result["status"] == "pending_confirmation"
-        assert "confirm_id" in result
-        assessment = result["assessment"].lower()
-        assert "skip_validation" in assessment or "skipped" in assessment
-
-    def test_skip_validation_still_runs_tier1(self, store: Path):
-        result = propose_decision(
-            project_id="testproj",
-            title="",
-            rationale="Some rationale text here.",
-            skip_validation=True,
-        )
-        assert result["status"] == "rejected"
-
-    def test_skip_validation_confirm_flow(self, store: Path):
-        result = propose_decision(
-            project_id="testproj",
-            title="Confirm After Skip",
-            rationale="Testing that confirm_decision works after skip_validation.",
-            skip_validation=True,
-        )
-        assert result["status"] == "pending_confirmation"
-        cid = result["confirm_id"]
-
-        confirmed = confirm_decision(confirm_id=cid, project_id="testproj")
-        assert confirmed["status"] == "confirmed"
-
-    def test_default_false_unchanged(self, store: Path):
+    def test_default_path_confirms_on_clean_input(self, store: Path):
         result = propose_decision(
             project_id="testproj",
             title="Default Validation Decision",
-            rationale="Testing that default skip_validation=false works normally.",
+            rationale="Testing that the default pipeline commits on Tier 1 clean.",
         )
-        # Default behavior — should go through full pipeline
-        assert result["status"] in ("confirmed", "pending_confirmation")
+        # The kernel commits on the same call. Tier 2 hits may surface
+        # as advisory similar_decisions but never gate the write.
+        assert result["status"] == "confirmed"
 
 
 class TestProposeDecisionResolvesQuestions:
@@ -240,24 +198,6 @@ class TestProposeDecisionResolvesQuestions:
         assert "2099-01-01 00:00 UTC" in assessment
         assert "resolves_questions" in assessment
 
-    def test_pending_then_confirm_applies_move(self, store: Path):
-        question_id = self._seed_question(store)
-        result = propose_decision(
-            project_id="testproj",
-            title="Closes via pending path",
-            rationale="Routes through skip_validation→confirm to exercise pending storage.",
-            resolves_questions=[question_id],
-            skip_validation=True,
-        )
-        assert result["status"] == "pending_confirmation"
-        cid = result["confirm_id"]
-        # Question not yet moved.
-        assert "## Resolved" not in (store / "open-questions.md").read_text()
-        confirmed = confirm_decision(confirm_id=cid, project_id="testproj")
-        assert confirmed["status"] == "confirmed"
-        assert confirmed.get("resolved_questions") == [question_id]
-        assert "## Resolved" in (store / "open-questions.md").read_text()
-
 
 class TestWelcomeDisambiguation:
     """WELCOME_NO_PROJECT is reserved for the genuinely-no-project case.
@@ -294,15 +234,6 @@ class TestWelcomeDisambiguation:
         result = get_raw_file(path="project.md")
         assert result["status"] == "error"
         assert "Welcome to Nauro" in result["guidance"]
-
-
-class TestConfirmDecision:
-    def test_confirm_invalid_id(self, store: Path):
-        result = confirm_decision(
-            confirm_id="nonexistent-uuid",
-            project_id="testproj",
-        )
-        assert "error" in result
 
 
 class TestCheckDecision:
@@ -394,7 +325,7 @@ class TestToolRegistration:
         tool_names = [t.name for t in mcp._tool_manager.list_tools()]
         assert "get_context" in tool_names
         assert "propose_decision" in tool_names
-        assert "confirm_decision" in tool_names
+        assert "confirm_decision" not in tool_names
         assert "check_decision" in tool_names
         assert "flag_question" in tool_names
         assert "update_state" in tool_names
@@ -448,7 +379,6 @@ class TestToolSpecDescriptionsReachAgent:
             ("propose_decision", "decision_type", "category"),
             ("propose_decision", "reversibility", "reverse"),
             ("propose_decision", "files_affected", "paths"),
-            ("propose_decision", "skip_validation", "Tier 2"),
             ("check_decision", "proposed_approach", "approach"),
             ("check_decision", "context", "context"),
             ("get_context", "level", "L0"),
@@ -458,7 +388,6 @@ class TestToolSpecDescriptionsReachAgent:
             ("search_decisions", "query", "Search text"),
             ("flag_question", "question", "question"),
             ("update_state", "delta", "Description of what changed"),
-            ("confirm_decision", "confirm_id", "confirm_id"),
         ],
     )
     def test_per_property_descriptions_reach_agent(
@@ -492,9 +421,9 @@ class TestToolSpecDescriptionsReachAgent:
             assert dt in decision_type_enum
         assert {"easy", "moderate", "hard"} == set(params["reversibility"]["anyOf"][0]["enum"])
 
-    def test_eleven_tools_registered(self):
+    def test_ten_tools_registered(self):
         tools = mcp._tool_manager.list_tools()
-        assert len(tools) == 11
+        assert len(tools) == 10
 
     @pytest.mark.parametrize(
         "tool",
@@ -507,7 +436,6 @@ class TestToolSpecDescriptionsReachAgent:
             "search_decisions",
             "check_decision",
             "propose_decision",
-            "confirm_decision",
             "flag_question",
             "update_state",
         ],

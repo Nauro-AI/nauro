@@ -33,8 +33,7 @@ READ_TOOL_ROWS: list[tuple[str, str]] = [
 ]
 
 WRITE_TOOL_ROWS: list[tuple[str, str]] = [
-    ("propose_decision(project, title, rationale, ...)", "propose a decision for validation"),
-    ("confirm_decision(confirm_id)", "confirm a validated decision"),
+    ("propose_decision(project, title, rationale, ...)", "record a decision (single-call commit)"),
     ("flag_question(project, question, context)", "flag an open question"),
     ("update_state(project, delta)", "report what was completed"),
 ]

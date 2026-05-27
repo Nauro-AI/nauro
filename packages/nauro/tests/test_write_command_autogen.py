@@ -1,12 +1,10 @@
-"""End-to-end tests for the auto-generated ``propose-decision`` and
-``confirm-decision`` CLI commands.
+"""End-to-end tests for the auto-generated ``propose-decision`` CLI command.
 
 Three concerns are pinned here:
 
-* Happy paths through the write tools land the same envelope the adapter
+* Happy paths through the write tool land the same envelope the adapter
   returns (auto-confirmed adds, supersedes with ``--operation supersede
-  --affected-decision-id``, pending-confirmation followed by
-  ``confirm-decision``).
+  --affected-decision-id``).
 * Rejection paths surface kernel ``status="rejected"`` envelopes on
   stdout at exit 0 (caller-fixable) and ``status="error"`` guidance on
   stderr at exit 1 (transport-level).
@@ -25,7 +23,6 @@ from pathlib import Path
 
 import pytest
 from nauro_core.constants import MAX_RATIONALE_LENGTH
-from nauro_core.operations.propose_decision import _get_pending_store
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -38,14 +35,6 @@ from tests._ansi import strip_ansi
 from tests._writer_compat import append_decision
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def _reset_pending_store() -> None:
-    """Each test starts with a clean kernel pending store."""
-    _get_pending_store().clear_all()
-    yield
-    _get_pending_store().clear_all()
 
 
 @pytest.fixture(autouse=True)
@@ -105,24 +94,6 @@ class TestProposeDecisionHappyPaths:
         assert envelope["operation"] == "add"
         assert "decision_id" in envelope
 
-    def test_skip_validation_flag(self, seeded_repo) -> None:
-        result = runner.invoke(
-            app,
-            [
-                "propose-decision",
-                "Adopt Redis for hot caching",
-                "In-memory cache for the hot read paths across the API tier.",
-                "--skip-validation",
-            ],
-        )
-        # skip_validation bypasses Tier 2, so the auto-confirm short-circuit
-        # never runs; Tier 1 hands off via confirm_id.
-        assert result.exit_code == 0, result.output
-        envelope = json.loads(result.stdout)
-        assert envelope["status"] == "pending_confirmation"
-        assert envelope["tier"] == 1
-        assert envelope.get("confirm_id")
-
     def test_supersede_with_affected_decision_id(self, seeded_repo) -> None:
         _pid, store_path, _repo = seeded_repo
         append_decision(
@@ -148,40 +119,9 @@ class TestProposeDecisionHappyPaths:
         )
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.stdout)
-        # Either confirmed (Tier 2 clean) or pending_confirmation (Tier 2 hit);
-        # both are acceptable — the point is the affected_decision_id resolved.
-        assert envelope["status"] in ("confirmed", "pending_confirmation")
+        # The kernel commits on the same call; affected_decision_id resolved.
+        assert envelope["status"] == "confirmed"
         assert envelope["operation"] == "supersede"
-
-
-class TestConfirmDecisionHappyPath:
-    def test_confirm_after_pending(self, seeded_repo) -> None:
-        _pid, store_path, _repo = seeded_repo
-        # Seed a similar decision so Tier 2 routes the next add to pending.
-        append_decision(
-            store_path,
-            "Adopt PostgreSQL primary database",
-            rationale="Mature ecosystem with strong JSON support and excellent tooling.",
-        )
-        propose = runner.invoke(
-            app,
-            [
-                "propose-decision",
-                "Use PostgreSQL for the data layer",
-                "Better JSON handling than alternatives for our application data.",
-            ],
-        )
-        assert propose.exit_code == 0, propose.output
-        propose_env = json.loads(propose.stdout)
-        assert propose_env["status"] == "pending_confirmation"
-        confirm_id = propose_env["confirm_id"]
-
-        confirm = runner.invoke(app, ["confirm-decision", confirm_id])
-        assert confirm.exit_code == 0, confirm.output
-        confirm_env = json.loads(confirm.stdout)
-        assert confirm_env["store"] == "local"
-        assert confirm_env["status"] == "confirmed"
-        assert "decision_id" in confirm_env
 
 
 # ── Rejection paths ─────────────────────────────────────────────────────────
@@ -257,19 +197,6 @@ class TestProposeDecisionRejections:
         )
         assert result.exit_code == 1
         assert "No project found" in result.output
-
-
-class TestConfirmDecisionRejections:
-    def test_unknown_confirm_id_rejection_envelope(self, seeded_repo) -> None:
-        result = runner.invoke(app, ["confirm-decision", "no-such-id"])
-        # Unknown confirm_ids land status="rejected" with a structured
-        # ErrorPayload; the wrapper exits 0 — the envelope on stdout
-        # carries the reason and the user can fix the call.
-        assert result.exit_code == 0, result.output
-        envelope = json.loads(result.stdout)
-        assert envelope["status"] == "rejected"
-        assert envelope["error"]["kind"] == "rejected"
-        assert "confirm_id" in envelope["error"]["reason"].lower()
 
 
 # ── Flag-shape coverage ─────────────────────────────────────────────────────

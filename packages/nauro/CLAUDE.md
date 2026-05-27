@@ -38,17 +38,16 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
 - `nauro diff-since-last-session [--days N]` — semantic diff against the previous snapshot (or N days back when supplied)
-- `nauro propose-decision <title> <rationale> [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` — propose a decision; auto-confirms on Tier 2 clean, otherwise returns a `confirm_id`
-- `nauro confirm-decision <confirm_id>` — confirm a previously proposed decision
+- `nauro propose-decision <title> <rationale> [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` — record a decision (single-call commit on Tier 1 clean; Tier 2 BM25 hits surface as advisory `similar_decisions` on the same response)
 - `nauro serve` — start the MCP server on localhost:7432
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
 
 `list[str]` flags (`--files-affected`, `--resolves-questions`) repeat: `--files-affected a.py --files-affected b.py`. `list[dict]` flags (`--rejected`) take a single JSON value: inline (`'[{...}]'`), `@file.json`, or `-` to read from stdin.
 
-## MCP tools (12 total in `nauro_core.mcp_tools` — 8 read, 4 write)
+## MCP tools (11 total in `nauro_core.mcp_tools` — 8 read, 3 write)
 
-The local stdio server registers 11; `list_projects` is remote-only since local installs auto-resolve to the single project store.
+The local stdio server registers 10; `list_projects` is remote-only since local installs auto-resolve to the single project store.
 
 Read:
 - `get_context(project, level)` — L0 concise summary, L1 working set, L2 full dump
@@ -61,8 +60,7 @@ Read:
 - `list_projects()` — list user's projects (remote-only)
 
 Write:
-- `propose_decision(project, title, rationale, ...)` — propose a decision for validation
-- `confirm_decision(confirm_id)` — confirm a validated decision
+- `propose_decision(project, title, rationale, ...)` — record a decision (single-call commit on Tier 1 clean)
 - `flag_question(project, question, context)` — flag an open question
 - `update_state(project, delta)` — report what was completed
 

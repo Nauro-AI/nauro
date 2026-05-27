@@ -12,7 +12,6 @@ CLI-specific constants are defined locally.
 from nauro_core.constants import DECISION_HASHES_FILE as DECISION_HASHES_FILE
 from nauro_core.constants import DECISION_TYPES as DECISION_TYPES
 from nauro_core.constants import DECISIONS_DIR as DECISIONS_DIR
-from nauro_core.constants import EXPIRY_MINUTES as EXPIRY_MINUTES
 from nauro_core.constants import L0_DECISIONS_SUMMARY_LIMIT as L0_DECISIONS_SUMMARY_LIMIT
 from nauro_core.constants import L0_QUESTIONS_LIMIT as L0_QUESTIONS_LIMIT
 from nauro_core.constants import L1_DECISIONS_LIMIT as L1_DECISIONS_LIMIT
