@@ -113,6 +113,8 @@ def _short_circuit_if_resolved(
         if isinstance(block, EntryBlock):
             entries_by_id.setdefault(block.entry.id, block)
 
+    # Iterate ``targets`` in caller order; the first resolved hit wins the
+    # rejection envelope. Priority belongs to the caller, not file position.
     for target in targets:
         block = entries_by_id.get(target)
         if block is None or block.entry.resolved_by is None:
