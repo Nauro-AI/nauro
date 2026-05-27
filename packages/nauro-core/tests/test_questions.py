@@ -364,6 +364,38 @@ class TestResolve:
         assert result.unknown_ids == ("2026-05-12 20:18 UTC",)
         assert result.file.format() == content
 
+    def test_resolve_mutates_in_place_block_index_preserved(self):
+        """Pin the in-place mutation contract: a resolved entry keeps its
+        position in ``blocks``. ``resolve`` flips ``resolved_by`` on the
+        matching EntryBlock without relocating it under ``## Resolved``.
+        """
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] first open\n"
+            "- [2026-05-11 15:29 UTC] second open\n"
+            "- [2026-05-10 09:00 UTC] third open\n"
+        )
+        file = OpenQuestionsFile.parse(content)
+        entry_ids_before = [b.entry.id for b in file.blocks if isinstance(b, EntryBlock)]
+        result = file.resolve(["2026-05-11 15:29 UTC"], 139, date(2026, 5, 14))
+        entry_ids_after = [b.entry.id for b in result.file.blocks if isinstance(b, EntryBlock)]
+        # Block index of every entry stays where it was.
+        assert entry_ids_before == entry_ids_after
+        # The middle entry now carries a resolved_by ref; siblings stay open.
+        flags = [
+            b.entry.resolved_by is not None
+            for b in result.file.blocks
+            if isinstance(b, EntryBlock)
+        ]
+        assert flags == [False, True, False]
+        # The resolved entry's rendered line stays inside the open section
+        # of the file (before the appended divider), reflecting in-place mutation.
+        rendered = result.file.format()
+        resolved_idx = rendered.index("[Resolved by D139 on 2026-05-14]")
+        divider_idx = rendered.index("## Resolved")
+        assert resolved_idx < divider_idx
+
 
 class TestEntryRender:
     def test_open_form(self):

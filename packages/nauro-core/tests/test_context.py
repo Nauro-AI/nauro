@@ -1,6 +1,7 @@
 """Tests for nauro_core.context — L0/L1/L2 context assembly."""
 
 from datetime import date as _date
+from datetime import datetime, timedelta, timezone
 
 from nauro_core.context import build_l0, build_l1, build_l2
 from nauro_core.decision_model import (
@@ -44,12 +45,12 @@ FULL_FILES = {
     ),
     "questions.md": (
         "# Open Questions\n"
-        "- [2026-01-01 UTC] How does auth work?\n"
-        "- [2026-01-02 UTC] What about caching?\n"
-        "- [2026-01-03 UTC] Redis or Memcached?\n"
-        "- [2026-01-04 UTC] Deploy strategy?\n"
-        "- [2026-01-05 UTC] Monitoring setup?\n"
-        "- [2026-01-06 UTC] Sixth question?\n"
+        "- [Q1] How does auth work?\n"
+        "- [Q2] What about caching?\n"
+        "- [Q3] Redis or Memcached?\n"
+        "- [Q4] Deploy strategy?\n"
+        "- [Q5] Monitoring setup?\n"
+        "- [Q6] Sixth question?\n"
     ),
 }
 
@@ -237,3 +238,134 @@ class TestBuildL2:
     def test_state_md_fallback_l2(self):
         result = build_l2(FULL_FILES, [])
         assert "# State" in result
+
+
+def _legacy_id(target_date) -> str:
+    """Render a legacy ``[YYYY-MM-DD HH:MM UTC]`` id for ``target_date``."""
+    return target_date.strftime("%Y-%m-%d") + " 12:00 UTC"
+
+
+class TestBuildL0OpenQuestionsAgeProjection:
+    """L0 prepends an age hint above open questions older than 30 days.
+
+    Walks ``OpenQuestionsFile.parse(...).blocks`` so the entry's
+    ``timestamp`` is available for the age computation. Q-form entries
+    without a minted-at timestamp render without the projection.
+
+    Tests pin the threshold by sourcing ``today`` from the same
+    ``datetime.now(timezone.utc).date()`` the builder uses, so the
+    boundary assertions stay deterministic regardless of wall-clock
+    timezone offsets.
+    """
+
+    _PROJECTION_PREFIX = "(open"
+
+    def _files(self, content: str) -> dict[str, str]:
+        return {"questions.md": content}
+
+    def _today(self):
+        return datetime.now(timezone.utc).date()
+
+    def test_legacy_entry_31_days_old_renders_projection(self):
+        target = self._today() - timedelta(days=31)
+        content = f"# Open Questions\n\n- [{_legacy_id(target)}] Old question?\n"
+        result = build_l0(self._files(content), [])
+        assert "## Open Questions" in result
+        assert "(open 31 days — consider closing or deferring)" in result
+        assert "Old question?" in result
+
+    def test_legacy_entry_29_days_old_skips_projection(self):
+        target = self._today() - timedelta(days=29)
+        content = f"# Open Questions\n\n- [{_legacy_id(target)}] Fresh question?\n"
+        result = build_l0(self._files(content), [])
+        assert "## Open Questions" in result
+        assert "Fresh question?" in result
+        assert self._PROJECTION_PREFIX not in result
+
+    def test_legacy_entry_30_days_old_skips_projection(self):
+        # 30-day boundary: projection fires only on > 30 days (strictly older).
+        # Exactly-30 stays clean so the threshold is not noisily reached on
+        # the first day a question crosses month-old territory.
+        target = self._today() - timedelta(days=30)
+        content = f"# Open Questions\n\n- [{_legacy_id(target)}] Right on the line?\n"
+        result = build_l0(self._files(content), [])
+        assert "Right on the line?" in result
+        assert self._PROJECTION_PREFIX not in result
+
+    def test_q_form_entry_renders_without_projection(self):
+        # Q-form entries do not carry a minted-at timestamp today, so the
+        # projection skips them regardless of age. The gap closes when
+        # flag_question stamps minted-at on Q-form entries (out of scope).
+        content = "# Open Questions\n\n- [Q5] Q-form has no timestamp.\n"
+        result = build_l0(self._files(content), [])
+        assert "Q-form has no timestamp." in result
+        assert self._PROJECTION_PREFIX not in result
+
+    def test_only_first_three_open_entries_render(self):
+        # Honours L0_QUESTIONS_LIMIT (3). The fourth open entry is dropped
+        # even when older than 30 days; the projection doesn't expand the cap.
+        today = self._today()
+        content = (
+            "# Open Questions\n"
+            "\n"
+            f"- [{_legacy_id(today - timedelta(days=40))}] first?\n"
+            f"- [{_legacy_id(today - timedelta(days=35))}] second?\n"
+            f"- [{_legacy_id(today - timedelta(days=33))}] third?\n"
+            f"- [{_legacy_id(today - timedelta(days=60))}] fourth?\n"
+        )
+        result = build_l0(self._files(content), [])
+        assert "first?" in result
+        assert "second?" in result
+        assert "third?" in result
+        assert "fourth?" not in result
+
+    def test_resolved_entries_skipped_in_l0(self):
+        # Entries physically under ## Resolved (position-based partition)
+        # are not L0 surface. They must not render even when fresh.
+        today = self._today()
+        old_id = _legacy_id(today - timedelta(days=60))
+        content = (
+            "# Open Questions\n"
+            "\n"
+            f"- [{_legacy_id(today - timedelta(days=2))}] still open?\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            f"- [Resolved by D42 on 2026-05-01] [{old_id}] resolved old?\n"
+        )
+        result = build_l0(self._files(content), [])
+        assert "still open?" in result
+        assert "resolved old?" not in result
+
+    def test_empty_questions_file_renders_nothing(self):
+        result = build_l0(self._files(""), [])
+        assert "## Open Questions" not in result
+
+    def test_projection_appears_above_its_entry(self):
+        # Pin layout: the projection line precedes the entry it nudges,
+        # not below it, so the hint is read before the question body.
+        target = self._today() - timedelta(days=45)
+        content = f"# Open Questions\n\n- [{_legacy_id(target)}] Stale question?\n"
+        result = build_l0(self._files(content), [])
+        proj_idx = result.index("(open 45 days")
+        entry_idx = result.index("Stale question?")
+        assert proj_idx < entry_idx
+
+    def test_mixed_ages_only_old_get_projection(self):
+        today = self._today()
+        content = (
+            "# Open Questions\n"
+            "\n"
+            f"- [{_legacy_id(today - timedelta(days=45))}] Old one?\n"
+            f"- [{_legacy_id(today - timedelta(days=5))}] Recent one?\n"
+        )
+        result = build_l0(self._files(content), [])
+        # Old one carries a projection; recent one does not.
+        assert "(open 45 days" in result
+        assert "Old one?" in result
+        assert "Recent one?" in result
+        # No projection lurks between the old entry and the recent one.
+        recent_idx = result.index("Recent one?")
+        old_idx = result.index("Old one?")
+        between = result[old_idx + len("Old one?") : recent_idx]
+        assert self._PROJECTION_PREFIX not in between

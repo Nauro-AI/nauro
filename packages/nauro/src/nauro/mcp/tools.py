@@ -419,6 +419,7 @@ def tool_flag_question(
     store_path: Path,
     question: str,
     context: str | None = None,
+    targets: list[str] | None = None,
 ) -> dict:
     """Flag an open question for human review. Always writes the question."""
     guidance = _check_store_exists(store_path)
@@ -461,8 +462,7 @@ def tool_flag_question(
     text = question
     if context:
         text = f"{question} (context: {context})"
-    result = _flag_question_op(FilesystemStore(store_path), text, None)
-    capture_snapshot(store_path, trigger=f"question: {question}")
+    result = _flag_question_op(FilesystemStore(store_path), text, None, targets=targets)
 
     response: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
     # The kernel result carries ``num`` for callers that want the minted id;
@@ -470,6 +470,13 @@ def tool_flag_question(
     # for the local surface envelope. Adapters that want the id can read it
     # from the on-disk file or call the kernel directly.
     response.pop("num", None)
+
+    if result.status == "rejected":
+        # Kernel short-circuit fired; no write happened — skip snapshot and push
+        # so the on-disk store stays untouched and observers see a clean reject.
+        return response
+
+    capture_snapshot(store_path, trigger=f"question: {question}")
     if hint:
         response["hint"] = hint
     _try_push(store_path)

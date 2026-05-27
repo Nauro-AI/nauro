@@ -428,7 +428,15 @@ CONFIRM_DECISION: ToolSpec = {
         "Only needed when propose_decision returns status=pending_confirmation. "
         "The confirm_id expires after 10 minutes — if it has expired, call "
         "propose_decision again to get a fresh id. Calling confirm_decision "
-        "twice with the same id is safe; only the first call writes."
+        "twice with the same id is safe; only the first call writes.\n"
+        "\n"
+        "On the cloud HTTP MCP, treat each propose→confirm as a single "
+        "uninterrupted pair: call confirm_decision before issuing another "
+        "propose_decision (or any other write). Pending state lives in "
+        "process memory on the serving instance; interleaving writes can "
+        "land the confirm on a different instance and surface as an "
+        '"Invalid or expired confirm_id" error well inside the 10-minute '
+        "TTL. The local stdio MCP has no equivalent constraint."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -469,6 +477,20 @@ FLAG_QUESTION: ToolSpec = {
             "context": {
                 "type": "string",
                 "description": "Optional context about why this question matters.",
+            },
+            "targets": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Optional list of candidate question ids (Q### or legacy "
+                    "timestamp form) this flag may duplicate. When any named id "
+                    "is already resolved by a decision, the server short-circuits "
+                    "without appending and the response names the resolving "
+                    "decision. Pass when call_context (e.g. a Q### surfaced in "
+                    "L0 you suspect this flag re-raises) makes the duplicate "
+                    "plausible. Freshness is bounded by the most recent pull, "
+                    "so a remote resolution may be missed by a stale local copy."
+                ),
             },
             "project_id": _PROJECT_PARAM,
         },
