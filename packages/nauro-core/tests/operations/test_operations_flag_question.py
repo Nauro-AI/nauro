@@ -139,6 +139,112 @@ def test_store_field_absent_from_result_model_dump() -> None:
     assert "store" not in dumped
 
 
+# --- targets short-circuit ---
+
+
+def _resolved_q5_seed() -> str:
+    return (
+        "# Open Questions\n"
+        "\n"
+        "- [Q1] still open\n"
+        "- [Resolved by D42 on 2026-05-20] [Q5] already resolved by D42\n"
+        "\n"
+        "## Resolved\n"
+    )
+
+
+def test_targets_pointing_at_resolved_entry_short_circuits() -> None:
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: _resolved_q5_seed()})
+    before = store.read_file(OPEN_QUESTIONS_MD)
+    result = flag_question(store, "duplicate of Q5", targets=["Q5"])
+    assert result.status == "rejected"
+    assert result.num is None
+    assert result.error is not None
+    assert result.error.kind == "rejected"
+    assert "D42" in result.error.reason
+    # No write happened on the rejection path.
+    assert store.read_file(OPEN_QUESTIONS_MD) == before
+
+
+def test_targets_pointing_at_open_entry_appends_normally() -> None:
+    seed = "# Open Questions\n\n- [Q1] still open\n- [Q5] also still open\n"
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    result = flag_question(store, "follow-up to Q5", targets=["Q5"])
+    assert result.status == "ok"
+    assert result.num == 6
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert "- [Q6] follow-up to Q5" in content
+
+
+def test_targets_with_unknown_id_falls_through_and_appends() -> None:
+    seed = "# Open Questions\n\n- [Q1] only known id\n"
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    result = flag_question(store, "new flag", targets=["Q99"])
+    assert result.status == "ok"
+    assert result.num == 2
+
+
+def test_targets_none_skips_short_circuit_check() -> None:
+    """``targets=None`` is the back-compat path; existing callers see no
+    change. A resolved id in the file is ignored when targets isn't passed."""
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: _resolved_q5_seed()})
+    result = flag_question(store, "unrelated flag")
+    assert result.status == "ok"
+    # Q5 stays the highest existing num; mint Q6.
+    assert result.num == 6
+
+
+def test_targets_empty_list_skips_short_circuit_check() -> None:
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: _resolved_q5_seed()})
+    result = flag_question(store, "unrelated flag", targets=[])
+    assert result.status == "ok"
+    assert result.num == 6
+
+
+def test_targets_with_multiple_ids_first_resolved_wins() -> None:
+    """When more than one id matches, the kernel rejects on the first
+    already-resolved hit and names that decision in the envelope."""
+    seed = (
+        "# Open Questions\n"
+        "\n"
+        "- [Resolved by D42 on 2026-05-20] [Q5] resolved by D42\n"
+        "- [Resolved by D77 on 2026-05-21] [Q7] resolved by D77\n"
+    )
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    result = flag_question(store, "dup", targets=["Q5", "Q7"])
+    assert result.status == "rejected"
+    assert result.error is not None
+    # The envelope names the first matched id's resolving decision.
+    assert "Q5" in result.error.reason
+    assert "D42" in result.error.reason
+
+
+def test_targets_with_legacy_timestamp_id_short_circuits() -> None:
+    """Short-circuit treats legacy timestamp ids the same as Q### ids."""
+    seed = (
+        "# Open Questions\n"
+        "\n"
+        "- [Resolved by D99 on 2026-05-10] "
+        "[2026-04-30 10:00 UTC] legacy resolved\n"
+    )
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    result = flag_question(store, "dup", targets=["2026-04-30 10:00 UTC"])
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "D99" in result.error.reason
+
+
+def test_short_circuit_envelope_mentions_working_copy_freshness() -> None:
+    """The rejection envelope must call out the working-copy freshness
+    bound so callers know stale local state may miss a remote resolution."""
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: _resolved_q5_seed()})
+    result = flag_question(store, "dup", targets=["Q5"])
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "pull" in result.error.reason.lower()
+
+
 # --- Import-graph negative constraint ---
 #
 # The kernel must not depend on snapshot capture, sync hooks, or

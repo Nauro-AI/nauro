@@ -7,6 +7,8 @@ can omit project.md for AGENTS.md compatibility) without nauro-core needing
 to know about I/O.
 """
 
+from datetime import datetime, timezone
+
 from nauro_core.constants import (
     L0_DECISIONS_SUMMARY_LIMIT,
     L0_QUESTIONS_LIMIT,
@@ -18,14 +20,59 @@ from nauro_core.parsing import (
     decisions_summary_lines,
     extract_current_state,
     extract_stack_oneliner,
-    parse_questions,
 )
+from nauro_core.questions import EntryBlock, OpenQuestionsFile
 from nauro_core.state import assemble_state_for_context
+
+# Open questions older than this nudge the reader to close or defer.
+# Q-form entries without a minted-at timestamp silently skip the projection
+# until ``flag_question`` starts stamping them.
+_L0_AGE_PROJECTION_DAYS = 30
 
 
 def _active_decisions(decisions: list[Decision]) -> list[Decision]:
     """Filter to active decisions only."""
     return [d for d in decisions if d.status is DecisionStatus.active]
+
+
+def _render_l0_open_questions(content: str) -> str:
+    """Render the first ``L0_QUESTIONS_LIMIT`` open ``EntryBlock``s for L0.
+
+    Walks the parsed block list rather than ``parse_questions`` so the
+    entry's ``timestamp`` survives for the age projection. Entries
+    physically under ``## Resolved`` are skipped via the divider index.
+    A ``(open NN days; consider closing or deferring)`` line is prepended
+    when ``entry.timestamp`` is set and the entry is older than
+    :data:`_L0_AGE_PROJECTION_DAYS`. Q-form entries without a timestamp
+    render without the projection.
+    """
+    if not content.strip():
+        return ""
+
+    parsed = OpenQuestionsFile.parse(content)
+    divider = parsed.resolved_divider_idx
+    today = datetime.now(timezone.utc).date()
+
+    lines: list[str] = []
+    rendered = 0
+    for idx, block in enumerate(parsed.blocks):
+        if divider is not None and idx >= divider:
+            break
+        if not isinstance(block, EntryBlock):
+            continue
+        if block.entry.resolved_by is not None:
+            continue
+        if rendered >= L0_QUESTIONS_LIMIT:
+            break
+        entry = block.entry
+        if entry.timestamp is not None:
+            age_days = (today - entry.timestamp.date()).days
+            if age_days > _L0_AGE_PROJECTION_DAYS:
+                lines.append(f"(open {age_days} days; consider closing or deferring)")
+        lines.extend(entry.render())
+        rendered += 1
+
+    return "\n".join(lines)
 
 
 def _resolve_state(files: dict[str, str]) -> str | None:
@@ -84,10 +131,9 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
         sections.append("**Stack:** " + oneliner)
 
     questions_content = files.get("questions.md", "")
-    questions = parse_questions(questions_content)
-    if questions:
-        top = questions[:L0_QUESTIONS_LIMIT]
-        sections.append("## Open Questions\n" + "\n".join(top))
+    rendered_questions = _render_l0_open_questions(questions_content)
+    if rendered_questions:
+        sections.append("## Open Questions\n" + rendered_questions)
 
     active = _active_decisions(decisions)
     if active:

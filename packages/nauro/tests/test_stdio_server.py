@@ -336,6 +336,49 @@ class TestFlagQuestion:
         assert "Need auth?" in oq
         assert "For the admin API" in oq
 
+    def test_targets_short_circuits_against_resolved_entry(self, store: Path):
+        """Adapter wires ``targets`` through to the kernel. A flag aimed
+        at an already-resolved id rejects without writing and the
+        returned string carries the resolving decision number."""
+        resolved_seed = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-20] [Q5] resolved earlier\n"
+            "\n"
+            "## Resolved\n"
+        )
+        (store / "open-questions.md").write_text(resolved_seed)
+        before = (store / "open-questions.md").read_text()
+
+        result = flag_question(
+            project_id="testproj",
+            question="Duplicate of Q5?",
+            targets=["Q5"],
+        )
+
+        # Rejection envelope surfaces as the assertion string for FastMCP.
+        assert "D42" in result
+        assert "Q5" in result
+        # The on-disk file is not mutated on the short-circuit path.
+        assert (store / "open-questions.md").read_text() == before
+
+    def test_targets_with_open_entry_appends_normally(self, store: Path):
+        """When the targeted id is open (not yet resolved), the adapter
+        falls through to the normal append path."""
+        open_seed = "# Open Questions\n\n- [Q5] still open\n"
+        (store / "open-questions.md").write_text(open_seed)
+
+        result = flag_question(
+            project_id="testproj",
+            question="Follow-up to Q5?",
+            targets=["Q5"],
+        )
+
+        # Normal append path returns the success string ("flagged" or hint).
+        assert "flagged" in result.lower() or "addressed" in result.lower()
+        oq = (store / "open-questions.md").read_text()
+        assert "Follow-up to Q5?" in oq
+
 
 class TestUpdateState:
     def test_updates_state(self, store: Path):

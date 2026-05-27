@@ -379,6 +379,9 @@ def flag_question(
     context: Annotated[
         str | None, Field(description=_param_desc("flag_question", "context"))
     ] = None,
+    targets: Annotated[
+        list[str] | None, Field(description=_param_desc("flag_question", "targets"))
+    ] = None,
     project_id: Annotated[
         str | None, Field(description=_param_desc("flag_question", "project_id"))
     ] = None,
@@ -390,7 +393,11 @@ def flag_question(
         return WELCOME_NO_PROJECT
     except StoreResolutionError as exc:
         return str(exc)
-    result = tool_flag_question(store_path, question, context)
+    result = tool_flag_question(store_path, question, context, targets=targets)
+    if result.get("status") == "rejected":
+        error = result.get("error") or {}
+        reason = error.get("reason", "Flag rejected.")
+        return reason
     if result.get("hint"):
         return f"{result['hint']} The question has still been logged."
     return "Question flagged."
