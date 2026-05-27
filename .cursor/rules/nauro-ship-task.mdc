@@ -59,7 +59,7 @@ If the reviewer returns BLOCK, hand the hard-rule failures back to the `@nauro-e
 
 ### 6. Doctrine pass
 
-When the reviewer returns APPROVE or APPROVE WITH NITS, invoke `@nauro-tech-lead` in Mode C on the same local diff. The tech-lead reads decisions, scans the diff for architectural choices, and returns GREEN / AMBER / RED with any drafted supersede or update confirm_ids.
+When the reviewer returns APPROVE or APPROVE WITH NITS, invoke `@nauro-tech-lead` in Mode C on the same local diff. The tech-lead reads decisions, scans the diff for architectural choices, and returns GREEN / AMBER / RED with any drafted supersede / update awaiting user approval.
 
 - **GREEN** — proceed to GATE.
 - **AMBER** — surface the constraints to the user alongside the push gate; user decides whether to address before push or document as a follow-up.

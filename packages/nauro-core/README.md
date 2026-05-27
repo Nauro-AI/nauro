@@ -15,7 +15,6 @@ pip install nauro-core
 - **`parsing`** — pure `str → dict` functions: `parse_decision`, `parse_questions`, `extract_stack_summary`, `decisions_summary_lines`
 - **`context`** — `build_l0`/`build_l1`/`build_l2` context assembly from pre-loaded files and parsed decisions
 - **`validation`** — structural screening, hash dedup, Jaccard similarity for decision conflict detection
-- **`pending`** — `PendingStore` for the propose/confirm decision workflow
 
 ## Design principles
 
