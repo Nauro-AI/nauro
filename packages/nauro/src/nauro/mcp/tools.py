@@ -8,8 +8,11 @@ strings for FastMCP compatibility).
 
 from __future__ import annotations
 
+import functools
 import logging
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from nauro_core.constants import (
     MAX_CONTEXT_LENGTH,
@@ -55,6 +58,55 @@ from nauro.telemetry.decorators import mcp_tool
 from nauro.templates.agents_md_regen import warn_then_regen
 
 logger = logging.getLogger("nauro.mcp.tools")
+
+
+def _project_identity(store_path: Path) -> dict:
+    """Best-effort project identity (name + id) for the response envelope.
+
+    The store directory name is the v2 project id (ULID) or, for a legacy v1
+    store, the project name itself. Resolve the human-readable name from the
+    registry when the store is v2; fall back to the directory name otherwise.
+    Never raises — identity is advisory, and a lookup failure must not break a
+    tool response.
+    """
+    key = store_path.name
+    try:
+        from nauro.store.registry import RegistrySchemaError, get_project_v2
+
+        try:
+            entry = get_project_v2(key)
+        except RegistrySchemaError:
+            entry = None
+        if entry is not None:
+            return {"id": key, "name": entry.get("name") or key}
+    except Exception:
+        logger.debug("project identity resolution failed for %s", key, exc_info=True)
+    return {"id": None, "name": key}
+
+
+def _stamp_identity(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Add ``project`` identity to a tool's ``store='local'`` response envelope.
+
+    Stacks under ``@mcp_tool`` so every return path — success, rejection, and
+    store-missing error — carries the resolved project name + id alongside the
+    ``store`` field (D061's store indicator, extended to project identity).
+    Local surface only; the remote mcp-server envelope is unchanged.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        result = func(*args, **kwargs)
+        store_path = args[0] if args else kwargs.get("store_path")
+        if (
+            isinstance(result, dict)
+            and isinstance(store_path, Path)
+            and result.get("store") == "local"
+            and "project" not in result
+        ):
+            result["project"] = _project_identity(store_path)
+        return result
+
+    return wrapper
 
 
 def _reject_if_too_long(value: str, label: str, max_length: int) -> dict | None:
@@ -183,6 +235,7 @@ def _snapshot_diff_section(store_path: Path) -> str:
 
 
 @mcp_tool("get_context")
+@_stamp_identity
 def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
     """Return project context at the requested detail level."""
     guidance = _check_store_exists(store_path)
@@ -218,6 +271,7 @@ def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
 
 
 @mcp_tool("propose_decision")
+@_stamp_identity
 def tool_propose_decision(
     store_path: Path,
     title: str = "",
@@ -355,6 +409,7 @@ Args:
 
 
 @mcp_tool("check_decision")
+@_stamp_identity
 def tool_check_decision(
     store_path: Path,
     proposed_approach: str,
@@ -383,6 +438,7 @@ Check for conflicts with existing decisions without writing anything.
 
 
 @mcp_tool("flag_question")
+@_stamp_identity
 def tool_flag_question(
     store_path: Path,
     question: str,
@@ -452,6 +508,7 @@ def tool_flag_question(
 
 
 @mcp_tool("get_raw_file")
+@_stamp_identity
 def tool_get_raw_file(store_path: Path, path: str) -> dict:
     """Return raw content of any file in the project store."""
     guidance = _check_store_exists(store_path)
@@ -489,6 +546,7 @@ def tool_get_raw_file(store_path: Path, path: str) -> dict:
 
 
 @mcp_tool("list_decisions")
+@_stamp_identity
 def tool_list_decisions(
     store_path: Path,
     limit: int = 20,
@@ -503,6 +561,7 @@ def tool_list_decisions(
 
 
 @mcp_tool("get_decision")
+@_stamp_identity
 def tool_get_decision(store_path: Path, number: int) -> dict:
     """Return full content of a specific decision by number."""
     guidance = _check_store_exists(store_path)
@@ -513,6 +572,7 @@ def tool_get_decision(store_path: Path, number: int) -> dict:
 
 
 @mcp_tool("diff_since_last_session")
+@_stamp_identity
 def tool_diff_since_last_session(
     store_path: Path,
     days: int | None = None,
@@ -541,6 +601,7 @@ def tool_diff_since_last_session(
 
 
 @mcp_tool("search_decisions")
+@_stamp_identity
 def tool_search_decisions(
     store_path: Path,
     query: str,
@@ -555,6 +616,7 @@ def tool_search_decisions(
 
 
 @mcp_tool("update_state")
+@_stamp_identity
 def tool_update_state(store_path: Path, delta: str) -> dict:
     """Update current project state. Returns a warning on keyword overlap."""
     guidance = _check_store_exists(store_path)

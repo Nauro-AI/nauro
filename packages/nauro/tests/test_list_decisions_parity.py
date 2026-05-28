@@ -89,6 +89,7 @@ def test_empty_store_envelope_matches_across_surfaces(empty_repo):
     pid, store_path = empty_repo
     tool = _tool_envelope(store_path)
     assert _stdio_rendered(pid) == RENDERERS["list_decisions"](tool)
+    assert tool.pop("project")["id"] == pid
     assert tool == {"store": "local", "decisions": []}
 
 
@@ -179,4 +180,7 @@ def test_store_missing_guidance_branch_on_tool(tmp_path):
     missing_store = tmp_path / "no-such-store"
     assert not missing_store.exists()
     envelope = _tool_envelope(missing_store)
+    # Identity is best-effort: an unregistered/missing store falls back to the
+    # directory name with no id.
+    assert envelope.pop("project") == {"id": None, "name": "no-such-store"}
     assert envelope == {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
