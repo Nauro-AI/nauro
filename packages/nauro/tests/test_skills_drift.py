@@ -174,6 +174,10 @@ RETIRED_PHRASES = [
         "Step 5b — Boundary candidates",
         "split into Step 6b (code-evidenced) + Step 6c (stack inventory)",
     ),
+    (
+        "confirm_decision",
+        "confirm_decision was removed; propose_decision is now a single-call commit",
+    ),
 ]
 
 

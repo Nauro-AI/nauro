@@ -196,8 +196,13 @@ def test_adopt_with_subagents_installs_all_four(tmp_path: Path, monkeypatch):
         assert target.read_text(encoding="utf-8") == render_agent("claude_code", name)
 
 
-def test_adopt_with_subagents_preserves_customized_file(tmp_path: Path, monkeypatch):
-    """A locally-modified ``nauro-planner.md`` must be left alone without ``--force-overwrite``."""
+def test_adopt_with_subagents_refreshes_differing_file_with_backup(tmp_path: Path, monkeypatch):
+    """A differing ``nauro-planner.md`` is refreshed from the bundle; prior content goes to .bak.
+
+    The ``nauro-*`` namespace is bundle-owned, so a stale earlier bundle (the
+    common case) is replaced with the current one. The displaced content is
+    recoverable from ``nauro-planner.md.bak`` for the rare hand-edit.
+    """
     _adopt_env(monkeypatch, tmp_path)
     custom = "---\nname: nauro-planner\n---\n\ncustom body\n"
     target = _agent_path(tmp_path, "nauro-planner")
@@ -207,13 +212,15 @@ def test_adopt_with_subagents_preserves_customized_file(tmp_path: Path, monkeypa
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
     assert result.exit_code == 0, result.output
 
-    assert target.read_text(encoding="utf-8") == custom
-    assert "preserved" in result.output
-    assert "nauro-planner" in result.output
+    assert target.read_text(encoding="utf-8") == render_agent("claude_code", "nauro-planner")
+    backup = target.parent / (target.name + ".bak")
+    assert backup.read_text(encoding="utf-8") == custom
+    assert "updated" in result.output
+    assert ".bak" in result.output
 
 
-def test_adopt_with_subagents_force_overwrite_replaces_customized_file(tmp_path: Path, monkeypatch):
-    """``--force-overwrite`` replaces a locally-modified bundled agent."""
+def test_adopt_with_subagents_force_overwrite_skips_backup(tmp_path: Path, monkeypatch):
+    """``--force-overwrite`` replaces a differing bundled agent in place, writing no .bak."""
     _adopt_env(monkeypatch, tmp_path)
     custom = "---\nname: nauro-planner\n---\n\ncustom body\n"
     target = _agent_path(tmp_path, "nauro-planner")
@@ -226,6 +233,26 @@ def test_adopt_with_subagents_force_overwrite_replaces_customized_file(tmp_path:
     assert result.exit_code == 0, result.output
 
     assert target.read_text(encoding="utf-8") == render_agent("claude_code", "nauro-planner")
+    assert not (target.parent / (target.name + ".bak")).exists()
+
+
+def test_with_subagents_reinstall_is_idempotent(tmp_path: Path, monkeypatch):
+    """A second install with no bundle change is a no-op — no churned .bak files.
+
+    Driven via ``setup all`` (re-runnable) rather than ``adopt`` (which refuses
+    an already-adopted repo); the materialize-agents code path is shared.
+    """
+    _adopt_env(monkeypatch, tmp_path)
+
+    first = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
+    assert first.exit_code == 0, first.output
+
+    result = runner.invoke(app, ["setup", "all", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+
+    target = _agent_path(tmp_path, "nauro-planner")
+    assert "unchanged" in result.output
+    assert not (target.parent / (target.name + ".bak")).exists()
 
 
 def test_adopt_with_subagents_does_not_touch_user_authored_planner_md(tmp_path: Path, monkeypatch):

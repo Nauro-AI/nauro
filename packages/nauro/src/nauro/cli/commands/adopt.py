@@ -147,9 +147,10 @@ def adopt(
         False,
         "--force-overwrite",
         help=(
-            "Replace locally-modified ~/.claude/agents/nauro-*.md files when "
-            "--with-subagents is passed. Off by default; without this flag, "
-            "existing files are preserved."
+            "Overwrite ~/.claude/agents/nauro-*.md in place without saving a "
+            ".bak, when --with-subagents is passed. By default, install "
+            "refreshes a differing bundled file and stashes its prior content "
+            "to <name>.md.bak."
         ),
     ),
     with_skills: bool = typer.Option(

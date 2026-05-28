@@ -63,6 +63,23 @@ def test_render_agent_claude_code_returns_body(name: str) -> None:
     assert rendered.startswith(f"---\nname: {name}\n")
 
 
+# Retired tool / mechanism names that must never reappear in a rendered agent
+# body. ``confirm_decision`` was removed when propose_decision collapsed to a
+# single-call commit; a stale reference would tell the subagent to call a tool
+# that no longer exists.
+RETIRED_AGENT_PHRASES: tuple[tuple[str, str], ...] = (
+    ("confirm_decision", "confirm_decision was removed; propose_decision is a single-call commit"),
+)
+
+
+@pytest.mark.parametrize("name", list(AGENT_NAMES))
+@pytest.mark.parametrize("phrase,reason", RETIRED_AGENT_PHRASES)
+def test_agent_body_has_no_retired_phrases(name: str, phrase: str, reason: str) -> None:
+    assert phrase not in render_agent("claude_code", name), (
+        f"retired phrase {phrase!r} found in {name}.md: {reason}"
+    )
+
+
 @pytest.mark.parametrize("name", list(AGENT_NAMES))
 def test_render_agent_cursor_raises_not_implemented(name: str) -> None:
     with pytest.raises(NotImplementedError):
