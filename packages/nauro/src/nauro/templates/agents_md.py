@@ -62,6 +62,7 @@ def generate_agents_md(
     l0_payload: str,
     manual_section: str | None = None,
     *,
+    project_id: str | None = None,
     skills_section: str | None = None,
     section_order: list[str] | None = None,
 ) -> str:
@@ -71,6 +72,8 @@ def generate_agents_md(
         project_name: Name of the Nauro project.
         l0_payload: L0 context payload from build_l0_payload.
         manual_section: Preserved manual section content, or None.
+        project_id: v2 project id (ULID). When set, the store-routing block
+            tells agents which id to pass; omitted for legacy v1 projects.
         skills_section: Preserved ``## Skills`` content, or None to omit.
         section_order: Order in which to emit preserved sections — list of
             ``"skills"`` and/or ``"manual"``. Defaults to source-appearance
@@ -90,6 +93,25 @@ def generate_agents_md(
 
     # L0 payload
     parts.append(f"## Project: {project_name}\n\n{l0_payload}\n")
+
+    # Store-routing block. This file lives in the working copy, so any agent
+    # reading it is on a machine with the local store — where the stdio server
+    # is the canonical transport (it resolves the store from this repo and
+    # pulls remote changes on startup). Steer agents to the local tools so a
+    # separately-mounted cloud connector under the same name does not capture
+    # calls to the wrong store.
+    project_id_line = (
+        f"Pass `project_id: {project_id}` on calls that accept it. " if project_id else ""
+    )
+    parts.append(
+        "## Nauro store for this repo\n\n"
+        "This repo's Nauro store is served locally. Use the `mcp__nauro__*` tools "
+        "(the local stdio server). "
+        f"{project_id_line}"
+        "If a cloud Nauro connector (e.g. `mcp__claude_ai_Nauro__*`) is also mounted, "
+        "prefer the local `mcp__nauro__*` tools for this repo — they read the working "
+        "copy on this machine.\n"
+    )
 
     # MCP tools and behavioral instructions. Counts are derived from the
     # row catalogs above so they can never drift from the rendered lists.
@@ -170,6 +192,7 @@ def regenerate_agents_md_for_project(project_key: str, store_path: Path) -> list
 
     repo_paths: list[str] = []
     display_name = project_key
+    project_id: str | None = None
 
     try:
         v2_entry = get_project_v2(project_key)
@@ -178,6 +201,7 @@ def regenerate_agents_md_for_project(project_key: str, store_path: Path) -> list
     if v2_entry is not None:
         repo_paths = list(v2_entry.get("repo_paths", []))
         display_name = v2_entry.get("name", project_key)
+        project_id = project_key  # v2 registry is id-keyed
     else:
         registry = load_registry()
         entry = registry["projects"].get(project_key, {})
@@ -196,6 +220,7 @@ def regenerate_agents_md_for_project(project_key: str, store_path: Path) -> list
             display_name,
             l0_payload,
             manual_section=preserved.manual,
+            project_id=project_id,
             skills_section=preserved.skills,
             section_order=preserved.order or None,
         )
