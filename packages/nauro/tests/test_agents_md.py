@@ -45,6 +45,24 @@ def test_generate_includes_behavioral_instructions():
     assert "Update state" in result
 
 
+def test_routing_block_steers_to_local_stdio_with_project_id():
+    """The store-routing block names the local tools and the id to pass."""
+    result = generate_agents_md("myproj", "payload", project_id="01ABCXYZ")
+    assert "## Nauro store for this repo" in result
+    assert "`mcp__nauro__*`" in result
+    assert "project_id: 01ABCXYZ" in result
+    # Names the cloud connector only to steer away from it for this repo.
+    assert "mcp__claude_ai_Nauro__*" in result
+
+
+def test_routing_block_omits_project_id_line_when_unknown():
+    """Legacy v1 projects have no id — the block still steers to local, no id line."""
+    result = generate_agents_md("myproj", "payload")
+    assert "## Nauro store for this repo" in result
+    assert "`mcp__nauro__*`" in result
+    assert "project_id:" not in result
+
+
 def test_check_decision_categorized_as_read_tool():
     """check_decision is a read-only tool — it must not appear under Write tools.
 

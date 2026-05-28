@@ -12,6 +12,7 @@ from nauro.cli.commands.setup import (
     CHECK_HINT_LINE,
     _configure_codex,
     _configure_cursor_for_repo,
+    _prune_redundant_user_scope_mcp,
 )
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
@@ -556,6 +557,82 @@ def test_setup_all_help_lists_with_subagents():
     assert "--with-subagents" in output
     assert "--force-overwrite" in output
     assert "--with-skills" in output
+
+
+# ─── user-scope HTTP nauro collision cleanup ────────────────────────────────
+
+
+def _write_user_claude_json(home: Path, servers: dict) -> Path:
+    path = home / ".claude.json"
+    path.write_text(json.dumps({"mcpServers": servers, "someOtherKey": 1}) + "\n")
+    return path
+
+
+def test_prune_removes_http_nauro_entry(tmp_path: Path, monkeypatch):
+    """An HTTP ``nauro`` entry in user-scope ~/.claude.json is pruned; siblings stay."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    path = _write_user_claude_json(
+        tmp_path,
+        {
+            "nauro": {"type": "http", "url": "https://mcp.nauro.ai"},
+            "context7": {"command": "ctx", "args": []},
+        },
+    )
+
+    msg = _prune_redundant_user_scope_mcp()
+    assert msg is not None and "~/.claude.json" in msg
+
+    config = json.loads(path.read_text())
+    assert "nauro" not in config["mcpServers"]
+    assert "context7" in config["mcpServers"]  # untouched
+    assert config["someOtherKey"] == 1  # unrelated state preserved
+
+
+def test_prune_leaves_stdio_nauro_entry(tmp_path: Path, monkeypatch):
+    """A user-scope ``nauro`` defined as a stdio command is the user's own choice — keep it."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    path = _write_user_claude_json(
+        tmp_path, {"nauro": {"command": "nauro", "args": ["serve", "--stdio"]}}
+    )
+
+    assert _prune_redundant_user_scope_mcp() is None
+    config = json.loads(path.read_text())
+    assert "nauro" in config["mcpServers"]
+
+
+def test_prune_noops_without_file_or_entry(tmp_path: Path, monkeypatch):
+    """No ~/.claude.json, or no nauro entry, is a clean no-op (returns None)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert _prune_redundant_user_scope_mcp() is None  # no file
+
+    _write_user_claude_json(tmp_path, {"context7": {"command": "ctx"}})
+    assert _prune_redundant_user_scope_mcp() is None  # no nauro entry
+
+
+def test_prune_soft_fails_on_malformed_json(tmp_path: Path, monkeypatch):
+    """A malformed ~/.claude.json must not raise — wiring cannot be broken by cleanup."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".claude.json").write_text("{not valid json")
+    assert _prune_redundant_user_scope_mcp() is None
+
+
+def test_setup_all_prunes_redundant_http_entry(tmp_path: Path, monkeypatch):
+    """``setup all`` removes the colliding user-scope HTTP nauro entry on the add path."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+    claude_json = _write_user_claude_json(
+        tmp_path, {"nauro": {"type": "http", "url": "https://mcp.nauro.ai"}}
+    )
+
+    result = runner.invoke(app, ["setup", "all"])
+    assert result.exit_code == 0, result.output
+    assert "removed redundant user-scope HTTP nauro entry" in result.output
+    config = json.loads(claude_json.read_text())
+    assert "nauro" not in config.get("mcpServers", {})
 
 
 # ─── nauro setup all --with-skills ──────────────────────────────────────────

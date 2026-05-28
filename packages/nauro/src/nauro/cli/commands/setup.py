@@ -163,6 +163,50 @@ def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
     )
 
 
+def _prune_redundant_user_scope_mcp() -> str | None:
+    """Remove a redundant user-scope HTTP ``nauro`` entry from ``~/.claude.json``.
+
+    On a machine with a local working copy, the stdio server is the canonical
+    Claude Code transport: ``nauro serve --stdio`` resolves the store from the
+    repo's ``.nauro/config.json`` and pulls remote changes on startup. An HTTP
+    ``nauro`` entry in user-scope ``~/.claude.json`` collides with the
+    project-scope stdio entry under the same name, so a session can resolve to
+    the wrong store. When the project stdio entry is written, drop the
+    redundant user-scope HTTP one.
+
+    Only the HTTP-transport entry is pruned — a user-scope ``nauro`` defined as
+    a stdio command is the user's own choice and is left alone. Soft-fails
+    (never raises) so a malformed or absent file cannot break wiring. Returns a
+    status line when something was removed, otherwise ``None``.
+    """
+    config_path = Path.home() / ".claude.json"
+    if not config_path.exists():
+        return None
+    try:
+        config = json.loads(config_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    servers = config.get("mcpServers")
+    if not isinstance(servers, dict):
+        return None
+    entry = servers.get("nauro")
+    if not isinstance(entry, dict):
+        return None
+    if entry.get("type") != "http" and "url" not in entry:
+        return None
+    del servers["nauro"]
+    if not servers:
+        config.pop("mcpServers", None)
+    try:
+        config_path.write_text(json.dumps(config, indent=2) + "\n")
+    except OSError:
+        return None
+    return (
+        "  removed redundant user-scope HTTP nauro entry from ~/.claude.json "
+        "(project-scope stdio is canonical)"
+    )
+
+
 @setup_app.command(name="claude-code")
 def claude_code(
     project: str | None = typer.Option(
@@ -201,6 +245,11 @@ def claude_code(
         if legacy:
             legacy_results.append(legacy)
         mcp_results.append(_configure_mcp(repo_path, remove=remove))
+
+    if not remove:
+        pruned = _prune_redundant_user_scope_mcp()
+        if pruned:
+            mcp_results.append(pruned)
 
     # Print summary
     action = "Removed" if remove else "Configured"
@@ -661,6 +710,13 @@ def setup_all_surfaces(
             lines.append(_configure_mcp(repo, remove=remove))
         except Exception as exc:
             lines.append(f"Claude Code MCP ({repo}): error — {exc}")
+    if not remove:
+        try:
+            pruned = _prune_redundant_user_scope_mcp()
+            if pruned:
+                lines.append(pruned)
+        except Exception as exc:  # never let cleanup break wiring
+            lines.append(f"Claude Code MCP (user-scope cleanup): error — {exc}")
     try:
         lines.extend(
             materialize_skills_claude_code(
