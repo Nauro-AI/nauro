@@ -111,6 +111,35 @@ def _check_collision(name: str, repo_root: Path) -> str | None:
     return None
 
 
+def _install_into_adopted_repo(
+    repo_root: Path,
+    *,
+    with_subagents: bool,
+    with_skills: bool,
+    force_overwrite: bool,
+) -> None:
+    """Install bundled subagents/skills onto an already-adopted repo.
+
+    Mirrors the materialize step of a fresh adoption (``setup_all_surfaces``)
+    without re-registering the project or rewriting ``.nauro/config.json`` —
+    the repo is already adopted, so registration is intact and untouched.
+    Lets ``nauro adopt --with-subagents`` (or ``--with-skills``) add the
+    bundled artifacts to an existing adoption instead of aborting.
+    """
+    typer.echo("Repo already adopted. Installing requested artifacts across surfaces:\n")
+    for line in setup_all_surfaces(
+        [repo_root],
+        remove=False,
+        with_subagents=with_subagents,
+        force_overwrite=force_overwrite,
+        with_skills=with_skills,
+    ):
+        typer.echo(line)
+    if with_skills and not with_subagents:
+        typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
+    typer.echo("\nNext: restart your agent so it picks up the newly installed files.")
+
+
 _Opt_repo = typer.Option(None, "--repo", help="Repo root (default: current working directory).")
 
 
@@ -191,10 +220,25 @@ def adopt(
     # ── already-adopted guard ──────────────────────────────────────────────
     config_path = repo_root / ".nauro" / "config.json"
     if config_path.exists():
+        # Already adopted. If the caller asked to install bundled subagents or
+        # skills, route to the materialize step for the existing adoption rather
+        # than dead-ending — those flags are otherwise unreachable on `adopt`
+        # once a repo is adopted, and `adopt` is the command users reach for
+        # first. Registration and config.json are left untouched, so D128's
+        # "every adoption writes config.json" invariant is unaffected.
+        if with_subagents or with_skills or force_overwrite:
+            _install_into_adopted_repo(
+                repo_root,
+                with_subagents=with_subagents,
+                with_skills=with_skills,
+                force_overwrite=force_overwrite,
+            )
+            return
         typer.echo(
-            f"This repo is already adopted (config at {config_path}). To "
-            f"start a fresh project from this repo, remove '.nauro/config.json' "
-            f"and re-run.",
+            f"This repo is already adopted (config at {config_path}). To add "
+            f"Nauro's bundled subagents or skills, re-run with --with-subagents "
+            f"and/or --with-skills. To start a fresh project from this repo, "
+            f"remove '.nauro/config.json' and re-run.",
             err=True,
         )
         raise typer.Exit(code=1)

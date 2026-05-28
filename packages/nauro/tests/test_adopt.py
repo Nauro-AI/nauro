@@ -63,6 +63,41 @@ def test_adopt_aborts_when_repo_already_adopted(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 1
     assert "already adopted" in result.output.lower()
+    # The abort points at the flags that add artifacts, not only the
+    # destructive "remove config.json" path.
+    assert "--with-subagents" in result.output
+
+
+def test_adopt_already_adopted_with_subagents_installs_instead_of_aborting(
+    tmp_path: Path, monkeypatch
+):
+    """`adopt --with-subagents` on an already-adopted repo installs the bundled
+    subagents rather than dead-ending on the already-adopted guard."""
+    from nauro.agents import AGENT_NAMES
+
+    _adopt_env(monkeypatch, tmp_path)
+    first = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert first.exit_code == 0, first.output
+    # Fresh adopt without the flag installs no subagents.
+    for n in AGENT_NAMES:
+        assert not _agent_path(tmp_path, n).exists()
+
+    result = runner.invoke(app, ["adopt", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+    assert "already adopted" not in result.output.lower() or "Installing" in result.output
+    for n in AGENT_NAMES:
+        assert _agent_path(tmp_path, n).is_file(), f"missing {n} after re-adopt --with-subagents"
+
+
+def test_adopt_already_adopted_with_skills_installs_and_notices(tmp_path: Path, monkeypatch):
+    """`adopt --with-skills` on an already-adopted repo installs the opt-in skill
+    and emits the needs-subagents notice."""
+    _adopt_env(monkeypatch, tmp_path)
+    assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
+
+    result = runner.invoke(app, ["adopt", "--with-skills"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md").is_file()
 
 
 def test_adopt_aborts_on_same_name_collision(tmp_path: Path, monkeypatch):
