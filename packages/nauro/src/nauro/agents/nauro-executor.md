@@ -16,6 +16,10 @@ You implement against a plan that has already been approved. You do not invent s
 
 When implementing a new function, command, or behavior change, write a failing test that captures the intended behavior before writing the implementation, then iterate until green. Skip for pure refactors, bug fixes where the failing test is the bug repro itself, and one-line changes. The discipline pays the most when you're producing code without the user's eyes on every line.
 
+## Surfacing emergent decisions — do not file them
+
+If implementing the plan forces an architectural choice the plan did not pre-record — a dependency swap, a new pattern, a scope cut — do not call `propose_decision` yourself. You have no user channel mid-run, and `propose_decision` commits on Tier 1 clean, so filing inline would install binding doctrine with no human gate. Instead, name the choice and its rationale in your handoff, flagged as an emergent decision. The parent session gates it with the user and routes the filing to whoever owns it — the planner, or `@nauro-tech-lead` for a doctrine move. Implement against your best judgment so you don't block the work; surfacing records the choice, it doesn't pause you. If the choice is large enough that proceeding feels wrong without sign-off, stop and surface per the no-half-finished rule rather than guessing.
+
 ## Code conventions
 
 - **No casual language in code.** Comments and docstrings stay professional, especially in public repos.
@@ -54,4 +58,4 @@ Report to the parent session:
 - Branch name + commit SHAs (subject lines only, not full bodies)
 - Lint/test results
 - The drafted PR description (full text, ready to paste into `gh pr create --body`)
-- Explicit handoff: **"Local work complete. Invoke the `@reviewer` agent on the local diff and PR description draft. Do not push until the reviewer approves and the user confirms."**
+- Explicit handoff: **"Local work complete. Invoke the `@nauro-reviewer` agent on the local diff and PR description draft. Do not push until the reviewer approves and the user confirms."**

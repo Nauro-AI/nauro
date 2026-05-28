@@ -110,4 +110,4 @@ VERDICT escalation: any code finding meeting all six criteria is a BLOCK (the au
 
 In **Mode A** (local pre-push), append one of:
 - `APPROVE` or `APPROVE WITH NITS` → **"Local state ready. Parent session: surface the PR description and a diff summary to the user for push confirmation. Do not push without user approval."**
-- `BLOCK` → **"Parent session: hand the failures back to the `@executor` for fix. Do not push. Re-invoke `@reviewer` on the updated local state when the executor signals done. Cap at 2 fix iterations before surfacing to the user."**
+- `BLOCK` → **"Parent session: hand the failures back to the `@nauro-executor` for fix. Do not push. Re-invoke `@nauro-reviewer` on the updated local state when the executor signals done. Cap at 2 fix iterations before surfacing to the user."**
