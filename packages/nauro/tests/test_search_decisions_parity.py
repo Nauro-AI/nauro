@@ -129,6 +129,7 @@ def test_empty_store_envelope_matches_across_surfaces(empty_repo):
     pid, store_path = empty_repo
     tool = _tool_envelope(store_path, "anything")
     assert _stdio_rendered(pid, "anything") == RENDERERS["search_decisions"](tool)
+    assert tool.pop("project")["id"] == pid
     assert tool == {"store": "local", "results": []}
 
 

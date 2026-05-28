@@ -98,6 +98,9 @@ def test_ok_envelope_matches_across_tool_and_cli(seeded_repo):
     tool_envelope = tool_flag_question(store_path, "Should we ship X?")
     exit_code, cli_envelope, output = _cli_envelope(["Should we ship Y?"])
     assert exit_code == 0, output
+    # Every local surface now carries project identity alongside store.
+    assert tool_envelope.pop("project")["id"] == pid
+    assert cli_envelope.pop("project")["id"] == pid
     assert tool_envelope == {"store": "local", "status": "ok"}
     assert cli_envelope == {"store": "local", "status": "ok"}
 
