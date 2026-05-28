@@ -47,7 +47,7 @@ A change additionally always gates if any of the following apply:
 
 ### 3. Execute
 
-Invoke the `@nauro-executor` subagent with the approved plan. Include any confirmed decision number from step 1 in the prompt. The executor implements the plan, commits locally, and does not push (per its contract). Any architectural choice the executor makes that the plan did not pre-record gets filed via `propose_decision` at the moment the choice lands in code — not deferred to the end of the chain.
+Invoke the `@nauro-executor` subagent with the approved plan. Include any confirmed decision number from step 1 in the prompt. The executor implements the plan, commits locally, and does not push (per its contract). If the executor hits an architectural choice the plan did not pre-record, it does not file the decision itself — it surfaces the choice and its rationale in its handoff so the parent can gate it with the user (at the push gate, step 7) and route the filing to whoever owns it. A subagent has no user channel mid-run, and `propose_decision` commits on Tier 1 clean, so an executor filing inline would install binding doctrine with no human gate.
 
 ### 4. Local review (no user pause)
 
@@ -84,6 +84,7 @@ On approval, push the branch and open the PR with the drafted description as the
 ## Rules
 
 - Push and `gh pr create` happen only with explicit user approval at GATE 7.
-- `propose_decision` happens only with explicit user approval — the planner / executor / tech-lead draft, the user approves in chat, then the planner files. The kernel commits immediately on Tier 1 clean.
+- `propose_decision` happens only with explicit user approval. Subagents draft or surface decisions; they never file an unapproved one. After the user approves in chat, the originating agent files — the planner for plan-time decisions, `@nauro-tech-lead` for doctrine moves it surfaces in Mode C. The executor never files; it surfaces emergent choices in its handoff (step 3) for the parent to gate. The kernel commits immediately on Tier 1 clean.
+- If a `propose_decision` is pending but the Nauro MCP server is disconnected, that is a hard pause — do not push the PR and file the decision after reconnecting. The code and its decision land together; a push-now-file-later split leaves doctrine unrecorded if the session ends first. Surface the disconnect and wait.
 - If anything fails or surprises mid-chain (a tool errors, tests fail unexpectedly, a verdict is incoherent), stop and surface to the user rather than recovering silently.
 - The chain is doctrine-aware end-to-end: every architectural choice flows through `check_decision` (at planning) and `propose_decision` (when the choice lands, after user approval). Skipping either silently is a chain failure, not a shortcut.
