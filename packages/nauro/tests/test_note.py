@@ -1,4 +1,4 @@
-"""Tests for nauro note auto-regen of AGENTS.md.
+"""Tests for nauro note auto-regen of AGENTS.md and input validation.
 
 `nauro note` writes a decision or question to the store and then regenerates
 AGENTS.md in every associated repo so MCP-disconnected agents see the update
@@ -117,3 +117,45 @@ def test_note_warns_about_missing_repo_paths(tmp_path: Path, monkeypatch):
     # The live repo still got its AGENTS.md refreshed.
     assert (live_repo / "AGENTS.md").exists()
     assert "Move billing to Stripe" in (live_repo / "AGENTS.md").read_text()
+
+
+def test_note_empty_string_rejects(tmp_path: Path, monkeypatch):
+    """Empty text is rejected before any store write."""
+    store = register_project("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["note", ""])
+    assert result.exit_code == 1
+    assert "cannot be empty" in result.output
+    decisions_dir = store / "decisions"
+    decision_files = [f for f in decisions_dir.iterdir() if f.name != "001-initial-setup.md"]
+    assert decision_files == []
+
+
+def test_note_whitespace_only_rejects(tmp_path: Path, monkeypatch):
+    """Whitespace-only text is rejected before any store write."""
+    store = register_project("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["note", "   "])
+    assert result.exit_code == 1
+    assert "cannot be empty" in result.output
+    decisions_dir = store / "decisions"
+    decision_files = [f for f in decisions_dir.iterdir() if f.name != "001-initial-setup.md"]
+    assert decision_files == []
+
+
+def test_note_nonempty_text_succeeds(tmp_path: Path, monkeypatch):
+    """Non-empty text records a decision — the guard does not block valid input."""
+    store = register_project("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["note", "Use Redis for session storage"])
+    assert result.exit_code == 0, result.output
+    decisions_dir = store / "decisions"
+    new_files = [f for f in decisions_dir.iterdir() if f.name != "001-initial-setup.md"]
+    assert len(new_files) == 1
+    assert "use-redis-for-session-storage" in new_files[0].name
