@@ -215,6 +215,15 @@ def claude_code(
     remove: bool = typer.Option(
         False, "--remove", help="Remove Nauro integration instead of adding it."
     ),
+    with_hooks: bool = typer.Option(
+        False,
+        "--with-hooks",
+        help=(
+            "Wire Nauro's advisory UserPromptSubmit hook into each repo's "
+            "project-scope .claude/settings.json. The hook surfaces related "
+            "decisions as context each turn and never blocks."
+        ),
+    ),
 ) -> None:
     """Configure Claude Code to use Nauro during sessions."""
     project_name, _store_path = resolve_target_project(project)
@@ -236,6 +245,7 @@ def claude_code(
     # via MCP server instructions, so the injected block is no longer needed).
     legacy_results = []
     mcp_results = []
+    hook_results = []
     for repo_str in entry["repo_paths"]:
         repo_path = Path(repo_str)
         if not repo_path.is_dir():
@@ -245,6 +255,11 @@ def claude_code(
         if legacy:
             legacy_results.append(legacy)
         mcp_results.append(_configure_mcp(repo_path, remove=remove))
+        if with_hooks:
+            try:
+                hook_results.append(materialize_hooks_claude_code(repo_path, remove=remove))
+            except Exception as exc:
+                hook_results.append(f"  {repo_path}: hook wiring error — {exc}")
 
     if not remove:
         pruned = _prune_redundant_user_scope_mcp()
@@ -256,6 +271,11 @@ def claude_code(
     typer.echo(f"{action} Nauro for project '{project_name}':\n")
     for line in mcp_results:
         typer.echo(line)
+
+    if hook_results:
+        typer.echo("\nHooks:")
+        for line in hook_results:
+            typer.echo(line)
 
     if legacy_results:
         typer.echo("\nLegacy cleanup:")
@@ -275,6 +295,8 @@ def claude_code(
             "\nNext: start a Claude Code session in one of the repos."
             " The MCP server will start automatically."
         )
+        if with_hooks:
+            typer.echo(f"\n{HOOKS_NOTICE}")
         typer.echo(f"\n{CHECK_HINT_LINE}")
 
 
@@ -660,6 +682,140 @@ def materialize_agents(
     return results
 
 
+# ─── Hook materialization ─────────────────────────────────────────────────────
+
+
+# Claude Code reads hooks from project-scope ``<repo>/.claude/settings.json``.
+# The advisory UserPromptSubmit hook runs ``nauro hook user-prompt-submit`` on
+# each turn; it surfaces related decisions as context and never blocks a turn.
+# The MVP hook is BM25-floor only — it does not set ``NAURO_EMBEDDINGS`` — so the
+# install incurs no embedding model load. The hook still resolves the embeddings
+# flag internally, so the follow-up that re-admits cosine-gated embedding hits
+# can flip the backend on without changing the installed command.
+#
+# The hook is Claude-Code-only: Cursor and Codex have no comparable per-turn
+# client event to bind to.
+
+HOOK_EVENT_NAME = "UserPromptSubmit"
+HOOK_COMMAND = "nauro hook user-prompt-submit"
+HOOK_TIMEOUT_SECONDS = 10
+
+# Substring that identifies a nauro-authored hook entry on the remove path, so a
+# user's own UserPromptSubmit hooks are preserved.
+_HOOK_COMMAND_MARKER = "nauro hook"
+
+
+def _claude_settings_path(repo: Path) -> Path:
+    return repo / ".claude" / "settings.json"
+
+
+def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> str:
+    """Add or remove the Nauro advisory hook in ``<repo>/.claude/settings.json``.
+
+    Add path: idempotently append the hook entry to
+    ``hooks.UserPromptSubmit[].hooks[]`` only when no nauro-authored entry is
+    already present. Remove path: strip only the nauro-authored entry (matched on
+    the command containing ``nauro hook``), preserving any user-authored hooks
+    and the surrounding structure.
+
+    Returns a one-line status string (indented for ``setup_all_surfaces``).
+    """
+    settings_path = _claude_settings_path(repo)
+
+    if settings_path.exists():
+        try:
+            settings = json.loads(settings_path.read_text())
+        except json.JSONDecodeError as exc:
+            return f"  {repo}: could not parse .claude/settings.json — {exc}"
+        if not isinstance(settings, dict):
+            return f"  {repo}: .claude/settings.json is not a JSON object, skipped"
+    else:
+        settings = {}
+
+    if remove:
+        return _remove_hook_entry(settings_path, settings, repo)
+    return _add_hook_entry(settings_path, settings, repo)
+
+
+def _nauro_hook_entry() -> dict:
+    return {
+        "type": "command",
+        "command": HOOK_COMMAND,
+        "timeout": HOOK_TIMEOUT_SECONDS,
+    }
+
+
+def _is_nauro_hook(entry: object) -> bool:
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("command"), str)
+        and _HOOK_COMMAND_MARKER in entry["command"]
+    )
+
+
+def _add_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
+    hooks = settings.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        return f"  {repo}: hooks key is not a JSON object, skipped"
+    event_matchers = hooks.setdefault(HOOK_EVENT_NAME, [])
+    if not isinstance(event_matchers, list):
+        return f"  {repo}: hooks.{HOOK_EVENT_NAME} is not a JSON array, skipped"
+
+    # Idempotent: if any matcher already carries a nauro hook, do nothing.
+    for matcher in event_matchers:
+        if isinstance(matcher, dict):
+            for entry in matcher.get("hooks", []):
+                if _is_nauro_hook(entry):
+                    return f"  {repo}: nauro hook already present in .claude/settings.json"
+
+    event_matchers.append({"hooks": [_nauro_hook_entry()]})
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    return f"  {repo}: wrote nauro hook to .claude/settings.json"
+
+
+def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return f"  {repo}: no nauro hook to remove"
+    event_matchers = hooks.get(HOOK_EVENT_NAME)
+    if not isinstance(event_matchers, list):
+        return f"  {repo}: no nauro hook to remove"
+
+    removed = False
+    surviving_matchers = []
+    for matcher in event_matchers:
+        if not isinstance(matcher, dict):
+            surviving_matchers.append(matcher)
+            continue
+        entries = matcher.get("hooks", [])
+        kept = [e for e in entries if not _is_nauro_hook(e)]
+        if len(kept) != len(entries):
+            removed = True
+        if kept:
+            matcher = {**matcher, "hooks": kept}
+            surviving_matchers.append(matcher)
+        elif "hooks" not in matcher:
+            surviving_matchers.append(matcher)
+        # A matcher whose only hooks were nauro-authored is dropped entirely.
+
+    if not removed:
+        return f"  {repo}: no nauro hook to remove"
+
+    if surviving_matchers:
+        hooks[HOOK_EVENT_NAME] = surviving_matchers
+    else:
+        hooks.pop(HOOK_EVENT_NAME, None)
+    if not hooks:
+        settings.pop("hooks", None)
+
+    if settings:
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    else:
+        settings_path.unlink()
+    return f"  {repo}: removed nauro hook from .claude/settings.json"
+
+
 # ─── nauro setup all ────────────────────────────────────────────────────────
 
 
@@ -671,6 +827,7 @@ def setup_all_surfaces(
     with_subagents: bool = False,
     force_overwrite: bool = False,
     with_skills: bool = False,
+    with_hooks: bool = False,
 ) -> list[str]:
     """Wire MCP and materialize skills across Claude Code, Cursor, Codex.
 
@@ -696,6 +853,11 @@ def setup_all_surfaces(
     ``nauro-ship-task`` references the bundled ``@nauro-*`` subagents in
     its body — caller surfaces ``with_skills`` without ``with_subagents``
     should warn the user.
+
+    ``with_hooks`` opts into wiring the advisory ``UserPromptSubmit`` hook into
+    each repo's project-scope ``.claude/settings.json`` (Claude-Code-only).
+    Off by default. A hook-wiring failure is caught and reported as a status
+    line so it never aborts the rest of setup.
     """
     clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True
 
@@ -741,6 +903,15 @@ def setup_all_surfaces(
         except Exception as exc:
             lines.append(f"Claude Code agents: error — {exc}")
 
+    if with_hooks:
+        for repo in project_repos:
+            if not repo.is_dir():
+                continue
+            try:
+                lines.append(materialize_hooks_claude_code(repo, remove=remove))
+            except Exception as exc:
+                lines.append(f"Claude Code hook ({repo}): error — {exc}")
+
     # Cursor (MCP per-repo + skills per-repo)
     for repo in project_repos:
         if not repo.is_dir():
@@ -778,6 +949,12 @@ def setup_all_surfaces(
 SHIP_TASK_NEEDS_SUBAGENTS_NOTICE = (
     "nauro-ship-task references the bundled @nauro-* subagents; pass "
     "`--with-subagents` to install them too."
+)
+
+HOOKS_NOTICE = (
+    "The advisory hook surfaces related decisions as context on each turn "
+    "(BM25 retrieval) and never blocks. Start a new Claude Code session in a "
+    "wired repo for it to take effect."
 )
 
 
@@ -818,6 +995,15 @@ def all_(
             "of --with-subagents."
         ),
     ),
+    with_hooks: bool = typer.Option(
+        False,
+        "--with-hooks",
+        help=(
+            "Wire Nauro's advisory UserPromptSubmit hook into each repo's "
+            "project-scope .claude/settings.json (Claude Code only). The hook "
+            "surfaces related decisions as context each turn and never blocks."
+        ),
+    ),
 ) -> None:
     """Configure Claude Code, Cursor, and Codex CLI in one call."""
     project_name, _store_path = resolve_target_project(project)
@@ -844,11 +1030,15 @@ def all_(
         with_subagents=with_subagents,
         force_overwrite=force_overwrite,
         with_skills=with_skills,
+        with_hooks=with_hooks,
     ):
         typer.echo(line)
 
     if not remove and with_skills and not with_subagents:
         typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
+
+    if not remove and with_hooks:
+        typer.echo(f"\n{HOOKS_NOTICE}")
 
     if not remove:
         typer.echo(f"\n{CHECK_HINT_LINE}")
