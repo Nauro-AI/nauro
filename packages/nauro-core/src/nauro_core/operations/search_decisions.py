@@ -99,7 +99,8 @@ def search_decisions(
 # cap and is sliced off — the augmenter would contribute nothing exactly when
 # it should. Reserving a few slots guarantees the embedding pool widens the
 # result (the augmenter's whole point) while the total stays bounded by
-# ``limit``. BM25 keeps the majority because it remains the primary signal.
+# ``limit``. The reserve is clamped to ``limit - 1`` so BM25 always retains at
+# least one slot (and the majority at typical limits) as the primary signal.
 _EMBEDDING_RESERVED_SLOTS = 3
 
 
@@ -132,7 +133,11 @@ def _append_embedding_hits(
     by_num = {d.num: d for d in decisions}
 
     embedding_hits: list[SearchHit] = []
-    reserve = min(_EMBEDDING_RESERVED_SLOTS, limit)
+    # Clamp to ``limit - 1`` so BM25 keeps at least one slot whenever it has
+    # hits. At ``limit == 1`` the reserve is 0 and the result is pure BM25 —
+    # a single-result query returns the strongest lexical match, not an
+    # embedding-only hit.
+    reserve = min(_EMBEDDING_RESERVED_SLOTS, max(0, limit - 1))
     for num in pool:
         if len(embedding_hits) >= reserve:
             break

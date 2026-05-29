@@ -217,6 +217,51 @@ class TestSearchDecisionsFlag:
         assert 99 in on_nums
         assert len(on_nums) <= limit
 
+    def test_bm25_top_hit_survives_at_limit_one(self, monkeypatch):
+        """``limit == 1`` -> reserve is 0, so the result is BM25's top hit.
+
+        The reserve must never crowd out BM25's primary signal at small limits.
+        Without the ``limit - 1`` clamp the single slot is handed to an
+        embedding-only hit, replacing the strongest lexical match instead of
+        augmenting it.
+        """
+        # Decision 1 lexically matches the query; decision 99 matches only via
+        # the embedding stub and shares no lexical surface with the query.
+        decisions = {}
+        stem, body = _seed(
+            1,
+            "Caching strategy for the layer",
+            "Caching strategy for the caching layer.",
+        )
+        decisions[stem] = body
+        stem, body = _seed(
+            99,
+            "Identity tokens omit email scope",
+            "Login tokens lack the email claim so profiles never link.",
+        )
+        decisions[stem] = body
+        store = InMemoryStore(decisions=decisions)
+
+        off = search_decisions(store, "caching strategy", limit=1, use_embeddings=False)
+        # Precondition: BM25 alone returns decision 1 as the single hit.
+        assert [h.number for h in off.results] == [1]
+
+        stub = _StubModel(
+            vectors={
+                "Identity tokens omit email scope": [1.0, 0.0],
+                "caching strategy": [1.0, 0.0],
+            },
+            default=[0.0, 1.0],
+        )
+        monkeypatch.setattr(embeddings_mod, "_get_model", lambda: stub)
+        on = search_decisions(store, "caching strategy", limit=1, use_embeddings=True)
+        on_nums = [h.number for h in on.results]
+
+        # BM25's primary hit is retained; the embedding-only hit cannot crowd
+        # it out at limit=1 (this assertion fails against the unclamped reserve).
+        assert on_nums == [1]
+        assert 99 not in on_nums
+
 
 def extract_num(decision_id: str) -> int:
     return int(decision_id.rsplit("-", 1)[1])
