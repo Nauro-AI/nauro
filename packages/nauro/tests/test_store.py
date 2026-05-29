@@ -727,7 +727,7 @@ def test_sync_cli(tmp_path: Path, monkeypatch):
 
     result = runner.invoke(app, ["sync"])
     assert result.exit_code == 0
-    assert "Synced myproj" in result.output
+    assert "local-only project; nothing to upload" in result.output
     assert "v001" in result.output
 
 

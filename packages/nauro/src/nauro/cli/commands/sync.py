@@ -74,7 +74,13 @@ def sync(
     pushed = _push_to_cloud(project_key, store_path)
 
     if pushed:
-        typer.echo(f"Synced {project_name} — snapshot v{version:03d}")
+        if is_cloud_project(project_key):
+            typer.echo(f"Synced {project_name} — snapshot v{version:03d}")
+        else:
+            typer.echo(
+                f"Captured snapshot v{version:03d} for {project_name}"
+                " (local-only project; nothing to upload)."
+            )
         for repo_path in updated_repos:
             typer.echo(f"  Updated AGENTS.md: {repo_path}")
     else:
