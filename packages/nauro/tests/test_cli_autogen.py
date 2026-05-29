@@ -202,10 +202,15 @@ class TestGetDecision:
         header = json.loads(runner.invoke(app, ["get-decision", "1", "--mode", "header"]).stdout)
         assert len(header["content"]) < len(full["content"])
 
-    def test_mode_bogus_rejected_with_exit_2(self, demo_repo) -> None:
+    def test_mode_bogus_is_rejected(self, demo_repo) -> None:
         result = runner.invoke(app, ["get-decision", "1", "--mode", "bogus"])
-        # click.Choice rejects an out-of-enum value before the adapter runs.
-        assert result.exit_code == 2
+        # An out-of-enum --mode is rejected before the adapter produces a result.
+        # The exact exit code is typer/click-version-dependent (older versions
+        # raise a usage error -> 2; typer>=0.26 / click>=8.4 reject without the
+        # usage-error code -> 1), so assert the version-stable invariant: the
+        # invocation fails and no result envelope reaches stdout.
+        assert result.exit_code != 0, result.output
+        assert '"store"' not in result.stdout
 
 
 class TestDiffSinceLastSession:
