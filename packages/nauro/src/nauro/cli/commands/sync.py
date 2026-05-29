@@ -119,7 +119,12 @@ def _pull_via_presign(project_id: str, store_path: Path) -> int:
     from datetime import datetime, timezone
 
     from nauro.cli.commands.auth import AuthRefreshError
-    from nauro.sync.merge import detect_conflict, resolve_conflict, should_skip
+    from nauro.sync.merge import (
+        UnionMergeError,
+        detect_conflict,
+        resolve_conflict,
+        should_skip,
+    )
     from nauro.sync.remote import (
         PresignError,
         fetch_manifest,
@@ -230,6 +235,11 @@ def _pull_via_presign(project_id: str, store_path: Path) -> int:
             merged += 1
         except PresignError:
             logger.exception("Error resolving conflict for %s", rel)
+        except UnionMergeError as exc:
+            # Explicit sync must not report success on a failed merge. Surface
+            # the error and skip the file, leaving it untouched on disk.
+            logger.exception("Union merge failed for %s", rel)
+            typer.echo(f"  Error: merge failed for {rel} ({exc}) — left unchanged", err=True)
 
     state.last_full_sync = datetime.now(timezone.utc).isoformat()
     save_state(store_path, state)

@@ -1,12 +1,15 @@
 """Tests for nauro.sync.merge."""
 
 import shutil
+import subprocess
 
 import pytest
 
 from nauro.sync.merge import (
+    UnionMergeError,
     _is_append_only,
     _set_union_markdown,
+    _union_merge,
     detect_conflict,
     resolve_conflict,
     should_skip,
@@ -151,6 +154,71 @@ class TestResolveConflict:
 
         result_str = result.decode()
         assert "Question 1" in result_str
+
+
+class TestUnionMergeFailLoud:
+    """``_union_merge`` raises on a genuine git failure, not on benign stderr."""
+
+    def test_nonzero_exit_raises(self, monkeypatch):
+        """A nonzero git exit (command-not-found territory) raises UnionMergeError."""
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(args=args[0], returncode=127, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr("nauro.sync.merge.subprocess.run", fake_run)
+
+        with pytest.raises(UnionMergeError):
+            _union_merge(b"local\n", b"remote\n", "decisions/001-foo.md", SyncState())
+
+    def test_io_error_exit_raises_with_stderr(self, monkeypatch):
+        """A 255 IO/stat error raises, and the decoded stderr is in the message."""
+
+        def fake_run(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args=args[0], returncode=255, stdout=b"", stderr=b"error: cannot stat 'local'"
+            )
+
+        monkeypatch.setattr("nauro.sync.merge.subprocess.run", fake_run)
+
+        with pytest.raises(UnionMergeError) as excinfo:
+            _union_merge(b"local\n", b"remote\n", "decisions/001-foo.md", SyncState())
+
+        message = str(excinfo.value)
+        assert "255" in message
+        assert "error: cannot stat 'local'" in message
+
+    def test_rc_zero_with_stderr_does_not_raise(self, monkeypatch):
+        """git emits benign ``warning:`` lines with rc=0 — those must not raise.
+
+        The predicate is returncode-only; the merged bytes are still returned.
+        """
+
+        def fake_run(*args, **kwargs):
+            # args[0] is the git argv: [..., local_tmp, base_tmp, remote_tmp].
+            # The function reads back the local temp file, so leave it untouched.
+            return subprocess.CompletedProcess(
+                args=args[0], returncode=0, stdout=b"", stderr=b"warning: something benign"
+            )
+
+        monkeypatch.setattr("nauro.sync.merge.subprocess.run", fake_run)
+
+        result = _union_merge(
+            b"local body\n", b"remote body\n", "decisions/001-foo.md", SyncState()
+        )
+        # No raise; the local temp content is returned untouched.
+        assert result == b"local body\n"
+
+    @pytest.mark.skipif(not shutil.which("git"), reason="git not available")
+    def test_benign_union_merges_unique_lines(self):
+        """Real git merge-file --union retains lines unique to each side."""
+        local = b"# Decision 001\n- local-only line\n"
+        remote = b"# Decision 001\n- remote-only line\n"
+
+        result = _union_merge(local, remote, "decisions/001-foo.md", SyncState())
+        result_str = result.decode()
+
+        assert "- local-only line" in result_str
+        assert "- remote-only line" in result_str
 
 
 class TestSetUnionMarkdown:
