@@ -305,3 +305,22 @@ class TestFlagShapes:
         assert result.exit_code == 2
         assert "--rejected" in strip_ansi(result.output)
         assert "expected JSON array of objects" in result.output
+
+    def test_operation_bogus_exits_two_with_choices(self, seeded_repo) -> None:
+        # An out-of-enum --operation is a usage error: exit 2 with the valid
+        # choices named, before the adapter produces an envelope. Pairs with
+        # the read-tool --mode case so the enum regression can't silently
+        # return on either the read or the write autogen path.
+        result = runner.invoke(
+            app,
+            [
+                "propose-decision",
+                "Adopt Redis for hot caching",
+                "In-memory cache for the hot read paths across the API tier.",
+                "--operation",
+                "bogus",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "supersede" in strip_ansi(result.output)
+        assert '"store"' not in result.stdout

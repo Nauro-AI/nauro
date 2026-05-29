@@ -19,12 +19,12 @@ exit 2 without ever invoking the adapter.
 
 from __future__ import annotations
 
+import enum
 import inspect
 import json
 from collections.abc import Callable
 from typing import Any
 
-import click
 import typer
 from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 
@@ -162,6 +162,33 @@ def _required_param(name: str, prop: dict[str, Any]) -> tuple[Any, Any]:
     )
 
 
+# Generated enum types are cached per (property, values) so repeated walks
+# of ALL_TOOLS reuse one type rather than minting fresh ones. Identity churn
+# is otherwise harmless here (commands build once at import) but the cache is
+# cheap insurance.
+_ENUM_CACHE: dict[tuple[str, tuple[str, ...]], type[enum.Enum]] = {}
+
+
+def _enum_for_property(name: str, enum_values: list[str]) -> type[enum.Enum]:
+    """Build a ``str``-mixed Enum whose members carry the wire strings.
+
+    Used as the Typer annotation for an enum-valued property so Typer maps it
+    to a native Choice. A bad value then exits 2 with a choices-naming message
+    across typer/click versions, where ``click.Choice`` exits 1 without one
+    under typer>=0.26 / click>=8.4. Each member's ``.value`` is its wire
+    string, so the valid value reaches the adapter byte-identically once the
+    dispatch converts the member back to its ``.value``.
+    """
+    key = (name, tuple(enum_values))
+    cached = _ENUM_CACHE.get(key)
+    if cached is not None:
+        return cached
+    class_name = name.replace("_", " ").title().replace(" ", "") + "Choice"
+    generated = enum.Enum(class_name, {value: value for value in enum_values}, type=str)
+    _ENUM_CACHE[key] = generated
+    return generated
+
+
 def _optional_param(name: str, prop: dict[str, Any]) -> tuple[Any, Any]:
     """Return (annotation, default) for an optional schema property."""
     prop_type = prop.get("type")
@@ -171,13 +198,14 @@ def _optional_param(name: str, prop: dict[str, Any]) -> tuple[Any, Any]:
     enum_values = prop.get("enum")
 
     if prop_type == "string" and enum_values:
+        enum_type = _enum_for_property(name, list(enum_values))
+        default_member = enum_type(default_value) if default_value is not None else None
         return (
-            str,
+            enum_type,
             typer.Option(
-                default_value,
+                default_member,
                 _option_flag(name),
                 help=desc,
-                click_type=click.Choice(list(enum_values)),
             ),
         )
     if prop_type == "string":
@@ -286,6 +314,14 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         )
     ]
 
+    # Enum-valued properties arrive as Enum members from Typer. The adapters
+    # and kernel expect the plain wire string (str()/f-string formatting and
+    # ``DecisionConfidence(value)`` paths would otherwise see a member), so
+    # convert each set member back to its ``.value`` before dispatch.
+    enum_arg_names: list[str] = [
+        name for name in schema_arg_names if props.get(name, {}).get("enum")
+    ]
+
     def command(**kwargs: Any) -> None:
         project = kwargs.pop("project", None)
         # --json is a parity no-op; JSON is the only output mode.
@@ -300,6 +336,11 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
             if raw is None:
                 continue
             kwargs[name] = parse_json_list_of_dicts(raw, _option_flag(name))
+
+        for name in enum_arg_names:
+            value = kwargs.get(name)
+            if isinstance(value, enum.Enum):
+                kwargs[name] = value.value
 
         adapter_kwargs = {name: kwargs[name] for name in schema_arg_names if name in kwargs}
         envelope = adapter(store_path, **adapter_kwargs)
