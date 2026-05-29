@@ -124,8 +124,9 @@ def test_all_agent_files_have_required_frontmatter(name: str) -> None:
 
     ``name`` must equal the filename minus ``.md``. ``description`` and
     ``model`` are required on every file. ``tools`` is required on agents
-    that restrict tool access; ``nauro-executor`` intentionally omits the
-    key to inherit all available tools.
+    that restrict tool access; the non-filing agents (``nauro-executor``
+    and ``nauro-reviewer``) carry a ``tools`` allowlist that excludes the
+    store-write tools.
     """
     body = load_agent_body(name)
     assert body.startswith("---\n"), f"{name}.md is missing opening frontmatter fence"
@@ -148,3 +149,35 @@ def test_all_agent_files_have_required_frontmatter(name: str) -> None:
                 f"frontmatter name does not match filename for {name}.md"
             )
             break
+
+
+# Store-write tools that must never appear in the tools allowlist of an agent
+# that is not authorized to file doctrine.
+DOCTRINE_WRITE_TOOLS: tuple[str, ...] = (
+    "propose_decision",
+    "flag_question",
+    "update_state",
+)
+
+
+@pytest.mark.parametrize("name", ["nauro-executor", "nauro-reviewer"])
+def test_non_filing_agents_cannot_write_doctrine(name: str) -> None:
+    """Executor and reviewer carry a ``tools`` allowlist with no store-write tools.
+
+    The allowlist is the structural guarantee that these agents cannot file
+    doctrine; the prose in their bodies is defense-in-depth. Planner and
+    tech-lead legitimately carry the write tools, so they are out of scope.
+    """
+    body = load_agent_body(name)
+    end = body.find("\n---\n", 4)
+    assert end > 0, f"{name}.md frontmatter is not terminated"
+    frontmatter = body[4:end]
+
+    tools_line = next(
+        (line for line in frontmatter.splitlines() if line.startswith("tools:")),
+        None,
+    )
+    assert tools_line is not None, f"{name}.md frontmatter is missing a tools allowlist"
+
+    for tool in DOCTRINE_WRITE_TOOLS:
+        assert tool not in tools_line, f"{name}.md tools allowlist grants store-write tool {tool!r}"
