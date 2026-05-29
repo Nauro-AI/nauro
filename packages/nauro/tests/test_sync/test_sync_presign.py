@@ -335,6 +335,65 @@ class TestPullViaPresign:
         backups = list((cloud_store / ".conflict-backup").iterdir())
         assert any("stack.md" in b.name for b in backups)
 
+    def test_union_merge_failure_surfaces_and_leaves_file_untouched(
+        self, cloud_store, monkeypatch, capsys
+    ):
+        """Explicit ``nauro sync`` must not report success on a failed merge.
+
+        The failure is echoed to stderr, the file is left untouched, and it is
+        not counted toward the merged total.
+        """
+        from nauro.sync.merge import UnionMergeError
+
+        rel = "decisions/051-conflicted.md"
+        local_file = cloud_store / rel
+        local_file.parent.mkdir(parents=True, exist_ok=True)
+        local_file.write_bytes(b"# 051\nlocal body\n")
+        original = local_file.read_bytes()
+
+        state = SyncState()
+        state.files[rel] = FileState(
+            local_sha256="old_sha",
+            remote_etag='"old_etag"',
+            last_sync="2026-05-16T00:00:00Z",
+        )
+        save_state(cloud_store, state)
+
+        manifest = self._manifest_response(
+            [{"path": rel, "etag": '"new_etag"', "size": 1, "last_modified": "x"}],
+            next_cursor=None,
+        )
+        presign = self._presign_response([{"verb": "GET", "path": rel}])
+
+        def fake_get(url, **kwargs):
+            if "/sync/manifest" in url:
+                return manifest
+            return httpx.Response(200, content=b"# 051\nremote body\n")
+
+        def boom(*args, **kwargs):
+            raise UnionMergeError("simulated git failure")
+
+        monkeypatch.setattr("nauro.sync.merge._union_merge", boom)
+
+        from nauro.sync import remote
+
+        with (
+            patch.object(remote.httpx, "get", side_effect=fake_get),
+            patch.object(remote.httpx, "post", return_value=presign),
+        ):
+            from nauro.cli.commands.sync import _pull_from_cloud
+
+            merged = _pull_from_cloud(cloud_store.name, cloud_store)
+
+        # Failed file is not counted as merged.
+        assert merged == 0
+        # A clear error line was surfaced to stderr.
+        err = capsys.readouterr().err
+        assert rel in err
+        assert "merge failed" in err
+        # The local file was left untouched.
+        assert local_file.read_bytes() == original
+
     def test_manifest_401_refresh_then_retry_succeeds(self, cloud_store):
         manifest_ok = self._manifest_response(
             [{"path": "decisions/001.md", "etag": '"e1"', "size": 1, "last_modified": "x"}],

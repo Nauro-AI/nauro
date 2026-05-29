@@ -110,7 +110,12 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
         return 0
 
     try:
-        from nauro.sync.merge import detect_conflict, resolve_conflict, should_skip
+        from nauro.sync.merge import (
+            UnionMergeError,
+            detect_conflict,
+            resolve_conflict,
+            should_skip,
+        )
         from nauro.sync.remote import (
             PresignError,
             fetch_manifest,
@@ -227,7 +232,15 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
             update_file_state(state, actual_rel, local_sha, remote_etag)
         else:
             local_file = store_path / rel
-            merged_content = resolve_conflict(store_path, local_file, remote_content, rel, state)
+            try:
+                merged_content = resolve_conflict(
+                    store_path, local_file, remote_content, rel, state
+                )
+            except UnionMergeError:
+                # Leave the local file untouched rather than overwrite it with
+                # possibly-corrupt bytes. Session startup must never crash.
+                logger.exception("sync pull: union merge failed for %s", rel)
+                continue
             local_file.write_bytes(merged_content)
             local_sha = compute_sha256(local_file)
             update_file_state(state, rel, local_sha, remote_etag)

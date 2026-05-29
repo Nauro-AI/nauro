@@ -15,6 +15,15 @@ from nauro.sync.state import SyncState
 
 logger = logging.getLogger("nauro.sync")
 
+
+class UnionMergeError(Exception):
+    """Raised when ``git merge-file --union`` exits with a nonzero status.
+
+    Signals that the merged content cannot be trusted. Callers decide
+    whether to surface the failure or skip the file untouched.
+    """
+
+
 # Files where append-only union merge is appropriate
 APPEND_ONLY_PATTERNS = ("decisions/", "open-questions.md", "state_history.md")
 
@@ -102,7 +111,15 @@ def _union_merge(
 ) -> bytes:
     """Use git merge-file --union for append-only files.
 
-    Uses the last-synced version as the common base.
+    The common base is always empty (we do not persist the last-synced
+    content), so ``--union`` degenerates to an append-only union: every
+    line unique to either side is retained, with no conflict markers.
+
+    A nonzero exit from git signals a genuine failure (IO/stat error, or
+    a signal kill) rather than a resolved conflict — union resolution
+    returns 0 in that case. On a nonzero status the merged file cannot be
+    trusted, so this raises ``UnionMergeError`` instead of returning
+    possibly-corrupt content.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -112,22 +129,19 @@ def _union_merge(
 
         local_tmp.write_bytes(local_content)
         remote_tmp.write_bytes(remote_content)
-
-        # Use empty base if we don't have one — union merge handles this fine
-        fs = state.files.get(relative_path)
-        if fs and fs.local_sha256:
-            # We don't store the base content, so use empty as base
-            # This makes union merge act like a concatenation of unique lines
-            base_tmp.write_bytes(b"")
-        else:
-            base_tmp.write_bytes(b"")
+        base_tmp.write_bytes(b"")
 
         result = subprocess.run(
             ["git", "merge-file", "--union", str(local_tmp), str(base_tmp), str(remote_tmp)],
             capture_output=True,
         )
 
-        # git merge-file returns 0 on clean merge, >0 on conflicts (but --union resolves them)
+        if result.returncode != 0:
+            raise UnionMergeError(
+                f"git merge-file --union failed for {relative_path} "
+                f"(exit code {result.returncode}): {result.stderr.decode(errors='replace')}"
+            )
+
         merged = local_tmp.read_bytes()
         logger.info("Union merge completed for %s (exit code %d)", relative_path, result.returncode)
         return merged
