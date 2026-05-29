@@ -329,6 +329,38 @@ def remove_repo(project_name: str, repo_path_str: str) -> bool:
 
 _VALID_MODES_V2 = (REPO_CONFIG_MODE_LOCAL, REPO_CONFIG_MODE_CLOUD)
 
+_MAX_PROJECT_NAME_LEN = 100
+
+
+def _validate_project_name(name: str) -> str:
+    """Validate a v2 project name and return its stripped form.
+
+    Rejects names that would corrupt the registry or escape the store
+    directory layout. The store path is derived from the project_id (a
+    ULID), not the name, but the name is persisted to ``registry.json`` and
+    surfaced in repo configs and AGENTS.md, so it must stay printable and
+    free of path-traversal substrings.
+
+    Raises:
+        ValueError: If the stripped name is empty, longer than 100 chars,
+            contains a path separator (``/`` or ``\\``) or the ``..``
+            substring, or contains a non-printable character.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("Project name cannot be empty.")
+    if len(name) > _MAX_PROJECT_NAME_LEN:
+        raise ValueError(
+            f"Project name is too long ({len(name)} chars); keep it under {_MAX_PROJECT_NAME_LEN}."
+        )
+    if "/" in name or "\\" in name or ".." in name:
+        raise ValueError(f"Invalid project name {name!r}: must not contain '/', '\\', or '..'.")
+    if any(not ch.isprintable() for ch in name):
+        raise ValueError(
+            f"Invalid project name {name!r}: must not contain non-printable characters."
+        )
+    return name
+
 
 def get_store_path_v2(project_id: str) -> Path:
     """Return the id-keyed store directory for a v2 project."""
@@ -421,9 +453,10 @@ def register_project_v2(
         Tuple of (project_id, store_path).
 
     Raises:
-        ValueError: If mode/server_url combination is invalid, or if the
-            project_id is already present in the registry.
+        ValueError: If the name is invalid, the mode/server_url combination
+            is invalid, or the project_id is already present in the registry.
     """
+    name = _validate_project_name(name)
     if mode not in _VALID_MODES_V2:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
     if mode == REPO_CONFIG_MODE_CLOUD and not server_url:
@@ -465,6 +498,26 @@ def add_repo_v2(project_id: str, repo_path: Path) -> None:
         if resolved not in paths:
             paths.append(resolved)
         save_registry_v2(registry)
+
+
+def remove_project_v2(project_id: str) -> bool:
+    """Remove a v2 project's registry entry. Leaves the on-disk store intact.
+
+    The store directory under ``~/.nauro/projects/<id>/`` is deliberately
+    preserved so a mistaken removal does not destroy decision history; the
+    caller is responsible for surfacing where that data still lives.
+
+    Returns:
+        True if an entry with ``project_id`` existed and was removed, False
+        if no such entry was present.
+    """
+    with _registry_lock():
+        registry = load_registry_v2()
+        if project_id not in registry["projects"]:
+            return False
+        registry["projects"].pop(project_id)
+        save_registry_v2(registry)
+    return True
 
 
 def rename_project_id_v2(
