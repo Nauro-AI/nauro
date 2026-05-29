@@ -16,12 +16,14 @@ def status(
     ),
 ) -> None:
     """Show validation search status."""
+    from nauro_core.decision_model import DecisionStatus
+
     from nauro.cli.utils import resolve_target_project
     from nauro.store.reader import _list_decisions
 
     project_name, store_path = resolve_target_project(project)
     decisions = _list_decisions(store_path)
-    active = [d for d in decisions if d.get("status", "active") == "active"]
+    active = [d for d in decisions if d.status is DecisionStatus.active]
 
     typer.echo(f"Project: {project_name}")
     typer.echo(f"Total decisions: {len(decisions)}")
