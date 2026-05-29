@@ -20,7 +20,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from nauro_core.decision_model import parse_decision
+from nauro_core.decision_model import Decision
+from nauro_core.operations.decision_lookup import parse_decision_or_none
 from nauro_core.operations.results import ErrorPayload, GetDecisionResult
 from nauro_core.operations.store import Store
 from nauro_core.parsing import extract_decision_number
@@ -75,16 +76,23 @@ def get_decision(
             body = store.read_decision(stem)
             if body is not None:
                 if mode == "header":
-                    projected = _project_header(body, f"{stem}.md")
-                    return GetDecisionResult(content=projected)
+                    decision = parse_decision_or_none(body, f"{stem}.md")
+                    if decision is None:
+                        return GetDecisionResult(
+                            error=ErrorPayload(
+                                kind="error",
+                                reason=f"Decision {number} could not be parsed",
+                            ),
+                        )
+                    return GetDecisionResult(content=_project_header(decision))
                 return GetDecisionResult(content=body)
     return GetDecisionResult(
         error=ErrorPayload(kind="error", reason=f"Decision {number} not found"),
     )
 
 
-def _project_header(body: str, filename: str) -> str:
-    """Build the compact header projection for a decision body.
+def _project_header(decision: Decision) -> str:
+    """Build the compact header projection for a parsed decision.
 
     Layout (blocks joined by a blank line):
 
@@ -96,8 +104,6 @@ def _project_header(body: str, filename: str) -> str:
     ``## Decision`` section opens with whitespace from emitting a dangling
     blank lede block.
     """
-    decision = parse_decision(body, filename)
-
     frontmatter_lines: list[str] = []
     for field in _HEADER_FRONTMATTER_FIELDS:
         value = _frontmatter_value(decision, field)

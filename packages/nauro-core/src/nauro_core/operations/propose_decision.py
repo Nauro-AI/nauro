@@ -52,6 +52,7 @@ from nauro_core.decision_model import (
 from nauro_core.operations.decision_lookup import (
     find_decision_stem_by_id,
     find_decision_stem_by_num,
+    parse_all_decisions,
 )
 from nauro_core.operations.results import (
     ErrorPayload,
@@ -318,20 +319,11 @@ def _load_recent_decisions(store: Store) -> list[Decision]:
 def _parse_all_decisions(store: Store) -> list[Decision]:
     """Read every decision from the store and parse via the v2 model.
 
-    Files that don't round-trip through the v2 parser are skipped — they
-    can sit on disk during migrations without blocking the validation
-    pipeline.
+    Thin wrapper over the shared guarded scan: files that don't round-trip
+    through the v2 parser are logged at debug and skipped so they can sit on
+    disk during migrations without blocking the validation pipeline.
     """
-    parsed: list[Decision] = []
-    for stem in store.list_decisions():
-        body = store.read_decision(stem)
-        if body is None:
-            continue
-        try:
-            parsed.append(parse_decision(body, f"{stem}.md"))
-        except Exception:
-            continue
-    return parsed
+    return parse_all_decisions(store)
 
 
 # ── Tier 2 result reshape ─────────────────────────────────────────────────

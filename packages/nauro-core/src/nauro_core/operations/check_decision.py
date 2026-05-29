@@ -17,7 +17,8 @@ from nauro_core.constants import (
     MAX_CONTEXT_LENGTH,
     NO_DECISIONS_TO_CHECK,
 )
-from nauro_core.decision_model import Decision, parse_decision
+from nauro_core.decision_model import Decision
+from nauro_core.operations.decision_lookup import parse_all_decisions
 from nauro_core.operations.results import (
     CheckDecisionResult,
     ErrorPayload,
@@ -73,7 +74,7 @@ def check_decision(
         if rejection:
             return CheckDecisionResult(error=ErrorPayload(kind="rejected", reason=rejection))
 
-    decisions = _parse_all_decisions(store)
+    decisions = parse_all_decisions(store)
     decisions = [d for d in decisions if not (d.num == 1 and d.title == _SCAFFOLD_SEED_TITLE)]
     if not decisions:
         return CheckDecisionResult(assessment=NO_DECISIONS_TO_CHECK)
@@ -103,17 +104,6 @@ def check_decision(
         related_decisions=related,
         assessment=_assessment(related),
     )
-
-
-def _parse_all_decisions(store: Store) -> list[Decision]:
-    """Read every decision from ``store`` and parse it via the v2 model."""
-    parsed: list[Decision] = []
-    for stem in store.list_decisions():
-        body = store.read_decision(stem)
-        if body is None:
-            continue
-        parsed.append(parse_decision(body, f"{stem}.md"))
-    return parsed
 
 
 def _hit_to_related(hit: dict, by_num: dict[int, Decision]) -> RelatedDecision:
