@@ -110,7 +110,10 @@ def generate_agents_md(
         f"{project_id_line}"
         "If a cloud Nauro connector (e.g. `mcp__claude_ai_Nauro__*`) is also mounted, "
         "prefer the local `mcp__nauro__*` tools for this repo — they read the working "
-        "copy on this machine.\n"
+        "copy on this machine.\n\n"
+        "For the cloud connector, name it exactly `Nauro` when adding it: the "
+        "bundled `@nauro-*` subagents allow the `mcp__claude_ai_Nauro__*` tools by "
+        "name, and a differently-named connector leaves those tools unresolved.\n"
     )
 
     # MCP tools and behavioral instructions. Counts are derived from the

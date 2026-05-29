@@ -26,6 +26,7 @@ Isolation: ``HOME`` is redirected to ``tmp_path`` so the store
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -45,6 +46,8 @@ runner = CliRunner()
 
 def _seed_fixture_repo(repo: Path) -> None:
     """A small but realistic repo: a documented decision with rationale."""
+    # `nauro adopt` requires a git working tree.
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     (repo / "docs" / "adr").mkdir(parents=True)
     (repo / "README.md").write_text(
         "# Orbit\n\n## Architecture\n\n"

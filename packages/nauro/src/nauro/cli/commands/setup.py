@@ -824,6 +824,7 @@ def setup_all_surfaces(
     *,
     remove: bool = False,
     current_project_key: str | None = None,
+    store_path: Path | None = None,
     with_subagents: bool = False,
     force_overwrite: bool = False,
     with_skills: bool = False,
@@ -835,10 +836,16 @@ def setup_all_surfaces(
     progress. Returns the cumulative status lines.
 
     ``current_project_key`` is the registry key (v2 id or v1 name) for the
-    project being torn down. When ``remove=True``, it is excluded from the
-    "are there other projects?" check so per-project teardown only clears
-    user-scope artifacts (Claude/Codex skill, ``~/.codex/config.toml``)
+    project being wired or torn down. When ``remove=True``, it is excluded
+    from the "are there other projects?" check so per-project teardown only
+    clears user-scope artifacts (Claude/Codex skill, ``~/.codex/config.toml``)
     when this is the last project on the machine.
+
+    On the add path, when both ``current_project_key`` and ``store_path`` are
+    supplied, AGENTS.md is regenerated once across the project's repos so every
+    entry point (``setup claude-code``, ``setup all``, ``adopt``) produces the
+    cross-tool context file. The MCP-less Cursor/Codex surfaces depend on this
+    fallback layer the most, yet only ``setup claude-code`` used to write it.
 
     ``with_subagents`` opts into installing or removing the bundled
     ``nauro-*`` workflow subagents under ``~/.claude/agents/``. Off by
@@ -943,6 +950,17 @@ def setup_all_surfaces(
     except Exception as exc:
         lines.append(f"Codex skills: error — {exc}")
 
+    # Regenerate AGENTS.md once so context is fresh from the start on every
+    # entry point that wires surfaces. Guarded on the add path and on having a
+    # store to read from.
+    if not remove and current_project_key is not None and store_path is not None:
+        try:
+            updated = regenerate_agents_md_for_project(current_project_key, store_path)
+            for repo_path in updated:
+                lines.append(f"  {repo_path}: regenerated AGENTS.md")
+        except Exception as exc:
+            lines.append(f"AGENTS.md regeneration: error — {exc}")
+
     return lines
 
 
@@ -951,10 +969,26 @@ SHIP_TASK_NEEDS_SUBAGENTS_NOTICE = (
     "`--with-subagents` to install them too."
 )
 
+# The bundled subagents allow the cloud tools by the fixed name
+# `mcp__claude_ai_Nauro__*`. That prefix only resolves when the remote
+# connector is named exactly `Nauro`, so surface the requirement whenever
+# subagents are installed.
+SUBAGENTS_CONNECTOR_NAME_NOTICE = (
+    "Cloud users: name the remote MCP connector exactly `Nauro` so the bundled "
+    "@nauro-* subagents' `mcp__claude_ai_Nauro__*` tools resolve."
+)
+
 HOOKS_NOTICE = (
     "The advisory hook surfaces related decisions as context on each turn "
     "(BM25 retrieval) and never blocks. Start a new Claude Code session in a "
     "wired repo for it to take effect."
+)
+
+# Multi-surface restart handoff. MCP config is read at session start, so an
+# already-open session won't see the new wiring until it restarts. The
+# single-tool `setup claude-code` prints its own equivalent line.
+ALL_RESTART_NOTICE = (
+    "Next: start a fresh agent session (Claude Code/Cursor) — MCP config is read at session start."
 )
 
 
@@ -1027,6 +1061,7 @@ def all_(
         project_repos,
         remove=remove,
         current_project_key=project_key,
+        store_path=_store_path,
         with_subagents=with_subagents,
         force_overwrite=force_overwrite,
         with_skills=with_skills,
@@ -1037,8 +1072,12 @@ def all_(
     if not remove and with_skills and not with_subagents:
         typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
 
+    if not remove and with_subagents:
+        typer.echo(f"\n{SUBAGENTS_CONNECTOR_NAME_NOTICE}")
+
     if not remove and with_hooks:
         typer.echo(f"\n{HOOKS_NOTICE}")
 
     if not remove:
+        typer.echo(f"\n{ALL_RESTART_NOTICE}")
         typer.echo(f"\n{CHECK_HINT_LINE}")
