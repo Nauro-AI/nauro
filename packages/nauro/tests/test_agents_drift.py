@@ -17,8 +17,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
-from nauro.agents import AGENT_NAMES, load_agent_body, render_agent
+from nauro.agents import AGENT_NAMES, emit_plugin_agents, load_agent_body, render_agent
 
 AGENTS_DIR = Path(__file__).resolve().parents[1] / "src" / "nauro" / "agents"
 
@@ -181,3 +182,71 @@ def test_non_filing_agents_cannot_write_doctrine(name: str) -> None:
 
     for tool in DOCTRINE_WRITE_TOOLS:
         assert tool not in tools_line, f"{name}.md tools allowlist grants store-write tool {tool!r}"
+
+
+# --- plugin emitter + render-plugin command -------------------------------
+#
+# A separate plugin repo commits byte-identical copies of the subagents and
+# verifies them against the live render in its CI (the cross-repo
+# byte-identity gate). ``emit_plugin_agents`` is the single canonical source
+# it renders from; ``nauro render-plugin --check`` is the verification entry
+# point. ``AGENT_NAMES`` / ``render_agent`` are load-bearing public API for
+# that gate and must stay in ``__all__``.
+
+runner = CliRunner()
+
+
+def test_emit_plugin_agents_writes_canonical_bodies(tmp_path: Path) -> None:
+    written = emit_plugin_agents(tmp_path)
+    assert {p.name for p in written} == {f"{name}.md" for name in AGENT_NAMES}
+    for name in AGENT_NAMES:
+        target = tmp_path / "agents" / f"{name}.md"
+        assert target.read_text(encoding="utf-8") == render_agent("claude_code", name)
+
+
+def test_emit_plugin_agents_writes_only_agents_subtree(tmp_path: Path) -> None:
+    emit_plugin_agents(tmp_path)
+    # Only the agents/ subtree is created under dest, nothing else.
+    assert {p.name for p in tmp_path.iterdir()} == {"agents"}
+    agents_dir = tmp_path / "agents"
+    assert {p.stem for p in agents_dir.glob("*.md")} == set(AGENT_NAMES)
+    assert {p.name for p in agents_dir.iterdir()} == {f"{name}.md" for name in AGENT_NAMES}
+
+
+def test_public_api_import_contract() -> None:
+    """``render_agent`` and ``AGENT_NAMES`` are the cross-repo gate's contract."""
+    import nauro.agents as agents_module
+
+    assert "AGENT_NAMES" in agents_module.__all__
+    assert "render_agent" in agents_module.__all__
+    assert agents_module.AGENT_NAMES == AGENT_NAMES
+    assert agents_module.render_agent is render_agent
+
+
+def test_render_plugin_check_passes_on_freshly_emitted_tree(tmp_path: Path) -> None:
+    from nauro.cli.main import app
+
+    emit_plugin_agents(tmp_path)
+    result = runner.invoke(app, ["render-plugin", str(tmp_path), "--check"])
+    assert result.exit_code == 0
+
+
+def test_render_plugin_check_fails_on_drift_and_writes_nothing(tmp_path: Path) -> None:
+    from nauro.cli.main import app
+
+    emit_plugin_agents(tmp_path)
+    mutated = tmp_path / "agents" / f"{AGENT_NAMES[0]}.md"
+    original = mutated.read_text(encoding="utf-8")
+    mutated.write_text(original + "drift\n", encoding="utf-8")
+
+    others = {
+        name: (tmp_path / "agents" / f"{name}.md").read_text(encoding="utf-8")
+        for name in AGENT_NAMES[1:]
+    }
+
+    result = runner.invoke(app, ["render-plugin", str(tmp_path), "--check"])
+    assert result.exit_code == 1
+    # --check writes nothing: the mutated file is left as-is, untouched files unchanged.
+    assert mutated.read_text(encoding="utf-8") == original + "drift\n"
+    for name, content in others.items():
+        assert (tmp_path / "agents" / f"{name}.md").read_text(encoding="utf-8") == content

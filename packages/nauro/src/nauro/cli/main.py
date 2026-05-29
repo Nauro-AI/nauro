@@ -58,6 +58,7 @@ def _register_commands() -> None:
         log,
         note,
         questions,
+        render_plugin,
         serve,
         setup,
         status,
@@ -76,6 +77,7 @@ def _register_commands() -> None:
     app.command(name="log")(log.log)
     app.command(name="import")(import_cmd.import_cmd)
     app.command(name="serve")(serve.serve)
+    app.command(name="render-plugin", hidden=True)(render_plugin.render_plugin)
     app.add_typer(setup.setup_app, name="setup")
     app.command(name="status")(status.status)
     app.add_typer(config.config_app, name="config")
