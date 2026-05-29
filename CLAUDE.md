@@ -54,7 +54,7 @@ User config lives at `~/.nauro/config.json` (written by `nauro auth login` and o
 ## Stack
 
 - CLI: Python 3.10+, Typer
-- MCP server: FastAPI + uvicorn, local HTTP only
+- MCP server: local stdio transport (FastMCP), spawned by the MCP client
 - Storage: flat markdown + JSON snapshots
 - Templating: f-strings and Python string templates — no Jinja2
 
@@ -65,7 +65,7 @@ User config lives at `~/.nauro/config.json` (written by `nauro auth login` and o
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
 - `nauro diff-since-last-session [--days N]` — semantic diff against the previous snapshot (or N days back when supplied)
-- `nauro serve` — start the MCP server on localhost:7432
+- `nauro serve` — start the local MCP server (stdio transport)
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
 
@@ -113,7 +113,7 @@ uv run ruff format --check packages/
 - Tests: pytest with `tmp_path` fixture to avoid touching real `~/.nauro/`
 - Linting: ruff
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
-- MCP tool implementations in `packages/nauro/src/nauro/mcp/tools.py` are canonical — both stdio and HTTP transports delegate to them
+- MCP tool implementations in `packages/nauro/src/nauro/mcp/tools.py` are canonical — the stdio transport delegates to them
 - `nauro-core` has zero external runtime dependencies
 
 ## Project layout
@@ -125,7 +125,8 @@ packages/nauro/
       main.py              # Typer app entry point
       commands/            # one module per command
     mcp/
-      server.py            # FastAPI MCP server
+      stdio_server.py      # stdio MCP server (FastMCP)
+      tools.py             # canonical transport-agnostic tool adapters
       payloads.py          # L0/L1/L2 payload builders
     store/
       filesystem_store.py  # Store-protocol implementation backed by ~/.nauro/projects/

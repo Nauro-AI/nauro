@@ -1,14 +1,12 @@
-"""Tests for the Nauro MCP server and payload builders."""
+"""Tests for the MCP payload builders."""
 
 from pathlib import Path
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations import update_state as _update_state_op
 
 from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payload
-from nauro.mcp.server import app
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import capture_snapshot
 from nauro.templates.scaffolds import scaffold_project_store
@@ -34,10 +32,10 @@ def store(tmp_path: Path) -> Path:
     # Add stack content
     (store_path / "stack.md").write_text(
         "# Stack\n"
-        "- **Python 3.11** \u2014 primary language\n"
-        "- **FastAPI** \u2014 HTTP framework\n"
-        "- **PostgreSQL** \u2014 primary database\n"
-        "- **Redis** \u2014 caching layer\n"
+        "- **Python 3.11** — primary language\n"
+        "- **FastAPI** — HTTP framework\n"
+        "- **PostgreSQL** — primary database\n"
+        "- **Redis** — caching layer\n"
     )
 
     # Add some decisions
@@ -61,21 +59,6 @@ def store(tmp_path: Path) -> Path:
     update_state(store_path, "Fixed bug in auth")
 
     return store_path
-
-
-@pytest.fixture
-def client(tmp_path: Path, monkeypatch) -> AsyncClient:
-    """Async test client with a real project store."""
-
-    store_path = tmp_path / "projects" / "testproj"
-    scaffold_project_store("testproj", store_path)
-
-    # Add minimal content
-    (store_path / "stack.md").write_text("# Stack\n- Python 3.11\n")
-    append_decision(store_path, "Use FastAPI", rationale="Good async support")
-
-    transport = ASGITransport(app=app)
-    return AsyncClient(transport=transport, base_url="http://test")
 
 
 # --- Payload builder tests ---
@@ -219,7 +202,7 @@ class TestL0DecisionsSummary:
 
         payload = build_l0_payload(store_path)
         recent_section = payload[payload.index("## Recent Decisions") :]
-        assert "D4 \u2014" not in recent_section
+        assert "D4 —" not in recent_section
         summary_lines = [line for line in recent_section.split("\n") if line.startswith("- D")]
         # 6 original + 1 replacement = 7; D4 is superseded → 6 active shown.
         assert len(summary_lines) == 6
@@ -288,135 +271,3 @@ class TestL1DecisionsSummary:
             append_decision(store_path, f"Decision {i + 1}", rationale=f"Rationale {i + 1}")
         payload = build_l1_payload(store_path)
         assert "## Earlier Decisions" not in payload
-
-
-# --- API endpoint tests ---
-
-
-@pytest.mark.asyncio
-async def test_health_endpoint(client):
-    resp = await client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
-
-
-@pytest.mark.asyncio
-async def test_context_l0(client):
-    resp = await client.post("/context", json={"project_id": "testproj", "level": 0})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["level"] == 0
-    # ``content`` is now the kernel envelope dict, carrying its own ``content`` body.
-    assert data["content"]["store"] == "local"
-    assert isinstance(data["content"]["content"], str)
-
-
-@pytest.mark.asyncio
-async def test_context_l1(client):
-    resp = await client.post("/context", json={"project_id": "testproj", "level": 1})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["level"] == 1
-    body = data["content"]["content"]
-    assert isinstance(body, str) and len(body) > 0
-
-
-@pytest.mark.asyncio
-async def test_context_l2(client):
-    resp = await client.post("/context", json={"project_id": "testproj", "level": 2})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["level"] == 2
-    body = data["content"]["content"]
-    assert isinstance(body, str) and len(body) > 0
-
-
-@pytest.mark.asyncio
-async def test_context_invalid_level(client):
-    resp = await client.post("/context", json={"project_id": "testproj", "level": 5})
-    assert resp.status_code == 400
-
-
-@pytest.mark.asyncio
-async def test_context_missing_project(client):
-    resp = await client.post("/context", json={"level": 0})
-    assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_log_decision_endpoint(client, tmp_path):
-    resp = await client.post(
-        "/log_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Use SQLite for tests",
-            "rationale": "Fast and in-memory database that doesn't require"
-            " a separate server process",
-        },
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    # Now goes through propose pipeline
-    assert data["status"] == "confirmed"
-
-    # Verify the decision was written
-    decisions_dir = tmp_path / "projects" / "testproj" / "decisions"
-    assert any("use-sqlite-for-tests" in f.name for f in decisions_dir.glob("*.md"))
-
-    # Verify snapshot was triggered
-    snapshots_dir = tmp_path / "projects" / "testproj" / "snapshots"
-    assert len(list(snapshots_dir.glob("v*.json"))) >= 1
-
-
-@pytest.mark.asyncio
-async def test_flag_question_endpoint(client, tmp_path):
-    resp = await client.post(
-        "/flag_question",
-        json={
-            "project_id": "testproj",
-            "question": "Should we add WebSocket support?",
-            "context": "For real-time updates",
-        },
-    )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
-
-    # Verify question was written
-    oq = (tmp_path / "projects" / "testproj" / "open-questions.md").read_text()
-    assert "Should we add WebSocket support?" in oq
-
-
-@pytest.mark.asyncio
-async def test_update_state_endpoint(client, tmp_path):
-    resp = await client.post(
-        "/update_state",
-        json={
-            "project_id": "testproj",
-            "delta": "Deployed v0.2.0 to staging",
-        },
-    )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
-
-    # Verify state was updated (now writes to state_current.md)
-    state = (tmp_path / "projects" / "testproj" / "state_current.md").read_text()
-    assert "Deployed v0.2.0 to staging" in state
-
-
-@pytest.mark.asyncio
-async def test_context_with_cwd_resolution(tmp_path, monkeypatch):
-    """Test resolving project from cwd parameter."""
-
-    from nauro.store.registry import register_project
-
-    repo_dir = tmp_path / "repos" / "myrepo"
-    repo_dir.mkdir(parents=True)
-
-    store_path = register_project("cwdproj", [repo_dir])
-    scaffold_project_store("cwdproj", store_path)
-
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        resp = await ac.post("/context", json={"cwd": str(repo_dir), "level": 0})
-        assert resp.status_code == 200
-        assert resp.json()["level"] == 0

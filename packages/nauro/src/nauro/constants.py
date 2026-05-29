@@ -63,10 +63,6 @@ NAURO_BLOCK_END = "<!-- NAURO:END -->"
 MANUAL_SECTION_HEADER = "# Manual"
 SKILLS_SECTION_HEADER = "## Skills"
 
-# ── MCP server defaults ──
-DEFAULT_MCP_PORT = 7432
-MCP_HOST = "127.0.0.1"
-
 # ── Validation thresholds (CLI-specific) ──
 STALE_SYNC_DAYS = 7
 L0_TOKEN_LIMIT = 3500
