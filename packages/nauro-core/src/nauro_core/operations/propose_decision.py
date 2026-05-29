@@ -49,6 +49,10 @@ from nauro_core.decision_model import (
     format_decision,
     parse_decision,
 )
+from nauro_core.operations.decision_lookup import (
+    find_decision_stem_by_id,
+    find_decision_stem_by_num,
+)
 from nauro_core.operations.results import (
     ErrorPayload,
     ProposeDecisionResult,
@@ -436,7 +440,7 @@ def _do_supersede(
 
     # Flip the old decision. Failure here leaves the new decision standing;
     # sync-repair on next pull recovers the half-state.
-    old_stem = _find_decision_stem_by_num(store, old_num)
+    old_stem = find_decision_stem_by_num(store, old_num)
     if old_stem is None:
         return (
             new_decision_id,
@@ -511,7 +515,7 @@ def _do_update(
     affected_decision_id: str,
 ) -> tuple[str | None, str, tuple[str, ...], tuple[str, ...], ErrorPayload | None]:
     """Rationale-only update: bump version, append dated paragraph."""
-    target_stem = _find_decision_stem_by_id(store, affected_decision_id)
+    target_stem = find_decision_stem_by_id(store, affected_decision_id)
     if target_stem is None:
         return (
             None,
@@ -645,22 +649,6 @@ def _next_decision_num(store: Store) -> int:
         if n is not None:
             nums.append(n)
     return max(nums, default=0) + 1
-
-
-def _find_decision_stem_by_num(store: Store, num: int) -> str | None:
-    prefix = f"{num:03d}-"
-    for stem in store.list_decisions():
-        if stem.startswith(prefix):
-            return stem
-    return None
-
-
-def _find_decision_stem_by_id(store: Store, decision_id: str) -> str | None:
-    """Resolve any decision-id shape (stem, ``decision-NNN``, ``DNNN``, int) to a stem."""
-    num = extract_decision_number(decision_id)
-    if num is None:
-        return None
-    return _find_decision_stem_by_num(store, num)
 
 
 def _slugify(title: str) -> str:

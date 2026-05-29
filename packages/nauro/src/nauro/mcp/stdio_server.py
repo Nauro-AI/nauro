@@ -355,12 +355,17 @@ def propose_decision(
 
 @mcp.tool(**_spec_kwargs("flag_question"))
 def flag_question(
-    question: Annotated[str, Field(description=_param_desc("flag_question", "question"))],
+    question: Annotated[
+        str | None, Field(description=_param_desc("flag_question", "question"))
+    ] = None,
     context: Annotated[
         str | None, Field(description=_param_desc("flag_question", "context"))
     ] = None,
     targets: Annotated[
         list[str] | None, Field(description=_param_desc("flag_question", "targets"))
+    ] = None,
+    resolved_by: Annotated[
+        str | None, Field(description=_param_desc("flag_question", "resolved_by"))
     ] = None,
     project_id: Annotated[
         str | None, Field(description=_param_desc("flag_question", "project_id"))
@@ -373,11 +378,15 @@ def flag_question(
         return WELCOME_NO_PROJECT
     except StoreResolutionError as exc:
         return str(exc)
-    result = tool_flag_question(store_path, question, context, targets=targets)
+    result = tool_flag_question(
+        store_path, question, context, targets=targets, resolved_by=resolved_by
+    )
     if result.get("status") == "rejected":
         error = result.get("error") or {}
         reason = error.get("reason", "Flag rejected.")
         return reason
+    if resolved_by is not None:
+        return "Question(s) resolved."
     if result.get("hint"):
         return f"{result['hint']} The question has still been logged."
     return "Question flagged."

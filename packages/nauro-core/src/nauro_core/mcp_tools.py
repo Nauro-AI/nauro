@@ -413,17 +413,24 @@ PROPOSE_DECISION: ToolSpec = {
 
 FLAG_QUESTION: ToolSpec = {
     "name": "flag_question",
-    "title": "Flag open question",
+    "title": "Flag or resolve open question",
     "description": (
-        "Flag an unresolved question for human review. Appends to "
-        "open-questions.md in the project store.\n"
+        "Flag an unresolved question for human review, or resolve existing "
+        "questions against a decision. Writes to open-questions.md in the "
+        "project store.\n"
         "\n"
-        "Before writing, checks whether the question is already addressed by "
-        "an existing decision — if so, the response includes a hint pointing "
-        "to that decision (the question is still logged).\n"
+        "To flag: pass `question`. Before writing, checks whether the "
+        "question is already addressed by an existing decision — if so, the "
+        "response includes a hint pointing to that decision (the question is "
+        "still logged).\n"
         "\n"
-        "Use when you encounter an ambiguity a human should weigh in on: "
-        "architectural trade-offs, unclear requirements, or scope boundaries."
+        "To resolve: pass `resolved_by` (a decision id) and the entry ids to "
+        "stamp in `targets`. Each named entry is marked resolved in place; "
+        "nothing is appended.\n"
+        "\n"
+        "Pass exactly one of `question` or `resolved_by`. Use the flag action "
+        "for ambiguities a human should weigh in on; use the resolve action "
+        "once a decision has answered open questions."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
     "input_schema": {
@@ -431,7 +438,10 @@ FLAG_QUESTION: ToolSpec = {
         "properties": {
             "question": {
                 "type": "string",
-                "description": "The question to flag.",
+                "description": (
+                    "The question to flag. Pass for the flag action; omit when "
+                    "passing resolved_by."
+                ),
             },
             "context": {
                 "type": "string",
@@ -441,19 +451,29 @@ FLAG_QUESTION: ToolSpec = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Optional list of candidate question ids (Q### or legacy "
-                    "timestamp form) this flag may duplicate. When any named id "
-                    "is already resolved by a decision, the server short-circuits "
-                    "without appending and the response names the resolving "
-                    "decision. Pass when call_context (e.g. a Q### surfaced in "
-                    "L0 you suspect this flag re-raises) makes the duplicate "
-                    "plausible. Freshness is bounded by the most recent pull, "
-                    "so a remote resolution may be missed by a stale local copy."
+                    "Question ids (Q### or legacy timestamp form). On the flag "
+                    "action, an optional list of candidates this flag may "
+                    "duplicate: when any named id is already resolved by a "
+                    "decision, the server short-circuits without appending and "
+                    "the response names the resolving decision. On the resolve "
+                    "action (resolved_by set), the entries to stamp as resolved "
+                    "— every id must exist in open-questions.md or the call is "
+                    "rejected. Freshness is bounded by the most recent pull, so "
+                    "a remote resolution may be missed by a stale local copy."
+                ),
+            },
+            "resolved_by": {
+                "type": "string",
+                "description": (
+                    "Decision id (e.g. D123) that resolves the entries named in "
+                    "targets. When set, the call resolves instead of appending; "
+                    "the id must resolve to a decision that exists in the store. "
+                    "Pass exactly one of question or resolved_by."
                 ),
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["question"],
+        "required": [],
     },
 }
 
