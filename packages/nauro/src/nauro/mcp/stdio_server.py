@@ -238,6 +238,9 @@ def diff_since_last_session(
 def search_decisions(
     query: Annotated[str, Field(description=_param_desc("search_decisions", "query"))],
     limit: Annotated[int, Field(description=_param_desc("search_decisions", "limit"))] = 10,
+    include_superseded: Annotated[
+        bool, Field(description=_param_desc("search_decisions", "include_superseded"))
+    ] = False,
     project_id: Annotated[
         str | None, Field(description=_param_desc("search_decisions", "project_id"))
     ] = None,
@@ -250,7 +253,7 @@ def search_decisions(
     except StoreResolutionError as exc:
         result = {"store": "local", "status": "error", "guidance": str(exc)}
     else:
-        result = tool_search_decisions(store_path, query, limit)
+        result = tool_search_decisions(store_path, query, limit, include_superseded)
     return _wrap_with_renderer("search_decisions", result)
 
 

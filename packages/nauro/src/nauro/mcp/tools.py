@@ -605,12 +605,15 @@ def tool_search_decisions(
     store_path: Path,
     query: str,
     limit: int = 10,
+    include_superseded: bool = False,
 ) -> dict:
     """Search decisions by keyword. Returns matching decisions with snippets."""
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    result = _search_decisions_op(FilesystemStore(store_path), query, limit)
+    result = _search_decisions_op(
+        FilesystemStore(store_path), query, limit, include_superseded=include_superseded
+    )
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 

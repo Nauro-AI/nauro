@@ -4,15 +4,16 @@ All transports call this with the same arguments; each one wraps the
 call to add transport-specific framing (``store`` field, telemetry
 emission). The listing, BM25 ranking, and projection live here.
 
-Superseded decisions stay in the result set: an agent searching the
-project history may legitimately want to surface the prior rationale
-behind a current decision. Status filtering belongs to
-``list_decisions``.
+Status filtering happens here: by default only active decisions are
+ranked. Pass ``include_superseded=True`` to also surface superseded
+decisions (e.g. reviewing the prior rationale behind a current one).
+Filtering before ranking keeps ``limit`` honored against the active set
+rather than letting superseded hits crowd out active ones.
 """
 
 from __future__ import annotations
 
-from nauro_core.decision_model import parse_decision
+from nauro_core.decision_model import DecisionStatus, parse_decision
 from nauro_core.operations.results import (
     ErrorPayload,
     SearchDecisionsResult,
@@ -26,6 +27,7 @@ def search_decisions(
     store: Store,
     query: str,
     limit: int = 10,
+    include_superseded: bool = False,
 ) -> SearchDecisionsResult:
     """Return BM25-ranked decisions for ``query``.
 
@@ -33,12 +35,15 @@ def search_decisions(
         store: Storage adapter providing ``list_decisions`` / ``read_decision``.
         query: Search text. Empty or whitespace-only is rejected.
         limit: Maximum number of hits to return.
+        include_superseded: When False (default), only active decisions are
+            ranked. When True, superseded decisions are ranked as well.
 
     Returns:
         :class:`SearchDecisionsResult` with ``results`` populated on the
         success path (sorted by BM25 score descending, truncated to
-        ``limit``). On an empty/whitespace query, ``error`` is populated
-        with ``kind="rejected"`` and ``results`` stays empty.
+        ``limit`` against the filtered set). On an empty/whitespace query,
+        ``error`` is populated with ``kind="rejected"`` and ``results``
+        stays empty.
     """
     if not query or not query.strip():
         return SearchDecisionsResult(
@@ -57,6 +62,9 @@ def search_decisions(
         if body is None:
             continue
         decisions.append(parse_decision(body, f"{stem}.md"))
+
+    if not include_superseded:
+        decisions = [d for d in decisions if d.status is DecisionStatus.active]
 
     ranked = bm25_search(decisions, query, limit=limit)
     hits = [
