@@ -71,7 +71,7 @@ def test_sync_command(tmp_path: Path, monkeypatch):
 
     result = runner.invoke(app, ["sync"])
     assert result.exit_code == 0
-    assert "Synced myproj" in result.output
+    assert "local-only project; nothing to upload" in result.output
 
 
 def test_log_command(tmp_path: Path, monkeypatch):
@@ -175,7 +175,7 @@ def test_sync_with_project_flag(tmp_path: Path, monkeypatch):
 
     result = runner.invoke(app, ["sync", "--project", "myproj"])
     assert result.exit_code == 0
-    assert "Synced myproj" in result.output
+    assert "local-only project; nothing to upload" in result.output
 
 
 def test_log_with_project_flag(tmp_path: Path, monkeypatch):

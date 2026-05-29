@@ -51,7 +51,7 @@ class TestSyncPullBeforePush:
         """When S3 is not configured, sync should still work (pull is a no-op)."""
         result = runner.invoke(app, ["sync"])
         assert result.exit_code == 0
-        assert "Synced testproj" in result.output
+        assert "local-only project; nothing to upload" in result.output
         # No "Pulling from remote" because sync is not configured
         assert "Pulling from remote" not in result.output
 
@@ -177,11 +177,11 @@ def _scaffolded_cloud_project(name: str, repo_path: Path):
 
 
 class TestSyncHonesty:
-    """sync() must not print 'Synced' unless an upload actually happened (or
-    none was expected). The three cases below cover the matrix:
+    """sync() must not print 'Synced' unless an actual cloud upload happened.
+    The three cases below cover the matrix:
 
     cloud-mode + disabled creds → warn on stderr, exit 1
-    local-mode + disabled creds → Synced, exit 0
+    local-mode + no creds       → honest local-only message, exit 0
     cloud-mode + enabled creds  → Synced, exit 0
     """
 
@@ -203,7 +203,8 @@ class TestSyncHonesty:
         combined = result.output + (result.stderr or "")
 
         assert result.exit_code == 0, combined
-        assert "Synced testproj" in result.output
+        assert "local-only project; nothing to upload" in result.output
+        assert "Synced testproj" not in result.output
         assert "Warning: this is a cloud-mode project" not in combined
 
     def test_cloud_project_with_token_succeeds(self, tmp_path, monkeypatch):

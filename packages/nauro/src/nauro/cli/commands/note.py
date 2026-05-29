@@ -43,6 +43,10 @@ def note(
     ),
 ) -> None:
     """Record a decision or question in the project store."""
+    if not text.strip():
+        typer.echo("Note text cannot be empty.", err=True)
+        raise typer.Exit(1)
+
     project_name, store_path = resolve_target_project(project)
     fs_store = FilesystemStore(store_path)
 
