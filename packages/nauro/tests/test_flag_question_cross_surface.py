@@ -98,3 +98,38 @@ def test_repeated_writes_match_across_stores(both_stores):
     assert _dump(fs_one) == _dump(cloud_one) == {"status": "ok", "num": 1}
     assert _dump(fs_two) == _dump(cloud_two) == {"status": "ok", "num": 2}
     assert fs_store.read_file(OPEN_QUESTIONS_MD) == cloud.read_file(OPEN_QUESTIONS_MD)
+
+
+def _seed_resolvable(fs_store: FilesystemStore, cloud: CloudStore) -> None:
+    seed = "# Open Questions\n\n- [Q1] needs a decision\n"
+    _seed_open_questions(fs_store, cloud, seed)
+    decision = "# Decision 42\n"
+    fs_store.write_file("decisions/042-some-decision.md", decision)
+    cloud.write_file("decisions/042-some-decision.md", decision)
+
+
+def test_resolve_matches_across_stores(both_stores):
+    fs_store, cloud = both_stores
+    _seed_resolvable(fs_store, cloud)
+
+    fs_result = flag_question(fs_store, targets=["Q1"], resolved_by="D42")
+    cloud_result = flag_question(cloud, targets=["Q1"], resolved_by="D42")
+
+    assert _dump(fs_result) == _dump(cloud_result) == {"status": "ok"}
+    # The resolve stamps the entry in place identically on both stores.
+    assert fs_store.read_file(OPEN_QUESTIONS_MD) == cloud.read_file(OPEN_QUESTIONS_MD)
+    assert "[Resolved by D42 on " in fs_store.read_file(OPEN_QUESTIONS_MD)
+
+
+def test_resolve_missing_decision_rejects_across_stores(both_stores):
+    fs_store, cloud = both_stores
+    seed = "# Open Questions\n\n- [Q1] needs a decision\n"
+    _seed_open_questions(fs_store, cloud, seed)
+
+    fs_result = flag_question(fs_store, targets=["Q1"], resolved_by="D42")
+    cloud_result = flag_question(cloud, targets=["Q1"], resolved_by="D42")
+
+    assert fs_result.status == cloud_result.status == "rejected"
+    # No write on either store — the question stays open and identical.
+    assert fs_store.read_file(OPEN_QUESTIONS_MD) == cloud.read_file(OPEN_QUESTIONS_MD)
+    assert "[Resolved by" not in fs_store.read_file(OPEN_QUESTIONS_MD)

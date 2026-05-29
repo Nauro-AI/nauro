@@ -440,50 +440,60 @@ Check for conflicts with existing decisions without writing anything.
 @_stamp_identity
 def tool_flag_question(
     store_path: Path,
-    question: str,
+    question: str | None = None,
     context: str | None = None,
     targets: list[str] | None = None,
+    resolved_by: str | None = None,
 ) -> dict:
-    """Flag an open question for human review. Always writes the question."""
+    """Flag an open question, or resolve existing entries against a decision.
+
+    With ``resolved_by`` set the kernel stamps the ``targets`` entries as
+    resolved; otherwise it appends ``question`` as a new flag. Both are
+    writes — on success the adapter captures a snapshot and pushes; on
+    rejection no write occurred so neither runs.
+    """
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
 
+    if resolved_by is not None:
+        return _flag_question_resolve(store_path, targets, resolved_by)
+
     # Content size limits
     for err in (
-        _reject_if_too_long(question, "Question", MAX_QUESTION_LENGTH),
+        _reject_if_too_long(question or "", "Question", MAX_QUESTION_LENGTH) if question else None,
         _reject_if_too_long(context or "", "Context", MAX_CONTEXT_LENGTH) if context else None,
     ):
         if err:
             return err
 
     # Reject tool-use envelope fragments that leaked from XML-emitting clients.
-    for field_name, value in (("question", question), ("context", context or "")):
+    for field_name, value in (("question", question or ""), ("context", context or "")):
         err = _reject_if_envelope_token(value, field_name)
         if err:
             return err
 
-    pseudo_proposal = {
-        "title": question[:100],
-        "rationale": question + (f" {context}" if context else ""),
-    }
-
     hint = None
-    try:
-        from nauro.store.reader import _list_decisions
+    if question:
+        pseudo_proposal = {
+            "title": question[:100],
+            "rationale": question + (f" {context}" if context else ""),
+        }
+        try:
+            from nauro.store.reader import _list_decisions
 
-        _, similar = check_bm25_similarity(pseudo_proposal, _list_decisions(store_path))
-        if similar and similar[0].get("similarity", 0) > 0.7:
-            top = similar[0]
-            hint = (
-                f"This question appears to be addressed by "
-                f"decision-{top['number']:03d}: {top['title']}."
-            )
-    except Exception:
-        pass
+            _, similar = check_bm25_similarity(pseudo_proposal, _list_decisions(store_path))
+            if similar and similar[0].get("similarity", 0) > 0.7:
+                top = similar[0]
+                hint = (
+                    f"This question appears to be addressed by "
+                    f"decision-{top['number']:03d}: {top['title']}."
+                )
+        except Exception:
+            pass
 
     text = question
-    if context:
+    if question and context:
         text = f"{question} (context: {context})"
     result = _flag_question_op(FilesystemStore(store_path), text, None, targets=targets)
 
@@ -502,6 +512,36 @@ def tool_flag_question(
     capture_snapshot(store_path, trigger=f"question: {question}")
     if hint:
         response["hint"] = hint
+    _try_push(store_path)
+    return response
+
+
+def _flag_question_resolve(
+    store_path: Path,
+    targets: list[str] | None,
+    resolved_by: str,
+) -> dict:
+    """Resolve the ``targets`` entries against ``resolved_by``.
+
+    Skips the BM25 similarity hint — resolving against a known decision is
+    not a duplicate-flag situation. On success this is a write, so capture
+    a snapshot (labelled to distinguish resolve from append) and push; on
+    rejection the kernel performed no write, so neither runs.
+    """
+    result = _flag_question_op(
+        FilesystemStore(store_path),
+        None,
+        None,
+        targets=targets,
+        resolved_by=resolved_by,
+    )
+    response: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
+    response.pop("num", None)
+
+    if result.status == "rejected":
+        return response
+
+    capture_snapshot(store_path, trigger=f"resolved by {resolved_by}: {targets or []}")
     _try_push(store_path)
     return response
 

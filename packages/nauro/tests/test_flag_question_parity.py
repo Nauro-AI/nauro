@@ -96,7 +96,7 @@ def test_ok_envelope_matches_across_tool_and_cli(seeded_repo):
     pid, store_path = seeded_repo
 
     tool_envelope = tool_flag_question(store_path, "Should we ship X?")
-    exit_code, cli_envelope, output = _cli_envelope(["Should we ship Y?"])
+    exit_code, cli_envelope, output = _cli_envelope(["--question", "Should we ship Y?"])
     assert exit_code == 0, output
     # Every local surface now carries project identity alongside store.
     assert tool_envelope.pop("project")["id"] == pid
@@ -114,7 +114,7 @@ def test_missing_store_guidance_matches_across_surfaces(missing_store):
     assert tool_envelope["status"] == "error"
     assert "nauro init" in tool_envelope["guidance"]
 
-    exit_code, _cli_envelope_dict, output = _cli_envelope(["anything?"])
+    exit_code, _cli_envelope_dict, output = _cli_envelope(["--question", "anything?"])
     assert exit_code == 1
     assert "nauro init" in output
 
@@ -129,8 +129,73 @@ def test_length_rejection_matches_across_tool_and_cli(seeded_repo):
     assert tool_envelope["error"]["kind"] == "rejected"
     assert "exceeds" in tool_envelope["error"]["reason"].lower()
 
-    exit_code, cli_envelope, output = _cli_envelope([overlong])
+    exit_code, cli_envelope, output = _cli_envelope(["--question", overlong])
     # Length rejection surfaces as ``status: "rejected"`` which the auto-gen
     # exit-code branch treats as a successful envelope (non-error).
+    assert exit_code == 0, output
+    assert cli_envelope == tool_envelope
+
+
+def _seed_resolvable(store_path, q_id: str = "Q1") -> None:
+    """Seed one open question and one decision the resolve action can target."""
+    (store_path / "open-questions.md").write_text(
+        f"# Open Questions\n\n- [{q_id}] needs a decision\n"
+    )
+    decisions = store_path / "decisions"
+    decisions.mkdir(exist_ok=True)
+    (decisions / "042-some-decision.md").write_text("# Decision 42\n")
+
+
+def test_resolve_ok_matches_across_tool_and_cli(seeded_repo):
+    pid, store_path = seeded_repo
+    _seed_resolvable(store_path, "Q1")
+
+    tool_envelope = tool_flag_question(store_path, resolved_by="D42", targets=["Q1"])
+    assert tool_envelope.pop("project")["id"] == pid
+    assert tool_envelope == {"store": "local", "status": "ok"}
+    # The targeted entry is stamped in place; nothing appended.
+    content = (store_path / "open-questions.md").read_text()
+    assert "[Resolved by D42 on " in content
+    assert "[Q2]" not in content
+
+    # Reset and exercise the same resolve through the CLI surface.
+    _seed_resolvable(store_path, "Q1")
+    exit_code, cli_envelope, output = _cli_envelope(["--resolved-by", "D42", "--targets", "Q1"])
+    assert exit_code == 0, output
+    assert cli_envelope.pop("project")["id"] == pid
+    assert cli_envelope == {"store": "local", "status": "ok"}
+
+    # And the stdio surface returns the resolve-specific confirmation string.
+    _seed_resolvable(store_path, "Q1")
+    stdio_string = stdio_flag_question(resolved_by="D42", targets=["Q1"], project_id=pid)
+    assert stdio_string == "Question(s) resolved."
+
+
+def test_resolve_unknown_decision_rejection_matches_across_tool_and_cli(seeded_repo):
+    pid, store_path = seeded_repo
+    _seed_resolvable(store_path, "Q1")
+
+    tool_envelope = tool_flag_question(store_path, resolved_by="D777", targets=["Q1"])
+    assert tool_envelope["store"] == "local"
+    assert tool_envelope["status"] == "rejected"
+    assert "D777" in tool_envelope["error"]["reason"]
+    # No write: the question stays open.
+    assert "[Resolved by" not in (store_path / "open-questions.md").read_text()
+
+    exit_code, cli_envelope, output = _cli_envelope(["--resolved-by", "D777", "--targets", "Q1"])
+    # Caller-fixable rejection stays exit 0 (the auto-gen rejection branch).
+    assert exit_code == 0, output
+    assert cli_envelope == tool_envelope
+
+
+def test_neither_question_nor_resolved_by_rejects_across_tool_and_cli(seeded_repo):
+    pid, store_path = seeded_repo
+
+    tool_envelope = tool_flag_question(store_path)
+    assert tool_envelope["store"] == "local"
+    assert tool_envelope["status"] == "rejected"
+    assert "question" in tool_envelope["error"]["reason"].lower()
+
+    exit_code, cli_envelope, output = _cli_envelope([])
     assert exit_code == 0, output
     assert cli_envelope == tool_envelope

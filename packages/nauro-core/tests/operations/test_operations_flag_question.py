@@ -11,6 +11,7 @@ primitives.
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -243,6 +244,166 @@ def test_short_circuit_envelope_mentions_working_copy_freshness() -> None:
     assert result.status == "rejected"
     assert result.error is not None
     assert "pull" in result.error.reason.lower()
+
+
+# --- resolve action (resolved_by) ---
+
+
+def _open_q1_q5_seed() -> str:
+    return "# Open Questions\n\n- [Q1] still open\n- [Q5] also still open\n"
+
+
+def _decisions(*nums: int) -> dict[str, str]:
+    return {f"{n:03d}-some-decision": f"# Decision {n}\n" for n in nums}
+
+
+def test_resolve_stamps_target_in_place_and_returns_ok() -> None:
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()},
+    )
+    result = flag_question(store, targets=["Q5"], resolved_by="D42")
+    assert result.status == "ok"
+    assert result.num is None
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    # Q5 is stamped in place — its line keeps its position (after Q1) and the
+    # entry block is never relocated under ## Resolved.
+    lines = content.split("\n")
+    q5_line = next(line for line in lines if "[Q5]" in line)
+    assert q5_line.startswith("- [Resolved by D42 on ")
+    assert "[Q1] still open" in content
+    assert lines.index(q5_line) > lines.index("- [Q1] still open")
+
+
+def test_resolve_does_not_append_a_question() -> None:
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()},
+    )
+    flag_question(store, targets=["Q5"], resolved_by="D42")
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    # Only the two seeded ids exist; nothing was minted.
+    assert content.count("- [Q") == 1  # Q1 (open); Q5 now carries the Resolved prefix.
+    assert "[Q6]" not in content
+
+
+def test_resolve_already_resolved_id_is_idempotent_ok() -> None:
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: _resolved_q5_seed()},
+    )
+    before = store.read_file(OPEN_QUESTIONS_MD)
+    result = flag_question(store, targets=["Q5"], resolved_by="D42")
+    # The append-path already-resolved short-circuit must NOT fire on the
+    # resolve path; re-resolving the same id is a no-op success.
+    assert result.status == "ok"
+    after = store.read_file(OPEN_QUESTIONS_MD)
+    assert after == before
+
+
+def test_resolve_unparseable_decision_id_rejects() -> None:
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()})
+    result = flag_question(store, targets=["Q5"], resolved_by="not-a-decision")
+    assert result.status == "rejected"
+    assert result.num is None
+    assert result.error is not None
+    assert "not-a-decision" in result.error.reason
+
+
+def test_resolve_missing_decision_rejects_naming_number() -> None:
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()})
+    result = flag_question(store, targets=["Q5"], resolved_by="D99")
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "D99" in result.error.reason
+    # No write occurred — the open question stays open.
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert "- [Q5] also still open" in content
+
+
+def test_resolve_unknown_target_rejects_whole_call_naming_id() -> None:
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()},
+    )
+    before = store.read_file(OPEN_QUESTIONS_MD)
+    result = flag_question(store, targets=["Q5", "Q404"], resolved_by="D42")
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "Q404" in result.error.reason
+    # The whole call is rejected: Q5 must NOT be partially resolved.
+    assert store.read_file(OPEN_QUESTIONS_MD) == before
+
+
+def test_resolve_ambiguous_target_rejects_naming_id() -> None:
+    seed = (
+        "# Open Questions\n"
+        "\n"
+        "- [2026-04-30 10:00 UTC] first collision\n"
+        "- [2026-04-30 10:00 UTC] second collision\n"
+    )
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: seed},
+    )
+    result = flag_question(store, targets=["2026-04-30 10:00 UTC"], resolved_by="D42")
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "2026-04-30 10:00 UTC" in result.error.reason
+
+
+def test_resolve_with_no_targets_rejects() -> None:
+    store = InMemoryStore(decisions=_decisions(42))
+    result = flag_question(store, targets=[], resolved_by="D42")
+    assert result.status == "rejected"
+    assert result.error is not None
+
+
+def test_resolve_missing_decision_reason_mentions_freshness() -> None:
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()})
+    result = flag_question(store, targets=["Q5"], resolved_by="D99")
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "pull" in result.error.reason.lower()
+
+
+def test_resolve_uses_utc_now_date() -> None:
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()},
+    )
+    today = datetime.now(timezone.utc).date().isoformat()
+    flag_question(store, targets=["Q5"], resolved_by="D42")
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert f"[Resolved by D42 on {today}]" in content
+
+
+# --- neither / both ---
+
+
+def test_neither_question_nor_resolved_by_rejects() -> None:
+    store = InMemoryStore()
+    result = flag_question(store)
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "question" in result.error.reason.lower()
+
+
+def test_both_question_and_resolved_by_rejects() -> None:
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()},
+    )
+    before = store.read_file(OPEN_QUESTIONS_MD)
+    result = flag_question(store, question="a flag", targets=["Q5"], resolved_by="D42")
+    assert result.status == "rejected"
+    assert result.error is not None
+    # Neither action ran — no append, no resolve.
+    assert store.read_file(OPEN_QUESTIONS_MD) == before
 
 
 # --- Import-graph negative constraint ---
