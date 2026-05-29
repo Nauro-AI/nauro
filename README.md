@@ -33,7 +33,7 @@ nauro init my-project
 nauro setup claude-code   # or: nauro setup all
 ```
 
-`nauro init` writes `.nauro/config.json` into the repo; commit it. For cloud sync from the start: `nauro init --cloud my-project`.
+`nauro init` writes `.nauro/config.json` into the repo; commit it. For cloud sync from the start, run `nauro auth login` first, then `nauro init --cloud my-project`.
 
 **Existing repo with docs to seed from:**
 
@@ -66,9 +66,9 @@ Codex users: add `mcp_oauth_callback_port = 8765` to the top of `~/.codex/config
 
 ## MCP tools
 
-11 tools (8 read, 3 write):
+11 tools total (8 read, 3 write). The local stdio server registers 10 (7 read, 3 write); `list_projects` is remote-only.
 
-**Read:** `check_decision`, `get_context`, `list_decisions`, `get_decision`, `search_decisions`, `get_raw_file`, `diff_since_last_session`, `list_projects`.
+**Read:** `check_decision`, `get_context`, `list_decisions`, `get_decision`, `search_decisions`, `get_raw_file`, `diff_since_last_session`, `list_projects` *(remote-only)*.
 
 **Write:** `propose_decision`, `flag_question`, `update_state`.
 
