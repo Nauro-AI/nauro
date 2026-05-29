@@ -607,12 +607,12 @@ def tool_list_decisions(
 
 @mcp_tool("get_decision")
 @_stamp_identity
-def tool_get_decision(store_path: Path, number: int) -> dict:
-    """Return full content of a specific decision by number."""
+def tool_get_decision(store_path: Path, number: int, mode: str = "full") -> dict:
+    """Return a specific decision by number (full body, or header projection)."""
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
-    result = _get_decision_op(FilesystemStore(store_path), number)
+    result = _get_decision_op(FilesystemStore(store_path), number, mode)
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 

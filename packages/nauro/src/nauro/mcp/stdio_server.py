@@ -74,7 +74,9 @@ NOT_A_NAURO_REPO = (
 )
 
 
-def _wrap_with_renderer(tool_name: str, result: dict) -> CallToolResult:
+def _wrap_with_renderer(
+    tool_name: str, result: dict, renderer_kwargs: dict[str, Any] | None = None
+) -> CallToolResult:
     """Wrap a renderer-scoped read-tool result in a single ``TextContent`` block.
 
     Mirrors the remote MCP dispatcher (``mcp_server.mcp_router._build_tool_result``):
@@ -83,13 +85,17 @@ def _wrap_with_renderer(tool_name: str, result: dict) -> CallToolResult:
     tool name with no renderer mapped — falls back to a JSON dump of the
     envelope in ``content[0]`` so a presentation bug never swallows a
     response.
+
+    ``renderer_kwargs`` threads renderer-specific options (e.g.
+    ``get_decision``'s requested ``mode``) without storing them on the
+    result envelope.
     """
     json_text = json.dumps(result, indent=2, default=str)
     renderer = _RENDERERS.get(tool_name)
     if renderer is None:
         return CallToolResult(content=[TextContent(type="text", text=json_text)])
     try:
-        rendered = renderer(result)
+        rendered = renderer(result, **(renderer_kwargs or {}))
     except Exception:
         logger.exception("renderer failed for tool=%s; falling back to JSON-only", tool_name)
         return CallToolResult(content=[TextContent(type="text", text=json_text)])
@@ -198,6 +204,9 @@ def list_decisions(
 @mcp.tool(**_spec_kwargs("get_decision"))
 def get_decision(
     number: Annotated[int, Field(description=_param_desc("get_decision", "number"))],
+    mode: Annotated[
+        Literal["header", "full"], Field(description=_param_desc("get_decision", "mode"))
+    ] = "full",
     project_id: Annotated[
         str | None, Field(description=_param_desc("get_decision", "project_id"))
     ] = None,
@@ -210,8 +219,8 @@ def get_decision(
     except StoreResolutionError as exc:
         result = {"store": "local", "status": "error", "guidance": str(exc)}
     else:
-        result = tool_get_decision(store_path, number)
-    return _wrap_with_renderer("get_decision", result)
+        result = tool_get_decision(store_path, number, mode)
+    return _wrap_with_renderer("get_decision", result, {"mode": mode})
 
 
 @mcp.tool(**_spec_kwargs("diff_since_last_session"))

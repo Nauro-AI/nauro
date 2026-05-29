@@ -224,6 +224,46 @@ class TestRenderGetDecision:
         assert text.startswith("Error:")
         assert "Decision 999 not found" in text
 
+    def test_full_mode_default_matches_explicit_full(self):
+        body = (
+            "---\n"
+            "date: 2026-05-10\n"
+            "status: active\n"
+            "---\n"
+            "\n"
+            "# 145 — Adopt 1-hour prompt cache tier for planner\n"
+            "\n"
+            "## Decision\nFoo.\n"
+        )
+        result = {"store": "remote", "content": body}
+        assert render_get_decision(result) == render_get_decision(result, mode="full")
+
+    def test_header_mode_emits_projection_as_sole_block(self):
+        """Header mode surfaces the kernel's compact projection verbatim — no
+        second title header layered on top of the projection's own title."""
+        projection = (
+            "status: active\n"
+            "supersedes: 190\n"
+            "date: 2026-05-28\n"
+            "decision_type: api_design\n"
+            "confidence: medium\n"
+            "\n"
+            "# 246 — Header projection mode\n"
+            "\n"
+            "Triage frontmatter plus a short lede."
+        )
+        result = {"store": "remote", "content": projection}
+        text = render_get_decision(result, mode="header")
+        assert text == projection
+        # The projection's title appears exactly once (no duplicate header).
+        assert text.count("# 246 — Header projection mode") == 1
+
+    def test_header_mode_error_path(self):
+        result = {"store": "remote", "error": "Decision 999 not found"}
+        text = render_get_decision(result, mode="header")
+        assert text.startswith("Error:")
+        assert "Decision 999 not found" in text
+
 
 class TestRenderSearchDecisions:
     def test_empty_results(self):

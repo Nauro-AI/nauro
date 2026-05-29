@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any, TypedDict
 
 from nauro_core.protocol import (
+    GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
     UPDATE_SUPERSEDE_CARE,
@@ -164,8 +165,15 @@ GET_DECISION: ToolSpec = {
     "name": "get_decision",
     "title": "Get decision by number",
     "description": (
-        "Return the full markdown content of a specific decision by its number. "
-        "Includes metadata, rationale, and rejected alternatives."
+        "Return a specific decision by its number.\n"
+        "\n"
+        "mode=header (compact) returns the triage frontmatter (status, "
+        "supersession, date, type, confidence), the title, and a short lede "
+        "from the rationale — enough to decide whether a decision is worth a "
+        "full read. mode=full (default) returns the complete markdown: "
+        "metadata, full rationale, and rejected alternatives. Read header to "
+        "triage a list of related decisions, then full for the ones you "
+        "actually reason about."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -174,6 +182,15 @@ GET_DECISION: ToolSpec = {
             "number": {
                 "type": "integer",
                 "description": "Decision number (e.g., 23).",
+            },
+            "mode": {
+                "type": "string",
+                "enum": ["header", "full"],
+                "default": "full",
+                "description": (
+                    "header: triage projection (frontmatter + title + lede). "
+                    "full: complete decision body. Default full."
+                ),
             },
             "project_id": _PROJECT_PARAM,
         },
@@ -259,9 +276,7 @@ CHECK_DECISION: ToolSpec = {
         "WITHOUT writing anything. Returns related decisions (via Tier 1 + "
         "Tier 2 BM25 retrieval) and a deterministic assessment string.\n"
         "\n"
-        "This tool does NOT judge conflicts. When the response lists related "
-        "decisions, call get_decision on each before proposing — the relevance, "
-        "supersession status, and full rationale live in those bodies.\n"
+        f"This tool does NOT judge conflicts. {GET_DECISION_BEFORE_PROPOSING}\n"
         "\n"
         "Use this to consult the project's decision history before committing "
         'to an approach — especially when the user asks "should we...", '

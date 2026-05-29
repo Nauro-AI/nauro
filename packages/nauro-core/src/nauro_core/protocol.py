@@ -30,8 +30,8 @@ CHECK_DECISION_RETURNS = (
 
 GET_DECISION_BEFORE_PROPOSING = (
     "When the response lists related decisions, call `get_decision` on each "
-    "one before proposing — the relevance, supersession status, and full "
-    "rationale live in those bodies, not in the assessment string."
+    "before proposing — `mode=header` to triage, `mode=full` for those you "
+    "reason about; the assessment doesn't judge."
 )
 
 PROPOSE_DECISION_OPERATIONS = (

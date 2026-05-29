@@ -47,22 +47,22 @@ def demo_repo(tmp_path, monkeypatch):
     return pid, store_path
 
 
-def _stdio_rendered(pid: str, number: int) -> str:
+def _stdio_rendered(pid: str, number: int, mode: str = "full") -> str:
     """Return the rendered stdio surface text for the parity comparison.
 
     Renderer-scoped read tools now return a single ``content[0]`` block
     carrying the renderer output. Parity against the direct tool envelope
-    runs through ``RENDERERS["get_decision"]``.
+    runs through ``RENDERERS["get_decision"]`` with the same ``mode``.
     """
-    result = stdio_get_decision(number=number, project_id=pid)
+    result = stdio_get_decision(number=number, project_id=pid, mode=mode)
     assert len(result.content) == 1
     assert result.structuredContent is None
     return result.content[0].text
 
 
-def _tool_envelope(store_path: Path, number: int) -> dict:
+def _tool_envelope(store_path: Path, number: int, mode: str = "full") -> dict:
     """Direct call to the local tool, no transport wrapper."""
-    return tool_get_decision(store_path, number)
+    return tool_get_decision(store_path, number, mode)
 
 
 def test_stdio_and_tool_match_on_success_path(demo_repo):
@@ -90,3 +90,47 @@ def test_not_found_envelope_matches_across_surfaces(demo_repo):
     assert "content" not in tool
     assert tool["error"]["kind"] == "error"
     assert str(MISSING_NUMBER) in tool["error"]["reason"]
+
+
+# ── Backward-compat: default envelope is byte-identical, no extra key ──
+
+
+def test_default_envelope_byte_identical_to_full(demo_repo):
+    """The byte-identity gate: omitting ``mode`` equals ``mode="full"`` and
+    the envelope carries no discriminator key beyond store/content."""
+    _pid, store_path = demo_repo
+    default = _tool_envelope(store_path, EXISTING_NUMBER)
+    full = _tool_envelope(store_path, EXISTING_NUMBER, mode="full")
+    assert default == full
+    # Locked success envelope: store + content only. No "mode" key leaked.
+    assert set(default) == {"store", "content", "project"}
+
+
+# ── Header mode: parity across the stdio + tool surfaces ──
+
+
+def test_stdio_and_tool_match_on_header_mode(demo_repo):
+    pid, store_path = demo_repo
+    tool = _tool_envelope(store_path, EXISTING_NUMBER, mode="header")
+    assert _stdio_rendered(pid, EXISTING_NUMBER, mode="header") == RENDERERS["get_decision"](
+        tool, mode="header"
+    )
+
+
+def test_header_envelope_more_compact_than_full(demo_repo):
+    _pid, store_path = demo_repo
+    full = _tool_envelope(store_path, EXISTING_NUMBER, mode="full")
+    header = _tool_envelope(store_path, EXISTING_NUMBER, mode="header")
+    assert len(header["content"]) < len(full["content"])
+    # Header carries the same envelope key set — no discriminator field.
+    assert set(header) == set(full)
+
+
+def test_header_not_found_matches_full_miss_envelope(demo_repo):
+    pid, store_path = demo_repo
+    header_miss = _tool_envelope(store_path, MISSING_NUMBER, mode="header")
+    full_miss = _tool_envelope(store_path, MISSING_NUMBER, mode="full")
+    assert header_miss == full_miss
+    assert _stdio_rendered(pid, MISSING_NUMBER, mode="header") == RENDERERS["get_decision"](
+        header_miss, mode="header"
+    )
