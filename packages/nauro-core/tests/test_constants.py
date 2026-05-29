@@ -8,6 +8,7 @@ from nauro_core.constants import (
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
     L1_DECISIONS_SUMMARY_LIMIT,
+    MCP_INSTRUCTIONS,
     MCP_INSTRUCTIONS_STATIC,
     MIN_RATIONALE_LENGTH,
     OPEN_QUESTIONS_MD,
@@ -18,20 +19,24 @@ from nauro_core.constants import (
     STATE_MD,
     VALID_CONFIDENCES,
 )
+from nauro_core.instructions import build_remote_instructions
 from nauro_core.protocol import (
     GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
 )
 
-# The static instruction block already sits past the claude.ai
-# initialize.instructions truncation point (~2,023 chars), and the remote
-# server prepends a per-user project section, so the static block must
-# never GROW. This is the pre-change ceiling; the header-first hydration
-# reword holds at or below it. tools/list descriptions arrive intact even
-# when initialize.instructions is truncated, which is where the
-# header/full mode guidance also lives (on the get_decision ToolSpec).
-MCP_INSTRUCTIONS_STATIC_MAX_CHARS = 2135
+# The static instruction block must stay under the claude.ai
+# initialize.instructions truncation point (~2,023 chars) with room for the
+# per-user project section the remote server prepends. Trimming the trailing
+# update-state and get-context-followup guidance — now carried on the
+# matching ToolSpec descriptions, which tools/list delivers intact — brought
+# the block back under the cliff. This is the post-trim ceiling: modest
+# headroom above the current length so future growth past the cliff forces a
+# conscious bump and a re-check that the composed remote payload still keeps
+# every section header under the truncation point.
+MCP_INSTRUCTIONS_TRUNCATION_LIMIT = 2023
+MCP_INSTRUCTIONS_STATIC_MAX_CHARS = 1891
 
 
 class TestLimits:
@@ -121,11 +126,38 @@ class TestMcpInstructions:
 
     def test_static_block_does_not_exceed_budget_ceiling(self) -> None:
         """Regression guard: the static block must not grow past its
-        pre-change ceiling. The header-first hydration reword holds at or
-        below it — future edits that would enlarge the block force a
+        post-trim ceiling. Future edits that would enlarge the block force a
         conscious bump of the ceiling and a re-check that the remote
         per-user section still survives truncation."""
         assert len(MCP_INSTRUCTIONS_STATIC) <= MCP_INSTRUCTIONS_STATIC_MAX_CHARS
+
+    def test_budget_ceiling_under_truncation_limit(self) -> None:
+        """The ceiling itself must stay under the claude.ai cliff so the
+        static block always leaves headroom for the prepended per-user
+        project section. A bump that pushed the ceiling past the cliff would
+        re-introduce the truncation that drops trailing sections."""
+        assert MCP_INSTRUCTIONS_STATIC_MAX_CHARS < MCP_INSTRUCTIONS_TRUNCATION_LIMIT
+
+    def test_update_state_section_not_in_static(self) -> None:
+        """The 'When to update state' section was trimmed from the static
+        block; its canonical home is the update_state ToolSpec description,
+        which tools/list delivers intact past the truncation point."""
+        assert "## When to update state" not in MCP_INSTRUCTIONS_STATIC
+
+    def test_list_decisions_followup_nuance_not_in_static(self) -> None:
+        """The 'do not call list_decisions after get_context' nuance was the
+        truncation-risk tail of the get-context section; it now lives on the
+        get_context ToolSpec description instead of the static block."""
+        assert "list_decisions" not in MCP_INSTRUCTIONS_STATIC
+
+    def test_local_and_remote_share_static_tail(self) -> None:
+        """The local stdio server delivers MCP_INSTRUCTIONS verbatim; the
+        remote server composes MCP_INSTRUCTIONS_STATIC into a per-user
+        payload. Both draw from the same static tail, so the two surfaces
+        cannot silently drift. The alias pins that single source."""
+        assert MCP_INSTRUCTIONS == MCP_INSTRUCTIONS_STATIC
+        remote = build_remote_instructions(MCP_INSTRUCTIONS_STATIC, [])
+        assert remote.endswith(MCP_INSTRUCTIONS)
 
     def test_header_first_hydration_fragment_present_and_bounded(self) -> None:
         """The reworded hydration sentence is spliced into the static block
