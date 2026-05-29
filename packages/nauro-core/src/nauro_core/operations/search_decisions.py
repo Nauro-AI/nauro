@@ -91,19 +91,36 @@ def search_decisions(
     return SearchDecisionsResult(results=hits)
 
 
+# Slots reserved inside ``limit`` for embedding-only hits in search_decisions.
+# search_decisions is a search tool: callers expect at most ``limit`` results,
+# so the union cannot simply exceed the budget the way union_retrieve's
+# fixed-top_k candidate pool does. Without a reservation, a healthy corpus
+# fills ``limit`` with BM25 hits and every embedding-only hit lands past the
+# cap and is sliced off — the augmenter would contribute nothing exactly when
+# it should. Reserving a few slots guarantees the embedding pool widens the
+# result (the augmenter's whole point) while the total stays bounded by
+# ``limit``. BM25 keeps the majority because it remains the primary signal.
+_EMBEDDING_RESERVED_SLOTS = 3
+
+
 def _append_embedding_hits(
     decisions: list[Decision],
     query: str,
     limit: int,
     bm25_hits: list[SearchHit],
 ) -> list[SearchHit]:
-    """Append embedding top-k decisions BM25 did not surface (union pool).
+    """Blend embedding-only hits into the BM25 result, bounded by ``limit``.
 
-    BM25 hits keep their order and shape; embedding-only hits are appended
-    with ``score=0.0`` (no BM25 score) so the row stays serializable. The
-    augmenter is fail-open: an absent dependency yields an empty pool and the
-    BM25 hits pass through unchanged. The combined list is truncated to
-    ``limit`` so the candidate pool stays bounded.
+    BM25 hits keep their order and shape; embedding-only decisions BM25 did not
+    surface are appended with ``score=0.0`` (no BM25 score) so the row stays
+    serializable. The augmenter is fail-open: an absent dependency yields an
+    empty pool and the BM25 hits pass through unchanged.
+
+    ``limit`` is honored as a hard cap. Up to ``_EMBEDDING_RESERVED_SLOTS`` of
+    those slots are reserved for embedding-only hits, so they survive even when
+    BM25 already returned a full ``limit`` set; the BM25 list is trimmed only as
+    far as needed to make room and never below the slots embeddings actually
+    fill. When BM25 underfills ``limit`` no trimming happens.
     """
     from nauro_core.embeddings import embedding_pool
 
@@ -113,15 +130,19 @@ def _append_embedding_hits(
 
     seen = {hit.number for hit in bm25_hits}
     by_num = {d.num: d for d in decisions}
-    augmented = list(bm25_hits)
+
+    embedding_hits: list[SearchHit] = []
+    reserve = min(_EMBEDDING_RESERVED_SLOTS, limit)
     for num in pool:
+        if len(embedding_hits) >= reserve:
+            break
         if num in seen:
             continue
         d = by_num.get(num)
         if d is None:
             continue
         seen.add(num)
-        augmented.append(
+        embedding_hits.append(
             SearchHit(
                 number=d.num,
                 title=d.title,
@@ -132,4 +153,9 @@ def _append_embedding_hits(
             )
         )
 
-    return augmented[:limit]
+    if not embedding_hits:
+        return bm25_hits
+
+    # Trim BM25 only enough to fit the embedding hits within ``limit``.
+    bm25_budget = limit - len(embedding_hits)
+    return bm25_hits[:bm25_budget] + embedding_hits

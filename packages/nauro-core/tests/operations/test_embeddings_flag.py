@@ -169,6 +169,54 @@ class TestSearchDecisionsFlag:
         assert on_nums[: len(off_nums)] == off_nums
         assert 3 in on_nums and 3 not in off_nums
 
+    def test_embedding_hit_survives_when_bm25_fills_limit(self, monkeypatch):
+        """BM25 fills ``limit`` -> the embedding-only hit must still appear.
+
+        Without a reserved slot the embedding-only hit lands past ``limit`` and
+        is sliced off, so the augmenter would contribute nothing exactly when
+        BM25 already saturates the budget — the common case on a healthy corpus.
+        """
+        limit = 5
+        # ``limit`` decisions that all share the query's lexical surface, so BM25
+        # fills the budget on its own. Plus one related decision sharing no
+        # surface with the query, which only the embedding pool can surface.
+        decisions = {}
+        for i in range(1, limit + 1):
+            stem, body = _seed(
+                i,
+                f"Caching strategy variant {i}",
+                f"Caching strategy variant {i} for the caching layer.",
+            )
+            decisions[stem] = body
+        stem, body = _seed(
+            99,
+            "Identity tokens omit email scope",
+            "Login tokens lack the email claim so profiles never link.",
+        )
+        decisions[stem] = body
+        store = InMemoryStore(decisions=decisions)
+
+        off = search_decisions(store, "caching strategy", limit=limit, use_embeddings=False)
+        off_nums = [h.number for h in off.results]
+        # Precondition: BM25 alone saturates the budget and never surfaces 99.
+        assert len(off_nums) == limit
+        assert 99 not in off_nums
+
+        stub = _StubModel(
+            vectors={
+                "Identity tokens omit email scope": [1.0, 0.0],
+                "caching strategy": [1.0, 0.0],
+            },
+            default=[0.0, 1.0],
+        )
+        monkeypatch.setattr(embeddings_mod, "_get_model", lambda: stub)
+        on = search_decisions(store, "caching strategy", limit=limit, use_embeddings=True)
+        on_nums = [h.number for h in on.results]
+
+        # The embedding-only hit survives; the result stays within ``limit``.
+        assert 99 in on_nums
+        assert len(on_nums) <= limit
+
 
 def extract_num(decision_id: str) -> int:
     return int(decision_id.rsplit("-", 1)[1])
