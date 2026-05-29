@@ -25,7 +25,7 @@ from nauro_core.operations.results import (
 )
 from nauro_core.operations.store import Store
 from nauro_core.parsing import extract_decision_number
-from nauro_core.search import bm25_retrieve
+from nauro_core.search import union_retrieve
 from nauro_core.validation import check_content_length
 
 # Scaffold-seed bookkeeping decision is excluded from retrieval; full
@@ -47,6 +47,7 @@ def check_decision(
     store: Store,
     proposed_approach: str,
     context: str | None = None,
+    use_embeddings: bool = False,
 ) -> CheckDecisionResult:
     """Return the conflict-check result for ``proposed_approach``.
 
@@ -55,6 +56,10 @@ def check_decision(
         proposed_approach: Free-form description of the approach to check.
         context: Optional additional context concatenated into the retrieval
             query. Subject to ``MAX_CONTEXT_LENGTH``.
+        use_embeddings: When True, augment the BM25 candidate pool with the
+            optional embedding retriever (union). Resolved by the adapter from
+            env/config; the kernel stays I/O-free. Fail-open: if the optional
+            dependency is absent the result is BM25-only.
 
     Returns:
         :class:`CheckDecisionResult`. On the rejection path ``error`` is
@@ -81,7 +86,13 @@ def check_decision(
     approach_head = proposed_approach[:100]
     body_text = proposed_approach + (f" {context}" if context else "")
     query_text = f"{approach_head}. {body_text[:200]}"
-    hits = bm25_retrieve(decisions, query_text, top_k=5, stopwords=_CHECK_DECISION_STOPWORDS)
+    hits = union_retrieve(
+        decisions,
+        query_text,
+        top_k=5,
+        stopwords=_CHECK_DECISION_STOPWORDS,
+        use_embeddings=use_embeddings,
+    )
     if not hits:
         return CheckDecisionResult(assessment="No related decisions found.")
 
@@ -112,10 +123,13 @@ def _hit_to_related(hit: dict, by_num: dict[int, Decision]) -> RelatedDecision:
     canonical_id = f"decision-{num:03d}"
     status = decision.status.value if decision else "active"
     date = decision.date.isoformat() if decision and decision.date else ""
+    # Embedding-sourced hits carry similarity=None (no BM25 score); surface 0.0
+    # so the score field stays a float and signals "not a BM25 match".
+    similarity = hit.get("similarity")
     return RelatedDecision(
         id=canonical_id,
         title=hit.get("title", ""),
-        score=hit.get("similarity", 0.0),
+        score=similarity if similarity is not None else 0.0,
         status=status,
         date=date,
         rationale_preview=hit.get("rationale_preview", ""),

@@ -32,6 +32,7 @@ from nauro_core.constants import VALID_CONFIDENCES as VALID_CONFIDENCES
 # ── Environment variables (CLI-specific) ──
 NAURO_HOME_ENV = "NAURO_HOME"
 NAURO_TELEMETRY_ENV = "NAURO_TELEMETRY"
+NAURO_EMBEDDINGS_ENV = "NAURO_EMBEDDINGS"
 
 # ── Paths (CLI-specific) ──
 DEFAULT_NAURO_HOME = ".nauro"

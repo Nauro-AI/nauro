@@ -14,11 +14,16 @@ from pathlib import Path
 from nauro.constants import (
     CONFIG_FILENAME,
     DEFAULT_NAURO_HOME,
+    NAURO_EMBEDDINGS_ENV,
     NAURO_HOME_ENV,
     NAURO_TELEMETRY_ENV,
 )
 
 logger = logging.getLogger("nauro.config")
+
+# Config key for the optional embedding retrieval augmenter. The env var
+# NAURO_EMBEDDINGS overrides it, mirroring the NAURO_HOME precedence.
+_EMBEDDINGS_CONFIG_KEY = "search.embeddings"
 
 
 def _config_file() -> Path:
@@ -68,6 +73,30 @@ def unset_config(key: str) -> bool:
     del data[key]
     save_config(data)
     return True
+
+
+def resolve_embeddings_flag() -> bool:
+    """Resolve whether embedding-augmented retrieval is enabled.
+
+    Precedence (mirrors NAURO_HOME): the ``NAURO_EMBEDDINGS`` env var wins when
+    set; otherwise the ``search.embeddings`` config key is consulted; otherwise
+    the default is OFF. Env and config both accept the same truthy tokens
+    (``"1"``, ``"true"``, ``"yes"``, ``"on"``, case-insensitive) and a native
+    bool from config.
+    """
+    env_value = os.environ.get(NAURO_EMBEDDINGS_ENV)
+    if env_value is not None:
+        return _is_truthy(env_value)
+    return _is_truthy(get_config(_EMBEDDINGS_CONFIG_KEY))
+
+
+def _is_truthy(value: object) -> bool:
+    """Interpret a config/env value as a boolean flag."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return False
 
 
 _TELEMETRY_KEY = "telemetry"
