@@ -15,7 +15,8 @@ rationale stays inspectable.
 
 from __future__ import annotations
 
-from nauro_core.decision_model import DecisionStatus, parse_decision
+from nauro_core.decision_model import DecisionStatus
+from nauro_core.operations.decision_lookup import parse_all_decisions
 from nauro_core.operations.results import DecisionSummary, ListDecisionsResult
 from nauro_core.operations.store import Store
 
@@ -37,12 +38,7 @@ def list_decisions(
         :class:`ListDecisionsResult` with ``decisions`` populated. Rows
         are sorted by decision number descending and sliced to ``limit``.
     """
-    decisions = []
-    for stem in store.list_decisions():
-        body = store.read_decision(stem)
-        if body is None:
-            continue
-        decisions.append(parse_decision(body, f"{stem}.md"))
+    decisions = parse_all_decisions(store)
 
     if not include_superseded:
         decisions = [d for d in decisions if d.status is DecisionStatus.active]

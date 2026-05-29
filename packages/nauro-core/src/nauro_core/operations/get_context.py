@@ -23,7 +23,7 @@ from nauro_core.constants import (
     STATE_MD,
 )
 from nauro_core.context import build_l0, build_l1, build_l2
-from nauro_core.decision_model import Decision, parse_decision
+from nauro_core.operations.decision_lookup import parse_all_decisions
 from nauro_core.operations.results import ErrorPayload, GetContextResult
 from nauro_core.operations.store import Store
 
@@ -41,16 +41,6 @@ _BUILDERS = {
     1: build_l1,
     2: build_l2,
 }
-
-
-def _load_decisions(store: Store) -> list[Decision]:
-    decisions: list[Decision] = []
-    for stem in store.list_decisions():
-        body = store.read_decision(stem)
-        if body is None:
-            continue
-        decisions.append(parse_decision(body, f"{stem}.md"))
-    return decisions
 
 
 def _load_context_files(store: Store, level: int) -> dict[str, str]:
@@ -115,5 +105,5 @@ def get_context(store: Store, level: int) -> GetContextResult:
         )
 
     files = _load_context_files(store, level)
-    decisions = _load_decisions(store)
+    decisions = parse_all_decisions(store)
     return GetContextResult(content=builder(files, decisions))

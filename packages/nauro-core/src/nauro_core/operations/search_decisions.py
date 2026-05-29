@@ -13,7 +13,8 @@ rather than letting superseded hits crowd out active ones.
 
 from __future__ import annotations
 
-from nauro_core.decision_model import Decision, DecisionStatus, parse_decision
+from nauro_core.decision_model import Decision, DecisionStatus
+from nauro_core.operations.decision_lookup import parse_all_decisions
 from nauro_core.operations.results import (
     ErrorPayload,
     SearchDecisionsResult,
@@ -61,12 +62,7 @@ def search_decisions(
             ),
         )
 
-    decisions = []
-    for stem in store.list_decisions():
-        body = store.read_decision(stem)
-        if body is None:
-            continue
-        decisions.append(parse_decision(body, f"{stem}.md"))
+    decisions = parse_all_decisions(store)
 
     if not include_superseded:
         decisions = [d for d in decisions if d.status is DecisionStatus.active]
