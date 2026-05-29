@@ -172,6 +172,39 @@ Block = Annotated[
 
 
 @dataclass(frozen=True)
+class MigrationRename:
+    """One legacy entry's rename, recorded by :meth:`OpenQuestionsFile.migrate`.
+
+    Attributes:
+        old_id: The legacy ``YYYY-MM-DD HH:MM UTC`` id the entry carried.
+        new_id: The minted ``Q###`` id that replaces it.
+        logged: The ``(logged YYYY-MM-DD HH:MM UTC)`` text appended to the
+            body so the human timestamp survives the id rewrite.
+    """
+
+    old_id: str
+    new_id: str
+    logged: str
+
+
+@dataclass(frozen=True)
+class MigrationResult:
+    """Outcome of :meth:`OpenQuestionsFile.migrate`.
+
+    Attributes:
+        file: A new :class:`OpenQuestionsFile` with legacy entries minted
+            into Q-form. Non-legacy blocks are the same objects as the
+            input, so a file with no legacy entries returns an unchanged
+            ``blocks`` list (idempotent).
+        renames: One :class:`MigrationRename` per legacy entry migrated, in
+            block order. Empty when nothing was migrated.
+    """
+
+    file: OpenQuestionsFile
+    renames: tuple[MigrationRename, ...]
+
+
+@dataclass(frozen=True)
 class ResolveResult:
     """Outcome of :meth:`OpenQuestionsFile.resolve`.
 
@@ -403,6 +436,61 @@ class OpenQuestionsFile(BaseModel):
             file=self.model_copy(update={"blocks": new_blocks}),
             moved_ids=moved,
             unknown_ids=unknown,
+        )
+
+    def migrate(self) -> MigrationResult:
+        """Mint a ``Q###`` id for every legacy ``[timestamp]`` entry.
+
+        A legacy entry is an :class:`EntryBlock` whose ``QuestionEntry`` has
+        ``timestamp`` set and ``num`` unset. Each such entry is reassigned
+        the next sequential id — ``max(num across the whole file) + 1``,
+        continuing past any existing Q ids — with ``timestamp`` cleared and
+        the original timestamp appended to the body as
+        ``(logged YYYY-MM-DD HH:MM UTC)``.
+
+        A resolved legacy entry keeps its ``resolved_by`` prefix; only the
+        ``[<timestamp>]`` id segment becomes ``[Q###]`` because
+        :meth:`QuestionEntry.render` builds the head from model fields.
+        Entries are never reordered — an entry physically under
+        ``## Resolved`` stays there with its id rewritten.
+
+        Only touched legacy entries are ``model_copy``'d; every other block
+        is reused by reference, so a file that is already all-Q-form returns
+        an unchanged ``blocks`` list and empty ``renames`` (idempotent).
+        """
+        next_num = (
+            max(
+                (
+                    b.entry.num
+                    for b in self.blocks
+                    if isinstance(b, EntryBlock) and b.entry.num is not None
+                ),
+                default=0,
+            )
+            + 1
+        )
+
+        renames: list[MigrationRename] = []
+        new_blocks: list[Block] = []
+        for b in self.blocks:
+            if isinstance(b, EntryBlock) and b.entry.timestamp is not None and b.entry.num is None:
+                old_id = b.entry.id
+                logged = f"(logged {b.entry.timestamp.strftime(_TIMESTAMP_FMT)})"
+                new_body = f"{b.entry.body} {logged}" if b.entry.body else logged
+                new_entry = b.entry.model_copy(
+                    update={"num": next_num, "timestamp": None, "body": new_body}
+                )
+                new_blocks.append(EntryBlock(entry=new_entry))
+                renames.append(
+                    MigrationRename(old_id=old_id, new_id=f"Q{next_num}", logged=logged)
+                )
+                next_num += 1
+            else:
+                new_blocks.append(b)
+
+        return MigrationResult(
+            file=self.model_copy(update={"blocks": new_blocks}),
+            renames=tuple(renames),
         )
 
 
