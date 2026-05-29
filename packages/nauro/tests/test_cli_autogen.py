@@ -204,12 +204,10 @@ class TestGetDecision:
 
     def test_mode_bogus_is_rejected(self, demo_repo) -> None:
         result = runner.invoke(app, ["get-decision", "1", "--mode", "bogus"])
-        # An out-of-enum --mode is rejected before the adapter produces a result.
-        # The exact exit code is typer/click-version-dependent (older versions
-        # raise a usage error -> 2; typer>=0.26 / click>=8.4 reject without the
-        # usage-error code -> 1), so assert the version-stable invariant: the
-        # invocation fails and no result envelope reaches stdout.
-        assert result.exit_code != 0, result.output
+        # An out-of-enum --mode is a usage error: exit 2 with the valid choices
+        # named in the message, before the adapter produces a result.
+        assert result.exit_code == 2, result.output
+        assert "header" in result.output
         assert '"store"' not in result.stdout
 
 
