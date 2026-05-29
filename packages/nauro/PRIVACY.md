@@ -4,7 +4,7 @@ Last updated: 2026-05-10
 
 ## Cloud sync
 
-Project context (decisions, state, open questions — not source code) is stored encrypted in AWS S3 (us-east-1, SSE-S3). Each user's data is isolated under a unique prefix derived from their authentication identity. You can delete all your data at any time with `nauro account delete`.
+Project context (decisions, state, open questions — not source code) is stored encrypted in AWS S3 (us-east-1, SSE-S3). Each user's data is isolated under a unique prefix derived from their authentication identity. There is no self-service deletion command at this time; contact support to request removal of your cloud data.
 
 ## Remote MCP
 
@@ -12,7 +12,7 @@ When connected to Claude AI, Perplexity, ChatGPT, or another MCP client, your pr
 
 ## Telemetry
 
-Nauro collects anonymous product-usage telemetry to understand which commands are used, where users get stuck, and whether the tool is healthy. Telemetry is **default opt-in** via a one-line first-run prompt that points back to this document. (The prompt itself ships in a follow-up release; until then, no events are sent.)
+Nauro collects anonymous product-usage telemetry to understand which commands are used, where users get stuck, and whether the tool is healthy. Telemetry is **default opt-in** via a one-line first-run prompt that points back to this document.
 
 ### Events
 
@@ -42,8 +42,8 @@ project.created       { schema_version }
 
 ### Opting out
 
-- `NAURO_TELEMETRY=0` environment variable — works today, suppresses all telemetry and the first-run prompt.
-- `nauro telemetry disable` — coming in Phase 1, persists the choice in `~/.nauro/config.json`.
+- `NAURO_TELEMETRY=0` environment variable — suppresses all telemetry and the first-run prompt.
+- `nauro telemetry disable` — persists the opt-out in `~/.nauro/config.json`.
 
 ### Vendor
 
