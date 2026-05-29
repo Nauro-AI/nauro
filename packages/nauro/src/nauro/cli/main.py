@@ -52,6 +52,7 @@ def _register_commands() -> None:
         attach,
         auth,
         config,
+        hook,
         import_cmd,
         init,
         link,
@@ -73,6 +74,7 @@ def _register_commands() -> None:
     app.command(name="link")(link.link)
     app.command(name="note")(note.note)
     app.add_typer(questions.questions_app, name="questions")
+    app.add_typer(hook.hook_app, name="hook")
     app.command(name="sync")(sync.sync)
     app.command(name="log")(log.log)
     app.command(name="import")(import_cmd.import_cmd)
