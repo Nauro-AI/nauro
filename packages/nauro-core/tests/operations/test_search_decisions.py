@@ -123,12 +123,9 @@ def test_stemming_matches_morphological_variants() -> None:
     assert "Auth0" in result.results[0].title
 
 
-def test_superseded_decisions_appear_in_results() -> None:
-    """Status is not a filter on search; superseded rationale stays inspectable.
-
-    Pins the no-status-filter contract for ``search_decisions`` so an agent
-    looking at past doctrine can still surface a superseded decision by
-    keyword. Status filtering belongs to ``list_decisions``.
+def test_superseded_excluded_by_default() -> None:
+    """search_decisions filters status in the kernel: superseded decisions are
+    excluded by default so they cannot crowd active hits out of ``limit``.
     """
     active = _seed_decision(
         1,
@@ -142,9 +139,54 @@ def test_superseded_decisions_appear_in_results() -> None:
         status=DecisionStatus.superseded,
     )
     store = _store_with(active, superseded)
-    result = search_decisions(store, "Auth0")
+    result = search_decisions(store, "authentication")
+    statuses = {hit.status for hit in result.results}
+    assert "superseded" not in statuses
+    assert "active" in statuses
+
+
+def test_include_superseded_true_retains_superseded() -> None:
+    """Passing ``include_superseded=True`` surfaces superseded decisions."""
+    active = _seed_decision(
+        1,
+        "Use Cognito for authentication",
+        "Cognito ties tightly to AWS-native IAM.",
+    )
+    superseded = _seed_decision(
+        2,
+        "Use Auth0 for authentication",
+        "Auth0 was the prior managed identity provider.",
+        status=DecisionStatus.superseded,
+    )
+    store = _store_with(active, superseded)
+    result = search_decisions(store, "Auth0", include_superseded=True)
     statuses = {hit.status for hit in result.results}
     assert "superseded" in statuses
+
+
+def test_filter_runs_before_truncation() -> None:
+    """Status filtering runs before the ``limit`` truncation, so an active-only
+    query returns active hits even when superseded decisions would otherwise
+    outrank them in the BM25 top-N.
+    """
+    superseded = [
+        _seed_decision(
+            i,
+            f"Superseded match {i}",
+            "match phrase superseded here.",
+            status=DecisionStatus.superseded,
+        )
+        for i in range(1, 4)
+    ]
+    active = [
+        _seed_decision(i, f"Active match {i}", "match phrase active here.") for i in range(4, 7)
+    ]
+    store = _store_with(*superseded, *active)
+    result = search_decisions(store, "match phrase", limit=3)
+    statuses = {hit.status for hit in result.results}
+    assert result.results, "active decisions matching the query should be returned"
+    assert "superseded" not in statuses
+    assert len(result.results) <= 3
 
 
 def test_results_sorted_descending_by_score() -> None:

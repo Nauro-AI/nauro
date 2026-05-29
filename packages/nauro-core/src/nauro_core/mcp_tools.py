@@ -214,8 +214,8 @@ SEARCH_DECISIONS: ToolSpec = {
     "title": "Search decisions",
     "description": (
         "Search across all project decisions using BM25 relevance ranking "
-        "against titles and rationale. Includes both active and superseded "
-        "decisions.\n"
+        "against titles and rationale. Returns active decisions by default; "
+        "pass include_superseded=true to include superseded ones.\n"
         "\n"
         "Use when you need to find decisions about a specific topic rather "
         "than browsing the full list. More token-efficient than list_decisions "
@@ -239,6 +239,11 @@ SEARCH_DECISIONS: ToolSpec = {
                 "type": "integer",
                 "default": 10,
                 "description": "Maximum results to return.",
+            },
+            "include_superseded": {
+                "type": "boolean",
+                "default": False,
+                "description": "Include superseded decisions in the result.",
             },
             "project_id": _PROJECT_PARAM,
         },
