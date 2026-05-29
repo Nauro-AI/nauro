@@ -242,17 +242,21 @@ def test_init_cli_refuses_overwrite_without_force(tmp_path, monkeypatch):
     assert cfg["name"] == "first"
 
 
-def test_init_cli_force_overwrites(tmp_path, monkeypatch):
-    """--force replaces an existing .nauro/config.json with the new
-    project's handle; the registry shows both."""
+def test_init_cli_force_does_not_duplicate_claimed_repo(tmp_path, monkeypatch):
+    """--force overwrites only the cwd config — it does not mint a second
+    registry entry for a repo an existing project already claims.
+
+    --force bypasses the config-overwrite guard, but the repo remains claimed
+    by 'first'; minting a 'second' entry for the same repo would shadow that
+    association. init refuses (exit 1) and 'second' never enters the registry.
+    """
     monkeypatch.chdir(tmp_path)
-    runner.invoke(app, ["init", "first"])
+    first = runner.invoke(app, ["init", "first"])
+    assert first.exit_code == 0, first.output
     result = runner.invoke(app, ["init", "second", "--force"])
-    assert result.exit_code == 0
-    cfg = load_repo_config(tmp_path)
-    assert cfg["name"] == "second"
+    assert result.exit_code == 1, result.output
     assert len(registry.find_projects_by_name_v2("first")) == 1
-    assert len(registry.find_projects_by_name_v2("second")) == 1
+    assert registry.find_projects_by_name_v2("second") == []
 
 
 def test_init_cli_add_repo_idempotent_on_same_id(tmp_path, monkeypatch):

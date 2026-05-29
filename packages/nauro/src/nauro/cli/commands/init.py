@@ -33,6 +33,7 @@ from nauro.store.registry import (
     find_projects_by_name_v2,
     get_store_path_v2,
     register_project_v2,
+    resolve_v2_from_path,
 )
 from nauro.store.repo_config import (
     RepoConfigSchemaError,
@@ -103,6 +104,104 @@ def _check_config_overwrite(
     raise typer.Exit(code=1)
 
 
+def _refuse_if_repo_already_claimed(rp: Path) -> None:
+    """Refuse to mint a new project for a repo an existing project already claims.
+
+    A repo path resolves to at most one project. If ``rp`` already walks up to
+    a registered project, minting a second id here would shadow that
+    association and leave a duplicate registry entry the user never intended.
+    Aborts via :class:`typer.Exit` naming the safe recovery paths.
+    """
+    resolved = resolve_v2_from_path(rp)
+    if resolved is None:
+        return
+    existing_id, entry = resolved
+    existing_name = entry.get("name", "<unnamed>")
+    typer.echo(
+        f"Repo {rp.resolve()} is already part of project "
+        f"{existing_name!r} (id: {existing_id}).\n"
+        "Refusing to register a second project for the same repo.\n"
+        "\n"
+        "Options:\n"
+        f"  - Add this repo to the existing project: "
+        f"nauro init {existing_name!r} --add-repo {rp.resolve()}\n"
+        f"  - Remove the existing registry entry: nauro projects rm {existing_id}\n"
+        "  - Promote a local project to cloud: nauro link",
+        err=True,
+    )
+    raise typer.Exit(code=1)
+
+
+def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
+    """Initialize (or reuse) the bundled demo project.
+
+    Demo init has its own idempotency contract that the generic new-project
+    flow does not: a single shared demo entry is reused rather than
+    duplicated, and the cwd-config overwrite message is demo-specific.
+    """
+    from nauro.demo import create_demo_project
+
+    # Demo-specific overwrite guard: when the cwd already carries a config and
+    # --force is absent, surface a reset-oriented message instead of the
+    # generic --add-repo recovery line. Only the cwd (first/only path) gets the
+    # demo-config; --demo does not take --add-repo, so repo_paths is [cwd].
+    for rp in repo_paths:
+        config_file = repo_config_path(rp)
+        if config_file.is_file() and not force:
+            typer.echo(
+                f"Demo already initialized here ({rp.resolve()}).\n"
+                "Re-run with --force to reset it.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    # Reuse an existing demo entry rather than minting a duplicate.
+    existing = find_projects_by_name_v2(name)
+    if existing:
+        pid, _entry = existing[0]
+        store_path = get_store_path_v2(pid)
+        typer.echo(f"Demo project already exists ({pid}); reusing it.")
+    else:
+        # No pre-existing demo entry: refuse if any target repo is already
+        # claimed by a *different* project before minting a new id.
+        for rp in repo_paths:
+            _refuse_if_repo_already_claimed(rp)
+        pid, store_path = register_project_v2(
+            name,
+            repo_paths,
+            mode=REPO_CONFIG_MODE_LOCAL,
+        )
+        capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
+
+    for rp in repo_paths:
+        save_repo_config(
+            rp,
+            {
+                "mode": REPO_CONFIG_MODE_LOCAL,
+                "id": pid,
+                "name": name,
+            },
+        )
+
+    create_demo_project(store_path)
+    cwd_is_git = (Path.cwd() / ".git").is_dir()
+
+    typer.echo(f"Initialized demo project '{name}'")
+    typer.echo(f"  Project id: {pid}")
+    typer.echo(f"  Store: {store_path}")
+    for rp in repo_paths:
+        typer.echo(f"  Repo:  {rp.resolve()}")
+    typer.echo("  Includes: 7 decisions, project state, open questions, and a snapshot")
+    typer.echo(f"  Wrote .nauro/config.json into {Path.cwd()}")
+    if cwd_is_git:
+        typer.echo(
+            "  Warning: this directory is a git repo; the demo config will steer "
+            "its resolution to the demo doctrine.",
+            err=True,
+        )
+    typer.echo("  Next: run 'nauro check-decision \"<approach>\"' to try a conflict check")
+
+
 _Opt_add_repo_paths = typer.Option(
     None,
     "--add-repo",
@@ -127,9 +226,9 @@ def init(
         False,
         "--force",
         help=(
-            "Overwrite an existing .nauro/config.json in the target repo. "
-            "Without this flag init refuses to replace a config pointing at "
-            "a different project."
+            "Overwrite the .nauro/config.json in the current directory only. "
+            "Without this flag init refuses to replace a config pointing at a "
+            "different project. This does not replace the project itself."
         ),
     ),
 ) -> None:
@@ -197,6 +296,14 @@ def init(
                 typer.echo(f"  Added repo: {rp}")
             return
 
+    # ── --demo ───────────────────────────────────────────────────────────────
+    # Handled before the generic new-project flow because demo has its own
+    # idempotency rules: a single shared 'demo-project' entry is reused rather
+    # than duplicated, and the cwd-config overwrite message is demo-specific.
+    if demo:
+        _init_demo(name, repo_paths, force)
+        return
+
     # ── New project: cloud or local ────────────────────────────────────────
     # Pre-check every target repo before allocating a new id. For a fresh
     # init we have no pid to compare against; any existing config is treated
@@ -207,6 +314,12 @@ def init(
     # existing project association.
     for rp in repo_paths:
         _check_config_overwrite(rp, None, name, force)
+
+    # Refuse to mint a second entry for a repo a project already claims. A
+    # repo's identity is single-valued; minting a new id would shadow the
+    # existing association and leave a duplicate the user never intended.
+    for rp in repo_paths:
+        _refuse_if_repo_already_claimed(rp)
 
     if cloud:
         try:
@@ -242,7 +355,8 @@ def init(
         typer.echo(f"  Store: {store_path}")
         for rp in repo_paths:
             typer.echo(f"  Repo:  {rp.resolve()}")
-        typer.echo("  Next: run 'nauro sync' to capture the first snapshot")
+        typer.echo("  Next: run 'nauro setup claude-code' to connect your agent")
+        typer.echo("  Then: run 'nauro sync' to capture the first snapshot")
         return
 
     # ── Local-only ─────────────────────────────────────────────────────────
@@ -266,19 +380,11 @@ def init(
             },
         )
 
-    if demo:
-        from nauro.demo import create_demo_project
-
-        create_demo_project(store_path)
-        typer.echo(f"Initialized demo project '{name}'")
-        typer.echo(f"  Project id: {pid}")
-        typer.echo(f"  Store: {store_path}")
-        typer.echo("  Includes: 7 decisions, project state, open questions, and a snapshot")
-    else:
-        scaffold_project_store(name, store_path)
-        typer.echo(f"Initialized project '{name}'")
-        typer.echo(f"  Project id: {pid}")
-        typer.echo(f"  Store: {store_path}")
-        for rp in repo_paths:
-            typer.echo(f"  Repo:  {rp.resolve()}")
-        typer.echo("  Next: run 'nauro sync' to capture the first snapshot")
+    scaffold_project_store(name, store_path)
+    typer.echo(f"Initialized project '{name}'")
+    typer.echo(f"  Project id: {pid}")
+    typer.echo(f"  Store: {store_path}")
+    for rp in repo_paths:
+        typer.echo(f"  Repo:  {rp.resolve()}")
+    typer.echo("  Next: run 'nauro setup claude-code' to connect your agent")
+    typer.echo("  Then: run 'nauro sync' to capture the first snapshot")

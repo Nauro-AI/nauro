@@ -58,6 +58,7 @@ def _register_commands() -> None:
         link,
         log,
         note,
+        projects,
         questions,
         render_plugin,
         serve,
@@ -73,6 +74,7 @@ def _register_commands() -> None:
     app.command(name="attach")(attach.attach)
     app.command(name="link")(link.link)
     app.command(name="note")(note.note)
+    app.add_typer(projects.projects_app, name="projects")
     app.add_typer(questions.questions_app, name="questions")
     app.add_typer(hook.hook_app, name="hook")
     app.command(name="sync")(sync.sync)
