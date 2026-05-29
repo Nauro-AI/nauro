@@ -15,9 +15,14 @@ from nauro.store.registry import (
 )
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
+from nauro.sync.push import push_store_to_cloud
 from nauro.templates.agents_md import regenerate_agents_md_for_project
 
 logger = logging.getLogger("nauro.sync")
+
+# Names retained for callers/tests that import the push helper from this
+# command module; the implementation now lives in ``nauro.sync.push``.
+_push_to_cloud = push_store_to_cloud
 
 
 def _registry_repo_paths(project_key: str) -> list[str]:
@@ -235,98 +240,6 @@ def _pull_via_presign(project_id: str, store_path: Path) -> int:
         typer.echo("  No remote changes")
 
     return merged
-
-
-def _push_to_cloud(project_id: str, store_path: Path) -> bool:
-    """Push store changes after a local sync.
-
-    Cloud-mode projects with a token → presign push. Cloud-mode without
-    a token → warn and return False (caller surfaces exit 1). Anything
-    else (v1, v2-local) → True since nothing was expected to upload.
-    """
-    if not is_cloud_project(project_id):
-        return True
-    if not load_access_token():
-        typer.echo(
-            "  Warning: this is a cloud-mode project but you're not authenticated.\n"
-            "  Your local snapshot is captured, but nothing was uploaded.\n"
-            "  Run 'nauro auth login' to configure credentials.",
-            err=True,
-        )
-        return False
-    return _push_via_presign(project_id, store_path)
-
-
-def _push_via_presign(project_id: str, store_path: Path) -> bool:
-    """POST /sync/presign for changed files → S3 PUTs."""
-    from nauro.cli.commands.auth import AuthRefreshError
-    from nauro.sync.merge import should_skip
-    from nauro.sync.remote import (
-        PresignError,
-        put_via_presigned_url,
-        request_presigned_urls,
-    )
-    from nauro.sync.state import compute_sha256, load_state, save_state, update_file_state
-
-    state = load_state(store_path)
-
-    changed: list[tuple[str, str, Path]] = []
-    for local_file in store_path.rglob("*"):
-        if not local_file.is_file():
-            continue
-        try:
-            rel = str(local_file.relative_to(store_path))
-        except ValueError:
-            continue
-        if should_skip(rel) or rel.startswith(".conflict-backup") or rel.startswith("__pycache__"):
-            continue
-
-        local_sha = compute_sha256(local_file)
-        fs = state.files.get(rel)
-        if fs is None or fs.local_sha256 != local_sha:
-            changed.append((rel, local_sha, local_file))
-
-    if not changed:
-        save_state(store_path, state)
-        return True
-
-    operations = [{"verb": "PUT", "path": rel} for rel, _sha, _path in changed]
-    try:
-        urls = request_presigned_urls(project_id, operations)
-    except AuthRefreshError as exc:
-        typer.echo(f"  {exc}", err=True)
-        return False
-    except PresignError as exc:
-        logger.exception("Failed to request presigned PUT URLs")
-        typer.echo(f"  Warning: presign request failed ({exc})", err=True)
-        return False
-
-    if len(urls) < len(operations):
-        logger.warning("Presign returned %d URLs for %d ops", len(urls), len(operations))
-
-    url_by_path = {
-        entry["path"]: entry["url"]
-        for entry in urls
-        if isinstance(entry, dict) and entry.get("verb") == "PUT"
-    }
-
-    pushed = 0
-    for rel, local_sha, local_file in changed:
-        url = url_by_path.get(rel)
-        if not url:
-            continue
-        try:
-            new_etag = put_via_presigned_url(url, local_file)
-            if new_etag:
-                update_file_state(state, rel, local_sha, new_etag)
-                pushed += 1
-        except PresignError:
-            logger.exception("Failed to push %s", rel)
-
-    save_state(store_path, state)
-    if pushed:
-        typer.echo(f"  Pushed {pushed} file(s) to S3")
-    return True
 
 
 def _show_status(project_flag: str | None) -> None:

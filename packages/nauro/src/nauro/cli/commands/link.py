@@ -30,6 +30,7 @@ from nauro.store.repo_config import (
     save_repo_config,
 )
 from nauro.sync.cloud_projects import CloudProjectError, create_project
+from nauro.sync.push import push_changed_files
 
 
 def link(
@@ -123,3 +124,24 @@ def link(
     typer.echo(f"  Old id: {local_id}")
     typer.echo(f"  New id: {cloud_id}")
     typer.echo(f"  Store:  {new_store}")
+
+    # The re-key above is the irreversible promotion step and has already
+    # persisted. Pushing the store is best-effort: a transient presign/S3
+    # failure must not roll back the promotion, so we warn and exit 0 and
+    # let the user retry the upload with 'nauro sync'.
+    import httpx
+
+    from nauro.cli.commands.auth import AuthRefreshError
+    from nauro.sync.remote import PresignError
+
+    try:
+        pushed = push_changed_files(cloud_id, new_store)
+    except (AuthRefreshError, PresignError, httpx.HTTPError) as exc:
+        typer.echo(
+            f"  Warning: linked, but the initial cloud push failed ({exc}).\n"
+            "  Run 'nauro sync' to upload the project store.",
+            err=True,
+        )
+        return
+
+    typer.echo(f"  Pushed {pushed} file(s) to cloud")
