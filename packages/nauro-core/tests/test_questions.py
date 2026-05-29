@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from nauro_core.questions import (
     EntryBlock,
     HeaderBlock,
+    MigrationRename,
     OpenQuestionsFile,
     ProseBlock,
     QuestionEntry,
@@ -629,3 +630,199 @@ class TestResolveRejectsAmbiguous:
         assert result.ambiguous_ids == ("2026-05-12 20:18 UTC",)
         assert result.moved_ids == ()
         assert result.file.format() == before
+
+
+class TestMigrate:
+    """Legacy ``[timestamp]`` -> sequential ``Q###`` migration."""
+
+    def test_mints_sequential_ids_and_appends_logged_timestamp(self):
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] first legacy q\n"
+            "- [2026-05-11 15:29 UTC] second legacy q\n"
+        )
+        result = OpenQuestionsFile.parse(content).migrate()
+        assert result.file.format() == (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] first legacy q (logged 2026-05-12 20:18 UTC)\n"
+            "- [Q2] second legacy q (logged 2026-05-11 15:29 UTC)\n"
+        )
+        assert result.renames == (
+            MigrationRename(
+                old_id="2026-05-12 20:18 UTC",
+                new_id="Q1",
+                logged="(logged 2026-05-12 20:18 UTC)",
+            ),
+            MigrationRename(
+                old_id="2026-05-11 15:29 UTC",
+                new_id="Q2",
+                logged="(logged 2026-05-11 15:29 UTC)",
+            ),
+        )
+
+    def test_continues_past_existing_q_ids(self):
+        """The next id is max(num) + 1 across the whole file, not 1."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q5] already migrated\n"
+            "- [2026-05-12 20:18 UTC] legacy after a high Q\n"
+        )
+        result = OpenQuestionsFile.parse(content).migrate()
+        assert result.renames == (
+            MigrationRename(
+                old_id="2026-05-12 20:18 UTC",
+                new_id="Q6",
+                logged="(logged 2026-05-12 20:18 UTC)",
+            ),
+        )
+        assert "- [Q5] already migrated\n" in result.file.format()
+        assert "- [Q6] legacy after a high Q (logged 2026-05-12 20:18 UTC)\n" in (
+            result.file.format()
+        )
+
+    def test_resolved_legacy_entry_keeps_prefix_rewrites_id(self):
+        """A resolved legacy entry keeps its [Resolved by ...] prefix; only
+        the id segment becomes [Q###]."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] still open\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D100 on 2026-05-01] [2026-04-30 10:00 UTC] q-old\n"
+        )
+        result = OpenQuestionsFile.parse(content).migrate()
+        out = result.file.format()
+        assert "- [Q1] still open (logged 2026-05-12 20:18 UTC)" in out
+        assert "- [Resolved by D100 on 2026-05-01] [Q2] q-old (logged 2026-04-30 10:00 UTC)" in out
+
+    def test_resolved_entry_stays_under_resolved_divider(self):
+        """No relocation: the resolved entry keeps its position after the
+        ## Resolved divider with its id rewritten."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] open\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D100 on 2026-05-01] [2026-04-30 10:00 UTC] q-old\n"
+        )
+        result = OpenQuestionsFile.parse(content).migrate()
+        assert result.file.open_ids == ["Q1"]
+        assert result.file.resolved_ids == ["Q2"]
+
+    def test_idempotent_on_all_q_form(self):
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] one\n"
+            "- [Q2] two\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D100 on 2026-05-01] [Q3] three\n"
+        )
+        result = OpenQuestionsFile.parse(content).migrate()
+        assert result.renames == ()
+        assert result.file.format() == content
+
+    def test_non_legacy_blocks_are_byte_identical(self):
+        """Prose, ### blocks, headers, the divider, unparsable lines, and
+        already-Q entries round-trip verbatim through migrate."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "Free-form intro a human wrote.\n"
+            "\n"
+            "### [2026-05-10 09:00 UTC] Topic: deployment\n"
+            "Topic narrative kept verbatim.\n"
+            "\n"
+            "- [Q4] already migrated\n"
+            "- [not-a-timestamp] garbage but please keep\n"
+            "- [2026-05-12 20:18 UTC] the one legacy entry\n"
+        )
+        result = OpenQuestionsFile.parse(content).migrate()
+        out = result.file.format()
+        # Only the single legacy entry changed.
+        assert "- [Q5] the one legacy entry (logged 2026-05-12 20:18 UTC)" in out
+        # Everything else is verbatim.
+        for verbatim in (
+            "Free-form intro a human wrote.",
+            "### [2026-05-10 09:00 UTC] Topic: deployment",
+            "Topic narrative kept verbatim.",
+            "- [Q4] already migrated",
+            "- [not-a-timestamp] garbage but please keep",
+        ):
+            assert verbatim in out
+
+    def test_migrated_output_reparses_stably(self):
+        """Re-parsing migrated output and re-formatting is a fixed point."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] q1\n"
+            "  Context: a continuation line\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D100 on 2026-05-01] [2026-04-30 10:00 UTC] q-old\n"
+        )
+        once = OpenQuestionsFile.parse(content).migrate().file.format()
+        twice = OpenQuestionsFile.parse(once).format()
+        assert once == twice
+        # And a second migrate over the migrated output is a no-op.
+        second = OpenQuestionsFile.parse(once).migrate()
+        assert second.renames == ()
+        assert second.file.format() == once
+
+    def test_continuation_lines_survive(self):
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] q1\n"
+            "  Context: extra detail\n"
+            "  Another line\n"
+        )
+        result = OpenQuestionsFile.parse(content).migrate()
+        assert result.file.format() == (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] q1 (logged 2026-05-12 20:18 UTC)\n"
+            "  Context: extra detail\n"
+            "  Another line\n"
+        )
+
+    def test_empty_file_is_noop(self):
+        result = OpenQuestionsFile.parse("").migrate()
+        assert result.renames == ()
+        assert result.file.format() == "# Open Questions"
+
+    def test_same_minute_collision_gets_distinct_ids(self):
+        """Two legacy entries sharing one timestamp id — the collision this
+        migration exists to fix — mint two distinct Q ids and stop being
+        ambiguous."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [2026-05-12 20:18 UTC] first colliding question\n"
+            "- [2026-05-12 20:18 UTC] second colliding question\n"
+        )
+        parsed = OpenQuestionsFile.parse(content)
+        assert parsed.ambiguous_ids == {"2026-05-12 20:18 UTC": 2}
+
+        result = parsed.migrate()
+        new_ids = [r.new_id for r in result.renames]
+        assert new_ids == ["Q1", "Q2"]
+        assert len(set(new_ids)) == 2
+        # Both records carry the shared legacy id.
+        assert [r.old_id for r in result.renames] == [
+            "2026-05-12 20:18 UTC",
+            "2026-05-12 20:18 UTC",
+        ]
+        # The collision is gone after migration.
+        assert result.file.ambiguous_ids == {}
