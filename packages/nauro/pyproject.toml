@@ -38,6 +38,7 @@ dev = [
     "ruff>=0.1",
     "mypy>=1.0",
 ]
+embeddings = ["nauro-core[embeddings]"]
 
 [project.urls]
 Homepage = "https://github.com/nauro-ai/nauro"

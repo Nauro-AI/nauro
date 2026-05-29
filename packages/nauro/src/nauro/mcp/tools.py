@@ -45,6 +45,7 @@ from nauro.onboarding import (
     NO_CONTEXT_YET,
     WELCOME_NO_PROJECT,
 )
+from nauro.store.config import resolve_embeddings_flag
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import resolve_decision_id
 from nauro.store.snapshot import (
@@ -419,7 +420,12 @@ def tool_check_decision(
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
 
-    result = _check_decision_op(FilesystemStore(store_path), proposed_approach, context)
+    result = _check_decision_op(
+        FilesystemStore(store_path),
+        proposed_approach,
+        context,
+        use_embeddings=resolve_embeddings_flag(),
+    )
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
@@ -652,7 +658,11 @@ def tool_search_decisions(
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
     result = _search_decisions_op(
-        FilesystemStore(store_path), query, limit, include_superseded=include_superseded
+        FilesystemStore(store_path),
+        query,
+        limit,
+        include_superseded=include_superseded,
+        use_embeddings=resolve_embeddings_flag(),
     )
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 

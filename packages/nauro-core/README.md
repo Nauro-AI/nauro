@@ -18,7 +18,7 @@ pip install nauro-core
 
 ## Design principles
 
-- **Zero runtime dependencies** — pure Python, no I/O, no filesystem, no network
+- **No I/O** — no filesystem, no network; callers inject pre-loaded data. Runtime dependencies are compute-only (BM25, parsing, validation); embeddings are an optional extra (`nauro-core[embeddings]`)
 - **Function injection** — callers pass pre-loaded data (`files: dict[str, str]`, `decisions: list[dict]`); nauro-core never reads files or calls APIs
 - **Import isolation** — enforced via `import-linter`: nauro-core cannot import from `nauro` or `mcp_server`
 

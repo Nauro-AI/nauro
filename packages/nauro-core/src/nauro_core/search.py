@@ -124,3 +124,63 @@ def bm25_retrieve(
         )
 
     return related
+
+
+def union_retrieve(
+    decisions: list[Decision],
+    query_text: str,
+    top_k: int = 5,
+    stopwords: str | list[str] = "en",
+    use_embeddings: bool = False,
+) -> list[dict]:
+    """Retrieve a BM25 ∪ embedding candidate pool of related active decisions.
+
+    With ``use_embeddings`` False this is exactly :func:`bm25_retrieve` — same
+    arguments, same result list, byte-identical to the BM25-only path.
+
+    With ``use_embeddings`` True the BM25 top-k results are returned first, in
+    their existing order and shape, and any decision in the embedding top-k
+    that BM25 did not already surface is appended as an embedding-sourced hit.
+    Embedding-sourced hits carry ``similarity: None`` (the static-embedding
+    cosine is not on the BM25 score scale, so it is not reported as a BM25
+    score) and the same ``number`` / ``title`` / ``rationale_preview`` shape.
+
+    The augmenter is fail-open: when the optional embedding dependency is
+    absent or the model fails to load, the embedding pool is empty and the
+    result is the BM25-only list. Importing the augmenter here keeps the
+    optional dependency out of the module-level import graph.
+    """
+    bm25_hits = bm25_retrieve(decisions, query_text, top_k=top_k, stopwords=stopwords)
+    if not use_embeddings:
+        return bm25_hits
+
+    from nauro_core.embeddings import embedding_pool
+
+    active = [d for d in decisions if d.status is DecisionStatus.active]
+    if not active or not query_text or not query_text.strip():
+        return bm25_hits
+
+    pool = embedding_pool(active, query_text, top_k=top_k)
+    if not pool:
+        return bm25_hits
+
+    seen = {hit["number"] for hit in bm25_hits}
+    by_num = {d.num: d for d in active}
+    augmented = list(bm25_hits)
+    for num in pool:
+        if num in seen:
+            continue
+        d = by_num.get(num)
+        if d is None:
+            continue
+        seen.add(num)
+        augmented.append(
+            {
+                "number": d.num,
+                "title": d.title,
+                "similarity": None,
+                "rationale_preview": d.rationale[:200] if d.rationale else "",
+            }
+        )
+
+    return augmented

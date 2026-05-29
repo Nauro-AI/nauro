@@ -5,7 +5,7 @@ Nauro is a versioned project context system for AI coding agents. This is a `uv`
 | Package | Path | Python | Purpose |
 |---|---|---|---|
 | `nauro` | `packages/nauro/` | 3.10+ | CLI + local MCP server (stdio). Reads/writes `~/.nauro/projects/` |
-| `nauro-core` | `packages/nauro-core/` | 3.10+ | Shared pure-Python logic: parsing, validation, context assembly, constants. Zero runtime deps. |
+| `nauro-core` | `packages/nauro-core/` | 3.10+ | Shared pure-Python logic: parsing, validation, context assembly, constants. No I/O; compute-only deps. |
 
 Each package has its own `CLAUDE.md`, `pyproject.toml`, and test suite. The remote MCP server (`mcp-server/`) lives in a separate private repository.
 
@@ -114,7 +114,7 @@ uv run ruff format --check packages/
 - Linting: ruff
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
 - MCP tool implementations in `packages/nauro/src/nauro/mcp/tools.py` are canonical — the stdio transport delegates to them
-- `nauro-core` has zero external runtime dependencies
+- `nauro-core` does no I/O; its runtime dependencies are compute-only (BM25, pydantic, PyYAML). Embeddings ship as an optional extra (`nauro-core[embeddings]`)
 
 ## Project layout
 
