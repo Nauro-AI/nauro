@@ -20,12 +20,36 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.cli.utils import resolve_target_project
-from nauro.constants import REGISTRY_FILENAME, REGISTRY_SCHEMA_VERSION_V2
+from nauro.constants import (
+    REGISTRY_FILENAME,
+    REGISTRY_SCHEMA_VERSION_V2,
+    REPO_CONFIG_DIR,
+    REPO_CONFIG_FILENAME,
+)
 from nauro.mcp.stdio_server import _resolve_store
 from nauro.store import registry
 from nauro.store.repo_config import load_repo_config, save_repo_config
 
 runner = CliRunner()
+
+# Two distinct corrupt-config shapes that must reach the same graceful outcome:
+# (a) unparseable JSON, which the reader now remaps to RepoConfigSchemaError, and
+# (b) parseable JSON whose schema is wrong, which already raised that error.
+_CORRUPT_CONFIGS = {
+    "invalid_json": '{"mode": "local", "id": "01',  # truncated mid-value
+    "wrong_schema": json.dumps({"mode": "local", "id": "x", "schema_version": 99}),
+}
+
+
+def _write_repo_config_text(repo_root, text: str) -> None:
+    """Write raw config text under ``<repo_root>/.nauro/config.json``.
+
+    Bypasses ``save_repo_config`` so the on-disk bytes can be corrupt — the
+    writer validates before write and would refuse these shapes.
+    """
+    cfg_dir = repo_root / REPO_CONFIG_DIR
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / REPO_CONFIG_FILENAME).write_text(text)
 
 
 def _post_migration_state(tmp_path, monkeypatch):
@@ -134,6 +158,71 @@ def test_stdio_resolve_explicit_id_matching_config(tmp_path, monkeypatch):
     monkeypatch.chdir(repo_root)
     store = _resolve_store(cloud_pid, str(repo_root))
     assert store == tmp_path / "projects" / cloud_pid
+
+
+# ── corrupt repo config degrades gracefully (no transport crash) ─────────────
+
+
+@pytest.mark.parametrize("corrupt_kind", sorted(_CORRUPT_CONFIGS))
+def test_resolve_via_repo_config_returns_none_on_corrupt_config(
+    tmp_path, monkeypatch, corrupt_kind
+):
+    """Both corrupt shapes resolve to None rather than raising.
+
+    Resolution runs on the MCP transport path, so a raised JSONDecodeError
+    would crash the transport. A wrong-schema config already degraded; this
+    pins that a truncated/unparseable config reaches the same fallback.
+    """
+    from nauro.store.resolution import resolve_via_repo_config
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _write_repo_config_text(repo_root, _CORRUPT_CONFIGS[corrupt_kind])
+    monkeypatch.chdir(repo_root)
+
+    assert resolve_via_repo_config(repo_root) is None
+
+
+@pytest.mark.parametrize("corrupt_kind", sorted(_CORRUPT_CONFIGS))
+def test_stdio_resolve_corrupt_config_raises_no_project(tmp_path, monkeypatch, corrupt_kind):
+    """A corrupt config falls through to the welcome anchor, not a crash.
+
+    Both corrupt shapes reach the identical NoProjectError outcome — the
+    genuine no-project case the transport surfaces as the welcome screen.
+    """
+    from nauro.store.resolution import NoProjectError
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _write_repo_config_text(repo_root, _CORRUPT_CONFIGS[corrupt_kind])
+    monkeypatch.chdir(repo_root)
+
+    with pytest.raises(NoProjectError, match="No Nauro project found"):
+        _resolve_store(None, None)
+
+
+def test_get_context_does_not_crash_transport_on_corrupt_config(tmp_path, monkeypatch):
+    """End-to-end: the get_context MCP wrapper returns rather than raising when
+    the repo config is corrupt.
+
+    The original bug was a transport crash — a corrupt config let a parse error
+    escape the resolver and propagate out of the tool. This pins the wrapper's
+    try/except that converts the resolution failure into a returned
+    CallToolResult, coverage the two parametrized tests above do not reach
+    because they stop at _resolve_store raising.
+    """
+    from mcp.types import CallToolResult
+
+    from nauro.mcp.stdio_server import get_context
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _write_repo_config_text(repo_root, _CORRUPT_CONFIGS["invalid_json"])
+    monkeypatch.chdir(repo_root)
+
+    result = get_context(project_id=None, cwd=None)
+    assert isinstance(result, CallToolResult)
+    assert len(result.content) == 1
 
 
 # ── integration: two projects coexist post-migration ─────────────────────────

@@ -95,13 +95,19 @@ def load_repo_config(repo_root: Path) -> dict:
 
     Raises:
         FileNotFoundError: When the config file does not exist.
-        RepoConfigSchemaError: When the file is missing required fields or
-            advertises an unknown schema_version.
-        json.JSONDecodeError: When the file is not valid JSON.
+        RepoConfigSchemaError: When the file is missing required fields,
+            advertises an unknown schema_version, or is corrupt/unparseable
+            JSON. Corrupt JSON is remapped here so a single typed error family
+            covers both schema-mismatch and corruption, letting callers
+            degrade gracefully on either.
     """
     path = repo_config_path(repo_root)
     text = path.read_text()
-    data = json.loads(text)
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning("Corrupt repo config at %s: %s", path, exc)
+        raise RepoConfigSchemaError(f"Repo config at {path} is not valid JSON.") from exc
     if not isinstance(data, dict):
         raise RepoConfigSchemaError(f"Repo config at {path} is not a JSON object.")
     _validate(data)

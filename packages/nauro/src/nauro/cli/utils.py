@@ -14,7 +14,6 @@ Resolution priority for any command that needs a project context:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import typer
@@ -66,7 +65,7 @@ def _resolve_from_repo_config() -> tuple[str, Path] | None:
     repo_root = config_path.parent.parent
     try:
         cfg = load_repo_config(repo_root)
-    except (RepoConfigSchemaError, json.JSONDecodeError, OSError):
+    except (RepoConfigSchemaError, OSError):
         return None
     pid = cfg["id"]
     name = cfg.get("name") or pid
