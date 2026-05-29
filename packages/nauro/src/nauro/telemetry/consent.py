@@ -38,10 +38,7 @@ def _parse_answer(raw: str, default_yes: bool) -> bool:
         return True
     if answer in ("n", "no"):
         return False
-    if answer == "":
-        return default_yes
-    # Unknown input → opposite of default per the behavior matrix.
-    return not default_yes
+    return default_yes
 
 
 def maybe_prompt() -> None:
@@ -72,3 +69,4 @@ def maybe_prompt() -> None:
     raw = input(f"{PROMPT_TEXT} {suffix} ")
     enabled = _parse_answer(raw, default_yes)
     _persist(enabled)
+    print("Telemetry enabled." if enabled else "Telemetry disabled.")

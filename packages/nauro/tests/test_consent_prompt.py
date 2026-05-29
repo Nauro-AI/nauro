@@ -217,3 +217,66 @@ def test_already_consented_at_current_version_does_not_re_prompt(nauro_home, mon
     assert section["enabled"] is True
     assert section["consent_version"] == 1
     assert section["consented_at"] == "2026-04-30T00:00:00Z"
+
+
+def test_unrecognized_input_applies_stated_default_yes(nauro_home, monkeypatch, capsys):
+    """An unrecognized keystroke must apply the stated default, not its opposite."""
+    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
+    _set_tty(monkeypatch, True)
+    _set_input(monkeypatch, "??")  # not y/n/yes/no/empty
+
+    from nauro.telemetry.consent import maybe_prompt
+
+    maybe_prompt()
+
+    section = _read_telemetry(nauro_home)
+    assert section["enabled"] is True  # default_yes=True on first run
+    assert section["consent_version"] == 1
+    out = capsys.readouterr().out
+    assert "Telemetry enabled." in out
+
+
+def test_unrecognized_input_applies_stated_default_no(nauro_home, monkeypatch, capsys):
+    """When the default is no (previous opt-out), unrecognized input must preserve it."""
+    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
+    _seed(nauro_home, enabled=False, consent_version=1)
+    _set_tty(monkeypatch, True)
+    _set_input(monkeypatch, "??")
+
+    import nauro.telemetry.consent as consent_mod
+
+    monkeypatch.setattr(consent_mod, "TELEMETRY_CONSENT_VERSION", 2)
+
+    consent_mod.maybe_prompt()
+
+    section = _read_telemetry(nauro_home)
+    assert section["enabled"] is False  # default_yes=False (previous opt-out)
+    assert section["consent_version"] == 2
+    out = capsys.readouterr().out
+    assert "Telemetry disabled." in out
+
+
+def test_explicit_yes_echoes_enabled(nauro_home, monkeypatch, capsys):
+    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
+    _set_tty(monkeypatch, True)
+    _set_input(monkeypatch, "y")
+
+    from nauro.telemetry.consent import maybe_prompt
+
+    maybe_prompt()
+
+    out = capsys.readouterr().out
+    assert "Telemetry enabled." in out
+
+
+def test_explicit_no_echoes_disabled(nauro_home, monkeypatch, capsys):
+    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
+    _set_tty(monkeypatch, True)
+    _set_input(monkeypatch, "n")
+
+    from nauro.telemetry.consent import maybe_prompt
+
+    maybe_prompt()
+
+    out = capsys.readouterr().out
+    assert "Telemetry disabled." in out
