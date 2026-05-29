@@ -284,6 +284,8 @@ def adopt(
         for line in setup_all_surfaces(
             [repo_root],
             remove=False,
+            current_project_key=pid,
+            store_path=store_path,
             with_subagents=with_subagents,
             force_overwrite=force_overwrite,
             with_skills=with_skills,

@@ -413,3 +413,18 @@ def test_adopt_print_prompt_conflicts_with_with_skills(tmp_path: Path, monkeypat
     result = runner.invoke(app, ["adopt", "--print-prompt", "--with-skills"])
     assert result.exit_code == 1
     assert "mutually exclusive" in result.output
+
+
+# ─── AGENTS.md generated at adopt time ──────────────────────────────────────
+
+
+def test_adopt_writes_agents_md(tmp_path: Path, monkeypatch):
+    """`adopt` produces AGENTS.md from the freshly-scaffolded store."""
+    repo = _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 0, result.output
+
+    agents_md = repo / "AGENTS.md"
+    assert agents_md.is_file()
+    assert "## Project: alpha" in agents_md.read_text()
