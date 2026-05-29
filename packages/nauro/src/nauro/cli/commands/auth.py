@@ -400,6 +400,18 @@ def login() -> None:
 
     typer.echo(f"Authenticated as {sub}")
 
+    typer.echo(
+        "\nNext steps:\n"
+        "  To promote a local project and sync it:\n"
+        "    nauro link --cloud    (one-time, per project)\n"
+        "    nauro sync\n"
+        "\n"
+        "  Add https://mcp.nauro.ai/mcp as an MCP connector in your tool's settings.\n"
+        "\n"
+        "  Codex users: add `mcp_oauth_callback_port = 8765` to the top of"
+        " ~/.codex/config.toml"
+    )
+
 
 @auth_app.command()
 def status() -> None:

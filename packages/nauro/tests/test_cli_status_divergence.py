@@ -81,7 +81,8 @@ def test_status_shows_local_only_when_project_is_local_mode(tmp_path, monkeypatc
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "this project is local-only" in result.output
+    assert "local-only project" in result.output
+    assert "nauro link --cloud" in result.output
     assert "remote" not in result.output
 
 

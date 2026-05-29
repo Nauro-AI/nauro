@@ -74,13 +74,17 @@ def status(
     from nauro.store.registry import is_cloud_project
 
     has_token = bool(load_access_token())
-    sync_enabled = has_token and is_cloud_project(project_id)
+    is_cloud = is_cloud_project(project_id)
+    sync_enabled = has_token and is_cloud
     if sync_enabled:
         typer.echo("  Sync          active (event-driven, presign)")
-    elif not has_token:
-        typer.echo("  Sync          inactive — run `nauro auth login` to enable")
+    elif not is_cloud:
+        typer.echo(
+            "  Sync          inactive — local-only project."
+            " Enable with `nauro auth login`, then `nauro link --cloud`."
+        )
     else:
-        typer.echo("  Sync          inactive — this project is local-only")
+        typer.echo("  Sync          inactive — run `nauro auth login` to enable")
 
     # MCP
     typer.echo("  MCP           active")
