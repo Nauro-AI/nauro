@@ -1,11 +1,9 @@
 """Store-resolution helper + typed exceptions.
 
-Both MCP transports (local stdio FastMCP and local HTTP FastAPI) translate a
-``(project_id, cwd)`` pair into a path under the active ``NAURO_HOME``. The
-resolution rules are shared; the failure-mapping is transport-specific. This
-module owns the rules and surfaces every failure as a typed exception so
-each transport can decide whether to show the welcome screen, return a
-specific error message, or translate to an HTTP status code.
+The local stdio MCP transport translates a ``(project_id, cwd)`` pair into a
+path under the active ``NAURO_HOME``. This module owns the resolution rules
+and surfaces every failure as a typed exception so the transport can decide
+whether to show the welcome screen or return a specific error message.
 
 Resolution order:
 

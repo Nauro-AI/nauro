@@ -1,12 +1,22 @@
-"""Tests for MCP server validation integration."""
+"""Write/validation integration at the tool-adapter boundary.
+
+These exercise the transport-agnostic ``tool_*`` adapters in
+``nauro.mcp.tools`` directly — the same callables the local stdio MCP surface
+delegates to. The former local FastAPI HTTP surface that wrapped these was
+retired; the adapters remain the single local integration point.
+"""
 
 from pathlib import Path
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from nauro_core.constants import NO_DECISIONS_TO_CHECK
 
-from nauro.mcp.server import app
+from nauro.mcp.tools import (
+    tool_check_decision,
+    tool_flag_question,
+    tool_propose_decision,
+    tool_update_state,
+)
 from nauro.templates.scaffolds import scaffold_project_store
 
 
@@ -18,65 +28,36 @@ def store(tmp_path: Path) -> Path:
     return store_path
 
 
-@pytest.fixture
-def client(tmp_path: Path, monkeypatch, store) -> AsyncClient:
-    transport = ASGITransport(app=app)
-    return AsyncClient(transport=transport, base_url="http://test")
-
-
-@pytest.mark.asyncio
-async def test_propose_decision_new(client, tmp_path):
+def test_propose_decision_new(store):
     """Proposing a genuinely new decision auto-confirms."""
-    resp = await client.post(
-        "/propose_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Use Redis for Caching",
-            "rationale": "Fast in-memory store with pub/sub support for session management.",
-            "confidence": "high",
-        },
+    data = tool_propose_decision(
+        store,
+        title="Use Redis for Caching",
+        rationale="Fast in-memory store with pub/sub support for session management.",
+        confidence="high",
     )
-    assert resp.status_code == 200
-    data = resp.json()
     assert data["status"] == "confirmed"
     assert "decision_id" in data
 
 
-@pytest.mark.asyncio
-async def test_propose_decision_rejected(client):
+def test_propose_decision_rejected(store):
     """Proposing a decision with empty title is rejected at Tier 1."""
-    resp = await client.post(
-        "/propose_decision",
-        json={
-            "project_id": "testproj",
-            "title": "",
-            "rationale": "Some valid rationale text here.",
-        },
+    data = tool_propose_decision(
+        store,
+        title="",
+        rationale="Some valid rationale text here.",
     )
-    assert resp.status_code == 200
-    data = resp.json()
     assert data["status"] == "rejected"
     assert data["tier"] == 1
 
 
-@pytest.mark.asyncio
-async def test_propose_decision_short_rationale(client):
+def test_propose_decision_short_rationale(store):
     """Short rationale rejected at Tier 1."""
-    resp = await client.post(
-        "/propose_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Use Redis",
-            "rationale": "Fast.",
-        },
-    )
-    assert resp.status_code == 200
-    data = resp.json()
+    data = tool_propose_decision(store, title="Use Redis", rationale="Fast.")
     assert data["status"] == "rejected"
 
 
-@pytest.mark.asyncio
-async def test_check_decision_no_matches(client):
+def test_check_decision_no_matches(store):
     """Checking an approach against a scaffold-only store.
 
     The scaffold-seeded "Initial project setup" decision is excluded from
@@ -84,43 +65,29 @@ async def test_check_decision_no_matches(client):
     seed flows into the empty-state branch with the ``NO_DECISIONS_TO_CHECK``
     onboarding assessment.
     """
-    resp = await client.post(
-        "/check_decision",
-        json={
-            "project_id": "testproj",
-            "proposed_approach": "Use a completely novel approach to distributed tracing",
-        },
+    data = tool_check_decision(
+        store, "Use a completely novel approach to distributed tracing", None
     )
-    assert resp.status_code == 200
-    data = resp.json()
     assert data["related_decisions"] == []
     assert data["assessment"] == NO_DECISIONS_TO_CHECK
     assert "potential_conflicts" not in data
 
 
-@pytest.mark.asyncio
-async def test_check_decision_with_matches_returns_heuristic_assessment(client, tmp_path):
+def test_check_decision_with_matches_returns_heuristic_assessment(store):
     """When BM25 finds matches, the assessment uses the locked heuristic shape."""
     from tests._writer_compat import append_decision
 
-    store_path = tmp_path / "projects" / "testproj"
     append_decision(
-        store_path,
+        store,
         "Use Postgres as primary database",
         rationale="Mature ecosystem with strong JSON support and excellent tooling.",
         confidence="high",
         decision_type="data_model",
     )
 
-    resp = await client.post(
-        "/check_decision",
-        json={
-            "project_id": "testproj",
-            "proposed_approach": "Use Postgres for analytics warehouse with JSON workloads",
-        },
+    data = tool_check_decision(
+        store, "Use Postgres for analytics warehouse with JSON workloads", None
     )
-    assert resp.status_code == 200
-    data = resp.json()
     assert len(data["related_decisions"]) >= 1
     assert "potential_conflicts" not in data
 
@@ -131,198 +98,126 @@ async def test_check_decision_with_matches_returns_heuristic_assessment(client, 
     assert "get_decision" in assessment
 
 
-@pytest.mark.asyncio
-async def test_propose_decision_with_operation_supersede(client, tmp_path):
+def test_propose_decision_with_operation_supersede(store):
     """propose_decision with operation='supersede' threads through to confirm."""
     from tests._writer_compat import append_decision
 
-    store_path = tmp_path / "projects" / "testproj"
     append_decision(
-        store_path,
+        store,
         "Use Postgres as primary database",
         rationale="Mature ecosystem with strong JSON support and excellent tooling.",
         confidence="high",
         decision_type="data_model",
     )
-    # supersede_decision matches by filename stem.
-    affected_id = next((store_path / "decisions").glob("*postgres*.md")).stem
+    # supersede matches by filename stem.
+    affected_id = next((store / "decisions").glob("*postgres*.md")).stem
 
-    resp = await client.post(
-        "/propose_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Switch to a managed Postgres provider",
-            "rationale": (
-                "Reduces ops burden; the rationale for self-hosting no longer applies to our scale."
-            ),
-            "operation": "supersede",
-            "affected_decision_id": affected_id,
-            "confidence": "high",
-        },
+    data = tool_propose_decision(
+        store,
+        title="Switch to a managed Postgres provider",
+        rationale=(
+            "Reduces ops burden; the rationale for self-hosting no longer applies to our scale."
+        ),
+        operation="supersede",
+        affected_decision_id=affected_id,
+        confidence="high",
     )
-    assert resp.status_code == 200
-    data = resp.json()
     # The kernel commits the supersede on the same call.
     assert data["status"] == "confirmed"
     assert data["operation"] == "supersede"
 
 
-@pytest.mark.asyncio
-async def test_flag_question_endpoint(client, tmp_path):
-    """Flag question still works."""
-    resp = await client.post(
-        "/flag_question",
-        json={
-            "project_id": "testproj",
-            "question": "Should we add WebSocket support?",
-            "context": "For real-time updates",
-        },
-    )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+def test_flag_question(store):
+    """flag_question writes the question to the store."""
+    data = tool_flag_question(store, "Should we add WebSocket support?", "For real-time updates")
+    assert data["status"] == "ok"
 
-    oq = (tmp_path / "projects" / "testproj" / "open-questions.md").read_text()
+    oq = (store / "open-questions.md").read_text()
     assert "Should we add WebSocket support?" in oq
 
 
-@pytest.mark.asyncio
-async def test_update_state_endpoint(client, tmp_path):
-    """Update state still works."""
-    resp = await client.post(
-        "/update_state",
-        json={
-            "project_id": "testproj",
-            "delta": "Deployed v0.2.0 to staging",
-        },
-    )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+def test_update_state(store):
+    """update_state writes the delta to state_current.md."""
+    data = tool_update_state(store, "Deployed v0.2.0 to staging")
+    assert data["status"] == "ok"
 
-    state = (tmp_path / "projects" / "testproj" / "state_current.md").read_text()
+    state = (store / "state_current.md").read_text()
     assert "Deployed v0.2.0 to staging" in state
 
 
-@pytest.mark.asyncio
-async def test_legacy_log_decision_endpoint(client, tmp_path):
-    """Legacy /log_decision still works (redirects to propose)."""
-    resp = await client.post(
-        "/log_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Use SQLite for Tests",
-            "rationale": "Fast and in-memory for testing purposes.",
-        },
+def test_propose_decision_supersede_without_affected_id_rejects(store):
+    data = tool_propose_decision(
+        store,
+        title="Replace prior choice",
+        rationale="A new choice that should replace something.",
+        operation="supersede",
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    # Should go through propose pipeline
-    assert data["status"] in ("confirmed", "rejected")
-
-
-@pytest.mark.asyncio
-async def test_propose_decision_supersede_without_affected_id_rejects(client):
-    resp = await client.post(
-        "/propose_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Replace prior choice",
-            "rationale": "A new choice that should replace something.",
-            "operation": "supersede",
-        },
-    )
-    assert resp.status_code == 200
-    data = resp.json()
     assert data["status"] == "rejected"
     assert data["error"]["kind"] == "rejected"
     assert "affected_decision_id" in data["error"]["reason"]
 
 
-@pytest.mark.asyncio
-async def test_propose_decision_update_without_affected_id_rejects(client):
-    resp = await client.post(
-        "/propose_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Augment the prior choice",
-            "rationale": "Adds nuance to an existing decision body.",
-            "operation": "update",
-        },
+def test_propose_decision_update_without_affected_id_rejects(store):
+    data = tool_propose_decision(
+        store,
+        title="Augment the prior choice",
+        rationale="Adds nuance to an existing decision body.",
+        operation="update",
     )
-    assert resp.status_code == 200
-    data = resp.json()
     assert data["status"] == "rejected"
     assert data["error"]["kind"] == "rejected"
     assert "affected_decision_id" in data["error"]["reason"]
 
 
-@pytest.mark.asyncio
-async def test_propose_supersede_with_unknown_affected_id_rejects(client):
-    resp = await client.post(
-        "/propose_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Replace something nonexistent",
-            "rationale": "Tests the resolution failure branch of the boundary check.",
-            "operation": "supersede",
-            "affected_decision_id": "decision-9999",
-        },
+def test_propose_supersede_with_unknown_affected_id_rejects(store):
+    data = tool_propose_decision(
+        store,
+        title="Replace something nonexistent",
+        rationale="Tests the resolution failure branch of the boundary check.",
+        operation="supersede",
+        affected_decision_id="decision-9999",
     )
-    assert resp.status_code == 200
-    data = resp.json()
     assert data["status"] == "rejected"
     assert data["error"]["kind"] == "rejected"
     assert "not found" in data["error"]["reason"]
 
 
-@pytest.mark.asyncio
-async def test_supersede_end_to_end_via_check_then_propose(client, tmp_path):
+def test_supersede_end_to_end_via_check_then_propose(store):
     """Natural agent workflow: read affected_decision_id from check_decision,
-    pass it back to propose_decision(supersede). The id must round-trip
-    through the boundary, and the store must end up with the old decision
-    marked superseded and the new one active — even when Tier 2 doesn't
-    re-surface similarity for the new proposal text (Ship-blocker 2)."""
+    pass it back to propose_decision(supersede). The id must round-trip through
+    the boundary, and the store must end up with the old decision marked
+    superseded and the new one active — even when Tier 2 doesn't re-surface
+    similarity for the new proposal text."""
     from nauro.store.reader import _list_decisions
     from tests._writer_compat import append_decision
 
-    store_path = tmp_path / "projects" / "testproj"
     append_decision(
-        store_path,
+        store,
         "Use Postgres as primary database",
         rationale="Mature ecosystem with strong JSON support and excellent tooling.",
         confidence="high",
         decision_type="data_model",
     )
 
-    check_resp = await client.post(
-        "/check_decision",
-        json={
-            "project_id": "testproj",
-            "proposed_approach": "Use SQLite for the analytics workload instead of Postgres",
-        },
+    check_data = tool_check_decision(
+        store, "Use SQLite for the analytics workload instead of Postgres", None
     )
-    assert check_resp.status_code == 200
-    check_data = check_resp.json()
     assert check_data["related_decisions"]
     affected = check_data["related_decisions"][0]["id"]
 
-    propose_resp = await client.post(
-        "/propose_decision",
-        json={
-            "project_id": "testproj",
-            "title": "Switch to SQLite for analytics",
-            "rationale": "Lower ops burden for the read-mostly analytics workload.",
-            "operation": "supersede",
-            "affected_decision_id": affected,
-        },
+    propose_data = tool_propose_decision(
+        store,
+        title="Switch to SQLite for analytics",
+        rationale="Lower ops burden for the read-mostly analytics workload.",
+        operation="supersede",
+        affected_decision_id=affected,
     )
-    assert propose_resp.status_code == 200
-    propose_data = propose_resp.json()
-    # The kernel commits the supersede on the same call regardless of
-    # whether Tier 2 surfaces advisory similarity hits.
+    # The kernel commits the supersede on the same call regardless of whether
+    # Tier 2 surfaces advisory similarity hits.
     assert propose_data["status"] == "confirmed"
     assert propose_data["operation"] == "supersede"
 
-    decisions = _list_decisions(store_path)
+    decisions = _list_decisions(store)
     by_title = {d.title: d for d in decisions}
     assert by_title["Use Postgres as primary database"].status.value == "superseded"
     assert by_title["Switch to SQLite for analytics"].status.value == "active"

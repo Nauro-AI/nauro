@@ -1,9 +1,8 @@
 """Canonical MCP tool implementations — transport-agnostic.
 
-Both the HTTP server (server.py) and stdio server (stdio_server.py) delegate
-to these functions. All results are returned as dicts; each transport layer may
-reformat the output (e.g. stdio converts flag_question and update_state to
-strings for FastMCP compatibility).
+The stdio server (stdio_server.py) delegates to these functions. All results
+are returned as dicts; the transport layer may reformat the output (e.g. stdio
+converts flag_question and update_state to strings for FastMCP compatibility).
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 ``mcp_tool(name)`` decorates each canonical MCP tool implementation in
 ``packages/nauro/src/nauro/mcp/tools.py`` so that one event fires per call,
-regardless of which transport (stdio, local HTTP, or Lambda) routed in.
+regardless of which transport (CLI, stdio, or the remote Lambda) routed in.
 
 The transport label is read from ``current_transport()`` at emit time — never
 hardcoded — because the same decorated function services all transports.
