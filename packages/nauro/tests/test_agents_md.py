@@ -63,6 +63,13 @@ def test_routing_block_omits_project_id_line_when_unknown():
     assert "project_id:" not in result
 
 
+def test_routing_block_names_required_cloud_connector_name():
+    """The store-routing block states the cloud connector must be named `Nauro`."""
+    result = generate_agents_md("myproj", "payload")
+    assert "name it exactly `Nauro`" in result
+    assert "`mcp__claude_ai_Nauro__*`" in result
+
+
 def test_check_decision_categorized_as_read_tool():
     """check_decision is a read-only tool — it must not appear under Write tools.
 

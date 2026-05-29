@@ -839,6 +839,37 @@ def test_setup_claude_code_still_prints_restart_line(tmp_path: Path, monkeypatch
     assert "start a Claude Code session" in result.output
 
 
+# ─── subagents connector-name surfacing ─────────────────────────────────────
+
+
+def test_setup_all_with_subagents_names_connector_requirement(tmp_path: Path, monkeypatch):
+    """`setup all --with-subagents` names the required cloud connector name."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "all", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+    assert "name the remote MCP connector exactly `Nauro`" in result.output
+
+
+def test_setup_all_without_subagents_omits_connector_notice(tmp_path: Path, monkeypatch):
+    """No connector-name notice when subagents are not installed."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "all"])
+    assert result.exit_code == 0, result.output
+    assert "name the remote MCP connector exactly `Nauro`" not in result.output
+
+
 # ─── end-to-end merge-not-clobber ───────────────────────────────────────────
 
 

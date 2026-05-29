@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -15,11 +16,17 @@ from nauro.store.registry import find_projects_by_name_v2, register_project_v2
 runner = CliRunner()
 
 
+def _git_init(repo: Path) -> None:
+    """Initialize a git repo. ``adopt`` refuses non-git directories."""
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+
+
 def _adopt_env(monkeypatch, tmp_path: Path) -> Path:
     """Set up an isolated NAURO_HOME + HOME for adopt tests."""
     monkeypatch.setenv("HOME", str(tmp_path))  # diverts ~/.claude, ~/.codex, ~/.agents
     repo = tmp_path / "myrepo"
     repo.mkdir()
+    _git_init(repo)
     monkeypatch.chdir(repo)
     return repo
 
@@ -109,14 +116,19 @@ def test_adopt_aborts_on_same_name_collision(tmp_path: Path, monkeypatch):
 
     new_repo = tmp_path / "alpha"
     new_repo.mkdir()
+    _git_init(new_repo)
     monkeypatch.chdir(new_repo)
 
     result = runner.invoke(app, ["adopt"])  # infers name="alpha", collides
     assert result.exit_code == 1
     assert "A project named 'alpha' already exists" in result.output
     assert "--name <unique-name>" in result.output
+    # Local association uses init --add-repo; cloud uses attach <pid>; cleanup
+    # uses projects rm <pid>. The bogus `nauro link <pid>` suggestion is gone.
+    assert "--add-repo" in result.output
     assert "nauro attach" in result.output
-    assert "nauro link" in result.output
+    assert "nauro projects rm" in result.output
+    assert "nauro link " not in result.output
 
 
 def test_collision_message_picks_first_repo_deterministically(tmp_path: Path, monkeypatch):
@@ -132,6 +144,7 @@ def test_collision_message_picks_first_repo_deterministically(tmp_path: Path, mo
 
     new_repo = tmp_path / "alpha"
     new_repo.mkdir()
+    _git_init(new_repo)
     monkeypatch.chdir(new_repo)
 
     # Run twice — same surfaced path each time (deterministic).
@@ -428,3 +441,59 @@ def test_adopt_writes_agents_md(tmp_path: Path, monkeypatch):
     agents_md = repo / "AGENTS.md"
     assert agents_md.is_file()
     assert "## Project: alpha" in agents_md.read_text()
+
+
+# ─── git precondition ───────────────────────────────────────────────────────
+
+
+def test_adopt_refuses_non_git_directory(tmp_path: Path, monkeypatch):
+    """`adopt` in a non-git directory exits 1, names git, and leaks no state."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # NAURO_HOME is isolated to tmp_path by the autouse conftest fixture, so a
+    # leaked registry entry would land there and be observable below.
+    repo = tmp_path / "plain"
+    repo.mkdir()  # no git init
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 1
+    assert "git" in result.output.lower()
+
+    # No per-repo config written.
+    assert not (repo / ".nauro" / "config.json").exists()
+    # No registry entry leaked.
+    assert find_projects_by_name_v2("alpha") == []
+
+
+def test_adopt_in_git_directory_fully_wires(tmp_path: Path, monkeypatch):
+    """`adopt` in a git'd directory exits 0 and wires the surfaces (regression)."""
+    repo = _adopt_env(monkeypatch, tmp_path)  # _adopt_env now git-inits
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 0, result.output
+
+    assert (repo / ".nauro" / "config.json").is_file()
+    assert (repo / ".mcp.json").is_file()
+    assert (repo / "AGENTS.md").is_file()
+    assert len(find_projects_by_name_v2("alpha")) == 1
+
+
+# ─── subagents connector-name surfacing ─────────────────────────────────────
+
+
+def test_adopt_with_subagents_names_connector_requirement(tmp_path: Path, monkeypatch):
+    """`adopt --with-subagents` names the required cloud connector name."""
+    _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+    assert "name the remote MCP connector exactly `Nauro`" in result.output
+
+
+def test_adopt_without_subagents_omits_connector_notice(tmp_path: Path, monkeypatch):
+    """No connector-name notice when subagents are not installed."""
+    _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 0, result.output
+    assert "name the remote MCP connector exactly `Nauro`" not in result.output

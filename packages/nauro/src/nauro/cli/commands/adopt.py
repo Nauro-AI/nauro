@@ -31,6 +31,7 @@ import typer
 
 from nauro.cli.commands.setup import (
     SHIP_TASK_NEEDS_SUBAGENTS_NOTICE,
+    SUBAGENTS_CONNECTOR_NAME_NOTICE,
     _find_nauro_command,
     setup_all_surfaces,
 )
@@ -46,6 +47,28 @@ from nauro.templates.scaffolds import scaffold_project_store
 def _resolve_repo_root(repo_arg: Path | None) -> Path:
     """Return the absolute path of the repo root to adopt."""
     return (repo_arg if repo_arg is not None else Path.cwd()).resolve()
+
+
+def _is_git_repo(repo_root: Path) -> bool:
+    """Return True iff ``repo_root`` is inside a git working tree.
+
+    The /nauro-adopt skill's Step 1 runs the same ``git rev-parse`` check and
+    aborts when it fails, but its 'run git init, then re-run nauro adopt'
+    recovery only works if adopt itself refuses a non-git directory before
+    registering it. Without this precondition adopt registered the repo, and
+    the recovery then hit the already-adopted guard.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return False
+    return proc.returncode == 0
 
 
 def _smoke_test_wired_binary(nauro_cmd: str, timeout: float = 1.5) -> str | None:
@@ -104,9 +127,10 @@ def _check_collision(name: str, repo_root: Path) -> str | None:
         return (
             f"A project named '{name}' already exists at '{other}' with id "
             f"'{pid}'. To adopt this repo as a separate project, re-run with "
-            f"--name <unique-name>. To attach this repo to that existing "
-            f"project, run 'nauro attach {pid}' (cloud-mode) or 'nauro link "
-            f"{pid}' (local-mode) instead."
+            f"--name <unique-name>. To associate this repo with that existing "
+            f"project instead, run 'nauro init {name!r} --add-repo {repo_root}' "
+            f"(local-mode) or 'nauro attach {pid}' (cloud-mode). To drop the "
+            f"existing entry, run 'nauro projects rm {pid}'."
         )
     return None
 
@@ -137,6 +161,8 @@ def _install_into_adopted_repo(
         typer.echo(line)
     if with_skills and not with_subagents:
         typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
+    if with_subagents:
+        typer.echo(f"\n{SUBAGENTS_CONNECTOR_NAME_NOTICE}")
     typer.echo("\nNext: restart your agent so it picks up the newly installed files.")
 
 
@@ -217,6 +243,17 @@ def adopt(
         typer.echo(f"Error: {repo_root} is not a directory.", err=True)
         raise typer.Exit(code=1)
 
+    # ── git precondition ───────────────────────────────────────────────────
+    # Refuse before any registration or config write so the /nauro-adopt
+    # skill's 'git init, then re-run' recovery actually works.
+    if not _is_git_repo(repo_root):
+        typer.echo(
+            "Error: nauro adopt must be run inside a git repository. "
+            "Run `git init` first, or pass --repo <path> to point at one.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     # ── already-adopted guard ──────────────────────────────────────────────
     config_path = repo_root / ".nauro" / "config.json"
     if config_path.exists():
@@ -294,6 +331,9 @@ def adopt(
 
         if with_skills and not with_subagents:
             typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
+
+        if with_subagents:
+            typer.echo(f"\n{SUBAGENTS_CONNECTOR_NAME_NOTICE}")
 
         warning = _smoke_test_wired_binary(_find_nauro_command())
         if warning:

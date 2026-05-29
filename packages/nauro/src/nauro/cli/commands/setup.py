@@ -969,6 +969,15 @@ SHIP_TASK_NEEDS_SUBAGENTS_NOTICE = (
     "`--with-subagents` to install them too."
 )
 
+# The bundled subagents allow the cloud tools by the fixed name
+# `mcp__claude_ai_Nauro__*`. That prefix only resolves when the remote
+# connector is named exactly `Nauro`, so surface the requirement whenever
+# subagents are installed.
+SUBAGENTS_CONNECTOR_NAME_NOTICE = (
+    "Cloud users: name the remote MCP connector exactly `Nauro` so the bundled "
+    "@nauro-* subagents' `mcp__claude_ai_Nauro__*` tools resolve."
+)
+
 HOOKS_NOTICE = (
     "The advisory hook surfaces related decisions as context on each turn "
     "(BM25 retrieval) and never blocks. Start a new Claude Code session in a "
@@ -1062,6 +1071,9 @@ def all_(
 
     if not remove and with_skills and not with_subagents:
         typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
+
+    if not remove and with_subagents:
+        typer.echo(f"\n{SUBAGENTS_CONNECTOR_NAME_NOTICE}")
 
     if not remove and with_hooks:
         typer.echo(f"\n{HOOKS_NOTICE}")
