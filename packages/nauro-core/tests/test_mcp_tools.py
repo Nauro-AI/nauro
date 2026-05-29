@@ -2,6 +2,7 @@
 
 import pytest
 
+from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.instructions import (
     MAX_INLINE_PROJECTS,
     WELCOME_NO_PROJECT,
@@ -269,3 +270,61 @@ class TestBuildRemoteInstructions:
         projects = [{"project_id": "01ID00000000000000000000A1", "name": "x"}]
         result = build_remote_instructions(STATIC, projects)
         assert STATIC in result
+
+
+# The claude.ai client truncates the MCP initialize.instructions field at
+# roughly this many characters; tools/list descriptions arrive intact even
+# when it is truncated, which is why per-tool guidance is the durable home.
+INSTRUCTIONS_TRUNCATION_LIMIT = 2023
+
+# Representative multi-project inputs that stress the prepended per-user
+# section the way real callers do (long names, full ULIDs).
+THREE_PROJECTS = [
+    {"project_id": "01KQ6AZGNA0B3QBF67NBXP3S45", "name": "nauro"},
+    {"project_id": "01KREWKMPDW2EVR66F9XXNERGB", "name": "throwaway-supersede-1778616226"},
+    {"project_id": "01KRVJWEPXJHTC7ZZNHVAR0PV5", "name": "valid-empty-1779042236"},
+]
+ONE_PROJECT = [{"project_id": "01KQ6AZGNA0B3QBF67NBXP3S45", "name": "nauro"}]
+
+SECTION_HEADERS = (
+    "## When to check decisions",
+    "## When to propose decisions",
+    "## When to get context",
+)
+
+
+class TestInstructionsSurviveTruncation:
+    """The real static block, composed with a per-user project section, must
+    keep every section header before the client-side truncation point so no
+    load-bearing guidance silently falls off the chat surface."""
+
+    @pytest.mark.parametrize("projects", [ONE_PROJECT, THREE_PROJECTS])
+    def test_every_section_header_before_truncation(self, projects):
+        result = build_remote_instructions(MCP_INSTRUCTIONS_STATIC, projects)
+        for header in SECTION_HEADERS:
+            offset = result.find(header)
+            assert offset != -1, f"{header} missing from composed instructions"
+            assert offset < INSTRUCTIONS_TRUNCATION_LIMIT, (
+                f"{header} falls at offset {offset}, past the "
+                f"{INSTRUCTIONS_TRUNCATION_LIMIT}-char truncation point"
+            )
+
+
+class TestTrimmedGuidanceCanonicalHome:
+    """Guidance trimmed from the static block must remain reachable on the
+    matching ToolSpec descriptions, which tools/list delivers intact."""
+
+    def test_update_state_description_carries_completion_guidance(self):
+        """The 'When to update state' static section was trimmed; the
+        update_state ToolSpec description is its canonical home."""
+        desc = get_tool_spec("update_state")["description"]
+        assert "meaningful unit of work" in desc
+        assert "next session starts with current context" in desc
+
+    def test_get_context_description_carries_list_decisions_nuance(self):
+        """The 'do not call list_decisions after get_context' nuance was the
+        truncation-risk tail of the static get-context section; the
+        get_context ToolSpec description is its canonical home."""
+        desc = get_tool_spec("get_context")["description"]
+        assert "list_decisions" in desc
+        assert "after get_context" in desc

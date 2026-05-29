@@ -98,10 +98,14 @@ MAX_APPROACH_LENGTH = 5_000
 # push back / vendor swap) stays inline. The PROPOSE_DECISION_OPERATIONS and
 # RESOLVES_OPEN_QUESTIONS fragments are deliberately omitted here — they are
 # bound to the `propose_decision` ToolSpec parameter descriptions instead,
-# where the agent reads them at the moment of use, and keeping them out of
-# the static block trims the budget so the per-user project section the
-# remote server prepends survives client-side truncation of the
-# `initialize.instructions` field.
+# where the agent reads them at the moment of use. For the same budget reason
+# the `update_state` "meaningful unit of work" guidance and the `get_context`
+# "do not call list_decisions afterward" nuance are omitted here too — they
+# live on the matching ToolSpec descriptions in mcp_tools.py, which the client
+# delivers intact via tools/list even when initialize.instructions is
+# truncated. Keeping all four out of the static block trims the budget so the
+# per-user project section the remote server prepends survives client-side
+# truncation of the `initialize.instructions` field.
 # MCP_INSTRUCTIONS remains as a backward-compatible alias.
 MCP_INSTRUCTIONS_STATIC = (
     "Nauro carries this project's doctrine across every agent session. "
@@ -135,15 +139,7 @@ MCP_INSTRUCTIONS_STATIC = (
     "## When to get context\n"
     "\n"
     "Call `get_context` at the start of a session or when you need to "
-    "understand the project's current state, goals, and constraints. "
-    "L0 includes the last 10 decisions — do not call `list_decisions` "
-    "after `get_context` unless you need older or superseded decisions.\n"
-    "\n"
-    "## When to update state\n"
-    "\n"
-    "Call `update_state` when you complete a meaningful unit of work — "
-    "a feature, a refactor, a bug fix — so the next session starts with "
-    "current context."
+    "understand the project's current state, goals, and constraints."
 )
 
 MCP_INSTRUCTIONS = MCP_INSTRUCTIONS_STATIC
