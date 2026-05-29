@@ -36,8 +36,16 @@ class TestFragmentAnchors:
 
     def test_get_decision_before_proposing_says_before_proposing(self) -> None:
         assert "`get_decision`" in GET_DECISION_BEFORE_PROPOSING
+        # The fetch mandate stays the leading clause so the fragment cannot
+        # read as "you may skip fetching" — the check-before-propose gate.
         assert "before proposing" in GET_DECISION_BEFORE_PROPOSING
-        assert "supersession status" in GET_DECISION_BEFORE_PROPOSING
+        assert GET_DECISION_BEFORE_PROPOSING.index("on each before proposing") < (
+            GET_DECISION_BEFORE_PROPOSING.index("`mode=header`")
+        )
+        # Header-first selective hydration: triage on header, hydrate the
+        # ones worth reasoning about on full.
+        assert "`mode=header`" in GET_DECISION_BEFORE_PROPOSING
+        assert "`mode=full`" in GET_DECISION_BEFORE_PROPOSING
 
     def test_propose_decision_operations_names_all_three_and_metadata_rule(self) -> None:
         for op in ("add", "update", "supersede"):

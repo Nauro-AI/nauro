@@ -176,6 +176,37 @@ class TestGetDecision:
         envelope = json.loads(result.stdout)
         assert envelope.get("error")
 
+    def test_mode_flag_advertises_header_and_full_default_full(self) -> None:
+        result = runner.invoke(app, ["get-decision", "--help"])
+        assert result.exit_code == 0, result.output
+        assert "header" in result.output
+        assert "full" in result.output
+        assert "[default: full]" in result.output
+
+    def test_mode_header_happy_path(self, demo_repo) -> None:
+        result = runner.invoke(app, ["get-decision", "1", "--mode", "header"])
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.stdout)
+        assert envelope["store"] == "local"
+        assert "content" in envelope
+
+    def test_mode_full_matches_default(self, demo_repo) -> None:
+        default = runner.invoke(app, ["get-decision", "1"])
+        explicit_full = runner.invoke(app, ["get-decision", "1", "--mode", "full"])
+        assert default.exit_code == 0
+        assert explicit_full.exit_code == 0
+        assert default.stdout == explicit_full.stdout
+
+    def test_mode_header_envelope_is_more_compact(self, demo_repo) -> None:
+        full = json.loads(runner.invoke(app, ["get-decision", "1", "--mode", "full"]).stdout)
+        header = json.loads(runner.invoke(app, ["get-decision", "1", "--mode", "header"]).stdout)
+        assert len(header["content"]) < len(full["content"])
+
+    def test_mode_bogus_rejected_with_exit_2(self, demo_repo) -> None:
+        result = runner.invoke(app, ["get-decision", "1", "--mode", "bogus"])
+        # click.Choice rejects an out-of-enum value before the adapter runs.
+        assert result.exit_code == 2
+
 
 class TestDiffSinceLastSession:
     def test_happy_path(self, demo_repo) -> None:

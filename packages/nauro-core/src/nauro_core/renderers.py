@@ -136,13 +136,22 @@ def _extract_call_to_action(assessment: str) -> str:
     return assessment[idx:].strip()
 
 
-def render_get_decision(result: dict) -> str:
-    """Render a decision body. The kernel returns markdown; surface it as-is
-    under a one-line header so chat clients can see the title at a glance."""
+def render_get_decision(result: dict, mode: str = "full") -> str:
+    """Render a decision body.
+
+    For ``mode="full"`` the kernel returns the verbatim markdown body;
+    surface it under a one-line header so chat clients see the title at a
+    glance. For ``mode="header"`` the kernel already returns the compact
+    projection (triage frontmatter + title + lede), so emit it as-is — a
+    second title header would duplicate the projection's own title line.
+    """
     if "error" in result:
         return _error_block(result["error"])
 
     content = result.get("content", "") or ""
+    if mode == "header":
+        return content.rstrip()
+
     header = _decision_title_header(content)
     if header:
         return f"{header}\n\n{content}".rstrip()

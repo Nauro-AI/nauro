@@ -19,9 +19,19 @@ from nauro_core.constants import (
     VALID_CONFIDENCES,
 )
 from nauro_core.protocol import (
+    GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
 )
+
+# The static instruction block already sits past the claude.ai
+# initialize.instructions truncation point (~2,023 chars), and the remote
+# server prepends a per-user project section, so the static block must
+# never GROW. This is the pre-change ceiling; the header-first hydration
+# reword holds at or below it. tools/list descriptions arrive intact even
+# when initialize.instructions is truncated, which is where the
+# header/full mode guidance also lives (on the get_decision ToolSpec).
+MCP_INSTRUCTIONS_STATIC_MAX_CHARS = 2135
 
 
 class TestLimits:
@@ -108,3 +118,24 @@ class TestMcpInstructions:
         """Relocated to the propose_decision.resolves_questions parameter
         description, same budget reason as the operations fragment."""
         assert RESOLVES_OPEN_QUESTIONS not in MCP_INSTRUCTIONS_STATIC
+
+    def test_static_block_does_not_exceed_budget_ceiling(self) -> None:
+        """Regression guard: the static block must not grow past its
+        pre-change ceiling. The header-first hydration reword holds at or
+        below it — future edits that would enlarge the block force a
+        conscious bump of the ceiling and a re-check that the remote
+        per-user section still survives truncation."""
+        assert len(MCP_INSTRUCTIONS_STATIC) <= MCP_INSTRUCTIONS_STATIC_MAX_CHARS
+
+    def test_header_first_hydration_fragment_present_and_bounded(self) -> None:
+        """The reworded hydration sentence is spliced into the static block
+        and stays compact. The leading fetch mandate must precede the
+        mode guidance so the sentence cannot read as "skip fetching"."""
+        assert GET_DECISION_BEFORE_PROPOSING in MCP_INSTRUCTIONS_STATIC
+        assert "`mode=header`" in MCP_INSTRUCTIONS_STATIC
+        assert GET_DECISION_BEFORE_PROPOSING.index("before proposing") < (
+            GET_DECISION_BEFORE_PROPOSING.index("`mode=header`")
+        )
+        # The reword must not exceed the original sentence's length, so the
+        # static block holds at or below its pre-change ceiling.
+        assert len(GET_DECISION_BEFORE_PROPOSING) <= 200
