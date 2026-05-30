@@ -58,6 +58,13 @@ def test_set_preserves_other_keys(tmp_path, monkeypatch):
     assert get_config("model") == "haiku"
 
 
+def test_load_config_non_dict_returns_empty(tmp_path, monkeypatch):
+    """A config.json that parses to a non-dict (valid JSON, wrong shape)
+    returns an empty config rather than crashing downstream callers."""
+    (tmp_path / "config.json").write_text("[]")
+    assert load_config() == {}
+
+
 # --- CLI ---
 
 

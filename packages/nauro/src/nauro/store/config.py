@@ -68,10 +68,14 @@ def load_config() -> dict:
     cf = _config_file()
     if cf.exists():
         try:
-            return json.loads(cf.read_text())  # type: ignore[no-any-return]
+            data = json.loads(cf.read_text())
         except json.JSONDecodeError:
             logger.warning("config.json is corrupt — returning empty config")
             return {}
+        if not isinstance(data, dict):
+            logger.warning("config.json is corrupt — returning empty config")
+            return {}
+        return data  # type: ignore[no-any-return]
     return {}
 
 

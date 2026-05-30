@@ -83,7 +83,11 @@ def load_registry() -> dict:
         except json.JSONDecodeError:
             logger.warning("registry.json is corrupt — starting with empty registry")
             return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
+        if not isinstance(data, dict):
+            logger.warning("registry.json is corrupt — starting with empty registry")
+            return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
         data.setdefault("schema_version", REGISTRY_SCHEMA_VERSION_V1)
+        data.setdefault("projects", {})
         return data  # type: ignore[no-any-return]
     return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
 
@@ -134,6 +138,9 @@ def load_registry_v2() -> dict:
     except json.JSONDecodeError:
         logger.warning("registry.json is corrupt — starting with empty v2 registry")
         return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V2}
+    if not isinstance(data, dict):
+        logger.warning("registry.json is corrupt — starting with empty v2 registry")
+        return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V2}
 
     version = data.get("schema_version", REGISTRY_SCHEMA_VERSION_V1)
     if version == REGISTRY_SCHEMA_VERSION_V1:
@@ -146,6 +153,7 @@ def load_registry_v2() -> dict:
             f"Unknown registry schema_version={version!r} at {rf}. "
             f"Upgrade nauro to a version that supports this schema."
         )
+    data.setdefault("projects", {})
     return data  # type: ignore[no-any-return]
 
 
