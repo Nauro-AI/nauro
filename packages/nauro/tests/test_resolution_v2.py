@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -257,3 +258,73 @@ def test_two_projects_each_resolve_to_own_store(tmp_path, monkeypatch):
     cfg = load_repo_config(cloud_repo)
     assert cfg["mode"] == "cloud"
     assert cfg["id"] == cloud_pid
+
+
+# ── available-project listing excludes blank tokens ──────────────────────────
+#
+# The listing unions v1 names (registry ``projects`` keys) with v2 names
+# (``name`` field of each v2 entry). A blank token can enter from either side:
+# a v2 entry missing ``name`` resolves to "", and a malformed v1 entry can have
+# a "" key. The old ``set(v1) | set(v2) - {""}`` grouping only stripped the
+# blank from the v2 operand (``-`` binds tighter than ``|``), so a blank on the
+# v1 side leaked into "Available projects:". These tests drive a blank in on
+# the v1 side so they fail against the old grouping and pass against the fix.
+
+
+def _write_registry(tmp_path, schema_version: int, projects: dict) -> None:
+    """Write registry.json with the given schema version and ``projects`` map."""
+    (tmp_path / REGISTRY_FILENAME).write_text(
+        json.dumps({"schema_version": schema_version, "projects": projects}) + "\n"
+    )
+
+
+def test_available_project_names_excludes_blank_from_combined_set(tmp_path, monkeypatch):
+    """A blank entry on the v1 side must not leak into the available list.
+
+    Pins the operator-precedence fix: the blank is subtracted from the
+    *combined* v1 ∪ v2 set, not just the v2 operand.
+    """
+    from nauro.cli.utils import _available_project_names
+
+    _write_registry(
+        tmp_path,
+        1,
+        {
+            "alpha": {"repo_paths": []},
+            "": {"repo_paths": []},  # malformed blank-named v1 entry
+        },
+    )
+    monkeypatch.chdir(tmp_path)
+
+    names = _available_project_names()
+    assert "" not in names
+    assert names == ["alpha"]
+
+
+def test_unknown_project_listing_has_no_blank_token(tmp_path, monkeypatch, capsys):
+    """The ``--project`` error path lists only real names, never a blank.
+
+    A blank-named entry previously leaked an empty token into
+    "Available projects:" because ``-`` bound tighter than ``|``.
+    """
+    _write_registry(
+        tmp_path,
+        1,
+        {
+            "alpha": {"repo_paths": []},
+            "": {"repo_paths": []},  # malformed blank-named v1 entry
+        },
+    )
+    isolated = tmp_path / "isolated"
+    isolated.mkdir()
+    monkeypatch.chdir(isolated)
+
+    with pytest.raises(typer.Exit) as excinfo:
+        resolve_target_project("does-not-exist")
+    assert excinfo.value.exit_code == 1
+
+    err = capsys.readouterr().err
+    listing_line = next(line for line in err.splitlines() if line.startswith("Available projects:"))
+    parsed = [name.strip() for name in listing_line[len("Available projects:") :].split(",")]
+    assert parsed == ["alpha"]
+    assert "" not in parsed

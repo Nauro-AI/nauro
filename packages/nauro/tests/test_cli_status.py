@@ -32,3 +32,19 @@ def test_status_sync_inactive(tmp_path, monkeypatch):
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
     assert "Sync          inactive" in result.output
+
+
+def test_status_no_project_shows_friendly_message(tmp_path, monkeypatch):
+    """No resolvable project surfaces the status-specific guidance with exit 1.
+
+    ``resolve_target_project`` raises ``typer.Exit``, which is not a
+    ``SystemExit`` subclass — the friendly message only reaches the user when
+    the handler catches the right exception type.
+    """
+    isolated = tmp_path / "isolated"
+    isolated.mkdir()
+    monkeypatch.chdir(isolated)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 1
+    assert "No project found. Run 'nauro init <name>' to get started." in result.output

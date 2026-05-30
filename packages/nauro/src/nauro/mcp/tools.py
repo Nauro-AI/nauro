@@ -45,6 +45,10 @@ from nauro_core.validation import (
     envelope_token_message,
 )
 
+from nauro.constants import (
+    FLAG_QUESTION_HINT_MIN_SCORE,
+    FLAG_QUESTION_HINT_TITLE_LENGTH,
+)
 from nauro.onboarding import (
     NO_CONTEXT_YET,
     WELCOME_NO_PROJECT,
@@ -480,14 +484,14 @@ def tool_flag_question(
     hint = None
     if question:
         pseudo_proposal = {
-            "title": question[:100],
+            "title": question[:FLAG_QUESTION_HINT_TITLE_LENGTH],
             "rationale": question + (f" {context}" if context else ""),
         }
         try:
             from nauro.store.reader import _list_decisions
 
             _, similar = check_bm25_similarity(pseudo_proposal, _list_decisions(store_path))
-            if similar and similar[0].get("similarity", 0) > 0.7:
+            if similar and similar[0].get("similarity", 0) > FLAG_QUESTION_HINT_MIN_SCORE:
                 top = similar[0]
                 hint = (
                     f"This question appears to be addressed by "

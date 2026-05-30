@@ -8,10 +8,8 @@ import typer
 from nauro.cli.commands.auth import load_access_token
 from nauro.cli.utils import resolve_target_project
 from nauro.store.registry import (
-    RegistrySchemaError,
-    get_project_v2,
+    get_repo_paths,
     is_cloud_project,
-    load_registry,
 )
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
@@ -23,18 +21,6 @@ logger = logging.getLogger("nauro.sync")
 # Names retained for callers/tests that import the push helper from this
 # command module; the implementation now lives in ``nauro.sync.push``.
 _push_to_cloud = push_store_to_cloud
-
-
-def _registry_repo_paths(project_key: str) -> list[str]:
-    """Return repo paths for ``project_key`` from v2 (preferred) or v1 registry."""
-    try:
-        v2_entry = get_project_v2(project_key)
-    except RegistrySchemaError:
-        v2_entry = None
-    if v2_entry is not None:
-        return list(v2_entry.get("repo_paths", []))
-    registry = load_registry()
-    return list(registry["projects"].get(project_key, {}).get("repo_paths", []))
 
 
 def sync(
@@ -66,7 +52,7 @@ def sync(
 
     version = capture_snapshot(store_path, trigger=trigger)
 
-    for repo_str in _registry_repo_paths(project_key):
+    for repo_str in get_repo_paths(project_key):
         if not Path(repo_str).is_dir():
             typer.echo(
                 f"  Warning: repo path does not exist, skipping AGENTS.md: {repo_str}\n"

@@ -190,10 +190,9 @@ def regenerate_agents_md_for_project(project_key: str, store_path: Path) -> list
     from nauro.store.registry import (
         RegistrySchemaError,
         get_project_v2,
-        load_registry,
+        get_repo_paths,
     )
 
-    repo_paths: list[str] = []
     display_name = project_key
     project_id: str | None = None
 
@@ -202,14 +201,10 @@ def regenerate_agents_md_for_project(project_key: str, store_path: Path) -> list
     except RegistrySchemaError:
         v2_entry = None
     if v2_entry is not None:
-        repo_paths = list(v2_entry.get("repo_paths", []))
         display_name = v2_entry.get("name", project_key)
         project_id = project_key  # v2 registry is id-keyed
-    else:
-        registry = load_registry()
-        entry = registry["projects"].get(project_key, {})
-        repo_paths = list(entry.get("repo_paths", []))
 
+    repo_paths = get_repo_paths(project_key)
     l0_payload = build_l0_payload(store_path)
     updated = []
 

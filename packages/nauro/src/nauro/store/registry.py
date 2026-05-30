@@ -417,6 +417,23 @@ def find_projects_by_name_v2(name: str) -> list[tuple[str, dict]]:
     return out
 
 
+def get_repo_paths(project_key: str) -> list[str]:
+    """Return repo paths for ``project_key`` from v2 (preferred) or v1 registry.
+
+    ``project_key`` is a v2 project_id (ULID) or a v1 project name; v2 takes
+    priority with v1 as the legacy fallback. Returns an empty list when the
+    key is unknown in both schemas.
+    """
+    try:
+        v2_entry = get_project_v2(project_key)
+    except RegistrySchemaError:
+        v2_entry = None
+    if v2_entry is not None:
+        return list(v2_entry.get("repo_paths", []))
+    registry = load_registry()
+    return list(registry["projects"].get(project_key, {}).get("repo_paths", []))
+
+
 def resolve_v2_from_path(path: Path) -> tuple[str, dict] | None:
     """Walk up ``path`` and return (project_id, entry) for the matching v2 project.
 
