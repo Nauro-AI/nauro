@@ -24,22 +24,25 @@ import pytest
 
 cloud_store_module = pytest.importorskip(
     "mcp_server.store.cloud_store",
-    reason="CloudStore is consumed by other transports; not always installed alongside nauro.",
+    reason="CloudStore is provided by the private mcp-server repo.",
 )
-boto3 = pytest.importorskip("boto3", reason="boto3 needed to seed a moto S3 bucket.")
-moto = pytest.importorskip("moto", reason="moto needed for in-memory S3.")
+pytest.importorskip("boto3", reason="boto3 needed to seed a moto S3 bucket.")
+pytest.importorskip("moto", reason="moto needed for in-memory S3.")
 
 # Imports below ``importorskip`` deliberately run only when both packages are
 # installed; ruff E402 does not apply here.
 from nauro_core.operations import get_raw_file  # noqa: E402
 
 from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
+from tests.conftest import (  # noqa: E402
+    CROSS_SURFACE_BUCKET,
+    CROSS_SURFACE_PROJECT_ID,
+    CROSS_SURFACE_USER_ID,
+    cloud_prefix,
+    moto_s3_bucket,
+)
 
 CloudStore = cloud_store_module.CloudStore
-
-TEST_BUCKET = "nauro-cross-surface-test"
-TEST_USER_ID = "01TEST" + "0" * 20
-TEST_PROJECT_ID = "01TESTPROJECT00000000000"
 
 EXISTING_PATH = "project.md"
 MISSING_PATH = "does-not-exist.md"
@@ -62,14 +65,14 @@ def _seed_filesystem_store(root: Path) -> FilesystemStore:
 
 
 def _seed_cloud_store(s3_client) -> CloudStore:
-    prefix = f"users/{TEST_USER_ID}/projects/{TEST_PROJECT_ID}"
+    prefix = cloud_prefix(CROSS_SURFACE_USER_ID, CROSS_SURFACE_PROJECT_ID)
     for path, body in SEED_FILES.items():
         s3_client.put_object(
-            Bucket=TEST_BUCKET,
+            Bucket=CROSS_SURFACE_BUCKET,
             Key=f"{prefix}/{path}",
             Body=body.encode(),
         )
-    return CloudStore(user_id=TEST_USER_ID, project_id=TEST_PROJECT_ID)
+    return CloudStore(user_id=CROSS_SURFACE_USER_ID, project_id=CROSS_SURFACE_PROJECT_ID)
 
 
 @pytest.fixture
@@ -77,15 +80,9 @@ def both_stores(tmp_path, monkeypatch):
     """Yield a (FilesystemStore, CloudStore) pair seeded with identical files.
 
     The cloud half lives inside a moto-mocked S3 + an env-pointed bucket so
-    the test never touches AWS. ``NAURO_S3_BUCKET`` is monkey-patched onto
-    the environment because :class:`CloudStore` reads it lazily.
+    the test never touches AWS.
     """
-    monkeypatch.setenv("NAURO_S3_BUCKET", TEST_BUCKET)
-
-    with moto.mock_aws():
-        s3_client = boto3.client("s3", region_name="us-east-1")
-        s3_client.create_bucket(Bucket=TEST_BUCKET)
-
+    with moto_s3_bucket(monkeypatch) as s3_client:
         fs_store = _seed_filesystem_store(tmp_path)
         cloud = _seed_cloud_store(s3_client)
         yield fs_store, cloud
