@@ -126,6 +126,9 @@ from nauro_core.decision_model import (
 from nauro_core.decision_model import (
     parse_decision as parse_decision,
 )
+from nauro_core.identity import (
+    sanitize_sub as sanitize_sub,
+)
 from nauro_core.instructions import (
     MAX_INLINE_PROJECTS as MAX_INLINE_PROJECTS,
 )

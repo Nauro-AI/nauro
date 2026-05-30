@@ -5,13 +5,14 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from nauro_core import sanitize_sub
 from typer.testing import CliRunner
 
+from nauro.cli.commands import auth as auth_module
 from nauro.cli.commands.auth import (
     _CallbackHandler,
     _decode_jwt_payload,
     _generate_pkce,
-    _sanitize_sub,
 )
 from nauro.cli.main import app
 from nauro.store.config import load_config, save_config
@@ -27,33 +28,13 @@ def _make_jwt(payload: dict) -> str:
     return f"{header}.{body}.{sig}"
 
 
-# --- _sanitize_sub ---
+# --- sanitize_sub wiring ---
+# Behavior coverage lives in nauro-core's test_identity.py; this only pins that
+# the auth command derives its S3 key prefix from the canonical implementation.
 
 
-class TestSanitizeSub:
-    def test_pipe_replaced(self):
-        assert _sanitize_sub("auth0|abc123") == "auth0-abc123"
-
-    def test_google_oauth2(self):
-        assert _sanitize_sub("google-oauth2|456def") == "google-oauth2-456def"
-
-    def test_already_safe(self):
-        assert _sanitize_sub("abc-def_123") == "abc-def_123"
-
-    def test_truncation_at_128(self):
-        long_sub = "a" * 200
-        assert len(_sanitize_sub(long_sub)) == 128
-
-    def test_special_characters(self):
-        assert _sanitize_sub("user@example.com") == "user-example-com"
-
-    def test_backslash_replaced(self):
-        result = _sanitize_sub("auth0\\evil")
-        assert "\\" not in result
-        assert result == "auth0-evil"
-
-    def test_empty_string(self):
-        assert _sanitize_sub("") == ""
+def test_auth_uses_canonical_sanitize_sub():
+    assert auth_module.sanitize_sub is sanitize_sub
 
 
 # --- _decode_jwt_payload ---
