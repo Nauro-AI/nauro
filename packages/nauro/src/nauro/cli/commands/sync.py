@@ -7,14 +7,11 @@ import typer
 
 from nauro.cli.commands.auth import load_access_token
 from nauro.cli.utils import resolve_target_project
-from nauro.store.registry import (
-    get_repo_paths,
-    is_cloud_project,
-)
+from nauro.store.registry import is_cloud_project
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
 from nauro.sync.push import push_store_to_cloud
-from nauro.templates.agents_md import regenerate_agents_md_for_project
+from nauro.templates.agents_md_regen import warn_then_regen
 
 logger = logging.getLogger("nauro.sync")
 
@@ -52,15 +49,11 @@ def sync(
 
     version = capture_snapshot(store_path, trigger=trigger)
 
-    for repo_str in get_repo_paths(project_key):
-        if not Path(repo_str).is_dir():
-            typer.echo(
-                f"  Warning: repo path does not exist, skipping AGENTS.md: {repo_str}\n"
-                f"  Fix: remove from registry or update path in ~/.nauro/registry.json",
-                err=True,
-            )
-
-    updated_repos = regenerate_agents_md_for_project(project_key, store_path)
+    updated_repos = warn_then_regen(
+        project_key,
+        store_path,
+        warn=lambda msg: typer.echo(msg, err=True),
+    )
 
     pushed = _push_to_cloud(project_key, store_path)
 
@@ -100,142 +93,39 @@ def _pull_from_cloud(project_id: str, store_path: Path) -> int:
     return _pull_via_presign(project_id, store_path)
 
 
-def _pull_via_presign(project_id: str, store_path: Path) -> int:
-    """GET /sync/manifest → POST /sync/presign → S3 GETs."""
-    from datetime import datetime, timezone
+class _EchoReporter:
+    """Pull reporter for ``nauro sync``.
 
-    from nauro.cli.commands.auth import AuthRefreshError
-    from nauro.sync.merge import (
-        UnionMergeError,
-        detect_conflict,
-        resolve_conflict,
-        should_skip,
-    )
-    from nauro.sync.remote import (
-        PresignError,
-        fetch_manifest,
-        fetch_via_presigned_url,
-        get_via_presigned_url,
-        request_presigned_urls,
-    )
-    from nauro.sync.state import (
-        compute_sha256,
-        file_changed_locally,
-        file_changed_remotely,
-        load_state,
-        save_state,
-        update_file_state,
-    )
+    Echoes progress to the terminal (warnings on stderr) and re-raises on a
+    union-merge failure so an explicit sync fails loud rather than reporting a
+    partial success.
+    """
+
+    def info(self, msg: str) -> None:
+        typer.echo(f"  {msg}")
+
+    def warn(self, msg: str) -> None:
+        typer.echo(f"  {msg}", err=True)
+
+    def on_merge_failure(self, relative_path: str, exc: Exception) -> bool:
+        logger.exception("Union merge failed for %s", relative_path)
+        typer.echo(
+            f"  Error: merge failed for {relative_path} ({exc}) — left unchanged",
+            err=True,
+        )
+        return True
+
+
+def _pull_via_presign(project_id: str, store_path: Path) -> int:
+    """GET /sync/manifest → POST /sync/presign → S3 GETs.
+
+    Delegates to the shared pull core with an echo reporter; a union-merge
+    failure propagates so ``nauro sync`` exits nonzero.
+    """
+    from nauro.sync.pull import run_pull
 
     typer.echo("Pulling from remote...")
-
-    try:
-        manifest = fetch_manifest(project_id)
-    except AuthRefreshError as exc:
-        typer.echo(f"  {exc}", err=True)
-        return 0
-    except PresignError as exc:
-        logger.exception("Failed to fetch manifest")
-        typer.echo(f"  Warning: could not reach remote ({exc})", err=True)
-        return 0
-
-    state = load_state(store_path)
-
-    pulls: list[tuple[str, str]] = []
-    conflicts: list[tuple[str, str]] = []
-    for entry in manifest:
-        rel = entry.get("path", "") if isinstance(entry, dict) else ""
-        if not rel or should_skip(rel):
-            continue
-        # Server validates per-op on presign, but the manifest itself is
-        # currently trusted — drop suspicious entries before they hit disk.
-        if ".." in Path(rel).parts or rel.startswith("/"):
-            logger.warning("Skipping manifest entry with suspicious path: %r", rel)
-            continue
-        remote_etag = entry.get("etag", "")
-        if not file_changed_remotely(remote_etag, rel, state):
-            continue
-
-        local_file = store_path / rel
-        local_changed = file_changed_locally(store_path, rel, state)
-
-        if not local_changed:
-            pulls.append((rel, remote_etag))
-            continue
-
-        local_sha = compute_sha256(local_file) if local_file.exists() else ""
-        if detect_conflict(rel, state, local_sha, remote_etag):
-            conflicts.append((rel, remote_etag))
-
-    if not pulls and not conflicts:
-        state.last_full_sync = datetime.now(timezone.utc).isoformat()
-        save_state(store_path, state)
-        typer.echo("  No remote changes")
-        return 0
-
-    operations = [{"verb": "GET", "path": rel} for rel, _etag in pulls + conflicts]
-    try:
-        urls = request_presigned_urls(project_id, operations)
-    except AuthRefreshError as exc:
-        typer.echo(f"  {exc}", err=True)
-        return 0
-    except PresignError as exc:
-        logger.exception("Failed to request presigned URLs")
-        typer.echo(f"  Warning: presign request failed ({exc})", err=True)
-        return 0
-
-    if len(urls) < len(operations):
-        logger.warning("Presign returned %d URLs for %d ops", len(urls), len(operations))
-
-    url_by_path = {
-        entry["path"]: entry["url"]
-        for entry in urls
-        if isinstance(entry, dict) and entry.get("verb") == "GET"
-    }
-    merged = 0
-
-    for rel, remote_etag in pulls:
-        url = url_by_path.get(rel)
-        if not url:
-            continue
-        local_file = store_path / rel
-        try:
-            get_via_presigned_url(url, local_file)
-            local_sha = compute_sha256(local_file)
-            update_file_state(state, rel, local_sha, remote_etag)
-            merged += 1
-        except PresignError:
-            logger.exception("Error pulling %s", rel)
-
-    for rel, remote_etag in conflicts:
-        url = url_by_path.get(rel)
-        if not url:
-            continue
-        local_file = store_path / rel
-        try:
-            remote_content = fetch_via_presigned_url(url)
-            merged_content = resolve_conflict(store_path, local_file, remote_content, rel, state)
-            local_file.write_bytes(merged_content)
-            local_sha = compute_sha256(local_file)
-            update_file_state(state, rel, local_sha, remote_etag)
-            merged += 1
-        except PresignError:
-            logger.exception("Error resolving conflict for %s", rel)
-        except UnionMergeError as exc:
-            # Explicit sync must not report success on a failed merge. Surface
-            # the error and skip the file, leaving it untouched on disk.
-            logger.exception("Union merge failed for %s", rel)
-            typer.echo(f"  Error: merge failed for {rel} ({exc}) — left unchanged", err=True)
-
-    state.last_full_sync = datetime.now(timezone.utc).isoformat()
-    save_state(store_path, state)
-
-    if merged:
-        typer.echo(f"  Merged {merged} file(s) from remote")
-    else:
-        typer.echo("  No remote changes")
-
-    return merged
+    return run_pull(project_id, store_path, _EchoReporter())
 
 
 def _show_status(project_flag: str | None) -> None:
