@@ -11,3 +11,18 @@ source_modules =
 forbidden_modules =
     nauro
     mcp_server
+
+[importlinter:contract:no-io-deps]
+name = nauro_core must not import network or cloud-IO libraries
+type = forbidden
+source_modules =
+    nauro_core
+forbidden_modules =
+    boto3
+    botocore
+    requests
+    httpx
+    aiohttp
+    socket
+    smtplib
+    ftplib
