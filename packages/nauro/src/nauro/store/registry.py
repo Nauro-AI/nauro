@@ -40,6 +40,7 @@ from nauro.constants import (
     REPO_CONFIG_MODE_LOCAL,
     SCHEMA_VERSION,
 )
+from nauro.store._atomic import atomic_write_text
 from nauro.store.repo_config import generate_ulid
 
 logger = logging.getLogger("nauro.registry")
@@ -96,10 +97,7 @@ def save_registry(data: dict) -> None:
     """
     data.setdefault("schema_version", SCHEMA_VERSION)
     rf = _registry_file()
-    rf.parent.mkdir(parents=True, exist_ok=True)
-    tmp = rf.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
-    os.replace(tmp, rf)
+    atomic_write_text(rf, json.dumps(data, indent=2) + "\n")
 
 
 # ── v2 registry (id-keyed) ───────────────────────────────────────────────────
@@ -166,10 +164,7 @@ def save_registry_v2(data: dict) -> None:
             f"{data['schema_version']!r}; expected {REGISTRY_SCHEMA_VERSION_V2}."
         )
     rf = _registry_file()
-    rf.parent.mkdir(parents=True, exist_ok=True)
-    tmp = rf.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
-    os.replace(tmp, rf)
+    atomic_write_text(rf, json.dumps(data, indent=2) + "\n")
 
 
 def get_store_path(name: str) -> Path:
