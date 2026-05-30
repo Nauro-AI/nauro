@@ -17,6 +17,7 @@ jobs:
       - run: pip install ruff==0.15.8
       - run: ruff check packages/
       - run: ruff format --check packages/
+      - run: python scripts/check_single_sourced.py packages/nauro/src
 
   import-linter:
     runs-on: ubuntu-latest
