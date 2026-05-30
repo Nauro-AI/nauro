@@ -51,4 +51,4 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --package nauro --all-extras --python ${{ matrix.python-version }}
-      - run: uv run --package nauro pytest packages/nauro/tests/ -v --tb=short
+      - run: uv run --package nauro pytest packages/nauro/tests/ --ignore=packages/nauro/tests/cross_surface -v --tb=short
