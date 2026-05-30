@@ -39,7 +39,11 @@ from nauro_core.protocol import (
     PROPOSE_DECISION_OPERATIONS,
     UPDATE_SUPERSEDE_CARE,
 )
-from nauro_core.validation import check_bm25_similarity, check_content_length, find_envelope_token
+from nauro_core.validation import (
+    check_bm25_similarity,
+    check_content_length,
+    envelope_token_message,
+)
 
 from nauro.onboarding import (
     NO_CONTEXT_YET,
@@ -127,17 +131,11 @@ def _reject_if_envelope_token(value: str, field_name: str) -> dict | None:
     Some non-Anthropic agent surfaces emit tool calls as XML and their MCP
     bridges occasionally fail to extract <parameter> values cleanly, so the
     envelope tail leaks into the string field. Reject before any I/O — see
-    nauro_core.validation.find_envelope_token.
+    nauro_core.validation.envelope_token_message.
     """
-    token = find_envelope_token(value)
-    if not token:
+    reason = envelope_token_message(value, field_name)
+    if not reason:
         return None
-    reason = (
-        f"{field_name} contains tool-use envelope fragment {token!r}. "
-        "This usually means the client failed to extract the parameter "
-        "value cleanly from an XML tool call. Resend the call with just "
-        "the prose content."
-    )
     return {
         "store": "local",
         "status": "rejected",

@@ -209,3 +209,22 @@ def find_envelope_token(text: str) -> str | None:
         if token in text:
             return token
     return None
+
+
+def envelope_token_message(value: str, field_name: str) -> str | None:
+    """Return the rejection reason if *value* carries an envelope fragment, else None.
+
+    Wraps ``find_envelope_token``: on a hit, returns the full reason string
+    naming the offending *field_name* and the detected token; on no hit,
+    returns None. Both MCP transports share this builder so the message agents
+    see does not drift by transport. Pure — no I/O.
+    """
+    token = find_envelope_token(value)
+    if not token:
+        return None
+    return (
+        f"{field_name} contains tool-use envelope fragment {token!r}. "
+        "This usually means the client failed to extract the parameter "
+        "value cleanly from an XML tool call. Resend the call with just "
+        "the prose content."
+    )
