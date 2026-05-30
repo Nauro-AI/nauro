@@ -7,6 +7,9 @@ from importlib.metadata import version
 
 from nauro_core import operations as operations
 from nauro_core.constants import (
+    CHARS_PER_TOKEN as CHARS_PER_TOKEN,
+)
+from nauro_core.constants import (
     DECISION_HASHES_FILE as DECISION_HASHES_FILE,
 )
 from nauro_core.constants import (
@@ -26,6 +29,9 @@ from nauro_core.constants import (
 )
 from nauro_core.constants import (
     L1_DECISIONS_SUMMARY_LIMIT as L1_DECISIONS_SUMMARY_LIMIT,
+)
+from nauro_core.constants import (
+    LEGACY_SCHEMA_VERSION as LEGACY_SCHEMA_VERSION,
 )
 from nauro_core.constants import (
     MAX_APPROACH_LENGTH as MAX_APPROACH_LENGTH,
@@ -65,6 +71,9 @@ from nauro_core.constants import (
 )
 from nauro_core.constants import (
     REVERSIBILITY_LEVELS as REVERSIBILITY_LEVELS,
+)
+from nauro_core.constants import (
+    SNAPSHOT_SCHEMA_VERSION as SNAPSHOT_SCHEMA_VERSION,
 )
 from nauro_core.constants import (
     SNAPSHOTS_DIR as SNAPSHOTS_DIR,
@@ -251,6 +260,15 @@ from nauro_core.search import (
 )
 from nauro_core.search import (
     bm25_search as bm25_search,
+)
+from nauro_core.snapshot import (
+    normalize_snapshot as normalize_snapshot,
+)
+from nauro_core.snapshot import (
+    serialize_snapshot as serialize_snapshot,
+)
+from nauro_core.snapshot import (
+    snapshot_schema_version as snapshot_schema_version,
 )
 from nauro_core.state import (
     StateUpdateResult as StateUpdateResult,

@@ -38,7 +38,6 @@ from nauro.constants import (
     REGISTRY_SCHEMA_VERSION_V2,
     REPO_CONFIG_MODE_CLOUD,
     REPO_CONFIG_MODE_LOCAL,
-    SCHEMA_VERSION,
 )
 from nauro.store._atomic import atomic_write_text
 from nauro.store.repo_config import generate_ulid
@@ -83,10 +82,10 @@ def load_registry() -> dict:
             data = json.loads(rf.read_text())
         except json.JSONDecodeError:
             logger.warning("registry.json is corrupt — starting with empty registry")
-            return {"projects": {}, "schema_version": SCHEMA_VERSION}
-        data.setdefault("schema_version", 1)
+            return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
+        data.setdefault("schema_version", REGISTRY_SCHEMA_VERSION_V1)
         return data  # type: ignore[no-any-return]
-    return {"projects": {}, "schema_version": SCHEMA_VERSION}
+    return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
 
 
 def save_registry(data: dict) -> None:
@@ -95,7 +94,7 @@ def save_registry(data: dict) -> None:
     Args:
         data: Full registry dict to persist.
     """
-    data.setdefault("schema_version", SCHEMA_VERSION)
+    data.setdefault("schema_version", REGISTRY_SCHEMA_VERSION_V1)
     rf = _registry_file()
     atomic_write_text(rf, json.dumps(data, indent=2) + "\n")
 

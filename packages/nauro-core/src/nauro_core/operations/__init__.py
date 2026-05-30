@@ -8,6 +8,9 @@ emit no telemetry; transports own event emission.
 
 from nauro_core.operations._in_memory_store import InMemoryStore as InMemoryStore
 from nauro_core.operations.check_decision import check_decision as check_decision
+from nauro_core.operations.decision_lookup import (
+    find_decision_stem_by_id as find_decision_stem_by_id,
+)
 from nauro_core.operations.diff_since_last_session import (
     diff_since_last_session as diff_since_last_session,
 )
@@ -58,6 +61,7 @@ __all__ = [
     "UpdateStateResult",
     "check_decision",
     "diff_since_last_session",
+    "find_decision_stem_by_id",
     "flag_question",
     "get_context",
     "get_decision",

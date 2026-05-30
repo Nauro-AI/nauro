@@ -61,12 +61,13 @@ def diff_since_last_session(
 
     Returns:
         :class:`DiffSinceLastSessionResult`. ``diff`` carries the
-        rendered diff body. For the empty/insufficient cases the
-        adapter renders the canonical sentinel strings exposed by this
-        module and short-circuits before calling in; the kernel itself
-        only handles the "diff two dicts" path plus the
-        ``baseline == latest`` no-op. ``error`` stays unset — the
-        sentinel paths are normal success-path results, not errors.
+        rendered diff body. For the empty/insufficient and
+        one-snapshot-covers-range cases the adapter renders the canonical
+        sentinel strings exposed by this module and short-circuits before
+        calling in; the kernel itself only handles the
+        ``(None, *)``/``(*, None)`` sentinels and the "diff two dicts"
+        path. ``error`` stays unset — the sentinel paths are normal
+        success-path results, not errors.
     """
     # ``store`` is part of the locked kernel signature (see PRs 1-6); the
     # diff body operates on the supplied snapshot dicts only.
@@ -83,12 +84,6 @@ def diff_since_last_session(
         )
         return DiffSinceLastSessionResult(diff=diff, cutoff_date_used=cutoff_date_used)
 
-    if baseline_snapshot.get("version") == latest_snapshot.get("version"):
-        return DiffSinceLastSessionResult(
-            diff=ONE_SNAPSHOT_COVERS_RANGE,
-            cutoff_date_used=cutoff_date_used,
-        )
-
     return DiffSinceLastSessionResult(
         diff=_render_diff(baseline_snapshot, latest_snapshot),
         cutoff_date_used=cutoff_date_used,
@@ -99,19 +94,22 @@ def _render_diff(snap_a: dict, snap_b: dict) -> str:
     """Render the semantic diff body between two snapshot dicts."""
     # Version numbers come from the snapshot dict itself, not a caller-supplied
     # integer like the pre-cutover ``diff_snapshots(store_path, version_a,
-    # version_b)``. Hand-constructed test snapshots must carry their own
-    # ``version`` field.
-    version_a = snap_a.get("version", 0)
-    version_b = snap_b.get("version", 0)
+    # version_b)``. Snapshots that carry no integer ``version`` (e.g. the
+    # versionless remote shape) fall back to a single timestamp-only header.
+    version_a = snap_a.get("version")
+    version_b = snap_b.get("version")
+    ts_a = snap_a.get("timestamp", "?")[:19]
+    ts_b = snap_b.get("timestamp", "?")[:19]
     files_a = snap_a.get("files", {})
     files_b = snap_b.get("files", {})
     all_keys = sorted(set(files_a) | set(files_b))
 
     sections = []
-    sections.append(f"Changes from v{version_a:03d} → v{version_b:03d}")
-    sections.append(
-        f"  ({snap_a.get('timestamp', '?')[:19]} → {snap_b.get('timestamp', '?')[:19]})"
-    )
+    if isinstance(version_a, int) and isinstance(version_b, int):
+        sections.append(f"Changes from v{version_a:03d} → v{version_b:03d}")
+        sections.append(f"  ({ts_a} → {ts_b})")
+    else:
+        sections.append(f"Changes from {ts_a} → {ts_b}")
     sections.append("")
 
     has_changes = False

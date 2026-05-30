@@ -33,6 +33,8 @@ from nauro_core.operations import list_decisions as _list_decisions_op
 from nauro_core.operations import propose_decision as _propose_decision_op
 from nauro_core.operations import search_decisions as _search_decisions_op
 from nauro_core.operations import update_state as _update_state_op
+from nauro_core.operations.diff_since_last_session import ONE_SNAPSHOT_COVERS_RANGE
+from nauro_core.operations.results import DiffSinceLastSessionResult
 from nauro_core.protocol import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -630,6 +632,24 @@ def tool_diff_since_last_session(
         return {"store": "local", "status": "error", "guidance": guidance}
 
     baseline, latest, cutoff = resolve_diff_snapshots(store_path, days)
+
+    # Days-based one-snapshot-covers-range case: resolve_diff_snapshots
+    # returns the same snapshot as baseline and latest. The kernel no
+    # longer collapses on equal versions, so the adapter renders the
+    # canonical sentinel itself, preserving any resolved cutoff timestamp.
+    if (
+        baseline is not None
+        and latest is not None
+        and isinstance(baseline.get("version"), int)
+        and baseline.get("version") == latest.get("version")
+    ):
+        result = DiffSinceLastSessionResult(
+            diff=ONE_SNAPSHOT_COVERS_RANGE,
+            cutoff_date_used=cutoff,
+        )
+        envelope = result.model_dump(mode="json", exclude_none=True)
+        return {"store": "local", **envelope}
+
     result = _diff_since_last_session_op(
         FilesystemStore(store_path),
         baseline,

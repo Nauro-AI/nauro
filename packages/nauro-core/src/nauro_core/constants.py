@@ -25,6 +25,15 @@ MIN_RATIONALE_LENGTH = 20
 # ── Decision hash dedup ──
 DECISION_HASHES_FILE = ".decision-hashes.json"
 
+# ── Snapshot schema versioning ──
+# Stamped onto every snapshot the serializer writes. Snapshots written
+# before the field existed read back as LEGACY_SCHEMA_VERSION.
+SNAPSHOT_SCHEMA_VERSION = 1
+LEGACY_SCHEMA_VERSION = 0
+
+# ── Token heuristic ──
+CHARS_PER_TOKEN = 4  # rough chars-per-token for GPT/Claude family models
+
 # ── Store filenames ──
 PROJECT_MD = "project.md"
 STATE_MD = "state.md"
