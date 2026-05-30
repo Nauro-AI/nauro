@@ -247,7 +247,7 @@ def test_length_rejection_rationale(seeded_repo):
 
 def test_affected_decision_id_short_form_resolves(seeded_repo):
     """The adapter resolves a short ``"NNN"`` reference to the full stem
-    via ``resolve_decision_id`` before calling the kernel."""
+    via the kernel ``find_decision_stem_by_id`` before calling the kernel."""
     _pid, store_path = seeded_repo
     append_decision(
         store_path,
