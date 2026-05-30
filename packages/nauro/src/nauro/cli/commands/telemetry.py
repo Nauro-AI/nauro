@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 import typer
 
 from nauro.constants import NAURO_TELEMETRY_ENV, TELEMETRY_CONSENT_VERSION
-from nauro.store.config import get_telemetry_config, load_config, save_config
+from nauro.store.config import config_transaction, get_telemetry_config, load_config
 from nauro.telemetry import _rotate_anonymous_id
 
 telemetry_app = typer.Typer(
@@ -54,13 +54,12 @@ def status() -> None:
 
 
 def _persist_enabled(enabled: bool) -> None:
-    data = load_config()
-    section = data.get("telemetry") or {}
-    section["enabled"] = enabled
-    section["consent_version"] = TELEMETRY_CONSENT_VERSION
-    section["consented_at"] = datetime.now(timezone.utc).isoformat()
-    data["telemetry"] = section
-    save_config(data)
+    with config_transaction() as data:
+        section = data.get("telemetry") or {}
+        section["enabled"] = enabled
+        section["consent_version"] = TELEMETRY_CONSENT_VERSION
+        section["consented_at"] = datetime.now(timezone.utc).isoformat()
+        data["telemetry"] = section
 
 
 @telemetry_app.command()

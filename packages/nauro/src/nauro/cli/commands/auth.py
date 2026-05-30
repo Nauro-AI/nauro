@@ -24,7 +24,7 @@ import httpx
 import typer
 from nauro_core import sanitize_sub
 
-from nauro.store.config import load_config, save_config
+from nauro.store.config import config_transaction, load_config
 
 logger = logging.getLogger("nauro.auth")
 
@@ -151,12 +151,20 @@ def refresh_access_token() -> str:
     if not isinstance(new_access_token, str) or not new_access_token:
         raise AuthRefreshError("Auth0 refresh response did not include an access_token.")
 
-    auth["access_token"] = new_access_token
     rotated_refresh = body.get("refresh_token")
-    if isinstance(rotated_refresh, str) and rotated_refresh:
-        auth["refresh_token"] = rotated_refresh
-    config["auth"] = auth
-    save_config(config)
+
+    # The transaction is entered only after a successful exchange, so a failed
+    # refresh never reaches a save and stored tokens stay intact. The auth
+    # section is reloaded fresh under the lock so a concurrent login isn't
+    # clobbered — only the token fields are updated.
+    with config_transaction() as config:
+        auth = config.get("auth")
+        if not isinstance(auth, dict):
+            auth = {}
+        auth["access_token"] = new_access_token
+        if isinstance(rotated_refresh, str) and rotated_refresh:
+            auth["refresh_token"] = rotated_refresh
+        config["auth"] = auth
 
     return new_access_token
 
@@ -360,15 +368,14 @@ def login() -> None:
         )
 
     # Persist to config
-    config = load_config()
-    config["auth"] = {
-        "sub": sub,
-        "sanitized_sub": sanitized_sub,
-        "user_id": user_id,
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-    }
-    save_config(config)
+    with config_transaction() as config:
+        config["auth"] = {
+            "sub": sub,
+            "sanitized_sub": sanitized_sub,
+            "user_id": user_id,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+        }
 
     # Telemetry identity merge: auth state is already persisted above —
     # this block only handles the PostHog alias+set. Raw email never leaves
@@ -433,9 +440,12 @@ def logout() -> None:
         typer.echo("Not authenticated — nothing to clear.")
         return
 
-    # Rotate the telemetry anonymous_id at logout (preserves consent).
-    # identify_logout only touches the telemetry section, so call ordering
-    # with del config["auth"] is independent for correctness.
+    # Two sequential standalone transactions, never nested: the config lock is
+    # not re-entrant, so identify_logout (which opens its own rotation
+    # transaction) must run outside the auth-removal transaction. The two writes
+    # touch disjoint keys (telemetry.anonymous_id vs auth), so ordering is
+    # correctness-neutral; rotate first to preserve the documented
+    # "auth cleared after rotation" sequence.
     try:
         from nauro.telemetry import identify_logout as _telemetry_identify_logout
 
@@ -443,6 +453,6 @@ def logout() -> None:
     except Exception:
         logger.debug("telemetry identify_logout failed", exc_info=True)
 
-    del config["auth"]
-    save_config(config)
+    with config_transaction() as config:
+        config.pop("auth", None)
     typer.echo("Logged out. Auth credentials removed from config.")
