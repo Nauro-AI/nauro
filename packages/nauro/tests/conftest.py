@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,41 @@ import pytest
 # Magic UUID4 used by every telemetry test that seeds a consented config.
 # Centralized so a rotation in one file can't drift away from the rest.
 TEST_ANONYMOUS_ID = "11111111-1111-4111-8111-111111111111"
+
+# Fixed identity used by every cross-surface parity test to seed both the
+# FilesystemStore and the CloudStore. Centralized so a change in one file
+# can't drift away from the rest.
+CROSS_SURFACE_USER_ID = "01TEST" + "0" * 20
+CROSS_SURFACE_PROJECT_ID = "01TESTPROJECT00000000000"
+
+# Shared moto bucket for cross-surface tests. Each fixture runs inside its
+# own ``mock_aws()`` context, so the name only needs to be stable, not unique.
+CROSS_SURFACE_BUCKET = "nauro-cross-surface-test"
+
+
+def cloud_prefix(user_id: str, project_id: str) -> str:
+    """Return the S3 key prefix a CloudStore reads/writes under for a project."""
+    return f"users/{user_id}/projects/{project_id}"
+
+
+@contextmanager
+def moto_s3_bucket(monkeypatch, *, bucket: str = CROSS_SURFACE_BUCKET) -> Iterator[Any]:
+    """Stand up a moto-mocked S3 bucket and point ``NAURO_S3_BUCKET`` at it.
+
+    Yields the boto3 ``s3`` client so callers can seed objects before
+    constructing a CloudStore (which reads ``NAURO_S3_BUCKET`` lazily). boto3
+    and moto are imported lazily so this module stays importable in
+    environments where neither package is installed; cross-surface tests gate
+    on their availability via ``pytest.importorskip`` at their own module load.
+    """
+    import boto3
+    import moto
+
+    monkeypatch.setenv("NAURO_S3_BUCKET", bucket)
+    with moto.mock_aws():
+        s3_client = boto3.client("s3", region_name="us-east-1")
+        s3_client.create_bucket(Bucket=bucket)
+        yield s3_client
 
 
 class FakeClient:

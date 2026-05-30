@@ -27,22 +27,23 @@ import pytest
 
 cloud_store_module = pytest.importorskip(
     "mcp_server.store.cloud_store",
-    reason="CloudStore is consumed by other transports; not always installed alongside nauro.",
+    reason="CloudStore is provided by the private mcp-server repo.",
 )
-boto3 = pytest.importorskip("boto3", reason="boto3 needed to seed a moto S3 bucket.")
-moto = pytest.importorskip("moto", reason="moto needed for in-memory S3.")
+pytest.importorskip("boto3", reason="boto3 needed to seed a moto S3 bucket.")
+pytest.importorskip("moto", reason="moto needed for in-memory S3.")
 
 # Imports below ``importorskip`` deliberately run only when both packages are
 # installed; ruff E402 does not apply here.
 from nauro_core.operations import diff_since_last_session  # noqa: E402
 
 from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
+from tests.conftest import (  # noqa: E402
+    CROSS_SURFACE_PROJECT_ID,
+    CROSS_SURFACE_USER_ID,
+    moto_s3_bucket,
+)
 
 CloudStore = cloud_store_module.CloudStore
-
-TEST_BUCKET = "nauro-diff-cross-surface-test"
-TEST_USER_ID = "01TEST" + "0" * 20
-TEST_PROJECT_ID = "01TESTPROJECT00000000000"
 
 
 BASELINE_SNAPSHOT: dict = {
@@ -70,14 +71,9 @@ LATEST_SNAPSHOT: dict = {
 @pytest.fixture
 def both_stores(tmp_path, monkeypatch):
     """Yield a (FilesystemStore, CloudStore) pair — kernel ignores both."""
-    monkeypatch.setenv("NAURO_S3_BUCKET", TEST_BUCKET)
-
-    with moto.mock_aws():
-        s3_client = boto3.client("s3", region_name="us-east-1")
-        s3_client.create_bucket(Bucket=TEST_BUCKET)
-
+    with moto_s3_bucket(monkeypatch):
         fs_store = FilesystemStore(tmp_path)
-        cloud = CloudStore(user_id=TEST_USER_ID, project_id=TEST_PROJECT_ID)
+        cloud = CloudStore(user_id=CROSS_SURFACE_USER_ID, project_id=CROSS_SURFACE_PROJECT_ID)
         yield fs_store, cloud
 
 
