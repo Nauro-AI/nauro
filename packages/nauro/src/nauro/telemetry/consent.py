@@ -13,7 +13,7 @@ import sys
 from datetime import datetime, timezone
 
 from nauro.constants import NAURO_TELEMETRY_ENV, TELEMETRY_CONSENT_VERSION
-from nauro.store.config import get_telemetry_config, load_config, save_config
+from nauro.store.config import config_transaction, get_telemetry_config
 
 PRIVACY_URL = "https://github.com/Nauro-AI/nauro/blob/main/packages/nauro/PRIVACY.md"
 PROMPT_TEXT = f"Help improve Nauro? Anonymous usage data only. See {PRIVACY_URL}"
@@ -23,13 +23,12 @@ REPROMPT_PREFACE = (
 
 
 def _persist(enabled: bool) -> None:
-    data = load_config()
-    section = data.get("telemetry") or {}
-    section["enabled"] = enabled
-    section["consent_version"] = TELEMETRY_CONSENT_VERSION
-    section["consented_at"] = datetime.now(timezone.utc).isoformat()
-    data["telemetry"] = section
-    save_config(data)
+    with config_transaction() as data:
+        section = data.get("telemetry") or {}
+        section["enabled"] = enabled
+        section["consent_version"] = TELEMETRY_CONSENT_VERSION
+        section["consented_at"] = datetime.now(timezone.utc).isoformat()
+        data["telemetry"] = section
 
 
 def _parse_answer(raw: str, default_yes: bool) -> bool:

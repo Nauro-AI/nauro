@@ -13,7 +13,7 @@ import uuid
 from typing import Any
 
 from nauro.constants import NAURO_TELEMETRY_ENV
-from nauro.store.config import get_telemetry_config, load_config, save_config
+from nauro.store.config import config_transaction, get_telemetry_config, load_config
 from nauro.telemetry.client import _resolve_project_key, get_client
 
 logger = logging.getLogger("nauro.telemetry")
@@ -78,11 +78,10 @@ def _rotate_anonymous_id() -> str:
     new id via _get_distinct_id() without any SDK reset.
     """
     new_id = str(uuid.uuid4())
-    data = load_config()
-    section = data.get("telemetry") or {}
-    section["anonymous_id"] = new_id
-    data["telemetry"] = section
-    save_config(data)
+    with config_transaction() as data:
+        section = data.get("telemetry") or {}
+        section["anonymous_id"] = new_id
+        data["telemetry"] = section
     return new_id
 
 
