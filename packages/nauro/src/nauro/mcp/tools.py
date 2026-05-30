@@ -22,7 +22,7 @@ from nauro_core.constants import (
     STATE_CURRENT_FILENAME,
     STATE_MD,
 )
-from nauro_core.operations import ErrorPayload
+from nauro_core.operations import ErrorPayload, find_decision_stem_by_id
 from nauro_core.operations import check_decision as _check_decision_op
 from nauro_core.operations import diff_since_last_session as _diff_since_last_session_op
 from nauro_core.operations import flag_question as _flag_question_op
@@ -57,7 +57,6 @@ from nauro.onboarding import (
 )
 from nauro.store.config import resolve_embeddings_flag
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.reader import resolve_decision_id
 from nauro.store.snapshot import (
     capture_snapshot,
     list_snapshots,
@@ -324,7 +323,7 @@ def tool_propose_decision(
                     reason=f"operation={operation!r} requires affected_decision_id",
                 ).model_dump(exclude_none=True),
             }
-        resolved = resolve_decision_id(store_path, affected_decision_id)
+        resolved = find_decision_stem_by_id(FilesystemStore(store_path), affected_decision_id)
         if resolved is None:
             return {
                 "store": "local",

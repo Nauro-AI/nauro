@@ -13,10 +13,7 @@ from nauro.cli.main import app
 from nauro.constants import SNAPSHOTS_DIR
 from nauro.mcp.tools import tool_get_context
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.reader import (
-    _list_decisions,
-    resolve_decision_id,
-)
+from nauro.store.reader import _list_decisions
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
 from nauro.store.validator import validate_store
 from nauro.templates.scaffolds import (
@@ -783,35 +780,3 @@ def test_sync_no_project(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["sync"])
     assert result.exit_code == 1
     assert "No project found" in result.output
-
-
-class TestResolveDecisionId:
-    def test_resolves_file_stem(self, store):
-        append_decision(store, "Use Postgres", rationale="A solid pick for OLTP workloads.")
-        result = resolve_decision_id(store, "002-use-postgres")
-        assert result is not None
-        assert result.startswith("002-")
-
-    def test_resolves_synthetic_id(self, store):
-        append_decision(store, "Use Postgres", rationale="A solid pick for OLTP workloads.")
-        result = resolve_decision_id(store, "decision-002")
-        assert result is not None
-        assert result.startswith("002-")
-
-    def test_resolves_d_prefixed(self, store):
-        append_decision(store, "Use Postgres", rationale="A solid pick for OLTP workloads.")
-        result = resolve_decision_id(store, "D002")
-        assert result is not None
-        assert result.startswith("002-")
-
-    def test_resolves_bare_integer(self, store):
-        append_decision(store, "Use Postgres", rationale="A solid pick for OLTP workloads.")
-        result = resolve_decision_id(store, "2")
-        assert result is not None
-        assert result.startswith("002-")
-
-    def test_returns_none_for_unknown_number(self, store):
-        assert resolve_decision_id(store, "decision-999") is None
-
-    def test_returns_none_for_garbage(self, store):
-        assert resolve_decision_id(store, "not-a-decision") is None
