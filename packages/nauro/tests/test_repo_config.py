@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -98,6 +99,28 @@ def test_loader_rejects_unknown_schema_version(tmp_path):
     with pytest.raises(RepoConfigSchemaError) as exc:
         load_repo_config(repo)
     assert "schema_version" in str(exc.value)
+
+
+def test_loader_remaps_corrupt_json_to_schema_error(tmp_path, caplog):
+    """Truncated/invalid JSON raises RepoConfigSchemaError, not a bare
+    JSONDecodeError, so callers catching the typed config-error family
+    degrade gracefully. The chained cause preserves the underlying parse
+    error, and a warning breadcrumb names the path so corruption is not
+    silently swallowed.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg_dir = repo / REPO_CONFIG_DIR
+    cfg_dir.mkdir()
+    config_file = cfg_dir / REPO_CONFIG_FILENAME
+    config_file.write_text('{"mode": "local", "id": "01')  # truncated mid-value
+
+    with caplog.at_level(logging.WARNING, logger="nauro.repo_config"):
+        with pytest.raises(RepoConfigSchemaError) as exc:
+            load_repo_config(repo)
+
+    assert isinstance(exc.value.__cause__, json.JSONDecodeError)
+    assert str(config_file) in caplog.text
 
 
 def test_save_rejects_invalid_mode(tmp_path):

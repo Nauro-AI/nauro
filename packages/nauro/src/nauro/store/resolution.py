@@ -94,6 +94,9 @@ def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
     try:
         cfg = load_repo_config(repo_root)
     except RepoConfigSchemaError:
+        # Covers both schema-mismatch and corrupt JSON (the reader remaps a
+        # JSONDecodeError to RepoConfigSchemaError), so either degrades to the
+        # no-project fallback rather than crashing the transport.
         return None
     return cfg["id"], get_store_path_v2(cfg["id"])
 

@@ -136,7 +136,7 @@ def _resolve_store_path(cwd: Path) -> Path | None:
         repo_root = config_path.parent.parent
         try:
             cfg = load_repo_config(repo_root)
-        except (RepoConfigSchemaError, json.JSONDecodeError, OSError):
+        except (RepoConfigSchemaError, OSError):
             cfg = None
         if cfg is not None:
             return get_store_path_v2(cfg["id"])
