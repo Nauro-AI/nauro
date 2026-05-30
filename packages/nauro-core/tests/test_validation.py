@@ -2,6 +2,8 @@
 
 from datetime import date
 
+import pytest
+
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
@@ -10,6 +12,7 @@ from nauro_core.decision_model import (
 from nauro_core.validation import (
     check_bm25_similarity,
     compute_hash,
+    envelope_token_message,
     find_envelope_token,
     screen_structural,
 )
@@ -284,3 +287,50 @@ class TestFindEnvelopeToken:
         # rephrase (e.g. "the parameter named 'rationale'") to disambiguate.
         text = "How should we describe the <parameter name='rationale'> field in docs?"
         assert find_envelope_token(text) == "<parameter name="
+
+
+class TestEnvelopeTokenMessage:
+    # Canonical home for the rejection-reason contract. Both MCP transports
+    # build their rejection envelope from this string, so the full wording is
+    # pinned here with exact-equality assertions; the transports only assert
+    # wiring (their per-transport envelope), not the message text.
+    def _expected(self, field_name: str, token: str) -> str:
+        return (
+            f"{field_name} contains tool-use envelope fragment {token!r}. "
+            "This usually means the client failed to extract the parameter "
+            "value cleanly from an XML tool call. Resend the call with just "
+            "the prose content."
+        )
+
+    def test_clean_input_returns_none(self):
+        text = "Should we adopt OpenTelemetry for tracing across the gateway?"
+        assert envelope_token_message(text, "question") is None
+
+    def test_empty_input_returns_none(self):
+        assert envelope_token_message("", "title") is None
+
+    @pytest.mark.parametrize(
+        "value, token",
+        [
+            ("How should we model tenants?</question>", "</question>"),
+            ("Picked Postgres for ACID.</rationale>", "</rationale>"),
+            ("Some context about the choice.</context>", "</context>"),
+            ("value here</parameter>", "</parameter>"),
+            ("trailing junk</invoke>", "</invoke>"),
+            ('leaked <parameter name="context">rest', "<parameter name="),
+            ('wrapper <invoke name="propose_decision">', "<invoke name="),
+        ],
+    )
+    def test_each_token_produces_exact_reason(self, value, token):
+        message = envelope_token_message(value, "rationale")
+        assert message == self._expected("rationale", token)
+
+    def test_field_name_is_interpolated_verbatim(self):
+        message = envelope_token_message("Use Postgres</invoke>", "rejected[0].reason")
+        assert message == self._expected("rejected[0].reason", "</invoke>")
+
+    def test_token_is_repr_quoted_in_message(self):
+        # The {token!r} repr formatting must place the token in quotes so the
+        # offending fragment is unambiguous in the surfaced message.
+        message = envelope_token_message("How should we model tenants?</question>", "question")
+        assert "'</question>'" in message
