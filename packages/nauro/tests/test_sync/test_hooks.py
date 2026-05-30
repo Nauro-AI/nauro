@@ -22,7 +22,6 @@ from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
 from nauro.store.registry import register_project, register_project_v2
 from nauro.sync.hooks import (
-    _renumber_decision_if_collision,
     pull_before_session,
     push_after_write,
 )
@@ -396,78 +395,38 @@ class TestPushAfterWritePresign:
 
         assert result == 0
 
+    def test_push_after_write_delegates_to_push_changed_files(self, cloud_store):
+        """The hook is a thin wrapper over the shared push module — it must
+        route the same changed-file set through ``push_changed_files`` exactly
+        once (retiring the old inline copy and its double-hash)."""
+        self._seed_synced_state(cloud_store)
+        (cloud_store / "stack.md").write_text("changed\n")
 
-# --- decision collision renumbering (unchanged from pre-port) ---
+        with patch("nauro.sync.push.push_changed_files", return_value=2) as mock_push:
+            result = push_after_write(CLOUD_PID, cloud_store)
+
+        assert result == 2
+        assert mock_push.call_count == 1
+        assert mock_push.call_args.args == (CLOUD_PID, cloud_store)
 
 
-class TestRenumberDecisionIfCollision:
+# --- hook never-raise envelope ---
+
+
+class TestPullBeforeSessionNeverRaises:
+    """``pull_before_session`` must never propagate an exception and must stay
+    silent on stdout even when the shared core's dependencies blow up."""
+
     @pytest.fixture()
-    def project_store(self, tmp_path):
-        store = register_project("renumproj", [tmp_path])
-        scaffold_project_store("renumproj", store)
+    def cloud_store(self, tmp_path):
+        store = _scaffolded_cloud_project("silentpull", tmp_path)
+        _seed_token()
         return store
 
-    def test_no_collision_passes_through(self, project_store):
-        decisions_dir = project_store / "decisions"
-        decisions_dir.mkdir(exist_ok=True)
-        (decisions_dir / "001-existing.md").write_text("# 001 — Existing")
+    def test_returns_zero_and_silent_when_run_pull_raises(self, cloud_store, capsys):
+        with patch("nauro.sync.pull.run_pull", side_effect=RuntimeError("unexpected boom")):
+            result = pull_before_session(CLOUD_PID, cloud_store)
 
-        content = b"# 002 \xe2\x80\x94 New decision\n\nSome content"
-        rel, out = _renumber_decision_if_collision(project_store, "decisions/002-new.md", content)
-
-        assert rel == "decisions/002-new.md"
-        assert out == content
-
-    def test_collision_renumbers(self, project_store):
-        decisions_dir = project_store / "decisions"
-        decisions_dir.mkdir(exist_ok=True)
-        (decisions_dir / "003-local-decision.md").write_text("# 003 — Local decision")
-
-        content = b"# 003 \xe2\x80\x94 Remote decision\n\nRemote content"
-        rel, out = _renumber_decision_if_collision(
-            project_store,
-            "decisions/003-remote-decision.md",
-            content,
-        )
-
-        assert rel == "decisions/004-remote-decision.md"
-        assert b"# 004 " in out
-        assert b"Remote content" in out
-
-    def test_collision_skips_multiple_taken_numbers(self, project_store):
-        decisions_dir = project_store / "decisions"
-        decisions_dir.mkdir(exist_ok=True)
-        (decisions_dir / "005-a.md").write_text("# 005 — A")
-        (decisions_dir / "006-b.md").write_text("# 006 — B")
-
-        content = b"# 005 \xe2\x80\x94 Incoming\n\nContent"
-        rel, out = _renumber_decision_if_collision(
-            project_store,
-            "decisions/005-incoming.md",
-            content,
-        )
-
-        assert rel == "decisions/007-incoming.md"
-        assert b"# 007 " in out
-
-    def test_exact_filename_match_is_not_collision(self, project_store):
-        decisions_dir = project_store / "decisions"
-        decisions_dir.mkdir(exist_ok=True)
-        (decisions_dir / "003-same-slug.md").write_text("# 003 — Same slug")
-
-        content = b"# 003 \xe2\x80\x94 Same slug\n\nUpdated content"
-        rel, out = _renumber_decision_if_collision(
-            project_store,
-            "decisions/003-same-slug.md",
-            content,
-        )
-
-        assert rel == "decisions/003-same-slug.md"
-        assert out == content
-
-    def test_non_decision_files_pass_through(self, project_store):
-        content = b"some content"
-        rel, out = _renumber_decision_if_collision(project_store, "state.md", content)
-
-        assert rel == "state.md"
-        assert out == content
+        assert result == 0
+        captured = capsys.readouterr()
+        assert captured.out == ""

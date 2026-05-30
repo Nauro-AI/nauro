@@ -271,6 +271,156 @@ class TestSyncHonesty:
         assert "Warning: this is a cloud-mode project" not in combined
 
 
+class TestSyncPullSurfacesAndMerges:
+    """End-to-end ``nauro sync`` pull behaviour through the shared core.
+
+    A clean pull echoes a "Merged N file(s)" line; a union-merge failure
+    surfaces and exits nonzero rather than reporting a partial success.
+    """
+
+    @staticmethod
+    def _seed_cloud_auth(name: str, tmp_path: Path):
+        import json as _json
+
+        from nauro.store.config import save_config
+
+        store = _scaffolded_cloud_project(name, tmp_path)
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        return store, _json
+
+    @staticmethod
+    def _http_ok(payload, _json):
+        import httpx
+
+        return httpx.Response(
+            200,
+            content=_json.dumps(payload).encode("utf-8"),
+            headers={"content-type": "application/json"},
+        )
+
+    def test_clean_pull_echoes_merged_count(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import httpx
+
+        store, _json = self._seed_cloud_auth("mergedcount", tmp_path)
+        rel = "decisions/099-remote.md"
+
+        def fake_get(url, **kwargs):
+            if "/sync/manifest" in url:
+                return self._http_ok(
+                    {
+                        "files": [{"path": rel, "etag": '"new"', "size": 1, "last_modified": "x"}],
+                        "next_cursor": None,
+                    },
+                    _json,
+                )
+            return httpx.Response(200, content=b"# 099\nfresh remote body\n")
+
+        def fake_post(url, **kwargs):
+            ops = kwargs.get("json", {}).get("operations", [])
+            return self._http_ok(
+                {
+                    "urls": [
+                        {
+                            "verb": op["verb"],
+                            "path": op["path"],
+                            "url": f"https://s3.example/{op['verb']}/{op['path']}",
+                            "expires_at": "2026-05-16T13:00:00Z",
+                        }
+                        for op in ops
+                    ]
+                },
+                _json,
+            )
+
+        put_response = MagicMock(spec=httpx.Response)
+        put_response.status_code = 200
+        put_response.headers = {"ETag": '"e_pushed"'}
+
+        with (
+            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.post", side_effect=fake_post),
+            patch("nauro.sync.remote.httpx.put", return_value=put_response),
+        ):
+            result = runner.invoke(app, ["sync", "--project", "mergedcount"])
+
+        assert result.exit_code == 0, result.output + (result.stderr or "")
+        assert "Merged 1 file(s) from remote" in result.output
+
+    def test_union_merge_failure_exits_one(self, tmp_path, monkeypatch):
+        import httpx
+
+        from nauro.sync.merge import UnionMergeError
+        from nauro.sync.state import FileState, SyncState, save_state
+
+        store, _json = self._seed_cloud_auth("mergefail", tmp_path)
+        rel = "decisions/051-conflicted.md"
+        local_file = store / rel
+        local_file.parent.mkdir(parents=True, exist_ok=True)
+        local_file.write_bytes(b"# 051\nlocal body\n")
+
+        state = SyncState()
+        state.files[rel] = FileState(
+            local_sha256="old_sha",
+            remote_etag='"old_etag"',
+            last_sync="2026-05-16T00:00:00Z",
+        )
+        save_state(store, state)
+
+        def fake_get(url, **kwargs):
+            if "/sync/manifest" in url:
+                return self._http_ok(
+                    {
+                        "files": [
+                            {"path": rel, "etag": '"new_etag"', "size": 1, "last_modified": "x"}
+                        ],
+                        "next_cursor": None,
+                    },
+                    _json,
+                )
+            return httpx.Response(200, content=b"# 051\nremote body\n")
+
+        def fake_post(url, **kwargs):
+            ops = kwargs.get("json", {}).get("operations", [])
+            return self._http_ok(
+                {
+                    "urls": [
+                        {
+                            "verb": op["verb"],
+                            "path": op["path"],
+                            "url": f"https://s3.example/{op['verb']}/{op['path']}",
+                            "expires_at": "2026-05-16T13:00:00Z",
+                        }
+                        for op in ops
+                    ]
+                },
+                _json,
+            )
+
+        def boom(*args, **kwargs):
+            raise UnionMergeError("simulated git failure")
+
+        monkeypatch.setattr("nauro.sync.merge._union_merge", boom)
+
+        with (
+            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.post", side_effect=fake_post),
+        ):
+            result = runner.invoke(app, ["sync", "--project", "mergefail"])
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, UnionMergeError)
+
+
 class TestLinkCloudRefusesWithoutAuth:
     """`nauro link --cloud` must refuse when the install has no Auth0 token —
     presigned URLs are minted server-side from the bearer, so without one we

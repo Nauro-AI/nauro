@@ -338,10 +338,11 @@ class TestPullViaPresign:
     def test_union_merge_failure_surfaces_and_leaves_file_untouched(
         self, cloud_store, monkeypatch, capsys
     ):
-        """Explicit ``nauro sync`` must not report success on a failed merge.
+        """Explicit ``nauro sync`` must fail loud on a failed merge.
 
-        The failure is echoed to stderr, the file is left untouched, and it is
-        not counted toward the merged total.
+        The echo reporter re-raises the ``UnionMergeError`` so the pull does
+        not report a partial success; the failure is echoed to stderr and the
+        file is left untouched on disk.
         """
         from nauro.sync.merge import UnionMergeError
 
@@ -380,14 +381,13 @@ class TestPullViaPresign:
         with (
             patch.object(remote.httpx, "get", side_effect=fake_get),
             patch.object(remote.httpx, "post", return_value=presign),
+            pytest.raises(UnionMergeError),
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
-            merged = _pull_from_cloud(cloud_store.name, cloud_store)
+            _pull_from_cloud(cloud_store.name, cloud_store)
 
-        # Failed file is not counted as merged.
-        assert merged == 0
-        # A clear error line was surfaced to stderr.
+        # A clear error line was surfaced to stderr before the re-raise.
         err = capsys.readouterr().err
         assert rel in err
         assert "merge failed" in err
