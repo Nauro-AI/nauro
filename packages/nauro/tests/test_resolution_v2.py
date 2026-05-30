@@ -328,3 +328,49 @@ def test_unknown_project_listing_has_no_blank_token(tmp_path, monkeypatch, capsy
     parsed = [name.strip() for name in listing_line[len("Available projects:") :].split(",")]
     assert parsed == ["alpha"]
     assert "" not in parsed
+
+
+# ── _resolve_project_entry: v2-first, v1-fallback, repo_paths guard ──────────
+
+
+def test_resolve_project_entry_v2_first(tmp_path, monkeypatch):
+    """A v2 entry is resolved by its id-keyed project_key."""
+    from nauro.cli.utils import _resolve_project_entry
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid, _store = registry.register_project_v2("alpha", [repo])
+
+    entry = _resolve_project_entry("alpha", pid)
+
+    assert entry == registry.get_project_v2(pid)
+    assert entry["repo_paths"] == [str(repo.resolve())]
+
+
+def test_resolve_project_entry_v1_fallback(tmp_path, monkeypatch):
+    """A v1 (name-keyed legacy) entry is resolved when no v2 entry matches."""
+    from nauro.cli.utils import _resolve_project_entry
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    registry.register_project("beta", [repo])
+
+    # The v2 lookup misses (no id-keyed entry); the name-keyed v1 entry wins.
+    entry = _resolve_project_entry("beta", "01MISSINGV2KEY0000000000")
+
+    assert entry == registry.get_project("beta")
+    assert entry["repo_paths"] == [str(repo.resolve())]
+
+
+def test_resolve_project_entry_no_repos_exits(tmp_path, monkeypatch, capsys):
+    """An entry with no repo_paths exits 1 with the exact message on stderr."""
+    from nauro.cli.utils import _resolve_project_entry
+
+    _write_registry(tmp_path, 1, {"gamma": {"repo_paths": []}})
+
+    with pytest.raises(typer.Exit) as excinfo:
+        _resolve_project_entry("gamma", "gamma")
+    assert excinfo.value.exit_code == 1
+
+    err = capsys.readouterr().err
+    assert "Project 'gamma' has no associated repos." in err

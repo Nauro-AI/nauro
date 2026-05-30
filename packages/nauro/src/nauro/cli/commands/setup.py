@@ -17,12 +17,10 @@ from pathlib import Path
 
 import typer
 
-from nauro.cli.utils import resolve_target_project
+from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
 from nauro.store.registry import (
     RegistrySchemaError,
-    get_project,
-    get_project_v2,
     load_registry,
     load_registry_v2,
 )
@@ -227,19 +225,7 @@ def claude_code(
 ) -> None:
     """Configure Claude Code to use Nauro during sessions."""
     project_name, _store_path = resolve_target_project(project)
-    project_key = _store_path.name
-
-    # Try v2 first (id-keyed), then fall back to v1 (name-keyed legacy)
-    try:
-        entry = get_project_v2(project_key)
-    except RegistrySchemaError:
-        entry = None
-    if entry is None:
-        entry = get_project(project_name)
-
-    if entry is None or not entry.get("repo_paths"):
-        typer.echo(f"Project '{project_name}' has no associated repos.", err=True)
-        raise typer.Exit(code=1)
+    entry = _resolve_project_entry(project_name, _store_path.name)
 
     # Clean up legacy CLAUDE.md blocks (behavioral guidance now delivered
     # via MCP server instructions, so the injected block is no longer needed).
@@ -283,9 +269,9 @@ def claude_code(
             typer.echo(line)
 
     if not remove:
-        # Regenerate AGENTS.md so context is fresh from the start.
-        # project_key is the v2 id (or v1 name) used by the registry-aware lookup.
-        updated_repos = regenerate_agents_md_for_project(project_key, _store_path)
+        # Regenerate AGENTS.md so context is fresh from the start. The store
+        # dir name is the v2 id (or v1 name) used by the registry-aware lookup.
+        updated_repos = regenerate_agents_md_for_project(_store_path.name, _store_path)
         if updated_repos:
             typer.echo("\nAGENTS.md:")
             for repo_path in updated_repos:
@@ -330,18 +316,7 @@ def cursor(
 ) -> None:
     """Configure Cursor to use Nauro for this project's repos."""
     project_name, _store_path = resolve_target_project(project)
-    project_key = _store_path.name
-
-    try:
-        entry = get_project_v2(project_key)
-    except RegistrySchemaError:
-        entry = None
-    if entry is None:
-        entry = get_project(project_name)
-
-    if entry is None or not entry.get("repo_paths"):
-        typer.echo(f"Project '{project_name}' has no associated repos.", err=True)
-        raise typer.Exit(code=1)
+    entry = _resolve_project_entry(project_name, _store_path.name)
 
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro (Cursor) for project '{project_name}':\n")
@@ -1041,18 +1016,7 @@ def all_(
 ) -> None:
     """Configure Claude Code, Cursor, and Codex CLI in one call."""
     project_name, _store_path = resolve_target_project(project)
-    project_key = _store_path.name
-
-    try:
-        entry = get_project_v2(project_key)
-    except RegistrySchemaError:
-        entry = None
-    if entry is None:
-        entry = get_project(project_name)
-
-    if entry is None or not entry.get("repo_paths"):
-        typer.echo(f"Project '{project_name}' has no associated repos.", err=True)
-        raise typer.Exit(code=1)
+    entry = _resolve_project_entry(project_name, _store_path.name)
 
     project_repos = [Path(rp) for rp in entry["repo_paths"]]
     action = "Removed" if remove else "Configured"
@@ -1060,7 +1024,7 @@ def all_(
     for line in setup_all_surfaces(
         project_repos,
         remove=remove,
-        current_project_key=project_key,
+        current_project_key=_store_path.name,
         store_path=_store_path,
         with_subagents=with_subagents,
         force_overwrite=force_overwrite,
