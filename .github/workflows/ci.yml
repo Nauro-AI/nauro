@@ -18,6 +18,16 @@ jobs:
       - run: ruff check packages/
       - run: ruff format --check packages/
 
+  import-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.12
+      - run: uv sync --package nauro-core --all-extras --python 3.12
+      - run: uv run --package nauro-core lint-imports
+        working-directory: packages/nauro-core
+
   test-nauro-core:
     runs-on: ubuntu-latest
     strategy:
