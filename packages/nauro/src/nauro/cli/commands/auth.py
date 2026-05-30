@@ -13,7 +13,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import secrets
 import threading
 import webbrowser
@@ -23,6 +22,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 import typer
+from nauro_core import sanitize_sub
 
 from nauro.store.config import load_config, save_config
 
@@ -181,15 +181,6 @@ def with_token_refresh(call: Callable[[str], httpx.Response]) -> httpx.Response:
     return call(new_token)
 
 
-def _sanitize_sub(sub: str) -> str:
-    """Sanitize an Auth0 ``sub`` claim for use in S3 key paths.
-
-    Must match the server-side logic in ``mcp-server/src/mcp_server/app.py``.
-    """
-    safe = re.sub(r"[^a-zA-Z0-9_\-]", "-", sub)
-    return safe[:128]
-
-
 def _decode_jwt_payload(token: str) -> dict:
     """Base64-decode the JWT payload (no cryptographic verification)."""
     parts = token.split(".")
@@ -346,7 +337,7 @@ def login() -> None:
         typer.echo(f"Failed to decode access token: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    sanitized_sub = _sanitize_sub(sub)
+    sanitized_sub = sanitize_sub(sub)
 
     # Fetch canonical user_id from server
     user_id = None
