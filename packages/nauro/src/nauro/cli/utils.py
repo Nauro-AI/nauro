@@ -52,6 +52,19 @@ def _v2_registry_or_empty() -> dict:
         return {"projects": {}}
 
 
+def _available_project_names() -> list[str]:
+    """Return the sorted union of v1 and v2 project names, blanks removed.
+
+    The empty-string is subtracted from the *combined* set so a v2 entry
+    missing its ``name`` field cannot leak a blank token into the
+    "Available projects:" listing.
+    """
+    registry = load_registry()
+    v2_names = {e.get("name", "") for e in _v2_registry_or_empty()["projects"].values()}
+    v1_names = set(registry["projects"].keys())
+    return sorted((v1_names | v2_names) - {""})
+
+
 def _resolve_from_repo_config() -> tuple[str, Path] | None:
     """Resolve via ``.nauro/config.json`` walk-up from cwd.
 
@@ -107,10 +120,7 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
         if entry is not None:
             return project_flag, get_store_path(project_flag)
 
-        registry = load_registry()
-        v2_names = sorted({e.get("name", "") for e in _v2_registry_or_empty()["projects"].values()})
-        v1_names = sorted(registry["projects"].keys())
-        available = sorted(set(v1_names) | set(v2_names) - {""})
+        available = _available_project_names()
         typer.echo(f"Unknown project '{project_flag}'.", err=True)
         if available:
             typer.echo(f"Available projects: {', '.join(available)}", err=True)
@@ -136,10 +146,7 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
         return project_name, get_store_path(project_name)
 
     # 4 — error
-    registry = load_registry()
-    v2_names = sorted({e.get("name", "") for e in _v2_registry_or_empty()["projects"].values()})
-    v1_names = sorted(registry["projects"].keys())
-    available = sorted(set(v1_names) | set(v2_names) - {""})
+    available = _available_project_names()
     typer.echo("No project found for current directory.", err=True)
 
     suggestion = suggest_project_for_path(cwd)

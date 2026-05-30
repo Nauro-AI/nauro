@@ -60,9 +60,9 @@ def status(
     """Show which Nauro capabilities are active or inactive."""
     try:
         project_name, store_path = resolve_target_project(project)
-    except SystemExit as exc:
+    except typer.Exit as exc:
         typer.echo("No project found. Run 'nauro init <name>' to get started.", err=True)
-        raise typer.Exit(1) from exc
+        raise typer.Exit(exc.exit_code) from exc
 
     typer.echo(f"Project: {project_name}\n")
 

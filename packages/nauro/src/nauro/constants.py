@@ -68,6 +68,12 @@ SKILLS_SECTION_HEADER = "## Skills"
 STALE_SYNC_DAYS = 7
 L0_TOKEN_LIMIT = 3500
 
+# ── flag_question similar-decision hint ──
+# Compared against a raw BM25 score (not a normalized 0-1 similarity); above
+# this the flag is annotated with a hint pointing at the matching decision.
+FLAG_QUESTION_HINT_MIN_SCORE = 0.7
+FLAG_QUESTION_HINT_TITLE_LENGTH = 100
+
 # ── Token heuristic ──
 CHARS_PER_TOKEN = 4  # rough chars-per-token for GPT/Claude family models
 
