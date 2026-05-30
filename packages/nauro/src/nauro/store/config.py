@@ -18,6 +18,7 @@ from nauro.constants import (
     NAURO_HOME_ENV,
     NAURO_TELEMETRY_ENV,
 )
+from nauro.store._atomic import atomic_write_text
 
 logger = logging.getLogger("nauro.config")
 
@@ -46,11 +47,7 @@ def load_config() -> dict:
 def save_config(data: dict) -> None:
     """Write config.json atomically (write-to-tmp + rename). Restricts to owner-only (0o600)."""
     cf = _config_file()
-    cf.parent.mkdir(parents=True, exist_ok=True)
-    tmp = cf.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, cf)
+    atomic_write_text(cf, json.dumps(data, indent=2) + "\n", mode=0o600)
 
 
 def get_config(key: str) -> str | None:

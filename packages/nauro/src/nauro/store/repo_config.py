@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import secrets
 import time
 from pathlib import Path
@@ -29,6 +28,7 @@ from nauro.constants import (
     REPO_CONFIG_MODE_LOCAL,
     REPO_CONFIG_SCHEMA_VERSION,
 )
+from nauro.store._atomic import atomic_write_text
 
 logger = logging.getLogger("nauro.repo_config")
 
@@ -124,10 +124,7 @@ def save_repo_config(repo_root: Path, data: dict) -> Path:
     _validate(data)
 
     path = repo_config_path(repo_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n")
-    os.replace(tmp, path)
+    atomic_write_text(path, json.dumps(data, indent=2) + "\n")
     return path
 
 
