@@ -15,13 +15,13 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from nauro_core.snapshot import serialize_snapshot
+
 from nauro.constants import (
-    CHARS_PER_TOKEN,
     DECISIONS_DIR,
     PRUNE_DAILY_DAYS,
     PRUNE_KEEP_ALL_DAYS,
     PRUNE_WEEKLY_DAYS,
-    SCHEMA_VERSION,
     SNAPSHOTS_DIR,
 )
 
@@ -57,18 +57,13 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
         for md in sorted(decisions_dir.glob("*.md")):
             files[f"{DECISIONS_DIR}/{md.name}"] = md.read_text()
 
-    # Count total characters as a rough token proxy
-    token_count = sum(len(v) for v in files.values()) // CHARS_PER_TOKEN
-
-    snapshot = {
-        "schema_version": SCHEMA_VERSION,
-        "version": next_version,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "trigger": trigger,
-        "trigger_detail": trigger_detail,
-        "token_count": token_count,
-        "files": files,
-    }
+    snapshot = serialize_snapshot(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        trigger=trigger,
+        trigger_detail=trigger_detail,
+        files=files,
+        version=next_version,
+    )
 
     out_path = snapshots_dir / f"v{next_version:03d}.json"
     out_path.write_text(json.dumps(snapshot, indent=2) + "\n")

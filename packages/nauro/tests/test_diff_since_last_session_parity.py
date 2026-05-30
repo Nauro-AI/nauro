@@ -73,6 +73,19 @@ def time_indexed_repo(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def single_snapshot_repo(tmp_path, monkeypatch):
+    """A registered project whose store holds exactly one snapshot."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid, store_path = register_project_v2("parity-diff-one", [repo], mode=REPO_CONFIG_MODE_LOCAL)
+    save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "parity-diff-one"})
+    scaffold_project_store("parity-diff-one", store_path)
+    capture_snapshot(store_path, trigger="initial")
+    monkeypatch.chdir(repo)
+    return pid, store_path
+
+
+@pytest.fixture
 def empty_repo(tmp_path, monkeypatch):
     """A registered project whose store has no snapshots yet."""
     repo = tmp_path / "repo"
@@ -142,6 +155,19 @@ def test_empty_store_days_based_envelope_matches(empty_repo):
     assert stdio == tool
     assert stdio["store"] == "local"
     assert "No snapshots" in stdio["diff"]
+
+
+def test_days_based_one_snapshot_covers_range_matches_across_surfaces(single_snapshot_repo):
+    # With one snapshot, the days-based lookup resolves it as both
+    # baseline and latest. The adapter short-circuits to the canonical
+    # one-snapshot-covers-range sentinel (byte-identical to pre-cutover
+    # output) on both the auto-generated CLI path and the stdio MCP path.
+    pid, store_path = single_snapshot_repo
+    stdio = _stdio_envelope(pid, days=7)
+    tool = _tool_envelope(store_path, days=7)
+    assert stdio == tool
+    assert stdio["store"] == "local"
+    assert stdio["diff"] == "Only one snapshot covers the requested time range — no diff available."
 
 
 def test_missing_store_guidance_matches_across_surfaces(missing_store):

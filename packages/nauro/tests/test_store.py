@@ -10,6 +10,7 @@ from nauro_core.operations import update_state as _update_state_op
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
+from nauro.constants import SNAPSHOTS_DIR
 from nauro.mcp.tools import tool_get_context
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import (
@@ -330,6 +331,36 @@ def test_snapshot_has_new_fields(store: Path):
     assert snap["trigger_detail"] == "detail here"
     assert "token_count" in snap
     assert isinstance(snap["token_count"], int)
+
+
+def test_snapshot_capture_round_trips_canonical_fields(store: Path):
+    # A local capture carries the full canonical field set: the snapshot
+    # schema version, the trigger detail, a derived token count, and a
+    # dense integer version.
+    version = capture_snapshot(store, trigger="sync", trigger_detail="auto")
+    snap = load_snapshot(store, version)
+    assert snap["schema_version"] == 1
+    assert snap["trigger_detail"] == "auto"
+    assert isinstance(snap["token_count"], int)
+    assert snap["version"] == version
+    assert isinstance(snap["version"], int)
+
+
+def test_snapshot_on_disk_key_order_matches_local_shape(store: Path):
+    # The on-disk JSON key set and order must match the pre-serializer
+    # local shape so existing local snapshots stay byte-compatible; this
+    # is why the snapshot schema stays at 1 rather than bumping to 2.
+    version = capture_snapshot(store, trigger="sync", trigger_detail="auto")
+    raw = json.loads((store / SNAPSHOTS_DIR / f"v{version:03d}.json").read_text())
+    assert list(raw.keys()) == [
+        "schema_version",
+        "version",
+        "timestamp",
+        "trigger",
+        "trigger_detail",
+        "token_count",
+        "files",
+    ]
 
 
 def test_snapshot_auto_increment(store: Path):

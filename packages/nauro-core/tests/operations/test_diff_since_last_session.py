@@ -71,12 +71,42 @@ def test_baseline_none_latest_set_renders_not_enough_snapshots() -> None:
     assert result.cutoff_date_used is None
 
 
-def test_baseline_eq_latest_renders_one_snapshot_covers_range() -> None:
+def test_baseline_eq_latest_renders_real_diff_with_no_changes() -> None:
+    # The kernel no longer collapses on equal versions — the
+    # one-snapshot-covers-range sentinel is the adapter's responsibility.
+    # Passing the same dict twice renders a real (empty) diff body.
     snap = _baseline()
     result = diff_since_last_session(InMemoryStore(), snap, snap)
     assert result.error is None
     assert result.diff is not None
-    assert "Only one snapshot covers the requested time range" in result.diff
+    assert "Only one snapshot covers the requested time range" not in result.diff
+    assert "No changes detected." in result.diff
+
+
+def test_int_versions_render_two_line_version_header() -> None:
+    result = diff_since_last_session(InMemoryStore(), _baseline(), _latest())
+    assert result.diff is not None
+    header = result.diff.split("\n", 1)[0]
+    assert header == "Changes from v001 → v002"
+
+
+def test_missing_versions_render_single_line_timestamp_header() -> None:
+    snap_a = {
+        "timestamp": "2026-05-01T10:00:00+00:00",
+        "files": {"stack.md": "# Stack\n- Python 3.11\n"},
+    }
+    snap_b = {
+        "timestamp": "2026-05-02T10:00:00+00:00",
+        "files": {"stack.md": "# Stack\n- Python 3.11\n- PostgreSQL\n"},
+    }
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b)
+    assert result.diff is not None
+    lines = result.diff.split("\n")
+    assert lines[0] == "Changes from 2026-05-01T10:00:00 → 2026-05-02T10:00:00"
+    assert "v0" not in lines[0]
+    # The redundant second timestamp line is dropped; line 1 is the blank
+    # separator the body always carries, not a parenthesised timestamp row.
+    assert lines[1] == ""
 
 
 def test_both_populated_renders_real_diff() -> None:

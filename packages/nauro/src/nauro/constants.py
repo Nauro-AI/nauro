@@ -9,6 +9,7 @@ CLI-specific constants are defined locally.
 """
 
 # ── Re-exports from nauro-core (shared across nauro + mcp-server) ──
+from nauro_core.constants import CHARS_PER_TOKEN as CHARS_PER_TOKEN
 from nauro_core.constants import DECISION_HASHES_FILE as DECISION_HASHES_FILE
 from nauro_core.constants import DECISION_TYPES as DECISION_TYPES
 from nauro_core.constants import DECISIONS_DIR as DECISIONS_DIR
@@ -20,6 +21,7 @@ from nauro_core.constants import MIN_RATIONALE_LENGTH as MIN_RATIONALE_LENGTH
 from nauro_core.constants import OPEN_QUESTIONS_MD as OPEN_QUESTIONS_MD
 from nauro_core.constants import PROJECT_MD as PROJECT_MD
 from nauro_core.constants import REVERSIBILITY_LEVELS as REVERSIBILITY_LEVELS
+from nauro_core.constants import SNAPSHOT_SCHEMA_VERSION as SNAPSHOT_SCHEMA_VERSION
 from nauro_core.constants import SNAPSHOTS_DIR as SNAPSHOTS_DIR
 from nauro_core.constants import STACK_EMPTY_MARKER as STACK_EMPTY_MARKER
 from nauro_core.constants import STACK_MD as STACK_MD
@@ -74,9 +76,6 @@ L0_TOKEN_LIMIT = 3500
 FLAG_QUESTION_HINT_MIN_SCORE = 0.7
 FLAG_QUESTION_HINT_TITLE_LENGTH = 100
 
-# ── Token heuristic ──
-CHARS_PER_TOKEN = 4  # rough chars-per-token for GPT/Claude family models
-
 # ── Writer limits ──
 SLUG_MAX_LENGTH = 60
 
@@ -84,9 +83,6 @@ SLUG_MAX_LENGTH = 60
 PRUNE_KEEP_ALL_DAYS = 7
 PRUNE_DAILY_DAYS = 30
 PRUNE_WEEKLY_DAYS = 180
-
-# ── Schema versioning ──
-SCHEMA_VERSION = 1
 
 # ── Telemetry ──
 TELEMETRY_CONSENT_VERSION = 1
