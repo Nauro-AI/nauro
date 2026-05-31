@@ -13,7 +13,12 @@ from collections.abc import Iterator
 
 import pytest
 
-from nauro.skills import load_adopt_body, load_ship_task_body, render_skill
+from nauro.skills import (
+    load_adopt_body,
+    load_handoff_body,
+    load_ship_task_body,
+    render_skill,
+)
 from tests._skill_surfaces import REPO_ROOT, SKILL_SURFACES, load_docs_adopt_prompt
 
 
@@ -57,6 +62,34 @@ def test_load_ship_task_body_returns_canonical_bytes():
     assert "--with-subagents" in body
 
 
+def test_load_handoff_body_returns_canonical_bytes():
+    body = load_handoff_body()
+    # Byte hygiene: exactly one trailing newline (mirrors the ship-task guard).
+    assert body.endswith("\n")
+    assert not body.endswith("\n\n")
+    assert 1000 < len(body) < 25000
+    # Load-bearing step headings so a cleanup edit cannot silently drop the
+    # capture -> pointer -> handoff chain.
+    assert "## Step" in body
+    # The five MCP tools the skill composes must all be named in the body.
+    assert "get_context" in body
+    assert "diff_since_last_session" in body
+    assert "get_raw_file" in body
+    assert "update_state" in body
+    assert "flag_question" in body
+    # The handoff is written to the store under handoffs/, and the resume
+    # pointer is a flagged question -- not folded into state (avoids the
+    # update_state REPLACE-clobber surface).
+    assert "handoffs/" in body
+    # The skill runs in the main-agent context with no tool-lock, so it must
+    # only DRAFT decisions for the user to file -- it never autonomously
+    # commits doctrine. This assertion is the load-bearing guard for that.
+    assert "propose_decision" not in body
+    # No leaked template syntax.
+    assert "<!--" not in body
+    assert "{{" not in body
+
+
 # --- render_skill produces frontmatter + body ---
 
 
@@ -96,6 +129,24 @@ def test_render_skill_cursor_ship_task_frontmatter():
     assert body == load_ship_task_body()
 
 
+def test_render_skill_claude_code_handoff_frontmatter():
+    rendered = render_skill("claude_code", "nauro-handoff")
+    assert rendered.startswith("---\nname: nauro-handoff\n")
+    assert "description:" in rendered.split("\n---\n", 1)[0]
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_handoff_body()
+
+
+def test_render_skill_cursor_handoff_frontmatter():
+    rendered = render_skill("cursor", "nauro-handoff")
+    fm = rendered.split("\n---\n", 1)[0]
+    assert "description:" in fm
+    assert "alwaysApply: false" in fm
+    assert "name:" not in fm
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_handoff_body()
+
+
 def test_render_skill_unknown_surface_raises():
     with pytest.raises(ValueError):
         render_skill("emacs", "nauro-adopt")
@@ -116,6 +167,9 @@ DOGFOOD_FILES = [
     (".claude/skills/nauro-ship-task/SKILL.md", "claude_code", "nauro-ship-task"),
     (".cursor/rules/nauro-ship-task.mdc", "cursor", "nauro-ship-task"),
     (".agents/skills/nauro-ship-task/SKILL.md", "codex", "nauro-ship-task"),
+    (".claude/skills/nauro-handoff/SKILL.md", "claude_code", "nauro-handoff"),
+    (".cursor/rules/nauro-handoff.mdc", "cursor", "nauro-handoff"),
+    (".agents/skills/nauro-handoff/SKILL.md", "codex", "nauro-handoff"),
 ]
 
 
