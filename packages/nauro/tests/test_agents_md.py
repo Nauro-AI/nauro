@@ -63,11 +63,14 @@ def test_routing_block_omits_project_id_line_when_unknown():
     assert "project_id:" not in result
 
 
-def test_routing_block_names_required_cloud_connector_name():
-    """The store-routing block states the cloud connector must be named `Nauro`."""
+def test_routing_block_scopes_cloud_connector_name_to_subagents():
+    """The cloud-connector `Nauro` name is required for the bundled Claude Code
+    subagents; other tools (Codex/Cursor) may use any distinct name."""
     result = generate_agents_md("myproj", "payload")
-    assert "name it exactly `Nauro`" in result
+    assert "exactly `Nauro`" in result
+    assert "`@nauro-*`" in result
     assert "`mcp__claude_ai_Nauro__*`" in result
+    assert "Codex" in result
 
 
 def test_check_decision_categorized_as_read_tool():
