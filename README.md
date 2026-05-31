@@ -52,7 +52,9 @@ Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bund
 
 Chat surfaces (Claude.ai, ChatGPT, Perplexity): run `nauro adopt` from a terminal first, then point the chat agent at [`docs/adopt-prompt.md`](docs/adopt-prompt.md).
 
-## Cross-surface sync
+## Cross-surface sync (optional)
+
+The steps above work fully on your machine with no account. To sync a project to the cloud and reach it from surfaces without a local copy (claude.ai web) or from another machine:
 
 ```bash
 nauro auth login
@@ -62,7 +64,21 @@ nauro sync
 
 Then add `https://mcp.nauro.ai/mcp` as an MCP connector in your tool's settings.
 
-Codex users: add `mcp_oauth_callback_port = 8765` to the top of `~/.codex/config.toml` so the OAuth callback uses a fixed port.
+### Codex (remote connector)
+
+Add it under a name distinct from the local `nauro` stdio server:
+
+```bash
+codex mcp add nauro-cloud --url https://mcp.nauro.ai/mcp
+```
+
+Then pin the OAuth callback port at the top of `~/.codex/config.toml`. Codex's callback uses a fixed, pre-registered port; without it Codex picks a random port and login fails:
+
+```toml
+mcp_oauth_callback_port = 8765
+```
+
+Requires Codex 0.131.0 or newer. Enter the URL exactly as shown, with no trailing slash. If login reports a callback-port error, free port 8765.
 
 ## MCP tools
 

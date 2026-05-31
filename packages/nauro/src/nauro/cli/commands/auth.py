@@ -404,10 +404,12 @@ def login() -> None:
         "    nauro link --cloud    (one-time, per project)\n"
         "    nauro sync\n"
         "\n"
-        "  Add https://mcp.nauro.ai/mcp as an MCP connector in your tool's settings.\n"
+        "  Add https://mcp.nauro.ai/mcp as an MCP connector in your tool's settings\n"
+        "  (enter the URL exactly, with no trailing slash).\n"
         "\n"
-        "  Codex users: add `mcp_oauth_callback_port = 8765` to the top of"
-        " ~/.codex/config.toml"
+        "  Codex: add `mcp_oauth_callback_port = 8765` to the top of ~/.codex/config.toml\n"
+        "  (required for the remote connector; without it, login uses a random port"
+        " and fails)."
     )
 
 
