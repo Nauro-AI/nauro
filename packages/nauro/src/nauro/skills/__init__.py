@@ -22,7 +22,7 @@ from typing import Literal
 from nauro_core.protocol import substitute_protocol_fragments
 
 Surface = Literal["claude_code", "cursor", "codex"]
-SkillName = Literal["nauro-adopt", "nauro-ship-task"]
+SkillName = Literal["nauro-adopt", "nauro-ship-task", "nauro-handoff"]
 
 SKILL_DESCRIPTIONS: dict[str, str] = {
     "nauro-adopt": (
@@ -42,6 +42,16 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "Mode C between reviewer-APPROVE and the push gate to catch doctrine "
         "drift the reviewer missed. Invoke explicitly with /nauro-ship-task "
         "<description>. Requires `nauro adopt --with-subagents` to have run."
+    ),
+    "nauro-handoff": (
+        "Captures a session handoff to Nauro's project store so the next agent "
+        "session resumes cleanly. Writes a handoff body to "
+        "<store>/handoffs/<slug>.md (picked up by `nauro sync` with no code "
+        "change) and flags a RESUME pointer question naming that path. Composes "
+        "existing MCP tools only (get_context, update_state, flag_question, "
+        "get_raw_file, diff_since_last_session); never calls propose_decision "
+        "and never dumps the handoff into state_current.md. Invoke explicitly "
+        "with /nauro-handoff. Installed by `nauro adopt --with-skills`."
     ),
 }
 
@@ -81,11 +91,23 @@ def load_ship_task_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
+def load_handoff_body() -> str:
+    """Return the canonical ``/nauro-handoff`` skill body (no frontmatter).
+
+    The body has no protocol-fragment tokens today, but goes through the same
+    substitution pass so future canonical claims can be added at the source.
+    """
+    raw = resources.files(__package__).joinpath("handoff_body.md").read_text(encoding="utf-8")
+    return substitute_protocol_fragments(_strip_template_header(raw))
+
+
 def _load_body(skill_name: str) -> str:
     if skill_name == "nauro-adopt":
         return load_adopt_body()
     if skill_name == "nauro-ship-task":
         return load_ship_task_body()
+    if skill_name == "nauro-handoff":
+        return load_handoff_body()
     raise ValueError(f"unknown skill: {skill_name!r}")
 
 
@@ -116,6 +138,7 @@ __all__ = [
     "SkillName",
     "Surface",
     "load_adopt_body",
+    "load_handoff_body",
     "load_ship_task_body",
     "render_skill",
 ]

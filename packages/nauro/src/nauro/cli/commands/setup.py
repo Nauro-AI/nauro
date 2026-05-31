@@ -419,12 +419,13 @@ def codex(
 #
 # ``SKILL_NAMES`` is the always-installed set — the core onboarding skill.
 # ``OPT_IN_SKILL_NAMES`` is materialized only when the caller passes
-# ``with_skills=True``; today that is just ``nauro-ship-task``, which
-# references the bundled ``@nauro-*`` subagents and is opt-in for the same
-# reason those subagents are.
+# ``with_skills=True``. ``nauro-ship-task`` references the bundled ``@nauro-*``
+# subagents and is opt-in for that reason, so the ``--with-subagents`` notice
+# stays scoped to it. ``nauro-handoff`` composes only existing MCP tools with
+# no subagent dependency, so it carries no such notice.
 
 SKILL_NAMES: tuple[str, ...] = ("nauro-adopt",)
-OPT_IN_SKILL_NAMES: tuple[str, ...] = ("nauro-ship-task",)
+OPT_IN_SKILL_NAMES: tuple[str, ...] = ("nauro-ship-task", "nauro-handoff")
 
 
 def _claude_skill_dir() -> Path:
@@ -488,7 +489,7 @@ def materialize_skills_claude_code(
     are preserved because other registered nauro projects still depend on
     them. Defaults to True so direct unit callers and the add path retain
     their previous behavior. ``with_skills`` extends the install/remove set
-    with ``OPT_IN_SKILL_NAMES`` (today: ``nauro-ship-task``).
+    with ``OPT_IN_SKILL_NAMES`` (``nauro-ship-task`` and ``nauro-handoff``).
     """
     from nauro.skills import render_skill
 
@@ -518,7 +519,7 @@ def materialize_skills_codex(
     are preserved because other registered nauro projects still depend on
     them. Defaults to True so direct unit callers and the add path retain
     their previous behavior. ``with_skills`` extends the install/remove set
-    with ``OPT_IN_SKILL_NAMES`` (today: ``nauro-ship-task``).
+    with ``OPT_IN_SKILL_NAMES`` (``nauro-ship-task`` and ``nauro-handoff``).
     """
     from nauro.skills import render_skill
 
