@@ -23,6 +23,7 @@ from nauro.store.registry import (
     add_repo_v2,
     find_projects_by_name_v2,
     get_project,
+    get_project_v2,
     get_store_path,
     get_store_path_v2,
     load_registry,
@@ -165,6 +166,33 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
     else:
         typer.echo("Run 'nauro init' first.", err=True)
     raise typer.Exit(code=1)
+
+
+def _resolve_project_entry(project_name: str, project_key: str) -> dict:
+    """Resolve a registry entry that has at least one associated repo path.
+
+    Args:
+        project_name: Display name (used for the v1 lookup and error message).
+        project_key: v2 project_id (store directory name) for the v2 lookup.
+
+    Returns:
+        The resolved registry entry dict, guaranteed to carry ``repo_paths``.
+
+    Raises:
+        typer.Exit: code 1 when no entry resolves or the entry has no repos.
+    """
+    # Try v2 first (id-keyed), then fall back to v1 (name-keyed legacy)
+    try:
+        entry = get_project_v2(project_key)
+    except RegistrySchemaError:
+        entry = None
+    if entry is None:
+        entry = get_project(project_name)
+
+    if entry is None or not entry.get("repo_paths"):
+        typer.echo(f"Project '{project_name}' has no associated repos.", err=True)
+        raise typer.Exit(code=1)
+    return entry
 
 
 # Re-exported for callers that need to write or extend v2 entries directly
