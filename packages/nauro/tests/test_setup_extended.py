@@ -650,11 +650,14 @@ def test_setup_all_default_does_not_install_ship_task(tmp_path: Path, monkeypatc
     result = runner.invoke(app, ["setup", "all"])
     assert result.exit_code == 0, result.output
 
-    # nauro-adopt installed everywhere; nauro-ship-task absent everywhere.
+    # nauro-adopt installed everywhere; opt-in skills absent everywhere.
     assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
     assert not (tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md").exists()
     assert not (tmp_path / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md").exists()
     assert not (repo / ".cursor" / "rules" / "nauro-ship-task.mdc").exists()
+    assert not (tmp_path / ".claude" / "skills" / "nauro-handoff" / "SKILL.md").exists()
+    assert not (tmp_path / ".agents" / "skills" / "nauro-handoff" / "SKILL.md").exists()
+    assert not (repo / ".cursor" / "rules" / "nauro-handoff.mdc").exists()
 
 
 def test_setup_all_with_skills_installs_ship_task_everywhere(tmp_path: Path, monkeypatch):
@@ -677,6 +680,36 @@ def test_setup_all_with_skills_installs_ship_task_everywhere(tmp_path: Path, mon
     assert claude.read_text(encoding="utf-8") == render_skill("claude_code", "nauro-ship-task")
     assert codex.read_text(encoding="utf-8") == render_skill("codex", "nauro-ship-task")
     assert cursor.read_text(encoding="utf-8") == render_skill("cursor", "nauro-ship-task")
+
+    remove = runner.invoke(app, ["setup", "all", "--remove", "--with-skills"])
+    assert remove.exit_code == 0, remove.output
+
+    assert not claude.exists()
+    assert not codex.exists()
+    assert not cursor.exists()
+
+
+def test_setup_all_with_skills_installs_handoff_everywhere(tmp_path: Path, monkeypatch):
+    """``--with-skills`` materializes nauro-handoff to all three surfaces and
+    ``--remove --with-skills`` clears it."""
+    from nauro.skills import render_skill
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    install = runner.invoke(app, ["setup", "all", "--with-skills"])
+    assert install.exit_code == 0, install.output
+
+    claude = tmp_path / ".claude" / "skills" / "nauro-handoff" / "SKILL.md"
+    codex = tmp_path / ".agents" / "skills" / "nauro-handoff" / "SKILL.md"
+    cursor = repo / ".cursor" / "rules" / "nauro-handoff.mdc"
+    assert claude.read_text(encoding="utf-8") == render_skill("claude_code", "nauro-handoff")
+    assert codex.read_text(encoding="utf-8") == render_skill("codex", "nauro-handoff")
+    assert cursor.read_text(encoding="utf-8") == render_skill("cursor", "nauro-handoff")
 
     remove = runner.invoke(app, ["setup", "all", "--remove", "--with-skills"])
     assert remove.exit_code == 0, remove.output
