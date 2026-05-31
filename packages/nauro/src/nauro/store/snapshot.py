@@ -12,6 +12,7 @@ and never pruned (preserves the decision chain).
 """
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -24,6 +25,8 @@ from nauro.constants import (
     PRUNE_WEEKLY_DAYS,
     SNAPSHOTS_DIR,
 )
+
+logger = logging.getLogger("nauro.snapshot")
 
 
 def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = "") -> int:
@@ -95,18 +98,29 @@ def _prune_snapshots(snapshots_dir: Path) -> None:
     if len(snapshot_files) <= 1:
         return
 
-    # Load all snapshots with their metadata
+    # Load all snapshots with their metadata. The timestamp is a
+    # user-editable field, so a single snapshot with an unparseable value is
+    # skipped (left on disk untouched) rather than allowed to break pruning of
+    # the valid snapshots.
     snapshots = []
     for f in snapshot_files:
         data = json.loads(f.read_text())
+        try:
+            timestamp = datetime.fromisoformat(data["timestamp"])
+        except (ValueError, TypeError, KeyError):
+            logger.debug("Skipping snapshot with unparseable timestamp: %s", f)
+            continue
         snapshots.append(
             {
                 "path": f,
                 "data": data,
-                "timestamp": datetime.fromisoformat(data["timestamp"]),
+                "timestamp": timestamp,
                 "decision_count": _count_decisions(data),
             }
         )
+
+    if not snapshots:
+        return
 
     # Sort by version (chronological)
     snapshots.sort(key=lambda s: s["data"]["version"])
@@ -190,7 +204,11 @@ def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
     all_snaps = []
     for f in snapshots_dir.glob("v*.json"):
         data = json.loads(f.read_text())
-        ts = datetime.fromisoformat(data["timestamp"])
+        try:
+            ts = datetime.fromisoformat(data["timestamp"])
+        except (ValueError, TypeError, KeyError):
+            logger.debug("Skipping snapshot with unparseable timestamp: %s", f)
+            continue
         all_snaps.append(
             {
                 "version": data["version"],

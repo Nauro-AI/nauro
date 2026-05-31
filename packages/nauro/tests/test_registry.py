@@ -352,3 +352,21 @@ def test_remove_repo_not_found(tmp_path, monkeypatch):
     repo.mkdir()
     registry.register_project("proj", [repo])
     assert registry.remove_repo("proj", "/nonexistent") is False
+
+
+# --- Corrupt-shape tolerance ---
+
+
+def test_load_registry_non_dict_returns_empty(tmp_path, monkeypatch):
+    """A registry.json that parses to a non-dict (valid JSON, wrong shape)
+    falls back to the empty-registry default rather than crashing downstream."""
+    (tmp_path / "registry.json").write_text("[]")
+    data = registry.load_registry()
+    assert data == {"projects": {}, "schema_version": 1}
+
+
+def test_load_registry_v2_non_dict_returns_empty(tmp_path, monkeypatch):
+    """The v2 loader applies the same non-dict guard as the v1 loader."""
+    (tmp_path / "registry.json").write_text("[]")
+    data = registry.load_registry_v2()
+    assert data == {"projects": {}, "schema_version": 2}

@@ -501,3 +501,80 @@ class TestDiffSinceLastSessionTimeBased:
         """days=7 with no snapshots returns graceful message."""
         result = diff_since_last_session(store, days=7)
         assert "No snapshots" in result
+
+
+# --- Corrupt-timestamp tolerance ---
+
+
+def _corrupt_timestamp(store_path: Path, version: int, value: str = "not-a-date") -> None:
+    """Rewrite a snapshot's timestamp to an unparseable value on disk."""
+    snap_path = store_path / SNAPSHOTS_DIR / f"v{version:03d}.json"
+    data = load_snapshot(store_path, version)
+    data["timestamp"] = value
+    snap_path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def _snapshot_file(store_path: Path, version: int) -> Path:
+    return store_path / SNAPSHOTS_DIR / f"v{version:03d}.json"
+
+
+class TestCorruptSnapshotTimestamp:
+    def test_capture_snapshot_prunes_around_bad_timestamp(self, store: Path):
+        """A snapshot with an unparseable timestamp does not break pruning of
+        the valid ones, and the bad snapshot file is left on disk untouched."""
+        capture_snapshot(store, trigger="first")
+        _backdate_snapshot(store, 1, days_ago=400)
+        append_decision(store, "Use Postgres", rationale="Reliable RDBMS.")
+        capture_snapshot(store, trigger="second")
+        _backdate_snapshot(store, 2, days_ago=200)
+
+        # Corrupt v002's timestamp before the next capture triggers a prune.
+        _corrupt_timestamp(store, 2)
+
+        # A third capture prunes; the prune loop must skip v002 and still
+        # process v001/v003 without raising.
+        capture_snapshot(store, trigger="third")
+
+        # The corrupted snapshot is neither deleted nor pruned.
+        assert _snapshot_file(store, 2).exists()
+        # The latest snapshot is always kept.
+        assert _snapshot_file(store, 3).exists()
+
+    def test_find_snapshot_near_date_ignores_bad_timestamp(self, timed_store: Path):
+        """find_snapshot_near_date resolves among the valid snapshots and
+        ignores one whose timestamp cannot be parsed."""
+        # timed_store: v001 14d ago, v002 7d ago, v003 now.
+        _corrupt_timestamp(timed_store, 2)
+
+        # Target 7 days ago: v002 would have matched exactly, but it is now
+        # unparseable, so the nearest valid snapshot at/before the target is
+        # v001 (14 days ago).
+        target = datetime.now(timezone.utc) - timedelta(days=7)
+        result = find_snapshot_near_date(timed_store, target)
+        assert result is not None
+        assert result["version"] == 1
+
+    def test_find_snapshot_near_date_all_bad_returns_none(self, timed_store: Path):
+        """When every snapshot has an unparseable timestamp, the scan resolves
+        to no candidates and returns None."""
+        for version in (1, 2, 3):
+            _corrupt_timestamp(timed_store, version)
+
+        result = find_snapshot_near_date(timed_store, datetime.now(timezone.utc))
+        assert result is None
+
+    def test_capture_snapshot_all_bad_does_not_crash(self, store: Path):
+        """capture_snapshot prunes after writing; with only bad-timestamp
+        prior snapshots the prune must no-op rather than raise."""
+        capture_snapshot(store, trigger="first")
+        capture_snapshot(store, trigger="second")
+        _corrupt_timestamp(store, 1)
+        _corrupt_timestamp(store, 2)
+
+        # The new capture writes v003 then prunes; every prior snapshot has a
+        # bad timestamp, so the prune skips them all and returns without error.
+        version = capture_snapshot(store, trigger="third")
+        assert version == 3
+        assert _snapshot_file(store, 1).exists()
+        assert _snapshot_file(store, 2).exists()
+        assert _snapshot_file(store, 3).exists()
