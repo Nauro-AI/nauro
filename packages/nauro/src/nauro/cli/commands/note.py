@@ -6,6 +6,7 @@ from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
 from nauro.cli.utils import resolve_target_project
+from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.templates.agents_md_regen import warn_then_regen
 
@@ -58,14 +59,18 @@ def note(
         typer.echo(f"  {text}")
         typer.echo(f"  File: {store_path / 'open-questions.md'}")
     else:
-        decision_id = _write_decision_direct(
-            fs_store,
-            {
-                "title": text,
-                "rationale": rationale,
-                "confidence": confidence,
-            },
-        )
+        # Hold the allocation lock across the number computation and the write
+        # so concurrent local writers cannot mint the same decision number.
+        # AGENTS.md regen below stays outside the lock.
+        with decision_write_lock(store_path):
+            decision_id = _write_decision_direct(
+                fs_store,
+                {
+                    "title": text,
+                    "rationale": rationale,
+                    "confidence": confidence,
+                },
+            )
         filepath = store_path / DECISIONS_DIR / f"{decision_id}.md"
         typer.echo(f"Decision recorded in {project_name}:")
         typer.echo(f"  {filepath}")

@@ -56,6 +56,7 @@ from nauro.onboarding import (
     WELCOME_NO_PROJECT,
 )
 from nauro.store.config import resolve_embeddings_flag
+from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import (
     capture_snapshot,
@@ -346,20 +347,27 @@ def tool_propose_decision(
     else:
         proposal_confidence = confidence
 
-    result = _propose_decision_op(
-        FilesystemStore(store_path),
-        title=title,
-        rationale=rationale,
-        operation=operation,
-        affected_decision_id=affected_decision_id,
-        rejected=rejected,
-        confidence=proposal_confidence,
-        decision_type=decision_type,
-        reversibility=reversibility,
-        files_affected=files_affected,
-        resolves_questions=resolves_questions,
-        source="mcp",
-    )
+    # Hold the allocation lock across the kernel call. add and supersede both
+    # mint a fresh max+1 number, so the lock must span the number computation
+    # and the write to keep concurrent local writers from colliding; update
+    # appends to a known file and is a no-contention pass through the lock. The
+    # snapshot/AGENTS.md regen below stay outside so the lock never nests with
+    # _snapshot_lock.
+    with decision_write_lock(store_path):
+        result = _propose_decision_op(
+            FilesystemStore(store_path),
+            title=title,
+            rationale=rationale,
+            operation=operation,
+            affected_decision_id=affected_decision_id,
+            rejected=rejected,
+            confidence=proposal_confidence,
+            decision_type=decision_type,
+            reversibility=reversibility,
+            files_affected=files_affected,
+            resolves_questions=resolves_questions,
+            source="mcp",
+        )
 
     dumped = result.model_dump(mode="json", exclude_none=True)
     # touched_decisions is consumed by the adapter to drive AGENTS.md regen;
