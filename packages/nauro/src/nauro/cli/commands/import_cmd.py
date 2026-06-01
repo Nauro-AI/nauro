@@ -15,6 +15,7 @@ from nauro_core.operations.propose_decision import _write_decision_direct
 
 from nauro.cli.utils import resolve_target_project
 from nauro.constants import PROJECT_MD, STACK_MD
+from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import capture_snapshot
 
@@ -27,15 +28,19 @@ def _import_append_decision(
     confidence: str = "medium",
 ) -> None:
     """Adapter for the import paths: write a decision via the kernel."""
-    _write_decision_direct(
-        FilesystemStore(store_path),
-        {
-            "title": title,
-            "rationale": rationale,
-            "rejected": rejected,
-            "confidence": confidence,
-        },
-    )
+    # Hold the allocation lock across the number computation and the write so
+    # concurrent local writers cannot mint the same decision number. The
+    # post-loop capture_snapshot stays outside the lock.
+    with decision_write_lock(store_path):
+        _write_decision_direct(
+            FilesystemStore(store_path),
+            {
+                "title": title,
+                "rationale": rationale,
+                "rejected": rejected,
+                "confidence": confidence,
+            },
+        )
 
 
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
