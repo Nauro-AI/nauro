@@ -13,9 +13,11 @@ and never pruned (preserves the decision chain).
 
 import json
 import logging
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from filelock import FileLock
 from nauro_core.snapshot import serialize_snapshot
 
 from nauro.constants import (
@@ -27,6 +29,22 @@ from nauro.constants import (
 )
 
 logger = logging.getLogger("nauro.snapshot")
+
+
+@contextmanager
+def _snapshot_lock(snapshots_dir: Path):
+    """Exclusive file lock on the snapshots dir for atomic capture.
+
+    Mirrors ``registry._registry_lock``. The version is derived from the
+    existing snapshots, so the lock must span the read-compute-write sequence,
+    not just the write — otherwise two captures compute the same next version
+    and one overwrites the other. The snapshots dir lives under NAURO_HOME, so
+    the lock path inherits that override without re-resolving it here.
+    """
+    lock_path = snapshots_dir / ".lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(lock_path)):
+        yield
 
 
 def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = "") -> int:
@@ -46,33 +64,39 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
     snapshots_dir = store_path / SNAPSHOTS_DIR
     snapshots_dir.mkdir(parents=True, exist_ok=True)
 
-    # Determine next version
-    existing = list_snapshots(store_path)
-    next_version = (existing[0]["version"] + 1) if existing else 1
+    # Hold the lock across compute-version, write, and prune. Locking only the
+    # write would leave the read-compute race open: two captures would read the
+    # same existing version, derive the same next version, and one would
+    # overwrite the other.
+    with _snapshot_lock(snapshots_dir):
+        # Determine next version
+        existing = list_snapshots(store_path)
+        next_version = (existing[0]["version"] + 1) if existing else 1
 
-    # Read all markdown files
-    files = {}
-    for md in sorted(store_path.glob("*.md")):
-        files[md.name] = md.read_text()
+        # Read all markdown files
+        files = {}
+        for md in sorted(store_path.glob("*.md")):
+            files[md.name] = md.read_text()
 
-    decisions_dir = store_path / DECISIONS_DIR
-    if decisions_dir.exists():
-        for md in sorted(decisions_dir.glob("*.md")):
-            files[f"{DECISIONS_DIR}/{md.name}"] = md.read_text()
+        decisions_dir = store_path / DECISIONS_DIR
+        if decisions_dir.exists():
+            for md in sorted(decisions_dir.glob("*.md")):
+                files[f"{DECISIONS_DIR}/{md.name}"] = md.read_text()
 
-    snapshot = serialize_snapshot(
-        timestamp=datetime.now(timezone.utc).isoformat(),
-        trigger=trigger,
-        trigger_detail=trigger_detail,
-        files=files,
-        version=next_version,
-    )
+        snapshot = serialize_snapshot(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            trigger=trigger,
+            trigger_detail=trigger_detail,
+            files=files,
+            version=next_version,
+        )
 
-    out_path = snapshots_dir / f"v{next_version:03d}.json"
-    out_path.write_text(json.dumps(snapshot, indent=2) + "\n")
+        out_path = snapshots_dir / f"v{next_version:03d}.json"
+        out_path.write_text(json.dumps(snapshot, indent=2) + "\n")
 
-    # Prune after every capture
-    _prune_snapshots(snapshots_dir)
+        # Prune after every capture. Prune mutates the same dir the version
+        # count reads, so it stays inside the lock.
+        _prune_snapshots(snapshots_dir)
 
     return next_version
 
