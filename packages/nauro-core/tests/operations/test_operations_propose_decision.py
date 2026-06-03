@@ -212,6 +212,92 @@ class TestAdvisorySimilarDecisions:
         assert result.similar_decisions == []
 
 
+# ── corpus-scan deduplication ───────────────────────────────────────────
+
+
+class _ScanCountingStore(InMemoryStore):
+    """In-memory store that counts full-corpus scans.
+
+    ``parse_all_decisions`` is the expensive scan being deduplicated: it
+    lists every decision stem and then ``read_decision``\\ s each one to parse
+    it. We count corpus scans by counting ``read_decision`` calls and dividing
+    by the seeded corpus size, because ``list_decisions`` alone conflates a
+    corpus parse with the cheap stem-only listing in ``_next_decision_num``
+    on the write path. ``corpus_scans`` therefore isolates the Tier 1 / Tier 2
+    parse work the change collapses from two scans to one.
+    """
+
+    def __init__(
+        self,
+        decisions: dict[str, str] | None = None,
+        files: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(decisions=decisions, files=files)
+        self.read_decision_calls = 0
+
+    def read_decision(self, file_stem: str) -> str | None:
+        self.read_decision_calls += 1
+        return super().read_decision(file_stem)
+
+    def corpus_scans(self, corpus_size: int) -> int:
+        """Number of full-corpus parses, derived from per-stem reads."""
+        if corpus_size == 0:
+            return 0
+        scanned, remainder = divmod(self.read_decision_calls, corpus_size)
+        assert remainder == 0, (
+            f"read_decision called {self.read_decision_calls} times for a "
+            f"corpus of {corpus_size}; not a whole number of full scans."
+        )
+        return scanned
+
+
+def test_add_accept_scans_corpus_once() -> None:
+    """A non-update ``add`` accept parses the corpus exactly once: Tier 1 and
+    Tier 2 share the single parsed list rather than re-reading and re-parsing
+    the store. Before the change this path parsed the corpus twice."""
+    store = _ScanCountingStore(
+        decisions=dict(
+            (
+                _seed_decision(1, "Adopt PostgreSQL", "ACID transactional semantics."),
+                _seed_decision(2, "Adopt Redis", "In-memory cache for hot read paths."),
+            )
+        )
+    )
+    result = propose_decision(
+        store,
+        title="Add dark mode toggle to settings page",
+        rationale="Users have requested a dark theme for reduced eye strain.",
+        confidence="medium",
+    )
+    assert store.corpus_scans(corpus_size=2) == 1
+    # The accept path is unchanged: same status, tier, decision id, and
+    # advisory shape as the existing auto-confirm expectations.
+    assert result.status == "confirmed"
+    assert result.tier == 2
+    assert result.operation == "add"
+    assert result.decision_id is not None
+    assert result.similar_decisions == []
+
+
+def test_update_short_rationale_rejects_without_scanning() -> None:
+    """An ``operation="update"`` with a too-short rationale rejects at Tier 1
+    before any corpus scan. Guards the lazy-compute: ``parsed`` must not be
+    hoisted to the top, which would regress this path to a needless scan."""
+    store = _ScanCountingStore(
+        decisions=dict((_seed_decision(1, "Adopt PostgreSQL", "ACID transactional semantics."),))
+    )
+    result = propose_decision(
+        store,
+        title="",
+        rationale="too short",
+        operation="update",
+        affected_decision_id="decision-001",
+    )
+    assert store.corpus_scans(corpus_size=1) == 0
+    assert result.status == "rejected"
+    assert result.tier == 1
+
+
 # ── supersede ───────────────────────────────────────────────────────────
 
 
