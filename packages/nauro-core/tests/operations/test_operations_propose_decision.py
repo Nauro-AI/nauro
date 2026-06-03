@@ -366,6 +366,136 @@ def test_supersede_no_similarity_still_executes_write() -> None:
     assert "status: superseded" in old_body
 
 
+# ── active-title dedup (Tier 1) ──────────────────────────────────────────
+
+
+def test_add_title_matching_old_active_decision_rejects() -> None:
+    """An add whose title matches an active decision rejects regardless of the
+    matched decision's age. Under the prior 24h window this add would have
+    wrongly passed because the existing decision fell outside the window."""
+    store = _store_with(
+        _seed_decision(
+            1,
+            "Adopt PostgreSQL primary database",
+            "Mature ecosystem with strong JSON support and excellent tooling.",
+            decision_date=date(2024, 1, 1),
+        ),
+    )
+    result = propose_decision(
+        store,
+        title="Adopt PostgreSQL primary database",
+        rationale="Re-proposing the same choice with fresh rationale text that is long enough.",
+        confidence="medium",
+    )
+    assert result.status == "rejected"
+    assert result.tier == 1
+    assert result.operation == "reject"
+    assert "active decision already has this title" in result.assessment.lower()
+    assert "D1" in result.assessment
+
+
+def test_add_title_matching_superseded_decision_passes() -> None:
+    """Title dedup keys on active status, so an add whose title matches a
+    superseded decision is not blocked."""
+    store = _store_with(
+        _seed_decision(
+            1,
+            "Adopt PostgreSQL primary database",
+            "Mature ecosystem with strong JSON support and excellent tooling.",
+            status=DecisionStatus.superseded,
+            decision_date=date(2024, 1, 1),
+        ),
+    )
+    result = propose_decision(
+        store,
+        title="Adopt PostgreSQL primary database",
+        rationale="The superseded decision no longer applies; re-establishing the choice now.",
+        confidence="medium",
+    )
+    assert result.status == "confirmed"
+    assert result.operation == "add"
+    assert result.decision_id is not None
+
+
+def test_supersede_same_title_as_target_confirms() -> None:
+    """A supersede whose new title equals the target's own title must not
+    self-reject: screening runs before the flip, so the still-active target is
+    excluded from the dedup set."""
+    store = _store_with(
+        _seed_decision(
+            1,
+            "Adopt PostgreSQL primary database",
+            "Mature ecosystem with strong JSON support and excellent tooling.",
+            decision_date=date(2024, 1, 1),
+        ),
+    )
+    result = propose_decision(
+        store,
+        title="Adopt PostgreSQL primary database",
+        rationale="Keeping the title but recording a materially revised rationale for the choice.",
+        confidence="medium",
+        operation="supersede",
+        affected_decision_id="decision-001",
+    )
+    assert result.status == "confirmed"
+    assert result.operation == "supersede"
+    assert result.decision_id is not None
+
+
+def test_supersede_title_collides_with_different_active_decision_rejects() -> None:
+    """A supersede whose new title collides with a *different* active decision
+    still rejects — only the supersede target is excluded from the dedup set."""
+    store = _store_with(
+        _seed_decision(
+            1,
+            "Adopt PostgreSQL primary database",
+            "Mature ecosystem with strong JSON support and excellent tooling.",
+        ),
+        _seed_decision(
+            2,
+            "Adopt Redis for hot caching",
+            "In-memory cache keeps hot read paths off the primary database.",
+        ),
+    )
+    result = propose_decision(
+        store,
+        title="Adopt Redis for hot caching",
+        rationale="Superseding decision 1 but reusing a title already held by active decision 2.",
+        confidence="medium",
+        operation="supersede",
+        affected_decision_id="decision-001",
+    )
+    assert result.status == "rejected"
+    assert result.tier == 1
+    assert result.operation == "reject"
+    assert "active decision already has this title" in result.assessment.lower()
+    assert "D2" in result.assessment
+
+
+def test_add_matching_active_scaffold_seed_rejects() -> None:
+    """The scaffold seed is an active decision, so an add titled exactly as the
+    seed rejects on the active-title axis. Tier 2 seed filtering is unrelated:
+    Tier 1 rejects before Tier 2 runs."""
+    store = _store_with(
+        _seed_decision(
+            1,
+            "Initial project setup",
+            "Scaffold-seeded bookkeeping decision recording store initialization.",
+        ),
+    )
+    result = propose_decision(
+        store,
+        title="Initial project setup",
+        rationale="A second add reusing the scaffold seed title that should be turned away.",
+        confidence="medium",
+    )
+    assert result.status == "rejected"
+    assert result.tier == 1
+    assert result.operation == "reject"
+    assert "active decision already has this title" in result.assessment.lower()
+    assert "D1" in result.assessment
+
+
 # ── update ──────────────────────────────────────────────────────────────
 
 

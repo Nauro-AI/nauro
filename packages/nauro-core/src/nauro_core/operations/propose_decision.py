@@ -5,7 +5,7 @@ all call this function with the same arguments and receive the same
 :class:`ProposeDecisionResult`. The kernel owns:
 
 * Tier 1 structural screening (rejects empty fields, short rationale,
-  exact-hash duplicates, recent-title duplicates).
+  exact-hash duplicates, and titles that match a decision still in force).
 * ``operation="update"`` disallowed-fields rejection.
 * ``resolves_questions`` boundary validation (unknown ids, ambiguous
   ids).
@@ -29,7 +29,7 @@ push stay on the adapter side per the locked Store Protocol boundary.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Literal
 
 from nauro_core.constants import (
@@ -174,7 +174,7 @@ def propose_decision(
             )
 
     # --- Tier 1: structural screening ---
-    # ``parsed`` is the single corpus scan shared between Tier 1 recent-title
+    # ``parsed`` is the single corpus scan shared between Tier 1 active-title
     # dedup and Tier 2 BM25. It stays None on the update early-reject path so a
     # short-rationale update rejects without scanning the corpus at all.
     parsed: list[Decision] | None = None
@@ -192,7 +192,7 @@ def propose_decision(
             action, reason = "pass", None
     else:
         parsed = _parse_all_decisions(store)
-        action, reason = _screen_structural(store, proposal, parsed)
+        action, reason = _screen_structural(store, proposal, parsed, affected_decision_id)
 
     if action == "reject":
         return ProposeDecisionResult(
@@ -281,18 +281,31 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
 
 
 def _screen_structural(
-    store: Store, proposal: dict, parsed: list[Decision]
+    store: Store,
+    proposal: dict,
+    parsed: list[Decision],
+    affected_decision_id: str | None,
 ) -> tuple[str, str | None]:
-    """Run Tier 1 structural screening with hashes + recent-title dedup.
+    """Run Tier 1 structural screening with hashes + active-title dedup.
 
-    ``parsed`` is the shared corpus scan reused for Tier 2 BM25, so this no
-    longer re-reads the store for the 24h recent-title window.
+    Title dedup keys on active status, not recency: an add or supersede whose
+    normalized title matches any active decision is rejected regardless of the
+    matched decision's age. ``parsed`` is the shared corpus scan reused for
+    Tier 2 BM25, so this does not re-read the store.
+
+    The supersede target is excluded from the dedup set. Screening runs before
+    the supersede flip, so the target is still active at this point; without
+    the exclusion a same-title supersede of an established decision would
+    self-reject. A supersede whose new title collides with a *different* active
+    decision still rejects.
     """
     hash_index = _load_hash_index(store)
     existing_hashes = set(hash_index.keys())
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).date()
-    recent = [d for d in parsed if d.date >= cutoff]
-    return screen_structural(proposal, existing_hashes, recent)
+    affected_num = extract_decision_number(affected_decision_id) if affected_decision_id else None
+    dedup_decisions = [
+        d for d in parsed if d.status is DecisionStatus.active and d.num != affected_num
+    ]
+    return screen_structural(proposal, existing_hashes, dedup_decisions)
 
 
 def _load_hash_index(store: Store) -> dict:

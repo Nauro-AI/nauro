@@ -215,17 +215,18 @@ class TestScreenStructural:
         assert action == "reject"
         assert "hash match" in reason.lower()
 
-    def test_title_dedup_recent(self):
+    def test_title_dedup_active(self):
         proposal = self._proposal()
-        recent = [{"title": "Use FastAPI for MCP server", "num": 42}]
-        action, reason = screen_structural(proposal, set(), recent)
+        active = [{"title": "Use FastAPI for MCP server", "num": 42}]
+        action, reason = screen_structural(proposal, set(), active)
         assert action == "reject"
-        assert "same title" in reason.lower()
+        assert "active decision already has this title" in reason.lower()
+        assert "D42" in reason
 
     def test_title_dedup_case_insensitive(self):
         proposal = self._proposal()
-        recent = [{"title": "use fastapi for mcp server", "num": 42}]
-        action, _reason = screen_structural(proposal, set(), recent)
+        active = [{"title": "use fastapi for mcp server", "num": 42}]
+        action, _reason = screen_structural(proposal, set(), active)
         assert action == "reject"
 
     def test_default_confidence_accepted(self):

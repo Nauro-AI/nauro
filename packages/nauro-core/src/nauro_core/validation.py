@@ -120,18 +120,23 @@ def _normalize_title(title: str) -> str:
 def screen_structural(
     proposal: dict,
     existing_hashes: set[str],
-    recent_decisions: list[dict],
+    active_decisions: list[dict],
 ) -> tuple[str, str | None]:
     """Run structural screening on a proposal. No I/O.
 
     Checks: schema validation (title, rationale, confidence), minimum rationale
     length, hash dedup against existing_hashes, and title dedup against
-    recent_decisions (same title within 24h — caller filters by recency).
+    active_decisions (same title as a decision still in force).
+
+    This function is operation-agnostic: it dedups the proposal title against
+    whatever list the caller hands it. The caller decides which decisions are
+    eligible (active decisions, with any supersede target excluded).
 
     Args:
         proposal: Dict with title, rationale, confidence keys.
         existing_hashes: Set of content hashes from the hash index.
-        recent_decisions: Decisions from the last 24 hours (caller filters).
+        active_decisions: Decisions to dedup the title against (caller filters
+            to active decisions, excluding any supersede target).
 
     Returns:
         (action, reason) where action is "pass" or "reject".
@@ -159,12 +164,12 @@ def screen_structural(
     if content_hash in existing_hashes:
         return ("reject", "Exact duplicate of existing decision (hash match).")
 
-    # Title dedup against recent decisions (caller provides 24h window).
-    # Recent-decision entries may be either Decision objects or lightweight
+    # Title dedup against active decisions (caller filters to active, minus any
+    # supersede target). Entries may be either Decision objects or lightweight
     # dicts (the mcp-server tier-1 path loads just title+num from S3 without
     # full parsing). Handle both shapes.
     title_normalized = _normalize_title(title)
-    for d in recent_decisions:
+    for d in active_decisions:
         if hasattr(d, "title"):
             existing_title = d.title
             existing_num = d.num
@@ -174,7 +179,9 @@ def screen_structural(
         if _normalize_title(existing_title) == title_normalized:
             return (
                 "reject",
-                f"Decision with same title written recently: D{existing_num}",
+                f"An active decision already has this title: D{existing_num}. "
+                'Use operation="supersede" to replace it, or operation="update" '
+                "to append rationale — not a second add.",
             )
 
     return ("pass", None)
