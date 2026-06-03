@@ -622,6 +622,49 @@ def test_reader_roundtrip_new_format(store: Path):
     assert "### Polling" in d.content
 
 
+# --- FilesystemStore bulk read tests ---
+
+
+def test_read_decisions_matches_serial_read(store: Path):
+    """The bulk read returns, per stem, exactly what serial read_decision does."""
+    append_decision(store, "Use Postgres")
+    append_decision(store, "Use Redis")
+    fs = FilesystemStore(store)
+    stems = fs.list_decisions()
+    bodies = fs.read_decisions(stems)
+    assert [bodies[s] for s in stems] == [fs.read_decision(s) for s in stems]
+
+
+def test_read_decisions_missing_stem_maps_to_none(store: Path):
+    """A stem with no backing file maps to None, matching read_decision."""
+    fs = FilesystemStore(store)
+    bodies = fs.read_decisions(["999-vanished"])
+    assert bodies == {"999-vanished": None}
+    assert fs.read_decision("999-vanished") is None
+
+
+def test_parse_all_decisions_bulk_equals_serial(store: Path):
+    """parse_all_decisions over FilesystemStore yields the same decisions in the
+    same order as reading and parsing each stem serially in list order."""
+    from nauro_core.decision_model import parse_decision
+    from nauro_core.operations.decision_lookup import parse_all_decisions
+
+    append_decision(store, "Use Postgres")
+    append_decision(store, "Use Redis")
+    fs = FilesystemStore(store)
+
+    serial = []
+    for stem in fs.list_decisions():
+        body = fs.read_decision(stem)
+        if body is None:
+            continue
+        serial.append(parse_decision(body, f"{stem}.md"))
+
+    bulk = parse_all_decisions(fs)
+    assert [d.num for d in bulk] == [d.num for d in serial]
+    assert [d.title for d in bulk] == [d.title for d in serial]
+
+
 # --- Question parser tests ---
 
 

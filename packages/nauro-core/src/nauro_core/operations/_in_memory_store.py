@@ -60,6 +60,12 @@ class InMemoryStore:
     def read_decision(self, file_stem: str) -> str | None:
         return self._decisions.get(file_stem)
 
+    def read_decisions(self, stems: list[str]) -> dict[str, str | None]:
+        # Dispatch through self.read_decision per stem rather than reading
+        # self._decisions directly: subclasses that instrument read_decision
+        # (e.g. the scan-counting double) must see one call per stem.
+        return {stem: self.read_decision(stem) for stem in stems}
+
 
 def _decision_stem(path: str) -> str | None:
     """Return the decision file stem when ``path`` targets ``decisions/*.md``."""

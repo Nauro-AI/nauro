@@ -7,7 +7,7 @@ transport-specific framing (``store`` field, telemetry emission, onboarding
 sentinels, snapshot-diff trailers); the level dispatch and markdown
 assembly are shared by construction.
 
-Only the five locked Store primitives are used: the snapshot/diff layer
+Only the locked Store primitives are used: the snapshot/diff layer
 and the "Last synced" trailer remain adapter concerns since they sit
 outside the kernel's storage protocol.
 """

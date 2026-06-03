@@ -2,10 +2,10 @@
 
 Operations call into a ``Store`` to read and write the project store; each
 transport supplies a concrete implementation (filesystem for local, S3 +
-DynamoDB for cloud). The Protocol stays minimal: only the five primitives
-locked by the operations-kernel restructure. Anything broader (file
-enumeration outside ``decisions/``, pending-state primitives, etc.) is a
-separate decision before the surface grows.
+DynamoDB for cloud). The Protocol stays minimal: the six primitives locked
+by the operations-kernel restructure and the bulk-read addition. Anything
+broader (file enumeration outside ``decisions/``, pending-state primitives,
+etc.) is a separate decision before the surface grows.
 """
 
 from __future__ import annotations
@@ -50,5 +50,17 @@ class Store(Protocol):
 
         ``file_stem`` is a value returned by :meth:`list_decisions` (without
         the ``.md`` suffix). Returns ``None`` if the decision is missing.
+        """
+        ...
+
+    def read_decisions(self, stems: list[str]) -> dict[str, str | None]:
+        """Bulk analogue of :meth:`read_decision`.
+
+        Returns ``{stem: body | None}`` for each stem in ``stems``; a stem
+        whose file is missing maps to ``None``. There is NO ordering
+        guarantee on the returned mapping — callers that need a stable order
+        reassert it against the ``stems`` list they passed. Cloud transports
+        may fan the reads out concurrently, so the mapping's iteration order
+        is not the call order.
         """
         ...

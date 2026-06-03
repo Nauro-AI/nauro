@@ -64,3 +64,9 @@ class FilesystemStore:
         if not target.exists():
             return None
         return target.read_text()
+
+    # Serial loop, no thread pool: local disk reads are fast and a pool would
+    # contend with the per-write FileLock. Byte-identical to scanning the
+    # stems one at a time. Cloud transports override this to fan out.
+    def read_decisions(self, stems: list[str]) -> dict[str, str | None]:
+        return {stem: self.read_decision(stem) for stem in stems}
