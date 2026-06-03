@@ -5,7 +5,7 @@ all call this function with the same arguments and receive the same
 :class:`ProposeDecisionResult`. The kernel owns:
 
 * Tier 1 structural screening (rejects empty fields, short rationale,
-  exact-hash duplicates, recent-title duplicates).
+  exact-hash duplicates, and titles that match a decision still in force).
 * ``operation="update"`` disallowed-fields rejection.
 * ``resolves_questions`` boundary validation (unknown ids, ambiguous
   ids).
@@ -29,7 +29,7 @@ push stay on the adapter side per the locked Store Protocol boundary.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Literal
 
 from nauro_core.constants import (
@@ -174,6 +174,10 @@ def propose_decision(
             )
 
     # --- Tier 1: structural screening ---
+    # ``parsed`` is the single corpus scan shared between Tier 1 active-title
+    # dedup and Tier 2 BM25. It stays None on the update early-reject path so a
+    # short-rationale update rejects without scanning the corpus at all.
+    parsed: list[Decision] | None = None
     if operation == "update":
         rationale_stripped = (proposal.get("rationale") or "").strip()
         if not rationale_stripped:
@@ -187,7 +191,8 @@ def propose_decision(
         else:
             action, reason = "pass", None
     else:
-        action, reason = _screen_structural(store, proposal)
+        parsed = _parse_all_decisions(store)
+        action, reason = _screen_structural(store, proposal, parsed, affected_decision_id)
 
     if action == "reject":
         return ProposeDecisionResult(
@@ -198,9 +203,10 @@ def propose_decision(
         )
 
     # --- Tier 2: BM25 similarity (advisory only — does not gate the write) ---
-    parsed_decisions = _parse_all_decisions(store)
-    _t2_action, similar_raw = check_bm25_similarity(proposal, parsed_decisions)
-    similar_models = _to_related_decisions(similar_raw, parsed_decisions)
+    if parsed is None:
+        parsed = _parse_all_decisions(store)
+    _t2_action, similar_raw = check_bm25_similarity(proposal, parsed)
+    similar_models = _to_related_decisions(similar_raw, parsed)
 
     # --- Commit ---
     decision_id, actual_operation, touched, resolved_ids, error = _execute_operation(
@@ -274,12 +280,32 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
 # ── Tier 1 helpers ────────────────────────────────────────────────────────
 
 
-def _screen_structural(store: Store, proposal: dict) -> tuple[str, str | None]:
-    """Run Tier 1 structural screening with hashes + recent-title dedup."""
+def _screen_structural(
+    store: Store,
+    proposal: dict,
+    parsed: list[Decision],
+    affected_decision_id: str | None,
+) -> tuple[str, str | None]:
+    """Run Tier 1 structural screening with hashes + active-title dedup.
+
+    Title dedup keys on active status, not recency: an add or supersede whose
+    normalized title matches any active decision is rejected regardless of the
+    matched decision's age. ``parsed`` is the shared corpus scan reused for
+    Tier 2 BM25, so this does not re-read the store.
+
+    The supersede target is excluded from the dedup set. Screening runs before
+    the supersede flip, so the target is still active at this point; without
+    the exclusion a same-title supersede of an established decision would
+    self-reject. A supersede whose new title collides with a *different* active
+    decision still rejects.
+    """
     hash_index = _load_hash_index(store)
     existing_hashes = set(hash_index.keys())
-    recent = _load_recent_decisions(store)
-    return screen_structural(proposal, existing_hashes, recent)
+    affected_num = extract_decision_number(affected_decision_id) if affected_decision_id else None
+    dedup_decisions = [
+        d for d in parsed if d.status is DecisionStatus.active and d.num != affected_num
+    ]
+    return screen_structural(proposal, existing_hashes, dedup_decisions)
 
 
 def _load_hash_index(store: Store) -> dict:
@@ -307,13 +333,6 @@ def _update_hash_index(store: Store, title: str, rationale: str, decision_id: st
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     _save_hash_index(store, index)
-
-
-def _load_recent_decisions(store: Store) -> list[Decision]:
-    """Return decisions written in the last 24h for title dedup."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).date()
-    parsed = _parse_all_decisions(store)
-    return [d for d in parsed if d.date >= cutoff]
 
 
 def _parse_all_decisions(store: Store) -> list[Decision]:
