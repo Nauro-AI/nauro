@@ -67,6 +67,26 @@ def test_read_decision_returns_none_when_missing() -> None:
     assert store.read_decision("042-nope") is None
 
 
+def test_read_decisions_round_trip_present_and_missing() -> None:
+    store = InMemoryStore(
+        decisions={
+            "001-first": "body-1",
+            "002-second": "body-2",
+        }
+    )
+    bodies = store.read_decisions(["001-first", "002-second", "999-missing"])
+    assert bodies == {
+        "001-first": "body-1",
+        "002-second": "body-2",
+        "999-missing": None,
+    }
+
+
+def test_read_decisions_empty_stems_returns_empty_mapping() -> None:
+    store = InMemoryStore(decisions={"001-first": "body-1"})
+    assert store.read_decisions([]) == {}
+
+
 def test_decisions_and_files_are_independent_namespaces() -> None:
     """Writing under a file path must not surface a decision stem, and vice versa."""
     store = InMemoryStore(decisions={"001-only-a-decision": "body"})

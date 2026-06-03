@@ -27,13 +27,19 @@ def parse_all_decisions(store: Store) -> list[Decision]:
     not round-trip through the v2 parser is logged at debug and skipped, so
     the scan returns the decisions it could parse rather than raising.
 
-    Listing and ordering follow :meth:`Store.list_decisions` verbatim; no
-    filtering is applied here. Callers that need a status or seed filter
-    apply it after the scan returns.
+    Bodies are fetched in one bulk :meth:`Store.read_decisions` call, but the
+    scan still reasserts :meth:`Store.list_decisions` order: it iterates the
+    stem list (not the returned mapping, which carries no ordering guarantee)
+    so the parsed list follows ``list_decisions`` verbatim. That ordering is
+    load-bearing — BM25 ranking breaks ties by corpus position, so a stable
+    parse order keeps retrieval byte-identical. No filtering is applied here;
+    callers that need a status or seed filter apply it after the scan returns.
     """
     parsed: list[Decision] = []
-    for stem in store.list_decisions():
-        body = store.read_decision(stem)
+    stems = store.list_decisions()
+    bodies = store.read_decisions(stems)
+    for stem in stems:
+        body = bodies.get(stem)
         if body is None:
             continue
         try:
