@@ -19,6 +19,7 @@ from nauro_core.constants import (
     MAX_QUESTION_LENGTH,
     MAX_RATIONALE_LENGTH,
     MAX_TITLE_LENGTH,
+    OPEN_QUESTIONS_MD,
     STATE_CURRENT_FILENAME,
     STATE_MD,
 )
@@ -64,6 +65,7 @@ from nauro.store.snapshot import (
     load_snapshot,
     resolve_diff_snapshots,
 )
+from nauro.store.store_lock import store_write_lock
 from nauro.telemetry.decorators import mcp_tool
 from nauro.templates.agents_md_regen import warn_then_regen
 
@@ -512,7 +514,12 @@ def tool_flag_question(
     text = question
     if question and context:
         text = f"{question} (context: {context})"
-    result = _flag_question_op(FilesystemStore(store_path), text, None, targets=targets)
+    # Hold the lock across the whole append (read open-questions.md, mint the
+    # next id, insert, write back) so concurrent local writers cannot read the
+    # same pre-image and clobber one another's entry. Snapshot and push below
+    # stay outside the lock.
+    with store_write_lock(store_path, OPEN_QUESTIONS_MD):
+        result = _flag_question_op(FilesystemStore(store_path), text, None, targets=targets)
 
     response: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
     # The kernel result carries ``num`` for callers that want the minted id;
@@ -545,13 +552,17 @@ def _flag_question_resolve(
     a snapshot (labelled to distinguish resolve from append) and push; on
     rejection the kernel performed no write, so neither runs.
     """
-    result = _flag_question_op(
-        FilesystemStore(store_path),
-        None,
-        None,
-        targets=targets,
-        resolved_by=resolved_by,
-    )
+    # The resolve action reads open-questions.md, stamps the targets, and
+    # writes the file back — same read-modify-write race as the append path,
+    # so it takes the same lock. Snapshot and push stay outside.
+    with store_write_lock(store_path, OPEN_QUESTIONS_MD):
+        result = _flag_question_op(
+            FilesystemStore(store_path),
+            None,
+            None,
+            targets=targets,
+            resolved_by=resolved_by,
+        )
     response: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
     response.pop("num", None)
 
@@ -710,7 +721,12 @@ def tool_update_state(store_path: Path, delta: str) -> dict:
     if err:
         return err
 
-    result = _update_state_op(FilesystemStore(store_path), delta)
+    # update_state is a multi-file read-modify-write: it rewrites
+    # state_current.md and read-appends state_history.md. Hold one lock across
+    # the whole kernel call so concurrent writers cannot interleave and drop an
+    # update on either file. Snapshot and push below stay outside the lock.
+    with store_write_lock(store_path, STATE_CURRENT_FILENAME):
+        result = _update_state_op(FilesystemStore(store_path), delta)
     envelope: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
     # Adapter-side side effects only run on the success path. ``noop``

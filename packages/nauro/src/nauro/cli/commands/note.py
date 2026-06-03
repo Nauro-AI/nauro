@@ -1,13 +1,14 @@
 """nauro note — Add a decision or question to the project store."""
 
 import typer
-from nauro_core.constants import DECISIONS_DIR
+from nauro_core.constants import DECISIONS_DIR, OPEN_QUESTIONS_MD
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
 from nauro.cli.utils import resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.store_lock import store_write_lock
 from nauro.templates.agents_md_regen import warn_then_regen
 
 
@@ -54,7 +55,12 @@ def note(
     is_question = question or (text.rstrip().endswith("?") and not decision)
 
     if is_question:
-        _flag_question_op(fs_store, text, None)
+        # Hold the lock across the read-mint-insert-write append so concurrent
+        # local writers cannot read the same open-questions.md pre-image and
+        # clobber one another's entry. Mirrors the decision branch below, which
+        # already wraps decision_write_lock. AGENTS.md regen stays outside.
+        with store_write_lock(store_path, OPEN_QUESTIONS_MD):
+            _flag_question_op(fs_store, text, None)
         typer.echo(f"Question added to {project_name}:")
         typer.echo(f"  {text}")
         typer.echo(f"  File: {store_path / 'open-questions.md'}")

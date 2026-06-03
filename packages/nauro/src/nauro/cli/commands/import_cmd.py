@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from nauro_core.constants import STATE_CURRENT_FILENAME
 from nauro_core.operations import update_state as _update_state_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
@@ -18,6 +19,7 @@ from nauro.constants import PROJECT_MD, STACK_MD
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import capture_snapshot
+from nauro.store.store_lock import store_write_lock
 
 
 def _import_append_decision(
@@ -109,7 +111,11 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
 
     delta = _compose_state_delta(active_body, progress_items)
     if delta is not None:
-        _update_state_op(FilesystemStore(store_path), delta)
+        # update_state rewrites state_current.md and read-appends
+        # state_history.md; hold one lock across the whole kernel call so a
+        # concurrent local writer cannot drop an update on either file.
+        with store_write_lock(store_path, STATE_CURRENT_FILENAME):
+            _update_state_op(FilesystemStore(store_path), delta)
 
     return counts
 

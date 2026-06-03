@@ -19,9 +19,8 @@ inherits any NAURO_HOME override without re-resolving it.
 from contextlib import contextmanager
 from pathlib import Path
 
-from filelock import FileLock
-
 from nauro.constants import DECISIONS_DIR
+from nauro.store.store_lock import store_write_lock
 
 
 @contextmanager
@@ -32,9 +31,10 @@ def decision_write_lock(store_path: Path):
     suffix, so it is excluded from the ``*.md`` decision enumeration in
     ``list_decisions``. The lock path differs from ``write_file``'s
     per-file ``<file>.lock``, so the two never deadlock.
+
+    Delegates to the general :func:`store_write_lock` for the
+    directory-scoped decisions resource; the observable lock path stays
+    ``decisions/.lock``.
     """
-    decisions_dir = store_path / DECISIONS_DIR
-    lock_path = decisions_dir / ".lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(lock_path)):
+    with store_write_lock(store_path, DECISIONS_DIR, is_directory=True):
         yield
