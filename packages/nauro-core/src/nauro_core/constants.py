@@ -96,6 +96,14 @@ MAX_QUESTION_LENGTH = 2_000
 MAX_CONTEXT_LENGTH = 5_000
 MAX_APPROACH_LENGTH = 5_000
 
+# ── Shared-brief size cap (nauro-context) ──
+# Per-brief ceiling for context/*.md shared briefs. Briefs are written via the
+# agent's own filesystem tool + ``nauro sync``, which bypasses the MCP
+# write-tool caps above (those are enforced only in the MCP write tools), so
+# this ceiling is enforced at the sync push path as a warn-and-skip gate. Real
+# briefs run ~11-21 KB; 50 KiB leaves headroom without inviting storage bombs.
+MAX_BRIEF_BYTES = 50 * 1024
+
 # ── MCP server instructions ──
 # Delivered via the MCP `initialize` response to every connected client.
 # Single source of truth — both local (stdio) and remote (HTTP) servers
