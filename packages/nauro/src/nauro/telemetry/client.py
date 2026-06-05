@@ -20,14 +20,15 @@ from typing import Any
 POSTHOG_KEY_ENV = "NAURO_POSTHOG_KEY"
 POSTHOG_HOST = "https://us.i.posthog.com"
 
-# Baked-in PostHog project API key. This is an intentionally-public,
-# WRITE-ONLY ingestion key (PostHog phc_ keys can only submit events, never
-# read them) and is shipped in the published wheel by design — see PRIVACY.md
-# for the full data-collection contract. The NAURO_POSTHOG_KEY env var still
-# overrides this value. The placeholder below is self-disabling: until the
-# real key is substituted at release time, _resolve_project_key() returns None
-# and telemetry stays off, so CI and dev installs never emit.
-_BAKED_PROJECT_KEY = "phc_REPLACE_WITH_PROD_KEY"
+# Baked-in PostHog project API key, shipped in the published wheel by design.
+# This is an intentionally-public, WRITE-ONLY ingestion key (PostHog phc_ keys
+# can only submit events, never read them) — see PRIVACY.md for the full
+# data-collection contract. The NAURO_POSTHOG_KEY env var still overrides it.
+# Emission stays gated by consent (_should_emit): default-opt-in, set only on
+# an interactive first run, so CI and non-TTY installs never emit regardless of
+# this key. The "phc_REPLACE" guard in _resolve_project_key() is a safety net:
+# if this value is ever reset to a placeholder, telemetry disables cleanly.
+_BAKED_PROJECT_KEY = "phc_oGL7Q29uiGrocGujHP5TvJzmPfJLKoej7BKsQRL5S35J"
 
 _RESERVED_PREFIXES = ("$ip", "$geoip_", "$user_agent")
 

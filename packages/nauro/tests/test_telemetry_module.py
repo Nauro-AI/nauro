@@ -62,8 +62,15 @@ def test_should_emit_false_when_enabled_is_false(nauro_home, telemetry_key):
     assert _should_emit() is False
 
 
-def test_should_emit_false_when_posthog_key_unset(nauro_home, monkeypatch):
+def test_should_emit_false_when_no_key_resolves(nauro_home, monkeypatch):
+    """Consent on + no resolvable key => no emit.
+
+    Pins _BAKED_PROJECT_KEY to empty so this asserts the key gate itself,
+    independent of the real key now baked into the shipped wheel. The
+    placeholder-prefix branch of the same gate is covered separately.
+    """
     monkeypatch.delenv("NAURO_POSTHOG_KEY", raising=False)
+    monkeypatch.setattr("nauro.telemetry.client._BAKED_PROJECT_KEY", "")
     seed_consented_config(nauro_home, enabled=True)
 
     from nauro.telemetry import _should_emit
