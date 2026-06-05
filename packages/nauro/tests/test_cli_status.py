@@ -26,6 +26,22 @@ def test_status_shows_active_capabilities(tmp_path, monkeypatch):
     assert "Decisions:" in result.output
 
 
+def test_status_shows_store_path(tmp_path, monkeypatch):
+    """`nauro status` surfaces the absolute store path.
+
+    The store lives at ~/.nauro/projects/<id>/ — outside any repo — and no other
+    command prints it. An agent following the nauro-handoff / nauro-context
+    skills needs it to resolve where to write handoffs/<slug>.md or
+    context/<slug>.md.
+    """
+    store = _setup_project(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "Store:" in result.output
+    assert str(store) in result.output
+
+
 def test_status_sync_inactive(tmp_path, monkeypatch):
     _setup_project(tmp_path, monkeypatch)
 
