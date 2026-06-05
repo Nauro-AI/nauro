@@ -1,6 +1,6 @@
 # Nauro Privacy & Data Paths
 
-Last updated: 2026-05-10
+Last updated: 2026-06-05
 
 ## Cloud sync
 
