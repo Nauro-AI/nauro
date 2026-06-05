@@ -19,7 +19,7 @@ The agent calls `get_context(level="L1")` to ground the handoff in the current s
 
 ## Step 2 — Capture: write the handoff file
 
-The agent writes the full handoff body to `<store>/handoffs/<slug>.md` using its own filesystem write. The CLI push enumerates the whole store, so a file under `handoffs/` syncs with no code change. Choose a short kebab-case `<slug>`, for example `auth-refresh-cutover`.
+The agent writes the full handoff body to `<store>/handoffs/<slug>.md` using its own filesystem write. Resolve `<store>` by running `nauro status`, which prints the absolute store path; the store lives at `~/.nauro/projects/<id>/`, outside any repo, so it cannot be guessed from the working directory. The CLI push enumerates the whole store, so a file under `handoffs/` syncs with no code change. Choose a short kebab-case `<slug>`, for example `auth-refresh-cutover`.
 
 The handoff body states what shipped this session, what is still in flight, any branches, stashes, or worktrees left open, the cited pointers a resumer must verify (decision numbers, file paths, PR or branch names), and the next concrete step. Handoffs accumulate append-only under `handoffs/` — never overwrite a prior handoff and never delete one.
 
@@ -43,7 +43,7 @@ Then it asks the user to confirm, and waits for explicit approval. Auto-mode and
 
 ## Step 6 — Capture: sync
 
-On approval, the agent tells the user to run `nauro sync` from the repo, or runs it. This pushes the store so `handoffs/<slug>.md`, `state_current.md`, and `open-questions.md` travel together. This is the only step that leaves the local store.
+On approval, the agent tells the user to run `nauro sync` from the repo, or runs it. This pushes the store so `handoffs/<slug>.md`, `state_current.md`, and `open-questions.md` travel together. This is the only step that leaves the local store. Reading the handoff back with a local `get_raw_file` confirms only that it is on disk, not that it propagated; to confirm it reached the shared store, read it back through the cloud connector after the sync.
 
 ## Step 7 — Resume: read context
 
