@@ -64,7 +64,12 @@ def status(
         typer.echo("No project found. Run 'nauro init <name>' to get started.", err=True)
         raise typer.Exit(exc.exit_code) from exc
 
-    typer.echo(f"Project: {project_name}\n")
+    typer.echo(f"Project: {project_name}")
+    # Surface the absolute store path. The store lives at ~/.nauro/projects/<id>/,
+    # outside any repo, and no other command prints it — an agent following the
+    # nauro-handoff / nauro-context skills needs it to resolve where to write
+    # handoffs/<slug>.md or context/<slug>.md.
+    typer.echo(f"Store:   {store_path}\n")
 
     # Sync — gated on auth token + v2 cloud-mode (matches hooks.py semantics).
     # ``store_path.name`` is the project_id for v2; v1 entries pass their name
