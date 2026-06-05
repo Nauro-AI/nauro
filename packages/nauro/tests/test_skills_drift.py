@@ -108,6 +108,13 @@ def test_load_context_body_returns_canonical_bytes():
     # on the union-merged open-questions.md, never a shared index file.
     assert "context/" in body
     assert "BRIEF:" in body
+    # Regression (dogfood-verified): the discovery surface survives concurrent
+    # authors because open-questions.md is set-union-merged on sync — NOT because
+    # of a lock (the store lock guards only same-machine local appends). The
+    # corrected skill must not reintroduce the wrong "lock-protected" claim, and
+    # must teach the agent how to resolve the store path it writes into.
+    assert "lock-protected" not in body
+    assert "nauro status" in body
     # Like nauro-handoff, the skill runs in the main-agent context with no
     # tool-lock, so it must only DRAFT decisions for the user to file -- it
     # never autonomously commits doctrine. Load-bearing guard for that.

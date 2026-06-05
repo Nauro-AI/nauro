@@ -18,7 +18,7 @@ v1 targets the local-store path: the agent writes the brief to the local store o
 
 ## Step 1 — Author: write the brief file
 
-The agent writes the brief body to `<store>/context/<slug>.md` using its own filesystem write. The CLI push enumerates the whole store, so a file under `context/` syncs with no code change.
+The agent writes the brief body to `<store>/context/<slug>.md` using its own filesystem write. Resolve `<store>` by running `nauro status`, which prints the absolute store path; the store lives at `~/.nauro/projects/<id>/`, outside any repo, so it cannot be guessed from the working directory. The CLI push enumerates the whole store, so a file under `context/` syncs with no code change.
 
 The slug is `<origin>-<topic>-<YYYYMMDD>-<short-uid>`, for example `codex-auth-migration-20260605-h7k2`. `<origin>` is your surface or agent tag, `<topic>` is a short kebab-case subject, `<YYYYMMDD>` is today's date, and `<short-uid>` is a few random or session-derived characters. The short-uid is load-bearing: two agents on separate machines reconcile only at the shared store, so entropy in the slug — not a lock — is what keeps their briefs from colliding. Briefs accumulate append-only under `context/` — never overwrite or delete an existing brief. If the chosen slug already exists, add a disambiguator rather than replacing it.
 
@@ -26,11 +26,11 @@ The brief opens with YAML frontmatter. Required: `author` (your surface or agent
 
 ## Step 2 — Author: flag the discovery pointer
 
-The agent calls `flag_question(question="BRIEF: context/<slug>.md — <one-line summary>")`. This flagged question is how other agents discover the brief. It lives in `open-questions.md`, which is set-union-merged and lock-protected on sync, so pointers from concurrent authors all survive. A shared index file is deliberately not used: it would not be union-merged, so concurrent appends would be lost under last-writer-wins. The `BRIEF:` marker text is literal so the Find flow can locate it.
+The agent calls `flag_question(question="BRIEF: context/<slug>.md — <one-line summary>")`. This flagged question is how other agents discover the brief. It lives in `open-questions.md`, which is set-union-merged on sync, so pointers from concurrent authors all survive. A shared index file is deliberately not used: it would not be union-merged, so concurrent appends would be lost under last-writer-wins. The `BRIEF:` marker text is literal so the Find flow can locate it.
 
 ## Step 3 — Author: sync
 
-The agent tells the user to run `nauro sync` from the repo, or runs it. This pushes the store so `context/<slug>.md` and the `open-questions.md` pointer travel together. A brief over `MAX_BRIEF_BYTES` is skipped from the push with a loud warning and kept on disk; if that happens, trim the brief under the cap and sync again rather than assuming it was shared.
+The agent tells the user to run `nauro sync` from the repo, or runs it. This pushes the store so `context/<slug>.md` and the `open-questions.md` pointer travel together. A brief over `MAX_BRIEF_BYTES` is skipped from the push with a loud warning and kept on disk; if that happens, trim the brief under the cap and sync again rather than assuming it was shared. Reading the brief back with a local `get_raw_file` confirms only that it is on disk, not that it propagated; to confirm it reached the shared store, read it back through the cloud connector after the sync.
 
 ## Step 4 — Find: orient, then scan the pointers
 

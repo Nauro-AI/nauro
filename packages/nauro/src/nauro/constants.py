@@ -76,6 +76,14 @@ L0_TOKEN_LIMIT = 3500
 FLAG_QUESTION_HINT_MIN_SCORE = 0.7
 FLAG_QUESTION_HINT_TITLE_LENGTH = 100
 
+# ── Discovery-pointer flag markers ──
+# The nauro-handoff (RESUME) and nauro-context (BRIEF) skills flag a stored
+# file's path as a question (it lands on the union-merged open-questions.md).
+# Such a flag is a discovery pointer, not a question for human review, so the
+# similar-decision hint above is skipped for it — otherwise a pointer draws a
+# spurious "addressed by decision-NNN" annotation.
+POINTER_FLAG_PREFIXES: tuple[str, ...] = ("BRIEF:", "RESUME:")
+
 # ── Writer limits ──
 SLUG_MAX_LENGTH = 60
 
