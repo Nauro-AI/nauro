@@ -82,6 +82,9 @@ def test_load_handoff_body_returns_canonical_bytes():
     # pointer is a flagged question -- not folded into state (avoids the
     # update_state REPLACE-clobber surface).
     assert "handoffs/" in body
+    # Parity with nauro-context: the skill must teach the agent how to resolve
+    # the store path it writes into (the store lives outside any repo).
+    assert "nauro status" in body
     # The skill runs in the main-agent context with no tool-lock, so it must
     # only DRAFT decisions for the user to file -- it never autonomously
     # commits doctrine. This assertion is the load-bearing guard for that.
