@@ -51,6 +51,7 @@ from nauro_core.validation import (
 from nauro.constants import (
     FLAG_QUESTION_HINT_MIN_SCORE,
     FLAG_QUESTION_HINT_TITLE_LENGTH,
+    POINTER_FLAG_PREFIXES,
 )
 from nauro.onboarding import (
     NO_CONTEXT_YET,
@@ -493,7 +494,10 @@ def tool_flag_question(
             return err
 
     hint = None
-    if question:
+    # Skip the similar-decision hint for discovery pointers (BRIEF:/RESUME:):
+    # they are file pointers, not questions for review, so a "addressed by
+    # decision-NNN" annotation on them is pure noise. The flag still logs.
+    if question and not question.lstrip().startswith(POINTER_FLAG_PREFIXES):
         pseudo_proposal = {
             "title": question[:FLAG_QUESTION_HINT_TITLE_LENGTH],
             "rationale": question + (f" {context}" if context else ""),
