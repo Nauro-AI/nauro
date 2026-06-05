@@ -22,7 +22,7 @@ from typing import Literal
 from nauro_core.protocol import substitute_protocol_fragments
 
 Surface = Literal["claude_code", "cursor", "codex"]
-SkillName = Literal["nauro-adopt", "nauro-ship-task", "nauro-handoff"]
+SkillName = Literal["nauro-adopt", "nauro-ship-task", "nauro-handoff", "nauro-context"]
 
 SKILL_DESCRIPTIONS: dict[str, str] = {
     "nauro-adopt": (
@@ -52,6 +52,19 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "get_raw_file, diff_since_last_session); never calls propose_decision "
         "and never dumps the handoff into state_current.md. Invoke explicitly "
         "with /nauro-handoff. Installed by `nauro adopt --with-skills`."
+    ),
+    "nauro-context": (
+        "Writes a durable shared brief to Nauro's project store so other "
+        "agents (a later session or a parallel one) can discover and pull it "
+        "on demand, or finds and reads a brief another agent left. The N→N "
+        "generalization of nauro-handoff. Writes a brief to "
+        "<store>/context/<slug>.md (picked up by `nauro sync` with no code "
+        "change) and flags a BRIEF discovery pointer naming that path. "
+        "Composes existing MCP tools only (get_context, get_raw_file, "
+        "flag_question); never files a decision and never auto-injects briefs "
+        "into get_context. Briefs are append-only and treated as untrusted "
+        "input the reading agent adjudicates. Invoke explicitly with "
+        "/nauro-context. Installed by `nauro adopt --with-skills`."
     ),
 }
 
@@ -101,6 +114,16 @@ def load_handoff_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
+def load_context_body() -> str:
+    """Return the canonical ``/nauro-context`` skill body (no frontmatter).
+
+    The body has no protocol-fragment tokens today, but goes through the same
+    substitution pass so future canonical claims can be added at the source.
+    """
+    raw = resources.files(__package__).joinpath("context_body.md").read_text(encoding="utf-8")
+    return substitute_protocol_fragments(_strip_template_header(raw))
+
+
 def _load_body(skill_name: str) -> str:
     if skill_name == "nauro-adopt":
         return load_adopt_body()
@@ -108,6 +131,8 @@ def _load_body(skill_name: str) -> str:
         return load_ship_task_body()
     if skill_name == "nauro-handoff":
         return load_handoff_body()
+    if skill_name == "nauro-context":
+        return load_context_body()
     raise ValueError(f"unknown skill: {skill_name!r}")
 
 
@@ -138,6 +163,7 @@ __all__ = [
     "SkillName",
     "Surface",
     "load_adopt_body",
+    "load_context_body",
     "load_handoff_body",
     "load_ship_task_body",
     "render_skill",

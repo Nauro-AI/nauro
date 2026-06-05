@@ -8,6 +8,7 @@ from nauro_core.constants import (
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
     L1_DECISIONS_SUMMARY_LIMIT,
+    MAX_BRIEF_BYTES,
     MCP_INSTRUCTIONS,
     MCP_INSTRUCTIONS_STATIC,
     MIN_RATIONALE_LENGTH,
@@ -54,6 +55,14 @@ class TestLimits:
 
     def test_min_rationale_length_positive(self):
         assert MIN_RATIONALE_LENGTH == 20
+
+
+class TestSizeLimits:
+    def test_max_brief_bytes_is_50_kib(self):
+        """The shared-brief cap is pinned at 50 KiB. The sync push-time
+        warn-and-skip gate and the nauro-context skill prose both reference
+        this single value, so a careless change must trip a test."""
+        assert MAX_BRIEF_BYTES == 50 * 1024
 
 
 class TestValidValues:

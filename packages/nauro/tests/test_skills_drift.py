@@ -15,6 +15,7 @@ import pytest
 
 from nauro.skills import (
     load_adopt_body,
+    load_context_body,
     load_handoff_body,
     load_ship_task_body,
     render_skill,
@@ -90,6 +91,32 @@ def test_load_handoff_body_returns_canonical_bytes():
     assert "{{" not in body
 
 
+def test_load_context_body_returns_canonical_bytes():
+    body = load_context_body()
+    # Byte hygiene: exactly one trailing newline (mirrors the handoff guard).
+    assert body.endswith("\n")
+    assert not body.endswith("\n\n")
+    assert 1000 < len(body) < 25000
+    # Load-bearing step headings so a cleanup edit cannot silently drop the
+    # author -> pointer -> find chain.
+    assert "## Step" in body
+    # The three MCP tools the skill composes must all be named in the body.
+    assert "get_context" in body
+    assert "get_raw_file" in body
+    assert "flag_question" in body
+    # Briefs live under context/ and are discovered via a literal BRIEF: pointer
+    # on the union-merged open-questions.md, never a shared index file.
+    assert "context/" in body
+    assert "BRIEF:" in body
+    # Like nauro-handoff, the skill runs in the main-agent context with no
+    # tool-lock, so it must only DRAFT decisions for the user to file -- it
+    # never autonomously commits doctrine. Load-bearing guard for that.
+    assert "propose_decision" not in body
+    # No leaked template syntax.
+    assert "<!--" not in body
+    assert "{{" not in body
+
+
 # --- render_skill produces frontmatter + body ---
 
 
@@ -147,6 +174,24 @@ def test_render_skill_cursor_handoff_frontmatter():
     assert body == load_handoff_body()
 
 
+def test_render_skill_claude_code_context_frontmatter():
+    rendered = render_skill("claude_code", "nauro-context")
+    assert rendered.startswith("---\nname: nauro-context\n")
+    assert "description:" in rendered.split("\n---\n", 1)[0]
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_context_body()
+
+
+def test_render_skill_cursor_context_frontmatter():
+    rendered = render_skill("cursor", "nauro-context")
+    fm = rendered.split("\n---\n", 1)[0]
+    assert "description:" in fm
+    assert "alwaysApply: false" in fm
+    assert "name:" not in fm
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_context_body()
+
+
 def test_render_skill_unknown_surface_raises():
     with pytest.raises(ValueError):
         render_skill("emacs", "nauro-adopt")
@@ -170,6 +215,9 @@ DOGFOOD_FILES = [
     (".claude/skills/nauro-handoff/SKILL.md", "claude_code", "nauro-handoff"),
     (".cursor/rules/nauro-handoff.mdc", "cursor", "nauro-handoff"),
     (".agents/skills/nauro-handoff/SKILL.md", "codex", "nauro-handoff"),
+    (".claude/skills/nauro-context/SKILL.md", "claude_code", "nauro-context"),
+    (".cursor/rules/nauro-context.mdc", "cursor", "nauro-context"),
+    (".agents/skills/nauro-context/SKILL.md", "codex", "nauro-context"),
 ]
 
 

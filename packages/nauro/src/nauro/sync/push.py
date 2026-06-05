@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 
 import typer
+from nauro_core.constants import MAX_BRIEF_BYTES
 
 from nauro.cli.commands.auth import load_access_token
 from nauro.store.registry import is_cloud_project
@@ -94,6 +95,28 @@ def push_changed_files(project_id: str, store_path: Path) -> int:
             continue
         if should_skip(rel) or rel.startswith(".conflict-backup") or rel.startswith("__pycache__"):
             continue
+
+        # Shared briefs (context/*.md) are written via the agent's filesystem
+        # tool + sync, bypassing the MCP write-tool size caps, so the push path
+        # is the only place MAX_BRIEF_BYTES can be enforced. An over-cap brief is
+        # skipped loudly and left on disk (never silently dropped, never recorded
+        # in sync-state) so it keeps warning until trimmed, and so it cannot make
+        # the agent believe it shared context that never propagated. The skip is
+        # per-file: other store files still sync. Scoped to ``.md`` because the
+        # skill writes briefs only as ``<slug>.md``; non-``.md`` content under
+        # ``context/`` falls back to the (uncapped) general store behavior, same
+        # as every other store file — it is not a new storage-bomb surface.
+        if rel.startswith("context/") and rel.endswith(".md"):
+            size = local_file.stat().st_size
+            if size > MAX_BRIEF_BYTES:
+                typer.echo(
+                    f"  Warning: brief {rel} is {size:,} bytes, over the "
+                    f"{MAX_BRIEF_BYTES:,}-byte limit, and was not pushed. "
+                    "It stays on your machine; trim it under the cap and "
+                    "re-sync to share it.",
+                    err=True,
+                )
+                continue
 
         local_sha = compute_sha256(local_file)
         fs = state.files.get(rel)

@@ -37,6 +37,9 @@ from nauro_core.constants import (
     MAX_APPROACH_LENGTH as MAX_APPROACH_LENGTH,
 )
 from nauro_core.constants import (
+    MAX_BRIEF_BYTES as MAX_BRIEF_BYTES,
+)
+from nauro_core.constants import (
     MAX_CONTEXT_LENGTH as MAX_CONTEXT_LENGTH,
 )
 from nauro_core.constants import (

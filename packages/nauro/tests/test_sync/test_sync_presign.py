@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from nauro_core.constants import MAX_BRIEF_BYTES
 
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
@@ -548,6 +549,93 @@ class TestPushViaPresign:
         state = load_state(cloud_store)
         assert state.files["stack.md"].local_sha256 == new_sha
         assert state.files["stack.md"].remote_etag == '"e_pushed"'
+
+    def test_oversize_context_brief_skipped_loudly_and_retained(self, cloud_store, capsys):
+        """An over-cap context/*.md is skipped from the push with a loud
+        warning and left on disk, while other changed files still upload.
+
+        Briefs bypass the MCP write-tool size cap (they are written via fs +
+        sync), so this push-time gate is the only real enforcement of
+        MAX_BRIEF_BYTES. The skip must not block sibling files, must be loud,
+        and must not record the brief in sync-state — otherwise the brief stops
+        re-warning and the agent believes it shared context that never landed.
+        """
+        self._seed_synced_state(cloud_store)
+        ctx = cloud_store / "context"
+        ctx.mkdir()
+        oversize = ctx / "codex-migration-20260605-a1b2.md"
+        oversize.write_text("x" * (MAX_BRIEF_BYTES + 1))
+        in_cap = ctx / "codex-notes-20260605-c3d4.md"
+        in_cap.write_text("a shareable brief\n")
+
+        put_response = MagicMock(spec=httpx.Response)
+        put_response.status_code = 200
+        put_response.headers = {"ETag": '"e_pushed"'}
+
+        def fake_post(url, **kwargs):
+            return self._presign_response(kwargs["json"]["operations"])
+
+        from nauro.sync import remote
+
+        with (
+            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx, "put", return_value=put_response),
+        ):
+            from nauro.cli.commands.sync import _push_to_cloud
+
+            ok = _push_to_cloud(cloud_store.name, cloud_store)
+
+        assert ok is True
+        # The in-cap brief is presigned; the over-cap one is excluded entirely.
+        pushed = {op["path"] for op in mock_post.call_args.kwargs["json"]["operations"]}
+        assert "context/codex-notes-20260605-c3d4.md" in pushed
+        assert "context/codex-migration-20260605-a1b2.md" not in pushed
+
+        # The skip is loud (stderr) and names the offending brief.
+        err = capsys.readouterr().err
+        assert "codex-migration-20260605-a1b2.md" in err
+        assert "not pushed" in err
+
+        # The brief is retained on disk and never recorded in sync-state, so it
+        # re-warns on every subsequent push until the author trims it.
+        assert oversize.is_file()
+        state = load_state(cloud_store)
+        assert "context/codex-migration-20260605-a1b2.md" not in state.files
+        assert "context/codex-notes-20260605-c3d4.md" in state.files
+
+    def test_context_brief_exactly_at_cap_is_pushed(self, cloud_store):
+        """A brief of exactly MAX_BRIEF_BYTES must NOT be skipped — the gate is a
+        strict ``>``, so the at-cap file rides through normally. Pins the
+        fencepost so a future ``>``->``>=`` drift fails loudly here."""
+        self._seed_synced_state(cloud_store)
+        ctx = cloud_store / "context"
+        ctx.mkdir()
+        at_cap = ctx / "codex-edge-20260605-e5f6.md"
+        at_cap.write_bytes(b"x" * MAX_BRIEF_BYTES)
+        assert at_cap.stat().st_size == MAX_BRIEF_BYTES
+
+        put_response = MagicMock(spec=httpx.Response)
+        put_response.status_code = 200
+        put_response.headers = {"ETag": '"e_pushed"'}
+
+        def fake_post(url, **kwargs):
+            return self._presign_response(kwargs["json"]["operations"])
+
+        from nauro.sync import remote
+
+        with (
+            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx, "put", return_value=put_response),
+        ):
+            from nauro.cli.commands.sync import _push_to_cloud
+
+            ok = _push_to_cloud(cloud_store.name, cloud_store)
+
+        assert ok is True
+        pushed = {op["path"] for op in mock_post.call_args.kwargs["json"]["operations"]}
+        assert "context/codex-edge-20260605-e5f6.md" in pushed
+        state = load_state(cloud_store)
+        assert "context/codex-edge-20260605-e5f6.md" in state.files
 
     def test_no_local_changes_no_presign_call(self, cloud_store):
         self._seed_synced_state(cloud_store)
