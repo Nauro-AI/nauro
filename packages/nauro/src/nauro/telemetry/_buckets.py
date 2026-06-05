@@ -20,3 +20,24 @@ def bucket(elapsed: float) -> str:
         if elapsed < threshold:
             return label
     return _LARGEST_BUCKET
+
+
+_BYTE_BUCKETS: tuple[tuple[int, str], ...] = (
+    (10_000, "<10KB"),
+    (100_000, "10-100KB"),
+    (1_000_000, "100KB-1MB"),
+    (10_000_000, "1-10MB"),
+)
+_LARGEST_BYTE_BUCKET = ">10MB"
+
+
+def byte_bucket(size: int) -> str:
+    """Bucket a byte count onto a coarse size axis for `sync.completed`.
+
+    Same coarsening intent as `bucket()`: emit a privacy-preserving magnitude
+    label, never the exact payload size.
+    """
+    for threshold, label in _BYTE_BUCKETS:
+        if size < threshold:
+            return label
+    return _LARGEST_BYTE_BUCKET

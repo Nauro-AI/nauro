@@ -1,6 +1,9 @@
 """Lazy PostHog client singleton.
 
-Project key is read from the NAURO_POSTHOG_KEY env var.
+Project key resolution: the NAURO_POSTHOG_KEY env var wins when set;
+otherwise the baked-in ``_BAKED_PROJECT_KEY`` constant is used, unless it is
+still the self-disabling release placeholder (in which case the key resolves
+to None and telemetry stays off).
 
 No atexit handler and no posthog.shutdown() call: the CLI uses
 sync_mode=True, so each capture() blocks until sent and there is no daemon
@@ -17,6 +20,16 @@ from typing import Any
 POSTHOG_KEY_ENV = "NAURO_POSTHOG_KEY"
 POSTHOG_HOST = "https://us.i.posthog.com"
 
+# Baked-in PostHog project API key, shipped in the published wheel by design.
+# This is an intentionally-public, WRITE-ONLY ingestion key (PostHog phc_ keys
+# can only submit events, never read them) — see PRIVACY.md for the full
+# data-collection contract. The NAURO_POSTHOG_KEY env var still overrides it.
+# Emission stays gated by consent (_should_emit): default-opt-in, set only on
+# an interactive first run, so CI and non-TTY installs never emit regardless of
+# this key. The "phc_REPLACE" guard in _resolve_project_key() is a safety net:
+# if this value is ever reset to a placeholder, telemetry disables cleanly.
+_BAKED_PROJECT_KEY = "phc_oGL7Q29uiGrocGujHP5TvJzmPfJLKoej7BKsQRL5S35J"
+
 _RESERVED_PREFIXES = ("$ip", "$geoip_", "$user_agent")
 
 _client: Any = None
@@ -25,7 +38,11 @@ _client_lock = threading.Lock()
 
 def _resolve_project_key() -> str | None:
     key = os.environ.get(POSTHOG_KEY_ENV)
-    return key or None
+    if key:
+        return key
+    if not _BAKED_PROJECT_KEY or _BAKED_PROJECT_KEY.startswith("phc_REPLACE"):
+        return None
+    return _BAKED_PROJECT_KEY
 
 
 def _strip_reserved(properties: dict[str, Any]) -> dict[str, Any]:
@@ -54,7 +71,8 @@ def _before_send(event: dict[str, Any] | None) -> dict[str, Any] | None:
 def get_client() -> Any | None:
     """Return the singleton PostHog client, initializing it on first call.
 
-    Returns None when NAURO_POSTHOG_KEY is unset — callers must treat that as
+    Returns None when no project key resolves (env var unset and the baked-in
+    key is still the release placeholder) — callers must treat that as
     "telemetry disabled" and no-op.
     """
     global _client
