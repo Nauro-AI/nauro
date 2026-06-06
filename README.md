@@ -14,6 +14,8 @@ pipx install nauro   # or: pip install nauro
 
 Requires Python 3.10+.
 
+https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
+
 ## Quickstart
 
 ```bash
