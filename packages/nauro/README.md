@@ -1,8 +1,8 @@
 # Nauro
 
-Set the doctrine once. Every agent inherits it.
+The decision system for teams and agents.
 
-Your project's doctrine — goals, decisions, rejected paths — is inherited by every connected agent. When an agent proposes an approach that conflicts with a past decision, Nauro catches the drift before it ships. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
+Catch the moment an agent re-proposes something your team already ruled out. Your team's decisions, including what you chose and what you ruled out, travel with every connected agent. When an agent proposes an approach, Nauro surfaces the past decisions related to it, so the agent sees the prior reasoning before it writes code. The check is advisory: it never blocks, and you approve anything that gets recorded. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
 
 ## Install
 
@@ -14,7 +14,7 @@ Requires Python 3.10+.
 
 ## Quickstart
 
-Watch Nauro catch a conflict in 30 seconds — no account, no MCP wiring, no restart:
+Catch a conflict in about 30 seconds. No account, MCP wiring, or restart required:
 
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
@@ -41,17 +41,19 @@ You'll see a JSON envelope with the related decisions and a deterministic assess
 }
 ```
 
-The demo project ruled out WebSocket because persistent connections weren't released during ECS rolling deploys. Without Nauro, any new agent would happily re-propose it.
+The demo project ruled out WebSocket because persistent connections weren't released during ECS rolling deploys. Without Nauro, a fresh agent has no record of that and would re-propose WebSocket.
 
-For real-project setup (`nauro init` / `nauro adopt`), cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme). Don't run `nauro setup` from `/tmp/nauro-demo` — that would wire the throwaway demo into your MCP client.
+For real-project setup (`nauro init` / `nauro adopt`), cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme). Don't run `nauro setup` from `/tmp/nauro-demo`; that would wire the throwaway demo into your MCP client.
 
 `nauro adopt --with-subagents` additionally installs Nauro's bundled Claude Code workflow subagents (`@nauro-planner`, `@nauro-executor`, `@nauro-reviewer`, `@nauro-tech-lead`) into `~/.claude/agents/`. Off by default to avoid overwriting locally-customized files; pass `--force-overwrite` to replace customized files.
 
 ## Why Nauro?
 
-Memory tools record what agents saw and said. Nauro captures what you decided and rejected, then checks every session against those decisions before they drift.
+Nauro is decisional, not observational. It captures what you decided and what you ruled out, with the reasoning. When an agent proposes a change, a keyword search over those decisions surfaces the relevant ones, so the prior reasoning is in front of the agent at proposal time.
 
-The `check_decision` → `propose_decision` flow surfaces conflicts as advisory `similar_decisions` on the same call; you approve before the agent fires `propose_decision`. The kernel commits on Tier 1 clean. Decisions made in Claude Code surface in Perplexity. No platform vendor owns your context.
+No model judges your decisions. The check uses deterministic keyword retrieval (BM25), is advisory, and never blocks a change. You approve every decision before it is recorded.
+
+`check_decision` returns the related prior decisions (the `related_decisions` list shown above) so the agent can weigh them before proposing; Nauro ranks by keyword relevance and does not judge whether they conflict. When you record a choice with `propose_decision`, near-matches surface as advisory `similar_decisions` on the same call, and a clean proposal commits in one call. What you decide in one tool, every connected agent inherits; for example, a decision recorded in Claude Code is available later in Perplexity. The store is plain markdown in a folder you own. Run it fully locally with no account; cloud sync is opt-in.
 
 ## Pricing
 
