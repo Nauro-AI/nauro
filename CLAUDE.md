@@ -7,7 +7,7 @@ Nauro is a versioned project context system for AI coding agents. This is a `uv`
 | `nauro` | `packages/nauro/` | 3.10+ | CLI + local MCP server (stdio). Reads/writes `~/.nauro/projects/` |
 | `nauro-core` | `packages/nauro-core/` | 3.10+ | Shared pure-Python logic: parsing, validation, context assembly, constants. No I/O; compute-only deps. |
 
-Each package has its own `CLAUDE.md`, `pyproject.toml`, and test suite. The remote MCP server (`mcp-server/`) lives in a separate private repository.
+Each package has its own `pyproject.toml` and test suite; `packages/nauro/` also carries a package-level `CLAUDE.md` (nauro-core does not). The remote MCP server (`mcp-server/`) lives in a separate private repository.
 
 ## The one architectural fact that matters
 
@@ -46,8 +46,8 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 
 ## Config and credentials
 
-User config lives at `~/.nauro/config.json` (written by `nauro auth login` and other feature-specific commands; inspect with `nauro config get/list/unset`):
-- `auth.access_token`, `auth.refresh_token`, `auth.sub` → Auth0 bearer for the presign sync endpoints
+User config lives at `~/.nauro/config.json` (written by `nauro auth login` and other feature-specific commands; inspect with `nauro config get/list/unset`, which resolve top-level keys only):
+- `auth` object — credentials from `nauro auth login`, nested under one top-level `auth` key (so inspect with `nauro config get auth`, not a dotted path): `access_token` is the Auth0 bearer sent to the presign sync endpoints; `refresh_token` mints a fresh access token when the bearer expires; `sub` is the raw JWT subject id (identity; the block also persists `sanitized_sub` and `user_id`)
 - Auth0 domain, client ID, API URL, and audience ship as defaults in `cli/commands/auth.py`; env vars (`NAURO_AUTH0_*`, `NAURO_API_URL`) or config keys override (domain + client_id must be set as a pair)
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
 
@@ -60,14 +60,23 @@ User config lives at `~/.nauro/config.json` (written by `nauro auth login` and o
 
 ## CLI commands
 
+Principal commands (run `nauro --help` for the full surface):
+
 - `nauro init <name>` — register a new project in `~/.nauro/`, scaffold the store, associate repo paths
+- `nauro adopt` — adopt an existing repo: register it, wire MCP across surfaces, install the `/nauro-adopt` skill (`--with-skills` / `--with-subagents` add the opt-in skills and bundled subagents)
+- `nauro attach <project_id>` — associate the current repo with an existing cloud project
+- `nauro link` — promote a local-only project to cloud
 - `nauro note <text>` — append a decision (default) or question (if text ends with `?` or `--question` flag)
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
-- `nauro diff-since-last-session [--days N]` — semantic diff against the previous snapshot (or N days back when supplied)
+- `nauro status` — capability table for the current project (active surfaces, absolute store path)
 - `nauro serve` — start the local MCP server (stdio transport)
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
+
+Command groups: `nauro setup <claude-code|cursor|codex|all>`, `nauro auth <login|status|logout>`, `nauro config <get|list|unset>`, `nauro telemetry <status|enable|disable|reset>`, `nauro validate`, `nauro projects`, `nauro questions`, `nauro hook`.
+
+The 10 read/write MCP tools are also mirrored as CLI commands — `nauro check-decision`, `nauro propose-decision`, `nauro get-context`, `nauro diff-since-last-session [--days N]`, … — auto-generated from the tool allowlist in `cli/autogen.py` (underscored tool names become hyphenated commands).
 
 ## MCP tools (11 total in `nauro_core.mcp_tools` — 8 read, 3 write)
 
@@ -148,7 +157,7 @@ packages/nauro-core/
     __init__.py            # public API
     constants.py           # shared constants
     context.py             # context assembly
-    format.py              # formatting utilities
+    decision_model.py      # Decision model + parse/format + protocol regexes
     parsing.py             # markdown/decision parsing
     validation.py          # structural validation
   tests/

@@ -10,11 +10,11 @@ pip install nauro-core
 
 ## What's inside
 
-- **`format`** — compiled regexes and parse/format functions for the Nauro markdown protocol (decision titles, metadata fields, section headers)
+- **`decision_model`** — the Pydantic `Decision` model plus compiled regexes and `parse_decision`/`format_decision` for the Nauro markdown protocol (decision titles, metadata fields, section headers)
 - **`constants`** — limits, thresholds, valid values, file paths shared across all Nauro surfaces
-- **`parsing`** — pure `str → dict` functions: `parse_decision`, `parse_questions`, `extract_stack_summary`, `decisions_summary_lines`
+- **`parsing`** — pure markdown→data helpers: `parse_questions`, `extract_stack_summary`, `decisions_summary_lines` (decision parsing lives in `decision_model.parse_decision`, which returns a validated `Decision`)
 - **`context`** — `build_l0`/`build_l1`/`build_l2` context assembly from pre-loaded files and parsed decisions
-- **`validation`** — structural screening, hash dedup, Jaccard similarity for decision conflict detection
+- **`validation`** — structural screening, hash dedup, BM25 similarity for decision conflict detection
 
 ## Design principles
 
