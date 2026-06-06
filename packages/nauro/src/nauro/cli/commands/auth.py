@@ -15,6 +15,7 @@ import logging
 import os
 import secrets
 import threading
+import time
 import webbrowser
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -46,6 +47,57 @@ class PartialAuthConfigError(Exception):
 
 class AuthRefreshError(Exception):
     """Raised when an Auth0 refresh-token exchange fails."""
+
+
+RATE_LIMITED_MESSAGE = (
+    "Auth0 is rate-limiting logins right now. Wait a few seconds and re-run 'nauro auth login'."
+)
+
+# Honor Retry-After up to this many seconds. A hostile or buggy header could
+# otherwise stall the CLI indefinitely; the ceiling keeps a retry bounded.
+_RETRY_AFTER_CEILING_SECONDS = 10.0
+# Fixed backoff per attempt when Retry-After is absent or unparseable.
+_DEFAULT_BACKOFF_SECONDS = (1.0, 2.0)
+
+
+def _retry_after_seconds(response: httpx.Response, attempt: int) -> float:
+    """Pick a backoff duration for a 429 retry.
+
+    Reads the integer-seconds form of the ``Retry-After`` header using plain
+    string operations and clamps it to a small ceiling. The HTTP-date form is
+    ignored. When the header is absent or unparseable, falls back to a short
+    per-attempt default.
+    """
+    value = response.headers.get("Retry-After")
+    if isinstance(value, str):
+        seconds = value.strip()
+        # ``str.isdigit`` accepts non-ASCII digit characters (e.g. superscript
+        # "²") that ``int`` then rejects, so gate on ASCII first.
+        if seconds.isascii() and seconds.isdigit():
+            return min(float(int(seconds)), _RETRY_AFTER_CEILING_SECONDS)
+    index = min(attempt - 1, len(_DEFAULT_BACKOFF_SECONDS) - 1)
+    return _DEFAULT_BACKOFF_SECONDS[index]
+
+
+def _post_with_429_retry(
+    make_request: Callable[[], httpx.Response], *, max_attempts: int = 3
+) -> httpx.Response:
+    """Run ``make_request`` and retry with backoff on HTTP 429.
+
+    ``make_request`` is a zero-arg callable returning an ``httpx.Response``;
+    each caller closes over its own URL, body, and timeout. Any non-429
+    response is returned immediately. On a 429 with attempts remaining, sleep
+    for the backoff interval and retry. A 429 on the final attempt is returned
+    as-is so the caller can render its own guidance — this helper never raises
+    and never emits user-facing messaging.
+    """
+    response = make_request()
+    for attempt in range(1, max_attempts):
+        if response.status_code != 429:
+            return response
+        time.sleep(_retry_after_seconds(response, attempt))
+        response = make_request()
+    return response
 
 
 def _resolve_auth_config(
@@ -123,17 +175,22 @@ def refresh_access_token() -> str:
         raise AuthRefreshError(str(exc)) from exc
 
     try:
-        response = httpx.post(
-            f"https://{domain}/oauth/token",
-            json={
-                "grant_type": "refresh_token",
-                "client_id": client_id,
-                "refresh_token": refresh_token,
-            },
-            timeout=15.0,
+        response = _post_with_429_retry(
+            lambda: httpx.post(
+                f"https://{domain}/oauth/token",
+                json={
+                    "grant_type": "refresh_token",
+                    "client_id": client_id,
+                    "refresh_token": refresh_token,
+                },
+                timeout=15.0,
+            )
         )
     except httpx.HTTPError as exc:
         raise AuthRefreshError(f"Network error contacting Auth0: {exc}") from exc
+
+    if response.status_code == 429:
+        raise AuthRefreshError(RATE_LIMITED_MESSAGE)
 
     if response.status_code != 200:
         try:
@@ -312,16 +369,22 @@ def login() -> None:
 
     # Exchange code for tokens
     try:
-        token_resp = httpx.post(
-            f"https://{domain}/oauth/token",
-            json={
-                "grant_type": "authorization_code",
-                "client_id": client_id,
-                "code": auth_code,
-                "redirect_uri": REDIRECT_URI,
-                "code_verifier": code_verifier,
-            },
+        token_resp = _post_with_429_retry(
+            lambda: httpx.post(
+                f"https://{domain}/oauth/token",
+                json={
+                    "grant_type": "authorization_code",
+                    "client_id": client_id,
+                    "code": auth_code,
+                    "redirect_uri": REDIRECT_URI,
+                    "code_verifier": code_verifier,
+                },
+                timeout=15.0,
+            )
         )
+        if token_resp.status_code == 429:
+            typer.echo(RATE_LIMITED_MESSAGE, err=True)
+            raise typer.Exit(code=1)
         token_resp.raise_for_status()
     except httpx.HTTPError as exc:
         typer.echo(f"Token exchange failed: {exc}", err=True)
