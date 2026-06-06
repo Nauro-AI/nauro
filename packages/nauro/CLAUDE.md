@@ -33,15 +33,23 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 
 ## CLI commands
 
+Principal commands (run `nauro --help` for the full surface):
+
 - `nauro init <name>` — register a new project in `~/.nauro/`, scaffold the store, associate repo paths
+- `nauro adopt` — adopt an existing repo: register it, wire MCP across surfaces, install the `/nauro-adopt` skill (`--with-skills` adds the opt-in skills; `--with-subagents` adds the bundled subagents)
+- `nauro attach <project_id>` — associate the current repo with an existing cloud project
+- `nauro link` — promote a local-only project to cloud
 - `nauro note <text>` — append a decision (default) or question (if text ends with `?` or `--question` flag)
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
-- `nauro diff-since-last-session [--days N]` — semantic diff against the previous snapshot (or N days back when supplied)
-- `nauro propose-decision <title> <rationale> [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` — record a decision (single-call commit on Tier 1 clean; Tier 2 BM25 hits surface as advisory `similar_decisions` on the same response)
+- `nauro status` — capability table for the current project (active surfaces, absolute store path)
 - `nauro serve` — start the local MCP server (stdio transport)
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
+
+Command groups: `setup <claude-code|cursor|codex|all>`, `auth <login|status|logout>`, `config <get|list|unset>`, `telemetry <status|enable|disable|reset>`, `validate`, `projects`, `questions`, `hook`.
+
+The 10 read/write MCP tools are also mirrored as CLI commands, auto-generated from the tool allowlist in `cli/autogen.py` (underscored tool names become hyphenated commands). For example: `nauro check-decision`, `nauro diff-since-last-session [--days N]`, and `nauro propose-decision <title> <rationale> [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` (single-call commit on Tier 1 clean; Tier 2 BM25 hits surface as advisory `similar_decisions` on the same response).
 
 `list[str]` flags (`--files-affected`, `--resolves-questions`) repeat: `--files-affected a.py --files-affected b.py`. `list[dict]` flags (`--rejected`) take a single JSON value: inline (`'[{...}]'`), `@file.json`, or `-` to read from stdin.
 

@@ -11,8 +11,10 @@ nauro adopt --name <your-project-name>
 ```
 
 That registers the project, wires MCP across surfaces, and installs the
-session + adopt skills. Once that has run, you can use the prompt below from
-any connected chat surface to seed the project's store with context.
+`nauro-adopt` skill. (The session skills — `nauro-handoff` and `nauro-context`
+— plus `nauro-ship-task` are opt-in via `nauro adopt --with-skills`.) Once that
+has run, you can use the prompt below from any connected chat surface to seed
+the project's store with context.
 
 If you have `nauro` installed locally, `nauro adopt --print-prompt` outputs
 this same body to stdout (without the intro paragraph above).
