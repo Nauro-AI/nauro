@@ -823,3 +823,38 @@ def test_sync_no_project(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["sync"])
     assert result.exit_code == 1
     assert "No project found" in result.output
+
+
+# --- FilesystemStore path containment ---
+
+
+def test_filesystem_store_write_file_rejects_traversal(tmp_path):
+    """write_file fails loud on a traversal path rather than writing outside the
+    store. Silently dropping or redirecting a write would corrupt the store, so
+    an out-of-store path is an error, not a no-op."""
+    store_root = tmp_path / "store"
+    outside = tmp_path / "outside.md"
+    with pytest.raises(ValueError):
+        FilesystemStore(store_root).write_file("../outside.md", "pwned")
+    assert not outside.exists()
+
+
+def test_filesystem_store_delete_file_ignores_traversal(tmp_path):
+    """delete_file never reaches outside the store; a traversal path is a no-op
+    that leaves the sibling file intact."""
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    victim = tmp_path / "victim.md"
+    victim.write_text("keep me")
+    FilesystemStore(store_root).delete_file("../victim.md")
+    assert victim.read_text() == "keep me"
+
+
+def test_filesystem_store_read_file_returns_none_on_traversal(tmp_path):
+    """read_file treats an out-of-store path as absent rather than disclosing a
+    file outside the project store."""
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    secret = tmp_path / "secret.md"
+    secret.write_text("top secret")
+    assert FilesystemStore(store_root).read_file("../secret.md") is None

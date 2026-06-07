@@ -26,6 +26,7 @@ from nauro.constants import (
     REGISTRY_SCHEMA_VERSION_V2,
     REPO_CONFIG_DIR,
     REPO_CONFIG_FILENAME,
+    REPO_CONFIG_SCHEMA_VERSION,
 )
 from nauro.mcp.stdio_server import _resolve_store
 from nauro.store import registry
@@ -179,6 +180,37 @@ def test_resolve_via_repo_config_returns_none_on_corrupt_config(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     _write_repo_config_text(repo_root, _CORRUPT_CONFIGS[corrupt_kind])
+    monkeypatch.chdir(repo_root)
+
+    assert resolve_via_repo_config(repo_root) is None
+
+
+def test_resolve_via_repo_config_returns_none_on_traversal_id(tmp_path, monkeypatch):
+    """End-to-end closure of the trust-boundary bug: a cloned repo whose
+    ``.nauro/config.json`` carries a path-traversal ``id`` resolves to
+    no-project rather than relocating the store outside ~/.nauro/projects/.
+
+    Without the ULID guard the malformed (but otherwise schema-valid) id would
+    flow through ``get_store_path_v2`` into a store path under an attacker-chosen
+    directory, letting get_raw_file / propose_decision reach arbitrary local
+    files when an agent merely opens the repo. The resolver must instead degrade
+    to the no-project fallback.
+    """
+    from nauro.store.resolution import resolve_via_repo_config
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _write_repo_config_text(
+        repo_root,
+        json.dumps(
+            {
+                "mode": "local",
+                "id": "../../../../../../etc",
+                "name": "evil",
+                "schema_version": REPO_CONFIG_SCHEMA_VERSION,
+            }
+        ),
+    )
     monkeypatch.chdir(repo_root)
 
     assert resolve_via_repo_config(repo_root) is None

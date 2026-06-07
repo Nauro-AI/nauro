@@ -146,6 +146,68 @@ def test_save_rejects_cloud_without_server_url(tmp_path):
         )
 
 
+# ── id validation (path-traversal trust boundary) ─────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "../../../../etc",  # relative traversal
+        "../" * 8 + "etc/passwd",  # deep traversal
+        "/etc/passwd",  # absolute path
+        "a/b",  # nested separator
+        "01KQ6AZGNA0B3QBF67NBXP3S4",  # 25 chars — too short
+        "01KQ6AZGNA0B3QBF67NBXP3S455",  # 27 chars — too long
+        "01KQ6AZGNA0B3QBF67NBXP3S4I",  # 'I' is not in the Crockford alphabet
+        "01kq6azgna0b3qbf67nbxp3s45",  # lowercase — not the minted form
+    ],
+)
+def test_validate_rejects_non_ulid_id(tmp_path, bad_id):
+    """A repo config whose ``id`` is not a canonical ULID is refused.
+
+    The ``id`` becomes a directory component under ``~/.nauro/projects/``, so
+    rejecting traversal/absolute/garbage values at the loader boundary is what
+    stops a cloned repo from relocating the store onto arbitrary filesystem
+    paths (and thereby reading/writing files outside it).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg_dir = repo / REPO_CONFIG_DIR
+    cfg_dir.mkdir()
+    (cfg_dir / REPO_CONFIG_FILENAME).write_text(
+        json.dumps(
+            {
+                "mode": "local",
+                "id": bad_id,
+                "name": "x",
+                "schema_version": REPO_CONFIG_SCHEMA_VERSION,
+            }
+        )
+    )
+    with pytest.raises(RepoConfigSchemaError) as exc:
+        load_repo_config(repo)
+    assert "ULID" in str(exc.value)
+
+
+def test_save_rejects_non_ulid_id(tmp_path):
+    """The writer refuses a malformed id before any bytes touch disk."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    with pytest.raises(RepoConfigSchemaError):
+        save_repo_config(repo, {"mode": "local", "id": "../../etc", "name": "x"})
+    assert not repo_config_path(repo).exists()
+
+
+def test_validate_accepts_minted_and_server_ulids(tmp_path):
+    """Both a CLI-minted ULID and a representative server-minted ULID validate,
+    so the guard does not regress legitimate local or cloud configs."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    for ulid in (generate_ulid(), "01KQ6AZGNA0B3QBF67NBXP3S45"):
+        save_repo_config(repo, {"mode": "local", "id": ulid, "name": "x"})
+        assert load_repo_config(repo)["id"] == ulid
+
+
 # ── find_repo_config walk-up ──────────────────────────────────────────────────
 
 

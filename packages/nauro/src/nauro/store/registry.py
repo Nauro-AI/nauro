@@ -365,8 +365,26 @@ def _validate_project_name(name: str) -> str:
 
 
 def get_store_path_v2(project_id: str) -> Path:
-    """Return the id-keyed store directory for a v2 project."""
-    return _projects_dir() / project_id
+    """Return the id-keyed store directory for a v2 project.
+
+    Defense-in-depth: ``project_id`` becomes a path component under the
+    projects directory, so a value containing ``..`` or an absolute path could
+    relocate the store outside ``~/.nauro/projects/``. The primary guard is
+    ULID validation at the config trust boundary (``repo_config._validate``);
+    this containment check ensures no caller — present or future, including
+    ``nauro attach <project_id>`` taking the id straight from argv — can escape
+    the projects root. It rejects only escapes, not the full ULID alphabet, so
+    contained non-canonical ids (e.g. test fixtures) are left alone.
+    """
+    projects_root = _projects_dir()
+    store_path = projects_root / project_id
+    try:
+        store_path.resolve().relative_to(projects_root.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"Refusing project_id {project_id!r}: resolves outside the project store."
+        ) from exc
+    return store_path
 
 
 def _load_registry_v2_or_empty() -> dict:
