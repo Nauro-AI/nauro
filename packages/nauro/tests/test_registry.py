@@ -370,3 +370,32 @@ def test_load_registry_v2_non_dict_returns_empty(tmp_path, monkeypatch):
     (tmp_path / "registry.json").write_text("[]")
     data = registry.load_registry_v2()
     assert data == {"projects": {}, "schema_version": 2}
+
+
+# --- get_store_path_v2 containment (defense-in-depth) ---
+
+
+def test_get_store_path_v2_accepts_valid_ulid(tmp_path, monkeypatch):
+    """A canonical ULID maps to the id-keyed directory under the projects dir."""
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    assert registry.get_store_path_v2(pid) == registry._projects_dir() / pid
+
+
+@pytest.mark.parametrize("evil", ["../../../../etc", "../escape", "/etc"])
+def test_get_store_path_v2_rejects_escape(tmp_path, monkeypatch, evil):
+    """A project_id that resolves outside the projects dir is refused.
+
+    ULID validation at the config boundary is the primary guard; this is the
+    second layer that protects callers taking an id straight from argv (e.g.
+    ``nauro attach <project_id>``) from escaping ~/.nauro/projects/.
+    """
+    with pytest.raises(ValueError, match="outside the project store"):
+        registry.get_store_path_v2(evil)
+
+
+def test_get_store_path_v2_allows_contained_non_canonical_id(tmp_path, monkeypatch):
+    """Containment-only: a contained id that is not a canonical ULID (legacy /
+    test-fixture ids) is still returned. This guard rejects escapes, not the
+    full ULID alphabet — keeping it from breaking non-escaping callers."""
+    pid = "01TESTPROJECT00000000000"
+    assert registry.get_store_path_v2(pid) == registry._projects_dir() / pid

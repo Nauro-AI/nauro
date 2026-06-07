@@ -34,6 +34,20 @@ logger = logging.getLogger("nauro.repo_config")
 
 _VALID_MODES = (REPO_CONFIG_MODE_LOCAL, REPO_CONFIG_MODE_CLOUD)
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+_ULID_LEN = 26
+
+
+def _is_valid_ulid(value: str) -> bool:
+    """True when ``value`` is a 26-char Crockford-base32 ULID.
+
+    Mirrors the alphabet and length produced by :func:`generate_ulid` and by
+    the server when it mints cloud project ids. This is a trust-boundary check:
+    the ``id`` from an untrusted ``.nauro/config.json`` becomes a path component
+    under ``~/.nauro/projects/``, so a value carrying ``..``, path separators,
+    or an absolute path could relocate the store root. Constraining ``id`` to
+    the ULID alphabet rejects all of those before they reach the filesystem.
+    """
+    return len(value) == _ULID_LEN and all(ch in _CROCKFORD for ch in value)
 
 
 class RepoConfigSchemaError(Exception):
@@ -79,6 +93,12 @@ def _validate(data: dict) -> None:
 
     if not isinstance(data.get("id"), str) or not data["id"]:
         raise RepoConfigSchemaError("Repo config is missing required field 'id'.")
+    if not _is_valid_ulid(data["id"]):
+        raise RepoConfigSchemaError(
+            f"Repo config 'id' {data['id']!r} is not a valid ULID "
+            f"({_ULID_LEN} Crockford-base32 chars). The id names a directory under "
+            "the project store; a malformed value is refused so it cannot escape it."
+        )
     if not isinstance(data.get("name"), str) or not data["name"]:
         raise RepoConfigSchemaError("Repo config is missing required field 'name'.")
 

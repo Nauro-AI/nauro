@@ -26,10 +26,22 @@ class FilesystemStore:
     def __init__(self, store_path: Path) -> None:
         self._store_path = store_path
 
-    def read_file(self, path: str) -> str | None:
+    def _resolve_within(self, path: str) -> Path:
+        """Resolve ``path`` against the store root, refusing any escape.
+
+        Returns the resolved target when it stays inside ``store_path``; raises
+        ``ValueError`` when ``path`` carries ``..`` segments or an absolute path
+        that would land outside the project store. Shared by every file op so
+        the containment invariant is enforced uniformly rather than only on
+        reads.
+        """
         target = (self._store_path / path).resolve()
+        target.relative_to(self._store_path.resolve())  # raises ValueError on escape
+        return target
+
+    def read_file(self, path: str) -> str | None:
         try:
-            target.relative_to(self._store_path.resolve())
+            target = self._resolve_within(path)
         except ValueError:
             return None
         if not target.exists() or not target.is_file():
@@ -41,14 +53,19 @@ class FilesystemStore:
     # the same num because they raced between list/write) are caught and
     # repaired on the next sync-pull.
     def write_file(self, path: str, content: str) -> None:
-        target = self._store_path / path
+        # Fail loud on an out-of-store path: silently dropping or redirecting a
+        # write would corrupt the store, so a traversal path is an error.
+        target = self._resolve_within(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         lock = target.with_name(target.name + ".lock")
         with FileLock(str(lock)):
             target.write_text(content)
 
     def delete_file(self, path: str) -> None:
-        target = self._store_path / path
+        try:
+            target = self._resolve_within(path)
+        except ValueError:
+            return
         if not target.exists():
             return
         target.unlink()
