@@ -37,11 +37,14 @@ def _seed_auth(refresh_token: str = "refresh_orig", access_token: str = "access_
     )
 
 
-def _mock_post(status_code: int = 200, payload: dict | None = None):
+def _mock_post(status_code: int = 200, payload: dict | None = None, headers: dict | None = None):
     response = MagicMock(spec=httpx.Response)
     response.status_code = status_code
     response.json.return_value = payload or {}
     response.text = str(payload or "")
+    # spec=httpx.Response does not expose ``headers`` as a mock attribute, so
+    # the 429 backoff path needs a real mapping to read Retry-After from.
+    response.headers = headers or {}
     return response
 
 
@@ -130,6 +133,100 @@ class TestRefreshAccessToken:
 
         with pytest.raises(AuthRefreshError, match="No refresh token"):
             refresh_access_token()
+
+
+# --- refresh_access_token 429 backoff ---
+
+
+class TestRefreshRateLimitBackoff:
+    def test_429_then_200_retries_and_succeeds(self):
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        rate_limited = _mock_post(429, {"error": "too_many_requests"})
+        ok = _mock_post(200, {"access_token": "access_new"})
+        post = MagicMock(side_effect=[rate_limited, ok])
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", post),
+            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+        ):
+            new_token = refresh_access_token()
+
+        assert new_token == "access_new"
+        assert load_config()["auth"]["access_token"] == "access_new"
+        assert post.call_count == 2
+        assert sleep.call_count == 1
+
+    def test_429_exhausted_raises_and_preserves_tokens(self):
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        rate_limited = _mock_post(429, {"error": "too_many_requests"})
+        post = MagicMock(return_value=rate_limited)
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", post),
+            patch("nauro.cli.commands.auth.time.sleep"),
+            pytest.raises(AuthRefreshError, match="rate-limiting"),
+        ):
+            refresh_access_token()
+
+        assert post.call_count == 3
+        auth = load_config()["auth"]
+        assert auth["access_token"] == "access_orig"
+        assert auth["refresh_token"] == "refresh_orig"
+
+    def test_non_429_failure_does_not_retry_or_sleep(self):
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        bad = _mock_post(
+            400,
+            {"error": "invalid_grant", "error_description": "refresh token expired"},
+        )
+        post = MagicMock(return_value=bad)
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", post),
+            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+            pytest.raises(AuthRefreshError),
+        ):
+            refresh_access_token()
+
+        assert post.call_count == 1
+        sleep.assert_not_called()
+
+    def test_retry_after_header_honored(self):
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        rate_limited = _mock_post(429, {"error": "too_many_requests"}, headers={"Retry-After": "2"})
+        ok = _mock_post(200, {"access_token": "access_new"})
+        post = MagicMock(side_effect=[rate_limited, ok])
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", post),
+            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+        ):
+            refresh_access_token()
+
+        sleep.assert_called_once_with(2.0)
+
+    def test_retry_after_unicode_digit_falls_back_without_raising(self):
+        # "²" is a Unicode digit that str.isdigit accepts but int rejects;
+        # the header parse must fall back to the default backoff, not crash.
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        rate_limited = _mock_post(429, {"error": "too_many_requests"}, headers={"Retry-After": "²"})
+        ok = _mock_post(200, {"access_token": "access_new"})
+        post = MagicMock(side_effect=[rate_limited, ok])
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", post),
+            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+        ):
+            new_token = refresh_access_token()
+
+        assert new_token == "access_new"
+        assert post.call_count == 2
+        sleep.assert_called_once_with(1.0)
 
 
 # --- with_token_refresh ---

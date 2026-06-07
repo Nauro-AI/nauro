@@ -4,6 +4,7 @@ import base64
 import json
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from nauro_core import sanitize_sub
 from typer.testing import CliRunner
@@ -245,8 +246,6 @@ class TestAuthLogin:
         def fake_server_close(self):
             pass
 
-        import httpx
-
         with (
             patch("nauro.cli.commands.auth.httpx.post", side_effect=fake_post),
             patch("nauro.cli.commands.auth.webbrowser.open"),
@@ -270,6 +269,153 @@ class TestAuthLogin:
 
         assert result.exit_code == 1
         assert "Token exchange failed" in result.output
+
+    def test_login_429_then_success(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("NAURO_API_URL", "https://test.api.example.com")
+
+        fake_token = _make_jwt({"sub": "auth0|user123"})
+
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.headers = {}
+
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.headers = {}
+        ok.json.return_value = {
+            "access_token": fake_token,
+            "refresh_token": "refresh_xyz",
+            "token_type": "Bearer",
+        }
+        ok.raise_for_status = MagicMock()
+
+        post = MagicMock(side_effect=[rate_limited, ok])
+
+        def fake_server_init(self, addr, handler_class):
+            pass
+
+        def fake_handle_request(self):
+            _simulate_callback_success()
+
+        def fake_server_close(self):
+            pass
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", post),
+            patch("nauro.cli.commands.auth.time.sleep"),
+            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "__init__",
+                fake_server_init,
+            ),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "handle_request",
+                fake_handle_request,
+            ),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "server_close",
+                fake_server_close,
+            ),
+        ):
+            result = runner.invoke(app, ["auth", "login"])
+
+        assert result.exit_code == 0
+        assert post.call_count == 2
+        config = load_config()
+        assert config["auth"]["sub"] == "auth0|user123"
+        assert config["auth"]["access_token"] == fake_token
+
+    def test_login_429_exhausted(self, tmp_path, monkeypatch):
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.headers = {}
+        post = MagicMock(return_value=rate_limited)
+
+        def fake_server_init(self, addr, handler_class):
+            pass
+
+        def fake_handle_request(self):
+            _simulate_callback_success()
+
+        def fake_server_close(self):
+            pass
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", post),
+            patch("nauro.cli.commands.auth.time.sleep"),
+            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "__init__",
+                fake_server_init,
+            ),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "handle_request",
+                fake_handle_request,
+            ),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "server_close",
+                fake_server_close,
+            ),
+        ):
+            result = runner.invoke(app, ["auth", "login"])
+
+        assert result.exit_code == 1
+        assert "rate-limiting" in result.output
+        assert post.call_count == 3
+
+    def test_login_non_429_failure_does_not_retry(self, tmp_path, monkeypatch):
+        bad = MagicMock()
+        bad.status_code = 400
+        bad.headers = {}
+        bad.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError(
+                "400 Bad Request",
+                request=MagicMock(),
+                response=MagicMock(status_code=400),
+            )
+        )
+        post = MagicMock(return_value=bad)
+
+        def fake_server_init(self, addr, handler_class):
+            pass
+
+        def fake_handle_request(self):
+            _simulate_callback_success()
+
+        def fake_server_close(self):
+            pass
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", post),
+            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "__init__",
+                fake_server_init,
+            ),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "handle_request",
+                fake_handle_request,
+            ),
+            patch.object(
+                __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
+                "server_close",
+                fake_server_close,
+            ),
+        ):
+            result = runner.invoke(app, ["auth", "login"])
+
+        assert result.exit_code == 1
+        assert post.call_count == 1
+        sleep.assert_not_called()
 
 
 # --- auth status ---
