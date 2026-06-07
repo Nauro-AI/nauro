@@ -22,6 +22,7 @@ from nauro.constants import (
     NAURO_TELEMETRY_ENV,
 )
 from nauro.store._atomic import atomic_write_text
+from nauro.store.registry import _ensure_nauro_home
 
 logger = logging.getLogger("nauro.config")
 
@@ -43,7 +44,7 @@ def _config_lock():
     must never open a ``config_transaction`` inside another, or it deadlocks.
     """
     lock_path = _config_file().with_suffix(".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_nauro_home()  # lock_path.parent is the home dir; create it owner-only
     with FileLock(str(lock_path)):
         yield
 

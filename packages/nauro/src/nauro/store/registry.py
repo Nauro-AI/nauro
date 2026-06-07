@@ -53,7 +53,7 @@ class RegistrySchemaError(Exception):
 def _registry_lock():
     """Exclusive file lock on registry.json for atomic read-modify-write."""
     lock_path = _registry_file().with_suffix(".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_nauro_home()  # lock_path.parent is the home dir; create it owner-only
     with FileLock(lock_path):
         yield
 
@@ -68,6 +68,28 @@ def _registry_file() -> Path:
 
 def _projects_dir() -> Path:
     return _nauro_home() / PROJECTS_DIR
+
+
+def _ensure_nauro_home() -> Path:
+    """Create the Nauro home dir (``~/.nauro`` or ``$NAURO_HOME``) owner-only.
+
+    The home holds the auth token (``config.json``) and the full project store,
+    so it must not be group/other-accessible. New installs are created at
+    ``0o700``; a home created at the umask default by an older build is tightened
+    in place. Deeper paths are created under the returned home with
+    ``parents=True`` after this call, so the home never transits a wider mode.
+    """
+    home = _nauro_home()
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        if (home.stat().st_mode & 0o077) != 0:
+            home.chmod(0o700)
+    except OSError as exc:
+        # Best-effort tightening of a pre-existing wide dir; a real failure
+        # surfaces at the FileLock that follows. Log for diagnosis on locked-down
+        # hosts rather than masking it entirely.
+        logger.debug("Could not tighten %s to 0o700: %s", home, exc)
+    return home
 
 
 def load_registry() -> dict:

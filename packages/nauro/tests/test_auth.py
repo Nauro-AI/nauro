@@ -99,6 +99,16 @@ def _simulate_callback_error(error: str = "access_denied"):
     _CallbackHandler.error = error
 
 
+def test_callback_page_escapes_reflected_message():
+    """The loopback callback page escapes its message so an Auth0-supplied
+    error_description reflected from the redirect cannot inject markup."""
+    from nauro.cli.commands.auth import _callback_page
+
+    page = _callback_page("<script>alert(1)</script>")
+    assert "<script>" not in page
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+
+
 class TestAuthLogin:
     def test_login_success(self, tmp_path, monkeypatch):
         monkeypatch.setenv("NAURO_API_URL", "https://test.api.example.com")

@@ -399,3 +399,27 @@ def test_get_store_path_v2_allows_contained_non_canonical_id(tmp_path, monkeypat
     full ULID alphabet — keeping it from breaking non-escaping callers."""
     pid = "01TESTPROJECT00000000000"
     assert registry.get_store_path_v2(pid) == registry._projects_dir() / pid
+
+
+# --- nauro home directory permissions ---
+
+
+def test_ensure_nauro_home_creates_owner_only(tmp_path, monkeypatch):
+    """A fresh Nauro home is created at 0o700 so the token and store are not
+    readable by other accounts on a shared host."""
+    home = tmp_path / "fresh_home"
+    monkeypatch.setenv("NAURO_HOME", str(home))
+    created = registry._ensure_nauro_home()
+    assert created == home
+    assert oct(home.stat().st_mode & 0o777) == "0o700"
+
+
+def test_ensure_nauro_home_tightens_existing_wide_dir(tmp_path, monkeypatch):
+    """A home left group/other-accessible by an older build is tightened to
+    owner-only in place."""
+    home = tmp_path / "wide_home"
+    home.mkdir()
+    home.chmod(0o755)
+    monkeypatch.setenv("NAURO_HOME", str(home))
+    registry._ensure_nauro_home()
+    assert (home.stat().st_mode & 0o077) == 0
