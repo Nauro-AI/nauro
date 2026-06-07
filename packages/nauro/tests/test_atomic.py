@@ -48,3 +48,27 @@ def test_target_untouched_when_replace_fails(tmp_path, monkeypatch):
     with pytest.raises(OSError, match="replace failed"):
         atomic_write_text(p, "new\n")
     assert not p.exists()
+
+
+def test_sensitive_write_ignores_predictable_tmp_symlink(tmp_path):
+    """A symlink pre-planted at the old predictable ``<name>.tmp`` path must not
+    redirect a mode-restricted write. The symlink target stays untouched and the
+    real file is written owner-only via an unguessable temp name."""
+    target = tmp_path / "config.json"
+    outside = tmp_path / "outside.txt"
+    outside.write_text("original")
+    target.with_suffix(".tmp").symlink_to(outside)
+
+    atomic_write_text(target, "secret\n", mode=0o600)
+
+    assert outside.read_text() == "original"  # not clobbered through the symlink
+    assert target.read_text() == "secret\n"
+    assert oct(target.stat().st_mode & 0o777) == "0o600"
+
+
+def test_sensitive_write_leaves_no_tmp_behind(tmp_path):
+    """A successful mode-restricted write leaves only the target — the random
+    temp sibling is renamed over it, not left in the directory."""
+    target = tmp_path / "config.json"
+    atomic_write_text(target, "x\n", mode=0o600)
+    assert [p.name for p in tmp_path.iterdir()] == ["config.json"]

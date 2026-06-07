@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import hashlib
+import html
 import json
 import logging
 import os
@@ -268,6 +269,16 @@ def _generate_pkce() -> tuple[str, str]:
     return code_verifier, code_challenge
 
 
+def _callback_page(message: str) -> str:
+    """Render the loopback callback page, escaping the message.
+
+    ``message`` can carry an Auth0-supplied ``error_description`` reflected from
+    the redirect query, so it is HTML-escaped to keep an attacker-influenced
+    error string from injecting markup into the page the browser renders.
+    """
+    return f"<html><body><h2>{html.escape(message)}</h2></body></html>"
+
+
 class _CallbackHandler(BaseHTTPRequestHandler):
     """HTTP handler that captures the OAuth callback code."""
 
@@ -292,8 +303,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.end_headers()
-        html = f"<html><body><h2>{message}</h2></body></html>"
-        self.wfile.write(html.encode())
+        self.wfile.write(_callback_page(message).encode())
 
     def log_message(self, format, *args):
         """Suppress default stderr logging."""
