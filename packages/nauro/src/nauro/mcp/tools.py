@@ -103,7 +103,7 @@ def _stamp_identity(func: Callable[..., Any]) -> Callable[..., Any]:
 
     Stacks under ``@mcp_tool`` so every return path — success, rejection, and
     store-missing error — carries the resolved project name + id alongside the
-    ``store`` field (D061's store indicator, extended to project identity).
+    ``store`` field (the local-store indicator, extended to also carry project identity).
     Local surface only; the remote mcp-server envelope is unchanged.
     """
 

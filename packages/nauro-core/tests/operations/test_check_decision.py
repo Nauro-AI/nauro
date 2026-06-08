@@ -78,7 +78,7 @@ def test_unrelated_proposal_returns_no_related_decisions() -> None:
 
 
 def test_related_decision_canonical_id_and_status_enrichment() -> None:
-    """Hits expose D141 canonical fields populated from the parsed decision."""
+    """Hits expose canonical id, status, and date fields from the parsed decision."""
     store = _store_with(
         _seed_decision(
             42,

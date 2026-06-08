@@ -261,8 +261,8 @@ def adopt(
         # skills, route to the materialize step for the existing adoption rather
         # than dead-ending — those flags are otherwise unreachable on `adopt`
         # once a repo is adopted, and `adopt` is the command users reach for
-        # first. Registration and config.json are left untouched, so D128's
-        # "every adoption writes config.json" invariant is unaffected.
+        # first. Registration and config.json are left untouched, so the
+        # invariant that every adoption writes config.json is unaffected.
         if with_subagents or with_skills or force_overwrite:
             _install_into_adopted_repo(
                 repo_root,

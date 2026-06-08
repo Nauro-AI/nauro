@@ -598,7 +598,7 @@ def materialize_skills_cursor_for_repo(
 # Subagents are rendered from canonical bodies in nauro.agents and written into
 # the user's surface directories. On Claude Code, that's ``~/.claude/agents/``.
 # Unlike skills, agents are namespaced (``nauro-*``) and opt-in. The
-# ``nauro-`` namespace is bundle-owned (D177): on install, the current bundle
+# ``nauro-`` namespace is bundle-owned: on install, the current bundle
 # wins, so a published body change (e.g. dropping a removed MCP tool) actually
 # reaches users who installed an earlier version. A pre-existing
 # ``nauro-<name>.md`` that differs from the bundle is refreshed; its prior
