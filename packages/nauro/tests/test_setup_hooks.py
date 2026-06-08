@@ -14,8 +14,8 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from nauro.cli.commands.setup import (
-    HOOK_COMMAND,
     HOOK_EVENT_NAME,
+    HOOK_SUBCOMMAND,
     HOOK_TIMEOUT_SECONDS,
     materialize_hooks_claude_code,
     setup_all_surfaces,
@@ -35,7 +35,7 @@ def _nauro_entries(settings: dict) -> list[dict]:
     out = []
     for matcher in settings.get("hooks", {}).get(HOOK_EVENT_NAME, []):
         for entry in matcher.get("hooks", []):
-            if isinstance(entry, dict) and "nauro hook" in entry.get("command", ""):
+            if isinstance(entry, dict) and HOOK_SUBCOMMAND in entry.get("command", ""):
                 out.append(entry)
     return out
 
@@ -63,11 +63,14 @@ def test_materialize_writes_correct_structure(tmp_path: Path):
     assert len(entries) == 1
     entry = entries[0]
     assert entry["type"] == "command"
-    assert entry["command"] == HOOK_COMMAND
+    # Command is the resolved nauro path + the hook subcommand, so it fires even
+    # when nauro is off the agent's launch PATH. It still carries the "nauro hook"
+    # marker the remove path matches on.
+    assert entry["command"].endswith(HOOK_SUBCOMMAND)
+    assert "nauro hook" in entry["command"]
     assert entry["timeout"] == HOOK_TIMEOUT_SECONDS
     # The MVP install is BM25-only: it must not set the embeddings flag.
     assert "NAURO_EMBEDDINGS" not in entry["command"]
-    assert entry["command"] == "nauro hook user-prompt-submit"
 
 
 def test_materialize_is_idempotent(tmp_path: Path):
@@ -199,3 +202,19 @@ def test_setup_all_without_hooks_writes_nothing(tmp_path: Path):
     repo, _store = _make_project(tmp_path)
     setup_all_surfaces([repo])
     assert not _settings(repo).is_file()
+
+
+def test_is_nauro_hook_matches_regardless_of_entrypoint_name():
+    """The remove/idempotency marker must recognise the nauro hook however the
+    entrypoint resolved — bare name, absolute POSIX path, or Windows .exe —
+    otherwise --remove orphans the entry and re-running setup duplicates it."""
+    from nauro.cli.commands.setup import _is_nauro_hook
+
+    for cmd in (
+        "nauro hook user-prompt-submit",
+        "/opt/venv/bin/nauro hook user-prompt-submit",
+        r"C:\Users\me\Scripts\nauro.exe hook user-prompt-submit",
+    ):
+        assert _is_nauro_hook({"type": "command", "command": cmd}), cmd
+    # A user's own UserPromptSubmit hook is left alone.
+    assert not _is_nauro_hook({"type": "command", "command": "my-linter --check"})
