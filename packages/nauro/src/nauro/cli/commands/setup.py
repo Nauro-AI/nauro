@@ -19,6 +19,7 @@ import typer
 
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
+from nauro.store.reader import read_text_lenient
 from nauro.store.registry import (
     RegistrySchemaError,
     load_registry,
@@ -55,7 +56,7 @@ def _remove_claude_md(repo_path: Path) -> str | None:
     if not claude_md.exists():
         return None
 
-    content = claude_md.read_text()
+    content = read_text_lenient(claude_md)
     if CLAUDE_MD_START not in content:
         return None
 
@@ -67,7 +68,7 @@ def _remove_claude_md(repo_path: Path) -> str | None:
         claude_md.unlink()
         return f"  {repo_path}: removed legacy Nauro block (deleted empty {CLAUDE_MD})"
     else:
-        claude_md.write_text(remaining + "\n")
+        claude_md.write_text(remaining + "\n", encoding="utf-8")
         return f"  {repo_path}: removed legacy Nauro block from {CLAUDE_MD}"
 
 

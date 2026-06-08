@@ -139,14 +139,20 @@ def scaffold_project_store(project_name: str, store_path: Path) -> None:
 
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    (store_path / C.PROJECT_MD).write_text(render_scaffold(PROJECT_MD, project_name=project_name))
-    (store_path / C.STATE_CURRENT_FILENAME).write_text(render_scaffold(STATE_CURRENT_MD))
-    (store_path / C.STACK_MD).write_text(render_scaffold(STACK_MD))
-    (store_path / C.OPEN_QUESTIONS_MD).write_text(render_scaffold(OPEN_QUESTIONS_MD))
+    (store_path / C.PROJECT_MD).write_text(
+        render_scaffold(PROJECT_MD, project_name=project_name), encoding="utf-8"
+    )
+    (store_path / C.STATE_CURRENT_FILENAME).write_text(
+        render_scaffold(STATE_CURRENT_MD), encoding="utf-8"
+    )
+    (store_path / C.STACK_MD).write_text(render_scaffold(STACK_MD), encoding="utf-8")
+    (store_path / C.OPEN_QUESTIONS_MD).write_text(
+        render_scaffold(OPEN_QUESTIONS_MD), encoding="utf-8"
+    )
 
     # Scaffold the first decision as a teaching example (v2 format via nauro-core).
     (store_path / C.DECISIONS_DIR / "001-initial-setup.md").write_text(
-        _build_first_decision(created_at)
+        _build_first_decision(created_at), encoding="utf-8"
     )
 
 
