@@ -138,9 +138,15 @@ def _configure_json_mcp(
     else:
         config = {}
 
+    # A hand-mangled config can have a non-object top level (e.g. a JSON array)
+    # or an mcpServers that isn't an object; mutating it would raise. Skip with a
+    # clear message instead of a traceback, mirroring the hook path's guard.
+    if not isinstance(config, dict):
+        return f"  {repo_path}: {label} is not a JSON object, skipped"
+
     if remove:
         servers = config.get("mcpServers", {})
-        if "nauro" not in servers:
+        if not isinstance(servers, dict) or "nauro" not in servers:
             return f"  {repo_path}: no nauro entry to remove"
         del servers["nauro"]
         if not servers:
@@ -151,7 +157,10 @@ def _configure_json_mcp(
             config_path.unlink()
         return f"  {repo_path}: removed nauro from {label}"
 
-    config.setdefault("mcpServers", {})["nauro"] = nauro_entry
+    servers = config.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        return f"  {repo_path}: mcpServers in {label} is not a JSON object, skipped"
+    servers["nauro"] = nauro_entry
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2) + "\n")
     return f"  {repo_path}: wrote nauro to {label}"
@@ -389,6 +398,12 @@ def _configure_codex(
         config = {}
 
     servers = config.setdefault("mcp_servers", {})
+    # A hand-edited config.toml could define mcp_servers as a non-table (e.g. a
+    # string); mutating it would raise. Skip with a clear message, not a crash.
+    if not isinstance(servers, dict):
+        if remove:
+            return f"Codex: no nauro entry to remove in {config_path}"
+        return f"Codex: mcp_servers in {config_path} is not a table, skipped"
 
     if remove:
         if "nauro" in servers:

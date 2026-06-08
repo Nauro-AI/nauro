@@ -5,7 +5,12 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from nauro.cli.commands.setup import CLAUDE_MD_END, CLAUDE_MD_START, _configure_mcp
+from nauro.cli.commands.setup import (
+    CLAUDE_MD_END,
+    CLAUDE_MD_START,
+    _configure_codex,
+    _configure_mcp,
+)
 from nauro.cli.main import app
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
@@ -275,3 +280,42 @@ class TestProjectResolution:
         # No CLAUDE.md created
         assert not (repo1 / "CLAUDE.md").exists()
         assert not (repo2 / "CLAUDE.md").exists()
+
+
+class TestMalformedConfigGuards:
+    """A pre-existing, off-shape MCP config must skip cleanly, not crash."""
+
+    def test_json_top_level_array_is_skipped(self, tmp_path: Path):
+        (tmp_path / ".mcp.json").write_text("[]")
+        line = _configure_mcp(tmp_path, remove=False)
+        assert "not a JSON object" in line
+        # Left untouched, not crashed or clobbered.
+        assert (tmp_path / ".mcp.json").read_text().strip() == "[]"
+
+    def test_mcpservers_non_object_is_skipped(self, tmp_path: Path):
+        original = '{"mcpServers": "oops"}'
+        (tmp_path / ".mcp.json").write_text(original)
+        line = _configure_mcp(tmp_path, remove=False)
+        assert "mcpServers" in line and "not a JSON object" in line
+        # The off-shape add path must not clobber the file.
+        assert (tmp_path / ".mcp.json").read_text() == original
+
+    def test_mcpservers_non_object_remove_is_noop(self, tmp_path: Path):
+        (tmp_path / ".mcp.json").write_text('{"mcpServers": "oops"}')
+        line = _configure_mcp(tmp_path, remove=True)
+        assert "no nauro entry to remove" in line
+
+    def test_codex_non_table_mcp_servers_is_skipped(self, tmp_path: Path):
+        cfg = tmp_path / "config.toml"
+        cfg.write_text('mcp_servers = "oops"\n')
+        line = _configure_codex(remove=False, config_path=cfg)
+        assert "not a table" in line
+        # Original content preserved.
+        assert 'mcp_servers = "oops"' in cfg.read_text()
+
+    def test_codex_non_table_mcp_servers_remove_is_noop(self, tmp_path: Path):
+        cfg = tmp_path / "config.toml"
+        cfg.write_text('mcp_servers = "oops"\n')
+        line = _configure_codex(remove=True, config_path=cfg)
+        assert "no nauro entry to remove" in line
+        assert 'mcp_servers = "oops"' in cfg.read_text()
