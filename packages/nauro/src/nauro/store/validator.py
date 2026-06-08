@@ -16,6 +16,7 @@ from nauro.constants import (
     STATE_LEGACY_FILENAME,
     VALIDATED_STORE_FILES,
 )
+from nauro.store.reader import read_text_lenient
 
 logger = logging.getLogger("nauro.store.validator")
 
@@ -42,7 +43,7 @@ def validate_store(store_path: Path) -> list[str]:
         filepath = store_path / filename
         if not filepath.exists():
             continue
-        content = filepath.read_text()
+        content = read_text_lenient(filepath)
         # Filter out markdown links [text](url) and timestamps [2026-01-01 ...]
         unfilled = []
         for m in re.finditer(r"\[([^\]]+)\]", content):
@@ -71,7 +72,7 @@ def validate_store(store_path: Path) -> list[str]:
     if not state_path.exists():
         state_path = store_path / STATE_LEGACY_FILENAME
     if state_path.exists():
-        content = state_path.read_text()
+        content = read_text_lenient(state_path)
         synced_str: str | None = None
         for line in content.splitlines():
             stripped = line.strip()

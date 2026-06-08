@@ -27,6 +27,7 @@ from nauro.constants import (
     PRUNE_WEEKLY_DAYS,
     SNAPSHOTS_DIR,
 )
+from nauro.store.reader import read_text_lenient
 
 logger = logging.getLogger("nauro.snapshot")
 
@@ -76,12 +77,12 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
         # Read all markdown files
         files = {}
         for md in sorted(store_path.glob("*.md")):
-            files[md.name] = md.read_text()
+            files[md.name] = read_text_lenient(md)
 
         decisions_dir = store_path / DECISIONS_DIR
         if decisions_dir.exists():
             for md in sorted(decisions_dir.glob("*.md")):
-                files[f"{DECISIONS_DIR}/{md.name}"] = md.read_text()
+                files[f"{DECISIONS_DIR}/{md.name}"] = read_text_lenient(md)
 
         snapshot = serialize_snapshot(
             timestamp=datetime.now(timezone.utc).isoformat(),

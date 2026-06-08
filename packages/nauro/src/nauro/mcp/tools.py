@@ -60,6 +60,7 @@ from nauro.onboarding import (
 from nauro.store.config import resolve_embeddings_flag
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.reader import read_text_lenient
 from nauro.store.snapshot import (
     capture_snapshot,
     list_snapshots,
@@ -200,11 +201,11 @@ def _last_synced_trailer(store_path: Path) -> str:
     state = ""
     current = store_path / STATE_CURRENT_FILENAME
     if current.exists():
-        state = current.read_text()
+        state = read_text_lenient(current)
     else:
         legacy = store_path / STATE_MD
         if legacy.exists():
-            state = legacy.read_text()
+            state = read_text_lenient(legacy)
     marker = "**Last synced:**"
     line = next((line for line in state.splitlines() if marker in line), None)
     if line is None:
