@@ -93,6 +93,23 @@ def _resolve_state(files: dict[str, str]) -> str | None:
     return None
 
 
+def _strip_leading_current_header(assembled: str) -> str:
+    """Drop a leading ``# Current State`` header line from assembled state.
+
+    state_current.md carries its own ``# Current State`` header. L0 wraps the
+    state under its own ``## Current State`` section header, so without this the
+    payload (and the generated AGENTS.md) shows a stuttered ``## Current State``
+    immediately followed by ``# Current State``. Only the header line is removed;
+    the body and any footer are preserved.
+    """
+    lines = assembled.strip().split("\n")
+    if lines and lines[0].strip() == "# Current State":
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines.pop(0)
+    return "\n".join(lines).strip()
+
+
 def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
     """Build L0 payload (concise summary).
 
@@ -123,7 +140,9 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
             include_history=False,
         )
         if assembled and assembled.strip():
-            sections.append("## Current State\n" + assembled.strip())
+            body = _strip_leading_current_header(assembled)
+            if body:
+                sections.append("## Current State\n" + body)
 
     stack = files.get("stack.md", "")
     oneliner = extract_stack_oneliner(stack)

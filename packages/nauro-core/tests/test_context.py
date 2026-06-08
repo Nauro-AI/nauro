@@ -78,6 +78,16 @@ class TestBuildL0:
         assert "Shipping v1" in result
         assert "Set up project scaffolding" not in result  # history excluded
 
+    def test_current_state_header_not_doubled(self):
+        # state_current.md carries its own "# Current State" header; L0 wraps it
+        # under a "## Current State" section header. The two must not stutter.
+        files = {"state_current.md": "# Current State\n\n- Shipped the thing\n"}
+        result = build_l0(files, [])
+        assert "## Current State" in result
+        assert "# Current State\n# Current State" not in result
+        assert "## Current State\n# Current State" not in result
+        assert "- Shipped the thing" in result
+
     def test_decisions_summary_present(self):
         result = build_l0(FULL_FILES, DECISIONS)
         assert "D3 \u2014 Auth0 for OAuth" in result
