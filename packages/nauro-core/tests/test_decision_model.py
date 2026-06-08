@@ -203,6 +203,163 @@ class TestRejectedAlternativeRoundTrip:
         assert [r.reason for r in reparsed.rejected] == [r.reason for r in decision.rejected]
 
 
+# ── Rationale boundary: subsections, fences, whole-line anchoring ──
+
+
+class TestRationaleBoundary:
+    """The rationale may contain arbitrary `##`/`###`/`---` and fenced code.
+
+    The parser anchors only on non-fenced whole-line `## Decision` and the
+    last non-fenced whole-line `## Rejected Alternatives`.
+    """
+
+    def test_rationale_with_subsections_preserved(self) -> None:
+        """A rationale with `## Tradeoffs`, `### Detail`, `---`, and trailing
+        prose is preserved in full, and reformat is byte-identical idempotent."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 050 — Decision with rich rationale\n\n"
+            "## Decision\n\n"
+            "Lead paragraph describing the chosen path.\n\n"
+            "## Tradeoffs\n\n"
+            "We accept slower cold starts for simpler code.\n\n"
+            "### Detail\n\n"
+            "The fan-out adds bounded latency.\n\n"
+            "---\n\n"
+            "Trailing prose after a horizontal rule.\n"
+        )
+        d = parse_decision(text, "050-rich-rationale.md")
+        assert "## Tradeoffs" in d.rationale
+        assert "### Detail" in d.rationale
+        assert "---" in d.rationale
+        assert "Trailing prose after a horizontal rule." in d.rationale
+        # Not truncated to the lead paragraph.
+        assert d.rationale != "Lead paragraph describing the chosen path."
+        assert d.rejected == []
+
+        once = format_decision(d)
+        twice = format_decision(parse_decision(once, "050-rich-rationale.md"))
+        assert once == twice
+
+    def test_literal_rejected_heading_in_rationale_not_fabricated(self) -> None:
+        """A literal `## Rejected Alternatives` + `### Fake` mid-rationale must
+        stay in the rationale; only the REAL trailing section is parsed."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 051 — Worst case literal heading\n\n"
+            "## Decision\n\n"
+            "We discuss a hypothetical below.\n\n"
+            "## Rejected Alternatives\n\n"
+            "### Fake\n\n"
+            "This is prose inside the rationale, not a real rejection.\n\n"
+            "## Rejected Alternatives\n\n"
+            "### Real Option\n\n"
+            "The genuinely-rejected alternative, with its reason.\n"
+        )
+        d = parse_decision(text, "051-worst-case.md")
+        # The literal earlier heading and its fake subsection stay in rationale.
+        assert "## Rejected Alternatives" in d.rationale
+        assert "### Fake" in d.rationale
+        assert "This is prose inside the rationale, not a real rejection." in d.rationale
+        # Only the real option is parsed; no fabricated "Fake" record.
+        assert [r.name for r in d.rejected] == ["Real Option"]
+
+    def test_midline_heading_mention_does_not_truncate(self) -> None:
+        """A mid-line mention of the heading words must not anchor."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 052 — Mid-line mention\n\n"
+            "## Decision\n\n"
+            "We reference the ## Decision marker inline and also a phrase like "
+            "the ## Rejected Alternatives heading mid-sentence.\n\n"
+            "More rationale follows the inline mentions.\n"
+        )
+        d = parse_decision(text, "052-midline.md")
+        assert "More rationale follows the inline mentions." in d.rationale
+        assert "## Rejected Alternatives heading mid-sentence" in d.rationale
+        assert d.rejected == []
+
+    def test_fenced_rejected_heading_not_anchor(self) -> None:
+        """A fenced code block containing a `## Rejected Alternatives` line with
+        NO real rejected section: the fenced heading is not an anchor, the full
+        rationale (including the fence) is preserved, rejected == []."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 053 — Fenced heading only\n\n"
+            "## Decision\n\n"
+            "We show a sample document below.\n\n"
+            "```markdown\n"
+            "## Rejected Alternatives\n\n"
+            "### Not Real\n"
+            "```\n\n"
+            "Closing rationale after the fence.\n"
+        )
+        d = parse_decision(text, "053-fenced-only.md")
+        assert "```markdown" in d.rationale
+        assert "## Rejected Alternatives" in d.rationale
+        assert "### Not Real" in d.rationale
+        assert "Closing rationale after the fence." in d.rationale
+        assert d.rejected == []
+
+    def test_fenced_heading_plus_real_section(self) -> None:
+        """A fenced `## Rejected Alternatives` inside the rationale AND a real
+        rejected section after the fence: the real section is the anchor."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 054 — Fence plus real section\n\n"
+            "## Decision\n\n"
+            "Here is an illustrative document:\n\n"
+            "```\n"
+            "## Rejected Alternatives\n"
+            "### Illustrative Only\n"
+            "```\n\n"
+            "And here is the actual reasoning.\n\n"
+            "## Rejected Alternatives\n\n"
+            "### Genuine Option\n\n"
+            "The real reason this was rejected.\n"
+        )
+        d = parse_decision(text, "054-fence-plus-real.md")
+        # Fenced heading stays in the rationale.
+        assert "### Illustrative Only" in d.rationale
+        assert "And here is the actual reasoning." in d.rationale
+        # Only the real, post-fence section is parsed.
+        assert [r.name for r in d.rejected] == ["Genuine Option"]
+        assert d.rejected[0].reason == "The real reason this was rejected."
+
+    def test_no_rejected_section_full_rationale(self) -> None:
+        """No rejected section: rejected == [] and the full rationale is kept."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 055 — No rejected\n\n"
+            "## Decision\n\n"
+            "First paragraph.\n\n"
+            "## Context\n\n"
+            "Second paragraph with a subsection heading.\n"
+        )
+        d = parse_decision(text, "055-no-rejected.md")
+        assert "## Context" in d.rationale
+        assert "Second paragraph with a subsection heading." in d.rationale
+        assert d.rejected == []
+
+
 # ── Positive: optional fields accept None / empty ──
 
 
