@@ -24,6 +24,7 @@ from pydantic import ValidationError
 
 from nauro_core.constants import OPEN_QUESTIONS_MD
 from nauro_core.decision_model import (
+    DECISION_TYPE_VALUES,
     Decision,
     DecisionConfidence,
     DecisionStatus,
@@ -800,3 +801,21 @@ def test_write_decision_direct_increments_decision_number() -> None:
         },
     )
     assert decision_id.startswith("003-")
+
+
+@pytest.mark.parametrize("decision_type", list(DECISION_TYPE_VALUES))
+def test_every_advertised_decision_type_commits(decision_type: str) -> None:
+    """Every decision_type the schema advertises must reach the validator
+    intact and commit. This is the end-to-end guard that was missing when the
+    advertised list drifted from the DecisionType enum: an advertised value
+    that the enum does not accept raised an uncaught ValueError on the write
+    path. Driving propose_decision over the canonical value set keeps the two
+    in lockstep."""
+    result = propose_decision(
+        InMemoryStore(),
+        title=f"Decision typed as {decision_type}",
+        rationale="A rationale long enough to clear the minimum length threshold.",
+        confidence="medium",
+        decision_type=decision_type,
+    )
+    assert result.status == "confirmed"

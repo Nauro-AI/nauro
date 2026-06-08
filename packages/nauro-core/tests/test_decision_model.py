@@ -426,7 +426,9 @@ class TestNegativeValidation:
             parse_decision(text, "001-test.md")
 
     def test_unknown_decision_type_raises(self) -> None:
-        text = self._build(decision_type="library_choice")  # removed from enum
+        # "library_choice" is not a DecisionType member, so the validator must
+        # reject it. The advertised schema copies no longer offer it either.
+        text = self._build(decision_type="library_choice")
         with pytest.raises(ValidationError):
             parse_decision(text, "001-test.md")
 

@@ -71,17 +71,6 @@ STATE_OVERLAP_STOP_WORDS: frozenset[str] = frozenset(
     {"the", "a", "an", "to", "and", "or", "is", "was", "-"}
 )
 
-# ── Decision types ──
-DECISION_TYPES: tuple[str, ...] = (
-    "architecture",
-    "library_choice",
-    "pattern",
-    "refactor",
-    "api_design",
-    "infrastructure",
-    "data_model",
-)
-
 # ── Reversibility levels ──
 REVERSIBILITY_LEVELS: tuple[str, ...] = ("easy", "moderate", "hard")
 

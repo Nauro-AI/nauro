@@ -56,6 +56,15 @@ class DecisionType(str, Enum):
     data_model = "data_model"
 
 
+# Canonical list of advertised decision-type tokens, derived from the
+# DecisionType enum so the schema copies that surface these values (the MCP
+# input schema, the public constants re-export) cannot drift from the
+# validator that actually accepts them. decision_model is the lowest module in
+# the import chain (decision_model -> parsing -> constants -> protocol), so this
+# value is imported outward; constants cannot import it without a cycle.
+DECISION_TYPE_VALUES: tuple[str, ...] = tuple(t.value for t in DecisionType)
+
+
 class Reversibility(str, Enum):
     easy = "easy"
     moderate = "moderate"
@@ -408,6 +417,7 @@ def format_decision(decision: Decision) -> str:
 
 
 __all__ = [
+    "DECISION_TYPE_VALUES",
     "Decision",
     "DecisionConfidence",
     "DecisionSource",

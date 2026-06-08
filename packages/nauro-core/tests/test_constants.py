@@ -1,8 +1,8 @@
 """Tests for nauro_core.constants — sanity checks."""
 
+from nauro_core import DECISION_TYPES
 from nauro_core.constants import (
     DECISION_HASHES_FILE,
-    DECISION_TYPES,
     DECISIONS_DIR,
     L0_DECISIONS_SUMMARY_LIMIT,
     L0_QUESTIONS_LIMIT,
@@ -20,6 +20,7 @@ from nauro_core.constants import (
     STATE_MD,
     VALID_CONFIDENCES,
 )
+from nauro_core.decision_model import DecisionType
 from nauro_core.instructions import build_remote_instructions
 from nauro_core.protocol import (
     GET_DECISION_BEFORE_PROPOSING,
@@ -74,16 +75,12 @@ class TestValidValues:
         assert "medium" in VALID_CONFIDENCES
         assert "low" in VALID_CONFIDENCES
 
-    def test_decision_types_non_empty(self):
-        assert DECISION_TYPES == (
-            "architecture",
-            "library_choice",
-            "pattern",
-            "refactor",
-            "api_design",
-            "infrastructure",
-            "data_model",
-        )
+    def test_decision_types_track_the_enum(self):
+        # DECISION_TYPES is derived from the DecisionType enum, so asserting
+        # against the enum (rather than a hand-copied tuple) keeps the public
+        # constant from drifting away from the values the validator accepts.
+        assert tuple(t.value for t in DecisionType) == DECISION_TYPES
+        assert "library_choice" not in DECISION_TYPES
 
     def test_reversibility_levels_non_empty(self):
         assert REVERSIBILITY_LEVELS == ("easy", "moderate", "hard")
