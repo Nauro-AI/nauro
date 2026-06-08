@@ -278,6 +278,21 @@ def parse_decision(text: str, filename: str) -> Decision:
     )
 
 
+def _leading_fence_marker(line: str) -> str | None:
+    """Return the fence marker char if the line opens/closes a code fence.
+
+    A fence line's stripped form starts with a run of at least three of the
+    same marker character (a backtick or a tilde). Returns ``"`"`` or ``"~"``
+    for such a line, else ``None``. An info string after the run (e.g.
+    ``text`` in ```` ```text ````) does not affect the marker.
+    """
+    stripped = line.strip()
+    for marker in ("`", "~"):
+        if stripped.startswith(marker * 3):
+            return marker
+    return None
+
+
 def _split_decision_body(body: str) -> tuple[str | None, str | None]:
     """Split a decision body into ``(rationale, rejected_body)``.
 
@@ -294,8 +309,12 @@ def _split_decision_body(body: str) -> tuple[str | None, str | None]:
       therefore kept in the rationale, and only the genuine trailing block is
       parsed as rejected alternatives.
 
-    Lines inside fenced code blocks (toggled by ``` ``` ``` or ``~~~``) never
-    anchor, and the fence-marker lines themselves are never anchors.
+    Lines inside fenced code blocks never anchor, and the fence-marker lines
+    themselves are never anchors. A fence opened with one marker (``` ``` ```
+    or ``~~~``) closes only on a bare run of the SAME marker, so a run of the
+    opposite marker inside the block (e.g. a ``~~~~~`` separator inside a
+    ```` ```text ```` block) is content, not a close — it cannot desync the
+    tracker and swallow a trailing Rejected Alternatives section.
 
     Returns:
         ``(rationale, rejected_body)`` where ``rationale`` is the stripped text
@@ -305,16 +324,23 @@ def _split_decision_body(body: str) -> tuple[str | None, str | None]:
     """
     lines = body.split("\n")
 
-    in_fence = False
+    fence_char: str | None = None
     decision_idx: int | None = None
     rejected_idx: int | None = None
 
     for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("```") or stripped.startswith("~~~"):
-            in_fence = not in_fence
+        marker = _leading_fence_marker(line)
+        if marker is not None:
+            if fence_char is None:
+                # An opener may carry an info string (e.g. ```text).
+                fence_char = marker
+            elif marker == fence_char and line.strip() == fence_char * line.strip().count(
+                fence_char
+            ):
+                # A closing fence is a bare run of the same marker, no info string.
+                fence_char = None
             continue
-        if in_fence:
+        if fence_char is not None:
             continue
         trimmed = line.rstrip()
         if decision_idx is None:
