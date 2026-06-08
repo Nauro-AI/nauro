@@ -1,10 +1,12 @@
 """Tests for the Nauro MCP stdio server tools."""
 
 from pathlib import Path
+from typing import Literal, get_args, get_origin, get_type_hints
 from unittest.mock import patch
 
 import pytest
 from mcp.types import CallToolResult
+from nauro_core.decision_model import DECISION_TYPE_VALUES
 from nauro_core.operations import flag_question as _flag_question_op
 
 from nauro.mcp.stdio_server import (
@@ -409,17 +411,32 @@ class TestToolSpecDescriptionsReachAgent:
         params = tools_by_name["propose_decision"].parameters["properties"]
         assert {"high", "medium", "low"} == set(params["confidence"]["anyOf"][0]["enum"])
         decision_type_enum = params["decision_type"]["anyOf"][0]["enum"]
-        for dt in (
-            "architecture",
-            "library_choice",
-            "pattern",
-            "refactor",
-            "api_design",
-            "infrastructure",
-            "data_model",
-        ):
-            assert dt in decision_type_enum
+        assert set(decision_type_enum) == set(DECISION_TYPE_VALUES)
+        assert "library_choice" not in decision_type_enum
         assert {"easy", "moderate", "hard"} == set(params["reversibility"]["anyOf"][0]["enum"])
+
+    def test_decision_type_literal_matches_enum(self):
+        """The stdio decision_type annotation is a hand-written ``Literal``
+        because a Literal cannot be built from the runtime
+        ``DECISION_TYPE_VALUES`` tuple. This guard fails if the two ever drift
+        — the exact failure that shipped ``library_choice`` to the schema while
+        the validator rejected it."""
+
+        # decision_type is Annotated[Literal[...] | None, Field(...)], but
+        # get_type_hints nests Annotated vs Optional in a version-dependent
+        # order, so locate the Literal anywhere in the annotation tree rather
+        # than assuming a fixed shape.
+        def _literal_values(tp):
+            if get_origin(tp) is Literal:
+                return set(get_args(tp))
+            for arg in get_args(tp):
+                found = _literal_values(arg)
+                if found is not None:
+                    return found
+            return None
+
+        hints = get_type_hints(propose_decision, include_extras=True)
+        assert _literal_values(hints["decision_type"]) == set(DECISION_TYPE_VALUES)
 
     def test_ten_tools_registered(self):
         tools = mcp._tool_manager.list_tools()

@@ -311,13 +311,15 @@ def propose_decision(
         Field(description=_param_desc("propose_decision", "confidence")),
     ] = None,
     decision_type: Annotated[
+        # A Literal is a static annotation and cannot be built from the runtime
+        # DECISION_TYPE_VALUES tuple, so these are hand-written. The drift-guard
+        # test in test_stdio_server.py asserts this set equals the enum values.
         Literal[
             "architecture",
-            "library_choice",
-            "pattern",
-            "refactor",
             "api_design",
             "infrastructure",
+            "pattern",
+            "refactor",
             "data_model",
         ]
         | None,

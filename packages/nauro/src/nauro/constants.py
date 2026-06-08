@@ -9,9 +9,11 @@ CLI-specific constants are defined locally.
 """
 
 # ── Re-exports from nauro-core (shared across nauro + mcp-server) ──
+# DECISION_TYPES comes from the public facade because its canonical source is
+# the DecisionType enum in nauro_core.decision_model, not nauro_core.constants.
+from nauro_core import DECISION_TYPES as DECISION_TYPES
 from nauro_core.constants import CHARS_PER_TOKEN as CHARS_PER_TOKEN
 from nauro_core.constants import DECISION_HASHES_FILE as DECISION_HASHES_FILE
-from nauro_core.constants import DECISION_TYPES as DECISION_TYPES
 from nauro_core.constants import DECISIONS_DIR as DECISIONS_DIR
 from nauro_core.constants import L0_DECISIONS_SUMMARY_LIMIT as L0_DECISIONS_SUMMARY_LIMIT
 from nauro_core.constants import L0_QUESTIONS_LIMIT as L0_QUESTIONS_LIMIT

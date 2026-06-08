@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from nauro_core.decision_model import DECISION_TYPE_VALUES
 from nauro_core.protocol import (
     GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
@@ -378,15 +379,7 @@ PROPOSE_DECISION: ToolSpec = {
             },
             "decision_type": {
                 "type": "string",
-                "enum": [
-                    "architecture",
-                    "library_choice",
-                    "pattern",
-                    "refactor",
-                    "api_design",
-                    "infrastructure",
-                    "data_model",
-                ],
+                "enum": list(DECISION_TYPE_VALUES),
                 "description": (
                     "Optional architectural category for the decision. Helps "
                     "downstream filtering and reporting; omit when none "

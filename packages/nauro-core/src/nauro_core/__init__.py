@@ -13,9 +13,6 @@ from nauro_core.constants import (
     DECISION_HASHES_FILE as DECISION_HASHES_FILE,
 )
 from nauro_core.constants import (
-    DECISION_TYPES as DECISION_TYPES,
-)
-from nauro_core.constants import (
     DECISIONS_DIR as DECISIONS_DIR,
 )
 from nauro_core.constants import (
@@ -110,6 +107,9 @@ from nauro_core.context import (
 )
 from nauro_core.context import (
     build_l2 as build_l2,
+)
+from nauro_core.decision_model import (
+    DECISION_TYPE_VALUES as DECISION_TYPE_VALUES,
 )
 from nauro_core.decision_model import (
     Decision as Decision,
@@ -303,5 +303,9 @@ from nauro_core.validation import (
 from nauro_core.validation import (
     screen_structural as screen_structural,
 )
+
+# Public alias preserving the historical name. The canonical source is the
+# DecisionType enum in decision_model; DECISION_TYPE_VALUES is derived from it.
+DECISION_TYPES = DECISION_TYPE_VALUES
 
 __version__ = version("nauro-core")

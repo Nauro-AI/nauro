@@ -341,6 +341,38 @@ class TestRationaleBoundary:
         assert [r.name for r in d.rejected] == ["Genuine Option"]
         assert d.rejected[0].reason == "The real reason this was rejected."
 
+    def test_mixed_marker_fence_does_not_desync_rejected_split(self) -> None:
+        """A ```text fence whose body contains a single bare ~~~~~ line must not
+        desync the fence tracker. With a single in_fence boolean the tilde run
+        toggled the tracker a second time, so the parser believed it was still
+        inside a fence when the real `## Rejected Alternatives` heading arrived
+        and silently dropped the whole section. Closing only on the matching
+        marker keeps the trailing rejected block parseable."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 056 — Mixed fence markers\n\n"
+            "## Decision\n\n"
+            "We document the separator convention below.\n\n"
+            "```text\n"
+            "~~~~~\n"
+            "```\n\n"
+            "And then the actual reasoning.\n\n"
+            "## Rejected Alternatives\n\n"
+            "### Genuine Option\n\n"
+            "The real reason this was rejected.\n"
+        )
+        d = parse_decision(text, "056-mixed-fence.md")
+        # The tilde run is fence content, so it stays in the rationale.
+        assert "~~~~~" in d.rationale
+        assert "And then the actual reasoning." in d.rationale
+        # The trailing rejected section survives rather than being swallowed.
+        assert len(d.rejected) == 1
+        assert d.rejected[0].name == "Genuine Option"
+        assert d.rejected[0].reason == "The real reason this was rejected."
+
     def test_no_rejected_section_full_rationale(self) -> None:
         """No rejected section: rejected == [] and the full rationale is kept."""
         text = (
@@ -426,7 +458,9 @@ class TestNegativeValidation:
             parse_decision(text, "001-test.md")
 
     def test_unknown_decision_type_raises(self) -> None:
-        text = self._build(decision_type="library_choice")  # removed from enum
+        # "library_choice" is not a DecisionType member, so the validator must
+        # reject it. The advertised schema copies no longer offer it either.
+        text = self._build(decision_type="library_choice")
         with pytest.raises(ValidationError):
             parse_decision(text, "001-test.md")
 
