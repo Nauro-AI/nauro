@@ -1,4 +1,4 @@
-"""Tests for cli.command_invoked telemetry instrumentation (T1.4)."""
+"""Tests for cli.command_invoked telemetry instrumentation."""
 
 from __future__ import annotations
 

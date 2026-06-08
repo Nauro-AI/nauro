@@ -1,4 +1,4 @@
-"""Tests for nauro telemetry subcommand (T1.9)."""
+"""Tests for nauro telemetry subcommand."""
 
 from __future__ import annotations
 

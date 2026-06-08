@@ -1,4 +1,4 @@
-"""Tests for project.created funnel-anchor event (T1.6)."""
+"""Tests for project.created funnel-anchor event."""
 
 from __future__ import annotations
 
