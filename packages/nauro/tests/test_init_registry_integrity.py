@@ -99,3 +99,59 @@ def test_register_project_v2_raises_on_invalid_name(bad_name, tmp_path, monkeypa
         register_project_v2(bad_name, [tmp_path])
     # No entry leaked even on the raising path.
     assert registry.load_registry_v2()["projects"] == {}
+
+
+# ── same-name cross-repo fork: warn, don't silently fork ────────────────────────
+
+
+def test_init_same_name_other_repo_warns_but_creates(tmp_path, monkeypatch):
+    """`init shared` in a second repo still creates a project (v2 allows dup
+    names) but must surface that it is a SEPARATE store and point at --add-repo,
+    instead of silently forking the cross-repo value prop."""
+    repo_a = tmp_path / "a"
+    repo_b = tmp_path / "b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+
+    monkeypatch.chdir(repo_a)
+    first = runner.invoke(app, ["init", "shared"])
+    assert first.exit_code == 0, first.output
+    (pid_a, _entry) = find_projects_by_name_v2("shared")[0]
+
+    monkeypatch.chdir(repo_b)
+    second = runner.invoke(app, ["init", "shared"])
+    assert second.exit_code == 0, second.output
+    assert "SEPARATE store" in second.output
+    assert "--add-repo" in second.output
+    assert pid_a in second.output  # names the pre-existing project
+
+    matches = find_projects_by_name_v2("shared")
+    assert len(matches) == 2
+    assert len({pid for pid, _ in matches}) == 2  # two distinct ids
+
+
+def test_init_unique_name_has_no_collision_warning(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["init", "solo"])
+    assert result.exit_code == 0, result.output
+    assert "SEPARATE store" not in result.output
+
+
+def test_init_add_repo_links_second_repo_to_one_project(tmp_path, monkeypatch):
+    """The documented association path: --add-repo joins a second repo to the
+    same project rather than forking a new one."""
+    repo_a = tmp_path / "a"
+    repo_b = tmp_path / "b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+
+    monkeypatch.chdir(repo_a)
+    assert runner.invoke(app, ["init", "linked"]).exit_code == 0
+
+    monkeypatch.chdir(repo_b)
+    res = runner.invoke(app, ["init", "linked", "--add-repo", "."])
+    assert res.exit_code == 0, res.output
+
+    # Still exactly one project named 'linked' — the second repo joined it.
+    matches = find_projects_by_name_v2("linked")
+    assert len(matches) == 1

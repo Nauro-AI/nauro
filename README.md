@@ -81,6 +81,15 @@ nauro setup claude-code   # or: nauro setup all
 
 `nauro init` writes `.nauro/config.json` into the repo; commit it. For cloud sync from the start, run `nauro auth login` first, then `nauro init --cloud my-project`.
 
+**One project across several repos:** the store lives outside any repo, so multiple repos can share it. Associate another repo with an existing project from inside that repo:
+
+```bash
+cd ../my-other-repo
+nauro init my-project --add-repo .
+```
+
+Re-running plain `nauro init my-project` in a second repo creates a *separate* project that shares no decisions — use `--add-repo` to link them instead.
+
 **Existing repo with docs to seed from:**
 
 ```bash

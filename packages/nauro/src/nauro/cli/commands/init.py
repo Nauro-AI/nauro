@@ -132,6 +132,31 @@ def _refuse_if_repo_already_claimed(rp: Path) -> None:
     raise typer.Exit(code=1)
 
 
+def _warn_if_name_taken(name: str, new_pid: str, pre_existing: list) -> None:
+    """Warn when a fresh init created a second project sharing an existing name.
+
+    v2 allows duplicate names, but two same-named projects are separate stores
+    that share no decisions — rarely what a user re-running ``nauro init`` from
+    another repo intends, and it silently defeats the cross-repo promise. The
+    repo-path collision is already refused by ``_refuse_if_repo_already_claimed``;
+    this surfaces the name collision and points at the association path instead
+    of failing silently. Advisory only — the project is still created.
+    """
+    others = [pid for pid, _entry in pre_existing if pid != new_pid]
+    if not others:
+        return
+    typer.echo(
+        f"  Note: another local project is also named '{name}' (id {others[0]}). "
+        "This is a SEPARATE store; the two repos will not share decisions.",
+        err=True,
+    )
+    typer.echo(
+        f"  To put this repo under the existing project instead, run "
+        f"'nauro projects rm {new_pid}' then 'nauro init {name} --add-repo .'.",
+        err=True,
+    )
+
+
 def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
     """Initialize (or reuse) the bundled demo project.
 
@@ -360,6 +385,9 @@ def init(
         return
 
     # ── Local-only ─────────────────────────────────────────────────────────
+    # Captured before minting so a same-name match is necessarily a different
+    # repo (a same-repo claim was already refused above).
+    pre_existing_same_name = find_projects_by_name_v2(name)
     try:
         pid, store_path = register_project_v2(
             name,
@@ -386,5 +414,6 @@ def init(
     typer.echo(f"  Store: {store_path}")
     for rp in repo_paths:
         typer.echo(f"  Repo:  {rp.resolve()}")
+    _warn_if_name_taken(name, pid, pre_existing_same_name)
     typer.echo("  Next: run 'nauro setup claude-code' to connect your agent")
     typer.echo("  Then: run 'nauro sync' to capture the first snapshot")
