@@ -196,8 +196,10 @@ _FRONTMATTER_ORDER: tuple[str, ...] = (
 
 
 _H1_PATTERN = re.compile(r"^#\s+(\d+)\s+\u2014\s+(.+)$", re.MULTILINE)
-_SECTION_START = re.compile(r"^##\s+", re.MULTILINE)
 _SUBSECTION_SPLIT = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
+
+_DECISION_ANCHOR = "## Decision"
+_REJECTED_ANCHOR = "## Rejected Alternatives"
 
 
 def parse_decision(text: str, filename: str) -> Decision:
@@ -244,7 +246,7 @@ def parse_decision(text: str, filename: str) -> Decision:
     title = h1.group(2).strip()
     file_num = extract_decision_number(filename) or 0
 
-    rationale = _extract_section_body(body, "Decision")
+    rationale, rejected_body = _split_decision_body(body)
     if rationale is None:
         raise ValueError(
             f"{filename}: missing `## Decision` section "
@@ -252,7 +254,6 @@ def parse_decision(text: str, filename: str) -> Decision:
             "legacy files; the parser itself stays strict)"
         )
 
-    rejected_body = _extract_section_body(body, "Rejected Alternatives")
     rejected_list = _parse_rejected_subsections(rejected_body or "")
 
     # Body-rendered field goes in via the normal constructor path so the
@@ -268,20 +269,62 @@ def parse_decision(text: str, filename: str) -> Decision:
     )
 
 
-def _extract_section_body(body: str, heading: str) -> str | None:
-    """Return the stripped body of a ``## {heading}`` section, or None.
+def _split_decision_body(body: str) -> tuple[str | None, str | None]:
+    """Split a decision body into ``(rationale, rejected_body)``.
 
-    Scans for `## heading` followed by newline; returns everything up to the
-    next `##` heading (or end of body).
+    The rationale may contain arbitrary ``##``/``###`` subsections, ``---``
+    rules, and fenced code blocks. Only two top-level headings are treated as
+    section boundaries, and only when they appear as non-fenced whole lines:
+
+    - The Decision anchor is the FIRST non-fenced line whose stripped form is
+      exactly ``## Decision``. If none exists, the rationale is ``None`` and the
+      caller raises the missing-section error (contract unchanged).
+    - The Rejected anchor is the LAST non-fenced whole-line ``## Rejected
+      Alternatives`` occurring after the Decision anchor. A literal heading line
+      inside the rationale (e.g. an example, or one preceding the real block) is
+      therefore kept in the rationale, and only the genuine trailing block is
+      parsed as rejected alternatives.
+
+    Lines inside fenced code blocks (toggled by ``` ``` ``` or ``~~~``) never
+    anchor, and the fence-marker lines themselves are never anchors.
+
+    Returns:
+        ``(rationale, rejected_body)`` where ``rationale`` is the stripped text
+        between the Decision anchor and the Rejected anchor (or end of body),
+        and ``rejected_body`` is the stripped text after the Rejected anchor, or
+        ``None`` when there is no Rejected anchor.
     """
-    pattern = re.compile(rf"^##\s+{re.escape(heading)}\s*$", re.MULTILINE)
-    m = pattern.search(body)
-    if not m:
-        return None
-    start = m.end()
-    next_section = _SECTION_START.search(body[start:])
-    section = body[start : start + next_section.start()] if next_section else body[start:]
-    return section.strip()
+    lines = body.split("\n")
+
+    in_fence = False
+    decision_idx: int | None = None
+    rejected_idx: int | None = None
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        trimmed = line.rstrip()
+        if decision_idx is None:
+            if trimmed == _DECISION_ANCHOR:
+                decision_idx = i
+            continue
+        if trimmed == _REJECTED_ANCHOR:
+            rejected_idx = i
+
+    if decision_idx is None:
+        return None, None
+
+    if rejected_idx is None:
+        rationale = "\n".join(lines[decision_idx + 1 :]).strip()
+        return rationale, None
+
+    rationale = "\n".join(lines[decision_idx + 1 : rejected_idx]).strip()
+    rejected_body = "\n".join(lines[rejected_idx + 1 :]).strip()
+    return rationale, rejected_body
 
 
 def _parse_rejected_subsections(section_text: str) -> list[RejectedAlternative]:
