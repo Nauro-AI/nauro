@@ -1,12 +1,14 @@
 # Nauro
 
-Nauro gives AI agents persistent project context across Claude, Cursor, Codex, ChatGPT, and any MCP client. It captures decisions and rejected options, then checks new proposals against them so agents stop re-suggesting approaches you already ruled out.
+Nauro is a decision system for agentic engineering. It keeps your project's decisions, rationale, and rejected paths in plain markdown files, then surfaces the relevant ones before an AI agent plans or changes code.
+
+It works across Claude, Cursor, Codex, ChatGPT, Perplexity, and any MCP client. The result is persistent project judgment that travels with the work, not with a single tool or session.
 
 [![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![Python](https://img.shields.io/pypi/pyversions/nauro.svg)](https://pypi.org/project/nauro/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
 
-*A coding agent checks the team's prior decisions before it answers, then records the new one you approved and makes the change. Captured in Codex.*
+*A coding agent checks the project's prior decisions before it plans, then records the approved decision and makes the change. Captured in Codex.*
 
 **Status:** Beta (pre-1.0). The local CLI and stdio MCP server are stable; cloud sync is stabilizing.
 
@@ -14,7 +16,7 @@ More at [nauro.ai](https://nauro.ai).
 
 ## How it works
 
-Nauro stores your project's decisions as plain markdown files, each with the alternatives you ruled out and the reasoning behind them. When an agent proposes an approach, `check_decision` runs deterministic keyword retrieval (BM25) over those files and surfaces the related ones to the agent before it writes code.
+Nauro stores your project's decisions as plain markdown files, each with the alternatives you ruled out and the reasoning behind them. When an agent proposes an approach, `check_decision` runs deterministic keyword retrieval (BM25) over those files and surfaces the related ones before the agent plans or writes code.
 
 No model judges your decisions. The check is advisory and never blocks a change. You approve every decision before it is recorded. The store is a folder you own; remove Nauro and the markdown stays.
 
@@ -60,11 +62,11 @@ Output abbreviated to the top match; the live call returns all five related deci
 
 ## Why not ADRs, grep, or CLAUDE.md?
 
-A decision log in your repo is a good record. The gap is on the read side: a file is read when a person opens it, and a fresh agent session starts with no knowledge that it exists. Nauro closes that gap. The relevant decision reaches your agent automatically, through MCP, at the moment it proposes a change. The store lives outside any single repo, so one record is shared across every repo and tool instead of being trapped in one project's history.
+A decision log in your repo is a good record. The gap is on the read side: a file is read when a person opens it, and a fresh agent session starts with no knowledge that it exists. Nauro closes that gap. The relevant decision reaches your agent automatically, through MCP, at the moment it proposes a change. The store lives outside any single agent's memory, so the same project record is available across tools and sessions instead of being trapped in one prompt file, repo note, or chat history.
 
 ## When Nauro helps, and when it doesn't
 
-Nauro pays off when decisions recur across sessions, when more than one agent or developer touches the same project, and when re-litigating a settled choice is costly.
+Nauro pays off when an agent needs project judgment before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions or tools.
 
 The limits are worth knowing. It surfaces only what has been recorded as a decision. It adds an MCP round-trip to the agent's flow. Retrieval is keyword-based, which is fast, offline, and auditable, and can miss a decision phrased in different words than the proposal; an optional embeddings index is available for closer synonym matching.
 
