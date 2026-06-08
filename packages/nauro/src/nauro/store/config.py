@@ -10,6 +10,7 @@ import os
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from filelock import FileLock
@@ -64,17 +65,51 @@ def config_transaction():
         save_config(data)
 
 
+def _quarantine_corrupt_config(cf: Path) -> None:
+    """Preserve a corrupt config.json before a caller overwrites it.
+
+    load_config returns {} on a corrupt file and config_transaction then
+    persists that empty dict — which would destroy any hand-recoverable content
+    (e.g. the auth tokens) in the broken file. Rename it to a timestamped
+    sidecar first so the data survives, and tell the user where it went.
+    Best-effort: a read-only dir or a concurrent rename is swallowed.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    sidecar = cf.with_name(f"{cf.name}.corrupt-{ts}")
+    try:
+        cf.rename(sidecar)
+        logger.warning(
+            "config.json was unreadable; preserved a copy at %s and started a "
+            "fresh config. If you were logged in, re-run `nauro auth login`.",
+            sidecar,
+        )
+    except OSError:
+        # Could not move the broken file aside (e.g. a read-only dir). It stays
+        # on disk and a later save may overwrite it, so flag that the tokens may
+        # still be at risk rather than implying a clean recovery.
+        logger.warning(
+            "config.json is corrupt and could not be preserved (check directory "
+            "permissions) — returning empty config; back it up manually if it held "
+            "credentials"
+        )
+
+
 def load_config() -> dict:
-    """Read config.json, return empty dict if it doesn't exist or is corrupt."""
+    """Read config.json, return empty dict if it doesn't exist or is corrupt.
+
+    A corrupt or wrong-shape file is moved aside to a ``.corrupt-<ts>`` sidecar
+    before returning {} so a subsequent save cannot silently destroy any
+    recoverable content.
+    """
     cf = _config_file()
     if cf.exists():
         try:
             data = json.loads(cf.read_text())
         except json.JSONDecodeError:
-            logger.warning("config.json is corrupt — returning empty config")
+            _quarantine_corrupt_config(cf)
             return {}
         if not isinstance(data, dict):
-            logger.warning("config.json is corrupt — returning empty config")
+            _quarantine_corrupt_config(cf)
             return {}
         return data  # type: ignore[no-any-return]
     return {}

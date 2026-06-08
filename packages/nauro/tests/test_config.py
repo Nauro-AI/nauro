@@ -1,5 +1,7 @@
 """Tests for nauro config."""
 
+import logging
+
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -63,6 +65,33 @@ def test_load_config_non_dict_returns_empty(tmp_path, monkeypatch):
     returns an empty config rather than crashing downstream callers."""
     (tmp_path / "config.json").write_text("[]")
     assert load_config() == {}
+
+
+def test_corrupt_config_is_quarantined_not_destroyed(tmp_path, monkeypatch, caplog):
+    """A corrupt config.json is moved to a sidecar so recoverable tokens survive."""
+    cf = tmp_path / "config.json"
+    # Truncated JSON that still contains the (recoverable) auth tokens.
+    cf.write_text('{"auth": {"access_token": "AT_RECOVERABLE", "refresh_token": "RT_RECOV"')
+
+    with caplog.at_level(logging.WARNING):
+        assert load_config() == {}
+
+    sidecars = list(tmp_path.glob("config.json.corrupt-*"))
+    assert len(sidecars) == 1
+    preserved = sidecars[0].read_text()
+    assert "AT_RECOVERABLE" in preserved and "RT_RECOV" in preserved
+    assert "preserved a copy" in caplog.text
+
+
+def test_transaction_after_corruption_writes_fresh_config(tmp_path, monkeypatch):
+    """After quarantine, the next load+save writes a clean config; the corrupt
+    copy is preserved rather than overwritten with an empty file."""
+    (tmp_path / "config.json").write_text("{ not valid json")
+
+    set_config("model", "haiku")  # load+save path that previously destroyed tokens
+
+    assert load_config() == {"model": "haiku"}
+    assert list(tmp_path.glob("config.json.corrupt-*"))
 
 
 # --- CLI ---
