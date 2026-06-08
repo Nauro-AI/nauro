@@ -1,7 +1,7 @@
 """Tests for the Nauro MCP stdio server tools."""
 
 from pathlib import Path
-from typing import get_args, get_type_hints
+from typing import Literal, get_args, get_origin, get_type_hints
 from unittest.mock import patch
 
 import pytest
@@ -421,14 +421,22 @@ class TestToolSpecDescriptionsReachAgent:
         ``DECISION_TYPE_VALUES`` tuple. This guard fails if the two ever drift
         — the exact failure that shipped ``library_choice`` to the schema while
         the validator rejected it."""
-        # decision_type is Annotated[Literal[...] | None, Field(...)]; strip the
-        # Annotated layer to reach the Literal[...] | None union, then the union
-        # to reach the Literal and its None arm.
+
+        # decision_type is Annotated[Literal[...] | None, Field(...)], but
+        # get_type_hints nests Annotated vs Optional in a version-dependent
+        # order, so locate the Literal anywhere in the annotation tree rather
+        # than assuming a fixed shape.
+        def _literal_values(tp):
+            if get_origin(tp) is Literal:
+                return set(get_args(tp))
+            for arg in get_args(tp):
+                found = _literal_values(arg)
+                if found is not None:
+                    return found
+            return None
+
         hints = get_type_hints(propose_decision, include_extras=True)
-        union = get_args(hints["decision_type"])[0]
-        literal, none_type = get_args(union)
-        assert none_type is type(None)
-        assert set(get_args(literal)) == set(DECISION_TYPE_VALUES)
+        assert _literal_values(hints["decision_type"]) == set(DECISION_TYPE_VALUES)
 
     def test_ten_tools_registered(self):
         tools = mcp._tool_manager.list_tools()
