@@ -12,6 +12,8 @@ from pathlib import Path
 from filelock import FileLock
 from nauro_core.constants import DECISIONS_DIR
 
+from nauro.store.reader import read_text_lenient
+
 
 class FilesystemStore:
     """Concrete ``Store`` rooted at a single project's on-disk directory.
@@ -46,7 +48,7 @@ class FilesystemStore:
             return None
         if not target.exists() or not target.is_file():
             return None
-        return target.read_text()
+        return read_text_lenient(target)
 
     # Per-write FileLock only — no cross-file lock to serialize decision
     # numbering across concurrent writers. Collisions (two writers minting
@@ -80,7 +82,7 @@ class FilesystemStore:
         target = self._store_path / DECISIONS_DIR / f"{file_stem}.md"
         if not target.exists():
             return None
-        return target.read_text()
+        return read_text_lenient(target)
 
     # Serial loop, no thread pool: local disk reads are fast and a pool would
     # contend with the per-write FileLock. Byte-identical to scanning the
