@@ -27,7 +27,14 @@ from nauro.constants import (
     PRUNE_WEEKLY_DAYS,
     SNAPSHOTS_DIR,
 )
+from nauro.store._atomic import atomic_write_text
 from nauro.store.reader import read_text_lenient
+
+# Exceptions that mean a snapshot file on disk is unreadable or malformed: a
+# truncated/garbage JSON body, a missing required key, or an OS read error. The
+# read paths skip such a file with a warning rather than letting it crash the
+# command (log/sync/diff) on a single bad snapshot.
+_CORRUPT_SNAPSHOT_ERRORS = (OSError, json.JSONDecodeError, KeyError, TypeError)
 
 logger = logging.getLogger("nauro.snapshot")
 
@@ -93,7 +100,7 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
         )
 
         out_path = snapshots_dir / f"v{next_version:03d}.json"
-        out_path.write_text(json.dumps(snapshot, indent=2) + "\n")
+        atomic_write_text(out_path, json.dumps(snapshot, indent=2) + "\n")
 
         # Prune after every capture. Prune mutates the same dir the version
         # count reads, so it stays inside the lock.
@@ -129,11 +136,15 @@ def _prune_snapshots(snapshots_dir: Path) -> None:
     # the valid snapshots.
     snapshots = []
     for f in snapshot_files:
-        data = json.loads(f.read_text())
         try:
+            data = json.loads(f.read_text())
             timestamp = datetime.fromisoformat(data["timestamp"])
-        except (ValueError, TypeError, KeyError):
-            logger.debug("Skipping snapshot with unparseable timestamp: %s", f)
+            _ = data["version"]  # required for the sort below; skip if absent
+        except (ValueError, *_CORRUPT_SNAPSHOT_ERRORS):
+            # Skip an unreadable/unparseable snapshot (incl. a missing timestamp
+            # or version) rather than crashing prune — which runs inside capture,
+            # so a corrupt sibling would otherwise break sync.
+            logger.warning("Skipping unreadable snapshot during prune: %s", f)
             continue
         snapshots.append(
             {
@@ -228,19 +239,18 @@ def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
 
     all_snaps = []
     for f in snapshots_dir.glob("v*.json"):
-        data = json.loads(f.read_text())
         try:
+            data = json.loads(f.read_text())
             ts = datetime.fromisoformat(data["timestamp"])
-        except (ValueError, TypeError, KeyError):
-            logger.debug("Skipping snapshot with unparseable timestamp: %s", f)
-            continue
-        all_snaps.append(
-            {
+            entry = {
                 "version": data["version"],
                 "timestamp": data["timestamp"],
                 "datetime": ts,
             }
-        )
+        except (ValueError, *_CORRUPT_SNAPSHOT_ERRORS):
+            logger.warning("Skipping unreadable snapshot: %s", f)
+            continue
+        all_snaps.append(entry)
 
     if not all_snaps:
         return None
@@ -270,16 +280,21 @@ def list_snapshots(store_path: Path) -> list[dict]:
 
     result = []
     for f in sorted(snapshots_dir.glob("v*.json"), reverse=True):
-        data = json.loads(f.read_text())
-        result.append(
-            {
+        try:
+            data = json.loads(f.read_text())
+            entry = {
                 "version": data["version"],
                 "timestamp": data["timestamp"],
                 "trigger": data.get("trigger", ""),
                 "trigger_detail": data.get("trigger_detail", ""),
                 "token_count": data.get("token_count", 0),
             }
-        )
+        except _CORRUPT_SNAPSHOT_ERRORS:
+            # Skip a corrupt/truncated snapshot (e.g. an interrupted write)
+            # rather than crashing log/sync/diff; capture overwrites the slot.
+            logger.warning("Skipping unreadable snapshot: %s", f)
+            continue
+        result.append(entry)
     return result
 
 
