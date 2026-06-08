@@ -171,10 +171,12 @@ def test_missing_store_guidance_matches_across_surfaces(missing_store):
 # reproduce it character-for-character; any drift indicates either a
 # transport-decoration regression (Last-synced trailer, snapshot diff,
 # NO_CONTEXT_YET sentinel) or a kernel content change.
+#
+# Deviates from that capture in one intended way: the redundant "# Current
+# State" sub-header (the file's own header, doubled under L0's "## Current
+# State" section header) is now stripped.
 
 _BASELINE_L0 = """## Current State
-# Current State
-
 **Sprint:** ship beta
 **Blocker:** none
 
