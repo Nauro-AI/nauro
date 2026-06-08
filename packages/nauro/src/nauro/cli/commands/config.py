@@ -18,10 +18,31 @@ from nauro.store.config import (
 config_app = typer.Typer(help="Inspect and remove Nauro configuration.")
 
 
-def _mask(key: str, value: str) -> str:
-    """Mask sensitive values (keys/tokens) for display."""
-    if "key" in key.lower() and len(value) > 8:
-        return value[:4] + "..." + value[-4:]
+# Substrings that mark a config key (at any nesting depth) as sensitive. The
+# `auth` block nests credentials under `access_token` / `refresh_token`, so
+# matching must look inside dict values, not just top-level string keys.
+_SENSITIVE_KEY_MARKERS = ("key", "token", "secret", "password", "credential")
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(marker in lowered for marker in _SENSITIVE_KEY_MARKERS)
+
+
+def _mask(key: str, value: object) -> object:
+    """Mask sensitive values (keys/tokens) for display.
+
+    Recurses into dicts so nested credentials — notably the bearer and refresh
+    tokens under the ``auth`` block — are never printed in full. A sensitive
+    string is shown as ``abcd...wxyz``; a short sensitive string is fully
+    redacted; non-sensitive values pass through unchanged.
+    """
+    if isinstance(value, dict):
+        return {k: _mask(k, v) for k, v in value.items()}
+    if isinstance(value, str) and _is_sensitive_key(key):
+        if len(value) > 8:
+            return value[:4] + "..." + value[-4:]
+        return "***"
     return value
 
 
@@ -45,8 +66,7 @@ def config_list() -> None:
         typer.echo("No configuration set.")
         return
     for key, value in sorted(data.items()):
-        display = _mask(key, value) if isinstance(value, str) else value
-        typer.echo(f"{key}: {display}")
+        typer.echo(f"{key}: {_mask(key, value)}")
 
 
 @config_app.command(name="unset")

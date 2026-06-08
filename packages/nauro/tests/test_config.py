@@ -98,6 +98,36 @@ def test_config_list_empty_cli(tmp_path, monkeypatch):
     assert "No configuration set" in result.output
 
 
+# Credentials live in a nested ``auth`` dict; the display must redact the bearer
+# and refresh tokens (which `_mask`'s string-only path used to skip entirely)
+# while leaving the non-secret identity fields visible, as `auth status` does.
+_FAKE_AUTH = {
+    "sub": "auth0|FAKE123",
+    "access_token": "AT_SECRET_eyJleUFAKEBEARER",
+    "refresh_token": "RT_SECRET_v1FAKEREFRESH",
+}
+
+
+def test_config_get_auth_masks_nested_tokens(tmp_path, monkeypatch):
+    save_config({"auth": dict(_FAKE_AUTH)})
+    result = runner.invoke(app, ["config", "get", "auth"])
+    assert result.exit_code == 0
+    assert "AT_SECRET_eyJleUFAKEBEARER" not in result.output
+    assert "RT_SECRET_v1FAKEREFRESH" not in result.output
+    # Non-secret identity field stays visible.
+    assert "auth0|FAKE123" in result.output
+
+
+def test_config_list_masks_auth_block(tmp_path, monkeypatch):
+    save_config({"auth": dict(_FAKE_AUTH), "model": "haiku"})
+    result = runner.invoke(app, ["config", "list"])
+    assert result.exit_code == 0
+    assert "AT_SECRET_eyJleUFAKEBEARER" not in result.output
+    assert "RT_SECRET_v1FAKEREFRESH" not in result.output
+    # Non-sensitive values are untouched.
+    assert "model: haiku" in result.output
+
+
 def test_config_unset_cli(tmp_path, monkeypatch):
     set_config("secret_key", "sk-test")
     result = runner.invoke(app, ["config", "unset", "secret_key"])
