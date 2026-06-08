@@ -1,4 +1,4 @@
-"""Phase 1c T1.5 — mcp.tool_called decorator tests.
+"""Tests for the mcp.tool_called telemetry decorator.
 
 Covers:
 1. All 10 canonical MCP tools emit one mcp.tool_called event per call with the

@@ -204,14 +204,14 @@ def test_logout_rotates_anonymous_id_and_preserves_consent(nauro_home):
     assert cfg["telemetry"]["consented_at"] == "2026-04-30T00:00:00Z"
 
 
-# ── 5. No posthog.reset() — C1 correction ───────────────────────────────────
+# ── 5. No posthog.reset() ────────────────────────────────────────────────────
 
 
 def test_posthog_python_sdk_has_no_reset_attr():
     """Sanity guard against a future regression that re-adds posthog.reset().
 
-    C1 correction (Phase 1c review): posthog.reset() is a JS-SDK API. The
-    Python SDK 7.x has no such method. Calling it would raise AttributeError.
+    posthog.reset() is a JS-SDK API. The Python SDK 7.x has no such method;
+    calling it would raise AttributeError.
     Identity reset is application-side rotation only.
     """
     import posthog

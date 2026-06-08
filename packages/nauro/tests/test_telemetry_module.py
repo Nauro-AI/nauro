@@ -249,5 +249,5 @@ def test_should_emit_false_under_shipped_placeholder(nauro_home, monkeypatch):
     assert _should_emit() is False
 
 
-# Phase 1c — identify_login / identify_logout are implemented now.
+# identify_login / identify_logout are implemented now.
 # Comprehensive coverage lives in tests/test_identity_lifecycle.py.
