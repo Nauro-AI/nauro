@@ -72,3 +72,42 @@ def test_projects_rm_declined_confirm_keeps_entry(tmp_path, monkeypatch):
     # typer.confirm(abort=True) raises Abort → exit 1 on decline.
     assert result.exit_code == 1, result.output
     assert registry.get_project_v2(pid_a) is not None
+
+
+# ── duplicate-name discoverability ──────────────────────────────────────────────
+
+
+def test_projects_flags_duplicate_names(tmp_path, monkeypatch):
+    """`nauro projects` warns when two entries share a name (separate stores)."""
+    register_project_v2("dup", [tmp_path / "a"])
+    register_project_v2("dup", [tmp_path / "b"])
+    result = runner.invoke(app, ["projects"])
+    assert result.exit_code == 0, result.output
+    assert "share a name" in result.output
+    assert "'dup'" in result.output
+
+
+def test_projects_no_duplicate_warning_for_unique_names(tmp_path, monkeypatch):
+    register_project_v2("alpha", [tmp_path / "a"])
+    register_project_v2("beta", [tmp_path / "b"])
+    result = runner.invoke(app, ["projects"])
+    assert result.exit_code == 0, result.output
+    assert "share a name" not in result.output
+
+
+def test_status_warns_when_name_shared(tmp_path, monkeypatch):
+    """`nauro status` flags another local project sharing the resolved name."""
+    repo_a = tmp_path / "ra"
+    repo_b = tmp_path / "rb"
+    repo_a.mkdir()
+    repo_b.mkdir()
+
+    monkeypatch.chdir(repo_a)
+    assert runner.invoke(app, ["init", "shared"]).exit_code == 0
+    monkeypatch.chdir(repo_b)
+    assert runner.invoke(app, ["init", "shared"]).exit_code == 0
+
+    monkeypatch.chdir(repo_a)
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    assert "share the name" in result.output and "shared" in result.output

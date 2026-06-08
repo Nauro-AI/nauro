@@ -12,6 +12,8 @@ second entry for a repo that is already claimed.
 
 from __future__ import annotations
 
+from collections import Counter
+
 import typer
 
 from nauro.store.registry import (
@@ -41,6 +43,23 @@ def _print_project_list() -> None:
                 typer.echo(f"  Repo: {rp}")
         else:
             typer.echo("  Repo: (none)")
+
+    # Flag duplicate names: v2 allows them, but two same-named projects are
+    # separate stores that share no decisions — usually an accidental fork from
+    # re-running `nauro init <name>` in a second repo. Surface it so it is
+    # discoverable here, not just at creation time.
+    name_counts = Counter(e.get("name", "<unnamed>") for e in entries.values())
+    dupes = sorted(n for n, c in name_counts.items() if c > 1)
+    if dupes:
+        typer.echo("")
+        typer.echo(
+            "Warning: multiple projects share a name: "
+            + ", ".join(f"'{n}'" for n in dupes)
+            + ". These are separate stores. To put repos under one project, use "
+            "`nauro init <name> --add-repo <path>` and drop the extra with "
+            "`nauro projects rm <id>`.",
+            err=True,
+        )
 
 
 @projects_app.callback(invoke_without_command=True)
