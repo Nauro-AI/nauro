@@ -85,7 +85,7 @@ def test_cli_stdio_tool_match_on_success_path(demo_repo):
     assert _stdio_rendered(pid) == RENDERERS["check_decision"](tool)
 
 
-def test_success_envelope_contains_d141_canonical_fields(demo_repo):
+def test_success_envelope_contains_canonical_fields(demo_repo):
     pid, store_path = demo_repo
     envelope = _tool_envelope(store_path)
     assert envelope["store"] == "local"
@@ -119,7 +119,7 @@ def test_rejection_envelope_matches_across_surfaces(demo_repo):
     # the same envelope every other surface returned.
     stdio_rendered = _stdio_rendered(pid, overlong)
     assert stdio_rendered == RENDERERS["check_decision"](tool)
-    # Locked rejection envelope shape (closes D141 for this operation).
+    # Locked rejection envelope shape for this operation.
     assert cli["store"] == "local"
     assert cli["related_decisions"] == []
     assert cli["assessment"] == ""

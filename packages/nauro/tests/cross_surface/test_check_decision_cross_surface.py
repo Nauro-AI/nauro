@@ -5,7 +5,8 @@ three local adapters against the same ``FilesystemStore``. This file goes
 one layer deeper: the same kernel call against ``FilesystemStore`` and
 ``mcp_server.store.cloud_store.CloudStore`` must produce the same
 :class:`CheckDecisionResult` for the same fixed inputs. That is the
-no-drift-by-construction guarantee D170 + D174 commit to.
+no-drift-by-construction guarantee: both surfaces run the same operations
+kernel, so identical inputs must yield identical results.
 
 CloudStore lives in the private mcp-server repo and ships in the paired
 cross-repo cutover PR. When this test runs from inside the nauro

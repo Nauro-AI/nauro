@@ -1,8 +1,8 @@
 # Nauro
 
-The decision system for teams and agents.
+A decision system for agentic engineering.
 
-Catch the moment an agent re-proposes something your team already ruled out. Your team's decisions, including what you chose and what you ruled out, travel with every connected agent. When an agent proposes an approach, Nauro surfaces the past decisions related to it, so the agent sees the prior reasoning before it writes code. The check is advisory: it never blocks, and you approve anything that gets recorded. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
+Catch the moment an agent re-proposes something you already ruled out. Your project's decisions, including what you chose and what you ruled out, travel with every connected agent. When an agent proposes an approach, Nauro surfaces the past decisions related to it, so the agent sees the prior reasoning before it writes code. The check is advisory: it never blocks, and you approve anything that gets recorded. Works with Claude, Perplexity, ChatGPT, Cursor, and any MCP client.
 
 ## Install
 
