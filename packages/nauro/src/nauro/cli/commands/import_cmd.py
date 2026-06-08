@@ -22,6 +22,17 @@ from nauro.store.snapshot import capture_snapshot
 from nauro.store.store_lock import store_write_lock
 
 
+def _read(path: Path) -> str:
+    """Read an import source file, replacing any undecodable bytes.
+
+    ADR and Memory-Bank sources are often legacy docs (cp1252/latin-1), or a
+    directory carries a stray binary file. Strict UTF-8 would abort the whole
+    migration with a traceback on the first bad byte; errors="replace" lets the
+    import proceed and the user see what came through.
+    """
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
 def _import_append_decision(
     store_path: Path,
     title: str,
@@ -70,6 +81,9 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
         "files_merged": 0,
         "decisions": 0,
         "progress_items": 0,
+        # Set when decisionLog.md had content but no block matched the expected
+        # heading, so the caller can warn instead of reporting a silent success.
+        "decisionlog_unparsed": 0,
     }
 
     # projectBrief.md → project.md
@@ -77,7 +91,7 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
     if brief_path.exists():
         _append_to_store_file(
             store_path / PROJECT_MD,
-            brief_path.read_text(),
+            _read(brief_path),
         )
         counts["files_merged"] += 1
 
@@ -86,27 +100,30 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
     if tech_path.exists():
         _append_to_store_file(
             store_path / STACK_MD,
-            tech_path.read_text(),
+            _read(tech_path),
         )
         counts["files_merged"] += 1
 
     # decisionLog.md → decisions/NNN-title.md
     decision_log = memory_bank / "decisionLog.md"
     if decision_log.exists():
-        counts["decisions"] = _parse_and_import_decisions(decision_log.read_text(), store_path)
+        log_text = _read(decision_log)
+        counts["decisions"] = _parse_and_import_decisions(log_text, store_path)
+        if counts["decisions"] == 0 and log_text.strip():
+            counts["decisionlog_unparsed"] = 1
 
     # activeContext.md + progress.md → state_current.md (one composed update_state)
     active_body: str | None = None
     active_path = memory_bank / "activeContext.md"
     if active_path.exists():
-        active_body = _strip_h1_prefix(active_path.read_text())
+        active_body = _strip_h1_prefix(_read(active_path))
         if active_body:
             counts["files_merged"] += 1
 
     progress_items: list[str] = []
     progress_path = memory_bank / "progress.md"
     if progress_path.exists():
-        progress_items = _import_progress(progress_path.read_text())
+        progress_items = _import_progress(_read(progress_path))
     counts["progress_items"] = len(progress_items)
 
     delta = _compose_state_delta(active_body, progress_items)
@@ -166,7 +183,7 @@ def _append_to_store_file(target: Path, content: str) -> None:
         return
 
     if target.exists():
-        existing = target.read_text()
+        existing = _read(target)
         target.write_text(existing.rstrip() + header + stripped + "\n")
     else:
         target.write_text(header.lstrip() + stripped + "\n")
@@ -227,7 +244,7 @@ def _import_adrs(adr_dir: Path, store_path: Path) -> dict[str, Any]:
     adr_files.sort(key=lambda x: x[0])
 
     for _num, adr_path in adr_files:
-        content = adr_path.read_text()
+        content = _read(adr_path)
         title = _extract_adr_title(content)
         if not title:
             counts["skipped"] += 1
@@ -367,9 +384,18 @@ def _import_progress(content: str) -> list[str]:
 
 
 _Opt_memory_bank = typer.Option(
-    None, "--memory-bank", help="Path to a Cline/Roo Code Memory Bank (.context/ directory)."
+    None,
+    "--memory-bank",
+    help=(
+        "Path to a Cline/Roo Code Memory Bank (.context/ directory). "
+        "decisionLog.md entries must use '## Decision: <title>' headings to import."
+    ),
 )
-_Opt_adr = typer.Option(None, "--adr", help="Path to an Architecture Decision Records directory.")
+_Opt_adr = typer.Option(
+    None,
+    "--adr",
+    help="Path to an Architecture Decision Records directory (files named '<NNN>-title.md').",
+)
 
 
 def import_cmd(
@@ -412,6 +438,13 @@ def import_cmd(
         typer.echo(f"  {counts['files_merged']} file(s) merged")
         typer.echo(f"  {counts['decisions']} decision(s) imported")
         typer.echo(f"  {counts['progress_items']} progress item(s) imported")
+        if counts.get("decisionlog_unparsed"):
+            typer.echo(
+                "  Warning: decisionLog.md had content but no entries matched the "
+                "expected '## Decision: <title>' heading — 0 decisions imported. "
+                "Re-check the heading format (see 'nauro import --help').",
+                err=True,
+            )
         typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
 
     if adr is not None:
@@ -429,4 +462,10 @@ def import_cmd(
         typer.echo(f"  {adr_counts['skipped']} ADR(s) skipped")
         for reason in adr_counts.get("_skipped_reasons", []):
             typer.echo(f"    - {reason}")
+        if adr_counts["imported"] == 0 and adr_counts["skipped"] == 0:
+            typer.echo(
+                "  Warning: no ADRs imported. Files must be named '<NNN>-title.md' "
+                "(e.g. 0001-use-postgres.md); other .md files are ignored.",
+                err=True,
+            )
         typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")

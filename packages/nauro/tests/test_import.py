@@ -601,3 +601,76 @@ def test_import_adr_cli_integration(tmp_path: Path, monkeypatch, madr_directory:
     snaps = list_snapshots(store)
     assert len(snaps) >= 1
     assert snaps[0]["trigger"] == "import: adr"
+
+
+# --- Hardening: non-UTF-8 sources and honest zero-import warnings ---
+
+
+def test_import_adr_non_utf8_does_not_crash(store: Path, tmp_path: Path):
+    """A legacy-encoded byte in an ADR file must not abort the migration."""
+    adr_dir = tmp_path / "legacy_adrs"
+    adr_dir.mkdir()
+    # Valid ADR structure with a lone 0xe9 ("é" in latin-1) in the body.
+    (adr_dir / "0001-legacy.md").write_bytes(
+        b"# Use a legacy thing\n\n## Context\n\nThe caf" + b"\xe9" + b" service is slow.\n"
+    )
+
+    counts = _import_adrs(adr_dir, store)
+    assert counts["imported"] == 1  # no UnicodeDecodeError; the ADR imports
+
+
+def test_import_memory_bank_unparsed_decisionlog_warns(tmp_path: Path, monkeypatch):
+    """A non-empty decisionLog in Cline's native (non '## Decision:') format
+    imports zero decisions but must say so, not report a silent success."""
+    register_project("myproj", [tmp_path])
+    store = tmp_path / "projects" / "myproj"
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    mb = tmp_path / ".context_native"
+    mb.mkdir()
+    (mb / "projectBrief.md").write_text("# Brief\n\nA project.\n")
+    (mb / "decisionLog.md").write_text(
+        "# Decision Log\n\n"
+        "[2024-05-01 10:30:00] - Chose REST over GraphQL\n"
+        "[2024-05-02 09:00:00] - Adopted Postgres\n"
+    )
+
+    result = runner.invoke(app, ["import", "--memory-bank", str(mb)])
+    assert result.exit_code == 0
+    assert "0 decision(s) imported" in result.output
+    assert "Warning" in result.output
+    assert "## Decision:" in result.output  # names the expected format
+
+
+def test_import_memory_bank_proper_heading_no_warning(
+    tmp_path: Path, monkeypatch, full_memory_bank: Path
+):
+    """A decisionLog that uses the expected heading imports without the warning."""
+    register_project("myproj", [tmp_path])
+    store = tmp_path / "projects" / "myproj"
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["import", "--memory-bank", str(full_memory_bank)])
+    assert result.exit_code == 0
+    assert "2 decision(s) imported" in result.output
+    assert "Warning" not in result.output
+
+
+def test_import_adr_no_matching_files_warns(tmp_path: Path, monkeypatch):
+    """An ADR dir with only non-'<NNN>-title.md' files imports nothing and says why."""
+    register_project("myproj", [tmp_path])
+    store = tmp_path / "projects" / "myproj"
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    adr_dir = tmp_path / "loose_adrs"
+    adr_dir.mkdir()
+    (adr_dir / "decision-records.md").write_text("# Notes\n\nSome unstructured notes.\n")
+
+    result = runner.invoke(app, ["import", "--adr", str(adr_dir)])
+    assert result.exit_code == 0
+    assert "0 ADR(s) imported" in result.output
+    assert "Warning" in result.output
+    assert "<NNN>-title.md" in result.output
