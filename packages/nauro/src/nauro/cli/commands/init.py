@@ -235,7 +235,10 @@ _Opt_add_repo_paths = typer.Option(
 
 
 def init(
-    name: str = typer.Argument(default="demo-project", help="Project name."),
+    name: str | None = typer.Argument(
+        default=None,
+        help="Project name. Defaults to the directory name (or 'demo-project' with --demo).",
+    ),
     add_repo_paths: list[Path] | None = _Opt_add_repo_paths,
     demo: bool = typer.Option(
         False,
@@ -274,6 +277,19 @@ def init(
             "or `nauro init <name> --cloud` for an empty cloud project.",
             param_hint="--demo / --cloud",
         )
+
+    # Resolve an omitted name. --demo keeps its fixed sample name; otherwise
+    # derive from the current directory (like `git init`/`npm init`) instead of
+    # silently creating a real, empty project literally named 'demo-project'.
+    if name is None:
+        name = "demo-project" if demo else Path.cwd().name
+        if not name:
+            typer.echo(
+                "Error: could not derive a project name from the current directory. "
+                "Pass one explicitly: nauro init <name>",
+                err=True,
+            )
+            raise typer.Exit(code=1)
 
     repo_paths = add_repo_paths if add_repo_paths else [Path.cwd()]
 

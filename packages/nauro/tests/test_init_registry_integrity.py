@@ -155,3 +155,30 @@ def test_init_add_repo_links_second_repo_to_one_project(tmp_path, monkeypatch):
     # Still exactly one project named 'linked' — the second repo joined it.
     matches = find_projects_by_name_v2("linked")
     assert len(matches) == 1
+
+
+# ── omitted-name default ────────────────────────────────────────────────────────
+
+
+def test_init_without_name_derives_from_directory(tmp_path, monkeypatch):
+    """A bare `nauro init` names the project after the directory, not the
+    surprising literal 'demo-project'."""
+    repo = tmp_path / "my-cool-repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0, result.output
+    assert len(find_projects_by_name_v2("my-cool-repo")) == 1
+    assert find_projects_by_name_v2("demo-project") == []
+
+
+def test_init_demo_without_name_still_uses_demo_project(tmp_path, monkeypatch):
+    """`nauro init --demo` (no name) keeps the fixed sample name."""
+    repo = tmp_path / "anything"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["init", "--demo"])
+    assert result.exit_code == 0, result.output
+    assert len(find_projects_by_name_v2("demo-project")) == 1
