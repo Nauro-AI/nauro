@@ -375,7 +375,7 @@ class TestPullViaPresign:
         def boom(*args, **kwargs):
             raise UnionMergeError("simulated git failure")
 
-        monkeypatch.setattr("nauro.sync.merge._union_merge", boom)
+        monkeypatch.setattr("nauro.sync.pull.resolve_conflict", boom)
 
         from nauro.sync import remote
 

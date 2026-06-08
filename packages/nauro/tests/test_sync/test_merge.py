@@ -4,6 +4,7 @@ import shutil
 import subprocess
 
 import pytest
+from nauro_core.decision_model import parse_decision
 
 from nauro.sync.merge import (
     UnionMergeError,
@@ -30,7 +31,7 @@ class TestShouldSkip:
 
 class TestIsAppendOnly:
     def test_decision_file(self):
-        assert _is_append_only("decisions/001-foo.md") is True
+        assert _is_append_only("decisions/001-foo.md") is False
 
     def test_open_questions(self):
         assert _is_append_only("open-questions.md") is True
@@ -119,9 +120,13 @@ class TestResolveConflict:
 
         assert result == b'{"local": true}'
 
-    @pytest.mark.skipif(not shutil.which("git"), reason="git not available")
-    def test_union_merge_for_decisions(self, tmp_path):
-        """Decision files use git merge-file --union."""
+    def test_lww_for_decisions(self, tmp_path):
+        """Decision files use last-write-wins with backup of the losing version.
+
+        A decision file is immutable per number; interleaving two divergent
+        versions line-by-line would corrupt the file. So a content conflict
+        keeps the local copy whole and backs up the remote loser instead.
+        """
         project_path = tmp_path / "project"
         project_path.mkdir()
         (project_path / "decisions").mkdir()
@@ -134,9 +139,77 @@ class TestResolveConflict:
             project_path, local_file, remote_content, "decisions/001-foo.md", state
         )
 
-        # Union merge should include content from both sides
-        result_str = result.decode()
-        assert "Decision 001" in result_str
+        # Local copy is kept whole, never interleaved with remote.
+        assert result == b"# Decision 001\nLocal addition\n"
+        backup_dir = project_path / ".conflict-backup"
+        assert backup_dir.exists()
+        backups = list(backup_dir.iterdir())
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == remote_content
+
+    def test_update_vs_supersede_conflict_survivor_parses(self, tmp_path):
+        """An update-vs-supersede conflict on the same number stays parseable.
+
+        Both sides are in-place rewrites of decision 042: local marks it
+        superseded, remote bumps its version with new rationale. A union merge
+        would interleave the two frontmatter blocks and bodies into a single
+        file that no longer parses. Last-write-wins keeps the local rewrite
+        whole and backs the remote loser up, so the survivor is one decision
+        that ``parse_decision`` accepts.
+        """
+        local_text = (
+            "---\n"
+            "date: 2026-06-01\n"
+            "confidence: high\n"
+            "version: 2\n"
+            "status: superseded\n"
+            'superseded_by: "99"\n'
+            "---\n"
+            "\n"
+            "# 042 — Cache layer choice\n"
+            "\n"
+            "## Decision\n"
+            "\n"
+            "Superseded by the persisted-index approach.\n"
+        )
+        remote_text = (
+            "---\n"
+            "date: 2026-06-01\n"
+            "confidence: medium\n"
+            "version: 2\n"
+            "status: active\n"
+            "---\n"
+            "\n"
+            "# 042 — Cache layer choice\n"
+            "\n"
+            "## Decision\n"
+            "\n"
+            "Revised in place to use a write-through cache.\n"
+        )
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "decisions").mkdir()
+        local_file = project_path / "decisions" / "042-cache-layer.md"
+        local_file.write_text(local_text)
+        remote_content = remote_text.encode("utf-8")
+
+        state = SyncState()
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "decisions/042-cache-layer.md", state
+        )
+
+        # The survivor is the local rewrite, whole and parseable as ONE decision.
+        assert result == local_text.encode("utf-8")
+        survivor = parse_decision(result.decode("utf-8"), "042-cache-layer.md")
+        assert survivor.num == 42
+        assert survivor.status.value == "superseded"
+        assert survivor.superseded_by == "99"
+
+        # The remote loser was backed up rather than interleaved into the file.
+        backups = list((project_path / ".conflict-backup").iterdir())
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == remote_content
 
     @pytest.mark.skipif(not shutil.which("git"), reason="git not available")
     def test_union_merge_for_open_questions(self, tmp_path):
@@ -323,9 +396,7 @@ class TestSetUnionMarkdown:
             assert twice_lines.count(token) == 1, f"{token!r} repeats in {twice!r}"
 
     def test_decisions_do_not_route_to_set_union(self, tmp_path, monkeypatch):
-        """Decision conflicts stay on _union_merge, not _set_union_markdown."""
-        if not shutil.which("git"):
-            pytest.skip("git not available")
+        """Decision conflicts resolve by last-write-wins, not _set_union_markdown."""
         project_path = tmp_path / "project"
         project_path.mkdir()
         (project_path / "decisions").mkdir()
@@ -345,6 +416,10 @@ class TestSetUnionMarkdown:
         resolve_conflict(project_path, local_file, remote_content, "decisions/001-foo.md", state)
 
         assert calls == []
+        # Last-write-wins backs the remote loser up rather than interleaving it.
+        backups = list((project_path / ".conflict-backup").iterdir())
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == remote_content
 
     def test_open_questions_routes_to_set_union(self, tmp_path, monkeypatch):
         """open-questions.md conflicts go through _set_union_markdown."""

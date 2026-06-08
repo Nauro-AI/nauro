@@ -409,7 +409,7 @@ class TestSyncPullSurfacesAndMerges:
         def boom(*args, **kwargs):
             raise UnionMergeError("simulated git failure")
 
-        monkeypatch.setattr("nauro.sync.merge._union_merge", boom)
+        monkeypatch.setattr("nauro.sync.pull.resolve_conflict", boom)
 
         with (
             patch("nauro.sync.remote.httpx.get", side_effect=fake_get),

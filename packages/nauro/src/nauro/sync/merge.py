@@ -24,8 +24,10 @@ class UnionMergeError(Exception):
     """
 
 
-# Files where append-only union merge is appropriate
-APPEND_ONLY_PATTERNS = ("decisions/", "open-questions.md", "state_history.md")
+# Append-only logs where a set-union merge is safe. Decisions are not
+# append-only. An interleaving union merge would corrupt them, so decision
+# conflicts resolve by last-write-wins with a recoverable backup instead.
+APPEND_ONLY_PATTERNS = ("open-questions.md", "state_history.md")
 
 # Files that are never synced
 NEVER_SYNC = (".sync-state.json",)
