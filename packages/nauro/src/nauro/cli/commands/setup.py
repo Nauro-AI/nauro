@@ -72,7 +72,20 @@ def _remove_claude_md(repo_path: Path) -> str | None:
 
 
 def _find_nauro_command() -> str:
-    """Find the full path to the nauro binary for the MCP config."""
+    """Resolve an absolute path to the nauro entrypoint for MCP/hook configs.
+
+    Prefer the console script next to the running interpreter — the install the
+    user actually invoked, which a pip-into-venv or pipx/uv-tool layout often
+    keeps off the PATH that Claude Code / Cursor / Codex launch with. Recording
+    an absolute path keeps the spawned stdio server and the per-turn hook
+    independent of the agent's launch environment. Fall back to a PATH lookup,
+    then the bare name.
+    """
+    bindir = Path(sys.executable).parent
+    for name in ("nauro", "nauro.exe"):
+        candidate = bindir / name
+        if candidate.is_file():
+            return str(candidate)
     path = shutil.which("nauro")
     return path if path else "nauro"
 
@@ -676,12 +689,17 @@ def materialize_agents(
 # client event to bind to.
 
 HOOK_EVENT_NAME = "UserPromptSubmit"
-HOOK_COMMAND = "nauro hook user-prompt-submit"
+# The subcommand the hook entry runs; the full command is built at install time
+# by prefixing the resolved absolute nauro path (see _nauro_hook_entry), so the
+# hook fires even when nauro is not on the agent's launch PATH.
+HOOK_SUBCOMMAND = "hook user-prompt-submit"
 HOOK_TIMEOUT_SECONDS = 10
 
 # Substring that identifies a nauro-authored hook entry on the remove path, so a
-# user's own UserPromptSubmit hooks are preserved.
-_HOOK_COMMAND_MARKER = "nauro hook"
+# user's own UserPromptSubmit hooks are preserved. Matches the subcommand rather
+# than "nauro " so it holds regardless of how the entrypoint resolves — a bare
+# "nauro", an absolute POSIX path, or a Windows "nauro.exe".
+_HOOK_COMMAND_MARKER = HOOK_SUBCOMMAND
 
 
 def _claude_settings_path(repo: Path) -> Path:
@@ -719,7 +737,7 @@ def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> str:
 def _nauro_hook_entry() -> dict:
     return {
         "type": "command",
-        "command": HOOK_COMMAND,
+        "command": f"{_find_nauro_command()} {HOOK_SUBCOMMAND}",
         "timeout": HOOK_TIMEOUT_SECONDS,
     }
 

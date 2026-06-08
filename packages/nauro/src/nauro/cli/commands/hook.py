@@ -16,6 +16,7 @@ Nauro.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import time
@@ -23,19 +24,28 @@ from pathlib import Path
 
 import typer
 
-from nauro.constants import DEFAULT_NAURO_HOME, NAURO_HOME_ENV
+from nauro.constants import DECISIONS_DIR, DEFAULT_NAURO_HOME, NAURO_HOME_ENV
 
 hook_app = typer.Typer(help="Client-side advisory hooks for AI coding agents.")
 
 # ── Tuning constants (initial values; final tuning deferred to the harness) ──
 
-# BM25 relevance floor. A hit must clear this score to be injected. The BM25
-# score scales with corpus size and query length; against a real decision
-# corpus (a few hundred decisions) a strong terse-prompt match scores in the
-# mid-teens, while weak near-neighbours sit in the low single digits. A floor
-# here clears the weak tail and keeps genuine conflicts. This is a sensible
-# initial value; final tuning against field telemetry is deferred.
+# BM25 relevance floor at the reference corpus size. A hit must clear the
+# effective floor (see _effective_floor) to be injected. The BM25 score scales
+# with corpus size and query length; against a few-hundred-decision corpus a
+# strong terse-prompt match scores in the mid-teens, while weak near-neighbours
+# sit in the low single digits. A floor here clears the weak tail and keeps
+# genuine conflicts. Final tuning against field telemetry is deferred.
 RELEVANCE_FLOOR = 8.0
+
+# Corpus size the absolute RELEVANCE_FLOOR is calibrated for. Because BM25 IDF
+# (and thus the score scale) grows with corpus size, a fixed floor tuned for a
+# large store silences every hit on a small one — e.g. the 7-decision
+# `nauro init --demo` store tops out around 6, so an 8.0 floor would surface
+# nothing, including the marquee websocket→SSE conflict. _effective_floor scales
+# the floor down for smaller corpora; NAURO_HOOK_RELEVANCE_FLOOR overrides both.
+RELEVANCE_FLOOR_REFERENCE_CORPUS = 200
+RELEVANCE_FLOOR_ENV = "NAURO_HOOK_RELEVANCE_FLOOR"
 
 # Maximum decisions injected per turn. Three is enough to surface the cluster
 # around a conflict without flooding the context window.
@@ -94,7 +104,7 @@ def _run_user_prompt_submit() -> None:
     if not related:
         return
 
-    surviving = _apply_floor(related)
+    surviving = _apply_floor(related, _corpus_size(store_path))
     if not surviving:
         return
 
@@ -189,18 +199,49 @@ def _check(store_path: Path, prompt: str) -> list[dict]:
     return hits
 
 
-def _apply_floor(hits: list[dict]) -> list[dict]:
+def _corpus_size(store_path: Path) -> int:
+    """Count decision files in the store, for corpus-size-aware floor scaling."""
+    decisions_dir = store_path / DECISIONS_DIR
+    if not decisions_dir.exists():
+        return 0
+    return sum(1 for _ in decisions_dir.glob("*.md"))
+
+
+def _effective_floor(corpus_size: int) -> float:
+    """Relevance floor adjusted for corpus size.
+
+    An explicit ``NAURO_HOOK_RELEVANCE_FLOOR`` env value always wins. Otherwise
+    the floor scales with ``log10(corpus_size)`` up to the reference corpus, so a
+    small store (including the 7-decision ``--demo``) still surfaces a genuine
+    conflict instead of clearing every hit, while a large store keeps the full
+    floor that trims the weak tail. A single absolute floor cannot fit both
+    because BM25 scores grow with corpus size.
+    """
+    override = os.environ.get(RELEVANCE_FLOOR_ENV)
+    if override is not None:
+        try:
+            return float(override)
+        except ValueError:
+            pass
+    if corpus_size >= RELEVANCE_FLOOR_REFERENCE_CORPUS:
+        return RELEVANCE_FLOOR
+    scale = math.log10(max(corpus_size, 2)) / math.log10(RELEVANCE_FLOOR_REFERENCE_CORPUS)
+    return RELEVANCE_FLOOR * scale
+
+
+def _apply_floor(hits: list[dict], corpus_size: int) -> list[dict]:
     """Filter hits to those worth injecting.
 
-    BM25 hits at or above the relevance floor are kept in order; everything else
-    is dropped. Embedding-only hits (score 0.0) are not admitted: on the
-    validation corpus they recovered no conflict the BM25 floor missed while
-    injecting a nearest-neighbour on every otherwise-silent prompt. The kernel
-    discards the cosine score, so an embedding-only hit cannot be relevance-gated
-    here. Re-admitting them is a follow-up that requires the kernel to expose the
-    embedding score.
+    BM25 hits at or above the corpus-adjusted relevance floor are kept in order;
+    everything else is dropped. Embedding-only hits (score 0.0) are not admitted:
+    on the validation corpus they recovered no conflict the BM25 floor missed
+    while injecting a nearest-neighbour on every otherwise-silent prompt. The
+    kernel discards the cosine score, so an embedding-only hit cannot be
+    relevance-gated here. Re-admitting them is a follow-up that requires the
+    kernel to expose the embedding score.
     """
-    return [h for h in hits if h["score"] >= RELEVANCE_FLOOR]
+    floor = _effective_floor(corpus_size)
+    return [h for h in hits if h["score"] >= floor]
 
 
 def _format_block(hits: list[dict]) -> str:

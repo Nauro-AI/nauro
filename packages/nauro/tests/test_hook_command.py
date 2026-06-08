@@ -257,6 +257,53 @@ def test_per_session_dedup_does_not_resurface(tmp_path: Path):
     assert second.output == ""
 
 
+# ── corpus-size-aware relevance floor ───────────────────────────────────────────
+
+
+def test_effective_floor_scales_down_for_small_corpus():
+    """A small corpus gets a reachable floor; at/above the reference it is full."""
+    assert hook._effective_floor(hook.RELEVANCE_FLOOR_REFERENCE_CORPUS) == hook.RELEVANCE_FLOOR
+    assert hook._effective_floor(1000) == hook.RELEVANCE_FLOOR
+    demo_floor = hook._effective_floor(7)
+    assert 0 < demo_floor < hook.RELEVANCE_FLOOR
+
+
+def test_effective_floor_env_override(monkeypatch):
+    monkeypatch.setenv(hook.RELEVANCE_FLOOR_ENV, "1.5")
+    assert hook._effective_floor(7) == 1.5
+    assert hook._effective_floor(1000) == 1.5
+    # A non-numeric override is ignored, falling back to corpus scaling.
+    monkeypatch.setenv(hook.RELEVANCE_FLOOR_ENV, "not-a-number")
+    assert hook._effective_floor(1000) == hook.RELEVANCE_FLOOR
+
+
+def test_demo_store_surfaces_conflict_without_corpus_padding(tmp_path: Path):
+    """The 7-decision demo store must surface its marquee websocket→SSE conflict.
+
+    Regression for the fixed 8.0 floor that no demo decision could reach (D004
+    scores ~5), making --with-hooks look broken on the obvious demo path. No
+    distractor padding here — the corpus-aware floor must do the work.
+    """
+    from nauro.demo import create_demo_project
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _pid, store_path = register_project_v2("demoproj", [repo])
+    create_demo_project(store_path)
+
+    result = _invoke(
+        {
+            "prompt": "add a websocket endpoint for live task updates",
+            "cwd": str(repo),
+            "session_id": "demo",
+        }
+    )
+    assert result.exit_code == 0
+    assert result.output != ""
+    out = json.loads(result.output)["hookSpecificOutput"]
+    assert "D004" in out["additionalContext"]
+
+
 def test_distinct_session_resurfaces(tmp_path: Path):
     """A different session id surfaces the same decision again."""
     repo, store_path = _make_project(tmp_path)
@@ -375,13 +422,18 @@ def test_corrupt_dedup_state_injects_anyway(tmp_path: Path):
 # ── direct unit coverage of the floor + block helpers ──────────────────────────
 
 
+# These pin behaviour at the full floor, so they pass a reference-sized corpus
+# (effective floor == RELEVANCE_FLOOR); corpus-size scaling is covered separately.
+_REF_CORPUS = hook.RELEVANCE_FLOOR_REFERENCE_CORPUS
+
+
 def test_apply_floor_drops_embedding_only_hits():
     """Embedding-only hits (score 0.0) are not admitted in the BM25-only MVP."""
     hits = [
         {"number": 1, "title": "a", "score": 0.0, "status": "active", "date": "", "preview": ""},
         {"number": 2, "title": "b", "score": 0.0, "status": "active", "date": "", "preview": ""},
     ]
-    assert hook._apply_floor(hits) == []
+    assert hook._apply_floor(hits, _REF_CORPUS) == []
 
 
 def test_apply_floor_keeps_only_bm25_above_floor():
@@ -391,7 +443,7 @@ def test_apply_floor_keeps_only_bm25_above_floor():
         {"number": 1, "title": "a", "score": above, "status": "active", "date": "", "preview": ""},
         {"number": 2, "title": "b", "score": 0.0, "status": "active", "date": "", "preview": ""},
     ]
-    surviving = hook._apply_floor(hits)
+    surviving = hook._apply_floor(hits, _REF_CORPUS)
     assert [h["number"] for h in surviving] == [1]
 
 
@@ -401,7 +453,7 @@ def test_apply_floor_drops_bm25_below_floor():
     hits = [
         {"number": 1, "title": "a", "score": below, "status": "active", "date": "", "preview": ""},
     ]
-    assert hook._apply_floor(hits) == []
+    assert hook._apply_floor(hits, _REF_CORPUS) == []
 
 
 def test_format_block_shape():
