@@ -21,10 +21,10 @@ No model judges your decisions. The check is advisory and never blocks a change.
 ## Install
 
 ```bash
-pipx install nauro   # or: pip install nauro
+uv tool install nauro     # uv fetches its own Python — nothing else needed
 ```
 
-Requires Python 3.10+.
+No `uv`? Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` (macOS/Linux) or the [PowerShell line](https://docs.astral.sh/uv/getting-started/installation/) on Windows. Already on Python 3.10+? `pipx install nauro` (or `pip install nauro`) works too.
 
 ## Quickstart
 
@@ -144,9 +144,9 @@ Repeat `--files-affected` for each entry. `--rejected` accepts inline JSON, `@fi
 
 ## Packages
 
-| Package | Path | PyPI |
+| Package | Path | Install |
 |---|---|---|
-| `nauro` | `packages/nauro/` | `pip install nauro` |
+| `nauro` | `packages/nauro/` | `uv tool install nauro` |
 | `nauro-core` | `packages/nauro-core/` | `pip install nauro-core` |
 
 `nauro-core` is the parsing, validation, and context assembly shared between the CLI and the hosted MCP server. Minimal dependencies; usable by third-party tools that read or write the Nauro decision format.
