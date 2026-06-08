@@ -8,6 +8,7 @@ config, auth, telemetry.
 import typer
 
 from nauro.cli.autogen import register_autogen_commands
+from nauro.cli.errors import apply_fs_error_handling
 from nauro.telemetry import consent
 from nauro.telemetry.cli_wrapper import instrument_app
 
@@ -93,6 +94,10 @@ def _register_commands() -> None:
 _register_commands()
 register_autogen_commands(app)
 instrument_app(app)
+# Applied after instrument_app so the friendly-error layer sits OUTSIDE the
+# telemetry shim: a failed command is still recorded before its OSError is
+# rendered as a clean message.
+apply_fs_error_handling(app)
 
 if __name__ == "__main__":
     app()
