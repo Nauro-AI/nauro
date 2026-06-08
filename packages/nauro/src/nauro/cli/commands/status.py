@@ -71,6 +71,24 @@ def status(
     # handoffs/<slug>.md or context/<slug>.md.
     typer.echo(f"Store:   {store_path}\n")
 
+    # Warn when another local project shares this name — a separate store that
+    # shares no decisions, usually an accidental fork. Broadly guarded so this
+    # status nicety can never break the command; a v1 registry yields [] from
+    # the helper, so the check simply no-ops there.
+    current_id = store_path.name
+    try:
+        from nauro.store.registry import find_projects_by_name_v2
+
+        shared = [pid for pid, _ in find_projects_by_name_v2(project_name) if pid != current_id]
+    except Exception:
+        shared = []
+    if shared:
+        typer.echo(
+            f"  Warning: {len(shared)} other local project(s) share the name "
+            f"'{project_name}'. They are separate stores — run `nauro projects` to inspect.\n",
+            err=True,
+        )
+
     # Sync — gated on auth token + v2 cloud-mode (matches hooks.py semantics).
     # ``store_path.name`` is the project_id for v2; v1 entries pass their name
     # here and silent-no-op inside is_cloud_project.
