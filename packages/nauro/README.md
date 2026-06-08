@@ -7,10 +7,10 @@ Catch the moment an agent re-proposes something your team already ruled out. You
 ## Install
 
 ```bash
-pipx install nauro   # or: pip install nauro
+uv tool install nauro     # uv fetches its own Python — nothing else needed
 ```
 
-Requires Python 3.10+.
+No `uv`? Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` (macOS/Linux) or the [PowerShell line](https://docs.astral.sh/uv/getting-started/installation/) on Windows. Already on Python 3.10+? `pipx install nauro` (or `pip install nauro`) works too.
 
 ## Quickstart
 
