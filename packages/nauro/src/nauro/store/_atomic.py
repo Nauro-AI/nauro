@@ -39,7 +39,7 @@ def atomic_write_text(path: Path, text: str, *, mode: int | None = None) -> None
         fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
         tmp = Path(tmp_name)
         try:
-            with os.fdopen(fd, "w") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(text)
             if mode != 0o600:
                 os.chmod(tmp, mode)
@@ -49,5 +49,5 @@ def atomic_write_text(path: Path, text: str, *, mode: int | None = None) -> None
             raise
     else:
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(text)
+        tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)

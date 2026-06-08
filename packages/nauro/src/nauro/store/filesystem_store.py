@@ -61,7 +61,7 @@ class FilesystemStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         lock = target.with_name(target.name + ".lock")
         with FileLock(str(lock)):
-            target.write_text(content)
+            target.write_text(content, encoding="utf-8")
 
     def delete_file(self, path: str) -> None:
         try:

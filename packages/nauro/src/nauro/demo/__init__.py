@@ -304,17 +304,19 @@ def create_demo_project(store_path: Path) -> None:
     snapshots_dir = store_path / constants.SNAPSHOTS_DIR
     snapshots_dir.mkdir(exist_ok=True)
 
-    (store_path / constants.PROJECT_MD).write_text(PROJECT_MD)
-    (store_path / constants.STATE_CURRENT_FILENAME).write_text(DEMO_STATE_CURRENT_MD)
-    (store_path / constants.STACK_MD).write_text(STACK_MD)
-    (store_path / constants.OPEN_QUESTIONS_MD).write_text(OPEN_QUESTIONS_MD)
+    (store_path / constants.PROJECT_MD).write_text(PROJECT_MD, encoding="utf-8")
+    (store_path / constants.STATE_CURRENT_FILENAME).write_text(
+        DEMO_STATE_CURRENT_MD, encoding="utf-8"
+    )
+    (store_path / constants.STACK_MD).write_text(STACK_MD, encoding="utf-8")
+    (store_path / constants.OPEN_QUESTIONS_MD).write_text(OPEN_QUESTIONS_MD, encoding="utf-8")
 
     # Emit decisions via format_decision so they match the writer's output shape.
     decision_files: dict[str, str] = {}
     for d in DEMO_DECISIONS:
         filename = _decision_filename(d, _DEMO_SLUGS[d.num])
         body = format_decision(d)
-        (decisions_dir / filename).write_text(body)
+        (decisions_dir / filename).write_text(body, encoding="utf-8")
         decision_files[f"{constants.DECISIONS_DIR}/{filename}"] = body
 
     files = {
@@ -335,4 +337,6 @@ def create_demo_project(store_path: Path) -> None:
         "files": files,
     }
 
-    (snapshots_dir / "v001.json").write_text(json.dumps(snapshot, indent=2) + "\n")
+    (snapshots_dir / "v001.json").write_text(
+        json.dumps(snapshot, indent=2) + "\n", encoding="utf-8"
+    )

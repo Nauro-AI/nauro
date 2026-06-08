@@ -184,9 +184,9 @@ def _append_to_store_file(target: Path, content: str) -> None:
 
     if target.exists():
         existing = _read(target)
-        target.write_text(existing.rstrip() + header + stripped + "\n")
+        target.write_text(existing.rstrip() + header + stripped + "\n", encoding="utf-8")
     else:
-        target.write_text(header.lstrip() + stripped + "\n")
+        target.write_text(header.lstrip() + stripped + "\n", encoding="utf-8")
 
 
 def _parse_and_import_decisions(content: str, store_path: Path) -> int:

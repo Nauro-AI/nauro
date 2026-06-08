@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEADER
+from nauro.store.reader import read_text_lenient
 
 # Prefix shared by every auto-generated attribution footer. Match by prefix
 # (not by full canonical URL) so a stale footer from an earlier tagline cycle
@@ -224,7 +225,7 @@ def regenerate_agents_md_for_project(project_key: str, store_path: Path) -> list
             skills_section=preserved.skills,
             section_order=preserved.order or None,
         )
-        agents_md_path.write_text(content)
+        agents_md_path.write_text(content, encoding="utf-8")
         updated.append(repo_path)
 
     return updated
@@ -244,7 +245,7 @@ def parse_preserved_sections(agents_md_path: Path) -> PreservedSections:
     if not agents_md_path.exists():
         return PreservedSections()
 
-    content = agents_md_path.read_text()
+    content = read_text_lenient(agents_md_path)
     skills_idx = _find_header(content, SKILLS_SECTION_HEADER)
     manual_idx = _find_header(content, MANUAL_SECTION_HEADER)
 

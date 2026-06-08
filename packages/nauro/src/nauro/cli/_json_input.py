@@ -51,7 +51,7 @@ def parse_json_list_of_dicts(raw: str, flag_name: str) -> list[dict]:
         path = Path(raw[1:])
         if not path.exists() or not path.is_file():
             raise typer.BadParameter(f"{flag_name}: file '{path}' does not exist")
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
     else:
         text = raw
 

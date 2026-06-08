@@ -33,6 +33,18 @@ def test_at_sigil_reads_file(tmp_path: Path) -> None:
     assert parsed == [{"alternative": "X", "reason": "Y"}]
 
 
+def test_at_sigil_reads_utf8_file_regardless_of_locale(tmp_path: Path) -> None:
+    # JSON is UTF-8 by spec, and rejected-alternative text flows into a decision
+    # file on disk; a non-ASCII char (em-dash) must decode the same way no matter
+    # what the platform's default encoding is, so the read pins UTF-8.
+    payload = tmp_path / "rejected.json"
+    payload.write_bytes(
+        b'[{"alternative": "Redis", "reason": "single-AZ \xe2\x80\x94 no failover"}]'
+    )
+    parsed = parse_json_list_of_dicts(f"@{payload}", "--rejected")
+    assert parsed == [{"alternative": "Redis", "reason": "single-AZ — no failover"}]
+
+
 def test_stdin_sigil_reads_stdin(monkeypatch) -> None:
     monkeypatch.setattr(
         "sys.stdin",
