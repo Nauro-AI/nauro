@@ -216,6 +216,36 @@ class TestRoundTripFidelity:
         assert "UnparsableBlock" in kinds
 
 
+class TestUnresolvedEntries:
+    def test_resolved_annotation_excluded_even_in_active_section(self):
+        # A resolved-annotated entry sits interleaved before the divider; it is
+        # excluded by annotation, unlike open_ids which keys on position.
+        content = (
+            "# Open Questions\n"
+            "- [Q1] First open question?\n"
+            "- [Resolved by D5 on 2026-04-02] [Q2] Already settled?\n"
+            "- [Q3] Third open question?\n"
+        )
+        file = OpenQuestionsFile.parse(content)
+        assert [e.id for e in file.unresolved_entries] == ["Q1", "Q3"]
+        # open_ids stays positional: with no divider it reports all three.
+        assert file.open_ids == ["Q1", "Q2", "Q3"]
+
+    def test_unannotated_entry_under_resolved_divider_is_unresolved(self):
+        # The inverse of the open_ids Bug #4 case: an entry physically under
+        # ## Resolved but lacking a resolution annotation is still unresolved by
+        # annotation. open_ids treats it as resolved by position.
+        content = (
+            "# Open Questions\n"
+            "- [Q1] Still open?\n"
+            "## Resolved\n"
+            "- [Q2] Open-form but under the divider?\n"
+        )
+        file = OpenQuestionsFile.parse(content)
+        assert [e.id for e in file.unresolved_entries] == ["Q1", "Q2"]
+        assert file.open_ids == ["Q1"]
+
+
 class TestResolve:
     def _file(self) -> OpenQuestionsFile:
         return OpenQuestionsFile.parse(

@@ -349,6 +349,23 @@ class OpenQuestionsFile(BaseModel):
         return result
 
     @property
+    def unresolved_entries(self) -> list[QuestionEntry]:
+        """Entries whose resolution annotation is unset, in file order.
+
+        Annotation-authoritative, not positional: an entry is unresolved iff
+        its ``resolved_by`` is None, regardless of whether it sits before or
+        after the ``## Resolved`` divider. This is the definition a reader of
+        genuinely-still-open questions wants. It differs from :attr:`open_ids`,
+        which partitions strictly on divider position and is kept for the
+        round-trip and resolve machinery that depends on physical layout.
+        """
+        return [
+            b.entry
+            for b in self.blocks
+            if isinstance(b, EntryBlock) and b.entry.resolved_by is None
+        ]
+
+    @property
     def known_question_ids(self) -> set[str]:
         """All ids the file knows about: entry ids plus triple-hash embedded ids."""
         known: set[str] = set()

@@ -11,6 +11,59 @@ import re
 
 from nauro_core.constants import STACK_EMPTY_MARKER
 
+# Tokens that end in a period without ending the sentence. A terminator
+# closing one of these is treated as part of the abbreviation, not a sentence
+# boundary, so "Should we e.g. cache?" is not clipped to "Should we e.g.".
+# Lowercased and stripped of the trailing period for the comparison.
+_SENTENCE_ABBREVIATIONS: frozenset[str] = frozenset({"e.g", "i.e", "vs", "etc", "cf"})
+
+_SENTENCE_TERMINATORS = ".!?"
+
+
+def first_sentence_end(text: str) -> int:
+    """Index just past the end of the first sentence in ``text``.
+
+    A sentence ends at a ``.``, ``!`` or ``?`` that is followed by whitespace
+    or the end of the string. A terminator immediately followed by a non-space
+    (a decimal point, a mid-word ellipsis) is not a boundary, and a terminating
+    period that closes a known abbreviation (``e.g.``, ``vs.``, ``etc.``) or a
+    single letter is skipped so the sentence runs past it. Returns ``len(text)``
+    when no boundary is found. Plain string ops; no regex.
+
+    Shared by the graph payload builder (first-sentence body cap) and BM25
+    snippet generation so the two surfaces split sentences identically.
+    """
+    n = len(text)
+    for i, ch in enumerate(text):
+        if ch not in _SENTENCE_TERMINATORS:
+            continue
+        if i + 1 < n and not text[i + 1].isspace():
+            continue
+        if ch == "." and _ends_with_abbreviation(text, i):
+            continue
+        return i + 1
+    return n
+
+
+def _ends_with_abbreviation(text: str, period_idx: int) -> bool:
+    """Whether the period at ``period_idx`` closes an abbreviation or initial.
+
+    Reads the token ending at the period (the run of non-space characters
+    immediately before it, with any embedded periods kept so ``e.g`` is one
+    token) and reports a match against the known-abbreviation set or a
+    single-letter initial.
+    """
+    start = period_idx
+    while start > 0 and not text[start - 1].isspace():
+        start -= 1
+    token = text[start:period_idx].lower()
+    if not token:
+        return False
+    if token in _SENTENCE_ABBREVIATIONS:
+        return True
+    # A single trailing letter ("A." in an initial) with no other letters.
+    return len(token) == 1 and token.isalpha()
+
 
 def extract_decision_number(identifier: str) -> int | None:
     """Extract the decision number from a decision identifier.
@@ -36,6 +89,72 @@ def extract_decision_number(identifier: str) -> int | None:
         else:
             break
     return int(leading) if leading else None
+
+
+_ASCII_DIGITS = "0123456789"
+
+# Body reference prefixes, lowercased. ``extract_decision_number`` accepts the
+# same forms for a single identifier; this scanner finds every occurrence in a
+# free-text body. The ``d`` form is matched case-insensitively to agree with
+# that function, and the alphanumeric left-boundary guard keeps it from firing
+# inside a longer token.
+_REFERENCE_PREFIXES: tuple[str, ...] = ("decision-", "d")
+
+
+def scan_decision_references(text: str, max_number: int) -> set[int]:
+    """Return every in-range decision number referenced in ``text``.
+
+    Recognized forms, case-insensitive: ``D70`` / ``d70``, zero-padded
+    ``D070``, and ``decision-70`` / ``Decision-70``. A reference must be
+    preceded by a non-alphanumeric character (or the start of the text) so a
+    digit or letter run does not fabricate a match (a UUID's ``...d4`` or an
+    identifier's ``...D70`` is rejected). The digit run is read to its boundary
+    so a short reference never matches inside a longer number (``D118`` parses
+    as 118, never 1 then 18), and only ASCII digits are consumed so a trailing
+    Unicode digit cannot reach ``int`` and raise. Numbers outside
+    ``1..max_number`` are dropped. Plain string ops; no regex.
+
+    This is the single home for the body-reference grammar. The graph payload
+    builder is the current consumer; ``extract_decision_number`` stays the
+    single-identifier analogue.
+    """
+    low = text.lower()
+    found: set[int] = set()
+    for prefix in _REFERENCE_PREFIXES:
+        _scan_prefix(text, low, prefix, found, max_number)
+    return found
+
+
+def _scan_prefix(text: str, low: str, prefix: str, found: set[int], max_number: int) -> None:
+    """Accumulate every ``<prefix><digits>`` occurrence into ``found``.
+
+    ``low`` is ``text`` lowercased once so the prefix match is case-insensitive
+    without rescanning; offsets line up because lowercasing is length-preserving
+    for the ASCII letters in the prefixes. The original ``text`` supplies the
+    digit run.
+    """
+    plen = len(prefix)
+    n = len(text)
+    start = low.find(prefix)
+    while start != -1:
+        # Left boundary: the char before the prefix must not be alphanumeric,
+        # else this is the tail of a longer token (an identifier ending in "d",
+        # a UUID digit run, a longer number). The digit run after the prefix is
+        # then read whole, which is also the prefix-collision guard.
+        if start > 0 and text[start - 1].isalnum():
+            start = low.find(prefix, start + 1)
+            continue
+        i = start + plen
+        digit_start = i
+        while i < n and text[i] in _ASCII_DIGITS:
+            i += 1
+        if i > digit_start:
+            value = int(text[digit_start:i])
+            if 1 <= value <= max_number:
+                found.add(value)
+        # i is always at least start + plen >= start + 1, so resuming the scan
+        # at i never re-examines the just-handled prefix.
+        start = low.find(prefix, i)
 
 
 def extract_current_state(state_content: str) -> str:
