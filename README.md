@@ -60,6 +60,8 @@ The demo store holds seven example decisions. One of them ruled out WebSocket in
 
 Output abbreviated to the top match; the live call returns all five related decisions, ranked by score. The same result reaches your agent through the MCP `check_decision` tool, so it sees the prior decision in the flow rather than after the fact.
 
+`nauro graph` renders the decision history to one self-contained HTML file and opens it. The file embeds decision titles and metadata plus open-question summaries, so it lands in the store directory by default rather than the repo; pass `--output` to write it elsewhere.
+
 ## Why not ADRs, grep, or CLAUDE.md?
 
 A decision log in your repo is a good record. The gap is on the read side: a file is read when a person opens it, and a fresh agent session starts with no knowledge that it exists. Nauro closes that gap. The relevant decision reaches your agent automatically, through MCP, at the moment it proposes a change. The store lives outside any single agent's memory, so the same project record is available across tools and sessions instead of being trapped in one prompt file, repo note, or chat history.

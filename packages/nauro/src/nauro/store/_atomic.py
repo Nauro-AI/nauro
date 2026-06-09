@@ -1,11 +1,11 @@
-"""Atomic text-write primitive for control-plane JSON files.
+"""Atomic text-write primitive for store files.
 
 The single tmp-write-then-``os.replace`` primitive used by the control-plane
-JSON writers (``registry.json``, ``config.json``, per-repo ``config.json``).
-Durability scope is atomic-replace only: the rename is atomic on a single
-filesystem, so a reader never observes a partially written target. There is
-deliberately no ``fsync`` — that matches every existing call site, and
-crash-durability is an explicit non-goal here.
+JSON writers (``registry.json``, ``config.json``, per-repo ``config.json``) and
+by the graph command for its rendered HTML. Durability scope is atomic-replace
+only: the rename is atomic on a single filesystem, so a reader never observes a
+partially written target. There is deliberately no ``fsync`` — that matches
+every existing call site, and crash-durability is an explicit non-goal here.
 """
 
 import os
@@ -13,7 +13,9 @@ import tempfile
 from pathlib import Path
 
 
-def atomic_write_text(path: Path, text: str, *, mode: int | None = None) -> None:
+def atomic_write_text(
+    path: Path, text: str, *, mode: int | None = None, newline: str | None = None
+) -> None:
     """Write ``text`` to ``path`` atomically via a tmp sibling and ``os.replace``.
 
     Creates the parent directory if needed, writes to a tmp sibling, then
@@ -25,6 +27,11 @@ def atomic_write_text(path: Path, text: str, *, mode: int | None = None) -> None
         text: Full file contents to write.
         mode: When set, the permission bits applied to the file (e.g. ``0o600``
             for owner-only). When None, the file keeps the default umask mode.
+        newline: Passed through to the underlying text write. ``"\\n"`` pins LF
+            line endings on every platform, so a file written on Windows is
+            byte-identical to one written on POSIX (the default would translate
+            ``\\n`` to ``\\r\\n`` on Windows). When None, the platform default
+            applies, matching the original control-plane behavior.
 
     When ``mode`` is given the tmp sibling is created owner-only with a random,
     unguessable name via :func:`tempfile.mkstemp` (which opens with
@@ -39,7 +46,7 @@ def atomic_write_text(path: Path, text: str, *, mode: int | None = None) -> None
         fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
         tmp = Path(tmp_name)
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as handle:
                 handle.write(text)
             if mode != 0o600:
                 os.chmod(tmp, mode)
@@ -49,5 +56,5 @@ def atomic_write_text(path: Path, text: str, *, mode: int | None = None) -> None
             raise
     else:
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(text, encoding="utf-8")
+        tmp.write_text(text, encoding="utf-8", newline=newline)
         os.replace(tmp, path)

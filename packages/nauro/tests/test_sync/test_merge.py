@@ -28,6 +28,17 @@ class TestShouldSkip:
     def test_decision_file(self):
         assert should_skip("decisions/001-foo.md") is False
 
+    def test_default_graph_output_is_skipped(self):
+        # The graph command's default output carries a generation timestamp that
+        # changes every run, so its sha never settles; syncing it would re-push
+        # the artifact endlessly and fan it out to every collaborator.
+        assert should_skip("nauro-graph.html") is True
+
+    def test_graph_output_under_subdir_is_not_skipped(self):
+        # Only the default store-root filename is guarded; a path the user chose
+        # via --output is their explicit choice and may sync.
+        assert should_skip("reports/nauro-graph.html") is False
+
 
 class TestIsAppendOnly:
     def test_decision_file(self):
