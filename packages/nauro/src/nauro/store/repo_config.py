@@ -17,11 +17,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
 import time
 from pathlib import Path
 
 from nauro.constants import (
+    CONFIG_FILENAME,
+    DEFAULT_NAURO_HOME,
+    NAURO_HOME_ENV,
     REPO_CONFIG_DIR,
     REPO_CONFIG_FILENAME,
     REPO_CONFIG_MODE_CLOUD,
@@ -52,6 +56,31 @@ def _is_valid_ulid(value: str) -> bool:
 
 class RepoConfigSchemaError(Exception):
     """Raised when a ``.nauro/config.json`` has an unknown schema_version or shape."""
+
+
+class RepoConfigLocationError(Exception):
+    """Raised when a repo config write targets Nauro's own global config file."""
+
+
+def _global_config_file() -> Path:
+    """Path of the global config. Mirrors ``registry._nauro_home()``.
+
+    Not imported from registry because registry imports this module;
+    the resolution must stay in lockstep with it.
+    """
+    home = Path(os.environ.get(NAURO_HOME_ENV, Path.home() / DEFAULT_NAURO_HOME))
+    return home / CONFIG_FILENAME
+
+
+def collides_with_global_config(repo_root: Path) -> bool:
+    """True when ``repo_root``'s config path is Nauro's global config file.
+
+    With the default home layout, ``repo_config_path(Path.home())`` resolves to
+    ``~/.nauro/config.json`` — the same file that holds auth tokens and
+    telemetry consent for the whole machine. Writing a repo config there would
+    replace those settings, so writers must refuse the path.
+    """
+    return repo_config_path(repo_root).resolve() == _global_config_file().resolve()
 
 
 def generate_ulid() -> str:
@@ -138,8 +167,17 @@ def save_repo_config(repo_root: Path, data: dict) -> Path:
     """Write the repo config atomically. Returns the path written.
 
     The data dict is validated before write; an invalid shape raises
-    RepoConfigSchemaError without touching disk.
+    RepoConfigSchemaError without touching disk. A ``repo_root`` whose config
+    path collides with the global config raises RepoConfigLocationError —
+    the last line of defense for every writer; CLI commands additionally
+    refuse such paths up front with friendlier guidance.
     """
+    if collides_with_global_config(repo_root):
+        raise RepoConfigLocationError(
+            f"Refusing to write a repo config at {repo_config_path(repo_root)}: "
+            "that path is Nauro's global config file, which holds auth and "
+            "telemetry settings. Run from a project directory instead."
+        )
     data.setdefault("schema_version", REPO_CONFIG_SCHEMA_VERSION)
     _validate(data)
 

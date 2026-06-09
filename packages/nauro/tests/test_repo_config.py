@@ -13,7 +13,9 @@ from nauro.constants import (
     REPO_CONFIG_SCHEMA_VERSION,
 )
 from nauro.store.repo_config import (
+    RepoConfigLocationError,
     RepoConfigSchemaError,
+    collides_with_global_config,
     find_repo_config,
     generate_ulid,
     load_repo_config,
@@ -269,3 +271,50 @@ def test_find_repo_config_defaults_to_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(repo)
     found = find_repo_config()
     assert found == config_path
+
+
+# ── global-config collision guard ─────────────────────────────────────────────
+
+
+def test_save_refuses_global_config_path(tmp_path, monkeypatch):
+    """A repo root whose config path is the global config is refused.
+
+    Replicates the production default layout, where the global config lives
+    at ``<home>/.nauro/config.json``: a repo config for ``<home>`` resolves to
+    the same file, and writing it would replace auth tokens and telemetry
+    consent.
+    """
+    home = tmp_path / "home"
+    nauro_home = home / ".nauro"
+    nauro_home.mkdir(parents=True)
+    monkeypatch.setenv("NAURO_HOME", str(nauro_home))
+    global_config = nauro_home / "config.json"
+    sentinel = '{"auth": {"access_token": "keep-me"}}\n'
+    global_config.write_text(sentinel)
+
+    assert collides_with_global_config(home)
+    with pytest.raises(RepoConfigLocationError):
+        save_repo_config(
+            home,
+            {"mode": "local", "id": generate_ulid(), "name": "demo-project"},
+        )
+
+    assert global_config.read_text() == sentinel
+
+
+def test_collision_respects_nauro_home_override(tmp_path):
+    """A ``<dir>/.nauro`` that is not the configured home is a valid repo root.
+
+    The conftest points NAURO_HOME at ``tmp_path``, so ``home-lookalike`` is
+    an ordinary directory here; only the actual global config path collides.
+    """
+    repo = tmp_path / "home-lookalike"
+    repo.mkdir()
+
+    assert not collides_with_global_config(repo)
+    written = save_repo_config(
+        repo,
+        {"mode": "local", "id": generate_ulid(), "name": "demo-project"},
+    )
+    assert written == repo_config_path(repo)
+    assert written.is_file()

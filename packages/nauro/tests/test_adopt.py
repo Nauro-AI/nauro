@@ -63,6 +63,37 @@ def test_adopt_uses_repo_basename_when_name_omitted(tmp_path: Path, monkeypatch)
     assert data["name"] == "myrepo"
 
 
+def test_adopt_from_home_is_refused(tmp_path: Path, monkeypatch):
+    """A repo root whose .nauro/config.json is the global config is refused.
+
+    The guard outranks the git and already-adopted checks: even as a git
+    repo, the home directory must not read as an adoption, because the
+    recovery hint there ("remove .nauro/config.json") would point at the
+    file holding auth tokens and telemetry consent.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    home = tmp_path / "home"
+    nauro_home = home / ".nauro"
+    nauro_home.mkdir(parents=True)
+    monkeypatch.setenv("NAURO_HOME", str(nauro_home))
+    sentinel = '{"auth": {"access_token": "keep-me"}}\n'
+    (nauro_home / "config.json").write_text(sentinel)
+    _git_init(home)
+    monkeypatch.chdir(home)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+
+    assert result.exit_code == 1
+    assert "global config" in result.output
+    assert "already adopted" not in result.output.lower()
+    # Telemetry bookkeeping may merge into the file on any CLI run; the auth
+    # block must survive and no repo-config keys may appear.
+    data = json.loads((nauro_home / "config.json").read_text())
+    assert data["auth"] == {"access_token": "keep-me"}
+    assert "mode" not in data
+    assert find_projects_by_name_v2("alpha") == []
+
+
 def test_adopt_aborts_when_repo_already_adopted(tmp_path: Path, monkeypatch):
     _adopt_env(monkeypatch, tmp_path)
     runner.invoke(app, ["adopt", "--name", "alpha"])

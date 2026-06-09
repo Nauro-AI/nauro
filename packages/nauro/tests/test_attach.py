@@ -7,6 +7,7 @@ side effects to keep the failure mode safe.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import httpx
@@ -68,6 +69,33 @@ def test_attach_happy_path(tmp_path, monkeypatch):
 
     store_path = tmp_path / "projects" / EXAMPLE_PID
     assert store_path.is_dir()
+
+
+def test_attach_from_home_is_refused_before_any_network_call(tmp_path, monkeypatch):
+    """A repo path whose .nauro/config.json is the global config is refused.
+
+    The guard fires before the membership lookup, so no token and no mocked
+    transport are needed: an unpatched httpx call here would be a test
+    failure in itself.
+    """
+    home = tmp_path / "home"
+    nauro_home = home / ".nauro"
+    nauro_home.mkdir(parents=True)
+    monkeypatch.setenv("NAURO_HOME", str(nauro_home))
+    sentinel = '{"auth": {"access_token": "keep-me"}}\n'
+    (nauro_home / "config.json").write_text(sentinel)
+    monkeypatch.chdir(home)
+
+    result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 1
+    assert "global config" in result.output
+    # Telemetry bookkeeping may merge into the file on any CLI run; the auth
+    # block must survive and no repo-config keys may appear.
+    data = json.loads((nauro_home / "config.json").read_text())
+    assert data["auth"] == {"access_token": "keep-me"}
+    assert "mode" not in data
+    assert registry.get_project_v2(EXAMPLE_PID) is None
 
 
 def test_attach_non_member_writes_nothing(tmp_path, monkeypatch):
