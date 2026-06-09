@@ -267,6 +267,41 @@ def test_import_progress_with_empty_items(store: Path, tmp_path: Path):
     assert counts["progress_items"] == 1
 
 
+def test_import_empty_decision_heading_not_promoted_to_title(store: Path, tmp_path: Path):
+    """A malformed empty '## Decision:' heading must not consume the following
+    body line as its title or fabricate a phantom decision; only the real,
+    titled decision is imported and the count stays honest."""
+    ctx = tmp_path / ".context_empty_heading"
+    ctx.mkdir()
+    (ctx / "projectBrief.md").write_text("# Brief\n\nSomething.\n")
+    (ctx / "decisionLog.md").write_text(
+        "# Decision Log\n\n"
+        "## Decision: Use Redis cache\n"
+        "Fast in-memory store.\n\n"
+        "## Decision: \n"
+        "This line must not become a decision title.\n"
+    )
+
+    counts = _import_memory_bank(ctx, store)
+
+    assert counts["decisions"] == 1
+    decisions = sorted((store / "decisions").glob("*.md"))
+    assert len(decisions) == 2  # scaffold 001 + the one real import
+
+    # Collect every decision's title line ("# NNN — ..."); decision files lead
+    # with YAML frontmatter, so the title is not the first line.
+    title_lines = [
+        ln
+        for d in decisions
+        for ln in d.read_text().splitlines()
+        if ln.startswith("# ") and ln[2:3].isdigit()
+    ]
+    # The real decision keeps its title; the orphaned body line is never
+    # promoted to any decision's title (it stays in the prior decision's body).
+    assert any("Use Redis cache" in ln for ln in title_lines)
+    assert not any("must not become a decision title" in ln for ln in title_lines)
+
+
 # --- v2 split-state composition (single update_state call) ---
 
 

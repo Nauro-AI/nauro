@@ -102,8 +102,11 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
         # 1a — v2 by name (canonical)
         matches = find_projects_by_name_v2(project_flag)
         if len(matches) > 1:
+            # Show the full ULID, not a prefix: ULIDs minted seconds apart share
+            # a long time-based prefix, so a short slice can render identically
+            # for every match and is not accepted as a --project value anyway.
             ids = ", ".join(
-                f"{name} ({pid[:8]})"
+                f"{name} ({pid})"
                 for pid, _entry in matches[:5]
                 for name in [_entry.get("name", "?")]
             )

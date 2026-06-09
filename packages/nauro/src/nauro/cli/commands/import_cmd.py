@@ -197,8 +197,13 @@ def _parse_and_import_decisions(content: str, store_path: Path) -> int:
     Returns:
         Number of decisions imported.
     """
-    # Split on ## Decision: headers
-    pattern = r"^## Decision:\s*(.+)$"
+    # Split on ## Decision: headers. The title must begin with a non-whitespace
+    # char (\S): this stops an empty heading ("## Decision:" with no title, with
+    # or without trailing spaces) from either swallowing the newline to promote
+    # the next body line to the title or capturing a lone space as a 1-char
+    # title. Such a malformed heading is simply not treated as a decision
+    # boundary.
+    pattern = r"^## Decision:[ \t]*(\S.*)$"
     blocks = re.split(pattern, content, flags=re.MULTILINE)
 
     # blocks[0] is preamble (before first ## Decision:), then alternating title/body

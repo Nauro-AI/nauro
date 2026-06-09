@@ -126,6 +126,25 @@ def test_explicit_project_flag_overrides_repo_config(tmp_path, monkeypatch):
     assert store == tmp_path / "projects" / other_pid
 
 
+def test_duplicate_name_disambiguation_shows_full_ulid(tmp_path, monkeypatch, capsys):
+    """Two projects sharing a name must disambiguate by FULL ULID. ULIDs minted
+    seconds apart share a long prefix, so a short slice can render identically
+    for both matches and is not accepted as a ``--project`` value anyway."""
+    pid_a, _ = registry.register_project_v2("dup", [tmp_path / "a"], mode="local")
+    pid_b, _ = registry.register_project_v2("dup", [tmp_path / "b"], mode="local")
+    assert pid_a != pid_b
+
+    with pytest.raises(typer.Exit) as exc:
+        resolve_target_project("dup")
+    assert exc.value.exit_code == 1
+
+    err = capsys.readouterr().err
+    assert "Multiple projects named 'dup'" in err
+    # Both full ULIDs (the only values the resolver accepts) appear verbatim.
+    assert pid_a in err
+    assert pid_b in err
+
+
 # ── stdio _resolve_store mirrors the same precedence ─────────────────────────
 
 

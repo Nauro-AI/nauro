@@ -67,6 +67,22 @@ def _error_block(error) -> str:
     return f"Error: {reason}"
 
 
+def _guidance(result: dict) -> str:
+    """Onboarding/empty-state guidance text carried by the envelope, if any.
+
+    Both surfaces attach a ``guidance`` string to empty-payload envelopes: the
+    remote MCP on an empty store, and the local stdio server on the
+    no-project / unresolved-project path (``{"status": "error",
+    "guidance": ...}`` — note that envelope has no ``error`` key, so the
+    error branch above does not fire). Every read renderer surfaces this before
+    its own empty-state default, so a read tool called at session start in a
+    repo that has not run ``nauro init`` returns the actionable welcome text
+    instead of an empty string (``get_context``/``get_decision``) or a
+    misleading "no results" line (``check_decision``/``search_decisions``).
+    """
+    return (result.get("guidance") or "").strip()
+
+
 def render_check_decision(result: dict) -> str:
     """Render the conflict-check result for chat-UI consumption.
 
@@ -82,8 +98,9 @@ def render_check_decision(result: dict) -> str:
     assessment = result.get("assessment", "")
 
     if not related:
-        # NO_DECISIONS_TO_CHECK / "No related decisions found." cases.
-        return assessment.strip() or "No related decisions found."
+        # No-project guidance first, then NO_DECISIONS_TO_CHECK / "No related
+        # decisions found." cases.
+        return _guidance(result) or assessment.strip() or "No related decisions found."
 
     lines: list[str] = []
     count = len(related)
@@ -149,6 +166,10 @@ def render_get_decision(result: dict, mode: str = "full") -> str:
         return _error_block(result["error"])
 
     content = result.get("content", "") or ""
+    if not content:
+        guidance = _guidance(result)
+        if guidance:
+            return guidance
     if mode == "header":
         return content.rstrip()
 
@@ -186,7 +207,7 @@ def render_search_decisions(result: dict) -> str:
     truncated = bool(result.get("truncated"))
 
     if not hits:
-        return f'No matches for "{query}".'
+        return _guidance(result) or f'No matches for "{query}".'
 
     lines: list[str] = []
     header = f'Found {total} match{"" if total == 1 else "es"} for "{query}":'
@@ -225,8 +246,7 @@ def render_list_decisions(result: dict) -> str:
     truncated = bool(result.get("truncated"))
 
     if not decisions:
-        guidance = (result.get("guidance") or "").strip()
-        return guidance or "No decisions recorded yet."
+        return _guidance(result) or "No decisions recorded yet."
 
     lines: list[str] = []
     lines.append(f"Decisions ({total} total):")
@@ -258,7 +278,7 @@ def render_get_context(result: dict) -> str:
     if "error" in result:
         return _error_block(result["error"])
     body = result.get("context") or result.get("content") or ""
-    return body.rstrip()
+    return body.rstrip() or _guidance(result)
 
 
 def render_list_projects(result: dict) -> str:
