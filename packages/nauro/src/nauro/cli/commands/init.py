@@ -23,6 +23,7 @@ from pathlib import Path
 import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL
+from nauro.cli.utils import refuse_global_config_collision
 from nauro.constants import (
     REGISTRY_SCHEMA_VERSION_V2,
     REPO_CONFIG_MODE_CLOUD,
@@ -292,6 +293,16 @@ def init(
             raise typer.Exit(code=1)
 
     repo_paths = add_repo_paths if add_repo_paths else [Path.cwd()]
+
+    # The home directory is never a valid repo root: its .nauro/config.json
+    # is the global config (auth tokens, telemetry consent). Refused for every
+    # target path before any registry or store mutation, and deliberately
+    # before the --force-aware overwrite checks below, which must not be able
+    # to bypass it. Previously `nauro init --demo` from $HOME hit the generic
+    # config-exists branch, whose "Re-run with --force" hint replaced the
+    # global config.
+    for rp in repo_paths:
+        refuse_global_config_collision(rp)
 
     # ── --add-repo against an existing project ──────────────────────────────
     if add_repo_paths:

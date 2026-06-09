@@ -16,6 +16,7 @@ from pathlib import Path
 import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL
+from nauro.cli.utils import refuse_global_config_collision
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.registry import (
     add_repo_v2,
@@ -38,6 +39,10 @@ def attach(
 ) -> None:
     """Attach the current repo to an existing cloud project."""
     repo_path = repo_path if repo_path is not None else Path.cwd()
+    # Refused before the membership call so the failure is local and
+    # immediate; the home directory's .nauro/config.json is the global
+    # config, not a repo config slot.
+    refuse_global_config_collision(repo_path)
     try:
         projects = list_projects()
     except CloudProjectError as exc:

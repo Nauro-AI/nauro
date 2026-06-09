@@ -35,9 +35,37 @@ from nauro.store.registry import (
 )
 from nauro.store.repo_config import (
     RepoConfigSchemaError,
+    collides_with_global_config,
     find_repo_config,
     load_repo_config,
 )
+
+
+def refuse_global_config_collision(repo_root: Path) -> None:
+    """Abort when ``repo_root``'s ``.nauro/config.json`` is the global config.
+
+    With the default home layout that is exactly the home directory:
+    ``~/.nauro/config.json`` holds auth tokens and telemetry consent, and a
+    repo config written there replaces them. Commands that take a repo root
+    call this before any registry or store mutation. The refusal is
+    deliberately independent of ``--force`` — there is no situation where
+    overwriting the global config with a project pointer is what the user
+    wanted.
+
+    Raises:
+        typer.Exit: code 1 when ``repo_root`` collides with the global config.
+    """
+    if not collides_with_global_config(repo_root):
+        return
+    typer.echo(
+        f"Cannot use {repo_root.resolve()} as a project directory: its "
+        ".nauro/config.json is Nauro's own global config file, which holds "
+        "auth and telemetry settings.\n"
+        "Run this command from a project directory instead, e.g.:\n"
+        "  mkdir my-project && cd my-project",
+        err=True,
+    )
+    raise typer.Exit(code=1)
 
 
 def _v2_registry_or_empty() -> dict:
@@ -201,6 +229,7 @@ def _resolve_project_entry(project_name: str, project_key: str) -> dict:
 # Re-exported for callers that need to write or extend v2 entries directly
 __all__ = [
     "add_repo_v2",
+    "refuse_global_config_collision",
     "register_project_v2",
     "resolve_target_project",
 ]

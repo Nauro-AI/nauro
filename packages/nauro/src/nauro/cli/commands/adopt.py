@@ -35,6 +35,7 @@ from nauro.cli.commands.setup import (
     _find_nauro_command,
     setup_all_surfaces,
 )
+from nauro.cli.utils import refuse_global_config_collision
 from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
 from nauro.store.registry import find_projects_by_name_v2, register_project_v2
@@ -242,6 +243,12 @@ def adopt(
     if not repo_root.is_dir():
         typer.echo(f"Error: {repo_root} is not a directory.", err=True)
         raise typer.Exit(code=1)
+
+    # Refused before the git and already-adopted checks: from the home
+    # directory the global config would otherwise read as an existing
+    # adoption, and the recovery hint there ("remove .nauro/config.json")
+    # would point at the user's auth and telemetry settings.
+    refuse_global_config_collision(repo_root)
 
     # ── git precondition ───────────────────────────────────────────────────
     # Refuse before any registration or config write so the /nauro-adopt
