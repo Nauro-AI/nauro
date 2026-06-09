@@ -2,7 +2,7 @@
 
 Nauro is a decision system for agentic engineering. It keeps your project's decisions, rationale, and rejected paths in plain markdown files, then surfaces the relevant ones before an AI agent plans or changes code.
 
-It works across Claude, Cursor, Codex, ChatGPT, Perplexity, and any MCP client. The result is persistent project judgment that travels with the work, not with a single tool or session.
+It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The result is persistent project judgment that travels with the work, not with a single tool or session.
 
 [![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![Python](https://img.shields.io/pypi/pyversions/nauro.svg)](https://pypi.org/project/nauro/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -18,7 +18,7 @@ More at [nauro.ai](https://nauro.ai).
 
 Nauro stores your project's decisions as plain markdown files, each with the alternatives you ruled out and the reasoning behind them. When an agent proposes an approach, `check_decision` runs deterministic keyword retrieval (BM25) over those files and surfaces the related ones before the agent plans or writes code.
 
-No model judges your decisions. The check is advisory and never blocks a change. You approve every decision before it is recorded. The store is a folder you own; remove Nauro and the markdown stays.
+No model judges your decisions. The check is advisory and never blocks a change. A decision is recorded only by an explicit write call, and the approval gate lives in the conversation. The store is a folder you own; remove Nauro and the markdown stays.
 
 ## Install
 
@@ -38,7 +38,7 @@ nauro init --demo
 nauro check-decision "Add a WebSocket endpoint for live task updates"
 ```
 
-The demo store holds seven real decisions. One of them ruled out WebSocket in favor of SSE, and `check-decision` surfaces it as the top match before your agent can re-propose it:
+The demo store holds seven example decisions. One of them ruled out WebSocket in favor of SSE, and `check-decision` surfaces it as the top match before your agent can re-propose it:
 
 ```json
 {
@@ -105,7 +105,7 @@ Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bund
 - `@nauro-reviewer` before merging. Audits the diff for real bugs and for missing decision references.
 - `@nauro-tech-lead` to set or correct direction. Reads the decision log, audits PRs against doctrine, files decisions when direction is established.
 
-Chat surfaces (Claude.ai, ChatGPT, Perplexity): run `nauro adopt` from a terminal first, then point the chat agent at [`docs/adopt-prompt.md`](docs/adopt-prompt.md).
+Chat surfaces (Claude.ai, Perplexity): run `nauro adopt` from a terminal first, then point the chat agent at [`docs/adopt-prompt.md`](docs/adopt-prompt.md).
 
 ## Cross-surface sync (optional)
 
