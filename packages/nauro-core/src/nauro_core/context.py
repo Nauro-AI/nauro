@@ -214,15 +214,25 @@ def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
 
 
 def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
-    """Build L2 payload (full content).
+    """Build L2 payload (the full dump).
 
-    Includes all decision content plus all files provided.
+    Canonical section order mirrors L1: project → state (with history) →
+    stack → questions → all decisions. L2 is a superset of L1: it carries
+    project.md and stack.md verbatim (the loader fetches both for level 2),
+    the appended state history that L1 omits, and every decision including
+    superseded ones rather than L1's recent-active cap. Omitting project and
+    stack here previously made the "full dump" both incomplete and smaller
+    than L1.
 
     Args:
         files: Dict of store-relative keys to file contents.
         decisions: List of parsed decision dicts.
     """
     sections: list[str] = []
+
+    project = files.get("project.md", "")
+    if project.strip():
+        sections.append(project.strip())
 
     raw_state = _resolve_state(files)
     history = files.get("state_history.md")
@@ -233,12 +243,16 @@ def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
         if assembled and assembled.strip():
             sections.append(assembled.strip())
 
-    if decisions:
-        parts = [d.content.strip() for d in decisions]
-        sections.append("## All Decisions\n\n" + "\n\n---\n\n".join(parts))
+    stack = files.get("stack.md", "")
+    if stack.strip():
+        sections.append(stack.strip())
 
     questions_content = files.get("questions.md", "")
     if questions_content.strip():
         sections.append(questions_content.strip())
+
+    if decisions:
+        parts = [d.content.strip() for d in decisions]
+        sections.append("## All Decisions\n\n" + "\n\n---\n\n".join(parts))
 
     return "\n\n".join(sections)

@@ -249,6 +249,42 @@ class TestBuildL2:
         result = build_l2(FULL_FILES, [])
         assert "# State" in result
 
+    def test_project_included(self):
+        # The full dump must carry project.md; omitting it previously made L2
+        # both incomplete and smaller than L1.
+        result = build_l2(FULL_FILES, DECISIONS)
+        assert "# MyProject" in result
+        assert "build something great" in result
+
+    def test_stack_included(self):
+        result = build_l2(FULL_FILES, DECISIONS)
+        assert "# Stack" in result
+        assert "Chose over Go for ecosystem" in result
+
+    def test_canonical_ordering(self):
+        result = build_l2(FULL_FILES, DECISIONS)
+        project_pos = result.find("# MyProject")
+        state_pos = result.find("# State")
+        stack_pos = result.find("# Stack")
+        questions_pos = result.find("# Open Questions")
+        decisions_pos = result.find("## All Decisions")
+        assert project_pos < state_pos < stack_pos < questions_pos < decisions_pos
+
+    def test_superset_of_l1(self):
+        # Every project/stack/questions string L1 surfaces must also appear in
+        # the full dump, and L2 must additionally carry superseded decisions.
+        l1 = build_l1(FULL_FILES, DECISIONS)
+        l2 = build_l2(FULL_FILES, DECISIONS)
+        for marker in ("# MyProject", "Chose over Go for ecosystem", "Sixth question?"):
+            assert marker in l1 and marker in l2
+        assert "Old choice" in l2 and "Old choice" not in l1
+
+    def test_missing_project_md(self):
+        files = {k: v for k, v in FULL_FILES.items() if k != "project.md"}
+        result = build_l2(files, DECISIONS)
+        assert "# MyProject" not in result
+        assert "## All Decisions" in result
+
 
 def _legacy_id(target_date) -> str:
     """Render a legacy ``[YYYY-MM-DD HH:MM UTC]`` id for ``target_date``."""

@@ -547,3 +547,56 @@ class TestRendererPurity:
         snapshot = json.dumps(result, sort_keys=True)
         render_check_decision(result)
         assert json.dumps(result, sort_keys=True) == snapshot
+
+
+class TestNoProjectGuidance:
+    """The local stdio server emits ``{"status": "error", "guidance": ...}``
+    when no project resolves (e.g. a read tool called at session start in a
+    repo that has not run ``nauro init``). That envelope has no ``error`` key
+    and no payload key, so every read renderer must surface the guidance text
+    rather than returning an empty string or a misleading "no results" line.
+    """
+
+    GUIDANCE = (
+        "Welcome to Nauro! No project store found.\n\n"
+        "To get started:\n1. Run: nauro init <project-name>\n"
+    )
+
+    def _envelope(self) -> dict:
+        return {"store": "local", "status": "error", "guidance": self.GUIDANCE}
+
+    def test_get_context_surfaces_guidance(self):
+        # The session-start tool must not return an empty content block.
+        text = render_get_context(self._envelope())
+        assert "Welcome to Nauro" in text
+        assert text != ""
+
+    def test_get_decision_surfaces_guidance(self):
+        text = render_get_decision(self._envelope())
+        assert "Welcome to Nauro" in text
+
+    def test_check_decision_surfaces_guidance_not_false_clear(self):
+        # Must NOT report a false "No related decisions found." — that would
+        # tell the agent the history is clear when no store was read.
+        text = render_check_decision(self._envelope())
+        assert "Welcome to Nauro" in text
+        assert "No related decisions found" not in text
+
+    def test_search_decisions_surfaces_guidance_not_false_empty(self):
+        text = render_search_decisions(self._envelope())
+        assert "Welcome to Nauro" in text
+        assert "No matches" not in text
+
+    def test_list_decisions_still_surfaces_guidance(self):
+        text = render_list_decisions(self._envelope())
+        assert "Welcome to Nauro" in text
+
+    def test_remote_empty_store_guidance_unaffected(self):
+        # The remote empty-store path (decisions empty + guidance, no
+        # status:error) must keep flowing through unchanged.
+        result = {
+            "store": "remote",
+            "decisions": [],
+            "guidance": "No decisions recorded yet for this project.",
+        }
+        assert "No decisions recorded yet" in render_list_decisions(result)
