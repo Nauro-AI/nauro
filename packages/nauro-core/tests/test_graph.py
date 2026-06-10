@@ -158,6 +158,17 @@ class TestNodes:
         payload = build_graph_payload([make_decision(3, decision_type=None)])
         assert payload["nodes"][0]["decision_type"] is None
 
+    def test_include_bodies_false_omits_body_key(self):
+        # Default keeps the artifact titles-and-metadata-only: no "body" key at
+        # all, not an empty string.
+        payload = build_graph_payload([make_decision(5, body="The full rationale prose.")])
+        assert "body" not in payload["nodes"][0]
+
+    def test_include_bodies_true_carries_verbatim_body(self):
+        body = "The full rationale prose.\n\nWith a second paragraph and detail."
+        payload = build_graph_payload([make_decision(5, body=body)], include_bodies=True)
+        assert payload["nodes"][0]["body"] == body
+
     def test_nodes_sorted_ascending(self):
         payload = build_graph_payload([make_decision(7), make_decision(2), make_decision(5)])
         assert [n["number"] for n in payload["nodes"]] == [2, 5, 7]
@@ -460,6 +471,47 @@ class TestOpenQuestionsFilter:
         assert payload["open_questions"] == []
 
 
+class TestOpenQuestionReferences:
+    def test_multiple_references_from_full_body(self):
+        # Two references in the question body resolve to a sorted list. Both
+        # decisions exist as nodes.
+        content = "# Open Questions\n- [Q1] Does D7 conflict with the D70 retirement?\n"
+        questions = OpenQuestionsFile.parse(content)
+        payload = build_graph_payload([make_decision(7), make_decision(70)], questions=questions)
+        assert payload["open_questions"][0]["references"] == [7, 70]
+
+    def test_reference_to_unknown_number_excluded(self):
+        # D999 is referenced but no such node exists; it is dropped, leaving the
+        # one live reference.
+        content = "# Open Questions\n- [Q1] Compare D7 against the abandoned D999 sketch.\n"
+        questions = OpenQuestionsFile.parse(content)
+        payload = build_graph_payload([make_decision(7)], questions=questions)
+        assert payload["open_questions"][0]["references"] == [7]
+
+    def test_references_scan_full_body_not_capped_display(self):
+        # The capped display body is the first sentence only; a reference living
+        # in a later sentence or a continuation line is still extracted because
+        # the scan reads the full body, not the cap.
+        content = (
+            "# Open Questions\n"
+            "- [Q1] First sentence with no reference. Later sentence cites D7.\n"
+            "  Continuation line cites D70.\n"
+        )
+        questions = OpenQuestionsFile.parse(content)
+        payload = build_graph_payload([make_decision(7), make_decision(70)], questions=questions)
+        q = payload["open_questions"][0]
+        # The display body is capped to the first sentence (no reference visible)
+        # yet both references are still carried.
+        assert q["body"] == "First sentence with no reference."
+        assert q["references"] == [7, 70]
+
+    def test_no_references_yields_empty_list(self):
+        content = "# Open Questions\n- [Q1] A question with no decision reference at all.\n"
+        questions = OpenQuestionsFile.parse(content)
+        payload = build_graph_payload([make_decision(7)], questions=questions)
+        assert payload["open_questions"][0]["references"] == []
+
+
 # ── Cycle guard ──
 
 
@@ -552,12 +604,14 @@ class TestStats:
 
 
 class TestPayloadVersionAndEmpty:
-    def test_payload_version_is_one(self):
+    def test_payload_version_is_two(self):
         payload = build_graph_payload([make_decision(2)])
-        assert payload["payload_version"] == 1
-        assert GRAPH_PAYLOAD_VERSION == 1
+        assert payload["payload_version"] == 2
+        assert GRAPH_PAYLOAD_VERSION == 2
 
     def test_no_findings_key(self):
+        # The no-findings pin stays true in v2: the payload carries graph data,
+        # never an analysis "findings" block.
         payload = build_graph_payload([make_decision(2)])
         assert "findings" not in payload
 
@@ -571,7 +625,7 @@ class TestPayloadVersionAndEmpty:
 
     def test_empty_input_well_formed(self):
         payload = build_graph_payload([])
-        assert payload["payload_version"] == 1
+        assert payload["payload_version"] == 2
         assert payload["nodes"] == []
         assert payload["supersession_edges"] == []
         assert payload["citation_edges"] == []
