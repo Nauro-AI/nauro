@@ -29,8 +29,12 @@ class UnionMergeError(Exception):
 # conflicts resolve by last-write-wins with a recoverable backup instead.
 APPEND_ONLY_PATTERNS = ("open-questions.md", "state_history.md")
 
-# Files that are never synced
-NEVER_SYNC = (".sync-state.json",)
+# Files that are never synced. The graph command's default output lands in the
+# store directory; its generation timestamp changes every run, so its sha never
+# settles and syncing it would re-push the artifact on every run and fan it out
+# to every collaborator. A custom --output path is the user's explicit choice
+# and is not guarded here; only the default filename is.
+NEVER_SYNC = (".sync-state.json", "nauro-graph.html")
 
 
 def should_skip(relative_path: str) -> bool:

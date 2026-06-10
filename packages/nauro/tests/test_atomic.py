@@ -38,6 +38,13 @@ def test_creates_missing_parent_dirs(tmp_path):
     assert p.read_text() == "data\n"
 
 
+def test_newline_lf_keeps_lf_bytes(tmp_path):
+    """``newline="\\n"`` writes LF verbatim so the file is platform-stable."""
+    p = tmp_path / "out.html"
+    atomic_write_text(p, "a\nb\n", newline="\n")
+    assert p.read_bytes() == b"a\nb\n"
+
+
 def test_target_untouched_when_replace_fails(tmp_path, monkeypatch):
     p = tmp_path / "out.json"
 

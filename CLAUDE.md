@@ -70,6 +70,7 @@ Principal commands (run `nauro --help` for the full surface):
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
 - `nauro status` — capability table for the current project (active surfaces, absolute store path)
+- `nauro graph` — render the decision graph to one self-contained HTML file in the store directory and open it
 - `nauro serve` — start the local MCP server (stdio transport)
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
