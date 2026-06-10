@@ -420,15 +420,22 @@ def _layout_disc(
 def _pack_clusters(clusters: list[dict]) -> None:
     """Place each cluster's center on the canvas with a golden-angle spiral.
 
-    Each cluster is a circle of known ``radius``. Sorted by radius descending,
-    the largest lands at the canvas origin; each subsequent cluster walks a
-    golden-angle spiral outward from the origin and takes the first position
-    where its circle clears every already-placed circle (plus padding). The walk
-    is deterministic, so the packing is reproducible and looks organic without
-    any physics. Mutates each cluster dict in place with a ``center`` key.
+    Each cluster is a circle of known ``radius``. The cluster flagged
+    ``priority`` (the named top story) takes the origin slot first so it sits at
+    the visual center; the rest sort by radius descending and each walks a
+    golden-angle spiral outward from the origin, taking the first position where
+    its circle clears every already-placed circle (plus padding). Without a
+    priority cluster the largest by radius takes origin, as before. The walk is
+    deterministic, so the packing is reproducible and looks organic without any
+    physics. Mutates each cluster dict in place with a ``center`` key.
     """
 
-    ordered = sorted(clusters, key=lambda c: (-c["radius"], c["sort_key"]))
+    priority = [c for c in clusters if c.get("priority")]
+    rest = sorted(
+        (c for c in clusters if not c.get("priority")),
+        key=lambda c: (-c["radius"], c["sort_key"]),
+    )
+    ordered = priority + rest
     placed: list[tuple[float, float, float]] = []
     for cluster in ordered:
         radius = cluster["radius"]
@@ -455,13 +462,18 @@ def _pack_clusters(clusters: list[dict]) -> None:
                 break
 
 
-def build_graph_layout(payload: dict) -> dict:
+def build_graph_layout(payload: dict, priority_center: int | None = None) -> dict:
     """Compute the full deterministic node-link layout for the Graph view.
 
     Returns a dict with: ``positions`` (number -> absolute (x, y)), ``radii``
     (number -> node radius), ``clusters`` (metadata for cluster labels), and
     ``bounds`` (min_x, min_y, max_x, max_y of all node centers). Pure and
     randomness-free, so rendering the same payload twice is byte-identical.
+
+    ``priority_center`` is the center number of the component cluster that should
+    take the origin slot (the named top story, so it sits near the visual center
+    rather than being out-sized to the edge by the big category discs). When None
+    or not a component center, the largest cluster by radius takes origin.
     """
     nodes = payload.get("nodes", [])
     node_by_number = {n["number"]: n for n in nodes}
@@ -485,6 +497,7 @@ def build_graph_layout(payload: dict) -> dict:
                 # a component and a disc never compares an int against a str.
                 "sort_key": (-len(component["nodes"]), f"c{center:06d}"),
                 "label": "",
+                "priority": priority_center is not None and center == priority_center,
             }
         )
 
@@ -564,13 +577,15 @@ def _render_header_strip(payload: dict) -> str:
 
     return (
         '<header class="page-header">'
+        '<div class="header-top">'
         f"<h1>Decision graph: {_esc(project)}</h1>"
         '<div class="stat-row">'
         f'<span class="stat"><strong>{active}</strong> active</span>'
         f'<span class="stat"><strong>{superseded}</strong> superseded</span>'
         f'<span class="stat"><strong>{question_count}</strong> open questions</span>'
-        f'<span class="stat">latest decision <strong>{_esc(last_date)}</strong></span>'
-        "</div>"
+        f'<span class="stat">latest <strong>{_esc(last_date)}</strong></span>'
+        "</div></div>"
+        '<div class="header-bar">'
         '<nav class="view-tabs" role="tablist">'
         '<button class="view-tab is-active" data-view="graph">Graph</button>'
         '<button class="view-tab" data-view="lineage">Lineage</button>'
@@ -598,6 +613,7 @@ def _render_header_strip(payload: dict) -> str:
         '<option value="low">Low</option>'
         "</select></label>"
         "</div>"
+        "</div>"
         "</header>"
     )
 
@@ -619,52 +635,58 @@ def _confidence_opacity(confidence: str) -> float:
     return {"high": 1.0, "medium": 0.8, "low": 0.6}.get(confidence, 0.8)
 
 
-def _render_story_strip(
-    payload: dict,
+def _largest_consolidation(
     relations: dict[int, dict[str, list[int]]],
-    question_refs: dict[int, list[str]],
-) -> str:
-    """Render a compact docent strip of jump-capable buttons above the canvas.
+    node_by_number: dict[int, dict],
+) -> int | None:
+    """Return the supersession target with the most incoming edges, or None.
 
-    Each button is derived deterministically from the payload, renderer-side
-    only (no client-side reference parsing). A metric that is undefined for the
-    store (no edges, no questions) drops its button rather than render an empty
-    one, so a sparse store shows a shorter strip or none at all.
-
-    The four metrics, each with a ``data-story`` action the script wires up:
-
-    * Largest consolidation: the supersession target with the most incoming
-      edges. Action ``center`` (center and flash the node).
-    * Open-question hotspot: the decision appearing in the most question
-      reference arrays (ties: lower number). Action ``detail`` (center, flash,
-      and open the detail panel listing its linked questions).
-    * Recent activity: the date with the most decisions (ties: latest date).
-      Action ``date`` (highlight every node on that date, staying in Graph).
-    * Anchor: the most-cited active decision. Neutral wording only, no semantic
-      claim. Action ``center``.
+    A node's ``supersedes`` list is its incoming retirements. Ties resolve to the
+    lower number. Returns None when no node retires at least two decisions. This
+    is the single source of truth for the named top story, the default
+    spotlight, and the packing-priority cluster.
     """
-    nodes = payload.get("nodes", [])
-    node_by_number = {n["number"]: n for n in nodes}
-    buttons: list[str] = []
-
-    # Largest consolidation: most incoming supersession edges (a node's
-    # "supersedes" list is its incoming retirements). Ties: lower number.
-    best_consolidation = None
+    best = None
     best_count = 0
     for num in sorted(node_by_number):
         count = len(relations.get(num, {}).get("supersedes", []))
         if count > best_count:
             best_count = count
-            best_consolidation = num
-    if best_consolidation is not None and best_count >= 2:
-        plural = "decision" if best_count == 1 else "decisions"
-        buttons.append(
-            _story_button(
-                "center",
-                best_consolidation,
-                "Largest consolidation",
-                f"D{best_consolidation} retires {best_count} {plural}",
-            )
+            best = num
+    return best if best is not None and best_count >= 2 else None
+
+
+def _compute_insights(
+    payload: dict,
+    relations: dict[int, dict[str, list[int]]],
+    question_refs: dict[int, list[str]],
+) -> list[dict]:
+    """Compute the ordered docent insights, deterministically, renderer-side.
+
+    Returns a list of insight dicts in display order; the first is the named top
+    story (largest consolidation) and is the default spotlight. Each dict has
+    ``kind`` (``center`` / ``detail`` / ``date``), a ``kicker`` and ``body``
+    string, and either ``target`` (a decision number) or ``date``. A metric
+    undefined for the store is omitted, so a sparse store yields fewer insights
+    or none. The story strip, the pinned insight labels, and the JS spotlight all
+    read from this one computation, so they cannot disagree.
+    """
+    nodes = payload.get("nodes", [])
+    node_by_number = {n["number"]: n for n in nodes}
+    insights: list[dict] = []
+
+    consolidation = _largest_consolidation(relations, node_by_number)
+    if consolidation is not None:
+        count = len(relations.get(consolidation, {}).get("supersedes", []))
+        plural = "decision" if count == 1 else "decisions"
+        insights.append(
+            {
+                "kind": "center",
+                "target": consolidation,
+                "kicker": "Largest consolidation",
+                "body": f"D{consolidation} retires {count} {plural}",
+                "short": f"D{consolidation} · retires {count}",
+            }
         )
 
     # Open-question hotspot: decision in the most question reference arrays.
@@ -678,17 +700,20 @@ def _render_story_strip(
             hotspot = num
     if hotspot is not None and hotspot_count >= 1:
         noun = "linked open question" if hotspot_count == 1 else "linked open questions"
-        buttons.append(
-            _story_button(
-                "detail",
-                hotspot,
-                "Open-question hotspot",
-                f"D{hotspot} has {hotspot_count} {noun}",
-            )
+        insights.append(
+            {
+                "kind": "detail",
+                "target": hotspot,
+                "kicker": "Open-question hotspot",
+                "body": f"D{hotspot} has {hotspot_count} {noun}",
+                "short": f"D{hotspot}",
+            }
         )
 
-    # Recent activity: the date carrying the most decisions. Ties: the latest
-    # date wins (iterate ascending; >= lets the latest tied date overwrite).
+    # Busiest day: the date carrying the most decisions. This is the highest-count
+    # date, not the latest one (the header already shows the latest decision date).
+    # Ties: the latest date wins (iterate ascending; >= lets the latest tied date
+    # overwrite).
     date_counts: dict[str, int] = {}
     for n in nodes:
         d = n.get("date", "")
@@ -703,7 +728,14 @@ def _render_story_strip(
                 busiest_date = d
         if busiest_count >= 2:
             plural = "decision" if busiest_count == 1 else "decisions"
-            buttons.append(_story_button_date(busiest_date, busiest_count, plural))
+            insights.append(
+                {
+                    "kind": "date",
+                    "date": busiest_date,
+                    "kicker": "Busiest day",
+                    "body": f"{busiest_date}: {busiest_count} {plural}",
+                }
+            )
 
     # Anchor: the most-cited active decision (incoming citation edges). Neutral
     # wording only. Ties: lower number.
@@ -720,32 +752,44 @@ def _render_story_strip(
             anchor = num
     if anchor is not None and anchor_count >= 1:
         plural = "time" if anchor_count == 1 else "times"
-        buttons.append(
-            _story_button("center", anchor, "Anchor", f"D{anchor} cited {anchor_count} {plural}")
+        insights.append(
+            {
+                "kind": "center",
+                "target": anchor,
+                "kicker": "Anchor",
+                "body": f"D{anchor} cited {anchor_count} {plural}",
+                "short": f"D{anchor}",
+            }
         )
 
-    if not buttons:
+    return insights
+
+
+def _render_story_strip(insights: list[dict]) -> str:
+    """Render the docent strip as connected chips.
+
+    The strip reads as part of the graph's control surface (connected chips, not
+    boxed cards). No chip ships selected: the default state is even emphasis, and
+    selecting a chip is what applies the spotlight. Each chip carries the jump
+    action the script wires up.
+    """
+    if not insights:
         return ""
-    return f'<div class="story-strip">{"".join(buttons)}</div>'
+    chips = "".join(_story_chip(ins) for ins in insights)
+    return f'<div class="story-strip" role="group" aria-label="Insights">{chips}</div>'
 
 
-def _story_button(action: str, number: int, kicker: str, body: str) -> str:
-    """Render one story-strip button targeting a decision number."""
+def _story_chip(insight: dict) -> str:
+    """Render one insight chip with its kicker, body, and jump hook."""
+    if insight["kind"] == "date":
+        target_attr = f'data-story-date="{_esc(insight["date"])}"'
+    else:
+        target_attr = f'data-story-target="{insight["target"]}"'
     return (
-        f'<button class="story-card" data-story="{_esc(action)}" '
-        f'data-story-target="{number}">'
-        f'<span class="story-kicker">{_esc(kicker)}</span>'
-        f'<span class="story-body">{_esc(body)}</span></button>'
-    )
-
-
-def _story_button_date(date: str, count: int, plural: str) -> str:
-    """Render the recent-activity story button targeting a date."""
-    return (
-        '<button class="story-card" data-story="date" '
-        f'data-story-date="{_esc(date)}">'
-        '<span class="story-kicker">Recent activity</span>'
-        f'<span class="story-body">{_esc(date)}: {count} {_esc(plural)}</span></button>'
+        f'<button class="story-chip" data-story="{_esc(insight["kind"])}" '
+        f'{target_attr} aria-pressed="false">'
+        f'<span class="story-kicker">{_esc(insight["kicker"])}</span>'
+        f'<span class="story-body">{_esc(insight["body"])}</span></button>'
     )
 
 
@@ -764,11 +808,22 @@ def _render_graph_view(
     SVG viewBox is fit to content so the initial view frames the whole map.
     """
     nodes = payload.get("nodes", [])
-    layout = build_graph_layout(payload)
+    node_by_number = {n["number"]: n for n in nodes}
+
+    # One insight computation feeds the strip, the pinned labels, and the
+    # default spotlight, so they cannot disagree. The largest consolidation (the
+    # first insight) gets origin priority in the packing so the named top story
+    # sits near the visual center instead of being out-sized to the edge.
+    insights = _compute_insights(payload, relations, question_refs)
+    priority_center = next(
+        (ins["target"] for ins in insights if ins["kicker"] == "Largest consolidation"),
+        None,
+    )
+
+    layout = build_graph_layout(payload, priority_center=priority_center)
     positions = layout["positions"]
     radii = layout["radii"]
     degree = layout["degree"]
-    node_by_number = {n["number"]: n for n in nodes}
 
     min_x, min_y, max_x, max_y = layout["bounds"]
     pad = _GRAPH_MAX_RADIUS + _GRAPH_LABEL_CLEARANCE + 20
@@ -792,9 +847,10 @@ def _render_graph_view(
         question_refs,
         node_by_number,
         layout["clusters"],
+        insights,
     )
 
-    story_strip = _render_story_strip(payload, relations, question_refs)
+    story_strip = _render_story_strip(insights)
 
     viewbox = f"{vb_x:.1f} {vb_y:.1f} {vb_w:.1f} {vb_h:.1f}"
     return (
@@ -909,16 +965,27 @@ def _graph_nodes_and_labels(
     question_refs: dict[int, list[str]],
     node_by_number: dict[int, dict],
     clusters: list[dict],
+    insights: list[dict],
 ) -> tuple[str, str]:
-    """Render node circles and the hub label set.
+    """Render node circles, category labels, and pinned insight labels.
 
     Each node is a circle whose fill is the category hue, drawn filled for
     active and as a hollow ring for superseded, at the confidence opacity tier.
     Nodes carry the data attributes the script needs for search, filter, hover
-    label, and detail open. Hub labels render in a separate layer so they sit
-    above every node.
+    label, spotlight, and detail open. The label layer sits above every node and
+    holds the understated category labels plus a small pinned label on each
+    insight target node (the selected insight gets the stronger form).
     """
     hubs = _graph_hub_numbers(payload, degree, relations, node_by_number)
+    # Insight target numbers, with the named top story (index 0) flagged primary
+    # so it carries the stronger at-rest label. This is not a selection state;
+    # the default view stays even-emphasis until a chip is clicked.
+    insight_target: dict[int, dict] = {}
+    for i, ins in enumerate(insights):
+        if ins["kind"] == "date" or "target" not in ins:
+            continue
+        insight_target.setdefault(ins["target"], {"primary": i == 0, "short": ins.get("short")})
+
     node_svg: list[str] = []
     label_svg: list[str] = []
     for node in payload.get("nodes", []):
@@ -937,6 +1004,8 @@ def _graph_nodes_and_labels(
         classes = ["gnode", f"status-{_esc(status)}"]
         if num in hubs:
             classes.append("is-hub")
+        if num in insight_target:
+            classes.append("is-insight")
         node_svg.append(
             f'<circle class="{" ".join(classes)}" cx="{x:.1f}" cy="{y:.1f}" '
             f'r="{r:.1f}" fill="{hue}" fill-opacity="{opacity:.2f}" '
@@ -947,7 +1016,10 @@ def _graph_nodes_and_labels(
             f'data-detail-trigger="{num}" tabindex="0" role="button">'
             f"<title>D{num} {_esc(title)}</title></circle>"
         )
-        if num in hubs:
+        # A node that carries a pinned insight pill must not also carry the regular
+        # hub label: the pill is strictly more informative and two labels on one
+        # node overlap and read as noise. Suppress the hub label for insight nodes.
+        if num in hubs and num not in insight_target:
             label = title if len(title) <= 32 else title[:31].rstrip() + "…"
             ly = y - r - 6
             label_svg.append(
@@ -967,7 +1039,52 @@ def _graph_nodes_and_labels(
             f'text-anchor="middle">{_esc(cluster["label"])}</text>'
         )
 
+    # Pinned insight labels sit above their target node on a dark pill. They are
+    # never click targets (the script applies pointer-events: none via CSS), so
+    # they cannot block a node click. The selected insight gets the fuller form.
+    label_svg.append(_render_insight_labels(insight_target, positions, radii))
+
     return "".join(node_svg), "".join(label_svg)
+
+
+def _render_insight_labels(
+    insight_target: dict[int, dict],
+    positions: dict[int, tuple[float, float]],
+    radii: dict[int, float],
+) -> str:
+    """Render a small pinned label on each insight target node.
+
+    A label is a dark rounded pill behind stroked text so it reads on the dark
+    canvas without bulk. The named top story (the largest consolidation, flagged
+    ``primary``) gets the stronger ``short`` form ("D297 · retires 13") as its
+    at-rest headline; the others get the compact "D<n>" form. This is
+    informational labelling, not a selection state, so the default view stays
+    even-emphasis. The whole group is ``pointer-events: none`` in CSS so labels
+    never block node clicks. Width is estimated from the character count (no DOM
+    measurement available at render time), which is enough to size the pill.
+    """
+    parts: list[str] = []
+    for num, meta in sorted(insight_target.items()):
+        if num not in positions:
+            continue
+        x, y = positions[num]
+        r = radii[num]
+        primary = meta["primary"]
+        text = meta["short"] if primary and meta.get("short") else f"D{num}"
+        char_w = 7.0
+        pill_w = len(text) * char_w + 12
+        pill_h = 18.0
+        px = x - pill_w / 2
+        py = y - r - 8 - pill_h
+        cls = "insight-label is-primary" if primary else "insight-label"
+        parts.append(
+            f'<g class="{cls}" data-insight-for="{num}">'
+            f'<rect class="insight-pill" x="{px:.1f}" y="{py:.1f}" '
+            f'width="{pill_w:.1f}" height="{pill_h:.1f}" rx="4" />'
+            f'<text class="insight-text" x="{x:.1f}" y="{py + 13:.1f}" '
+            f'text-anchor="middle">{_esc(text)}</text></g>'
+        )
+    return "".join(parts)
 
 
 # ── View: Browse (the card browser, demoted from default) ──
@@ -1757,28 +1874,43 @@ body {
   line-height: 1.5;
 }
 header.page-header {
-  border-bottom: 2px solid var(--navy);
-  padding: 1.2rem 0 0.8rem;
-  margin-bottom: 1.2rem;
+  border-bottom: 1px solid var(--line);
+  padding: 0.7rem 0 0.55rem;
+  margin-bottom: 0.7rem;
   position: sticky;
   top: 0;
   background: var(--paper);
   z-index: 5;
 }
+/* Header top row: title and counts share one line to save vertical space. */
+.header-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 1.1rem;
+  margin-bottom: 0.5rem;
+}
 header.page-header h1 {
-  margin: 0 0 0.5rem;
-  font-size: 1.5rem;
+  margin: 0;
+  font-size: 1.15rem;
   color: var(--navy);
   font-weight: 600;
 }
-.stat-row { display: flex; flex-wrap: wrap; gap: 1.4rem; margin-bottom: 0.7rem; }
-.stat { font-size: 0.92rem; color: var(--muted); }
-.stat strong { color: var(--ink); font-size: 1.05rem; }
-.view-tabs { display: flex; gap: 0.4rem; margin-bottom: 0.7rem; }
+.stat-row { display: flex; flex-wrap: wrap; gap: 0.9rem; }
+.stat { font-size: 0.82rem; color: var(--muted); }
+.stat strong { color: var(--ink); font-size: 0.92rem; }
+/* Tabs and controls share one row on wide screens, wrap on narrow. */
+.header-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+.view-tabs { display: flex; gap: 0.3rem; }
 .view-tab {
   font: inherit;
-  font-size: 0.92rem;
-  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+  padding: 0.28rem 0.75rem;
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--muted);
@@ -1786,17 +1918,23 @@ header.page-header h1 {
   cursor: pointer;
 }
 .view-tab.is-active { color: var(--paper); background: var(--navy); border-color: var(--navy); }
-.controls { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; font-size: 0.85rem; }
-.controls label { display: flex; flex-direction: column; gap: 0.2rem; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; font-size: 0.78rem; }
+.controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
 .controls input, .controls select {
   font: inherit;
-  padding: 0.3rem 0.5rem;
+  padding: 0.26rem 0.45rem;
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
   border-radius: 3px;
 }
-.controls .search input { min-width: 16rem; }
+.controls .search input { min-width: 13rem; }
 h2 {
   color: var(--navy);
   font-size: 1.15rem;
@@ -1806,7 +1944,10 @@ h2 {
 .section-note { color: var(--muted); font-size: 0.85rem; max-width: 72ch; }
 .view { display: none; }
 .view.is-active { display: block; }
-/* Graph canvas: always dark, like a map panel, in both themes. */
+/* Graph canvas: always dark, like a map panel, in both themes. A pan drag must
+   never engage the browser's native text selection, so selection is suppressed
+   on the pan surface only. Detail-panel, question, and Browse text live outside
+   .graph-canvas and stay selectable. */
 .graph-canvas {
   background: #11161b;
   border: 1px solid #2a3036;
@@ -1815,45 +1956,63 @@ h2 {
   min-height: 520px;
   overflow: hidden;
   position: relative;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.graph-svg { display: block; width: 100%; height: 100%; cursor: grab; }
+/* Pointer events drive the pan, so suppress touch gestures (scroll/zoom) on the
+   surface as well to keep a drag a pan. */
+.graph-svg { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 .graph-svg.is-panning { cursor: grabbing; }
-.graph-note { color: var(--muted); font-size: 0.82rem; margin: 0.5rem 0 0; max-width: 72ch; }
-/* Story strip: a compact docent row above the canvas. */
+.graph-note { color: var(--muted); font-size: 0.8rem; margin: 0.4rem 0 0; max-width: 72ch; }
+/* Insight strip: connected chips that read as the graph's control surface. */
 .story-strip {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0 0 0.6rem;
+  margin: 0 0 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
 }
-.story-card {
+.story-chip {
   font: inherit;
   text-align: left;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  border-radius: 5px;
-  padding: 0.35rem 0.7rem;
+  border: none;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  padding: 0.3rem 0.7rem;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.05rem;
   min-width: 0;
 }
-.story-card:hover, .story-card:focus { border-color: var(--navy); outline: none; }
+.story-chip:last-child { border-right: none; }
+.story-chip:hover, .story-chip:focus { background: var(--line); outline: none; }
+.story-chip.is-selected {
+  background: var(--navy);
+}
+.story-chip.is-selected .story-kicker,
+.story-chip.is-selected .story-body { color: var(--paper); }
 .story-kicker {
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
 }
-.story-body { font-size: 0.85rem; color: var(--ink); }
-.cite-edge { stroke: #6f8aa0; stroke-width: 1; opacity: 0.09; }
-.cite-edge.incident { stroke: #a9c5db; opacity: 0.55; stroke-width: 1.4; }
-.cite-edge.edge-dim { opacity: 0.015; }
-.sup-edge { stroke: #d2693f; stroke-width: 1.8; opacity: 0.72; }
-.sup-edge.consolidation-edge { stroke: #e8895c; stroke-width: 3.2; opacity: 0.95; }
+.story-body { font-size: 0.82rem; color: var(--ink); }
+/* Edge hierarchy. At rest the citation web is atmospheric; supersession reads.
+   Recede tiers (spotlight mode) push non-spotlit edges back without hiding. */
+.cite-edge { stroke: #6f8aa0; stroke-width: 1; opacity: 0.05; }
+.cite-edge.incident { stroke: #a9c5db; opacity: 0.5; stroke-width: 1.4; }
+.cite-edge.edge-dim { opacity: 0.012; }
+.cite-edge.recede { opacity: 0.02; }
+.sup-edge { stroke: #d2693f; stroke-width: 1.8; opacity: 0.7; }
+.sup-edge.consolidation-edge { stroke: #e8895c; stroke-width: 3.2; opacity: 0.92; }
 .sup-edge.incident { opacity: 1; }
-.sup-edge.edge-dim { opacity: 0.12; }
+.sup-edge.edge-dim { opacity: 0.1; }
+.sup-edge.recede { opacity: 0.18; }
+.sup-edge.spotlight { stroke: #ffb347; stroke-width: 3.6; opacity: 1; }
 .gnode { stroke: #11161b; stroke-width: 1.2; cursor: pointer; }
 .gnode.status-superseded { fill-opacity: 0.18 !important; stroke-width: 2; }
 .gnode.is-hub { stroke: #f2ead8; stroke-width: 1.6; }
@@ -1861,6 +2020,8 @@ h2 {
 .gnode.dim { opacity: 0.12; }
 .gnode.flash { stroke: #ffd56b; stroke-width: 3.4; }
 .gnode.date-hit { stroke: #7fd6a0; stroke-width: 3; }
+.gnode.recede { opacity: 0.22; }
+.gnode.spotlight { stroke: #ffd56b; stroke-width: 3; }
 .gnode-label {
   fill: #f2ead8;
   font-size: 12px;
@@ -1872,12 +2033,30 @@ h2 {
 }
 .gnode-label.dim { opacity: 0.1; }
 .gnode-label.show { opacity: 1; }
+/* Category labels: understated map-style, but larger and clearer than before. */
 .disc-label {
-  fill: #9fb0bd;
-  font-size: 13px;
-  letter-spacing: 0.04em;
+  fill: #c2cdd6;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  paint-order: stroke;
+  stroke: #11161b;
+  stroke-width: 2.5px;
   pointer-events: none;
 }
+/* Pinned insight labels: small dark pill, never a click target. The primary
+   (named top story) label is a touch brighter as an at-rest headline, not a
+   selection state, so the default view stays even-emphasis. */
+.insight-label { pointer-events: none; }
+.insight-pill { fill: #0c1014; stroke: #3a444c; stroke-width: 1; opacity: 0.92; }
+.insight-text {
+  fill: #e9e0cd;
+  font-size: 11px;
+  font-weight: 600;
+}
+.insight-label.is-primary .insight-pill { fill: #161d22; stroke: #5a6a72; stroke-width: 1.2; }
+.insight-label.is-primary .insight-text { fill: #f4ead2; }
+.insight-label.recede { opacity: 0.3; }
 .category { margin-bottom: 1.6rem; }
 .category-head {
   color: var(--accent);
@@ -2143,7 +2322,7 @@ _SCRIPT = """
   }
   closeBtn.addEventListener("click", closePanel);
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") { closePanel(); }
+    if (e.key === "Escape") { closePanel(); clearSpotlight(); clearDateHits(); }
   });
 
   function openDetail(number) {
@@ -2211,9 +2390,22 @@ _SCRIPT = """
     var dragging = false;
     var lastX = 0;
     var lastY = 0;
+    var moved = false;
+    var downOnEmpty = false;
     svg.addEventListener("pointerdown", function (e) {
-      if (e.target.closest(".gnode")) { return; }
+      downOnEmpty = !e.target.closest(".gnode");
+      // A press on a node is a click candidate (open its detail panel), so leave
+      // its default behaviour and the native click intact. Only the empty-canvas
+      // pan path runs below.
+      if (!downOnEmpty) { return; }
+      // Suppress the default on the pan path so a drag can never anchor a native
+      // text selection. user-select: none on .graph-canvas already prevents the
+      // canvas from being a selection source; this stops the drag gesture itself
+      // from initiating one. The spotlight clear runs off pointerup, not a
+      // native click, so this does not affect it.
+      e.preventDefault();
       dragging = true;
+      moved = false;
       lastX = e.clientX;
       lastY = e.clientY;
       svg.classList.add("is-panning");
@@ -2221,6 +2413,8 @@ _SCRIPT = """
     });
     svg.addEventListener("pointermove", function (e) {
       if (!dragging) { return; }
+      e.preventDefault();
+      if (Math.abs(e.clientX - lastX) + Math.abs(e.clientY - lastY) > 3) { moved = true; }
       var rect = svg.getBoundingClientRect();
       view.x -= ((e.clientX - lastX) / rect.width) * view.w;
       view.y -= ((e.clientY - lastY) / rect.height) * view.h;
@@ -2229,6 +2423,12 @@ _SCRIPT = """
       applyView();
     });
     function endDrag(e) {
+      // A stationary click on empty canvas clears the spotlight (and any
+      // date highlight); a drag pans and leaves the spotlight intact.
+      if (dragging && !moved && downOnEmpty) {
+        clearSpotlight();
+        clearDateHits();
+      }
       dragging = false;
       svg.classList.remove("is-panning");
       if (e && e.pointerId !== undefined && svg.hasPointerCapture(e.pointerId)) {
@@ -2313,6 +2513,15 @@ _SCRIPT = """
     if (!svg) { return; }
     var hits = svg.querySelectorAll(".gnode.date-hit");
     for (var i = 0; i < hits.length; i++) { hits[i].classList.remove("date-hit"); }
+    // The date highlight and its chip share a lifetime: clearing the highlight
+    // deselects the date chip. A re-highlight re-selects it immediately after.
+    var dateChips = document.querySelectorAll('.story-chip[data-story="date"]');
+    for (var d = 0; d < dateChips.length; d++) {
+      var chip = dateChips[d];
+      chip.classList.remove("is-selected");
+      chip.removeAttribute("data-selected");
+      chip.setAttribute("aria-pressed", "false");
+    }
   }
 
   // Highlight every Graph node sharing a date, staying in the Graph view. The
@@ -2332,21 +2541,137 @@ _SCRIPT = """
     if (first !== null) { centerOnNode(first, false); }
   }
 
-  // Run a story-strip action: center a node, open its detail, or date-highlight.
+  // ----- Spotlight (guided emphasis) -----
+  // The spotlight emphasizes one node and its directly-related supersession
+  // neighbours/edges, gently receding the rest of the canvas (opacity tiers,
+  // never display:none). It is class-driven so the state is statically testable.
+  var spotlightOn = false;
+
+  function clearSpotlight() {
+    spotlightOn = false;
+    if (svg) {
+      var marked = svg.querySelectorAll(".spotlight, .recede");
+      for (var i = 0; i < marked.length; i++) {
+        marked[i].classList.remove("spotlight", "recede");
+      }
+    }
+    // A focus transition starts from a clean incident state; the spotlight never
+    // leaves stale incident-highlighted edges behind for the next focus.
+    highlightIncident(null);
+    setSelectedChip(null);
+  }
+
+  // Mark the chip matching the active focus as selected, clearing the rest. The
+  // selector is null (clear all), { target } for a node chip, or { date } for the
+  // date chip, so the date chip gets the same selected state as the node chips.
+  // Selection mirrors into aria-pressed because the chips are buttons.
+  function setSelectedChip(sel) {
+    var chips = document.querySelectorAll(".story-chip");
+    for (var i = 0; i < chips.length; i++) {
+      var chip = chips[i];
+      var on = false;
+      if (sel) {
+        if (sel.target !== undefined && sel.target !== null) {
+          on = chip.getAttribute("data-story-target") === String(sel.target);
+        } else if (sel.date !== undefined && sel.date !== null) {
+          on = chip.getAttribute("data-story-date") === String(sel.date);
+        }
+      }
+      chip.classList.toggle("is-selected", on);
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+      if (on) {
+        chip.setAttribute("data-selected", "true");
+      } else {
+        chip.removeAttribute("data-selected");
+      }
+    }
+  }
+
+  // Directly-related supersession neighbours of a node, read off the rendered
+  // edges (data-from / data-to), so no payload reparse is needed.
+  function supNeighbours(number) {
+    var set = {};
+    set[number] = true;
+    if (!svg) { return set; }
+    var edges = svg.querySelectorAll(".sup-edge");
+    for (var i = 0; i < edges.length; i++) {
+      var f = edges[i].getAttribute("data-from");
+      var t = edges[i].getAttribute("data-to");
+      if (f === String(number)) { set[t] = true; }
+      if (t === String(number)) { set[f] = true; }
+    }
+    return set;
+  }
+
+  function spotlightNode(number) {
+    if (!svg) { return; }
+    var related = supNeighbours(number);
+    var gnodes = svg.querySelectorAll(".gnode[data-number]");
+    for (var i = 0; i < gnodes.length; i++) {
+      var n = gnodes[i];
+      var num = n.getAttribute("data-number");
+      n.classList.remove("spotlight", "recede");
+      if (related[num]) {
+        n.classList.add("spotlight");
+      } else {
+        n.classList.add("recede");
+      }
+    }
+    var sup = svg.querySelectorAll(".sup-edge");
+    for (var s = 0; s < sup.length; s++) {
+      var ed = sup[s];
+      // Coerce to a real boolean: classList.toggle with an undefined second
+      // argument does a plain toggle, not a remove, so an undefined "on" would
+      // wrongly add the class.
+      var on = !!(related[ed.getAttribute("data-from")] && related[ed.getAttribute("data-to")]);
+      ed.classList.toggle("spotlight", on);
+      ed.classList.toggle("recede", !on);
+    }
+    var cite = svg.querySelectorAll(".cite-edge");
+    for (var c = 0; c < cite.length; c++) {
+      // Citations recede during spotlight unless both ends are in the cluster.
+      var cd = cite[c];
+      var keep = !!(related[cd.getAttribute("data-from")] && related[cd.getAttribute("data-to")]);
+      cd.classList.toggle("recede", !keep);
+    }
+    var labels = svg.querySelectorAll(".insight-label");
+    for (var l = 0; l < labels.length; l++) {
+      var lab = labels[l];
+      lab.classList.toggle("recede", lab.getAttribute("data-insight-for") !== String(number));
+    }
+    spotlightOn = true;
+  }
+
+  function selectInsight(number, zoom) {
+    showView("graph");
+    // A node focus replaces any prior date highlight, so it starts clean.
+    clearDateHits();
+    spotlightNode(number);
+    setSelectedChip({ target: number });
+    centerOnNode(number, zoom);
+    highlightIncident(number);
+  }
+
+  // Run a story-strip action: spotlight a node, open its detail, or
+  // date-highlight. Center actions select the insight (spotlight + chip);
+  // detail also opens the panel.
   function runStory(el) {
     var action = el.getAttribute("data-story");
     if (action === "date") {
-      highlightDate(el.getAttribute("data-story-date"));
+      var date = el.getAttribute("data-story-date");
+      clearSpotlight();
+      highlightDate(date);
+      // The date chip is selected while its highlight is active, the same as a
+      // node chip. clearSpotlight above already deselected every chip, so this
+      // selects only the date chip.
+      setSelectedChip({ date: date });
       return;
     }
     var number = el.getAttribute("data-story-target");
+    selectInsight(number, true);
+    flashGraphNode(number);
     if (action === "detail") {
-      showView("graph");
-      centerOnNode(number, true);
-      flashGraphNode(number);
       openDetail(number);
-    } else {
-      jumpToNode(number);
     }
   }
 
@@ -2463,6 +2788,9 @@ _SCRIPT = """
   function applyGraph(c) {
     if (!svg) { return; }
     var active = filterActive(c);
+    // Spotlight and filter are distinct modes: a filter clears the spotlight so
+    // the dim/match tiers are the only emphasis the user sees.
+    if (active && spotlightOn) { clearSpotlight(); }
     if (active) { clearDateHits(); }
     var gnodes = svg.querySelectorAll(".gnode[data-number]");
     var matchSet = {};
@@ -2515,7 +2843,10 @@ _SCRIPT = """
     if (topMatch !== null) {
       centerOnNode(topMatch, true);
       highlightIncident(topMatch);
-    } else if (!active) {
+    } else {
+      // No single match to focus (filter cleared, or an active facet filter with
+      // no search topMatch): clear any incident highlighting left by a prior
+      // focus so a filter transition starts from a clean incident state.
       highlightIncident(null);
     }
   }
@@ -2552,6 +2883,12 @@ _SCRIPT = """
 
   // Sync the initial DOM to the controls so what is shown matches the selects.
   applyFilters();
+
+  // The default state shows the whole graph with even emphasis: no spotlight,
+  // no selected chip, no recede. The spotlight is purely click-driven. The
+  // renderer still placed the named top story's cluster at the canvas center
+  // (packing priority), so the top story's cluster sits near the middle
+  // without any selection.
 })();
 """
 

@@ -1077,14 +1077,26 @@ def test_story_strip_renders_deterministic_metrics(tmp_path, monkeypatch, _no_br
     html = (store / "nauro-graph.html").read_text(encoding="utf-8")
 
     graph = _view_region(html, "graph")
-    assert '<div class="story-strip">' in graph
+    assert '<div class="story-strip"' in graph
     assert "Largest consolidation" in graph
     assert "Open-question hotspot" in graph
-    assert "Recent activity" in graph
+    # The busiest-day metric is the highest-count date, named distinctly from the
+    # header's latest-decision date.
+    assert "Busiest day" in graph
+    assert "Recent activity" not in graph
     assert "Anchor" in graph
-    # The story strip sits above the canvas in document order.
-    assert graph.index('<div class="story-strip">') < graph.index('<div class="graph-canvas">')
-    # Buttons carry jump actions the script wires up.
+    # The insight strip is rendered as connected chips, not boxed cards.
+    assert 'class="story-chip' in graph
+    assert "story-card" not in graph
+    # No chip ships selected: the default view is even-emphasis, selection is
+    # applied by clicking a chip. Every chip ships unpressed for assistive tech.
+    assert "story-chip is-selected" not in graph
+    assert 'data-selected="true"' not in graph
+    assert 'aria-pressed="false"' in graph
+    assert 'aria-pressed="true"' not in graph
+    # The strip sits above the canvas in document order.
+    assert graph.index('<div class="story-strip"') < graph.index('<div class="graph-canvas">')
+    # Chips carry jump actions the script wires up.
     assert 'data-story="center"' in graph
     assert 'data-story="detail"' in graph
     assert 'data-story="date"' in graph
@@ -1098,8 +1110,8 @@ def test_story_strip_omits_undefined_metrics(tmp_path, monkeypatch, _no_browser)
     """A store with no edges and no questions shows no story strip.
 
     Each metric is undefined (no consolidation, no hotspot, no anchor; a lone
-    decision is not a "recent activity cluster" at the 2+ threshold), so the
-    strip renders nothing rather than empty buttons.
+    decision is not a "busiest day" at the 2+ threshold), so the strip renders
+    nothing rather than empty buttons.
     """
     store = _new_store(tmp_path, monkeypatch)
     _write_decision(store, 2, "lonely", _decision_md(2, "A single decision", date="2026-03-15"))
@@ -1107,7 +1119,7 @@ def test_story_strip_omits_undefined_metrics(tmp_path, monkeypatch, _no_browser)
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
     html = (store / "nauro-graph.html").read_text(encoding="utf-8")
-    assert '<div class="story-strip">' not in html
+    assert '<div class="story-strip"' not in html
 
 
 def test_timeline_single_day_shows_one_tick(tmp_path, monkeypatch, _no_browser):
@@ -1136,3 +1148,336 @@ def test_timeline_single_day_shows_one_tick(tmp_path, monkeypatch, _no_browser):
     assert "2026-04-10" in timeline
     # No invented second date (the next day must not appear).
     assert "2026-04-11" not in timeline
+
+
+# ── Visual polish (guided spotlight, insight labels, packing priority) ──
+
+
+def test_default_state_is_even_emphasis(tmp_path, monkeypatch, _no_browser):
+    """The default view ships with even emphasis: no spotlight, no selected chip.
+
+    The spotlight is purely click-driven. On load no chip carries the selected
+    state and no node or edge carries a spotlight or recede class, so the whole
+    graph shows at even weight until an insight chip is clicked.
+    """
+    store = _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+
+    graph = _view_region(html, "graph")
+    # No chip ships selected.
+    assert 'data-selected="true"' not in graph
+    assert "story-chip is-selected" not in graph
+    # No node or edge ships spotlit or receded.
+    assert "spotlight" not in graph
+    assert " recede" not in graph
+    assert 'class="gnode recede"' not in graph
+
+
+def test_insight_labels_pinned_to_insight_nodes_only(tmp_path, monkeypatch, _no_browser):
+    """Pinned insight labels render for exactly the insight target nodes.
+
+    The labels are non-interactive (pointer-events: none in CSS so they never
+    block a node click). The named top story gets the stronger at-rest form
+    (is-primary), the others the compact form. This is informational labelling,
+    not a selection state.
+    """
+    store = _populated_store(tmp_path, monkeypatch)
+    # Add an anchor (cited active decision) and a question hotspot so multiple
+    # insight targets exist alongside the consolidation D4.
+    _write_decision(store, 7, "anchor", _decision_md(7, "Anchor", date="2026-03-21"))
+    _write_decision(
+        store, 8, "citer", _decision_md(8, "Cites anchor", date="2026-03-22", body="On D7.")
+    )
+
+    result = runner.invoke(app, ["graph"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+
+    graph = _view_region(html, "graph")
+    # The CSS makes the whole insight-label group non-interactive.
+    assert ".insight-label { pointer-events: none; }" in html
+    # The named top story (consolidation D4) carries the stronger at-rest label.
+    assert 'class="insight-label is-primary"' in graph
+    label_count = graph.count('class="insight-label')
+    # Every insight label keys to a node that exists as a graph circle.
+    pos = 0
+    targets = []
+    while True:
+        i = graph.find('data-insight-for="', pos)
+        if i == -1:
+            break
+        start = i + len('data-insight-for="')
+        targets.append(int(graph[start : graph.index('"', start)]))
+        pos = start
+    assert len(targets) == label_count
+    for t in targets:
+        # The labelled node exists as a graph circle and carries the is-insight
+        # marker class on its circle element.
+        circle_start = graph.index(f'data-number="{t}" data-title=')
+        circle_class_start = graph.rfind('<circle class="', 0, circle_start)
+        circle_open = graph[circle_class_start:circle_start]
+        assert "is-insight" in circle_open
+
+
+def test_spotlight_hooks_present(tmp_path, monkeypatch, _no_browser):
+    """Spotlight/recede classes and the JS that drives them ship in the markup.
+
+    pytest cannot run the browser, so this pins the class-driven hooks: the
+    spotlight and recede CSS tiers for nodes and edges, and the JS functions
+    that select an insight, spotlight a node, and clear the spotlight.
+    """
+    store = _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+
+    # Node and edge spotlight/recede tiers are styled.
+    assert ".gnode.spotlight" in html
+    assert ".gnode.recede" in html
+    assert ".sup-edge.spotlight" in html
+    assert ".sup-edge.recede" in html
+    assert ".cite-edge.recede" in html
+    # The JS spotlight machinery is click-driven (no load-time auto-select).
+    assert "function spotlightNode(" in html
+    assert "function clearSpotlight(" in html
+    assert "function selectInsight(" in html
+    assert "function setSelectedChip(" in html
+    # A chip click runs the story, which selects the insight (spotlight + chip).
+    assert "function runStory(" in html
+    # Clearing is wired to Escape and an empty-canvas click.
+    assert "clearSpotlight();" in html
+
+
+def test_pan_surface_suppresses_text_selection(tmp_path, monkeypatch, _no_browser):
+    """A pan drag must not engage native text selection on the Graph canvas.
+
+    pytest cannot drive the browser, so this pins the two hooks that suppress
+    selection on the pan surface only: user-select: none on .graph-canvas (with
+    the -webkit- prefix for Safari) and a preventDefault on the empty-canvas pan
+    pointer path. The suppression stays scoped to the canvas, so detail-panel and
+    Browse text remain selectable.
+    """
+    store = _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+
+    # The pan surface suppresses native selection, with the Safari prefix.
+    assert ".graph-canvas {" in html
+    assert "user-select: none;" in html
+    assert "-webkit-user-select: none;" in html
+    # Pointer events drive the pan, so touch gestures are suppressed on the SVG.
+    assert "touch-action: none;" in html
+    # The pan pointer path prevents the drag from initiating a selection.
+    assert "e.preventDefault();" in html
+    # The suppression is scoped to the canvas, not blanket on the document body.
+    assert "body {\n  -webkit-user-select: none;" not in html
+    assert "body {\n  user-select: none;" not in html
+
+
+def test_focus_transitions_clear_incident_highlighting(tmp_path, monkeypatch, _no_browser):
+    """Every focus transition starts from a clean incident-edge state.
+
+    pytest cannot drive the browser, so this pins the wiring: clearSpotlight
+    resets incident edges, the filter path clears them when no single match is
+    focused (an active facet filter with no search topMatch), and the date story
+    routes through clearSpotlight first. Without these, selecting an insight then
+    clearing or filtering leaves stale incident-highlighted edges behind.
+    """
+    store = _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+
+    # clearSpotlight resets incident edges before deselecting the chip.
+    clear_start = html.index("function clearSpotlight(")
+    clear_body = html[clear_start : html.index("function setSelectedChip(")]
+    assert "highlightIncident(null);" in clear_body
+    # The filter path clears incident edges on the no-single-match branch, not
+    # only when the filter is fully inactive.
+    apply_body = html[html.index("function applyGraph(") : html.index("function applyTimeline(")]
+    assert "highlightIncident(topMatch);" in apply_body
+    assert "} else {\n      // No single match" in apply_body
+    assert "highlightIncident(null);" in apply_body
+    # The date story routes through clearSpotlight (which clears incident) before
+    # highlighting the date.
+    run_body = html[html.index("function runStory(") : html.index("// ----- Global click")]
+    assert 'if (action === "date") {' in run_body
+    assert "clearSpotlight();" in run_body
+
+
+def test_hub_label_suppressed_for_insight_labeled_nodes(tmp_path, monkeypatch, _no_browser):
+    """A node carrying a pinned insight pill drops its regular hub label.
+
+    Two labels on one node overlap, so the more informative insight pill wins and
+    the .gnode-label text element is not emitted for that node. The consolidation
+    D4 is both a hub (high degree) and the primary insight target, so it is the
+    overlap case: it must carry an insight pill and no hub label.
+    """
+    store = _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+
+    graph = _view_region(html, "graph")
+    # D4 is an insight target (carries the primary pill) and a hub (is-hub class).
+    assert 'data-insight-for="4"' in graph
+    assert 'class="gnode status-active is-hub' in graph
+    # No regular hub label is emitted for any node that carries an insight pill.
+    pos = 0
+    insight_nums = []
+    while True:
+        i = graph.find('data-insight-for="', pos)
+        if i == -1:
+            break
+        start = i + len('data-insight-for="')
+        insight_nums.append(graph[start : graph.index('"', start)])
+        pos = start
+    assert insight_nums  # the fixture defines at least one insight target
+    for num in insight_nums:
+        assert 'class="gnode-label" x=' not in graph or f'data-label-for="{num}"' not in graph
+
+
+def test_story_chip_selection_state_and_aria(tmp_path, monkeypatch, _no_browser):
+    """Chips ship unpressed and mirror selection into aria-pressed, date included.
+
+    The date chip gets the same selected treatment as node chips, and selection
+    mirrors into aria-pressed on every chip (they are buttons). This pins the
+    static defaults and the JS that toggles them.
+    """
+    store = _populated_store(tmp_path, monkeypatch)
+    # Two decisions on one date so the date (busiest-day) chip is defined.
+    _write_decision(store, 9, "busy-a", _decision_md(9, "Busy day A", date="2026-03-25"))
+    _write_decision(store, 10, "busy-b", _decision_md(10, "Busy day B", date="2026-03-25"))
+
+    result = runner.invoke(app, ["graph"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+
+    graph = _view_region(html, "graph")
+    # Every chip ships with the unpressed default in the markup.
+    assert 'data-story="date"' in graph
+    assert 'aria-pressed="false"' in graph
+    assert 'aria-pressed="true"' not in graph
+    # setSelectedChip mirrors selection into aria-pressed and matches the date
+    # chip by its date, not only node chips by target.
+    sel_body = html[html.index("function setSelectedChip(") : html.index("function supNeighbours(")]
+    assert 'setAttribute("aria-pressed"' in sel_body
+    assert "data-story-date" in sel_body
+    assert "data-story-target" in sel_body
+    # The date story selects the date chip while its highlight is active, and the
+    # date highlight clear deselects the date chip (shared lifetime).
+    run_body = html[html.index("function runStory(") : html.index("// ----- Global click")]
+    assert "setSelectedChip({ date: date });" in run_body
+    dates_start = html.index("function clearDateHits(")
+    clear_dates = html[dates_start : html.index("// Highlight every Graph node")]
+    assert 'data-story="date"' in clear_dates
+    assert 'setAttribute("aria-pressed", "false")' in clear_dates
+
+
+def test_category_labels_still_rendered(tmp_path, monkeypatch, _no_browser):
+    """Category disc labels still render with their class after the restyle."""
+    store = _new_store(tmp_path, monkeypatch)
+    # Several isolated decisions in one category form a labelled disc.
+    for num in range(2, 7):
+        _write_decision(
+            store,
+            num,
+            f"iso-{num}",
+            _decision_md(num, f"Isolated {num}", decision_type="infrastructure", date="2026-03-15"),
+        )
+
+    result = runner.invoke(app, ["graph"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+
+    graph = _view_region(html, "graph")
+    assert '<text class="disc-label"' in graph
+    assert "infrastructure" in graph
+    # The disc label is non-interactive map chrome.
+    assert ".disc-label {" in html
+    assert "pointer-events: none;" in html
+
+
+def test_largest_consolidation_cluster_takes_origin(tmp_path, monkeypatch):
+    """The largest-consolidation cluster is placed at the canvas origin.
+
+    Even when a category disc out-sizes the consolidation star by radius, the
+    named top story takes the origin slot so it sits near the visual center
+    rather than being pushed to the edge. Pinned at the layout-function level so
+    the deterministic placement is asserted directly.
+    """
+    from nauro.graph.html_render import _supersession_relations, build_graph_layout
+
+    # A 3-way fan (D100 retires D1/D2/D3) plus a larger isolated category disc
+    # (8 nodes) whose bounding radius exceeds the small fan's.
+    nodes = []
+    edges = []
+    for n in (1, 2, 3):
+        nodes.append(
+            {
+                "number": n,
+                "title": f"retired {n}",
+                "status": "superseded",
+                "decision_type": "architecture",
+                "confidence": "high",
+                "date": "2026-03-10",
+            }
+        )
+        edges.append({"from": 100, "to": n})
+    nodes.append(
+        {
+            "number": 100,
+            "title": "consolidator",
+            "status": "active",
+            "decision_type": "architecture",
+            "confidence": "high",
+            "date": "2026-03-20",
+        }
+    )
+    for n in range(200, 212):  # 12 isolated infra nodes -> a big disc
+        nodes.append(
+            {
+                "number": n,
+                "title": f"iso {n}",
+                "status": "active",
+                "decision_type": "infrastructure",
+                "confidence": "high",
+                "date": "2026-03-15",
+            }
+        )
+    payload = {
+        "nodes": nodes,
+        "supersession_edges": edges,
+        "citation_edges": [],
+        "components": [{"nodes": [1, 2, 3, 100], "edges": edges, "branch_points": [100]}],
+        "open_questions": [],
+    }
+    relations = _supersession_relations(payload)
+
+    # The disc is larger by radius than the fan.
+    no_priority = build_graph_layout(payload)
+    fan_cluster = next(c for c in no_priority["clusters"] if 100 in c["local"])
+    disc_cluster = next(c for c in no_priority["clusters"] if c["kind"] == "disc")
+    assert disc_cluster["radius"] > fan_cluster["radius"]
+    # Without priority the larger disc takes origin.
+    assert disc_cluster["center"] == (0.0, 0.0)
+
+    # With the consolidation as priority, its cluster takes origin instead.
+    consolidation = max(relations, key=lambda num: len(relations[num].get("supersedes", [])))
+    assert consolidation == 100
+    prioritized = build_graph_layout(payload, priority_center=100)
+    fan_cluster = next(c for c in prioritized["clusters"] if 100 in c["local"])
+    assert fan_cluster["priority"] is True
+    assert fan_cluster["center"] == (0.0, 0.0)
+    assert prioritized["positions"][100] == (0.0, 0.0)
+
+    # Determinism: same input renders identical positions.
+    assert build_graph_layout(payload, priority_center=100)["positions"] == prioritized["positions"]
