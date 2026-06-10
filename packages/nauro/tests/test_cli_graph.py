@@ -1361,6 +1361,206 @@ def test_hub_label_suppressed_for_insight_labeled_nodes(tmp_path, monkeypatch):
         assert 'class="gnode-label" x=' not in graph or f'data-label-for="{num}"' not in graph
 
 
+# ── Hub-label overlap suppression ──
+#
+# These build the graph payload directly (so node degree and category are under
+# the test's control) and exercise the renderer's deterministic suppression pass
+# at the function level, the same way the packing-priority test does. A long
+# title widens a label's estimated box, and a dense same-category disc places
+# two nodes close enough that their wide boxes intersect, which is the live
+# overlap the pass exists to resolve.
+
+_LONG_LABEL_TITLE = "Adopt the layered hexagonal service architecture platform wide spanning title"
+
+
+def _disc_node(num: int, title: str, *, status: str = "active") -> dict:
+    """A single isolated-decision node for a directly-built graph payload."""
+    return {
+        "number": num,
+        "title": title,
+        "status": status,
+        "decision_type": "architecture",
+        "confidence": "high",
+        "date": "2026-03-15",
+    }
+
+
+def _emitted_label_nums(payload: dict) -> tuple[list[int], list[int]]:
+    """Render the node/label layer and return (hub-label nums, insight nums).
+
+    Runs the same layout and node/label render the Graph view uses, then reads
+    back which nodes carry a ``gnode-label`` text element and which carry a
+    pinned insight pill, so a test can assert exactly which hub labels survived
+    the suppression pass.
+    """
+    from nauro.graph.html_render import (
+        _compute_insights,
+        _graph_nodes_and_labels,
+        _question_reference_map,
+        _supersession_relations,
+        build_graph_layout,
+    )
+
+    relations = _supersession_relations(payload)
+    question_refs = _question_reference_map(payload)
+    layout = build_graph_layout(payload)
+    node_by_number = {n["number"]: n for n in payload["nodes"]}
+    insights = _compute_insights(payload, relations, question_refs)
+    _, label_layer = _graph_nodes_and_labels(
+        payload,
+        layout["positions"],
+        layout["radii"],
+        layout["degree"],
+        relations,
+        question_refs,
+        node_by_number,
+        layout["clusters"],
+        insights,
+    )
+
+    def _nums(attr: str) -> list[int]:
+        found: list[int] = []
+        pos = 0
+        marker = f'{attr}="'
+        while True:
+            i = label_layer.find(marker, pos)
+            if i == -1:
+                break
+            start = i + len(marker)
+            found.append(int(label_layer[start : label_layer.index('"', start)]))
+            pos = start
+        return sorted(set(found))
+
+    return _nums("data-label-for"), _nums("data-insight-for")
+
+
+def test_colliding_same_disc_hub_labels_keep_only_the_higher_degree():
+    """Two adjacent same-disc hubs whose label boxes collide emit one hub label.
+
+    Eight isolated architecture decisions form one dense sunflower disc. D2 and
+    D6 land adjacent and both carry a long title, so their estimated label boxes
+    intersect. D2 has the higher degree (it cites two decisions; D6 cites one),
+    so the suppression pass keeps D2 and drops D6. The citation targets are
+    superseded, so no anchor insight fires and the case is a clean hub-vs-hub
+    collision.
+    """
+    nodes = [
+        _disc_node(
+            num,
+            _LONG_LABEL_TITLE if num in (2, 6) else f"S{num}",
+            status="superseded" if num in (7, 8, 9) else "active",
+        )
+        for num in range(2, 10)
+    ]
+    payload = {
+        "nodes": nodes,
+        "supersession_edges": [],
+        # D2 cites two decisions (degree 2), D6 cites one (degree 1); the targets
+        # are superseded so the most-cited-active anchor metric stays undefined.
+        "citation_edges": [
+            {"from": 2, "to": 7},
+            {"from": 2, "to": 8},
+            {"from": 6, "to": 9},
+        ],
+        "components": [],
+        "open_questions": [],
+    }
+
+    hub_labels, insight_labels = _emitted_label_nums(payload)
+    assert insight_labels == []  # the fixture defines no insight target
+    # The higher-degree node of the colliding pair keeps its label; the lower one
+    # is suppressed. Every other node, uncolliding, keeps its label.
+    assert 2 in hub_labels
+    assert 6 not in hub_labels
+    assert hub_labels == [2, 3, 4, 5, 7, 8, 9]
+
+
+def test_insight_label_blocks_colliding_hub_but_is_never_suppressed():
+    """An insight pill survives and suppresses a hub whose box collides with it.
+
+    D2 is the most-cited active decision, so it carries the anchor insight pill,
+    and it sits adjacent to D6, a long-titled hub. D6's estimated label box
+    intersects D2's pill box. The insight pill is exempt from suppression but its
+    box still blocks, so D2 keeps its pill and D6's hub label is dropped.
+    """
+    nodes = [
+        _disc_node(
+            num,
+            _LONG_LABEL_TITLE if num in (2, 6) else f"S{num}",
+            status="superseded" if num in (3, 4, 5) else "active",
+        )
+        for num in range(2, 10)
+    ]
+    payload = {
+        "nodes": nodes,
+        "supersession_edges": [],
+        # D2 is cited three times by active short nodes, so it is the anchor.
+        "citation_edges": [
+            {"from": 3, "to": 2},
+            {"from": 4, "to": 2},
+            {"from": 5, "to": 2},
+        ],
+        "components": [],
+        "open_questions": [],
+    }
+
+    hub_labels, insight_labels = _emitted_label_nums(payload)
+    # D2 carries the (exempt) insight pill and never a hub label.
+    assert insight_labels == [2]
+    assert 2 not in hub_labels
+    # D6, the hub colliding with D2's pill, is suppressed; the rest keep labels.
+    assert 6 not in hub_labels
+    assert hub_labels == [3, 4, 5, 7, 8, 9]
+
+
+def test_suppression_pass_is_deterministic():
+    """The same payload yields the same emitted label set on every render."""
+    nodes = [
+        _disc_node(
+            num,
+            _LONG_LABEL_TITLE if num in (2, 6) else f"S{num}",
+            status="superseded" if num in (7, 8, 9) else "active",
+        )
+        for num in range(2, 10)
+    ]
+    payload = {
+        "nodes": nodes,
+        "supersession_edges": [],
+        "citation_edges": [
+            {"from": 2, "to": 7},
+            {"from": 2, "to": 8},
+            {"from": 6, "to": 9},
+        ],
+        "components": [],
+        "open_questions": [],
+    }
+
+    first = _emitted_label_nums(payload)
+    second = _emitted_label_nums(payload)
+    assert first == second
+
+
+def test_sparse_disc_keeps_every_hub_label():
+    """A sparse disc collides nowhere, so the pass suppresses nothing.
+
+    Four short-titled isolated decisions spread far enough apart that no two
+    estimated label boxes intersect, so every hub keeps its label and the pass
+    is a no-op. This pins the absence of over-suppression.
+    """
+    nodes = [_disc_node(num, f"Short title {num}") for num in (2, 3, 4, 5)]
+    payload = {
+        "nodes": nodes,
+        "supersession_edges": [],
+        "citation_edges": [],
+        "components": [],
+        "open_questions": [],
+    }
+
+    hub_labels, insight_labels = _emitted_label_nums(payload)
+    assert insight_labels == []
+    assert hub_labels == [2, 3, 4, 5]
+
+
 def test_story_chip_selection_state_and_aria(tmp_path, monkeypatch):
     """Chips ship unpressed and mirror selection into aria-pressed, date included.
 
