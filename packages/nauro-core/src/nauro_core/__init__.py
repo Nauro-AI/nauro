@@ -138,6 +138,12 @@ from nauro_core.decision_model import (
 from nauro_core.decision_model import (
     parse_decision as parse_decision,
 )
+from nauro_core.graph import (
+    GRAPH_PAYLOAD_VERSION as GRAPH_PAYLOAD_VERSION,
+)
+from nauro_core.graph import (
+    build_graph_payload as build_graph_payload,
+)
 from nauro_core.identity import (
     sanitize_sub as sanitize_sub,
 )
@@ -178,7 +184,13 @@ from nauro_core.parsing import (
     extract_stack_summary as extract_stack_summary,
 )
 from nauro_core.parsing import (
+    first_sentence_end as first_sentence_end,
+)
+from nauro_core.parsing import (
     parse_questions as parse_questions,
+)
+from nauro_core.parsing import (
+    scan_decision_references as scan_decision_references,
 )
 from nauro_core.protocol import (
     CANONICAL_FRAGMENTS as CANONICAL_FRAGMENTS,
@@ -299,6 +311,9 @@ from nauro_core.validation import (
 )
 from nauro_core.validation import (
     compute_hash as compute_hash,
+)
+from nauro_core.validation import (
+    is_scaffold_seed as is_scaffold_seed,
 )
 from nauro_core.validation import (
     screen_structural as screen_structural,

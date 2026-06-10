@@ -27,13 +27,7 @@ from nauro_core.operations.results import (
 from nauro_core.operations.store import Store
 from nauro_core.parsing import extract_decision_number
 from nauro_core.search import union_retrieve
-from nauro_core.validation import check_content_length
-
-# Scaffold-seed bookkeeping decision is excluded from retrieval; full
-# rationale lives in ``nauro_core/validation.py:40-51``. The convention
-# match (num == 1 and exact title) is the same one tier-2 validation uses,
-# so both surfaces agree on what counts as the seed.
-_SCAFFOLD_SEED_TITLE = "Initial project setup"
+from nauro_core.validation import check_content_length, is_scaffold_seed
 
 # Extended stopword list for ``check_decision`` retrieval. Mirrors the
 # tier-2 ``TIER2_STOPWORDS`` curation (``nauro_core/validation.py:20-38``):
@@ -75,7 +69,7 @@ def check_decision(
             return CheckDecisionResult(error=ErrorPayload(kind="rejected", reason=rejection))
 
     decisions = parse_all_decisions(store)
-    decisions = [d for d in decisions if not (d.num == 1 and d.title == _SCAFFOLD_SEED_TITLE)]
+    decisions = [d for d in decisions if not is_scaffold_seed(d)]
     if not decisions:
         return CheckDecisionResult(assessment=NO_DECISIONS_TO_CHECK)
 

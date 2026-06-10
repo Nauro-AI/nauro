@@ -51,11 +51,22 @@ TIER2_STOPWORDS = [*list(STOPWORDS_EN), "use"]
 _SCAFFOLD_SEED_TITLE = "Initial project setup"
 
 
-def _is_scaffold_seed(decision) -> bool:
-    """Detect the scaffold-seeded first decision (``Decision`` or legacy dict)."""
+def is_scaffold_seed(decision) -> bool:
+    """Detect the scaffold-seeded first decision (``Decision`` or legacy dict).
+
+    The convention match (``num == 1`` and the exact scaffold title) is the
+    single source every surface shares: tier-2 validation, ``check_decision``
+    retrieval, and the graph payload builder all call this predicate so they
+    agree on what counts as the seed.
+    """
     if hasattr(decision, "num"):
         return decision.num == 1 and decision.title == _SCAFFOLD_SEED_TITLE
     return decision.get("num") == 1 and decision.get("title") == _SCAFFOLD_SEED_TITLE
+
+
+# Historical private name kept as an alias for callers that imported it before
+# the public predicate existed.
+_is_scaffold_seed = is_scaffold_seed
 
 
 def check_bm25_similarity(
