@@ -38,7 +38,7 @@ nauro init --demo
 nauro check-decision "Add a WebSocket endpoint for live task updates"
 ```
 
-The demo store holds seven example decisions. One of them ruled out WebSocket in favor of SSE, and `check-decision` surfaces it as the top match before your agent can re-propose it:
+The demo store holds thirteen example decisions. One of them ruled out WebSocket in favor of SSE, and `check-decision` surfaces it as the top match before your agent can re-propose it:
 
 ```json
 {
@@ -46,14 +46,14 @@ The demo store holds seven example decisions. One of them ruled out WebSocket in
   "related_decisions": [
     {
       "id": "decision-004",
-      "title": "SSE over WebSocket for live task updates",
-      "score": 5.015,
+      "title": "SSE over WebSocket for live updates",
+      "score": 6.117,
       "status": "active",
       "date": "2026-03-15",
       "rationale_preview": "Server-Sent Events (SSE) for pushing live task updates to the frontend. SSE uses standard HTTP, reconnects automatically on disconnect, and works through every proxy and load balancer..."
     }
   ],
-  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live task updates\" (status active, decided 2026-03-15, BM25 5.0). Call get_decision on each related decision before proposing.",
+  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live updates\" (status active, decided 2026-03-15, BM25 6.1). Call get_decision on each related decision before proposing.",
   "project": { "id": "01K...", "name": "demo-project" }
 }
 ```
@@ -61,6 +61,10 @@ The demo store holds seven example decisions. One of them ruled out WebSocket in
 Output abbreviated to the top match; the live call returns all five related decisions, ranked by score. The same result reaches your agent through the MCP `check_decision` tool, so it sees the prior decision in the flow rather than after the fact.
 
 `nauro graph` renders the decision history to one self-contained HTML file and opens it. The file has four views: Graph (a node-link map of the whole store on a deterministic layout, the default), Lineage (one drawn supersession DAG per thread, with consolidations as the prominent fan-ins), Timeline (decisions on a true date axis), and Browse (every decision grouped by category, with superseded ones dimmed). By default the file embeds decision titles and metadata plus open-question summaries, no decision bodies, so it lands in the store directory rather than the repo; pass `--output` to write it elsewhere. Add `--include-bodies` to embed each decision's full body behind an expander in the detail panel.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/graph-dark.png"><img src="docs/images/graph-light.png" alt="The nauro graph default view of a project store: decisions as nodes colored by category across five clusters, with the largest node linked to the seven earlier decisions it retired, plus smaller supersession fans and two short supersession chains at the edges." width="900"></picture>
+
+*A project store rendered by nauro graph: supersession threads converge on the decisions that replaced them, and standalone decisions cluster by category.*
 
 ## Why not ADRs, grep, or CLAUDE.md?
 

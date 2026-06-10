@@ -21,8 +21,8 @@ The page is a four-view single-file application over the same payload:
 * Timeline: a true date axis (earliest to latest decision date) with category
   lanes; marks are positioned by real date, not index, and same-day same-lane
   marks stack so a busy day reads as a visible column.
-* Browse: active decisions grouped by category, each expanding in place to a
-  detail panel of relations and linked questions.
+* Browse: every decision grouped by category, superseded ones dimmed, each
+  expanding in place to a detail panel of relations and linked questions.
 
 Open questions are integrated: a question's decision references render as links
 into the detail panel, and each referenced decision badges back to its

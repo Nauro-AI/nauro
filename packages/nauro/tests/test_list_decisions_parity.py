@@ -100,9 +100,10 @@ def test_populated_store_envelope_matches_across_surfaces(demo_repo):
     # Locked envelope shape: store + decisions list, no error / status keys.
     assert tool["store"] == "local"
     assert isinstance(tool["decisions"], list)
-    assert tool["decisions"], "demo project seeds 7 active decisions"
-    # All demo decisions are active and seeded with date + decision_type,
-    # so every row carries the full set of optional keys.
+    assert tool["decisions"], "demo project seeds active decisions"
+    # Every demo decision is seeded with date + decision_type, so every row
+    # carries the full set of optional keys. The default view excludes the
+    # superseded decisions, so every returned row is active.
     for row in tool["decisions"]:
         for key in ("number", "title", "date", "status", "type", "confidence"):
             assert key in row, f"missing field {key!r} in row {row!r}"
@@ -119,9 +120,15 @@ def test_include_superseded_toggle_matches_across_surfaces(demo_repo):
     tool_with = _tool_envelope(store_path, include_superseded=True)
     assert _stdio_rendered(pid, include_superseded=True) == RENDERERS["list_decisions"](tool_with)
 
-    # Demo project has only active decisions, so both toggles return the
-    # same envelope; the parity assertion is the load-bearing one.
-    assert tool_default == tool_with
+    # The demo store carries superseded decisions, so the toggle changes the
+    # result: include_superseded=True surfaces the retired ones the default
+    # view hides.
+    default_numbers = {row["number"] for row in tool_default["decisions"]}
+    with_numbers = {row["number"] for row in tool_with["decisions"]}
+    assert default_numbers < with_numbers
+    assert {8, 9, 10, 11} <= with_numbers
+    assert default_numbers.isdisjoint({8, 9, 10, 11})
+    assert all(row["status"] == "active" for row in tool_default["decisions"])
 
 
 def test_exclude_none_strips_unset_type_across_surfaces(tmp_path, monkeypatch):

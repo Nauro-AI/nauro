@@ -35,9 +35,9 @@ class TestDemoProjectStructure:
         assert (demo_store / constants.DECISIONS_DIR).is_dir()
         assert (demo_store / constants.SNAPSHOTS_DIR).is_dir()
 
-    def test_has_seven_decisions(self, demo_store):
+    def test_has_thirteen_decisions(self, demo_store):
         decisions = _list_decisions(demo_store)
-        assert len(decisions) == 7
+        assert len(decisions) == 13
 
     def test_decisions_have_correct_format(self, demo_store):
         """Decisions should match the format produced by writer.py."""
@@ -45,19 +45,21 @@ class TestDemoProjectStructure:
         for d in decisions:
             assert d.title, f"Decision {d.num} has no title"
             assert d.rationale, f"Decision {d.num} has no rationale"
-            assert d.status.value == "active"
+            assert d.status.value in ("active", "superseded")
             assert d.confidence.value in ("high", "medium", "low")
 
     def test_decision_titles(self, demo_store):
         decisions = _list_decisions(demo_store)
         titles = [d.title for d in decisions]
-        assert "Chose PostgreSQL over MongoDB for ACID compliance" in titles
-        assert "REST API over GraphQL for simplicity" in titles
-        assert "Monorepo with Turborepo over polyrepo" in titles
-        assert "SSE over WebSocket for live task updates" in titles
-        assert "All processing in request path, no background workers" in titles
-        assert "Cursor-based pagination, not offset" in titles
-        assert "Hard delete with audit log, no soft deletes" in titles
+        assert "PostgreSQL over MongoDB" in titles
+        assert "REST over GraphQL" in titles
+        assert "Monorepo over polyrepo" in titles
+        assert "SSE over WebSocket for live updates" in titles
+        assert "No background workers" in titles
+        assert "Cursor-based pagination" in titles
+        assert "Hard delete with audit log" in titles
+        assert "Unified Express middleware stack for validation, errors, and logging" in titles
+        assert "Rate limiting at the API gateway" in titles
 
     def test_has_snapshot(self, demo_store):
         snapshots = list_snapshots(demo_store)
@@ -85,6 +87,60 @@ class TestDemoProjectStructure:
         content = (demo_store / constants.PROJECT_MD).read_text()
         assert "TaskFlow" in content
         assert "Goals" in content
+
+
+class TestDemoSupersession:
+    """The demo store carries the two supersession structures the graph shows:
+    a three-into-one consolidation fan and a two-step chain. These assert the
+    on-disk convention propose_decision's supersede path writes (scalar
+    ``supersedes`` on the retirer, ``superseded_by`` + superseded status on each
+    retired decision) so the demo cannot drift from real writer output.
+    """
+
+    def test_active_and_superseded_split(self, demo_store):
+        decisions = _list_decisions(demo_store)
+        by_num = {d.num: d for d in decisions}
+        superseded = sorted(d.num for d in decisions if d.status.value == "superseded")
+        assert superseded == [8, 9, 10, 11]
+        for num in (1, 2, 3, 4, 5, 6, 7, 12, 13):
+            assert by_num[num].status.value == "active"
+
+    def test_consolidation_fan_edges_are_symmetric(self, demo_store):
+        """Three retired decisions each point back at the one retirer, and the
+        retirer carries a scalar supersedes at one of them (the earliest)."""
+        by_num = {d.num: d for d in _list_decisions(demo_store)}
+        retirer = by_num[13]
+        assert retirer.status.value == "active"
+        assert retirer.supersedes == "8"
+        assert retirer.superseded_by is None
+        for retired_num in (8, 9, 10):
+            retired = by_num[retired_num]
+            assert retired.status.value == "superseded"
+            assert retired.superseded_by == "13"
+            assert retired.supersedes is None
+
+    def test_short_chain_edges_are_symmetric(self, demo_store):
+        by_num = {d.num: d for d in _list_decisions(demo_store)}
+        older, newer = by_num[11], by_num[12]
+        assert older.status.value == "superseded"
+        assert older.superseded_by == "12"
+        assert older.supersedes is None
+        assert newer.status.value == "active"
+        assert newer.supersedes == "11"
+        assert newer.superseded_by is None
+
+    def test_superseded_files_parse_with_refs_on_disk(self, demo_store):
+        """The superseded entries reach the parser from disk with their refs
+        intact. The status=superseded validator requires a superseded_by ref,
+        so a missing one would surface here as a parse failure rather than a
+        silent count mismatch."""
+        files = sorted((demo_store / constants.DECISIONS_DIR).glob("*.md"))
+        bodies = {f.name: f.read_text(encoding="utf-8") for f in files}
+        # Each retired decision file carries its superseded status and back-ref.
+        for stem in ("008", "009", "010", "011"):
+            match = next(name for name in bodies if name.startswith(stem))
+            assert "status: superseded" in bodies[match]
+            assert "superseded_by:" in bodies[match]
 
 
 class TestDemoWithContext:

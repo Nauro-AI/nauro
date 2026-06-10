@@ -67,7 +67,7 @@ def test_get_context_survives_non_utf8(poisoned_store, level):
 
 def test_list_decisions_survives_non_utf8(poisoned_store):
     decisions = _list_decisions(poisoned_store)
-    assert len(decisions) == 7  # all still parse, none crash the read
+    assert len(decisions) == 13  # all still parse, none crash the read
 
 
 def test_get_raw_file_survives_non_utf8(poisoned_store):
