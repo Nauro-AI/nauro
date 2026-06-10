@@ -165,7 +165,7 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
     flow does not: a single shared demo entry is reused rather than
     duplicated, and the cwd-config overwrite message is demo-specific.
     """
-    from nauro.demo import create_demo_project
+    from nauro.demo import DEMO_DECISIONS, create_demo_project
 
     # Demo-specific overwrite guard: when the cwd already carries a config and
     # --force is absent, surface a reset-oriented message instead of the
@@ -217,7 +217,10 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
     typer.echo(f"  Store: {store_path}")
     for rp in repo_paths:
         typer.echo(f"  Repo:  {rp.resolve()}")
-    typer.echo("  Includes: 7 decisions, project state, open questions, and a snapshot")
+    typer.echo(
+        f"  Includes: {len(DEMO_DECISIONS)} decisions, project state, "
+        "open questions, and a snapshot"
+    )
     typer.echo(f"  Wrote .nauro/config.json into {Path.cwd()}")
     if cwd_is_git:
         typer.echo(
