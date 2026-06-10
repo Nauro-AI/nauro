@@ -106,6 +106,11 @@ _GRAPH_LABEL_CLEARANCE = 26.0  # extra cluster radius reserved for labels
 _GRAPH_CLUSTER_PADDING = 40.0  # gap enforced between packed clusters
 _GRAPH_SPIRAL_STEP = 26.0  # radial step walked along the packing spiral
 _GRAPH_HUB_LABEL_LIMIT = 18  # hubs labelled at the default zoom
+# Conservative character-count text-box heuristic for the label overlap pass.
+# No DOM measurement is available at render time, so a label's box is estimated
+# from its character count, the same approach the insight pill already uses.
+_GRAPH_LABEL_CHAR_W = 7.0  # estimated width per character, in SVG user units
+_GRAPH_LABEL_LINE_H = 14.0  # estimated single-line text-box height
 
 
 def render_html(payload: dict, *, generated_at: str) -> str:
@@ -820,9 +825,12 @@ def _render_graph_view(
     Decisions are nodes (radius by degree, hue by category, filled when active /
     hollow ring when superseded, opacity by confidence). Supersession edges are
     always drawn and stronger; consolidation fan-ins are heaviest. Citation
-    edges are a faint always-on web. Only hubs are labelled at the default zoom;
-    every node carries its label in a data attribute for hover and search. The
-    SVG viewBox is fit to content so the initial view frames the whole map.
+    edges are a faint always-on web. Only hubs are labelled at the default zoom,
+    and a hub whose label box would collide with a higher-priority label is
+    suppressed so no two visible labels overlap; every node still carries its
+    label in a data attribute for hover and search, so a suppressed hub loses
+    nothing permanently. The SVG viewBox is fit to content so the initial view
+    frames the whole map.
     """
     nodes = payload.get("nodes", [])
     node_by_number = {n["number"]: n for n in nodes}
@@ -973,6 +981,92 @@ def _graph_hub_numbers(
     return hubs
 
 
+def _hub_label_text(num: int, title: str) -> str:
+    """The visible text of a hub label: ``D<n> <title>`` with the title capped.
+
+    Single source of truth for the label string so the suppression pass sizes
+    the box from exactly the text that is emitted.
+    """
+    label = title if len(title) <= 32 else title[:31].rstrip() + "…"
+    return f"D{num} {label}"
+
+
+def _hub_label_box(
+    num: int, title: str, x: float, y: float, r: float
+) -> tuple[float, float, float, float]:
+    """Estimate a hub label's text box as ``(x0, y0, x1, y1)``.
+
+    The label is anchored at the middle of ``x`` on a baseline at ``y - r - 6``
+    (the emit geometry below). Width is the character count times the per-glyph
+    estimate; the box rises one line height above the baseline. Conservative by
+    construction: the heuristic overshoots real glyph widths, so a box that does
+    not intersect here cannot collide on screen.
+    """
+    text = _hub_label_text(num, title)
+    width = len(text) * _GRAPH_LABEL_CHAR_W
+    baseline = y - r - 6
+    return (x - width / 2, baseline - _GRAPH_LABEL_LINE_H, x + width / 2, baseline)
+
+
+def _insight_label_text(num: int, meta: dict) -> str:
+    """The visible text of an insight pill: the ``short`` headline or ``D<n>``.
+
+    Single source of truth shared by the pill renderer and the suppression
+    pass so both size the box from the same string.
+    """
+    if meta["primary"] and meta.get("short"):
+        return meta["short"]
+    return f"D{num}"
+
+
+def _insight_label_box(
+    num: int, meta: dict, x: float, y: float, r: float
+) -> tuple[float, float, float, float]:
+    """Estimate an insight pill's box as ``(x0, y0, x1, y1)``.
+
+    Mirrors the pill geometry in ``_render_insight_labels`` exactly so the
+    suppression pass blocks against the same rectangle that renders.
+    """
+    pill_w = len(_insight_label_text(num, meta)) * _GRAPH_LABEL_CHAR_W + 12
+    pill_h = 18.0
+    px = x - pill_w / 2
+    py = y - r - 8 - pill_h
+    return (px, py, px + pill_w, py + pill_h)
+
+
+def _boxes_intersect(
+    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
+) -> bool:
+    """True when two axis-aligned boxes overlap (edge contact does not count)."""
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    return not (ax1 <= bx0 or bx1 <= ax0 or ay1 <= by0 or by1 <= ay0)
+
+
+def _suppressed_hub_labels(
+    hub_labels: list[tuple[int, tuple[float, float, float, float]]],
+    insight_boxes: list[tuple[float, float, float, float]],
+    degree: dict[int, int],
+) -> set[int]:
+    """Return the hub numbers whose labels collide with a higher-priority box.
+
+    Priority order: insight labels first (never suppressed, but their boxes
+    block), then hub labels by degree descending, ties by decision number
+    ascending. The walk keeps every accepted box and suppresses any hub whose
+    box intersects one already accepted. Pure and deterministic: the same
+    payload yields the same suppression set.
+    """
+    accepted: list[tuple[float, float, float, float]] = list(insight_boxes)
+    suppressed: set[int] = set()
+    ordered = sorted(hub_labels, key=lambda item: (-degree.get(item[0], 0), item[0]))
+    for num, box in ordered:
+        if any(_boxes_intersect(box, kept) for kept in accepted):
+            suppressed.add(num)
+            continue
+        accepted.append(box)
+    return suppressed
+
+
 def _graph_nodes_and_labels(
     payload: dict,
     positions: dict[int, tuple[float, float]],
@@ -1003,6 +1097,32 @@ def _graph_nodes_and_labels(
             continue
         insight_target.setdefault(ins["target"], {"primary": i == 0, "short": ins.get("short")})
 
+    # Deterministic overlap suppression. Insight pills are pinned (never
+    # suppressed) but their boxes block lower-priority hub labels; remaining hub
+    # labels are accepted by descending degree and any whose box intersects an
+    # already-accepted box is dropped. Hover labels are untouched, so a suppressed
+    # hub still labels on hover and loses nothing permanently.
+    insight_boxes = [
+        _insight_label_box(num, meta, positions[num][0], positions[num][1], radii[num])
+        for num, meta in insight_target.items()
+        if num in positions
+    ]
+    hub_label_candidates = [
+        (
+            num,
+            _hub_label_box(
+                num,
+                node_by_number.get(num, {}).get("title", ""),
+                positions[num][0],
+                positions[num][1],
+                radii[num],
+            ),
+        )
+        for num in hubs
+        if num in positions and num not in insight_target
+    ]
+    suppressed_hubs = _suppressed_hub_labels(hub_label_candidates, insight_boxes, degree)
+
     node_svg: list[str] = []
     label_svg: list[str] = []
     for node in payload.get("nodes", []):
@@ -1032,14 +1152,15 @@ def _graph_nodes_and_labels(
         )
         # A node that carries a pinned insight pill must not also carry the regular
         # hub label: the pill is strictly more informative and two labels on one
-        # node overlap and read as noise. Suppress the hub label for insight nodes.
-        if num in hubs and num not in insight_target:
-            label = title if len(title) <= 32 else title[:31].rstrip() + "…"
+        # node overlap and read as noise. A hub label whose box collides with an
+        # accepted higher-priority box is suppressed by the overlap pass above.
+        # Both cases still label on hover, so nothing is lost permanently.
+        if num in hubs and num not in insight_target and num not in suppressed_hubs:
             ly = y - r - 6
             label_svg.append(
                 f'<text class="gnode-label" x="{x:.1f}" y="{ly:.1f}" '
                 f'text-anchor="middle" data-label-for="{num}">'
-                f"D{num} {_esc(label)}</text>"
+                f"{_esc(_hub_label_text(num, title))}</text>"
             )
 
     # Cluster labels for the sunflower discs sit under each disc.
@@ -1084,9 +1205,8 @@ def _render_insight_labels(
         x, y = positions[num]
         r = radii[num]
         primary = meta["primary"]
-        text = meta["short"] if primary and meta.get("short") else f"D{num}"
-        char_w = 7.0
-        pill_w = len(text) * char_w + 12
+        text = _insight_label_text(num, meta)
+        pill_w = len(text) * _GRAPH_LABEL_CHAR_W + 12
         pill_h = 18.0
         px = x - pill_w / 2
         py = y - r - 8 - pill_h
