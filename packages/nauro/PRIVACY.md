@@ -8,7 +8,7 @@ Project context (decisions, state, open questions — not source code) is stored
 
 ## Remote MCP
 
-When connected to Claude AI, Perplexity, ChatGPT, or another MCP client, your project context is read from S3 and delivered to the AI tool. The AI tool's own data handling policies apply to how it processes the response. Nauro does not control or monitor what the AI tool does with the context after delivery.
+When connected to Claude AI, Perplexity, or another MCP client, your project context is read from S3 and delivered to the AI tool. The AI tool's own data handling policies apply to how it processes the response. Nauro does not control or monitor what the AI tool does with the context after delivery.
 
 ## Telemetry
 
