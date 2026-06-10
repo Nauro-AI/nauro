@@ -12,7 +12,7 @@ The agent helps the user seed Nauro with context from the current repo. Before t
 The agent's behaviour depends on whether the surface can read the repo directly.
 
 - **Filesystem-capable surfaces** (Claude Code, Cursor, Codex CLI). The agent runs Steps 1–11 in full. Docs are read for rationale in Step 3; code, config, tests, manifests, and recent git history are inspected for evidence in Step 4; targeted probes in Step 6b turn evidence into rationale by asking the user.
-- **Chat surfaces** (Claude.ai, ChatGPT, Perplexity). The agent has no shell. It operates only on content the user pastes into the chat (Step 3b), and only against an already-adopted project (verified in Step 2). The code-evidence path (Step 4) and the Step 6b probes are unavailable; the agent does not ask the user to paste code in lieu of running shell commands. The skill skips from Step 3b directly to Step 5.
+- **Chat surfaces** (Claude.ai, Perplexity). The agent has no shell. It operates only on content the user pastes into the chat (Step 3b), and only against an already-adopted project (verified in Step 2). The code-evidence path (Step 4) and the Step 6b probes are unavailable; the agent does not ask the user to paste code in lieu of running shell commands. The skill skips from Step 3b directly to Step 5.
 
 ## Step 1 — Detect repo root
 
