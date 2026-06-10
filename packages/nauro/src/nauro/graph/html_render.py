@@ -200,6 +200,23 @@ def _category_of(decision_type) -> str:
     return _OTHER_CATEGORY
 
 
+def _node_data_attrs(node: dict) -> str:
+    """Status, category, and confidence data attributes shared by every view.
+
+    The Graph circle, Browse card, and Timeline mark all key the detail panel,
+    filters, and spotlight off the same status/category/confidence attributes.
+    Hard-indexing status and confidence keeps a malformed payload failing loud
+    in every view the same way the Graph builder already does.
+    """
+    status = node["status"]
+    category = _category_of(node.get("decision_type"))
+    confidence = node["confidence"]
+    return (
+        f'data-status="{_esc(status)}" data-category="{_esc(category)}" '
+        f'data-confidence="{_esc(confidence)}"'
+    )
+
+
 def _category_label(category: str) -> str:
     """Human label for a category key."""
     return _CATEGORY_LABEL_OVERRIDES.get(category, category.replace("_", " "))
@@ -996,23 +1013,20 @@ def _graph_nodes_and_labels(
         r = radii[num]
         category = _category_of(node.get("decision_type"))
         hue = _CATEGORY_HUE.get(category, _CATEGORY_HUE["other"])
-        status = node.get("status", "active")
-        confidence = node.get("confidence", "medium")
+        status = node["status"]
+        confidence = node["confidence"]
         opacity = _confidence_opacity(confidence)
         title = node.get("title", "")
         has_q = "1" if question_refs.get(num) else "0"
         classes = ["gnode", f"status-{_esc(status)}"]
         if num in hubs:
             classes.append("is-hub")
-        if num in insight_target:
-            classes.append("is-insight")
         node_svg.append(
             f'<circle class="{" ".join(classes)}" cx="{x:.1f}" cy="{y:.1f}" '
             f'r="{r:.1f}" fill="{hue}" fill-opacity="{opacity:.2f}" '
             f'data-number="{num}" data-title="{_esc(title)}" '
-            f'data-status="{_esc(status)}" data-category="{_esc(category)}" '
-            f'data-confidence="{_esc(confidence)}" data-has-questions="{has_q}" '
-            f'data-date="{_esc(node.get("date", ""))}" '
+            f'{_node_data_attrs(node)} data-has-questions="{has_q}" '
+            f'data-date="{_esc(node["date"])}" '
             f'data-detail-trigger="{num}" tabindex="0" role="button">'
             f"<title>D{num} {_esc(title)}</title></circle>"
         )
@@ -1113,7 +1127,7 @@ def _render_browse_view(
     for category in _present_categories(nodes):
         cat_nodes = sorted(
             by_category[category],
-            key=lambda n: (n.get("status", "active"), n.get("date", ""), n.get("number", 0)),
+            key=lambda n: (n["status"], n["date"], n["number"]),
         )
         active = sum(1 for n in cat_nodes if n.get("status") == "active")
         superseded = sum(1 for n in cat_nodes if n.get("status") == "superseded")
@@ -1160,18 +1174,16 @@ def _render_browse_card(node: dict, question_refs: dict[int, list[str]]) -> str:
     secondary metadata; a superseded card is visibly distinct. The card toggles
     the shared detail panel for this node.
     """
-    number = node.get("number", 0)
+    number = node["number"]
     title = node.get("title", "")
-    date = node.get("date", "")
-    confidence = node.get("confidence", "")
-    status = node.get("status", "active")
+    date = node["date"]
+    confidence = node["confidence"]
+    status = node["status"]
     question_badge = _question_badge(number, question_refs)
     status_mark = "○ superseded" if status == "superseded" else "● active"
     return (
         f'<article class="card status-{_esc(status)}" data-number="{number}" '
-        f'data-title="{_esc(title)}" data-status="{_esc(status)}" '
-        f'data-category="{_esc(_category_of(node.get("decision_type")))}" '
-        f'data-confidence="{_esc(confidence)}" '
+        f'data-title="{_esc(title)}" {_node_data_attrs(node)} '
         f'tabindex="0" role="button" data-detail-trigger="{number}">'
         f'<span class="card-id">D{number} '
         f'<span class="card-status">{_esc(status_mark)}</span></span>'
@@ -1378,7 +1390,6 @@ def _render_lineage_component(
     """
     columns = _lineage_columns(component)
     nodes = component["nodes"]
-    branch_points = set(component.get("branch_points", []))
 
     rows = _barycentric_rows(nodes, component["edges"], columns)
     max_col = max(columns.values(), default=0)
@@ -1423,25 +1434,21 @@ def _render_lineage_component(
             f'<path class="{edge_class}" d="{path}" data-from="{newer}" data-to="{older}" />'
         )
 
-    # Node rectangles. The target of a fan-in (a branch point that is active) is
-    # emphasized as the consolidation anchor.
+    # Node rectangles. The target of an active fan-in is emphasized as the
+    # consolidation anchor.
     node_svg: list[str] = []
     for num in nodes:
         node = node_by_number.get(num, {})
         x, y = position[num]
         status = node.get("status", "active")
-        fan_in_size = len(relations.get(num, {}).get("supersedes", []))
         classes = ["lnode", f"status-{_esc(status)}"]
-        if num in branch_points:
-            classes.append("branch")
         if num in consolidation:
             classes.append("consolidation")
         title = node.get("title", "")
         label = title if len(title) <= 28 else title[:27].rstrip() + "…"
-        emphasis = f' data-fanin="{fan_in_size}"' if fan_in_size >= 3 else ""
         node_svg.append(
             f'<g class="{" ".join(classes)}" data-number="{num}" '
-            f'data-detail-trigger="{num}" tabindex="0" role="button"{emphasis} '
+            f'data-detail-trigger="{num}" tabindex="0" role="button" '
             f'transform="translate({x:.1f},{y:.1f})">'
             f'<rect width="{_NODE_WIDTH}" height="{_NODE_HEIGHT}" rx="4" />'
             f'<text class="lnode-id" x="8" y="20">D{num}</text>'
@@ -1507,11 +1514,10 @@ def _render_timeline_view(payload: dict) -> str:
     span = last - first if not single_day else 1
 
     categories = _present_categories(nodes)
-    lane_index = {c: i for i, c in enumerate(categories)}
 
     # Per-lane height accommodates that lane's deepest (date, lane) stack so a
     # busy day never spills into the next lane. Lane tops accumulate downward.
-    deepest = _lane_stack_depth(nodes, lane_index)
+    deepest = _lane_stack_depth(nodes, categories)
     lane_height = {
         c: max(_TL_LANE_HEIGHT, deepest[c] * _TL_STACK_STEP + _TL_LANE_HEIGHT * 0.6)
         for c in categories
@@ -1533,8 +1539,8 @@ def _render_timeline_view(payload: dict) -> str:
     # busy day reads as a visible column instead of one hidden overlap. Iteration
     # is in sorted (date, number) order, so the stack order is reproducible.
     stack_index: dict[tuple[int, str], int] = {}
-    for node in sorted(nodes, key=lambda n: (n.get("date", ""), n.get("number", 0))):
-        date = node.get("date", "")
+    for node in sorted(nodes, key=lambda n: (n["date"], n["number"])):
+        date = node["date"]
         if not date:
             continue
         category = _category_of(node.get("decision_type"))
@@ -1546,16 +1552,14 @@ def _render_timeline_view(payload: dict) -> str:
         offset = stack_index.get(cell, 0)
         stack_index[cell] = offset + 1
         cy = lane_top[category] + _TL_LANE_HEIGHT * 0.4 + offset * _TL_STACK_STEP
-        status = node.get("status", "active")
+        status = node["status"]
         r = 6 if status == "active" else 4
-        number = node.get("number", 0)
+        number = node["number"]
         title = node.get("title", "")
-        confidence = node.get("confidence", "medium")
         marks.append(
             f'<circle class="tl-mark status-{_esc(status)}" cx="{cx:.1f}" cy="{cy:.1f}" '
             f'r="{r}" data-number="{number}" data-date="{_esc(date)}" '
-            f'data-status="{_esc(status)}" data-category="{_esc(category)}" '
-            f'data-confidence="{_esc(confidence)}" data-title="{_esc(title)}" '
+            f'{_node_data_attrs(node)} data-title="{_esc(title)}" '
             f'data-detail-trigger="{number}" tabindex="0" role="button">'
             f"<title>D{number} · {_esc(date)}</title></circle>"
         )
@@ -1576,23 +1580,24 @@ def _render_timeline_view(payload: dict) -> str:
     )
 
 
-def _lane_stack_depth(nodes: list[dict], lane_index: dict[str, int]) -> dict[str, int]:
+def _lane_stack_depth(nodes: list[dict], categories: list[str]) -> dict[str, int]:
     """Deepest count of marks sharing a (date, lane) cell, per lane.
 
     Drives each lane's height so its busiest day's stack fits without spilling
     into the neighbouring lane.
     """
+    lanes = set(categories)
     counts: dict[tuple[str, str], int] = {}
     for node in nodes:
         date = node.get("date", "")
         if not date:
             continue
         category = _category_of(node.get("decision_type"))
-        if category not in lane_index:
+        if category not in lanes:
             continue
         key = (date, category)
         counts[key] = counts.get(key, 0) + 1
-    deepest: dict[str, int] = {c: 1 for c in lane_index}
+    deepest: dict[str, int] = {c: 1 for c in categories}
     for (_, category), count in counts.items():
         if count > deepest[category]:
             deepest[category] = count
@@ -2244,7 +2249,6 @@ h2 {
   border-radius: 4px;
   overflow-x: auto;
 }
-.dimmed { opacity: 0.18; }
 .question.flash, li.flash, .q-expand.flash { background: var(--line); }
 code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;

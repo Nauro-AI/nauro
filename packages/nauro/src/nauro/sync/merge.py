@@ -11,6 +11,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from nauro.graph import DEFAULT_GRAPH_FILENAME
 from nauro.sync.state import SyncState
 
 logger = logging.getLogger("nauro.sync")
@@ -34,7 +35,7 @@ APPEND_ONLY_PATTERNS = ("open-questions.md", "state_history.md")
 # settles and syncing it would re-push the artifact on every run and fan it out
 # to every collaborator. A custom --output path is the user's explicit choice
 # and is not guarded here; only the default filename is.
-NEVER_SYNC = (".sync-state.json", "nauro-graph.html")
+NEVER_SYNC = (".sync-state.json", DEFAULT_GRAPH_FILENAME)
 
 
 def should_skip(relative_path: str) -> bool:

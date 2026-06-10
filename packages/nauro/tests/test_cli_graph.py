@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 import pytest
+from nauro_core.decision_model import Decision, format_decision
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -23,9 +24,6 @@ from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
-
-# The H1 separator the decision parser requires between number and title.
-_H1_SEP = "—"
 
 
 @pytest.fixture(autouse=True)
@@ -58,26 +56,29 @@ def _decision_md(
     superseded_by: str | None = None,
     body: str = "Rationale body for the decision.",
 ) -> str:
-    """Return canonical decision markdown the parser accepts."""
-    sup = "null" if supersedes is None else f"'{supersedes}'"
-    sup_by = "null" if superseded_by is None else f"'{superseded_by}'"
-    return (
-        "---\n"
-        f"date: {date}\n"
-        "version: 1\n"
-        f"status: {status}\n"
-        f"confidence: {confidence}\n"
-        f"decision_type: {decision_type}\n"
-        "reversibility: moderate\n"
-        "source: manual\n"
-        "files_affected: []\n"
-        f"supersedes: {sup}\n"
-        f"superseded_by: {sup_by}\n"
-        "---\n\n"
-        f"# {num:03d} {_H1_SEP} {title}\n\n"
-        "## Decision\n\n"
-        f"{body}\n"
+    """Return canonical decision markdown via the shared serializer.
+
+    Builds the canonical v2 markdown the parser accepts by going through
+    ``format_decision`` rather than hand-rolling YAML, so the fixture cannot
+    drift from the on-disk format the model defines. The few tests that need a
+    deliberately malformed file build the raw bytes inline instead.
+    """
+    decision = Decision(
+        date=date,
+        confidence=confidence,
+        version=1,
+        status=status,
+        decision_type=decision_type,
+        reversibility="moderate",
+        source="manual",
+        files_affected=[],
+        supersedes=supersedes,
+        superseded_by=superseded_by,
+        num=num,
+        title=title,
+        rationale=body,
     )
+    return format_decision(decision)
 
 
 def _write_decision(store: Path, num: int, slug: str, content: str) -> None:
@@ -157,7 +158,7 @@ def _read_embedded_payload(html: str) -> dict:
     return json.loads(block[open_tag_end:close_tag])
 
 
-def test_happy_path_writes_to_store_dir(tmp_path, monkeypatch, _no_browser):
+def test_happy_path_writes_to_store_dir(tmp_path, monkeypatch):
     store = _populated_store(tmp_path, monkeypatch)
 
     result = runner.invoke(app, ["graph"])
@@ -183,7 +184,7 @@ def test_happy_path_writes_to_store_dir(tmp_path, monkeypatch, _no_browser):
     assert "Should the gateway expose subscriptions." in html
 
 
-def test_supersession_relations_render_as_drawn_svg_edges(tmp_path, monkeypatch, _no_browser):
+def test_supersession_relations_render_as_drawn_svg_edges(tmp_path, monkeypatch):
     """Supersession is drawn as SVG edge paths in Lineage, not text labels.
 
     D4 retires D2 and D3 (a two-way fan-in), so the component draws exactly two
@@ -213,7 +214,7 @@ def test_supersession_relations_render_as_drawn_svg_edges(tmp_path, monkeypatch,
     assert "superseded by D4" not in html
 
 
-def test_detail_panel_lists_relations_and_questions(tmp_path, monkeypatch, _no_browser):
+def test_detail_panel_lists_relations_and_questions(tmp_path, monkeypatch):
     """The shared detail block carries relation chips and linked-question links.
 
     D4 supersedes D2 and D3, so its detail block lists both as Supersedes chips.
@@ -237,7 +238,7 @@ def test_detail_panel_lists_relations_and_questions(tmp_path, monkeypatch, _no_b
     assert "Superseded by" in html
 
 
-def test_output_override_writes_there(tmp_path, monkeypatch, _no_browser):
+def test_output_override_writes_there(tmp_path, monkeypatch):
     _populated_store(tmp_path, monkeypatch)
     target = tmp_path / "elsewhere" / "decision-graph.html"
 
@@ -250,7 +251,7 @@ def test_output_override_writes_there(tmp_path, monkeypatch, _no_browser):
     assert store_default is None
 
 
-def test_output_into_existing_directory(tmp_path, monkeypatch, _no_browser):
+def test_output_into_existing_directory(tmp_path, monkeypatch):
     """--output naming a directory writes the default filename inside it."""
     _populated_store(tmp_path, monkeypatch)
     target_dir = tmp_path / "reports"
@@ -263,7 +264,7 @@ def test_output_into_existing_directory(tmp_path, monkeypatch, _no_browser):
     assert str(written.resolve()) in result.output
 
 
-def test_output_uses_lf_newlines(tmp_path, monkeypatch, _no_browser):
+def test_output_uses_lf_newlines(tmp_path, monkeypatch):
     """The HTML is written with LF endings so its sha is platform-stable."""
     store = _populated_store(tmp_path, monkeypatch)
 
@@ -273,7 +274,7 @@ def test_output_uses_lf_newlines(tmp_path, monkeypatch, _no_browser):
     assert b"\r\n" not in raw
 
 
-def test_output_is_self_contained(tmp_path, monkeypatch, _no_browser):
+def test_output_is_self_contained(tmp_path, monkeypatch):
     """No resource sink (src/href/url()/@import) outside the embedded payload.
 
     A blanket ``http(s)://`` substring scan would false-fail on an inert URL
@@ -307,7 +308,7 @@ def test_output_is_self_contained(tmp_path, monkeypatch, _no_browser):
         assert marker not in html
 
 
-def test_default_view_is_graph_with_color_schemes(tmp_path, monkeypatch, _no_browser):
+def test_default_view_is_graph_with_color_schemes(tmp_path, monkeypatch):
     """Graph is the default view; Lineage, Timeline, Browse are not active.
 
     The card browser is demoted to the Browse tab. Graph is the only view marked
@@ -343,7 +344,7 @@ def test_default_view_is_graph_with_color_schemes(tmp_path, monkeypatch, _no_bro
     assert "prefers-color-scheme: dark" in html
 
 
-def test_api_design_lane_label(tmp_path, monkeypatch, _no_browser):
+def test_api_design_lane_label(tmp_path, monkeypatch):
     """The api_design lane renders as 'API design', not 'Api Design'."""
     store = _new_store(tmp_path, monkeypatch)
     _write_decision(store, 2, "rest", _decision_md(2, "Use REST", decision_type="api_design"))
@@ -354,7 +355,7 @@ def test_api_design_lane_label(tmp_path, monkeypatch, _no_browser):
     assert "API design" in html
 
 
-def test_unknown_project_exits_1(tmp_path, monkeypatch, _no_browser):
+def test_unknown_project_exits_1(tmp_path, monkeypatch):
     isolated = tmp_path / "isolated"
     isolated.mkdir()
     monkeypatch.chdir(isolated)
@@ -363,9 +364,14 @@ def test_unknown_project_exits_1(tmp_path, monkeypatch, _no_browser):
     assert result.exit_code == 1
 
 
-def test_scaffold_only_store_renders_empty_state(tmp_path, monkeypatch, _no_browser):
-    """A fresh store holds only the scaffold seed, which is excluded; empty UI."""
+@pytest.mark.parametrize("clear_seed", [False, True], ids=["scaffold-only", "empty-dir"])
+def test_no_renderable_decisions_renders_empty_state(tmp_path, monkeypatch, clear_seed):
+    """Both a fresh store (scaffold seed only, excluded) and a genuinely empty
+    decisions directory render the same empty UI with zero payload nodes."""
     store = _new_store(tmp_path, monkeypatch)
+    if clear_seed:
+        for f in (store / DECISIONS_DIR).glob("*.md"):
+            f.unlink()
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -375,20 +381,7 @@ def test_scaffold_only_store_renders_empty_state(tmp_path, monkeypatch, _no_brow
     assert payload["nodes"] == []
 
 
-def test_empty_store_renders_empty_state(tmp_path, monkeypatch, _no_browser):
-    """A store with an empty decisions directory renders the empty state."""
-    store = _new_store(tmp_path, monkeypatch)
-    # Remove the scaffold seed so the decisions directory is genuinely empty.
-    for f in (store / DECISIONS_DIR).glob("*.md"):
-        f.unlink()
-
-    result = runner.invoke(app, ["graph"])
-    assert result.exit_code == 0
-    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
-    assert "No decisions yet" in html
-
-
-def test_empty_state_still_shows_open_questions(tmp_path, monkeypatch, _no_browser):
+def test_empty_state_still_shows_open_questions(tmp_path, monkeypatch):
     """Zero decisions plus a flagged question still renders the question."""
     store = _new_store(tmp_path, monkeypatch)
     for f in (store / DECISIONS_DIR).glob("*.md"):
@@ -423,7 +416,7 @@ def test_no_open_does_not_call_browser(tmp_path, monkeypatch, _no_browser):
     assert _no_browser == []
 
 
-def test_browser_open_failure_prints_hint(tmp_path, monkeypatch, _no_browser):
+def test_browser_open_failure_prints_hint(tmp_path, monkeypatch):
     """On a headless host where webbrowser.open returns False, hint the path."""
     store = _populated_store(tmp_path, monkeypatch)
     monkeypatch.setattr("nauro.cli.commands.graph.webbrowser.open", lambda *a, **k: False)
@@ -435,7 +428,7 @@ def test_browser_open_failure_prints_hint(tmp_path, monkeypatch, _no_browser):
     assert str(out_path) in result.output
 
 
-def test_malformed_decision_is_skipped_with_warning(tmp_path, monkeypatch, _no_browser):
+def test_malformed_decision_is_skipped_with_warning(tmp_path, monkeypatch):
     store = _populated_store(tmp_path, monkeypatch)
     # A file that the strict parser rejects (missing required frontmatter).
     _write_decision(store, 9, "broken", "---\nnot: valid frontmatter for a decision\n---\n\nbody\n")
@@ -453,7 +446,32 @@ def test_malformed_decision_is_skipped_with_warning(tmp_path, monkeypatch, _no_b
     assert 9 not in numbers
 
 
-def test_unreadable_decision_file_does_not_abort(tmp_path, monkeypatch, _no_browser):
+def test_browse_and_timeline_fail_loud_on_missing_number():
+    """A node missing the guaranteed ``number`` key raises in Browse and Timeline.
+
+    The payload builder always sets ``number``; the views hard-index it so a
+    malformed payload fails loud the same way the Graph view already does,
+    rather than silently rendering a placeholder. Both view renderers are
+    exercised directly with a hand-built bad payload.
+    """
+    from nauro.graph.html_render import _render_browse_view, _render_timeline_view
+
+    bad_node = {
+        "title": "No number here",
+        "status": "active",
+        "decision_type": "architecture",
+        "confidence": "high",
+        "date": "2026-03-15",
+    }
+    payload = {"nodes": [bad_node], "components": [], "questions": []}
+
+    with pytest.raises(KeyError):
+        _render_browse_view(payload, {}, {})
+    with pytest.raises(KeyError):
+        _render_timeline_view(payload)
+
+
+def test_unreadable_decision_file_does_not_abort(tmp_path, monkeypatch):
     """A subdirectory matching ``*.md`` is skipped, not fatal; the graph renders.
 
     ``glob("*.md")`` matches directories too, and reading one raises ``IsADir``;
@@ -474,7 +492,7 @@ def test_unreadable_decision_file_does_not_abort(tmp_path, monkeypatch, _no_brow
     assert {2, 3, 4} <= numbers
 
 
-def test_long_title_wraps_in_full_in_browse_view(tmp_path, monkeypatch, _no_browser):
+def test_long_title_wraps_in_full_in_browse_view(tmp_path, monkeypatch):
     """Browse cards render the full title with no truncation; titles wrap.
 
     The v1 timeline truncated the visible label with an ellipsis. The Browse
@@ -503,7 +521,7 @@ def test_long_title_wraps_in_full_in_browse_view(tmp_path, monkeypatch, _no_brow
     assert "x" * 400 in visible
 
 
-def test_script_breakout_in_title_question_and_body_is_escaped(tmp_path, monkeypatch, _no_browser):
+def test_script_breakout_in_title_question_and_body_is_escaped(tmp_path, monkeypatch):
     """Hostile content in a title, an open-question body, and a decision body
     (carried only under --include-bodies) must not break out of the embedded
     JSON or the markup, and the payload must still parse. This is the
@@ -587,7 +605,7 @@ def _view_region(html: str, view: str) -> str:
     return region
 
 
-def test_fan_in_draws_one_edge_path_per_retired_decision(tmp_path, monkeypatch, _no_browser):
+def test_fan_in_draws_one_edge_path_per_retired_decision(tmp_path, monkeypatch):
     """A four-way fan-in draws four edges into the retirer in BOTH Lineage and Graph.
 
     Every retired decision contributes one drawn edge to D10 in the Lineage DAG
@@ -612,8 +630,7 @@ def test_fan_in_draws_one_edge_path_per_retired_decision(tmp_path, monkeypatch, 
     for target in range(2, 6):
         assert f'data-from="10" data-to="{target}"' in lineage
     assert lineage.count('class="edge consolidation-edge"') == 4
-    assert lineage.count('class="lnode status-active branch consolidation"') == 1
-    assert 'data-fanin="4"' in lineage
+    assert lineage.count('class="lnode status-active consolidation"') == 1
 
     # Graph: four supersession lines into D10, all carrying the emphasis class.
     assert graph.count('<line class="sup-edge') == 4
@@ -623,7 +640,7 @@ def test_fan_in_draws_one_edge_path_per_retired_decision(tmp_path, monkeypatch, 
     assert graph.count('class="sup-edge consolidation-edge"') == 4
 
 
-def test_header_counts_reflect_payload(tmp_path, monkeypatch, _no_browser):
+def test_header_counts_reflect_payload(tmp_path, monkeypatch):
     """The header strip states active, superseded, and open-question counts."""
     store = _populated_store(tmp_path, monkeypatch)
 
@@ -643,7 +660,7 @@ def test_header_counts_reflect_payload(tmp_path, monkeypatch, _no_browser):
     assert "<strong>1</strong> open questions" in html
 
 
-def test_question_references_link_both_directions(tmp_path, monkeypatch, _no_browser):
+def test_question_references_link_both_directions(tmp_path, monkeypatch):
     """A question referencing a decision links out, and that decision badges back.
 
     Q1 references D2 in its body. The question renders a D2 reference button into
@@ -673,7 +690,7 @@ def test_question_references_link_both_directions(tmp_path, monkeypatch, _no_bro
     assert 'data-q-link="Q1"' in html
 
 
-def test_timeline_marks_positioned_by_date_not_index(tmp_path, monkeypatch, _no_browser):
+def test_timeline_marks_positioned_by_date_not_index(tmp_path, monkeypatch):
     """Timeline marks are placed by their date's fraction of the span, not order.
 
     Two decisions a wide date gap apart land far from a third clustered near the
@@ -713,7 +730,7 @@ def test_timeline_marks_positioned_by_date_not_index(tmp_path, monkeypatch, _no_
     assert cx[4] == max(cx.values())
 
 
-def test_include_bodies_flag_embeds_and_shows_body(tmp_path, monkeypatch, _no_browser):
+def test_include_bodies_flag_embeds_and_shows_body(tmp_path, monkeypatch):
     """--include-bodies carries the decision body into the payload and detail panel.
 
     Without the flag, no body key is embedded and no body expander renders. With
@@ -747,7 +764,7 @@ def test_include_bodies_flag_embeds_and_shows_body(tmp_path, monkeypatch, _no_br
 # ── Graph view (round 3) ──
 
 
-def test_graph_has_one_node_element_per_payload_node(tmp_path, monkeypatch, _no_browser):
+def test_graph_has_one_node_element_per_payload_node(tmp_path, monkeypatch):
     """Every payload node renders exactly one Graph circle, keyed by number."""
     store = _populated_store(tmp_path, monkeypatch)
     # Add an isolated decision so the disc path is exercised alongside threads.
@@ -770,7 +787,7 @@ def test_graph_has_one_node_element_per_payload_node(tmp_path, monkeypatch, _no_
     assert graph.count('<line class="cite-edge') == payload["stats"]["citation_edge_count"]
 
 
-def test_graph_layout_is_deterministic(tmp_path, monkeypatch, _no_browser):
+def test_graph_layout_is_deterministic(tmp_path, monkeypatch):
     """Rendering the same store twice yields byte-identical HTML (no randomness)."""
     _populated_store(tmp_path, monkeypatch)
 
@@ -793,7 +810,7 @@ def test_graph_layout_is_deterministic(tmp_path, monkeypatch, _no_browser):
     assert _strip_footer(a) == _strip_footer(b)
 
 
-def test_graph_search_centering_hooks_present(tmp_path, monkeypatch, _no_browser):
+def test_graph_search_centering_hooks_present(tmp_path, monkeypatch):
     """The Graph search-centering machinery and the attributes it needs exist."""
     store = _populated_store(tmp_path, monkeypatch)
 
@@ -816,7 +833,7 @@ def test_graph_search_centering_hooks_present(tmp_path, monkeypatch, _no_browser
     assert "data-confidence=" in graph
 
 
-def test_no_relation_chip_dead_ends(tmp_path, monkeypatch, _no_browser):
+def test_no_relation_chip_dead_ends(tmp_path, monkeypatch):
     """Every relation chip and question reference targets a node that exists.
 
     A chip's ``data-jump`` must resolve to a graph node (or, as a fallback the
@@ -859,7 +876,7 @@ def test_no_relation_chip_dead_ends(tmp_path, monkeypatch, _no_browser):
         assert t in present, f"chip target D{t} has no graph node"
 
 
-def test_timeline_same_day_same_lane_marks_stack(tmp_path, monkeypatch, _no_browser):
+def test_timeline_same_day_same_lane_marks_stack(tmp_path, monkeypatch):
     """Three decisions on the same date in the same lane get three distinct y."""
     store = _new_store(tmp_path, monkeypatch)
     for num in (2, 3, 4):
@@ -889,7 +906,7 @@ def test_timeline_same_day_same_lane_marks_stack(tmp_path, monkeypatch, _no_brow
     assert len(set(ys)) == 3
 
 
-def test_timeline_uses_exact_calendar_dates(tmp_path, monkeypatch, _no_browser):
+def test_timeline_uses_exact_calendar_dates(tmp_path, monkeypatch):
     """Marks are placed by exact calendar ordinals across a leap-year boundary.
 
     Three decisions: 2024-02-28, 2024-02-29 (a real leap day), 2024-03-01. With
@@ -927,7 +944,7 @@ def test_timeline_uses_exact_calendar_dates(tmp_path, monkeypatch, _no_browser):
 # ── Pre-ship fixes (round 4) ──
 
 
-def test_status_filter_defaults_to_all_and_syncs_on_load(tmp_path, monkeypatch, _no_browser):
+def test_status_filter_defaults_to_all_and_syncs_on_load(tmp_path, monkeypatch):
     """The Status dropdown defaults to All, and the page syncs the DOM on load.
 
     The control state and the view must not diverge: the first option is All, and
@@ -955,7 +972,7 @@ def test_status_filter_defaults_to_all_and_syncs_on_load(tmp_path, monkeypatch, 
     assert 'c.status !== "all"' in html
 
 
-def test_browse_renders_all_decisions_with_truthful_counts(tmp_path, monkeypatch, _no_browser):
+def test_browse_renders_all_decisions_with_truthful_counts(tmp_path, monkeypatch):
     """Browse renders active and superseded cards, with truthful per-group counts.
 
     The populated store has D4 active plus D2 and D3 superseded, all in the same
@@ -987,7 +1004,7 @@ def test_browse_renders_all_decisions_with_truthful_counts(tmp_path, monkeypatch
     assert 'class="category-count" data-active=' in browse
 
 
-def test_question_refs_route_through_jump_to_node(tmp_path, monkeypatch, _no_browser):
+def test_question_refs_route_through_jump_to_node(tmp_path, monkeypatch):
     """Question reference buttons go graph-first through jumpToNode, not openDetail.
 
     The no-dead-end scan covers q-ref targets; this pins that the q-ref click
@@ -1014,7 +1031,7 @@ def test_question_refs_route_through_jump_to_node(tmp_path, monkeypatch, _no_bro
     assert 'data-detail-trigger="2"' in graph
 
 
-def test_graph_focus_mode_dims_non_incident_edges(tmp_path, monkeypatch, _no_browser):
+def test_graph_focus_mode_dims_non_incident_edges(tmp_path, monkeypatch):
     """Focus mode hooks: edge-dim class and the JS that toggles it on filter.
 
     pytest cannot run the browser, so this pins the markup and JS wiring: the
@@ -1041,7 +1058,7 @@ def test_graph_focus_mode_dims_non_incident_edges(tmp_path, monkeypatch, _no_bro
     assert "stroke-width: 1;" in html[cite_w : cite_w + 80]
 
 
-def test_story_strip_renders_deterministic_metrics(tmp_path, monkeypatch, _no_browser):
+def test_story_strip_renders_deterministic_metrics(tmp_path, monkeypatch):
     """The story strip renders the four jump-capable metric buttons.
 
     Built deterministically from the payload, renderer-side. The fixture has a
@@ -1106,7 +1123,7 @@ def test_story_strip_renders_deterministic_metrics(tmp_path, monkeypatch, _no_br
     assert "cited" in graph
 
 
-def test_story_strip_omits_undefined_metrics(tmp_path, monkeypatch, _no_browser):
+def test_story_strip_omits_undefined_metrics(tmp_path, monkeypatch):
     """A store with no edges and no questions shows no story strip.
 
     Each metric is undefined (no consolidation, no hotspot, no anchor; a lone
@@ -1122,7 +1139,7 @@ def test_story_strip_omits_undefined_metrics(tmp_path, monkeypatch, _no_browser)
     assert '<div class="story-strip"' not in html
 
 
-def test_timeline_single_day_shows_one_tick(tmp_path, monkeypatch, _no_browser):
+def test_timeline_single_day_shows_one_tick(tmp_path, monkeypatch):
     """An all-same-day store draws one centered date tick, never a second date.
 
     The old span = max(last - first, 1) invented a fake next-day tick. With every
@@ -1153,7 +1170,7 @@ def test_timeline_single_day_shows_one_tick(tmp_path, monkeypatch, _no_browser):
 # ── Visual polish (guided spotlight, insight labels, packing priority) ──
 
 
-def test_default_state_is_even_emphasis(tmp_path, monkeypatch, _no_browser):
+def test_default_state_is_even_emphasis(tmp_path, monkeypatch):
     """The default view ships with even emphasis: no spotlight, no selected chip.
 
     The spotlight is purely click-driven. On load no chip carries the selected
@@ -1176,7 +1193,7 @@ def test_default_state_is_even_emphasis(tmp_path, monkeypatch, _no_browser):
     assert 'class="gnode recede"' not in graph
 
 
-def test_insight_labels_pinned_to_insight_nodes_only(tmp_path, monkeypatch, _no_browser):
+def test_insight_labels_pinned_to_insight_nodes_only(tmp_path, monkeypatch):
     """Pinned insight labels render for exactly the insight target nodes.
 
     The labels are non-interactive (pointer-events: none in CSS so they never
@@ -1214,15 +1231,14 @@ def test_insight_labels_pinned_to_insight_nodes_only(tmp_path, monkeypatch, _no_
         pos = start
     assert len(targets) == label_count
     for t in targets:
-        # The labelled node exists as a graph circle and carries the is-insight
-        # marker class on its circle element.
-        circle_start = graph.index(f'data-number="{t}" data-title=')
-        circle_class_start = graph.rfind('<circle class="', 0, circle_start)
-        circle_open = graph[circle_class_start:circle_start]
-        assert "is-insight" in circle_open
+        # Each label group keys to a node that exists as a graph circle: the
+        # data-insight-for attribute is the anchor tying a label to its node.
+        assert '<g class="insight-label' in graph
+        assert f'data-insight-for="{t}"' in graph
+        assert f'data-number="{t}" data-title=' in graph
 
 
-def test_spotlight_hooks_present(tmp_path, monkeypatch, _no_browser):
+def test_spotlight_hooks_present(tmp_path, monkeypatch):
     """Spotlight/recede classes and the JS that drives them ship in the markup.
 
     pytest cannot run the browser, so this pins the class-driven hooks: the
@@ -1252,7 +1268,7 @@ def test_spotlight_hooks_present(tmp_path, monkeypatch, _no_browser):
     assert "clearSpotlight();" in html
 
 
-def test_pan_surface_suppresses_text_selection(tmp_path, monkeypatch, _no_browser):
+def test_pan_surface_suppresses_text_selection(tmp_path, monkeypatch):
     """A pan drag must not engage native text selection on the Graph canvas.
 
     pytest cannot drive the browser, so this pins the two hooks that suppress
@@ -1280,7 +1296,7 @@ def test_pan_surface_suppresses_text_selection(tmp_path, monkeypatch, _no_browse
     assert "body {\n  user-select: none;" not in html
 
 
-def test_focus_transitions_clear_incident_highlighting(tmp_path, monkeypatch, _no_browser):
+def test_focus_transitions_clear_incident_highlighting(tmp_path, monkeypatch):
     """Every focus transition starts from a clean incident-edge state.
 
     pytest cannot drive the browser, so this pins the wiring: clearSpotlight
@@ -1312,7 +1328,7 @@ def test_focus_transitions_clear_incident_highlighting(tmp_path, monkeypatch, _n
     assert "clearSpotlight();" in run_body
 
 
-def test_hub_label_suppressed_for_insight_labeled_nodes(tmp_path, monkeypatch, _no_browser):
+def test_hub_label_suppressed_for_insight_labeled_nodes(tmp_path, monkeypatch):
     """A node carrying a pinned insight pill drops its regular hub label.
 
     Two labels on one node overlap, so the more informative insight pill wins and
@@ -1345,7 +1361,7 @@ def test_hub_label_suppressed_for_insight_labeled_nodes(tmp_path, monkeypatch, _
         assert 'class="gnode-label" x=' not in graph or f'data-label-for="{num}"' not in graph
 
 
-def test_story_chip_selection_state_and_aria(tmp_path, monkeypatch, _no_browser):
+def test_story_chip_selection_state_and_aria(tmp_path, monkeypatch):
     """Chips ship unpressed and mirror selection into aria-pressed, date included.
 
     The date chip gets the same selected treatment as node chips, and selection
@@ -1382,7 +1398,7 @@ def test_story_chip_selection_state_and_aria(tmp_path, monkeypatch, _no_browser)
     assert 'setAttribute("aria-pressed", "false")' in clear_dates
 
 
-def test_category_labels_still_rendered(tmp_path, monkeypatch, _no_browser):
+def test_category_labels_still_rendered(tmp_path, monkeypatch):
     """Category disc labels still render with their class after the restyle."""
     store = _new_store(tmp_path, monkeypatch)
     # Several isolated decisions in one category form a labelled disc.
