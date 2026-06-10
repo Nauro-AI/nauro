@@ -1,11 +1,16 @@
 """nauro graph — render the decision graph to a self-contained HTML file.
 
 Reads the local store, builds the versioned graph payload in nauro-core, and
-writes one read-only HTML document. The output lands in the store directory by
-default because the HTML embeds decision titles and metadata plus open-question
-summaries; a current-directory default would invite committing that store
-extract into a repo. ``--output`` overrides the location, and ``--open``
-(default on) opens the file in a browser.
+writes one read-only HTML document with four views (Graph by default, then
+Lineage, Timeline, and Browse) and an integrated open-questions list. The output
+lands in the store directory by default because the HTML embeds decision titles
+and metadata plus open-question summaries; a current-directory default would
+invite committing that store extract into a repo. ``--output`` overrides the
+location, and ``--open`` (default on) opens the file in a browser.
+
+By default the file carries decision titles and metadata plus open-question
+summaries only, no decision bodies. ``--include-bodies`` adds each decision's
+full body markdown, surfaced behind an expander in the detail panel.
 """
 
 from __future__ import annotations
@@ -102,13 +107,20 @@ def graph(
         "--open/--no-open",
         help="Open the generated file in a browser (default on).",
     ),
+    include_bodies: bool = typer.Option(
+        False,
+        "--include-bodies/--no-include-bodies",
+        help="Embed full decision bodies behind an expander in the detail panel.",
+    ),
 ) -> None:
     """Render the project's decision graph to a self-contained HTML file."""
     project_name, store_path = resolve_target_project(project)
 
     decisions = _read_decisions_lenient(store_path)
     questions = _read_open_questions(store_path)
-    payload = build_graph_payload(decisions, questions, project=project_name)
+    payload = build_graph_payload(
+        decisions, questions, project=project_name, include_bodies=include_bodies
+    )
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     html = render_html(payload, generated_at=generated_at)
