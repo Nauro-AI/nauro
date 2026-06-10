@@ -32,13 +32,14 @@ from nauro_core.validation import is_scaffold_seed
 
 # Graph payload schema version. Bump when the payload schema changes (a new
 # field, a renamed key, a changed value shape).
-GRAPH_PAYLOAD_VERSION = 1
+GRAPH_PAYLOAD_VERSION = 2
 
 
 def build_graph_payload(
     decisions: list[Decision],
     questions: OpenQuestionsFile | None = None,
     project: str = "",
+    include_bodies: bool = False,
 ) -> dict:
     """Build the decision-graph payload from parsed inputs. Pure; no I/O.
 
@@ -51,14 +52,20 @@ def build_graph_payload(
             duplicate never fabricates an edge attributed to the kept node.
         questions: Parsed open-questions file, or None. Only unresolved entries
             appear in the payload; each body is capped to its first line or
-            sentence.
+            sentence, and each entry carries the in-range decision numbers its
+            full body references.
         project: Display name for the rendered title. Carried through verbatim.
+        include_bodies: When True, each node dict gains a ``"body"`` key holding
+            the decision's full body markdown. Default False keeps the artifact
+            titles-and-metadata-only so the rendered file carries no decision
+            prose unless the caller asks for it (sensitivity posture). The key
+            is omitted entirely when False rather than emitted empty.
 
     Returns:
-        A JSON-shaped dict matching the v1 payload schema.
+        A JSON-shaped dict matching the v2 payload schema.
     """
     kept, duplicate_numbers = _collect_nodes(decisions)
-    nodes = [_node_dict(d) for d in kept]
+    nodes = [_node_dict(d, include_bodies) for d in kept]
     node_numbers = {d.num for d in kept}
     max_decision_number = max(node_numbers) if node_numbers else 0
 
@@ -67,7 +74,7 @@ def build_graph_payload(
         kept, node_numbers, max_decision_number, supersession_pairs
     )
     components, incident, branch_point_count = _build_components(supersession_edges)
-    open_questions = _filter_open_questions(questions)
+    open_questions = _filter_open_questions(questions, node_numbers, max_decision_number)
 
     isolated_node_count = len(node_numbers - incident)
 
@@ -139,16 +146,20 @@ def _collect_nodes(decisions: list[Decision]) -> tuple[list[Decision], list[int]
     return kept, duplicate_numbers
 
 
-def _node_dict(d: Decision) -> dict:
+def _node_dict(d: Decision, include_bodies: bool) -> dict:
     """Project a ``Decision`` onto the node schema.
 
     Parallel to ``operations/results.DecisionSummary`` (the list_decisions row
     projection); the two differ only in the type key name (``decision_type``
     here, ``type`` there) and the date being required here. Kept separate so a
     renderer change does not perturb the tool envelope.
+
+    When ``include_bodies`` is True the full body markdown is carried under a
+    ``"body"`` key; when False the key is omitted entirely (no empty string), so
+    the default artifact stays titles-and-metadata-only.
     """
     decision_type = d.decision_type.value if d.decision_type is not None else None
-    return {
+    node = {
         "number": d.num,
         "title": d.title,
         "status": d.status.value,
@@ -156,6 +167,9 @@ def _node_dict(d: Decision) -> dict:
         "confidence": d.confidence.value,
         "date": d.date.isoformat(),
     }
+    if include_bodies:
+        node["body"] = d.body
+    return node
 
 
 def _collect_supersession_edges(
@@ -296,20 +310,41 @@ def _build_components(
     return components, set(component_of), branch_point_count
 
 
-def _filter_open_questions(questions: OpenQuestionsFile | None) -> list[dict]:
-    """Return unresolved open-question entries with bodies capped to one unit.
+def _filter_open_questions(
+    questions: OpenQuestionsFile | None,
+    node_numbers: set[int],
+    max_decision_number: int,
+) -> list[dict]:
+    """Return unresolved open-question entries with capped bodies and references.
 
     Openness is annotation-authoritative via ``OpenQuestionsFile``'s public
     ``unresolved_entries`` (``resolved_by`` unset), regardless of where the
     entry sits relative to the ``## Resolved`` divider. Each included body is
-    capped to its first sentence or line.
+    capped to its first sentence or line for display.
+
+    ``references`` holds the decision numbers the entry's FULL body cites (body
+    plus every continuation line), not just the capped display body, scanned via
+    the shared ``scan_decision_references`` grammar and bounded to live nodes.
+    A reference to a number with no node (out of range, or no decision file)
+    is dropped. The list is sorted ascending. The renderer derives the reverse
+    direction (which decision a question points at) from this field, so the
+    payload carries only the question-to-decision direction.
     """
     if questions is None:
         return []
-    return [
-        {"id": entry.id, "body": _cap_to_first_unit(entry.body)}
-        for entry in questions.unresolved_entries
-    ]
+    result: list[dict] = []
+    for entry in questions.unresolved_entries:
+        full_body = "\n".join([entry.body, *entry.continuation])
+        cited = scan_decision_references(full_body, max_decision_number)
+        references = sorted(n for n in cited if n in node_numbers)
+        result.append(
+            {
+                "id": entry.id,
+                "body": _cap_to_first_unit(entry.body),
+                "references": references,
+            }
+        )
+    return result
 
 
 def _cap_to_first_unit(body: str) -> str:
