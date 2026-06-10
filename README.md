@@ -60,7 +60,7 @@ The demo store holds seven example decisions. One of them ruled out WebSocket in
 
 Output abbreviated to the top match; the live call returns all five related decisions, ranked by score. The same result reaches your agent through the MCP `check_decision` tool, so it sees the prior decision in the flow rather than after the fact.
 
-`nauro graph` renders the decision history to one self-contained HTML file and opens it. The file has four views: Graph (a node-link map of the whole store on a deterministic layout, the default), Lineage (one drawn supersession DAG per thread, with consolidations as the prominent fan-ins), Timeline (decisions on a true date axis), and Browse (active decisions grouped by category). By default the file embeds decision titles and metadata plus open-question summaries, no decision bodies, so it lands in the store directory rather than the repo; pass `--output` to write it elsewhere. Add `--include-bodies` to embed each decision's full body behind an expander in the detail panel.
+`nauro graph` renders the decision history to one self-contained HTML file and opens it. The file has four views: Graph (a node-link map of the whole store on a deterministic layout, the default), Lineage (one drawn supersession DAG per thread, with consolidations as the prominent fan-ins), Timeline (decisions on a true date axis), and Browse (every decision grouped by category, with superseded ones dimmed). By default the file embeds decision titles and metadata plus open-question summaries, no decision bodies, so it lands in the store directory rather than the repo; pass `--output` to write it elsewhere. Add `--include-bodies` to embed each decision's full body behind an expander in the detail panel.
 
 ## Why not ADRs, grep, or CLAUDE.md?
 

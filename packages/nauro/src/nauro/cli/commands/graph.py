@@ -27,11 +27,9 @@ from nauro_core.questions import OpenQuestionsFile
 
 from nauro.cli.utils import resolve_target_project
 from nauro.constants import DECISIONS_DIR
-from nauro.graph import render_html
+from nauro.graph import DEFAULT_GRAPH_FILENAME, render_html
 from nauro.store._atomic import atomic_write_text
 from nauro.store.reader import read_text_lenient
-
-_OUTPUT_FILENAME = "nauro-graph.html"
 
 
 def _read_decisions_lenient(store_path: Path) -> list[Decision]:
@@ -84,10 +82,10 @@ def _resolve_output_path(output: Path | None, store_path: Path) -> Path:
     filename inside it; otherwise the path is taken as the full file path.
     """
     if output is None:
-        return store_path / _OUTPUT_FILENAME
+        return store_path / DEFAULT_GRAPH_FILENAME
     output = output.expanduser()
     if output.is_dir():
-        return output / _OUTPUT_FILENAME
+        return output / DEFAULT_GRAPH_FILENAME
     return output
 
 

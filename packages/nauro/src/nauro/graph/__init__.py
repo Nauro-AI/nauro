@@ -8,4 +8,9 @@ payload is embedded as a single JSON block the page reads at load time.
 
 from nauro.graph.html_render import render_html
 
-__all__ = ["render_html"]
+# The default basename for the rendered graph artifact. The graph command writes
+# it into the store directory; sync excludes it because its generation timestamp
+# changes every run, so its sha never settles.
+DEFAULT_GRAPH_FILENAME = "nauro-graph.html"
+
+__all__ = ["DEFAULT_GRAPH_FILENAME", "render_html"]
