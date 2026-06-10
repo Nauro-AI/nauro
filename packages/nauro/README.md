@@ -30,14 +30,14 @@ You'll see a JSON envelope with the related decisions and a deterministic assess
   "related_decisions": [
     {
       "id": "decision-004",
-      "title": "SSE over WebSocket for live task updates",
-      "score": 5.015,
+      "title": "SSE over WebSocket for live updates",
+      "score": 6.117,
       "status": "active",
       "date": "2026-03-15",
       "rationale_preview": "Server-Sent Events (SSE) for pushing live task updates..."
     }
   ],
-  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live task updates\"..."
+  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live updates\"..."
 }
 ```
 

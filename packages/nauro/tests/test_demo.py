@@ -80,7 +80,7 @@ class TestDemoProjectStructure:
 
     def test_open_questions_has_content(self, demo_store):
         content = (demo_store / constants.OPEN_QUESTIONS_MD).read_text()
-        assert "rate limiting" in content
+        assert "rate limit quotas" in content
         assert "Redis" in content
 
     def test_project_md_has_content(self, demo_store):

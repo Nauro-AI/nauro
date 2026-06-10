@@ -408,7 +408,7 @@ with refresh tokens and RBAC.
 
 OPEN_QUESTIONS_MD = """\
 # Open Questions
-- [Q1] Should we add rate limiting at the API gateway or application layer?
+- [Q1] Should gateway rate limit quotas differ per client tier, or stay uniform?
 - [Q2] Redis vs in-memory caching for session storage?
 """
 
