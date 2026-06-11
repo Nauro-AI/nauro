@@ -1,7 +1,16 @@
 """BM25 search over decisions.
 
 Builds an in-memory BM25 index per call using bm25s + PyStemmer.
-Index text: title + rationale for each decision.
+Index text per decision: title + rationale + rejected-alternative names.
+
+Rejected names are indexed because they carry the vocabulary of paths the
+project declined — the bridge for two conflict classes the title+rationale
+text cannot reach: a cross-vocabulary supersession whose only shared token
+lives in a rejected alternative's name, and a proposal that revisits an
+explicitly-rejected path. Rejected reasons stay out of the index: they tie
+on conflict catch but dilute ranking and inflate scores on verbose
+unrelated queries (reason prose rewards verbosity; names carry the
+declined path's identity).
 """
 
 from __future__ import annotations
@@ -13,6 +22,18 @@ from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import extract_relevance_snippet, first_sentence_end
 
 _stemmer = Stemmer.Stemmer("english")
+
+
+def _index_text(d: Decision) -> str:
+    """The BM25 corpus document for one decision.
+
+    Title + rationale + rejected-alternative names (names only — see the
+    module docstring for why reasons are excluded). Shared by
+    :func:`bm25_search` and :func:`bm25_retrieve` so the two retrieval
+    paths rank over the same corpus by construction.
+    """
+    names = " ".join(r.name for r in d.rejected)
+    return f"{d.title} {d.rationale} {names}" if names else f"{d.title} {d.rationale}"
 
 
 def bm25_search(
@@ -28,7 +49,7 @@ def bm25_search(
     if not decisions or not query or not query.strip():
         return []
 
-    corpus = [f"{d.title} {d.rationale}" for d in decisions]
+    corpus = [_index_text(d) for d in decisions]
     # show_progress=False — bm25s defaults to True; the tqdm output is invisible
     # in MCP server stderr but pollutes the `nauro check-decision` CLI surface.
     corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer, show_progress=False)
@@ -93,7 +114,7 @@ def bm25_retrieve(
     if not active or not query_text or not query_text.strip():
         return []
 
-    corpus = [f"{d.title} {d.rationale}" for d in active]
+    corpus = [_index_text(d) for d in active]
     corpus_tokens = bm25s.tokenize(
         corpus, stopwords=stopwords, stemmer=_stemmer, show_progress=False
     )
