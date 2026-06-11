@@ -103,6 +103,16 @@ def _stdio_rendered(pid: str, query: str, *, limit: int = 10) -> str:
     return result.content[0].text
 
 
+def _rendered(tool: dict, query: str) -> str:
+    """Reference render for the parity comparison.
+
+    The stdio surface threads the caller's ``query`` into the renderer (the
+    envelope intentionally omits the echoed key), so the reference render
+    must receive the same ``query`` to stay an apples-to-apples comparison.
+    """
+    return RENDERERS["search_decisions"](tool, query=query)
+
+
 def _tool_envelope(store_path: Path, query: str, *, limit: int = 10) -> dict:
     """Direct call to the local tool, no transport wrapper."""
     return tool_search_decisions(store_path, query, limit)
@@ -111,7 +121,7 @@ def _tool_envelope(store_path: Path, query: str, *, limit: int = 10) -> dict:
 def test_hit_envelope_matches_across_surfaces(seeded_repo):
     pid, store_path = seeded_repo
     tool = _tool_envelope(store_path, "Auth0")
-    assert _stdio_rendered(pid, "Auth0") == RENDERERS["search_decisions"](tool)
+    assert _stdio_rendered(pid, "Auth0") == _rendered(tool, "Auth0")
     assert tool["store"] == "local"
     assert "results" in tool
     assert tool["results"], "Auth0 query must surface at least one hit"
@@ -128,7 +138,7 @@ def test_hit_envelope_matches_across_surfaces(seeded_repo):
 def test_empty_store_envelope_matches_across_surfaces(empty_repo):
     pid, store_path = empty_repo
     tool = _tool_envelope(store_path, "anything")
-    assert _stdio_rendered(pid, "anything") == RENDERERS["search_decisions"](tool)
+    assert _stdio_rendered(pid, "anything") == _rendered(tool, "anything")
     assert tool.pop("project")["id"] == pid
     assert tool == {"store": "local", "results": []}
 
@@ -146,5 +156,5 @@ def test_empty_query_rejection_matches_across_surfaces(seeded_repo):
 def test_limit_truncates_across_surfaces(seeded_repo):
     pid, store_path = seeded_repo
     tool = _tool_envelope(store_path, "Auth0 FastAPI", limit=1)
-    assert _stdio_rendered(pid, "Auth0 FastAPI", limit=1) == RENDERERS["search_decisions"](tool)
+    assert _stdio_rendered(pid, "Auth0 FastAPI", limit=1) == _rendered(tool, "Auth0 FastAPI")
     assert len(tool["results"]) <= 1
