@@ -67,8 +67,7 @@ def status(
     typer.echo(f"Project: {project_name}")
     # Surface the absolute store path. The store lives at ~/.nauro/projects/<id>/,
     # outside any repo, and no other command prints it — an agent following the
-    # nauro-handoff / nauro-context skills needs it to resolve where to write
-    # handoffs/<slug>.md or context/<slug>.md.
+    # nauro-context skill needs it to resolve where to write context/<slug>.md.
     typer.echo(f"Store:   {store_path}\n")
 
     # Warn when another local project shares this name — a separate store that

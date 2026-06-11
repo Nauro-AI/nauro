@@ -128,7 +128,7 @@ def test_adopt_body_mentions_operation_anchor(anchor: str) -> None:
     [
         (s, k)
         for s in ("claude_code", "cursor", "codex")
-        for k in ("nauro-adopt", "nauro-ship-task", "nauro-handoff")
+        for k in ("nauro-adopt", "nauro-ship-task", "nauro-context")
     ],
 )
 def test_rendered_skill_has_no_protocol_tokens(surface: str, skill: str) -> None:
@@ -153,7 +153,7 @@ def test_docs_adopt_prompt_has_no_protocol_tokens() -> None:
 # Source templates: only known tokens allowed (catches typos at the source)
 # ─────────────────────────────────────────────────────────────────────────────
 
-SOURCE_TEMPLATE_FILES = ("adopt_body.md", "ship_task_body.md", "handoff_body.md")
+SOURCE_TEMPLATE_FILES = ("adopt_body.md", "ship_task_body.md", "context_body.md")
 
 
 @pytest.mark.parametrize("template_filename", SOURCE_TEMPLATE_FILES)
@@ -173,7 +173,7 @@ def test_source_template_has_only_known_tokens(template_filename: str) -> None:
 # Distribution artifacts must contain zero protocol-token substrings
 # ─────────────────────────────────────────────────────────────────────────────
 
-# The 6 dogfood files mirror the parametrization in test_skills_drift; keep in
+# The dogfood files mirror the parametrization in test_skills_drift; keep in
 # sync. The byte-equality test in test_skills_drift already pins them to
 # render_skill() output, so the token-free assertion here is belt-and-braces.
 DISTRIBUTION_FILES = (
@@ -183,9 +183,9 @@ DISTRIBUTION_FILES = (
     ".claude/skills/nauro-ship-task/SKILL.md",
     ".cursor/rules/nauro-ship-task.mdc",
     ".agents/skills/nauro-ship-task/SKILL.md",
-    ".claude/skills/nauro-handoff/SKILL.md",
-    ".cursor/rules/nauro-handoff.mdc",
-    ".agents/skills/nauro-handoff/SKILL.md",
+    ".claude/skills/nauro-context/SKILL.md",
+    ".cursor/rules/nauro-context.mdc",
+    ".agents/skills/nauro-context/SKILL.md",
     "docs/adopt-prompt.md",
 )
 
