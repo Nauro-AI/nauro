@@ -15,8 +15,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff==0.15.8
-      - run: ruff check packages/
-      - run: ruff format --check packages/
+      - run: ruff check packages/ benchmarks/
+      - run: ruff format --check packages/ benchmarks/
       - run: python scripts/check_single_sourced.py packages/nauro/src
 
   import-linter:
