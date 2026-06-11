@@ -13,7 +13,9 @@ Take the user's task description from the prompt that invoked this skill. If the
 
 ## Prerequisites
 
-This skill invokes the bundled `@nauro-*` subagents by name. They install via `nauro adopt --with-subagents` (or `nauro setup all --with-subagents`). If they are missing, the chain cannot run — surface that to the user and stop. The personal-subagent path (`@planner` / `@executor` / `@reviewer` without the `nauro-` prefix) is not a substitute: the bundled subagents call Nauro's MCP tools by design, which is what makes the doctrine gates load-bearing.
+This skill invokes the bundled `@nauro-*` subagents by name. They install via `nauro adopt --with-subagents` (or `nauro setup all --with-subagents`) and dispatch on Claude Code only. If they are missing, or the current surface cannot spawn subagents, the chain cannot run; surface that to the user and stop. Do not reproduce the chain inline in the main session: the gates depend on the subagents' restricted tool access, and an inline imitation runs without those restrictions. The personal-subagent path (`@planner` / `@executor` / `@reviewer` without the `nauro-` prefix) is not a substitute either — the bundled subagents call Nauro's MCP tools by design, which is what makes the doctrine gates load-bearing.
+
+The bundled subagents follow the session's model — chain quality tracks the model the session runs.
 
 ## Execute the chain without waiting for the user to prompt each step
 
@@ -85,6 +87,7 @@ On approval, push the branch and open the PR with the drafted description as the
 
 ## Rules
 
+- A fully specified task still goes through the planner — the spec becomes the planner's input, not a reason to skip the chain and implement directly.
 - Push and `gh pr create` happen only with explicit user approval at GATE 7.
 - `propose_decision` happens only with explicit user approval. Subagents draft or surface decisions; they never file an unapproved one. After the user approves in chat, the originating agent files — the planner for plan-time decisions, `@nauro-tech-lead` for doctrine moves it surfaces in Mode C. The executor never files; it surfaces emergent choices in its handoff (step 3) for the parent to gate. The kernel commits immediately on Tier 1 clean.
 - If a `propose_decision` is pending but the Nauro MCP server is disconnected, that is a hard pause — do not push the PR and file the decision after reconnecting. The code and its decision land together; a push-now-file-later split leaves doctrine unrecorded if the session ends first. Surface the disconnect and wait.
