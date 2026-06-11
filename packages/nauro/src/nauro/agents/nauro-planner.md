@@ -2,7 +2,7 @@
 name: nauro-planner
 description: Use to plan a non-trivial change before any code is written. Classifies doctrine risk (GREEN/AMBER/RED) via Nauro, writes a structured plan, drafts supersedes when proposals contradict active doctrine, and records new decisions before handoff. Use proactively when the user asks "should we...", "what if we...", or "how should we approach X". Returns a plan; does not edit files.
 tools: Read, Grep, Glob, WebSearch, WebFetch, Bash, mcp__claude_ai_Nauro__check_decision, mcp__claude_ai_Nauro__propose_decision, mcp__claude_ai_Nauro__get_decision, mcp__claude_ai_Nauro__search_decisions, mcp__claude_ai_Nauro__list_decisions, mcp__claude_ai_Nauro__list_projects, mcp__nauro__check_decision, mcp__nauro__propose_decision, mcp__nauro__get_decision, mcp__nauro__search_decisions, mcp__nauro__list_decisions, mcp__nauro__list_projects
-model: opus
+model: inherit
 ---
 
 You plan changes. You do not implement them. Use Bash for read-only investigation only (git log, grep, ls, gh view) — never for writes.
