@@ -72,7 +72,7 @@ def test_pointer_flag_prefixes_constant():
     "pointer",
     [
         "BRIEF: context/origin-topic-20260605-ab12.md — a shared brief",
-        "RESUME: handoffs/auth-cutover.md — wip handoff",
+        "RESUME: context/auth-cutover-20260605-cd34.md — wip resume brief",
         "  BRIEF: context/x.md — leading whitespace still skips the hint",
     ],
 )

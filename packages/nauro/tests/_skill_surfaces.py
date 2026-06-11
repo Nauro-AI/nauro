@@ -17,7 +17,6 @@ from nauro_core import MCP_INSTRUCTIONS_STATIC
 from nauro.skills import (
     load_adopt_body,
     load_context_body,
-    load_handoff_body,
     load_ship_task_body,
 )
 
@@ -31,7 +30,6 @@ def load_docs_adopt_prompt() -> str:
 SKILL_SURFACES: dict[str, Callable[[], str]] = {
     "adopt_body.md": load_adopt_body,
     "ship_task_body.md": load_ship_task_body,
-    "handoff_body.md": load_handoff_body,
     "context_body.md": load_context_body,
     "MCP_INSTRUCTIONS_STATIC": lambda: MCP_INSTRUCTIONS_STATIC,
     "docs/adopt-prompt.md": load_docs_adopt_prompt,

@@ -12,11 +12,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from nauro_core.constants import MAX_BRIEF_BYTES
 
 from nauro.skills import (
     load_adopt_body,
     load_context_body,
-    load_handoff_body,
     load_ship_task_body,
     render_skill,
 )
@@ -63,37 +63,6 @@ def test_load_ship_task_body_returns_canonical_bytes():
     assert "--with-subagents" in body
 
 
-def test_load_handoff_body_returns_canonical_bytes():
-    body = load_handoff_body()
-    # Byte hygiene: exactly one trailing newline (mirrors the ship-task guard).
-    assert body.endswith("\n")
-    assert not body.endswith("\n\n")
-    assert 1000 < len(body) < 25000
-    # Load-bearing step headings so a cleanup edit cannot silently drop the
-    # capture -> pointer -> handoff chain.
-    assert "## Step" in body
-    # The five MCP tools the skill composes must all be named in the body.
-    assert "get_context" in body
-    assert "diff_since_last_session" in body
-    assert "get_raw_file" in body
-    assert "update_state" in body
-    assert "flag_question" in body
-    # The handoff is written to the store under handoffs/, and the resume
-    # pointer is a flagged question -- not folded into state (avoids the
-    # update_state REPLACE-clobber surface).
-    assert "handoffs/" in body
-    # Parity with nauro-context: the skill must teach the agent how to resolve
-    # the store path it writes into (the store lives outside any repo).
-    assert "nauro status" in body
-    # The skill runs in the main-agent context with no tool-lock, so it must
-    # only DRAFT decisions for the user to file -- it never autonomously
-    # commits doctrine. This assertion is the load-bearing guard for that.
-    assert "propose_decision" not in body
-    # No leaked template syntax.
-    assert "<!--" not in body
-    assert "{{" not in body
-
-
 def test_load_context_body_returns_canonical_bytes():
     body = load_context_body()
     # Byte hygiene: exactly one trailing newline (mirrors the handoff guard).
@@ -111,6 +80,11 @@ def test_load_context_body_returns_canonical_bytes():
     # on the union-merged open-questions.md, never a shared index file.
     assert "context/" in body
     assert "BRIEF:" in body
+    # Resume mode is the converged third mode: it flags a literal RESUME: pointer
+    # and carries its own step section. Anchoring both guards against a cleanup
+    # edit silently dropping the resume path (the converged nauro-handoff role).
+    assert "RESUME:" in body
+    assert "## Step R1 — Resume" in body
     # Regression (dogfood-verified): the discovery surface survives concurrent
     # authors because open-questions.md is set-union-merged on sync — NOT because
     # of a lock (the store lock guards only same-machine local appends). The
@@ -125,6 +99,22 @@ def test_load_context_body_returns_canonical_bytes():
     # No leaked template syntax.
     assert "<!--" not in body
     assert "{{" not in body
+
+
+def test_context_body_brief_size_gloss_matches_constant():
+    """The body glosses ``MAX_BRIEF_BYTES`` in prose as a human-readable size.
+
+    The constant is the enforced cap in the sync push; the prose gloss is what
+    an agent reads. If the constant changes, the prose must change with it, or
+    the skill teaches a cap the code does not enforce. Pin the gloss to the
+    constant so the two cannot drift apart silently.
+    """
+    body = load_context_body()
+    gloss = f"{MAX_BRIEF_BYTES // 1024} KiB"
+    assert gloss in body, (
+        f"context_body.md size gloss is out of sync with MAX_BRIEF_BYTES "
+        f"({MAX_BRIEF_BYTES} bytes); expected the prose to read {gloss!r}."
+    )
 
 
 # --- render_skill produces frontmatter + body ---
@@ -166,24 +156,6 @@ def test_render_skill_cursor_ship_task_frontmatter():
     assert body == load_ship_task_body()
 
 
-def test_render_skill_claude_code_handoff_frontmatter():
-    rendered = render_skill("claude_code", "nauro-handoff")
-    assert rendered.startswith("---\nname: nauro-handoff\n")
-    assert "description:" in rendered.split("\n---\n", 1)[0]
-    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
-    assert body == load_handoff_body()
-
-
-def test_render_skill_cursor_handoff_frontmatter():
-    rendered = render_skill("cursor", "nauro-handoff")
-    fm = rendered.split("\n---\n", 1)[0]
-    assert "description:" in fm
-    assert "alwaysApply: false" in fm
-    assert "name:" not in fm
-    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
-    assert body == load_handoff_body()
-
-
 def test_render_skill_claude_code_context_frontmatter():
     rendered = render_skill("claude_code", "nauro-context")
     assert rendered.startswith("---\nname: nauro-context\n")
@@ -222,9 +194,6 @@ DOGFOOD_FILES = [
     (".claude/skills/nauro-ship-task/SKILL.md", "claude_code", "nauro-ship-task"),
     (".cursor/rules/nauro-ship-task.mdc", "cursor", "nauro-ship-task"),
     (".agents/skills/nauro-ship-task/SKILL.md", "codex", "nauro-ship-task"),
-    (".claude/skills/nauro-handoff/SKILL.md", "claude_code", "nauro-handoff"),
-    (".cursor/rules/nauro-handoff.mdc", "cursor", "nauro-handoff"),
-    (".agents/skills/nauro-handoff/SKILL.md", "codex", "nauro-handoff"),
     (".claude/skills/nauro-context/SKILL.md", "claude_code", "nauro-context"),
     (".cursor/rules/nauro-context.mdc", "cursor", "nauro-context"),
     (".agents/skills/nauro-context/SKILL.md", "codex", "nauro-context"),

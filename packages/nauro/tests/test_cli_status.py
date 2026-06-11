@@ -30,9 +30,8 @@ def test_status_shows_store_path(tmp_path, monkeypatch):
     """`nauro status` surfaces the absolute store path.
 
     The store lives at ~/.nauro/projects/<id>/ — outside any repo — and no other
-    command prints it. An agent following the nauro-handoff / nauro-context
-    skills needs it to resolve where to write handoffs/<slug>.md or
-    context/<slug>.md.
+    command prints it. An agent following the nauro-context skill needs it to
+    resolve where to write context/<slug>.md.
     """
     store = _setup_project(tmp_path, monkeypatch)
 
