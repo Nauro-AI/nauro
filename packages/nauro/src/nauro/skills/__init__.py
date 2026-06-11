@@ -38,10 +38,14 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "Run the full planner -> executor -> reviewer -> tech-lead -> "
         "user-confirm -> push chain for a non-trivial code change against "
         "Nauro's bundled @nauro-* subagents. Gates on the user whenever the "
-        "planner or executor will file a Nauro decision; runs @nauro-tech-lead "
-        "Mode C between reviewer-APPROVE and the push gate to catch doctrine "
-        "drift the reviewer missed. Invoke explicitly with /nauro-ship-task "
-        "<description>. Requires `nauro adopt --with-subagents` to have run."
+        "planner or tech-lead will file a Nauro decision; the executor never "
+        "files. Runs @nauro-tech-lead Mode C between reviewer-APPROVE and the "
+        "push gate to catch doctrine drift the reviewer missed. A prompt that "
+        "carries a detailed implementation spec or a pasted handoff is still "
+        "chain input, not license to implement directly. Dispatches the "
+        "bundled subagents on Claude Code only. Invoke explicitly with "
+        "/nauro-ship-task <description>. Requires `nauro adopt "
+        "--with-subagents` to have run."
     ),
     "nauro-handoff": (
         "Captures a session handoff to Nauro's project store so the next agent "
