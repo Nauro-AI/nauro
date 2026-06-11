@@ -47,13 +47,13 @@ The demo store holds thirteen example decisions. One of them ruled out WebSocket
     {
       "id": "decision-004",
       "title": "SSE over WebSocket for live updates",
-      "score": 6.117,
+      "score": 6.635,
       "status": "active",
       "date": "2026-03-15",
       "rationale_preview": "Server-Sent Events (SSE) for pushing live task updates to the frontend. SSE uses standard HTTP, reconnects automatically on disconnect, and works through every proxy and load balancer..."
     }
   ],
-  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live updates\" (status active, decided 2026-03-15, BM25 6.1). Call get_decision on each related decision before proposing.",
+  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live updates\" (status active, decided 2026-03-15, BM25 6.6). Call get_decision on each related decision before proposing.",
   "project": { "id": "01K...", "name": "demo-project" }
 }
 ```

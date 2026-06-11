@@ -31,7 +31,7 @@ You'll see a JSON envelope with the related decisions and a deterministic assess
     {
       "id": "decision-004",
       "title": "SSE over WebSocket for live updates",
-      "score": 6.117,
+      "score": 6.635,
       "status": "active",
       "date": "2026-03-15",
       "rationale_preview": "Server-Sent Events (SSE) for pushing live task updates..."

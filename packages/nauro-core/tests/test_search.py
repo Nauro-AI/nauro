@@ -6,6 +6,7 @@ from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
     DecisionStatus,
+    RejectedAlternative,
 )
 from nauro_core.search import bm25_retrieve, bm25_search
 
@@ -47,6 +48,23 @@ DECISIONS = [
         "Current scope is single-repo. Multi-repo sync adds complexity "
         "that is not justified at launch.",
         status="superseded",
+    ),
+    Decision(
+        date=date(2026, 4, 7),
+        confidence=DecisionConfidence.medium,
+        status=DecisionStatus.active,
+        num=5,
+        title="Stay on Python for the CLI",
+        rationale="The ecosystem fit and developer velocity outweigh "
+        "distribution friction at current scale.",
+        rejected=[
+            RejectedAlternative(
+                name="Rewrite the CLI in Golang for a static binary",
+                reason="A full rewrite costs weeks for marginal distribution "
+                "gains; PyInstaller packaging covers single-file installs if "
+                "they become a requirement.",
+            )
+        ],
     ),
 ]
 
@@ -96,6 +114,18 @@ class TestBm25Search:
         assert len(results) >= 1
         assert results[0]["relevance_snippet"]
 
+    def test_rejected_name_vocabulary_is_indexed(self):
+        """A query matching only a rejected alternative's name surfaces the
+        decision — the revisits-a-rejected-path conflict class."""
+        results = bm25_search(DECISIONS, "Golang static binary")
+        assert any(r["number"] == 5 for r in results)
+
+    def test_rejected_reason_vocabulary_is_not_indexed(self):
+        """Reasons stay out of the index: a token appearing only in a
+        rejected alternative's reason must not match."""
+        results = bm25_search(DECISIONS, "PyInstaller packaging")
+        assert not any(r["number"] == 5 for r in results)
+
 
 class TestBm25Retrieve:
     def test_returns_related(self):
@@ -123,6 +153,16 @@ class TestBm25Retrieve:
     def test_top_k(self):
         related = bm25_retrieve(DECISIONS, "server session authentication", top_k=1)
         assert len(related) <= 1
+
+    def test_rejected_name_vocabulary_is_indexed(self):
+        """check_decision's retrieval path indexes rejected names too, so a
+        proposal that revisits a rejected path surfaces the deciding record."""
+        related = bm25_retrieve(DECISIONS, "compile a static Golang binary")
+        assert any(r["number"] == 5 for r in related)
+
+    def test_rejected_reason_vocabulary_is_not_indexed(self):
+        related = bm25_retrieve(DECISIONS, "PyInstaller packaging")
+        assert not any(r["number"] == 5 for r in related)
 
 
 class TestBm25SilencesProgressBars:
