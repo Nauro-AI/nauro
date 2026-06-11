@@ -331,6 +331,46 @@ class TestRenderSearchDecisions:
         assert text.startswith("Error:")
         assert "non-empty" in text
 
+    def _local_envelope(self):
+        """A local-transport envelope: no echoed ``query`` key (kernel prune)."""
+        return {
+            "store": "local",
+            "results": [
+                {
+                    "number": 7,
+                    "title": "Adopt BM25 ranking",
+                    "date": "2026-05-10",
+                    "status": "active",
+                    "relevance_snippet": "snippet",
+                    "score": 9.0,
+                }
+            ],
+        }
+
+    def test_query_kwarg_renders_header_without_dict_key(self):
+        # The local envelope carries no "query" key; the kwarg must supply it.
+        text = render_search_decisions(self._local_envelope(), query="lexical ranking")
+        assert 'for "lexical ranking"' in text
+
+    def test_missing_query_falls_back_to_empty_header(self):
+        # Without the kwarg and without a dict key, the header degrades to the
+        # empty string (the pre-fix local behavior) rather than raising.
+        text = render_search_decisions(self._local_envelope())
+        assert 'for ""' in text
+
+    def test_query_kwarg_takes_precedence_over_dict_key(self):
+        result = {**self._local_envelope(), "query": "dict-query"}
+        text = render_search_decisions(result, query="kwarg-query")
+        assert 'for "kwarg-query"' in text
+        assert "dict-query" not in text
+
+    def test_dict_query_still_renders_when_no_kwarg(self):
+        # Backward compatibility: the remote calls renderer(result) positionally
+        # and relies on the echoed "query" key in its wire envelope.
+        result = {**self._local_envelope(), "query": "remote-query"}
+        text = render_search_decisions(result)
+        assert 'for "remote-query"' in text
+
 
 class TestRenderListDecisions:
     def test_empty_returns_guidance(self):

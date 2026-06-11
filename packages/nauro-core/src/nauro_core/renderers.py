@@ -196,12 +196,20 @@ def _decision_title_header(body: str) -> str:
     return ""
 
 
-def render_search_decisions(result: dict) -> str:
-    """Render BM25 search results."""
+def render_search_decisions(result: dict, query: str | None = None) -> str:
+    """Render BM25 search results.
+
+    ``query`` is render-time display context for the result header. The
+    kernel envelope intentionally omits the echoed query (a verbatim copy
+    of the caller's argument, pruned at the operations cutover), so the
+    local stdio transport threads it here via renderer kwargs. When given
+    it takes precedence; the remote transport, whose wire envelope still
+    carries ``query``, keeps rendering via the dict fallback.
+    """
     if "error" in result:
         return _error_block(result["error"])
 
-    query = result.get("query", "")
+    query = query if query is not None else result.get("query", "")
     hits = result.get("results") or []
     total = result.get("total_matches", len(hits))
     truncated = bool(result.get("truncated"))

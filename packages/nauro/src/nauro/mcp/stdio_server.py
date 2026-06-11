@@ -263,7 +263,10 @@ def search_decisions(
         result = {"store": "local", "status": "error", "guidance": str(exc)}
     else:
         result = tool_search_decisions(store_path, query, limit, include_superseded)
-    return _wrap_with_renderer("search_decisions", result)
+    # The kernel envelope omits the echoed query (pruned at the operations
+    # cutover); thread it to the renderer so the local header shows the term,
+    # matching the remote transport, which still carries query in its envelope.
+    return _wrap_with_renderer("search_decisions", result, {"query": query})
 
 
 @mcp.tool(**_spec_kwargs("check_decision"))

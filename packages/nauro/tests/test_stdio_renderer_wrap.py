@@ -90,8 +90,13 @@ class TestSingleBlockReadTools:
         assert isinstance(result, CallToolResult)
         blocks = result.content
         assert len(blocks) == 1
-        # Rendered block echoes the query and surfaces the D### label.
-        assert "FastAPI" in blocks[0].text
+        # The header echoes the caller's query. Asserting the exact header
+        # substring (not just "FastAPI" anywhere) guards the kernel-envelope
+        # prune of the echoed query: the term also appears in the matched
+        # decision's title, so a bare membership check passes even when the
+        # header renders the empty string. ``for "FastAPI"`` only appears when
+        # the query is threaded through to the renderer.
+        assert 'for "FastAPI"' in blocks[0].text
 
     def test_check_decision_returns_single_block(self, seeded_store: Path):
         result = check_decision(
