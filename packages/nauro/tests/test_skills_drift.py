@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from nauro_core.constants import MAX_BRIEF_BYTES
+from nauro_core.constants import MAX_BRIEF_BYTES, MAX_DELTA_LENGTH
 
 from nauro.skills import (
     load_adopt_body,
@@ -114,6 +114,23 @@ def test_context_body_brief_size_gloss_matches_constant():
     assert gloss in body, (
         f"context_body.md size gloss is out of sync with MAX_BRIEF_BYTES "
         f"({MAX_BRIEF_BYTES} bytes); expected the prose to read {gloss!r}."
+    )
+
+
+def test_adopt_body_delta_size_gloss_matches_constant():
+    """The body glosses ``MAX_DELTA_LENGTH`` in prose as a human-readable count.
+
+    The constant is the enforced cap on ``update_state`` deltas; the prose
+    gloss is what an agent reads at the Step 8 write. If the constant changes,
+    the prose must change with it, or the skill teaches a cap the code does
+    not enforce. Pin the gloss to the constant so the two cannot drift apart
+    silently.
+    """
+    body = load_adopt_body()
+    gloss = f"{MAX_DELTA_LENGTH:,} characters"
+    assert gloss in body, (
+        f"adopt_body.md delta-cap gloss is out of sync with MAX_DELTA_LENGTH "
+        f"({MAX_DELTA_LENGTH} characters); expected the prose to read {gloss!r}."
     )
 
 
