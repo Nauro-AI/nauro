@@ -160,6 +160,40 @@ DOCTRINE_WRITE_TOOLS: tuple[str, ...] = (
     "update_state",
 )
 
+# The same local stdio server is reachable under two MCP namespaces depending
+# on how it was wired: `mcp__nauro__*` when `nauro setup` writes .mcp.json,
+# and `mcp__plugin_nauro_nauro__*` when the Claude Code plugin declares it.
+# Allowlist mismatches drop tools silently, so every agent must grant both
+# namespaces as exact mirrors or plugin-only installs get toolless agents.
+LOCAL_NAMESPACE = "mcp__nauro__"
+PLUGIN_NAMESPACE = "mcp__plugin_nauro_nauro__"
+
+
+def _tools_allowlist(name: str) -> list[str]:
+    body = load_agent_body(name)
+    end = body.find("\n---\n", 4)
+    assert end > 0, f"{name}.md frontmatter is not terminated"
+    frontmatter = body[4:end]
+    tools_line = next(
+        (line for line in frontmatter.splitlines() if line.startswith("tools:")),
+        None,
+    )
+    assert tools_line is not None, f"{name}.md frontmatter is missing a tools allowlist"
+    return [tool.strip() for tool in tools_line.split(":", 1)[1].split(",")]
+
+
+@pytest.mark.parametrize("name", AGENT_NAMES)
+def test_plugin_namespace_mirrors_local_namespace(name: str) -> None:
+    """Each agent grants the plugin MCP namespace as an exact mirror of the local one."""
+    tools = _tools_allowlist(name)
+    local = {tool[len(LOCAL_NAMESPACE) :] for tool in tools if tool.startswith(LOCAL_NAMESPACE)}
+    plugin = {tool[len(PLUGIN_NAMESPACE) :] for tool in tools if tool.startswith(PLUGIN_NAMESPACE)}
+    assert local, f"{name}.md grants no {LOCAL_NAMESPACE}* tools"
+    assert plugin == local, (
+        f"{name}.md plugin-namespace tools do not mirror the local namespace: "
+        f"missing {sorted(local - plugin)}, extra {sorted(plugin - local)}"
+    )
+
 
 @pytest.mark.parametrize("name", ["nauro-executor", "nauro-reviewer"])
 def test_non_filing_agents_cannot_write_doctrine(name: str) -> None:
