@@ -51,8 +51,9 @@ _PROJECT_PARAM: dict[str, Any] = {
     "type": "string",
     "description": (
         "Optional. If you have one project, the server resolves it "
-        "automatically. Pass explicitly if you have multiple — call "
-        "list_projects to discover the IDs available to the current user."
+        "automatically. Pass explicitly if you have multiple: the hosted "
+        "server's list_projects tool returns the available IDs, and on the "
+        "local server the `nauro projects` terminal command lists them."
     ),
 }
 

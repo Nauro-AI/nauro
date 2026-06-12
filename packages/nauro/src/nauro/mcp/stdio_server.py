@@ -138,13 +138,28 @@ def _param_desc(tool_name: str, param: str) -> str:
 _resolve_store = resolve_store
 _resolve_via_repo_config = resolve_via_repo_config
 
+# ``cwd`` exists only on the local transport (the hosted server has no
+# filesystem to resolve against), so its description lives here rather than
+# in the shared ToolSpec registry, which would surface it on remote schemas.
+_CWD_PARAM = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Optional. Absolute directory path used to resolve the project "
+            "from the local registry when project_id is not given. Callers "
+            "pass their working directory so resolution matches the repo "
+            "they are operating in."
+        )
+    ),
+]
+
 
 @mcp.tool(**_spec_kwargs("get_context"))
 def get_context(
     project_id: Annotated[
         str | None, Field(description=_param_desc("get_context", "project_id"))
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
     level: Annotated[
         Literal["L0", "L1", "L2"] | int,
         Field(description=_param_desc("get_context", "level")),
@@ -168,7 +183,7 @@ def get_raw_file(
     project_id: Annotated[
         str | None, Field(description=_param_desc("get_raw_file", "project_id"))
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
@@ -184,7 +199,7 @@ def list_decisions(
     project_id: Annotated[
         str | None, Field(description=_param_desc("list_decisions", "project_id"))
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
     limit: Annotated[int, Field(description=_param_desc("list_decisions", "limit"))] = 20,
     include_superseded: Annotated[
         bool, Field(description=_param_desc("list_decisions", "include_superseded"))
@@ -210,7 +225,7 @@ def get_decision(
     project_id: Annotated[
         str | None, Field(description=_param_desc("get_decision", "project_id"))
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
     try:
         store_path = _resolve_store(project_id, cwd)
@@ -229,7 +244,7 @@ def diff_since_last_session(
         str | None,
         Field(description=_param_desc("diff_since_last_session", "project_id")),
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
     days: Annotated[
         int | None, Field(description=_param_desc("diff_since_last_session", "days"))
     ] = None,
@@ -253,7 +268,7 @@ def search_decisions(
     project_id: Annotated[
         str | None, Field(description=_param_desc("search_decisions", "project_id"))
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
     try:
         store_path = _resolve_store(project_id, cwd)
@@ -280,7 +295,7 @@ def check_decision(
     project_id: Annotated[
         str | None, Field(description=_param_desc("check_decision", "project_id"))
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
     try:
         store_path = _resolve_store(project_id, cwd)
@@ -344,7 +359,7 @@ def propose_decision(
         str | None,
         Field(description=_param_desc("propose_decision", "project_id")),
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
 ) -> dict:
     try:
         store_path = _resolve_store(project_id, cwd)
@@ -384,7 +399,7 @@ def flag_question(
     project_id: Annotated[
         str | None, Field(description=_param_desc("flag_question", "project_id"))
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
 ) -> str:
     try:
         store_path = _resolve_store(project_id, cwd)
@@ -412,7 +427,7 @@ def update_state(
     project_id: Annotated[
         str | None, Field(description=_param_desc("update_state", "project_id"))
     ] = None,
-    cwd: str | None = None,
+    cwd: _CWD_PARAM = None,
 ) -> str:
     try:
         store_path = _resolve_store(project_id, cwd)

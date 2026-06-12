@@ -15,8 +15,12 @@ from nauro_core.constants import NO_DECISIONS_TO_CHECK as NO_DECISIONS_TO_CHECK
 WELCOME_NO_PROJECT = (
     "Welcome to Nauro! No project store found.\n"
     "\n"
+    "Nauro is local-first: this server reads the store at ~/.nauro on this\n"
+    "machine, resolved from the current working directory.\n"
+    "\n"
     "To get started:\n"
-    "1. Run: nauro init <project-name>\n"
+    "1. From an existing repo, run: nauro adopt\n"
+    "   (for a project without a repo: nauro init <project-name>)\n"
     '2. Log a decision: nauro note "Chose Postgres over MongoDB"\n'
     "\n"
     "Your decisions will then be available here and across all connected AI tools."
