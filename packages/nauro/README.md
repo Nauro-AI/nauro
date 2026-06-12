@@ -66,3 +66,5 @@ Free: unlimited local usage, unlimited projects, 5,000 remote MCP calls/month. S
 Apache 2.0 license. Part of the [nauro-ai/nauro](https://github.com/nauro-ai/nauro) monorepo.
 
 Named for Peter Naur, whose 1985 paper *Programming as Theory Building* argued the real program is the theory in the programmer's mind, not the code. Every fresh agent session is the equivalent of losing that programmer.
+
+<!-- mcp-name: ai.nauro/nauro -->
