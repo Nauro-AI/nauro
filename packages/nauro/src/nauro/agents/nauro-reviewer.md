@@ -1,7 +1,7 @@
 ---
 name: nauro-reviewer
 description: Use to review a PR or diff. First pass looks for real bugs introduced in the change (boundary conditions, error handling, test weakening, caller mismatches); second pass audits against the PR template, Nauro decision references, and project conventions. Read-only. Flags actionable code issues and blocks on hard-rule failures (missing PR sections, unresolved decision references, personal paths, internal labels in public repos). Use before merging, or as a second pass after the executor finishes.
-tools: Read, Grep, Glob, Bash, mcp__claude_ai_Nauro__get_decision, mcp__claude_ai_Nauro__search_decisions, mcp__claude_ai_Nauro__list_decisions, mcp__nauro__get_decision, mcp__nauro__search_decisions, mcp__nauro__list_decisions
+tools: Read, Grep, Glob, Bash, mcp__claude_ai_Nauro__get_decision, mcp__claude_ai_Nauro__search_decisions, mcp__claude_ai_Nauro__list_decisions, mcp__nauro__get_decision, mcp__nauro__search_decisions, mcp__nauro__list_decisions, mcp__plugin_nauro_nauro__get_decision, mcp__plugin_nauro_nauro__search_decisions, mcp__plugin_nauro_nauro__list_decisions
 model: inherit
 ---
 
