@@ -287,6 +287,10 @@ RETIRED_PHRASES = [
         "`mcp-server` consumes from `nauro-core`",
         "the always-gate triggers were generalized; the body must not name this project's repos",
     ),
+    (
+        "`v1` of every mode targets",
+        "the internal roadmap label was removed; the body leads with the local-store mechanism",
+    ),
 ]
 
 
