@@ -23,7 +23,7 @@ Pause only at the two explicit gates marked GATE below.
 
 ## Pre-step — Doctrine triage before the planner spins up
 
-Before invoking `@nauro-planner`, the parent session confirms the planner will run `check_decision` first. The planner's contract already requires this, but the chain enforces it explicitly: if the planner returns a RED verdict (proposal directly contradicts an active decision) and drafts a supersede, the chain pauses before the executor sees anything. The user approves the supersede in chat; only after explicit approval does the planner file via `propose_decision` (which commits immediately) and the executor see the approved plan. This is the doctrine equivalent of GATE 1 firing early — a RED that the user does not resolve never reaches code.
+Before invoking `@nauro-planner`, the parent session confirms the planner will run `check_decision` first. The planner's contract already requires this, but the chain enforces it explicitly: if the planner returns a RED verdict (proposal directly contradicts an active decision) and drafts a supersede, the chain pauses before the executor sees anything. The user approves the supersede in chat; only after explicit approval does the planner file via `propose_decision` (which commits immediately) and the executor see the approved plan. This is the doctrine equivalent of the plan-approval gate (step 2) firing early — a RED that the user does not resolve never reaches code.
 
 ### 1. Plan
 
@@ -33,14 +33,14 @@ If the planner returns RED with a supersede draft, the chain pauses here. Surfac
 
 ### 2. GATE — plan approval (always when `propose_decision` is in play)
 
-The Nauro chain gates the plan whenever the planner indicates it will file a decision via `propose_decision` for any architectural choice, or whenever the plan records a supersede / update draft. This is stricter than the personal `/ship-task` skill: there is no "low-stakes auto-proceed" path when doctrine writes are pending. The user's judgment is the gate on what enters the decision log.
+The Nauro chain gates the plan whenever the planner indicates it will file a decision via `propose_decision` for any architectural choice, or whenever the plan records a supersede / update draft. There is no "low-stakes auto-proceed" path when doctrine writes are pending. The user's judgment is the gate on what enters the decision log.
 
 A change additionally always gates if any of the following apply:
 
 - Touches authentication, credentials, secrets, tokens, signing, or encryption
 - Changes data model, schema, storage format, or existing on-disk / database layout
 - Adds, removes, or renames public surface (CLI commands, public functions, MCP tools, API endpoints, env vars, config keys)
-- Changes the contract between `nauro` and `nauro-core`, or anything `mcp-server` consumes from `nauro-core`
+- Changes a contract between packages that ship or deploy separately, or any surface a deployed consumer depends on
 - Adds, removes, or major-version bumps a dependency
 - Records a Nauro decision with reversibility `hard` or `moderate`
 - Surfaces 2-3 defensible alternatives where the choice is genuinely architectural
@@ -63,9 +63,9 @@ If the reviewer returns BLOCK, hand the hard-rule failures back to the `@nauro-e
 
 ### 6. Doctrine pass
 
-When the reviewer returns APPROVE or APPROVE WITH NITS, invoke `@nauro-tech-lead` in Mode C on the same local diff. The tech-lead reads decisions, scans the diff for architectural choices, and returns GREEN / AMBER / RED with any drafted supersede / update awaiting user approval.
+When the reviewer returns APPROVE or APPROVE WITH NITS, invoke `@nauro-tech-lead` in Mode C on the same local diff. The invocation explicitly carries the chain context the parent already holds: the task description, the planner's verdict and any decision filed at plan time (or deliberately not filed), and the reviewer's verdict with its nits — the tech-lead does not re-infer chain state from the diff alone. The tech-lead reads decisions, scans the diff for architectural choices, and returns GREEN / AMBER / RED with any drafted supersede / update awaiting user approval.
 
-- **GREEN** — proceed to GATE.
+- **GREEN** — proceed to the push gate (step 7).
 - **AMBER** — surface the constraints to the user alongside the push gate; user decides whether to address before push or document as a follow-up.
 - **RED** — pause. Either redirect the executor (fix the drift, then re-run reviewer + tech-lead) or confirm the drafted supersede first. Do not push past a RED tech-lead verdict without an explicit human override on the cited decision.
 
@@ -83,12 +83,12 @@ If the body would be long, that's fine — paste it anyway. Skipping the verbati
 
 ### 8. Push
 
-On approval, push the branch and open the PR with the drafted description as the body (`gh pr create --body "..."`). Decisions filed during the chain go in the PR's Approach section by paraphrase, not by raw decision number — the public-repo convention is to describe the doctrine move ("the bundled-subagents pattern"), not cite internal D-numbers.
+On approval, push the branch. Write the drafted description to a file and open the PR with `gh pr create --body-file <file>` — passing the body inline breaks on quote characters in the drafted body. If `gh` is unavailable, hand the user the PR-creation URL the push prints (or the compare URL constructed from the remote and branch). Decisions filed during the chain go in the PR's Approach section by paraphrase, not by raw decision number — the public-repo convention is to describe the doctrine move ("the bundled-subagents pattern"), not cite internal D-numbers.
 
 ## Rules
 
 - A fully specified task still goes through the planner — the spec becomes the planner's input, not a reason to skip the chain and implement directly.
-- Push and `gh pr create` happen only with explicit user approval at GATE 7.
+- Push and `gh pr create` happen only with explicit user approval at the push gate (step 7).
 - `propose_decision` happens only with explicit user approval. Subagents draft or surface decisions; they never file an unapproved one. After the user approves in chat, the originating agent files — the planner for plan-time decisions, `@nauro-tech-lead` for doctrine moves it surfaces in Mode C. The executor never files; it surfaces emergent choices in its handoff (step 3) for the parent to gate. The kernel commits immediately on Tier 1 clean.
 - If a `propose_decision` is pending but the Nauro MCP server is disconnected, that is a hard pause — do not push the PR and file the decision after reconnecting. The code and its decision land together; a push-now-file-later split leaves doctrine unrecorded if the session ends first. Surface the disconnect and wait.
 - If anything fails or surprises mid-chain (a tool errors, tests fail unexpectedly, a verdict is incoherent), stop and surface to the user rather than recovering silently.
