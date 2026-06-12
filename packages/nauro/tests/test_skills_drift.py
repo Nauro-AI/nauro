@@ -54,13 +54,16 @@ def test_load_ship_task_body_returns_canonical_bytes():
     assert "@nauro-executor" in body
     assert "@nauro-reviewer" in body
     assert "@nauro-tech-lead" in body
-    # Nauro-strict gate language must remain — the chain always gates on
-    # propose_decision firing, not the personal /ship-task low-stakes path.
+    # Nauro-strict gate language must remain — the chain always gates when
+    # doctrine writes are pending; there is no low-stakes auto-proceed path.
     assert "propose_decision" in body
     # Tech-lead Mode C pass sits between reviewer-APPROVE and the push gate.
     assert "Mode C" in body
     # Required prerequisite reference to the bundled subagents flag.
     assert "--with-subagents" in body
+    # PR creation goes through a body file — an inline body argument breaks
+    # on quote characters in the drafted description.
+    assert "--body-file" in body
 
 
 def test_load_context_body_returns_canonical_bytes():
@@ -275,6 +278,14 @@ RETIRED_PHRASES = [
     (
         "confirm_decision",
         "confirm_decision was removed; propose_decision is now a single-call commit",
+    ),
+    (
+        'gh pr create --body "',
+        "inline PR bodies break on quote characters; the chain writes the body to a file",
+    ),
+    (
+        "`mcp-server` consumes from `nauro-core`",
+        "the always-gate triggers were generalized; the body must not name this project's repos",
     ),
 ]
 
