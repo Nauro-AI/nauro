@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "ai.nauro/nauro",
+  "title": "Nauro",
+  "description": "Decision system for AI coding agents. Surfaces what your project decided, and why, before changes.",
+  "websiteUrl": "https://nauro.ai",
+  "repository": {
+    "url": "https://github.com/Nauro-AI/nauro",
+    "source": "github"
+  },
+  "version": "0.13.2",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "nauro",
+      "version": "0.13.2",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "serve"
+        }
+      ]
+    }
+  ]
+}
