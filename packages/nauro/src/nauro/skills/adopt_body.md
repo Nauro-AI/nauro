@@ -13,7 +13,7 @@ The agent helps the user seed Nauro with context from the current repo. Before t
 The agent's behaviour depends on whether the surface can read the repo directly.
 
 - **Filesystem-capable surfaces** (Claude Code, Cursor, Codex CLI). The agent runs Steps 1–11 in full. Docs are read for rationale in Step 3; code, config, tests, manifests, and recent git history are inspected for evidence in Step 4; targeted probes in Step 6b turn evidence into rationale by asking the user.
-- **Chat surfaces** (Claude.ai, Perplexity). The agent has no shell. It operates only on content the user pastes into the chat (Step 3b), and only against an already-adopted project (verified in Step 2). The code-evidence path (Step 4) and the Step 6b probes are unavailable; the agent does not ask the user to paste code in lieu of running shell commands. The skill skips from Step 3b directly to Step 5.
+- **Chat surfaces** (Claude.ai, Perplexity). The agent has no shell. It operates only on content the user pastes into the chat (Step 3b), and only against an already-adopted project (verified in Step 3b). Steps 1, 2, and 4 are filesystem-bound and are skipped on chat surfaces; the Step 6b probes are likewise unavailable, and the agent does not ask the user to paste code in lieu of running shell commands. The skill skips from Step 3b directly to Step 5.
 
 ## Step 1 — Detect repo root
 
@@ -54,7 +54,11 @@ When filesystem read is unavailable (chat surfaces), the agent first verifies th
 
 > Has this repo been adopted via `nauro adopt` locally? Tell me the project name and id, or paste `<repo>/.nauro/config.json`.
 
-If the user cannot confirm an adopted project, the agent surfaces "Run `nauro adopt` locally first, then return here" and stops. Once the project is confirmed, the agent prompts for source content:
+If the user cannot confirm an adopted project, the agent surfaces "Run `nauro adopt` locally first, then return here" and stops.
+
+A typed project name or id is not taken on faith. The agent calls the `list_projects` tool and matches the user's answer against the projects it returns; on no match, the agent surfaces the listed project names and asks the user to pick one. A project adopted locally but absent from the list is local-only — it needs `nauro link` before chat mode can reach it.
+
+Once the project is confirmed, the agent prompts for source content:
 
 > This skill needs source content. Paste the contents of any of: README, manifest (pyproject.toml/package.json/etc.), ADRs, Memory-Bank files. Send each as a separate message labelled with the filename.
 
@@ -78,7 +82,7 @@ Step 4 ends with a list of observations, not a list of candidate decisions. Prom
 
 ## Step 5 — Call get_context
 
-The agent calls `get_context` (MCP) to surface what the scaffold already wrote — `001-initial-setup.md` and bracketed-prompt placeholders in `project.md` / `stack.md`. The agent uses this to (a) avoid duplicating the scaffold's first decision, (b) confirm the project resolved correctly, and (c) learn what `check_decision` will treat as the existing baseline in Step 7.
+The agent calls `get_context` (MCP) to surface what the scaffold already wrote — `001-initial-setup.md` and bracketed-prompt placeholders in `project.md` / `stack.md`. The agent uses this to (a) avoid duplicating the scaffold's first decision, (b) confirm the project resolved correctly, and (c) know what Step 7's `check_decision` calls will and will not see: `check_decision` filters the scaffold seed from its results by design, so on a fresh store it returns a no-decisions-yet assessment — expected, not a failure — and catching a duplicate of the `001-initial-setup` seed is the agent's job from this step onward. The seed remains visible via `get_context` and `list_decisions`.
 
 ## Step 6 — Triage candidates
 
@@ -96,7 +100,7 @@ Filesystem-capable surfaces only. For each Step 4 observation that points at a r
 
 > I see X in file/path; was Y considered; what pushed you toward X?
 
-Substitute `X` with the observed fact, `file/path` with the source it came from, and `Y` with a credible alternative the agent inferred (or "an alternative" if none is obvious). Probes are batched into one message; the user replies per item:
+Substitute `X` with the observed fact, `file/path` with the source it came from, and `Y` with a credible alternative the agent inferred (or "an alternative" if none is obvious). Probes are batched into one message, capped at eight in the first batch and ordered highest-leverage first — workspace shape, framework picks, and CI / IaC targets before lint and test conventions. When more observations remain, the batch message must end with the line "N more observations remain — say 'more probes' to see them", so nothing is silently dropped. The user replies per item:
 
 > Reply 'rationale N: <why>' to record it as a decision (it flows into the Step 7 write loop), 'inventory N' to drop it to stack inventory (6c), 'question N' to flag it as an open question (Step 9), or 'skip N' to drop it entirely.
 
@@ -112,7 +116,7 @@ Languages, frameworks, package managers, license, lint tooling, and similar fact
 
 For each kept candidate from 6a and each rationale-supplied 6b answer, the agent runs the full propose protocol:
 
-1. Call `check_decision(proposed_approach=<title or short description>, project_id=...)`. <!-- protocol:CHECK_DECISION_RETURNS -->
+1. Call `check_decision(proposed_approach=<for a 6a candidate: the title plus the one-line summary; for a 6b candidate: the observed fact plus the core of the rationale the user supplied>, project_id=...)`. <!-- protocol:CHECK_DECISION_RETURNS -->
 2. <!-- protocol:GET_DECISION_BEFORE_PROPOSING --> Call signature: `get_decision(number=N, project_id=...)`.
 3. Classify the operation:
     - **add** (default; new ground, no existing decision covers it).
@@ -161,7 +165,7 @@ If Step 6c produced inventory items, append a short trailing section:
 - ...
 ```
 
-If only one of activeContext / progress / inventory is present, the corresponding sections are omitted. If none is present, `update_state` is skipped entirely. **The agent does not call `update_state` per progress item or per inventory entry** — `update_state` archives prior state to history, and the L0 payload ignores history.
+If only one of activeContext / progress / inventory is present, the corresponding sections are omitted. If none is present, `update_state` is skipped entirely. The composed delta must stay under 5,000 characters — `update_state` rejects longer deltas at the boundary. When the activeContext body alone would exceed the cap, condense it to the current focus and the most recent items rather than pasting it whole. Never split the delta across multiple `update_state` calls: each call replaces the state, so a second call clobbers the first. **The agent does not call `update_state` per progress item or per inventory entry** — `update_state` archives prior state to history, and the L0 payload ignores history.
 
 ## Step 9 — Flag open questions
 
@@ -191,4 +195,4 @@ The agent prints one block:
 - Decisions skipped: `M` (titles)
 - State updated: `yes`/`no`
 - Open questions flagged: `K`
-- Next: run `nauro sync` from the repo to capture a snapshot.
+- Next: on filesystem-capable surfaces, the agent tells the user that `nauro sync` captures a snapshot and regenerates `AGENTS.md` in the project's associated repos, and offers to run it, proceeding only on user confirmation. On chat surfaces, the agent instructs the user to run `nauro sync` from the repo.
