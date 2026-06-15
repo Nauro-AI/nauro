@@ -12,15 +12,13 @@ cases the hook previously owned.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import httpx
 import pytest
 
-from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
-from nauro.store.registry import register_project, register_project_v2
+from nauro.store.registry import register_project
 from nauro.sync.merge import UnionMergeError
 from nauro.sync.pull import _renumber_decision_if_collision, run_pull
 from nauro.sync.state import (
@@ -31,8 +29,7 @@ from nauro.sync.state import (
     save_state,
 )
 from nauro.templates.scaffolds import scaffold_project_store
-
-CLOUD_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
+from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
 
 
 def _ok(status: int, payload: dict) -> httpx.Response:
@@ -53,18 +50,6 @@ def _seed_token() -> None:
             }
         }
     )
-
-
-def _scaffolded_cloud_project(name: str, repo_path: Path, project_id: str = CLOUD_PID) -> Path:
-    _pid, store = register_project_v2(
-        name,
-        [repo_path],
-        mode=REPO_CONFIG_MODE_CLOUD,
-        server_url="https://example.test",
-        project_id=project_id,
-    )
-    scaffold_project_store(name, store)
-    return store
 
 
 def _manifest(files, next_cursor=None) -> httpx.Response:

@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.test_sync.conftest import _scaffolded_cloud_project
 
 runner = CliRunner()
 
@@ -158,22 +159,6 @@ class TestSyncPreservesState:
         assert "Sprint 6: new sprint." in current
         assert "Sprint 5: shipping feature X." in history
         assert "Snapshot v" not in history
-
-
-def _scaffolded_cloud_project(name: str, repo_path: Path):
-    """Register a cloud-mode v2 project and scaffold its store. Returns the store path."""
-    from nauro.constants import REPO_CONFIG_MODE_CLOUD
-    from nauro.store.registry import register_project_v2
-    from nauro.templates.scaffolds import scaffold_project_store
-
-    _pid, store = register_project_v2(
-        name,
-        [repo_path],
-        mode=REPO_CONFIG_MODE_CLOUD,
-        server_url="https://example.test",
-    )
-    scaffold_project_store(name, store)
-    return store
 
 
 class TestSyncHonesty:

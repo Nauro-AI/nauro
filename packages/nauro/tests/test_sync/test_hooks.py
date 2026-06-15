@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
 from nauro.store.registry import register_project, register_project_v2
 from nauro.sync.hooks import (
@@ -33,8 +32,7 @@ from nauro.sync.state import (
     save_state,
 )
 from nauro.templates.scaffolds import scaffold_project_store
-
-CLOUD_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
+from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
 
 
 def _ok(status: int, payload: dict) -> httpx.Response:
@@ -57,18 +55,6 @@ def _seed_token() -> None:
     )
 
 
-def _scaffolded_cloud_project(name: str, repo_path: Path, project_id: str = CLOUD_PID) -> Path:
-    _pid, store = register_project_v2(
-        name,
-        [repo_path],
-        mode=REPO_CONFIG_MODE_CLOUD,
-        server_url="https://example.test",
-        project_id=project_id,
-    )
-    scaffold_project_store(name, store)
-    return store
-
-
 # --- gating: silent no-op semantics ---
 
 
@@ -78,7 +64,7 @@ class TestSilentNoOpGating:
     would be hostile; v1/local projects have no presign target."""
 
     def test_pull_silent_when_not_authenticated(self, tmp_path):
-        store = _scaffolded_cloud_project("noauth", tmp_path)
+        store = _scaffolded_cloud_project("noauth", tmp_path, project_id=CLOUD_PID)
         # no _seed_token() — load_access_token() returns None
 
         with patch("nauro.sync.remote.httpx.get") as mock_get:
@@ -88,7 +74,7 @@ class TestSilentNoOpGating:
         mock_get.assert_not_called()
 
     def test_push_silent_when_not_authenticated(self, tmp_path):
-        store = _scaffolded_cloud_project("noauth", tmp_path)
+        store = _scaffolded_cloud_project("noauth", tmp_path, project_id=CLOUD_PID)
         # no _seed_token()
 
         with patch("nauro.sync.remote.httpx.post") as mock_post:
@@ -166,7 +152,7 @@ class TestSilentNoOpGating:
 class TestPullBeforeSessionPresign:
     @pytest.fixture()
     def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("pullproj", tmp_path)
+        store = _scaffolded_cloud_project("pullproj", tmp_path, project_id=CLOUD_PID)
         _seed_token()
         return store
 
@@ -301,7 +287,7 @@ class TestPullBeforeSessionPresign:
 class TestPushAfterWritePresign:
     @pytest.fixture()
     def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("pushproj", tmp_path)
+        store = _scaffolded_cloud_project("pushproj", tmp_path, project_id=CLOUD_PID)
         _seed_token()
         return store
 
@@ -419,7 +405,7 @@ class TestPullBeforeSessionNeverRaises:
 
     @pytest.fixture()
     def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("silentpull", tmp_path)
+        store = _scaffolded_cloud_project("silentpull", tmp_path, project_id=CLOUD_PID)
         _seed_token()
         return store
 

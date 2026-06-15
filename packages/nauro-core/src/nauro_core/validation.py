@@ -64,11 +64,6 @@ def is_scaffold_seed(decision) -> bool:
     return decision.get("num") == 1 and decision.get("title") == _SCAFFOLD_SEED_TITLE
 
 
-# Historical private name kept as an alias for callers that imported it before
-# the public predicate existed.
-_is_scaffold_seed = is_scaffold_seed
-
-
 def check_bm25_similarity(
     proposal: dict,
     existing_decisions: list,
@@ -94,7 +89,7 @@ def check_bm25_similarity(
         and related uses the ``bm25_retrieve`` shape:
         ``{"number", "title", "similarity", "rationale_preview"}``.
     """
-    candidates = [d for d in existing_decisions if not _is_scaffold_seed(d)]
+    candidates = [d for d in existing_decisions if not is_scaffold_seed(d)]
     if not candidates:
         return ("auto_confirm", [])
 

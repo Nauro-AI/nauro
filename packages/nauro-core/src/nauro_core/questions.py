@@ -11,9 +11,8 @@ entries written before the Q-form rollout keep round-tripping without
 rewrite. The discriminator is which of ``num`` / ``timestamp`` is set on
 :class:`QuestionEntry`. Resolution sets ``resolved_by`` on the matching
 :class:`EntryBlock`; ``format`` then re-emits it with the ``[Resolved by
-Dnn on YYYY-MM-DD]`` prefix. ``parse_questions`` (in
-:mod:`nauro_core.parsing`) already filters the ``## Resolved`` subsection
-out of L0 reads.
+Dnn on YYYY-MM-DD]`` prefix. The ``## Resolved`` subsection is excluded
+from L0 reads via the divider index on the parsed model.
 
 The internal shape is a flat ``blocks`` list. Each markdown line maps to
 exactly one block (``HeaderBlock``, ``ProseBlock``, ``EntryBlock``,

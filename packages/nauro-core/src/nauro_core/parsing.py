@@ -208,26 +208,6 @@ def extract_stack_summary(stack_content: str) -> str:
     return "\n".join(lines)
 
 
-def parse_questions(content: str) -> list[str]:
-    """Extract question lines from open-questions.md."""
-    questions: list[str] = []
-    in_resolved = False
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("## "):
-            in_resolved = "resolved" in stripped.lower()
-            continue
-        if in_resolved:
-            continue
-        if line.startswith("- ["):
-            questions.append(line)
-        elif line.startswith("### "):
-            questions.append("- " + line.lstrip("# "))
-        elif line.startswith("- ") and not line.startswith("  "):
-            questions.append(line)
-    return questions
-
-
 def decisions_summary_lines(decisions: list, limit: int = 10) -> list[str]:
     """Build compact summary lines for decisions: ``D{num} — Title (date)``."""
     lines = []

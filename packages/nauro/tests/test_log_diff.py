@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.constants import SNAPSHOTS_DIR
-from nauro.mcp.tools import tool_diff_since_last_session, tool_get_context
+from nauro.mcp.tools import tool_diff_since_last_session
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import (
     capture_snapshot,
@@ -21,6 +21,7 @@ from nauro.store.snapshot import (
 )
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
+from tests.conftest import read_project_context
 
 
 def update_state(store_path: Path, delta: str) -> None:
@@ -59,17 +60,6 @@ def diff_snapshots(store_path: Path, version_a: int, version_b: int) -> str:
 
 
 runner = CliRunner()
-
-
-def read_project_context(store_path: Path, level: int = 0) -> str:
-    """Local test helper — keeps the existing assertions using str content.
-
-    The MCP boundary now returns a dict envelope; this shim extracts the
-    ``content`` field so the tests below can keep their pre-cutover shape
-    while exercising the same dispatch through ``tool_get_context``.
-    """
-    result = tool_get_context(store_path, level)
-    return result["content"]
 
 
 @pytest.fixture

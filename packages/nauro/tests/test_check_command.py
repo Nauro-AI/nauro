@@ -47,24 +47,6 @@ def demo_repo(tmp_path, monkeypatch):
     return "demo-project", pid, store_path, repo
 
 
-@pytest.fixture
-def no_decisions_repo(tmp_path, monkeypatch):
-    """Register a v2 project whose store has no decisions/ directory at all.
-
-    Hits the empty-store branch in ``check_decision`` — distinct from a
-    scaffolded store (which seeds 001-initial-setup.md and therefore has
-    decisions).
-    """
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2("bare-project", [repo], mode=REPO_CONFIG_MODE_LOCAL)
-    save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "bare-project"})
-    # register_project_v2 already created the store dir; deliberately skip
-    # scaffold_project_store so decisions/ never gets populated.
-    monkeypatch.chdir(repo)
-    return "bare-project", pid, store_path, repo
-
-
 # --- happy path: demo prompt retrieves the SSE-over-WebSocket decision ------
 
 

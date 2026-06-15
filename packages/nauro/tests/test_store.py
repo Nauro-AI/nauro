@@ -11,7 +11,6 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.constants import SNAPSHOTS_DIR
-from nauro.mcp.tools import tool_get_context
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import _list_decisions
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
@@ -21,6 +20,7 @@ from nauro.templates.scaffolds import (
     scaffold_project_store,
 )
 from tests._writer_compat import append_decision
+from tests.conftest import read_project_context
 
 
 def update_state(store_path: Path, delta: str) -> None:
@@ -43,11 +43,6 @@ def append_question(store_path: Path, question: str) -> None:
 
 
 runner = CliRunner()
-
-
-def read_project_context(store_path: Path, level: int = 0) -> str:
-    """Local test helper — keeps the existing assertions using str content."""
-    return tool_get_context(store_path, level)["content"]
 
 
 @pytest.fixture

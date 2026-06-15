@@ -22,9 +22,7 @@ import httpx
 import pytest
 from nauro_core.constants import MAX_BRIEF_BYTES
 
-from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
-from nauro.store.registry import register_project_v2
 from nauro.sync.state import (
     FileState,
     SyncState,
@@ -32,21 +30,7 @@ from nauro.sync.state import (
     load_state,
     save_state,
 )
-from nauro.templates.scaffolds import scaffold_project_store
-
-CLOUD_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
-
-
-def _scaffolded_cloud_project(name: str, repo_path: Path, project_id: str = CLOUD_PID) -> Path:
-    _pid, store = register_project_v2(
-        name,
-        [repo_path],
-        mode=REPO_CONFIG_MODE_CLOUD,
-        server_url="https://example.test",
-        project_id=project_id,
-    )
-    scaffold_project_store(name, store)
-    return store
+from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
 
 
 def _ok(status: int, payload: dict) -> httpx.Response:

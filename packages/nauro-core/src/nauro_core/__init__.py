@@ -67,6 +67,9 @@ from nauro_core.constants import (
     OPEN_QUESTIONS_MD as OPEN_QUESTIONS_MD,
 )
 from nauro_core.constants import (
+    POINTER_FLAG_PREFIXES as POINTER_FLAG_PREFIXES,
+)
+from nauro_core.constants import (
     PROJECT_MD as PROJECT_MD,
 )
 from nauro_core.constants import (
@@ -185,9 +188,6 @@ from nauro_core.parsing import (
 )
 from nauro_core.parsing import (
     first_sentence_end as first_sentence_end,
-)
-from nauro_core.parsing import (
-    parse_questions as parse_questions,
 )
 from nauro_core.parsing import (
     scan_decision_references as scan_decision_references,
