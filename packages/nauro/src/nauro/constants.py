@@ -21,6 +21,7 @@ from nauro_core.constants import L1_DECISIONS_LIMIT as L1_DECISIONS_LIMIT
 from nauro_core.constants import L1_DECISIONS_SUMMARY_LIMIT as L1_DECISIONS_SUMMARY_LIMIT
 from nauro_core.constants import MIN_RATIONALE_LENGTH as MIN_RATIONALE_LENGTH
 from nauro_core.constants import OPEN_QUESTIONS_MD as OPEN_QUESTIONS_MD
+from nauro_core.constants import POINTER_FLAG_PREFIXES as POINTER_FLAG_PREFIXES
 from nauro_core.constants import PROJECT_MD as PROJECT_MD
 from nauro_core.constants import REVERSIBILITY_LEVELS as REVERSIBILITY_LEVELS
 from nauro_core.constants import SNAPSHOT_SCHEMA_VERSION as SNAPSHOT_SCHEMA_VERSION
@@ -77,15 +78,6 @@ L0_TOKEN_LIMIT = 3500
 # this the flag is annotated with a hint pointing at the matching decision.
 FLAG_QUESTION_HINT_MIN_SCORE = 0.7
 FLAG_QUESTION_HINT_TITLE_LENGTH = 100
-
-# ── Discovery-pointer flag markers ──
-# The nauro-context skill flags a stored file's path as a question (it lands on
-# the union-merged open-questions.md): BRIEF for a shared brief, RESUME for a
-# self-directed resume brief from its resume mode. Such a flag is a discovery
-# pointer, not a question for human review, so the similar-decision hint above
-# is skipped for it — otherwise a pointer draws a spurious
-# "addressed by decision-NNN" annotation.
-POINTER_FLAG_PREFIXES: tuple[str, ...] = ("BRIEF:", "RESUME:")
 
 # ── Writer limits ──
 SLUG_MAX_LENGTH = 60

@@ -10,6 +10,8 @@ from typing import Any
 
 import pytest
 
+from nauro.mcp.tools import tool_get_context
+
 # Magic UUID4 used by every telemetry test that seeds a consented config.
 # Centralized so a rotation in one file can't drift away from the rest.
 TEST_ANONYMOUS_ID = "11111111-1111-4111-8111-111111111111"
@@ -28,6 +30,15 @@ CROSS_SURFACE_BUCKET = "nauro-cross-surface-test"
 def cloud_prefix(user_id: str, project_id: str) -> str:
     """Return the S3 key prefix a CloudStore reads/writes under for a project."""
     return f"users/{user_id}/projects/{project_id}"
+
+
+def read_project_context(store_path: Path, level: int = 0) -> str:
+    """Extract the ``content`` string from the ``tool_get_context`` envelope.
+
+    Shared by tests that assert on the rendered context string without
+    caring about the surrounding envelope fields.
+    """
+    return tool_get_context(store_path, level)["content"]
 
 
 @contextmanager

@@ -415,3 +415,80 @@ class TestBuildL0OpenQuestionsAgeProjection:
         old_idx = result.index("Old one?")
         between = result[old_idx + len("Old one?") : recent_idx]
         assert self._PROJECTION_PREFIX not in between
+
+
+class TestBuildL0DiscoveryPointerExclusion:
+    """Discovery-pointer entries (BRIEF:/RESUME: body prefix) are excluded
+    from the L0 Open Questions section and do not consume a limit slot.
+    """
+
+    def _files(self, content: str) -> dict[str, str]:
+        return {"questions.md": content}
+
+    def test_brief_pointer_excluded(self):
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] BRIEF: context/topic-20260601-ab12.md — shared brief\n"
+            "- [Q2] Genuine open question?\n"
+        )
+        result = build_l0(self._files(content), [])
+        assert "Genuine open question?" in result
+        assert "BRIEF:" not in result
+
+    def test_resume_pointer_excluded(self):
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] RESUME: context/auth-cutover-20260601-cd34.md — resume brief\n"
+            "- [Q2] Another genuine question?\n"
+        )
+        result = build_l0(self._files(content), [])
+        assert "Another genuine question?" in result
+        assert "RESUME:" not in result
+
+    def test_pointer_does_not_consume_limit_slot(self):
+        # With limit = 3, three genuine questions plus two pointers should all
+        # three genuine questions appear (pointers do not count toward the cap).
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] BRIEF: context/a.md — pointer one\n"
+            "- [Q2] First genuine question?\n"
+            "- [Q3] Second genuine question?\n"
+            "- [Q4] RESUME: context/b.md — pointer two\n"
+            "- [Q5] Third genuine question?\n"
+            "- [Q6] Fourth genuine question — should be cut by limit?\n"
+        )
+        result = build_l0(self._files(content), [])
+        assert "First genuine question?" in result
+        assert "Second genuine question?" in result
+        assert "Third genuine question?" in result
+        assert "Fourth genuine question" not in result
+        assert "BRIEF:" not in result
+        assert "RESUME:" not in result
+
+    def test_pointer_free_file_unaffected(self):
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] How does auth work?\n"
+            "- [Q2] What about caching?\n"
+            "- [Q3] Redis or Memcached?\n"
+        )
+        result = build_l0(self._files(content), [])
+        assert "How does auth work?" in result
+        assert "What about caching?" in result
+        assert "Redis or Memcached?" in result
+        assert "## Open Questions" in result
+
+    def test_all_pointers_yields_empty_open_questions(self):
+        # When every open entry is a pointer, the section is suppressed entirely.
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] BRIEF: context/x.md — brief one\n"
+            "- [Q2] RESUME: context/y.md — resume one\n"
+        )
+        result = build_l0(self._files(content), [])
+        assert "## Open Questions" not in result

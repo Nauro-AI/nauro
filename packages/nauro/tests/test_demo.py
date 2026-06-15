@@ -7,14 +7,9 @@ import pytest
 
 from nauro import constants
 from nauro.demo import create_demo_project
-from nauro.mcp.tools import tool_get_context
 from nauro.store.reader import _list_decisions
 from nauro.store.snapshot import list_snapshots
-
-
-def read_project_context(store_path: Path, level: int = 0) -> str:
-    """Local test helper — keeps the existing assertions using str content."""
-    return tool_get_context(store_path, level)["content"]
+from tests.conftest import read_project_context
 
 
 @pytest.fixture()

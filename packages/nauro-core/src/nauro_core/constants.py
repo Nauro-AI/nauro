@@ -74,6 +74,12 @@ STATE_OVERLAP_STOP_WORDS: frozenset[str] = frozenset(
 # ── Reversibility levels ──
 REVERSIBILITY_LEVELS: tuple[str, ...] = ("easy", "moderate", "hard")
 
+# ── Discovery-pointer flag markers ──
+# Entries in open-questions.md whose body starts with one of these prefixes
+# are discovery breadcrumbs (BRIEF for shared context briefs, RESUME for
+# agent resume briefs), not questions for human review.
+POINTER_FLAG_PREFIXES: tuple[str, ...] = ("BRIEF:", "RESUME:")
+
 # ── Stack empty marker ──
 STACK_EMPTY_MARKER = "# Stack\n<!-- Tech choices with rationale and rejected alternatives -->"
 

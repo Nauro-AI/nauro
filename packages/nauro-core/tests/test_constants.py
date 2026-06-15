@@ -13,6 +13,7 @@ from nauro_core.constants import (
     MCP_INSTRUCTIONS_STATIC,
     MIN_RATIONALE_LENGTH,
     OPEN_QUESTIONS_MD,
+    POINTER_FLAG_PREFIXES,
     PROJECT_MD,
     REVERSIBILITY_LEVELS,
     SNAPSHOTS_DIR,
@@ -84,6 +85,14 @@ class TestValidValues:
 
     def test_reversibility_levels_non_empty(self):
         assert REVERSIBILITY_LEVELS == ("easy", "moderate", "hard")
+
+
+class TestPointerFlagPrefixes:
+    def test_exact_value(self):
+        assert POINTER_FLAG_PREFIXES == ("BRIEF:", "RESUME:")
+
+    def test_is_tuple(self):
+        assert isinstance(POINTER_FLAG_PREFIXES, tuple)
 
 
 class TestFilenames:
