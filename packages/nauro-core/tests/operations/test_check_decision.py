@@ -11,7 +11,13 @@ from datetime import date
 
 import pytest
 
-from nauro_core.constants import MAX_APPROACH_LENGTH, MAX_CONTEXT_LENGTH, NO_DECISIONS_TO_CHECK
+from nauro_core.constants import (
+    LEXICAL_RANK_CAVEAT,
+    MAX_APPROACH_LENGTH,
+    MAX_CONTEXT_LENGTH,
+    NO_DECISIONS_TO_CHECK,
+    NO_RELATED_DECISIONS,
+)
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
@@ -23,6 +29,8 @@ from nauro_core.operations import (
     InMemoryStore,
     check_decision,
 )
+from nauro_core.operations.check_decision import _assessment
+from nauro_core.operations.results import RelatedDecision
 
 
 def _seed_decision(
@@ -73,8 +81,23 @@ def test_unrelated_proposal_returns_no_related_decisions() -> None:
     )
     result = check_decision(store, "Pineapple production logistics across mid-atlantic ports")
     assert result.related_decisions == []
-    assert result.assessment == "No related decisions found."
+    assert result.assessment == NO_RELATED_DECISIONS
     assert result.error is None
+
+
+def test_no_match_assessment_does_not_read_as_all_clear() -> None:
+    """The no-keyword-match assessment must name the lexical limitation so a
+    paraphrase miss is visibly distinct from 'nothing exists' — and distinct
+    from the empty-store message. Guards the silent-miss fix."""
+    store = _store_with(
+        _seed_decision(1, "Adopt PostgreSQL", "ACID semantics for our transactional workload."),
+    )
+    result = check_decision(store, "Pineapple production logistics across mid-atlantic ports")
+    # A populated store that returns no hits is NOT the empty-store case.
+    assert result.assessment != NO_DECISIONS_TO_CHECK
+    lowered = result.assessment.lower()
+    assert "lexical" in lowered or "keyword" in lowered
+    assert "nothing exists" in lowered
 
 
 def test_related_decision_canonical_id_and_status_enrichment() -> None:
@@ -106,6 +129,7 @@ def test_assessment_single_match_directs_to_get_decision() -> None:
     result = check_decision(store, "Add Redis as a session cache")
     assert result.error is None
     assert "Top match: D007" in result.assessment
+    assert LEXICAL_RANK_CAVEAT in result.assessment
     assert "Call get_decision(7) before proposing." in result.assessment
 
 
@@ -118,6 +142,7 @@ def test_assessment_multi_match_directs_to_each() -> None:
     assert result.error is None
     assert len(result.related_decisions) >= 2
     assert "Found" in result.assessment
+    assert LEXICAL_RANK_CAVEAT in result.assessment
     assert "Call get_decision on each related decision before proposing." in result.assessment
 
 
@@ -302,3 +327,23 @@ def test_long_approach_is_capped_for_retrieval() -> None:
     assert result.error is None
     ids = [hit.id for hit in result.related_decisions]
     assert "decision-005" not in ids
+
+
+def test_assessment_embedding_sourced_top_hit_not_labeled_bm25() -> None:
+    """An embedding-sourced top hit carries score 0.0 (no BM25 score); the
+    assessment must call it a semantic match, never 'BM25 0.0'. Exercises the
+    union path's embedding-only branch at the assessment layer without the
+    optional embeddings dependency."""
+    hit = RelatedDecision(
+        id="decision-042",
+        title="Adopt PostgreSQL",
+        score=0.0,
+        status="active",
+        date="2026-04-16",
+        rationale_preview="ACID semantics for the platform.",
+    )
+    assessment = _assessment([hit])
+    assert "Top match: D042" in assessment
+    assert "semantic match" in assessment
+    assert "BM25 0.0" not in assessment
+    assert LEXICAL_RANK_CAVEAT in assessment

@@ -28,6 +28,8 @@ Per-tool surface area:
 
 from __future__ import annotations
 
+from nauro_core.constants import NO_RELATED_DECISIONS
+
 # Width target for the rendered text blocks. Picked to fit standard
 # terminal widths and Markdown chat clients without horizontal scroll.
 _WIDTH = 80
@@ -98,9 +100,10 @@ def render_check_decision(result: dict) -> str:
     assessment = result.get("assessment", "")
 
     if not related:
-        # No-project guidance first, then NO_DECISIONS_TO_CHECK / "No related
-        # decisions found." cases.
-        return _guidance(result) or assessment.strip() or "No related decisions found."
+        # No-project guidance first, then the kernel's NO_DECISIONS_TO_CHECK
+        # (empty store) / NO_RELATED_DECISIONS (no keyword match) assessment.
+        # The literal fallback only fires if the envelope carries neither.
+        return _guidance(result) or assessment.strip() or NO_RELATED_DECISIONS
 
     lines: list[str] = []
     count = len(related)
