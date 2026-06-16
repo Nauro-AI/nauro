@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 
+from nauro_core.constants import NO_RELATED_DECISIONS
 from nauro_core.renderers import (
     render_check_decision,
     render_get_context,
@@ -40,10 +41,10 @@ class TestRenderCheckDecision:
         result = {
             "store": "remote",
             "related_decisions": [],
-            "assessment": "No related decisions found.",
+            "assessment": NO_RELATED_DECISIONS,
         }
         text = render_check_decision(result)
-        assert "No related decisions found" in text
+        assert NO_RELATED_DECISIONS in text
 
     def test_single_related_decision(self):
         result = {
@@ -616,11 +617,11 @@ class TestNoProjectGuidance:
         assert "Welcome to Nauro" in text
 
     def test_check_decision_surfaces_guidance_not_false_clear(self):
-        # Must NOT report a false "No related decisions found." — that would
+        # Must NOT fall through to the no-keyword-match assessment — that would
         # tell the agent the history is clear when no store was read.
         text = render_check_decision(self._envelope())
         assert "Welcome to Nauro" in text
-        assert "No related decisions found" not in text
+        assert NO_RELATED_DECISIONS not in text
 
     def test_search_decisions_surfaces_guidance_not_false_empty(self):
         text = render_search_decisions(self._envelope())

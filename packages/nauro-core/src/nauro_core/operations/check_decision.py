@@ -13,9 +13,11 @@ from __future__ import annotations
 from bm25s.stopwords import STOPWORDS_EN
 
 from nauro_core.constants import (
+    LEXICAL_RANK_CAVEAT,
     MAX_APPROACH_LENGTH,
     MAX_CONTEXT_LENGTH,
     NO_DECISIONS_TO_CHECK,
+    NO_RELATED_DECISIONS,
 )
 from nauro_core.decision_model import Decision
 from nauro_core.operations.decision_lookup import parse_all_decisions
@@ -89,7 +91,7 @@ def check_decision(
         use_embeddings=use_embeddings,
     )
     if not hits:
-        return CheckDecisionResult(assessment="No related decisions found.")
+        return CheckDecisionResult(assessment=NO_RELATED_DECISIONS)
 
     by_num = {d.num: d for d in decisions}
     related = [_hit_to_related(hit, by_num) for hit in hits]
@@ -121,18 +123,28 @@ def _hit_to_related(hit: dict, by_num: dict[int, Decision]) -> RelatedDecision:
 
 
 def _assessment(related: list[RelatedDecision]) -> str:
-    """Build the deterministic single-line assessment from retrieval facts."""
+    """Build the deterministic single-line assessment from retrieval facts.
+
+    Surfaces retrieval facts — which decision ranked top, its BM25 score (or
+    semantic-match origin), status, date — plus a fixed caveat that the
+    ranking is lexical. It is never a confidence verdict on the match: the
+    agent reads the decision body and judges; the kernel does not grade
+    (D130/D245 — no automated classification or scoring verdict).
+    """
     top = related[0]
     top_num = extract_decision_number(top.id)
     top_label = f"D{top_num:03d}" if top_num is not None else top.id
+    # score == 0.0 marks an embedding-sourced hit carrying no BM25 score (see
+    # _hit_to_related). Don't label it "BM25 0.0" — it didn't match lexically.
+    match_note = f"BM25 {top.score:.1f}" if top.score > 0 else "semantic match"
     top_line = (
         f'Top match: {top_label} "{top.title}"'
-        f" (status {top.status}, decided {top.date}, BM25 {top.score:.1f})."
+        f" (status {top.status}, decided {top.date}, {match_note})."
     )
     if len(related) == 1:
         target = f"get_decision({top_num})" if top_num is not None else "get_decision"
-        return f"{top_line} Call {target} before proposing."
+        return f"{top_line} {LEXICAL_RANK_CAVEAT} Call {target} before proposing."
     return (
-        f"Found {len(related)} related decisions. {top_line}"
+        f"Found {len(related)} related decisions. {top_line} {LEXICAL_RANK_CAVEAT}"
         " Call get_decision on each related decision before proposing."
     )

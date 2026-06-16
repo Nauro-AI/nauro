@@ -57,6 +57,32 @@ NO_DECISIONS_TO_CHECK = (
     "your recorded decisions."
 )
 
+# ── No-keyword-match assessment (used in check_decision) ──
+# Returned when the store HAS decisions but none match the proposed approach
+# on keywords. Distinct from NO_DECISIONS_TO_CHECK (empty store). Worded so a
+# lexical miss does not read as a clean all-clear: BM25 ranks on keyword
+# overlap, so a related decision phrased differently can score zero and never
+# surface. Stating the retrieval limitation is a fact about the tool, not a
+# judgement of the approach — the agent still reads and judges (D130/D245: no
+# automated scoring verdict). Shared between local (nauro) and remote
+# (mcp-server) so the cross-surface string cannot drift.
+NO_RELATED_DECISIONS = (
+    "No decision matched on keywords. Retrieval is lexical (BM25), so a related "
+    "decision phrased differently may not surface — read this as 'nothing matched', "
+    "not 'nothing exists'. For a significant approach, browse list_decisions or retry "
+    "search_decisions with alternate terms before proposing."
+)
+
+# ── Lexical-rank caveat (used in check_decision assessment) ──
+# Appended whenever check_decision returns hits, so a low (or merely
+# top-of-a-thin-pool) match is not read as an authoritative verdict. Surfaces
+# the retrieval method's nature without grading the match — the BM25 score is a
+# keyword-overlap fact, not a confidence judgement (D130/D245).
+LEXICAL_RANK_CAVEAT = (
+    "Ranked by keyword overlap, not meaning — judge relevance from the decision "
+    "body, not the rank."
+)
+
 # ── State field patterns (used in parsing and diffing) ──
 STATE_DIFF_FIELDS = ("Sprint", "Focus", "Blockers")
 
