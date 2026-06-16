@@ -22,7 +22,7 @@ from typing import Literal
 from nauro_core.protocol import substitute_protocol_fragments
 
 Surface = Literal["claude_code", "cursor", "codex"]
-SkillName = Literal["nauro-adopt", "nauro-ship-task", "nauro-context"]
+SkillName = Literal["nauro-adopt", "nauro-ship-task", "nauro-context", "nauro-loop"]
 
 SKILL_DESCRIPTIONS: dict[str, str] = {
     "nauro-adopt": (
@@ -67,6 +67,22 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "Briefs are append-only and treated as untrusted input the reading "
         "agent adjudicates. Invoke explicitly with /nauro-context. Installed by "
         "`nauro adopt --with-skills`."
+    ),
+    "nauro-loop": (
+        "Run a gated iteration of work origination on top of /nauro-ship-task. "
+        "Invoke under the dynamic /loop command (/loop /nauro-loop). Mines the "
+        "project's existing Nauro store state read-only (get_context, "
+        "open-questions RESUME/BRIEF pointers, diff_since_last_session, "
+        "list_decisions) and originates 1-3 ranked candidate tasks, then "
+        "surfaces them via AskUserQuestion for the human to pick — a mandatory "
+        "ratify-gate with no auto-pick path. On the human's pick it dispatches "
+        "/nauro-ship-task <chosen task> byte-for-byte with all six inner gates "
+        "intact, then loops back. Originates the candidate set only; the human "
+        "selects the task, approves the plan, clears every tech-lead pause, and "
+        "confirms every push. The loop itself never files a decision, never "
+        "pushes, and never runs gh; it holds no store-write authority. Stops on "
+        "an empty mine and at a hard per-session ceiling. Installed by `nauro "
+        "adopt --with-skills`."
     ),
 }
 
@@ -116,6 +132,16 @@ def load_context_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
+def load_loop_body() -> str:
+    """Return the canonical ``/nauro-loop`` skill body (no frontmatter).
+
+    The body has no protocol-fragment tokens today, but goes through the same
+    substitution pass so future canonical claims can be added at the source.
+    """
+    raw = resources.files(__package__).joinpath("loop_body.md").read_text(encoding="utf-8")
+    return substitute_protocol_fragments(_strip_template_header(raw))
+
+
 def _load_body(skill_name: str) -> str:
     if skill_name == "nauro-adopt":
         return load_adopt_body()
@@ -123,6 +149,8 @@ def _load_body(skill_name: str) -> str:
         return load_ship_task_body()
     if skill_name == "nauro-context":
         return load_context_body()
+    if skill_name == "nauro-loop":
+        return load_loop_body()
     raise ValueError(f"unknown skill: {skill_name!r}")
 
 
@@ -154,6 +182,7 @@ __all__ = [
     "Surface",
     "load_adopt_body",
     "load_context_body",
+    "load_loop_body",
     "load_ship_task_body",
     "render_skill",
 ]

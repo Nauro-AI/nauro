@@ -17,6 +17,7 @@ from nauro_core.constants import MAX_BRIEF_BYTES, MAX_DELTA_LENGTH
 from nauro.skills import (
     load_adopt_body,
     load_context_body,
+    load_loop_body,
     load_ship_task_body,
     render_skill,
 )
@@ -102,6 +103,74 @@ def test_load_context_body_returns_canonical_bytes():
     # No leaked template syntax.
     assert "<!--" not in body
     assert "{{" not in body
+
+
+def test_load_loop_body_returns_canonical_bytes():
+    body = load_loop_body()
+    # Byte hygiene: exactly one trailing newline (mirrors the context guard).
+    assert body.endswith("\n")
+    assert not body.endswith("\n\n")
+    assert 1000 < len(body) < 25000
+    # Load-bearing section headings so a cleanup edit cannot silently drop the
+    # ORIENT -> SELECT -> CHAIN -> INTEGRATE -> RE-ORIENT procedure.
+    assert "## ORIENT" in body
+    assert "## SELECT" in body
+    assert "## CHAIN" in body
+    assert "## INTEGRATE" in body
+    assert "## RE-ORIENT" in body
+    # SELECT is the net-new human ratify-gate; it surfaces candidates via
+    # AskUserQuestion and never auto-picks — not even a single candidate.
+    assert "AskUserQuestion" in body
+    assert "no auto-pick" in body
+    # The loop holds no decision-FILING authority. The literal write-tool token
+    # must stay absent (mirrors the context guard that the loop runs in the
+    # main-agent context with no tool-lock); the guard is carried by prose that
+    # says the loop never files a decision / holds no write authority.
+    assert "propose_decision" not in body
+    assert "never files a decision" in body
+    assert "no store-write authority" in body or "holds no store-write authority" in body
+    # The chain is dispatched byte-for-byte and never reproduced inline.
+    assert "/nauro-ship-task" in body
+    assert "byte-for-byte" in body
+    # Under the loop the chain's low-stakes auto-proceed at the plan gate closes.
+    assert "auto-proceed" in body
+    assert "closed" in body or "CLOSED" in body
+    # Structural hard rules: fail-closed on gate-callback timeout, a held-gate
+    # lock, and a hard per-session ceiling.
+    assert "fails closed" in body or "fail closed" in body
+    assert "held-gate lock" in body or "held gate" in body
+    assert "per-session ceiling" in body
+    # Gate H is the stuck-handler: a chain that self-halts or fails loud routes
+    # to a surface-and-wait gate, never a blind retry or skip to the next task.
+    assert "Gate H" in body
+    # ORIENT mines via the Resume R1/R2 pointers on the union-merged file.
+    assert "RESUME:" in body
+    assert "BRIEF:" in body
+    # Unattended substrates (cron / scheduled wakeups / routines) are out of
+    # scope — they cannot pause for the SELECT sign-off.
+    assert "cron" in body
+    assert "out of scope" in body
+    # No leaked template syntax.
+    assert "<!--" not in body
+    assert "{{" not in body
+
+
+def test_render_skill_claude_code_loop_frontmatter():
+    rendered = render_skill("claude_code", "nauro-loop")
+    assert rendered.startswith("---\nname: nauro-loop\n")
+    assert "description:" in rendered.split("\n---\n", 1)[0]
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_loop_body()
+
+
+def test_render_skill_cursor_loop_frontmatter():
+    rendered = render_skill("cursor", "nauro-loop")
+    fm = rendered.split("\n---\n", 1)[0]
+    assert "description:" in fm
+    assert "alwaysApply: false" in fm
+    assert "name:" not in fm
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_loop_body()
 
 
 def test_context_body_brief_size_gloss_matches_constant():
@@ -217,6 +286,9 @@ DOGFOOD_FILES = [
     (".claude/skills/nauro-context/SKILL.md", "claude_code", "nauro-context"),
     (".cursor/rules/nauro-context.mdc", "cursor", "nauro-context"),
     (".agents/skills/nauro-context/SKILL.md", "codex", "nauro-context"),
+    (".claude/skills/nauro-loop/SKILL.md", "claude_code", "nauro-loop"),
+    (".cursor/rules/nauro-loop.mdc", "cursor", "nauro-loop"),
+    (".agents/skills/nauro-loop/SKILL.md", "codex", "nauro-loop"),
 ]
 
 

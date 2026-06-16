@@ -450,12 +450,13 @@ def codex(
 # ``OPT_IN_SKILL_NAMES`` is materialized only when the caller passes
 # ``with_skills=True``. ``nauro-ship-task`` references the bundled ``@nauro-*``
 # subagents and is opt-in for that reason, so the ``--with-subagents`` notice
-# stays scoped to it. ``nauro-context`` composes only existing MCP tools (plus
-# the agent's own filesystem write) with no subagent dependency, so it carries
-# no such notice.
+# stays scoped to it. ``nauro-loop`` dispatches ``/nauro-ship-task``
+# byte-for-byte, so it carries the same subagent dependency transitively.
+# ``nauro-context`` composes only existing MCP tools (plus the agent's own
+# filesystem write) with no subagent dependency, so it carries no such notice.
 
 SKILL_NAMES: tuple[str, ...] = ("nauro-adopt",)
-OPT_IN_SKILL_NAMES: tuple[str, ...] = ("nauro-ship-task", "nauro-context")
+OPT_IN_SKILL_NAMES: tuple[str, ...] = ("nauro-ship-task", "nauro-context", "nauro-loop")
 
 
 def _claude_skill_dir() -> Path:
@@ -519,7 +520,8 @@ def materialize_skills_claude_code(
     are preserved because other registered nauro projects still depend on
     them. Defaults to True so direct unit callers and the add path retain
     their previous behavior. ``with_skills`` extends the install/remove set
-    with ``OPT_IN_SKILL_NAMES`` (``nauro-ship-task`` and ``nauro-context``).
+    with ``OPT_IN_SKILL_NAMES`` (``nauro-ship-task``, ``nauro-context``, and
+    ``nauro-loop``).
     """
     from nauro.skills import render_skill
 
@@ -549,7 +551,8 @@ def materialize_skills_codex(
     are preserved because other registered nauro projects still depend on
     them. Defaults to True so direct unit callers and the add path retain
     their previous behavior. ``with_skills`` extends the install/remove set
-    with ``OPT_IN_SKILL_NAMES`` (``nauro-ship-task`` and ``nauro-context``).
+    with ``OPT_IN_SKILL_NAMES`` (``nauro-ship-task``, ``nauro-context``, and
+    ``nauro-loop``).
     """
     from nauro.skills import render_skill
 
@@ -866,12 +869,12 @@ def setup_all_surfaces(
     locally-modified bundled files instead of preserving them.
 
     ``with_skills`` opts into installing the bundled opt-in skills
-    (``nauro-ship-task``, ``nauro-context``). Independent of
+    (``nauro-ship-task``, ``nauro-context``, ``nauro-loop``). Independent of
     ``with_subagents`` so users
     can adopt skills and subagents on separate cadences, though
     ``nauro-ship-task`` references the bundled ``@nauro-*`` subagents in
-    its body — caller surfaces ``with_skills`` without ``with_subagents``
-    should warn the user.
+    its body — and ``nauro-loop`` dispatches that chain — so a caller that
+    surfaces ``with_skills`` without ``with_subagents`` should warn the user.
 
     ``with_hooks`` opts into wiring the advisory ``UserPromptSubmit`` hook into
     each repo's project-scope ``.claude/settings.json`` (Claude-Code-only).
@@ -977,8 +980,8 @@ def setup_all_surfaces(
 
 
 SHIP_TASK_NEEDS_SUBAGENTS_NOTICE = (
-    "nauro-ship-task references the bundled @nauro-* subagents; pass "
-    "`--with-subagents` to install them too."
+    "nauro-ship-task references the bundled @nauro-* subagents (and nauro-loop "
+    "dispatches that chain); pass `--with-subagents` to install them too."
 )
 
 # The bundled subagents allow the cloud tools by the fixed name
@@ -1037,7 +1040,7 @@ def all_(
         "--with-skills",
         help=(
             "Install Nauro's bundled opt-in skills "
-            "(/nauro-ship-task, /nauro-context) alongside the "
+            "(/nauro-ship-task, /nauro-context, /nauro-loop) alongside the "
             "always-installed /nauro-adopt skill. Independent of --with-subagents."
         ),
     ),

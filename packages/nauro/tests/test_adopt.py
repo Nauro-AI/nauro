@@ -450,6 +450,47 @@ def test_adopt_remove_clears_ship_task_when_last_project(tmp_path: Path, monkeyp
     assert not cursor.exists()
 
 
+def _loop_paths(home: Path, repo: Path) -> tuple[Path, Path, Path]:
+    """Return the (claude, codex, cursor) target paths for the bundled
+    /nauro-loop skill in an isolated HOME."""
+    return (
+        home / ".claude" / "skills" / "nauro-loop" / "SKILL.md",
+        home / ".agents" / "skills" / "nauro-loop" / "SKILL.md",
+        repo / ".cursor" / "rules" / "nauro-loop.mdc",
+    )
+
+
+def test_adopt_default_does_not_install_loop_skill(tmp_path: Path, monkeypatch):
+    """Bare ``nauro adopt`` (no ``--with-skills``) leaves nauro-loop uninstalled."""
+    repo = _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 0, result.output
+
+    claude, codex, cursor = _loop_paths(tmp_path, repo)
+    assert not claude.exists()
+    assert not codex.exists()
+    assert not cursor.exists()
+
+
+def test_adopt_with_skills_installs_loop_across_surfaces(tmp_path: Path, monkeypatch):
+    """``--with-skills`` materializes nauro-loop byte-equal to render_skill()."""
+    from nauro.skills import render_skill
+
+    repo = _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
+    assert result.exit_code == 0, result.output
+
+    claude, codex, cursor = _loop_paths(tmp_path, repo)
+    assert claude.is_file()
+    assert codex.is_file()
+    assert cursor.is_file()
+    assert claude.read_text(encoding="utf-8") == render_skill("claude_code", "nauro-loop")
+    assert codex.read_text(encoding="utf-8") == render_skill("codex", "nauro-loop")
+    assert cursor.read_text(encoding="utf-8") == render_skill("cursor", "nauro-loop")
+
+
 def test_adopt_print_prompt_conflicts_with_with_skills(tmp_path: Path, monkeypatch):
     """``--print-prompt`` plus ``--with-skills`` is rejected as mutually exclusive."""
     monkeypatch.chdir(tmp_path)
