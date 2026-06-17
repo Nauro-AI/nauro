@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nauro"
-version = "0.13.3"
+version = "1.0.0"
 description = "Local CLI + MCP server: set your project's doctrine once, every connected AI agent inherits it."
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ authors = [
     {name = "Thomas Thomsen"},
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "nauro-core>=0.13.10,<0.14",
+    "nauro-core>=1.0,<2",
     "typer>=0.9",
     "httpx>=0.24",
     "mcp>=1.0",

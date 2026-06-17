@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
 
 *A coding agent checks the project's prior decisions before it plans, then records the approved decision and makes the change. Captured in Codex.*
 
-**Status:** Beta (pre-1.0). The local CLI and stdio MCP server are stable; cloud sync is stabilizing.
+**Status:** Stable (1.0). The nauro CLI, the stdio MCP tool contract, and the on-disk store format follow semantic versioning. Cloud sync is versioned and operated separately.
 
 More at [nauro.ai](https://nauro.ai).
 
