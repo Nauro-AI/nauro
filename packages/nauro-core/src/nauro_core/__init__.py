@@ -327,3 +327,59 @@ from nauro_core.validation import (
 DECISION_TYPES = DECISION_TYPE_VALUES
 
 __version__ = version("nauro-core")
+
+# Curated public import surface promised under semantic versioning. These are the
+# top-level `from nauro_core import X` names that nauro-core's documented API and
+# its real consumers (the Nauro CLI and the remote MCP server) depend on: decision
+# parsing and formatting, context assembly, hashing, the MCP tool contract, plus
+# the size limits and store-format constants the on-disk store and write-path
+# validation rely on. Names not listed remain importable (submodule-equivalent
+# access is unchanged), but are not part of the stability guarantee.
+__all__ = [
+    "__version__",
+    # Decision parsing, formatting, and summaries.
+    "parse_decision",
+    "format_decision",
+    "extract_decision_number",
+    "extract_stack_summary",
+    "decisions_summary_lines",
+    "build_graph_payload",
+    # Context assembly.
+    "build_l0",
+    "build_l1",
+    "build_l2",
+    # Hashing.
+    "compute_hash",
+    # MCP tool contract, remote instructions, and snapshot serialization.
+    "ALL_TOOLS",
+    "build_remote_instructions",
+    "serialize_snapshot",
+    "MCP_INSTRUCTIONS_STATIC",
+    "CHECK_DECISION_RETURNS",
+    "GET_DECISION_BEFORE_PROPOSING",
+    "NO_INVENT_RATIONALE",
+    # Identity.
+    "sanitize_sub",
+    # Valid decision types.
+    "DECISION_TYPES",
+    # Write-path size limits.
+    "MAX_BRIEF_BYTES",
+    "MAX_RATIONALE_LENGTH",
+    "MAX_TITLE_LENGTH",
+    "MAX_CONTEXT_LENGTH",
+    "MAX_APPROACH_LENGTH",
+    "MAX_DELTA_LENGTH",
+    "MAX_QUESTION_LENGTH",
+    "MIN_RATIONALE_LENGTH",
+    # Store-format constants.
+    "SNAPSHOT_SCHEMA_VERSION",
+    "DECISIONS_DIR",
+    "SNAPSHOTS_DIR",
+    "DECISION_HASHES_FILE",
+    "PROJECT_MD",
+    "STACK_MD",
+    "STATE_MD",
+    "OPEN_QUESTIONS_MD",
+    "STATE_CURRENT_FILENAME",
+    "STATE_HISTORY_FILENAME",
+]
