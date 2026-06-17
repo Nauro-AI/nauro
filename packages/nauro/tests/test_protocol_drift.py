@@ -128,7 +128,7 @@ def test_adopt_body_mentions_operation_anchor(anchor: str) -> None:
     [
         (s, k)
         for s in ("claude_code", "cursor", "codex")
-        for k in ("nauro-adopt", "nauro-ship-task", "nauro-context")
+        for k in ("nauro-adopt", "nauro-ship-task", "nauro-context", "nauro-loop")
     ],
 )
 def test_rendered_skill_has_no_protocol_tokens(surface: str, skill: str) -> None:
@@ -153,7 +153,7 @@ def test_docs_adopt_prompt_has_no_protocol_tokens() -> None:
 # Source templates: only known tokens allowed (catches typos at the source)
 # ─────────────────────────────────────────────────────────────────────────────
 
-SOURCE_TEMPLATE_FILES = ("adopt_body.md", "ship_task_body.md", "context_body.md")
+SOURCE_TEMPLATE_FILES = ("adopt_body.md", "ship_task_body.md", "context_body.md", "loop_body.md")
 
 
 @pytest.mark.parametrize("template_filename", SOURCE_TEMPLATE_FILES)
@@ -186,6 +186,9 @@ DISTRIBUTION_FILES = (
     ".claude/skills/nauro-context/SKILL.md",
     ".cursor/rules/nauro-context.mdc",
     ".agents/skills/nauro-context/SKILL.md",
+    ".claude/skills/nauro-loop/SKILL.md",
+    ".cursor/rules/nauro-loop.mdc",
+    ".agents/skills/nauro-loop/SKILL.md",
     "docs/adopt-prompt.md",
 )
 
