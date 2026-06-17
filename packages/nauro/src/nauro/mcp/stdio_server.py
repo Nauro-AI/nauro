@@ -38,6 +38,7 @@ from nauro_core.mcp_tools import ToolSpec, get_tool_spec
 from nauro_core.renderers import RENDERERS as _RENDERERS
 from pydantic import Field
 
+from nauro import __version__
 from nauro.mcp.tools import (
     tool_check_decision,
     tool_diff_since_last_session,
@@ -66,6 +67,10 @@ from nauro.store.resolution import (
 
 logger = logging.getLogger("nauro.stdio")
 mcp = FastMCP("nauro", instructions=MCP_INSTRUCTIONS, log_level="WARNING")
+# FastMCP does not forward a version to the underlying low-level server, which
+# otherwise reports the mcp framework version in the initialize response. Set
+# the nauro package version so connecting clients see the release in use.
+mcp._mcp_server.version = __version__
 
 
 NOT_A_NAURO_REPO = (

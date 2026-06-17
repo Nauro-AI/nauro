@@ -338,6 +338,19 @@ class TestToolRegistration:
         assert "diff_since_last_session" in tool_names
 
 
+class TestServerInfo:
+    def test_server_reports_nauro_version(self):
+        """initialize advertises the nauro package version, not the mcp
+        framework version. FastMCP does not forward a version to the underlying
+        low-level server, so stdio_server sets it explicitly; this guards the
+        wiring against regressing to the framework default."""
+        from nauro import __version__
+
+        assert mcp._mcp_server.version == __version__
+        opts = mcp._mcp_server.create_initialization_options()
+        assert opts.server_version == __version__
+
+
 class TestToolSpecDescriptionsReachAgent:
     """Per-property descriptions in nauro_core.mcp_tools must reach agents
     via FastMCP's tools/list inputSchema, not just the parent tool
