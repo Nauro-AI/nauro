@@ -26,12 +26,12 @@ These are structural, not stylistic. The loop holds none of these capabilities a
 
 ORIENT writes nothing. It reuses the Resume R1/R2 mining logic to read the project's current state and assemble candidate work:
 
-- `get_context(level="L1")` for the current sprint, blockers, and recent completions.
-- `get_raw_file(path="open-questions.md")`, read in full, scanning for `RESUME:` and `BRIEF:` pointers — a `RESUME:` pointer names in-flight work to continue; a `BRIEF:` pointer names context another agent left that may seed a task.
+- `get_context(level="L0")` for the concise project summary — current state, the top open questions, and last-10 active-decision summaries. That is enough to rank candidates against current direction; ORIENT does not need full decision bodies to compose the set, so it takes the cheaper L0 projection rather than the larger working set.
+- `get_raw_file(path="open-questions.md")`, scanned for the `RESUME:` and `BRIEF:` markers — a `RESUME:` marker names in-flight work to continue; a `BRIEF:` marker names context another agent left that may seed a task. This scan stays even though ORIENT already read L0: L0 deliberately excludes the discovery pointers from its open-questions projection, so the markers never appear in the L0 payload and a separate targeted scan of the file is the only way to reach them. Scanning a large file for two literal markers is cheap; reading the whole file into context is what overflowed, so scan for the markers rather than ingesting the file whole.
 - `diff_since_last_session` to see what changed recently, so the candidate set reflects real movement and not a stale read.
 - `list_decisions` to ground candidates against active doctrine and recent direction.
 
-From that, ORIENT composes 1-3 ranked candidate tasks. Each candidate carries a one-line rationale, the source signal it came from (the `L1` working set, a specific pointer, a recent diff, a decision), and its provenance so the human can trace where it originated.
+From that, ORIENT composes 1-3 ranked candidate tasks. Each candidate carries a one-line rationale, the source signal it came from (the `L0` working set, a specific pointer, a recent diff, a decision), and its provenance so the human can trace where it originated.
 
 Re-verify every `RESUME:` anchor before ranking it: check the branch heads, open PR numbers, and any expected-state anchors the pointer names against `origin/main`. A `RESUME:` candidate whose anchors no longer match is demoted to "stale, surface" — it is not ranked as live work; it is reported to the human as a pointer that needs attention. ORIENT never fabricates a candidate: if the mine is empty, it composes nothing and the loop stops (see RE-ORIENT).
 
