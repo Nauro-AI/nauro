@@ -315,8 +315,8 @@ def check_decision(
 
 @mcp.tool(**_spec_kwargs("propose_decision"))
 def propose_decision(
-    title: Annotated[str, Field(description=_param_desc("propose_decision", "title"))],
     rationale: Annotated[str, Field(description=_param_desc("propose_decision", "rationale"))],
+    title: Annotated[str, Field(description=_param_desc("propose_decision", "title"))] = "",
     operation: Annotated[
         Literal["add", "update", "supersede"],
         Field(description=_param_desc("propose_decision", "operation")),

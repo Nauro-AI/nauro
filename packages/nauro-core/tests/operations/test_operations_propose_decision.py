@@ -527,6 +527,39 @@ def test_update_appends_rationale_paragraph() -> None:
     assert "version: 2" in body
 
 
+def test_update_rationale_only_omitting_title_preserves_target_title() -> None:
+    """A rationale-only update that omits ``title`` confirms and leaves the
+    target's title untouched.
+
+    This is the kernel half of the deadlock fix: a schema-respecting client now
+    omits ``title`` entirely (rather than being forced to send a non-empty value
+    the kernel would reject). ``title=None`` must pass the disallowed-fields
+    check and the rewrite must preserve the original title verbatim.
+    """
+    original_title = "Adopt PostgreSQL"
+    store = _store_with(
+        _seed_decision(
+            1,
+            original_title,
+            "Mature ecosystem with strong JSON support and excellent tooling.",
+        ),
+    )
+    result = propose_decision(
+        store,
+        title=None,
+        rationale="Add a managed-extensions clause after the first month in production.",
+        operation="update",
+        affected_decision_id="decision-001",
+    )
+    assert result.status == "confirmed"
+    assert result.operation == "update"
+    body = store.read_decision("001-adopt-postgresql")
+    assert body is not None
+    # The title lives in the decision heading; the update must leave it intact.
+    assert f"— {original_title}" in body
+    assert "managed-extensions clause" in body
+
+
 def test_update_disallowed_field_rejected_loudly() -> None:
     """``operation="update"`` cannot change metadata; rejection at Tier 0."""
     store = _store_with(

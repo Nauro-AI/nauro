@@ -244,16 +244,15 @@ def _kwarg_value(kwargs: dict[str, str], key: str) -> str:
 
 
 def _required_for_call(spec: ToolSpec, kwargs: dict[str, str]) -> set[str]:
-    """Effective required-param set, applying the update-operation exception.
+    """Effective required-param set for a tool call.
 
-    ``propose_decision(operation="update")`` only accepts ``rationale`` +
-    ``affected_decision_id`` at the server boundary, so ``title`` is
-    relaxed from the schema's static required list.
+    ``propose_decision`` marks only ``rationale`` required: ``title`` is
+    optional because ``operation="update"`` appends rationale only and the
+    kernel rejects a non-empty title on update. A required title would make
+    update uncallable through any schema-respecting transport. The set is read
+    straight from the schema; no per-operation adjustment is needed.
     """
-    required = set(spec["input_schema"].get("required", []))
-    if spec["name"] == "propose_decision" and _kwarg_value(kwargs, "operation") == "update":
-        required.discard("title")
-    return required
+    return set(spec["input_schema"].get("required", []))
 
 
 def _call_looks_complete(positional: list[str], kwargs: dict[str, str]) -> bool:
@@ -290,12 +289,14 @@ def test_parser_emits_unbalanced_calls_with_none_args():
     assert call.offset == len("propose_decision")
 
 
-def test_required_for_call_relaxes_title_for_update_propose():
+def test_required_for_call_title_optional_rationale_required():
+    """propose_decision requires only ``rationale``; ``title`` is optional for
+    every operation so rationale-only update is callable through the schema."""
     spec = _TOOL_BY_NAME["propose_decision"]
-    assert "title" in _required_for_call(spec, kwargs={})
-    relaxed = _required_for_call(spec, kwargs={"operation": '"update"'})
-    assert "title" not in relaxed
-    assert "rationale" in relaxed
+    for kwargs in ({}, {"operation": '"add"'}, {"operation": '"update"'}):
+        required = _required_for_call(spec, kwargs=kwargs)
+        assert "rationale" in required
+        assert "title" not in required
 
 
 def test_tool_prefixes_derived_from_all_tools():
