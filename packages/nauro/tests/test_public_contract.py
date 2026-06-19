@@ -63,6 +63,8 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -191,21 +193,42 @@ def _walk_cli(command: click.Command, name: str, ctx: click.Context) -> dict[str
     return node
 
 
-def _cli_tree() -> dict[str, Any]:
-    # Read the tree from a freshly-reloaded app, not the process-global
-    # singleton. Other tests in the suite import and exercise
-    # ``nauro.cli.main.app`` (CliRunner invocations, registration assertions);
-    # reloading re-runs ``_register_commands`` so this snapshot reflects the
-    # real registered surface regardless of suite ordering or any prior
-    # in-place mutation of the shared app. The real CLI always starts from a
-    # fresh process, so this matches production, not a test artifact.
-    import importlib
+def _build_cli_tree() -> dict[str, Any]:
+    """Walk the CLI command tree in-process. Runs inside the fresh subprocess
+    spawned by :func:`_cli_tree`, where the app is pristine."""
+    from nauro.cli.main import app
 
-    from nauro.cli import main as cli_main
-
-    cli_main = importlib.reload(cli_main)
-    command = typer.main.get_command(cli_main.app)
+    command = typer.main.get_command(app)
     return _walk_cli(command, "nauro", click.Context(command, info_name="nauro"))
+
+
+# Capture the CLI tree from a FRESH interpreter, not in-process. The tree is
+# read off the process-global ``nauro.cli.main.app`` singleton, which other
+# tests in the suite import and exercise (CliRunner invocations, registration
+# assertions). An in-process read is therefore sensitive to suite ordering and
+# prior mutation of that shared object — observed as the registered commands
+# being absent under CI's ordering, collapsing the tree to an empty list. A
+# subprocess is hermetic and matches how the real CLI runs (a fresh process),
+# so the frozen surface is the surface a user actually gets. (Same fresh-process
+# pattern as test_retrieval_bench_smoke.)
+_CLI_TREE_DUMP = (
+    "import json, sys; sys.path.insert(0, sys.argv[1]); "
+    "import test_public_contract as _t; print(json.dumps(_t._build_cli_tree()))"
+)
+
+
+def _cli_tree() -> dict[str, Any]:
+    proc = subprocess.run(
+        [sys.executable, "-c", _CLI_TREE_DUMP, str(Path(__file__).parent)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "Failed to capture the CLI command tree in a subprocess:\n" + proc.stderr
+        )
+    return json.loads(proc.stdout)
 
 
 def _constant_values() -> dict[str, Any]:
