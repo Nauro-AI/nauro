@@ -60,6 +60,7 @@ then review the diff to ``snapshots/public_contract_v1.json`` carefully — a
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 from pathlib import Path
@@ -238,11 +239,25 @@ def test_public_contract_matches_snapshot() -> None:
         f"{_UPDATE_ENV}=1 .venv/bin/python -m pytest {Path(__file__).name}"
     )
     expected = SNAPSHOT_PATH.read_text(encoding="utf-8").rstrip("\n")
-    assert current == expected, (
-        "The 1.0 public contract has drifted from the checked-in snapshot "
-        f"({SNAPSHOT_PATH.name}). This is a frozen surface under D318: a change "
-        "here is a major-version (2.0) concern unless it is purely additive and "
-        "you have confirmed so. If the change is intentional and reviewed, "
-        f"regenerate with `{_UPDATE_ENV}=1 .venv/bin/python -m pytest "
-        f"{Path(__file__).name}` and review the diff carefully."
-    )
+    if current != expected:
+        diff = "\n".join(
+            difflib.unified_diff(
+                expected.splitlines(),
+                current.splitlines(),
+                fromfile="snapshot (expected)",
+                tofile="live contract (current)",
+                lineterm="",
+                n=2,
+            )
+        )
+        if len(diff) > 8000:
+            diff = diff[:8000] + "\n... (diff truncated)"
+        raise AssertionError(
+            "The 1.0 public contract has drifted from the checked-in snapshot "
+            f"({SNAPSHOT_PATH.name}). This is a frozen surface under D318: a change "
+            "here is a major-version (2.0) concern unless it is purely additive and "
+            "you have confirmed so. If the change is intentional and reviewed, "
+            f"regenerate with `{_UPDATE_ENV}=1 .venv/bin/python -m pytest "
+            f"{Path(__file__).name}` and review the diff carefully.\n\n"
+            f"{diff}"
+        )
