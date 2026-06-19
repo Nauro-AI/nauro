@@ -143,13 +143,39 @@ def test_load_loop_body_returns_canonical_bytes():
     # Gate H is the stuck-handler: a chain that self-halts or fails loud routes
     # to a surface-and-wait gate, never a blind retry or skip to the next task.
     assert "Gate H" in body
-    # ORIENT mines via the Resume R1/R2 pointers on the union-merged file.
+    # ORIENT mines via the Resume pointers on the union-merged file.
     assert "RESUME:" in body
     assert "BRIEF:" in body
-    # Unattended substrates (cron / scheduled wakeups / routines) are out of
-    # scope — they cannot pause for the SELECT sign-off.
-    assert "cron" in body
-    assert "out of scope" in body
+    # Two named entry modes: the synchronous /loop run and the scheduled
+    # headless ORIENT that parks a durable SELECT checkpoint.
+    assert "two entry modes" in body or "two named entry modes" in body
+    assert "Scheduled headless ORIENT" in body
+    assert "Resume-entrypoint" in body
+    # The SELECT-as-checkpoint async entry mode: the candidate set parks as a
+    # context/ brief with a literal SELECT: pointer and an awaiting-selection
+    # frontmatter status, discovered by the live continuation.
+    assert "SELECT:" in body
+    assert "awaiting-selection" in body
+    # The single most expensive invariant to get wrong: the scheduled headless
+    # run must exit before any gate, and SELECT / AskUserQuestion must appear
+    # only in the continuation context, never in the scheduled mine.
+    assert "exits before any gate" in body or "exit before any gate" in body
+    # AskUserQuestion is the human ratify-surface; it must be reached only from
+    # the synchronous parent session or the live resume continuation, never the
+    # headless scheduled run. Guard that every mention sits in continuation
+    # context by asserting the continuation explicitly disclaims the headless
+    # path from surfacing it.
+    assert "never surface SELECT" in body or "never surfaces" in body
+    # The checkpoint is session/process state via filesystem + nauro sync, NOT
+    # a doctrine write — load-bearing distinction that keeps the no-write posture.
+    assert "NOT a doctrine write" in body
+    assert "nauro sync" in body
+    # Stale checkpoints are surfaced, not acted on (build-time freshness window).
+    assert "stale" in body
+    # Generic, not Conductor: the scheduler is the customer's own; Nauro bundles
+    # none and assumes no worktree.
+    assert "no bundled scheduler" in body
+    assert "no worktree assumption" in body
     # No leaked template syntax.
     assert "<!--" not in body
     assert "{{" not in body
