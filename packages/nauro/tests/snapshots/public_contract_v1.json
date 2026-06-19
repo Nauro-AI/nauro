@@ -23,7 +23,7 @@
               "--force-overwrite"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "force_overwrite",
             "required": false,
             "type": "boolean"
@@ -32,7 +32,7 @@
             "flags": [
               "--name"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "name",
             "required": false,
             "type": "text"
@@ -43,7 +43,7 @@
               "--no-setup-and-skills"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "no_setup_and_skills",
             "required": false,
             "type": "boolean"
@@ -54,7 +54,7 @@
               "--print-prompt"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "print_prompt",
             "required": false,
             "type": "boolean"
@@ -63,7 +63,7 @@
             "flags": [
               "--repo"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "repo",
             "required": false,
             "type": "path"
@@ -74,7 +74,7 @@
               "--with-skills"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "with_skills",
             "required": false,
             "type": "boolean"
@@ -85,7 +85,7 @@
               "--with-subagents"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "with_subagents",
             "required": false,
             "type": "boolean"
@@ -97,7 +97,7 @@
         "name": "attach",
         "params": [
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "project_id",
             "required": true,
             "type": "text"
@@ -106,7 +106,7 @@
             "flags": [
               "--repo"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "repo_path",
             "required": false,
             "type": "path"
@@ -143,7 +143,7 @@
             "flags": [
               "--context"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "context",
             "required": false,
             "type": "text"
@@ -155,7 +155,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -164,13 +164,13 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
           },
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "proposed_approach",
             "required": true,
             "type": "text"
@@ -184,7 +184,7 @@
             "name": "get",
             "params": [
               {
-                "kind": "TyperArgument",
+                "kind": "argument",
                 "name": "key",
                 "required": true,
                 "type": "text"
@@ -201,7 +201,7 @@
             "name": "unset",
             "params": [
               {
-                "kind": "TyperArgument",
+                "kind": "argument",
                 "name": "key",
                 "required": true,
                 "type": "text"
@@ -221,7 +221,7 @@
             "flags": [
               "--days"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "days",
             "required": false,
             "type": "integer"
@@ -233,7 +233,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -242,7 +242,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -257,7 +257,7 @@
             "flags": [
               "--context"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "context",
             "required": false,
             "type": "text"
@@ -269,7 +269,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -278,7 +278,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -287,7 +287,7 @@
             "flags": [
               "--question"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "question",
             "required": false,
             "type": "text"
@@ -296,7 +296,7 @@
             "flags": [
               "--resolved-by"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "resolved_by",
             "required": false,
             "type": "text"
@@ -305,7 +305,7 @@
             "flags": [
               "--targets"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "multiple": true,
             "name": "targets",
             "required": false,
@@ -324,7 +324,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -339,7 +339,7 @@
             "flags": [
               "--level"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "level",
             "required": false,
             "type": "choice"
@@ -348,7 +348,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -366,7 +366,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -380,13 +380,13 @@
             "flags": [
               "--mode"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "mode",
             "required": false,
             "type": "choice"
           },
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "number",
             "required": true,
             "type": "integer"
@@ -395,7 +395,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -413,13 +413,13 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
           },
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "path",
             "required": true,
             "type": "text"
@@ -428,7 +428,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -446,7 +446,7 @@
               "--no-include-bodies"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "include_bodies",
             "required": false,
             "type": "boolean"
@@ -458,7 +458,7 @@
               "--open"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "open_browser",
             "required": false,
             "type": "boolean"
@@ -467,7 +467,7 @@
             "flags": [
               "--output"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "output",
             "required": false,
             "type": "path"
@@ -476,7 +476,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -503,7 +503,7 @@
             "flags": [
               "--adr"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "adr",
             "required": false,
             "type": "path"
@@ -512,7 +512,7 @@
             "flags": [
               "--memory-bank"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "memory_bank",
             "required": false,
             "type": "path"
@@ -521,7 +521,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -536,7 +536,7 @@
             "flags": [
               "--add-repo"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "multiple": true,
             "name": "add_repo_paths",
             "required": false,
@@ -548,7 +548,7 @@
               "--cloud"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "cloud",
             "required": false,
             "type": "boolean"
@@ -559,7 +559,7 @@
               "--demo"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "demo",
             "required": false,
             "type": "boolean"
@@ -570,13 +570,13 @@
               "--force"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "force",
             "required": false,
             "type": "boolean"
           },
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "name",
             "required": false,
             "type": "text"
@@ -593,7 +593,7 @@
               "--cloud"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "cloud",
             "required": false,
             "type": "boolean"
@@ -611,7 +611,7 @@
               "--no-include-superseded"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "include_superseded",
             "required": false,
             "type": "boolean"
@@ -623,7 +623,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -633,7 +633,7 @@
             "flags": [
               "--limit"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "limit",
             "required": false,
             "type": "integer"
@@ -642,7 +642,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -659,7 +659,7 @@
               "--all"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "all_decisions",
             "required": false,
             "type": "boolean"
@@ -670,7 +670,7 @@
               "--decisions"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "decisions",
             "required": false,
             "type": "boolean"
@@ -681,7 +681,7 @@
               "--full"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "full",
             "required": false,
             "type": "boolean"
@@ -692,7 +692,7 @@
               "--limit",
               "-n"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "limit",
             "required": false,
             "type": "integer"
@@ -701,7 +701,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -718,7 +718,7 @@
               "--confidence",
               "-c"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "confidence",
             "required": false,
             "type": "text"
@@ -730,7 +730,7 @@
               "-d"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "decision",
             "required": false,
             "type": "boolean"
@@ -739,7 +739,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -751,7 +751,7 @@
               "-q"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "question",
             "required": false,
             "type": "boolean"
@@ -761,13 +761,13 @@
               "--rationale",
               "-r"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "rationale",
             "required": false,
             "type": "text"
           },
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "text",
             "required": true,
             "type": "text"
@@ -786,7 +786,7 @@
             "name": "rm",
             "params": [
               {
-                "kind": "TyperArgument",
+                "kind": "argument",
                 "name": "project_id",
                 "required": true,
                 "type": "text"
@@ -797,7 +797,7 @@
                   "--yes"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "yes",
                 "required": false,
                 "type": "boolean"
@@ -817,7 +817,7 @@
             "flags": [
               "--affected-decision-id"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "affected_decision_id",
             "required": false,
             "type": "text"
@@ -831,7 +831,7 @@
             "flags": [
               "--confidence"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "confidence",
             "required": false,
             "type": "choice"
@@ -848,7 +848,7 @@
             "flags": [
               "--decision-type"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "decision_type",
             "required": false,
             "type": "choice"
@@ -857,7 +857,7 @@
             "flags": [
               "--files-affected"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "multiple": true,
             "name": "files_affected",
             "required": false,
@@ -870,7 +870,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -885,7 +885,7 @@
             "flags": [
               "--operation"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "operation",
             "required": false,
             "type": "choice"
@@ -894,13 +894,13 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
           },
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "rationale",
             "required": true,
             "type": "text"
@@ -909,7 +909,7 @@
             "flags": [
               "--rejected"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "rejected",
             "required": false,
             "type": "text"
@@ -918,7 +918,7 @@
             "flags": [
               "--resolves-questions"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "multiple": true,
             "name": "resolves_questions",
             "required": false,
@@ -933,7 +933,7 @@
             "flags": [
               "--reversibility"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "reversibility",
             "required": false,
             "type": "choice"
@@ -943,7 +943,7 @@
             "flags": [
               "--title"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "title",
             "required": false,
             "type": "text"
@@ -962,7 +962,7 @@
                   "--dry-run"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "dry_run",
                 "required": false,
                 "type": "boolean"
@@ -971,7 +971,7 @@
                 "flags": [
                   "--project"
                 ],
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "project",
                 "required": false,
                 "type": "text"
@@ -994,13 +994,13 @@
               "--check"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "check",
             "required": false,
             "type": "boolean"
           },
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "dir",
             "required": true,
             "type": "path"
@@ -1018,7 +1018,7 @@
               "--no-include-superseded"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "include_superseded",
             "required": false,
             "type": "boolean"
@@ -1030,7 +1030,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -1040,7 +1040,7 @@
             "flags": [
               "--limit"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "limit",
             "required": false,
             "type": "integer"
@@ -1049,13 +1049,13 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
           },
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "query",
             "required": true,
             "type": "text"
@@ -1072,7 +1072,7 @@
               "--stdio"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "stdio",
             "required": false,
             "type": "boolean"
@@ -1091,7 +1091,7 @@
                   "--force-overwrite"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "force_overwrite",
                 "required": false,
                 "type": "boolean"
@@ -1100,7 +1100,7 @@
                 "flags": [
                   "--project"
                 ],
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "project",
                 "required": false,
                 "type": "text"
@@ -1111,7 +1111,7 @@
                   "--remove"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "remove",
                 "required": false,
                 "type": "boolean"
@@ -1122,7 +1122,7 @@
                   "--with-hooks"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "with_hooks",
                 "required": false,
                 "type": "boolean"
@@ -1133,7 +1133,7 @@
                   "--with-skills"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "with_skills",
                 "required": false,
                 "type": "boolean"
@@ -1144,7 +1144,7 @@
                   "--with-subagents"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "with_subagents",
                 "required": false,
                 "type": "boolean"
@@ -1159,7 +1159,7 @@
                 "flags": [
                   "--project"
                 ],
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "project",
                 "required": false,
                 "type": "text"
@@ -1170,7 +1170,7 @@
                   "--remove"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "remove",
                 "required": false,
                 "type": "boolean"
@@ -1181,7 +1181,7 @@
                   "--with-hooks"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "with_hooks",
                 "required": false,
                 "type": "boolean"
@@ -1198,7 +1198,7 @@
                   "--remove"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "remove",
                 "required": false,
                 "type": "boolean"
@@ -1213,7 +1213,7 @@
                 "flags": [
                   "--project"
                 ],
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "project",
                 "required": false,
                 "type": "text"
@@ -1224,7 +1224,7 @@
                   "--remove"
                 ],
                 "is_flag": true,
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "remove",
                 "required": false,
                 "type": "boolean"
@@ -1244,7 +1244,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -1261,7 +1261,7 @@
               "--message",
               "-m"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "message",
             "required": false,
             "type": "text"
@@ -1270,7 +1270,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -1281,7 +1281,7 @@
               "--status"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "status",
             "required": false,
             "type": "boolean"
@@ -1320,7 +1320,7 @@
         "name": "update-state",
         "params": [
           {
-            "kind": "TyperArgument",
+            "kind": "argument",
             "name": "delta",
             "required": true,
             "type": "text"
@@ -1332,7 +1332,7 @@
               "--no-json"
             ],
             "is_flag": true,
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "json_output",
             "required": false,
             "type": "boolean"
@@ -1341,7 +1341,7 @@
             "flags": [
               "--project"
             ],
-            "kind": "TyperOption",
+            "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
@@ -1358,7 +1358,7 @@
                 "flags": [
                   "--project"
                 ],
-                "kind": "TyperOption",
+                "kind": "option",
                 "name": "project",
                 "required": false,
                 "type": "text"
@@ -1380,7 +1380,7 @@
           "-V"
         ],
         "is_flag": true,
-        "kind": "TyperOption",
+        "kind": "option",
         "name": "version",
         "required": false,
         "type": "boolean"

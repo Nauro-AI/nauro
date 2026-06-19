@@ -151,20 +151,27 @@ def _tool_specs() -> list[dict[str, Any]]:
 
 
 def _param_node(param: click.Parameter) -> dict[str, Any]:
+    # Classify by Click's stable ``param_type_name`` ("option" / "argument")
+    # and read option-only attributes by capability, not isinstance. Across
+    # Typer/Click versions the concrete classes (TyperOption/TyperArgument) do
+    # not reliably subclass click.Option/click.Argument, so an isinstance gate
+    # silently drops fields like ``flags`` on newer versions.
+    kind = getattr(param, "param_type_name", type(param).__name__)
     node: dict[str, Any] = {
         "name": param.name,
-        "kind": type(param).__name__,
+        "kind": kind,
         "type": getattr(param.type, "name", type(param.type).__name__),
         "required": bool(param.required),
     }
-    if isinstance(param, click.Option):
+    if kind == "option":
         node["flags"] = sorted([*param.opts, *param.secondary_opts])
-        if param.is_flag:
+        if getattr(param, "is_flag", False):
             node["is_flag"] = True
-        if param.multiple:
+        if getattr(param, "multiple", False):
             node["multiple"] = True
-    if isinstance(param.type, click.Choice):
-        node["choices"] = sorted(param.type.choices)
+    choices = getattr(param.type, "choices", None)
+    if choices is not None:
+        node["choices"] = sorted(map(str, choices))
     # Record only JSON-literal defaults; None/callables/sentinels are omitted
     # (a stable omission rather than a volatile repr).
     if isinstance(param.default, (str, int, float, bool)):
@@ -172,16 +179,25 @@ def _param_node(param: click.Parameter) -> dict[str, Any]:
     return node
 
 
+def _is_group(command: click.Command) -> bool:
+    # Detect group-ness by capability, not isinstance. Across Typer/Click
+    # versions TyperGroup's bases vary — in Typer >=0.26 / Click >=8.2 it
+    # subclasses click.Command, not click.Group — but a group always exposes
+    # list_commands/get_command. An isinstance(click.Group) gate silently
+    # drops every subcommand on those versions.
+    return hasattr(command, "list_commands") and hasattr(command, "get_command")
+
+
 def _walk_cli(command: click.Command, name: str, ctx: click.Context) -> dict[str, Any]:
     node: dict[str, Any] = {
         "name": name,
-        "kind": "group" if isinstance(command, click.Group) else "command",
+        "kind": "group" if _is_group(command) else "command",
     }
     if getattr(command, "hidden", False):
         node["hidden"] = True
     params = [_param_node(p) for p in command.params if p.name not in _FRAMEWORK_PARAMS]
     node["params"] = sorted(params, key=lambda p: p["name"])
-    if isinstance(command, click.Group):
+    if _is_group(command):
         children = []
         for sub_name in sorted(command.list_commands(ctx)):
             sub = command.get_command(ctx, sub_name)
