@@ -73,7 +73,6 @@ import typer
 from nauro_core.mcp_tools import ALL_TOOLS
 
 from nauro.cli.autogen import AUTOGEN_ALLOWLIST
-from nauro.cli.main import app
 
 CONTRACT_VERSION = 1
 SNAPSHOT_PATH = Path(__file__).parent / "snapshots" / f"public_contract_v{CONTRACT_VERSION}.json"
@@ -193,7 +192,19 @@ def _walk_cli(command: click.Command, name: str, ctx: click.Context) -> dict[str
 
 
 def _cli_tree() -> dict[str, Any]:
-    command = typer.main.get_command(app)
+    # Read the tree from a freshly-reloaded app, not the process-global
+    # singleton. Other tests in the suite import and exercise
+    # ``nauro.cli.main.app`` (CliRunner invocations, registration assertions);
+    # reloading re-runs ``_register_commands`` so this snapshot reflects the
+    # real registered surface regardless of suite ordering or any prior
+    # in-place mutation of the shared app. The real CLI always starts from a
+    # fresh process, so this matches production, not a test artifact.
+    import importlib
+
+    from nauro.cli import main as cli_main
+
+    cli_main = importlib.reload(cli_main)
+    command = typer.main.get_command(cli_main.app)
     return _walk_cli(command, "nauro", click.Context(command, info_name="nauro"))
 
 
