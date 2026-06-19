@@ -199,7 +199,24 @@ def _build_cli_tree() -> dict[str, Any]:
     from nauro.cli.main import app
 
     command = typer.main.get_command(app)
-    return _walk_cli(command, "nauro", click.Context(command, info_name="nauro"))
+    ctx = click.Context(command, info_name="nauro")
+    tree = _walk_cli(command, "nauro", ctx)
+    if not tree.get("commands"):
+        # An empty top-level CLI tree is always a defect (the app registers
+        # ~30 commands at import). Fail loudly with the state that explains why,
+        # rather than silently freezing an empty surface.
+        lc = command.list_commands(ctx) if hasattr(command, "list_commands") else None
+        raise RuntimeError(
+            "CLI command tree resolved empty.\n"
+            f"  type={type(command).__name__} is_group={isinstance(command, click.Group)}\n"
+            f"  mro={[c.__name__ for c in type(command).__mro__]}\n"
+            f"  registered_commands={len(app.registered_commands)} "
+            f"registered_groups={len(app.registered_groups)}\n"
+            f"  list_commands={lc!r}\n"
+            f"  commands_attr={list(getattr(command, 'commands', {}) or {})!r}\n"
+            f"  click={click.__version__} typer={typer.__version__} py={sys.version.split()[0]}"
+        )
+    return tree
 
 
 # Capture the CLI tree from a FRESH interpreter, not in-process. The tree is
