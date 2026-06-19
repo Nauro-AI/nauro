@@ -50,7 +50,7 @@ Principal commands (run `nauro --help` for the full surface):
 
 Command groups: `setup <claude-code|cursor|codex|all>`, `auth <login|status|logout>`, `config <get|list|unset>`, `telemetry <status|enable|disable|reset>`, `validate`, `projects`, `questions`, `hook`.
 
-The 10 read/write MCP tools are also mirrored as CLI commands, auto-generated from the tool allowlist in `cli/autogen.py` (underscored tool names become hyphenated commands). For example: `nauro check-decision`, `nauro diff-since-last-session [--days N]`, and `nauro propose-decision <title> <rationale> [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` (single-call commit on Tier 1 clean; Tier 2 BM25 hits surface as advisory `similar_decisions` on the same response).
+The 10 read/write MCP tools are also mirrored as CLI commands, auto-generated from the tool allowlist in `cli/autogen.py` (underscored tool names become hyphenated commands). For example: `nauro check-decision`, `nauro diff-since-last-session [--days N]`, and `nauro propose-decision <rationale> [--title TITLE] [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` (single-call commit on Tier 1 clean; Tier 2 BM25 hits surface as advisory `similar_decisions` on the same response). `--title` is optional: `operation="update"` appends rationale only, so a rationale-only update omits it.
 
 `list[str]` flags (`--files-affected`, `--resolves-questions`) repeat: `--files-affected a.py --files-affected b.py`. `list[dict]` flags (`--rejected`) take a single JSON value: inline (`'[{...}]'`), `@file.json`, or `-` to read from stdin.
 

@@ -330,6 +330,7 @@ PROPOSE_DECISION: ToolSpec = {
         "properties": {
             "title": {
                 "type": "string",
+                "default": "",
                 "description": "Short title for the decision.",
             },
             "rationale": {
@@ -369,7 +370,12 @@ PROPOSE_DECISION: ToolSpec = {
             "confidence": {
                 "type": "string",
                 "enum": ["high", "medium", "low"],
-                "default": "medium",
+                # No schema default: the adapter applies "medium" for add/
+                # supersede when confidence is unset, and relies on an unset
+                # (None) value to recognise "caller did not send confidence" on
+                # update. A schema default makes every derived transport (the
+                # CLI autogen surface) materialise "medium", which the kernel
+                # then rejects as a disallowed metadata change on update.
                 "description": (
                     "Author's confidence in the decision. Use 'high' only "
                     "when a source explicitly accepts or approves the choice; "
@@ -416,7 +422,11 @@ PROPOSE_DECISION: ToolSpec = {
             },
             "project_id": _PROJECT_PARAM,
         },
-        "required": ["title", "rationale"],
+        # title is optional: operation="update" appends rationale only and the
+        # kernel rejects a non-empty title on update, so a required title made
+        # update uncallable through any schema-respecting transport. On add/
+        # supersede the kernel still rejects an empty title structurally.
+        "required": ["rationale"],
     },
 }
 

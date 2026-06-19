@@ -83,8 +83,9 @@ class TestProposeDecisionHappyPaths:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -109,8 +110,9 @@ class TestProposeDecisionHappyPaths:
             app,
             [
                 "propose-decision",
-                "Switch to managed PostgreSQL provider",
                 "Reduces operational burden; self-hosting rationale no longer applies.",
+                "--title",
+                "Switch to managed PostgreSQL provider",
                 "--operation",
                 "supersede",
                 "--affected-decision-id",
@@ -123,17 +125,61 @@ class TestProposeDecisionHappyPaths:
         assert envelope["status"] == "confirmed"
         assert envelope["operation"] == "supersede"
 
+    def test_update_rationale_only_no_title_confirms_and_preserves_title(self, seeded_repo) -> None:
+        """A rationale-only ``--operation update`` with no ``--title`` confirms
+        end-to-end and leaves the target decision's title untouched.
+
+        This is the path the old schema deadlocked: ``title`` was a required
+        positional, so a schema-respecting CLI client could never omit it, yet
+        the kernel rejects a non-empty title on update. With ``title`` optional
+        the positional is gone and the update is callable. Title preservation is
+        asserted on the rewritten decision file, not just the envelope.
+        """
+        _pid, store_path, _repo = seeded_repo
+        original_title = "Adopt PostgreSQL primary database"
+        append_decision(
+            store_path,
+            original_title,
+            rationale="Mature ecosystem with strong JSON support and excellent tooling.",
+        )
+        decisions = sorted(f.stem for f in (store_path / "decisions").glob("*.md"))
+        postgres_stem = next(s for s in decisions if "postgres" in s)
+        short_form = postgres_stem.split("-", 1)[0]
+
+        result = runner.invoke(
+            app,
+            [
+                "propose-decision",
+                "Add a managed-extensions clause after the first month in production.",
+                "--operation",
+                "update",
+                "--affected-decision-id",
+                short_form,
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.stdout)
+        assert envelope["status"] == "confirmed"
+        assert envelope["operation"] == "update"
+
+        # The target's title survives the rationale append; the rationale grows.
+        body = (store_path / "decisions" / f"{postgres_stem}.md").read_text()
+        assert f"— {original_title}" in body
+        assert "managed-extensions clause" in body
+        assert "version: 2" in body
+
 
 # ── Rejection paths ─────────────────────────────────────────────────────────
 
 
 class TestProposeDecisionRejections:
     def test_update_without_affected_id_rejected(self, seeded_repo) -> None:
+        # A real rationale-only update omits --title; the adapter rejects the
+        # missing affected_decision_id before the kernel is reached.
         result = runner.invoke(
             app,
             [
                 "propose-decision",
-                "Tweak PostgreSQL rationale",
                 "Add operational notes after the first month of production use.",
                 "--operation",
                 "update",
@@ -151,7 +197,6 @@ class TestProposeDecisionRejections:
             app,
             [
                 "propose-decision",
-                "Tweak something that does not exist",
                 "Add operational notes after the first month of production use.",
                 "--operation",
                 "update",
@@ -171,8 +216,9 @@ class TestProposeDecisionRejections:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 oversized,
+                "--title",
+                "Adopt Redis for hot caching",
             ],
         )
         assert result.exit_code == 0, result.output
@@ -191,8 +237,9 @@ class TestProposeDecisionRejections:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
             ],
         )
         assert result.exit_code == 1
@@ -209,8 +256,9 @@ class TestFlagShapes:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
                 "--files-affected",
                 "a.py",
                 "--files-affected",
@@ -232,8 +280,9 @@ class TestFlagShapes:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
                 "--rejected",
                 '[{"alternative": "Memcached", "reason": "Less feature-rich"}]',
             ],
@@ -249,8 +298,9 @@ class TestFlagShapes:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
                 "--rejected",
                 f"@{payload}",
             ],
@@ -264,8 +314,9 @@ class TestFlagShapes:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
                 "--rejected",
                 "-",
             ],
@@ -280,8 +331,9 @@ class TestFlagShapes:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
                 "--rejected",
                 "not json",
             ],
@@ -296,8 +348,9 @@ class TestFlagShapes:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
                 "--rejected",
                 '{"not": "a list"}',
             ],
@@ -315,8 +368,9 @@ class TestFlagShapes:
             app,
             [
                 "propose-decision",
-                "Adopt Redis for hot caching",
                 "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
                 "--operation",
                 "bogus",
             ],
