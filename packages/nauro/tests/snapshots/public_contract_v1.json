@@ -1,0 +1,1800 @@
+{
+  "cli_autogen_commands": [
+    "check_decision",
+    "diff_since_last_session",
+    "flag_question",
+    "get_context",
+    "get_decision",
+    "get_raw_file",
+    "list_decisions",
+    "propose_decision",
+    "search_decisions",
+    "update_state"
+  ],
+  "cli_command_tree": {
+    "commands": [
+      {
+        "kind": "command",
+        "name": "adopt",
+        "params": [
+          {
+            "default": false,
+            "flags": [
+              "--force-overwrite"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "force_overwrite",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--name"
+            ],
+            "kind": "option",
+            "name": "name",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--no-setup-and-skills"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "no_setup_and_skills",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--print-prompt"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "print_prompt",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--repo"
+            ],
+            "kind": "option",
+            "name": "repo",
+            "required": false,
+            "type": "path"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--with-skills"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "with_skills",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--with-subagents"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "with_subagents",
+            "required": false,
+            "type": "boolean"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "attach",
+        "params": [
+          {
+            "kind": "argument",
+            "name": "project_id",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--repo"
+            ],
+            "kind": "option",
+            "name": "repo_path",
+            "required": false,
+            "type": "path"
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "kind": "command",
+            "name": "login",
+            "params": []
+          },
+          {
+            "kind": "command",
+            "name": "logout",
+            "params": []
+          },
+          {
+            "kind": "command",
+            "name": "status",
+            "params": []
+          }
+        ],
+        "kind": "group",
+        "name": "auth",
+        "params": []
+      },
+      {
+        "kind": "command",
+        "name": "check-decision",
+        "params": [
+          {
+            "flags": [
+              "--context"
+            ],
+            "kind": "option",
+            "name": "context",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "kind": "argument",
+            "name": "proposed_approach",
+            "required": true,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "kind": "command",
+            "name": "get",
+            "params": [
+              {
+                "kind": "argument",
+                "name": "key",
+                "required": true,
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "kind": "command",
+            "name": "list",
+            "params": []
+          },
+          {
+            "kind": "command",
+            "name": "unset",
+            "params": [
+              {
+                "kind": "argument",
+                "name": "key",
+                "required": true,
+                "type": "text"
+              }
+            ]
+          }
+        ],
+        "kind": "group",
+        "name": "config",
+        "params": []
+      },
+      {
+        "kind": "command",
+        "name": "diff-since-last-session",
+        "params": [
+          {
+            "flags": [
+              "--days"
+            ],
+            "kind": "option",
+            "name": "days",
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "flag-question",
+        "params": [
+          {
+            "flags": [
+              "--context"
+            ],
+            "kind": "option",
+            "name": "context",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--question"
+            ],
+            "kind": "option",
+            "name": "question",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--resolved-by"
+            ],
+            "kind": "option",
+            "name": "resolved_by",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--targets"
+            ],
+            "kind": "option",
+            "multiple": true,
+            "name": "targets",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "get-context",
+        "params": [
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "choices": [
+              "L0",
+              "L1",
+              "L2"
+            ],
+            "default": "L0",
+            "flags": [
+              "--level"
+            ],
+            "kind": "option",
+            "name": "level",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "get-decision",
+        "params": [
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "choices": [
+              "full",
+              "header"
+            ],
+            "default": "full",
+            "flags": [
+              "--mode"
+            ],
+            "kind": "option",
+            "name": "mode",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "kind": "argument",
+            "name": "number",
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "get-raw-file",
+        "params": [
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "kind": "argument",
+            "name": "path",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "graph",
+        "params": [
+          {
+            "default": false,
+            "flags": [
+              "--include-bodies",
+              "--no-include-bodies"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "include_bodies",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--no-open",
+              "--open"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "open_browser",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--output"
+            ],
+            "kind": "option",
+            "name": "output",
+            "required": false,
+            "type": "path"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "kind": "command",
+            "name": "user-prompt-submit",
+            "params": []
+          }
+        ],
+        "kind": "group",
+        "name": "hook",
+        "params": []
+      },
+      {
+        "kind": "command",
+        "name": "import",
+        "params": [
+          {
+            "flags": [
+              "--adr"
+            ],
+            "kind": "option",
+            "name": "adr",
+            "required": false,
+            "type": "path"
+          },
+          {
+            "flags": [
+              "--memory-bank"
+            ],
+            "kind": "option",
+            "name": "memory_bank",
+            "required": false,
+            "type": "path"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "init",
+        "params": [
+          {
+            "flags": [
+              "--add-repo"
+            ],
+            "kind": "option",
+            "multiple": true,
+            "name": "add_repo_paths",
+            "required": false,
+            "type": "path"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--cloud"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "cloud",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--demo"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "demo",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--force"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "force",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "kind": "argument",
+            "name": "name",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "link",
+        "params": [
+          {
+            "default": false,
+            "flags": [
+              "--cloud"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "cloud",
+            "required": false,
+            "type": "boolean"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "list-decisions",
+        "params": [
+          {
+            "default": false,
+            "flags": [
+              "--include-superseded",
+              "--no-include-superseded"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "include_superseded",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": 20,
+            "flags": [
+              "--limit"
+            ],
+            "kind": "option",
+            "name": "limit",
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "log",
+        "params": [
+          {
+            "default": false,
+            "flags": [
+              "--all"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "all_decisions",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--decisions"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "decisions",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--full"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "full",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": 10,
+            "flags": [
+              "--limit",
+              "-n"
+            ],
+            "kind": "option",
+            "name": "limit",
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "note",
+        "params": [
+          {
+            "default": "medium",
+            "flags": [
+              "--confidence",
+              "-c"
+            ],
+            "kind": "option",
+            "name": "confidence",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--decision",
+              "-d"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "decision",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--question",
+              "-q"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "question",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--rationale",
+              "-r"
+            ],
+            "kind": "option",
+            "name": "rationale",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "kind": "argument",
+            "name": "text",
+            "required": true,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "kind": "command",
+            "name": "list",
+            "params": []
+          },
+          {
+            "kind": "command",
+            "name": "rm",
+            "params": [
+              {
+                "kind": "argument",
+                "name": "project_id",
+                "required": true,
+                "type": "text"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--yes"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "yes",
+                "required": false,
+                "type": "boolean"
+              }
+            ]
+          }
+        ],
+        "kind": "group",
+        "name": "projects",
+        "params": []
+      },
+      {
+        "kind": "command",
+        "name": "propose-decision",
+        "params": [
+          {
+            "flags": [
+              "--affected-decision-id"
+            ],
+            "kind": "option",
+            "name": "affected_decision_id",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "high",
+              "low",
+              "medium"
+            ],
+            "flags": [
+              "--confidence"
+            ],
+            "kind": "option",
+            "name": "confidence",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "choices": [
+              "api_design",
+              "architecture",
+              "data_model",
+              "infrastructure",
+              "pattern",
+              "refactor"
+            ],
+            "flags": [
+              "--decision-type"
+            ],
+            "kind": "option",
+            "name": "decision_type",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "flags": [
+              "--files-affected"
+            ],
+            "kind": "option",
+            "multiple": true,
+            "name": "files_affected",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "choices": [
+              "add",
+              "supersede",
+              "update"
+            ],
+            "default": "add",
+            "flags": [
+              "--operation"
+            ],
+            "kind": "option",
+            "name": "operation",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "kind": "argument",
+            "name": "rationale",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--rejected"
+            ],
+            "kind": "option",
+            "name": "rejected",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--resolves-questions"
+            ],
+            "kind": "option",
+            "multiple": true,
+            "name": "resolves_questions",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "easy",
+              "hard",
+              "moderate"
+            ],
+            "flags": [
+              "--reversibility"
+            ],
+            "kind": "option",
+            "name": "reversibility",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "default": "",
+            "flags": [
+              "--title"
+            ],
+            "kind": "option",
+            "name": "title",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "kind": "command",
+            "name": "migrate",
+            "params": [
+              {
+                "default": false,
+                "flags": [
+                  "--dry-run"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "dry_run",
+                "required": false,
+                "type": "boolean"
+              },
+              {
+                "flags": [
+                  "--project"
+                ],
+                "kind": "option",
+                "name": "project",
+                "required": false,
+                "type": "text"
+              }
+            ]
+          }
+        ],
+        "kind": "group",
+        "name": "questions",
+        "params": []
+      },
+      {
+        "hidden": true,
+        "kind": "command",
+        "name": "render-plugin",
+        "params": [
+          {
+            "default": false,
+            "flags": [
+              "--check"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "check",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "kind": "argument",
+            "name": "dir",
+            "required": true,
+            "type": "path"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "search-decisions",
+        "params": [
+          {
+            "default": false,
+            "flags": [
+              "--include-superseded",
+              "--no-include-superseded"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "include_superseded",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": 10,
+            "flags": [
+              "--limit"
+            ],
+            "kind": "option",
+            "name": "limit",
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "kind": "argument",
+            "name": "query",
+            "required": true,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "serve",
+        "params": [
+          {
+            "default": true,
+            "flags": [
+              "--stdio"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "stdio",
+            "required": false,
+            "type": "boolean"
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "kind": "command",
+            "name": "all",
+            "params": [
+              {
+                "default": false,
+                "flags": [
+                  "--force-overwrite"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "force_overwrite",
+                "required": false,
+                "type": "boolean"
+              },
+              {
+                "flags": [
+                  "--project"
+                ],
+                "kind": "option",
+                "name": "project",
+                "required": false,
+                "type": "text"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--remove"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "remove",
+                "required": false,
+                "type": "boolean"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--with-hooks"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "with_hooks",
+                "required": false,
+                "type": "boolean"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--with-skills"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "with_skills",
+                "required": false,
+                "type": "boolean"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--with-subagents"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "with_subagents",
+                "required": false,
+                "type": "boolean"
+              }
+            ]
+          },
+          {
+            "kind": "command",
+            "name": "claude-code",
+            "params": [
+              {
+                "flags": [
+                  "--project"
+                ],
+                "kind": "option",
+                "name": "project",
+                "required": false,
+                "type": "text"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--remove"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "remove",
+                "required": false,
+                "type": "boolean"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--with-hooks"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "with_hooks",
+                "required": false,
+                "type": "boolean"
+              }
+            ]
+          },
+          {
+            "kind": "command",
+            "name": "codex",
+            "params": [
+              {
+                "default": false,
+                "flags": [
+                  "--remove"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "remove",
+                "required": false,
+                "type": "boolean"
+              }
+            ]
+          },
+          {
+            "kind": "command",
+            "name": "cursor",
+            "params": [
+              {
+                "flags": [
+                  "--project"
+                ],
+                "kind": "option",
+                "name": "project",
+                "required": false,
+                "type": "text"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--remove"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "remove",
+                "required": false,
+                "type": "boolean"
+              }
+            ]
+          }
+        ],
+        "kind": "group",
+        "name": "setup",
+        "params": []
+      },
+      {
+        "kind": "command",
+        "name": "status",
+        "params": [
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "sync",
+        "params": [
+          {
+            "default": "",
+            "flags": [
+              "--message",
+              "-m"
+            ],
+            "kind": "option",
+            "name": "message",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--status"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "status",
+            "required": false,
+            "type": "boolean"
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "kind": "command",
+            "name": "disable",
+            "params": []
+          },
+          {
+            "kind": "command",
+            "name": "enable",
+            "params": []
+          },
+          {
+            "kind": "command",
+            "name": "reset",
+            "params": []
+          },
+          {
+            "kind": "command",
+            "name": "status",
+            "params": []
+          }
+        ],
+        "kind": "group",
+        "name": "telemetry",
+        "params": []
+      },
+      {
+        "kind": "command",
+        "name": "update-state",
+        "params": [
+          {
+            "kind": "argument",
+            "name": "delta",
+            "required": true,
+            "type": "text"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "commands": [
+          {
+            "kind": "command",
+            "name": "status",
+            "params": [
+              {
+                "flags": [
+                  "--project"
+                ],
+                "kind": "option",
+                "name": "project",
+                "required": false,
+                "type": "text"
+              }
+            ]
+          }
+        ],
+        "kind": "group",
+        "name": "validate",
+        "params": []
+      }
+    ],
+    "kind": "group",
+    "name": "nauro",
+    "params": [
+      {
+        "flags": [
+          "--version",
+          "-V"
+        ],
+        "is_flag": true,
+        "kind": "option",
+        "name": "version",
+        "required": false,
+        "type": "boolean"
+      }
+    ]
+  },
+  "contract_version": 1,
+  "nauro_core_public_api": [
+    "ALL_TOOLS",
+    "CHECK_DECISION_RETURNS",
+    "DECISIONS_DIR",
+    "DECISION_HASHES_FILE",
+    "DECISION_TYPES",
+    "GET_DECISION_BEFORE_PROPOSING",
+    "MAX_APPROACH_LENGTH",
+    "MAX_BRIEF_BYTES",
+    "MAX_CONTEXT_LENGTH",
+    "MAX_DELTA_LENGTH",
+    "MAX_QUESTION_LENGTH",
+    "MAX_RATIONALE_LENGTH",
+    "MAX_TITLE_LENGTH",
+    "MCP_INSTRUCTIONS_STATIC",
+    "MIN_RATIONALE_LENGTH",
+    "NO_INVENT_RATIONALE",
+    "OPEN_QUESTIONS_MD",
+    "PROJECT_MD",
+    "SNAPSHOTS_DIR",
+    "SNAPSHOT_SCHEMA_VERSION",
+    "STACK_MD",
+    "STATE_CURRENT_FILENAME",
+    "STATE_HISTORY_FILENAME",
+    "STATE_MD",
+    "__version__",
+    "build_graph_payload",
+    "build_l0",
+    "build_l1",
+    "build_l2",
+    "build_remote_instructions",
+    "compute_hash",
+    "decisions_summary_lines",
+    "extract_decision_number",
+    "extract_stack_summary",
+    "format_decision",
+    "parse_decision",
+    "sanitize_sub",
+    "serialize_snapshot"
+  ],
+  "public_constant_values": {
+    "DECISIONS_DIR": "decisions",
+    "DECISION_HASHES_FILE": ".decision-hashes.json",
+    "DECISION_TYPES": [
+      "api_design",
+      "architecture",
+      "data_model",
+      "infrastructure",
+      "pattern",
+      "refactor"
+    ],
+    "MAX_APPROACH_LENGTH": 5000,
+    "MAX_BRIEF_BYTES": 51200,
+    "MAX_CONTEXT_LENGTH": 5000,
+    "MAX_DELTA_LENGTH": 5000,
+    "MAX_QUESTION_LENGTH": 2000,
+    "MAX_RATIONALE_LENGTH": 10000,
+    "MAX_TITLE_LENGTH": 300,
+    "MIN_RATIONALE_LENGTH": 20,
+    "OPEN_QUESTIONS_MD": "open-questions.md",
+    "PROJECT_MD": "project.md",
+    "SNAPSHOTS_DIR": "snapshots",
+    "SNAPSHOT_SCHEMA_VERSION": 1,
+    "STACK_MD": "stack.md",
+    "STATE_CURRENT_FILENAME": "state_current.md",
+    "STATE_HISTORY_FILENAME": "state_history.md",
+    "STATE_MD": "state.md"
+  },
+  "stdio_tool_specs": [
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "context": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "proposed_approach": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposed_approach"
+        ],
+        "type": "object"
+      },
+      "name": "check_decision"
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "days": {
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "diff_since_last_session"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "context": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "resolved_by": {
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "flag_question"
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "level": {
+            "default": "L0",
+            "enum": [
+              "L0",
+              "L1",
+              "L2"
+            ],
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "get_context"
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "mode": {
+            "default": "full",
+            "enum": [
+              "full",
+              "header"
+            ],
+            "type": "string"
+          },
+          "number": {
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "type": "object"
+      },
+      "name": "get_decision"
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "get_raw_file"
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "include_superseded": {
+            "default": false,
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_decisions"
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input_schema": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_projects"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "affected_decision_id": {
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "high",
+              "low",
+              "medium"
+            ],
+            "type": "string"
+          },
+          "decision_type": {
+            "enum": [
+              "api_design",
+              "architecture",
+              "data_model",
+              "infrastructure",
+              "pattern",
+              "refactor"
+            ],
+            "type": "string"
+          },
+          "files_affected": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "operation": {
+            "default": "add",
+            "enum": [
+              "add",
+              "supersede",
+              "update"
+            ],
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "rejected": {
+            "items": {
+              "properties": {
+                "alternative": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "resolves_questions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reversibility": {
+            "enum": [
+              "easy",
+              "hard",
+              "moderate"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rationale"
+        ],
+        "type": "object"
+      },
+      "name": "propose_decision"
+    },
+    {
+      "annotations": {
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "input_schema": {
+        "properties": {
+          "include_superseded": {
+            "default": false,
+            "type": "boolean"
+          },
+          "limit": {
+            "default": 10,
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search_decisions"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "input_schema": {
+        "properties": {
+          "delta": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "delta"
+        ],
+        "type": "object"
+      },
+      "name": "update_state"
+    }
+  ]
+}
