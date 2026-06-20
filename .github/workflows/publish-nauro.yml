@@ -20,3 +20,36 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/nauro/dist/
+
+  publish-registry:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: mcp-registry
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Verify server.json version matches the release tag
+        run: |
+          tag_version="${GITHUB_REF_NAME#nauro-v}"
+          server_version="$(jq -r '.version' server.json)"
+          package_version="$(jq -r '.packages[0].version' server.json)"
+          if [ "$server_version" != "$tag_version" ]; then
+            echo "server.json version ($server_version) does not match release tag ($tag_version)" >&2
+            exit 1
+          fi
+          if [ "$package_version" != "$tag_version" ]; then
+            echo "server.json packages[0].version ($package_version) does not match release tag ($tag_version)" >&2
+            exit 1
+          fi
+          echo "server.json version $server_version matches release tag $tag_version"
+      - name: Download mcp-publisher
+        run: |
+          curl -fsSL https://github.com/modelcontextprotocol/registry/releases/download/v1.7.9/mcp-publisher_linux_amd64.tar.gz -o mcp-publisher.tar.gz
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          chmod +x mcp-publisher
+      - name: Authenticate to the MCP registry via DNS
+        env:
+          MCP_PRIVATE_KEY: ${{ secrets.MCP_PRIVATE_KEY }}
+        run: ./mcp-publisher login dns --domain nauro.ai --private-key "$MCP_PRIVATE_KEY"
+      - name: Publish server.json to the MCP registry
+        run: ./mcp-publisher publish
