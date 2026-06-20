@@ -495,9 +495,10 @@ def tool_flag_question(
             return err
 
     hint = None
-    # Skip the similar-decision hint for discovery pointers (BRIEF:/RESUME:):
-    # they are file pointers, not questions for review, so a "addressed by
-    # decision-NNN" annotation on them is pure noise. The flag still logs.
+    # Skip the similar-decision hint for discovery pointers
+    # (BRIEF:/RESUME:/SELECT:): they are file pointers, not questions for
+    # review, so a "addressed by decision-NNN" annotation on them is pure
+    # noise. The flag still logs.
     if question and not question.lstrip().startswith(POINTER_FLAG_PREFIXES):
         pseudo_proposal = {
             "title": question[:FLAG_QUESTION_HINT_TITLE_LENGTH],

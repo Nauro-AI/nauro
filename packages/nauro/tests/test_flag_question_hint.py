@@ -65,7 +65,7 @@ def test_hint_absent_below_threshold(store):
 
 
 def test_pointer_flag_prefixes_constant():
-    assert POINTER_FLAG_PREFIXES == ("BRIEF:", "RESUME:")
+    assert POINTER_FLAG_PREFIXES == ("BRIEF:", "RESUME:", "SELECT:")
 
 
 @pytest.mark.parametrize(
@@ -73,13 +73,14 @@ def test_pointer_flag_prefixes_constant():
     [
         "BRIEF: context/origin-topic-20260605-ab12.md — a shared brief",
         "RESUME: context/auth-cutover-20260605-cd34.md — wip resume brief",
+        "SELECT: context/origin-select-20260619-ef56.md — a loop checkpoint",
         "  BRIEF: context/x.md — leading whitespace still skips the hint",
     ],
 )
 def test_hint_skipped_for_discovery_pointers(store, pointer):
-    """BRIEF:/RESUME: discovery pointers are file pointers, not questions for
-    review, so the similar-decision hint is skipped even when BM25 scores above
-    threshold. The flag itself still logs."""
+    """BRIEF:/RESUME:/SELECT: discovery pointers are file pointers, not
+    questions for review, so the similar-decision hint is skipped even when
+    BM25 scores above threshold. The flag itself still logs."""
     above = FLAG_QUESTION_HINT_MIN_SCORE + 0.1
     with (
         patch("nauro.mcp.tools.check_bm25_similarity", return_value=_stub_similar(above)),
