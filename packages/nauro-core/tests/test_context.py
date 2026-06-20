@@ -418,8 +418,8 @@ class TestBuildL0OpenQuestionsAgeProjection:
 
 
 class TestBuildL0DiscoveryPointerExclusion:
-    """Discovery-pointer entries (BRIEF:/RESUME: body prefix) are excluded
-    from the L0 Open Questions section and do not consume a limit slot.
+    """Discovery-pointer entries (BRIEF:/RESUME:/SELECT: body prefix) are
+    excluded from the L0 Open Questions section and do not consume a limit slot.
     """
 
     def _files(self, content: str) -> dict[str, str]:
@@ -446,6 +446,19 @@ class TestBuildL0DiscoveryPointerExclusion:
         result = build_l0(self._files(content), [])
         assert "Another genuine question?" in result
         assert "RESUME:" not in result
+
+    def test_select_pointer_excluded(self):
+        # SELECT: checkpoints (nauro-loop candidate sets, D322) are discovery
+        # pointers too and must not surface as L0 open questions.
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] SELECT: context/origin-select-20260619-ef56.md — loop checkpoint\n"
+            "- [Q2] Yet another genuine question?\n"
+        )
+        result = build_l0(self._files(content), [])
+        assert "Yet another genuine question?" in result
+        assert "SELECT:" not in result
 
     def test_pointer_does_not_consume_limit_slot(self):
         # With limit = 3, three genuine questions plus two pointers should all

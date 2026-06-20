@@ -39,9 +39,9 @@ def _active_decisions(decisions: list[Decision]) -> list[Decision]:
 def _is_discovery_pointer(body: str) -> bool:
     """Return True when an entry body starts with a discovery-pointer prefix.
 
-    Discovery pointers (BRIEF:/RESUME: entries) are breadcrumbs written by
-    the nauro-context skill, not questions for human review, and are excluded
-    from the L0 Open Questions projection.
+    Discovery pointers (BRIEF:/RESUME:/SELECT: entries) are breadcrumbs written
+    by the nauro-context and nauro-loop skills, not questions for human review,
+    and are excluded from the L0 Open Questions projection.
     """
     stripped = body.lstrip()
     return stripped.startswith(POINTER_FLAG_PREFIXES)
@@ -53,8 +53,8 @@ def _render_l0_open_questions(content: str) -> str:
     Walks the parsed block list so the entry's ``timestamp`` survives for
     the age projection. Entries
     physically under ``## Resolved`` are skipped via the divider index.
-    Discovery-pointer entries (body starts with ``BRIEF:`` or ``RESUME:``)
-    are excluded entirely and do not consume a slot in the limit.
+    Discovery-pointer entries (body starts with ``BRIEF:``, ``RESUME:`` or
+    ``SELECT:``) are excluded entirely and do not consume a slot in the limit.
     A ``(open NN days; consider closing or deferring)`` line is prepended
     when ``entry.timestamp`` is set and the entry is older than
     :data:`_L0_AGE_PROJECTION_DAYS`. Q-form entries without a timestamp

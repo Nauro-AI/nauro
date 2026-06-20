@@ -103,8 +103,9 @@ REVERSIBILITY_LEVELS: tuple[str, ...] = ("easy", "moderate", "hard")
 # ── Discovery-pointer flag markers ──
 # Entries in open-questions.md whose body starts with one of these prefixes
 # are discovery breadcrumbs (BRIEF for shared context briefs, RESUME for
-# agent resume briefs), not questions for human review.
-POINTER_FLAG_PREFIXES: tuple[str, ...] = ("BRIEF:", "RESUME:")
+# agent resume briefs, SELECT for /nauro-loop candidate-set checkpoints per
+# D322), not questions for human review.
+POINTER_FLAG_PREFIXES: tuple[str, ...] = ("BRIEF:", "RESUME:", "SELECT:")
 
 # ── Stack empty marker ──
 STACK_EMPTY_MARKER = "# Stack\n<!-- Tech choices with rationale and rejected alternatives -->"

@@ -89,7 +89,7 @@ class TestValidValues:
 
 class TestPointerFlagPrefixes:
     def test_exact_value(self):
-        assert POINTER_FLAG_PREFIXES == ("BRIEF:", "RESUME:")
+        assert POINTER_FLAG_PREFIXES == ("BRIEF:", "RESUME:", "SELECT:")
 
     def test_is_tuple(self):
         assert isinstance(POINTER_FLAG_PREFIXES, tuple)
