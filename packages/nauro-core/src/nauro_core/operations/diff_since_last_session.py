@@ -20,6 +20,7 @@ from nauro_core.constants import (
     DECISIONS_DIR,
     OPEN_QUESTIONS_MD,
     STACK_MD,
+    STATE_CURRENT_FILENAME,
     STATE_DIFF_FIELDS,
     STATE_MD,
 )
@@ -35,6 +36,14 @@ NO_SNAPSHOTS_AVAILABLE = "No snapshots available."
 NOT_ENOUGH_SNAPSHOTS = "Not enough snapshots to compute a diff (need at least 2)."
 ONE_SNAPSHOT_COVERS_RANGE = (
     "Only one snapshot covers the requested time range — no diff available."
+)
+# Day-range anchor line. A format template (interpolates two runtime values)
+# rather than a plain sentinel, but kept here beside the sibling sentinels so
+# the wording stays single-sourced: the hosted adapter (mcp-server) imports
+# this to render the same line, byte-for-byte, on the remote surface.
+ANCHOR_LINE_TEMPLATE = (
+    "Anchor: requested ≤ {cutoff}; resolved to baseline {baseline} "
+    "(most-recent snapshot at-or-before cutoff; oldest-snapshot fallback)"
 )
 
 
@@ -85,12 +94,12 @@ def diff_since_last_session(
         return DiffSinceLastSessionResult(diff=diff, cutoff_date_used=cutoff_date_used)
 
     return DiffSinceLastSessionResult(
-        diff=_render_diff(baseline_snapshot, latest_snapshot),
+        diff=_render_diff(baseline_snapshot, latest_snapshot, cutoff_date_used),
         cutoff_date_used=cutoff_date_used,
     )
 
 
-def _render_diff(snap_a: dict, snap_b: dict) -> str:
+def _render_diff(snap_a: dict, snap_b: dict, cutoff_date_used: str | None = None) -> str:
     """Render the semantic diff body between two snapshot dicts."""
     # Version numbers come from the snapshot dict itself, not a caller-supplied
     # integer like the pre-cutover ``diff_snapshots(store_path, version_a,
@@ -110,6 +119,13 @@ def _render_diff(snap_a: dict, snap_b: dict) -> str:
         sections.append(f"  ({ts_a} → {ts_b})")
     else:
         sections.append(f"Changes from {ts_a} → {ts_b}")
+    # Day-range path only: surface the requested cutoff against the resolved
+    # baseline so the (silent, age-degrading) anchor fuzz is visible. Keyed off
+    # cutoff_date_used and the baseline TIMESTAMP only — never an integer
+    # version, which versionless remote snapshots do not carry. Absent for the
+    # no-arg session diff, keeping that output byte-identical.
+    if cutoff_date_used is not None:
+        sections.append(ANCHOR_LINE_TEMPLATE.format(cutoff=cutoff_date_used, baseline=ts_a))
     sections.append("")
 
     has_changes = False
@@ -159,7 +175,10 @@ def _semantic_file_diff(filename: str, old: str, new: str) -> list[str]:
     """Produce semantic change descriptions for a modified file."""
     changes: list[str] = []
 
-    if filename == STATE_MD:
+    if filename in (STATE_CURRENT_FILENAME, STATE_MD):
+        # Live snapshots store current state under state_current.md; old
+        # snapshots predating the rename used state.md, kept as a legacy
+        # alias so they still diff semantically.
         changes.extend(_diff_state(old, new))
     elif filename == STACK_MD:
         changes.extend(_diff_stack(old, new))
