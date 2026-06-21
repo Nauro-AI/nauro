@@ -223,8 +223,9 @@ def _prune_snapshots(snapshots_dir: Path) -> None:
 def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
     """Find the most recent snapshot that is at or before the target datetime.
 
-    Scans all snapshots and returns the one closest to (but not after) the
-    target. If no snapshot is old enough, returns the oldest available.
+    Scans all snapshots and returns the most recent snapshot at or before the
+    target, with an oldest-snapshot fallback when no snapshot predates the
+    target.
 
     Args:
         store_path: Path to the project store directory.

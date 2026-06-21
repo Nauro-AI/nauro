@@ -139,6 +139,27 @@ def test_time_based_envelope_matches_across_surfaces(time_indexed_repo):
     assert stdio["cutoff_date_used"]
 
 
+def test_days_based_surfaces_anchor_line(time_indexed_repo):
+    # The local adapter threads cutoff_date_used into the kernel, so the
+    # days-based path surfaces the resolved-anchor header on both the
+    # auto-generated CLI and the stdio MCP surface with no adapter change.
+    pid, store_path = time_indexed_repo
+    stdio = _stdio_envelope(pid, days=7)
+    tool = _tool_envelope(store_path, days=7)
+    assert stdio == tool
+    assert "Anchor: requested ≤ " in stdio["diff"]
+    assert "most-recent snapshot at-or-before cutoff" in stdio["diff"]
+    assert stdio["cutoff_date_used"] in stdio["diff"]
+
+
+def test_session_scoped_diff_omits_anchor_line(seeded_repo):
+    # The no-arg session diff carries no cutoff, so the anchor header must be
+    # absent — keeping that output byte-identical to pre-anchor behaviour.
+    pid, _store_path = seeded_repo
+    stdio = _stdio_envelope(pid)
+    assert "Anchor:" not in stdio["diff"]
+
+
 def test_empty_store_session_scoped_envelope_matches(empty_repo):
     pid, store_path = empty_repo
     stdio = _stdio_envelope(pid)

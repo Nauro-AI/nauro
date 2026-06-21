@@ -121,6 +121,101 @@ def test_both_populated_renders_real_diff() -> None:
     assert "decisions/001-adopt-postgres.md" in result.diff
 
 
+def test_state_current_sprint_transition_renders_semantically() -> None:
+    # state_current.md is the real key live snapshots use. The Sprint
+    # alpha → beta transition must route through _diff_state and render as a
+    # semantic field delta, not degrade to a generic line-count. Asserting on
+    # the rendered transition catches the dead state-diff branch.
+    result = diff_since_last_session(InMemoryStore(), _baseline(), _latest())
+    assert result.diff is not None
+    assert "Sprint: 'alpha' → 'beta'" in result.diff
+    # The generic line-count fallback must NOT fire for the state file.
+    assert "Content changed" not in result.diff
+
+
+def test_legacy_state_md_key_still_diffs_semantically() -> None:
+    # Snapshots predating the state_current.md rename keyed state under
+    # state.md. The legacy alias must still route through _diff_state so old
+    # snapshots diff semantically rather than collapsing to a line-count.
+    snap_a = _snapshot(
+        1,
+        "2026-05-01T10:00:00+00:00",
+        {"state.md": "# Current State\n\n**Sprint:** alpha\n"},
+    )
+    snap_b = _snapshot(
+        2,
+        "2026-05-02T10:00:00+00:00",
+        {"state.md": "# Current State\n\n**Sprint:** beta\n"},
+    )
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b)
+    assert result.diff is not None
+    assert "Sprint: 'alpha' → 'beta'" in result.diff
+    assert "Content changed" not in result.diff
+
+
+def test_anchor_line_present_when_cutoff_supplied() -> None:
+    cutoff = "2026-04-24T10:00:00+00:00"
+    result = diff_since_last_session(
+        InMemoryStore(), _baseline(), _latest(), cutoff_date_used=cutoff
+    )
+    assert result.diff is not None
+    lines = result.diff.split("\n")
+    anchor = next((line for line in lines if line.startswith("Anchor:")), None)
+    assert anchor is not None
+    # The requested cutoff and the resolved baseline timestamp both surface,
+    # along with the selection rule.
+    assert f"requested ≤ {cutoff}" in anchor
+    assert "resolved to baseline 2026-05-01T10:00:00" in anchor
+    assert "most-recent snapshot at-or-before cutoff" in anchor
+    assert "oldest-snapshot fallback" in anchor
+
+
+def test_no_arg_diff_is_byte_identical_without_anchor_line() -> None:
+    # When cutoff_date_used is None (the no-arg session diff), output must be
+    # byte-identical to the pre-anchor rendering: no Anchor line at all.
+    with_cutoff = diff_since_last_session(
+        InMemoryStore(),
+        _baseline(),
+        _latest(),
+        cutoff_date_used="2026-04-24T10:00:00+00:00",
+    )
+    without_cutoff = diff_since_last_session(InMemoryStore(), _baseline(), _latest())
+    assert without_cutoff.diff is not None
+    assert "Anchor:" not in without_cutoff.diff
+    # The only structural difference vs. the cutoff variant is the inserted
+    # Anchor line; dropping it recovers the no-arg body exactly.
+    assert with_cutoff.diff is not None
+    stripped = "\n".join(
+        line for line in with_cutoff.diff.split("\n") if not line.startswith("Anchor:")
+    )
+    assert stripped == without_cutoff.diff
+
+
+def test_anchor_line_renders_on_versionless_snapshots() -> None:
+    # Remote/cloud snapshots carry no integer version. The anchor must render
+    # off the baseline timestamp alone — never raise, never print a bogus
+    # version — and coexist with the single-line timestamp header.
+    snap_a = {
+        "timestamp": "2026-05-01T10:00:00+00:00",
+        "files": {"stack.md": "# Stack\n- Python 3.11\n"},
+    }
+    snap_b = {
+        "timestamp": "2026-05-02T10:00:00+00:00",
+        "files": {"stack.md": "# Stack\n- Python 3.11\n- PostgreSQL\n"},
+    }
+    cutoff = "2026-04-24T10:00:00+00:00"
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b, cutoff_date_used=cutoff)
+    assert result.diff is not None
+    lines = result.diff.split("\n")
+    assert lines[0] == "Changes from 2026-05-01T10:00:00 → 2026-05-02T10:00:00"
+    anchor = next((line for line in lines if line.startswith("Anchor:")), None)
+    assert anchor is not None
+    assert f"requested ≤ {cutoff}" in anchor
+    assert "resolved to baseline 2026-05-01T10:00:00" in anchor
+    # No version token leaks into the anchor on the versionless shape.
+    assert "v0" not in anchor
+
+
 def test_cutoff_date_used_threaded_only_when_supplied() -> None:
     result_with = diff_since_last_session(
         InMemoryStore(),
