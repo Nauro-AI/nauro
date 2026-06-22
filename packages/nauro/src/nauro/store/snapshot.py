@@ -341,7 +341,9 @@ def resolve_diff_snapshots(
     * ``days=N`` + baseline == latest → the matched pair; kernel renders
       ``Only one snapshot covers the requested range…``.
     * ``days=N`` otherwise → resolved baseline/latest pair plus the
-      baseline timestamp as ``cutoff_date_used``.
+      REQUESTED cutoff (``now - N days``) as ``cutoff_date_used``. The
+      anchor reflects what the caller asked for, not the older baseline
+      the lookup happened to resolve to.
     """
     snapshots = list_snapshots(store_path)
 
@@ -356,7 +358,7 @@ def resolve_diff_snapshots(
         baseline_version = baseline_meta["version"]
         baseline_snapshot = load_snapshot(store_path, baseline_version)
         latest_snapshot = load_snapshot(store_path, latest_version)
-        return baseline_snapshot, latest_snapshot, baseline_meta["timestamp"]
+        return baseline_snapshot, latest_snapshot, target.isoformat()
 
     if not snapshots:
         return None, None, None

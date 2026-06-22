@@ -58,7 +58,14 @@ def seeded_repo(tmp_path, monkeypatch):
 
 @pytest.fixture
 def time_indexed_repo(tmp_path, monkeypatch):
-    """A repo with snapshots at known time offsets, suitable for days-based diffs."""
+    """A repo with snapshots at known time offsets, suitable for days-based diffs.
+
+    v001 is backdated to 14 days ago — comfortably older than the
+    ``now - 7d`` cutoff the days-based tests request — so it resolves as
+    the baseline while the requested cutoff and the baseline's own
+    timestamp stay visibly DISTINCT (7 days apart). v002 is captured at
+    ``now`` and serves as latest.
+    """
     repo = tmp_path / "repo"
     repo.mkdir()
     pid, store_path = register_project_v2("parity-diff-time", [repo], mode=REPO_CONFIG_MODE_LOCAL)
@@ -115,6 +122,24 @@ def _tool_envelope(store_path: Path, days: int | None = None) -> dict:
     return tool_diff_since_last_session(store_path, days)
 
 
+def _clock_invariant(envelope: dict) -> dict:
+    """Strip clock-derived parts so two independent calls compare equal.
+
+    The days-based ``cutoff_date_used`` is the REQUESTED cutoff
+    (``now - N days``), recomputed from ``datetime.now()`` on every call,
+    and that same value is interpolated into the rendered ``Anchor:`` line.
+    Two independent surface calls therefore differ by microseconds in the
+    cutoff field and the anchor line, so parity is asserted on everything
+    else; the cutoff's own consistency is checked separately.
+    """
+    out = {k: v for k, v in envelope.items() if k != "cutoff_date_used"}
+    if isinstance(out.get("diff"), str):
+        out["diff"] = "\n".join(
+            line for line in out["diff"].split("\n") if not line.startswith("Anchor:")
+        )
+    return out
+
+
 def test_session_scoped_envelope_matches_across_surfaces(seeded_repo):
     pid, store_path = seeded_repo
     stdio = _stdio_envelope(pid)
@@ -131,25 +156,42 @@ def test_time_based_envelope_matches_across_surfaces(time_indexed_repo):
     pid, store_path = time_indexed_repo
     stdio = _stdio_envelope(pid, days=7)
     tool = _tool_envelope(store_path, days=7)
-    assert stdio == tool
+    # The cutoff is now() - N days, recomputed per call, so the two
+    # independent surfaces agree on everything but that clock-derived value.
+    assert _clock_invariant(stdio) == _clock_invariant(tool)
     assert stdio["store"] == "local"
     assert "v001" in stdio["diff"]
     assert "v002" in stdio["diff"]
-    # Days-based path threads the baseline timestamp through as cutoff_date_used.
+    # Days-based path threads the REQUESTED cutoff (now - N days) through as
+    # cutoff_date_used — not the (older) resolved baseline timestamp.
     assert stdio["cutoff_date_used"]
 
 
 def test_days_based_surfaces_anchor_line(time_indexed_repo):
     # The local adapter threads cutoff_date_used into the kernel, so the
-    # days-based path surfaces the resolved-anchor header on both the
+    # days-based path surfaces the requested-cutoff anchor header on both the
     # auto-generated CLI and the stdio MCP surface with no adapter change.
     pid, store_path = time_indexed_repo
     stdio = _stdio_envelope(pid, days=7)
     tool = _tool_envelope(store_path, days=7)
-    assert stdio == tool
+    assert _clock_invariant(stdio) == _clock_invariant(tool)
     assert "Anchor: requested ≤ " in stdio["diff"]
     assert "most-recent snapshot at-or-before cutoff" in stdio["diff"]
     assert stdio["cutoff_date_used"] in stdio["diff"]
+
+    # The anchor's "requested ≤" value is the REQUESTED cutoff (now - 7d),
+    # parsing within a few seconds of it — not the resolved baseline.
+    cutoff = datetime.fromisoformat(stdio["cutoff_date_used"])
+    expected_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    assert abs((cutoff - expected_cutoff).total_seconds()) < 60
+
+    # The cutoff must be DISTINCT from the resolved baseline timestamp: the
+    # fixture backdates the baseline (v001) to 14 days ago, so the requested
+    # cutoff (7 days ago) and the "resolved to baseline <ts>" value differ.
+    baseline_ts = load_snapshot(store_path, 1)["timestamp"]
+    assert stdio["cutoff_date_used"] != baseline_ts
+    assert f"resolved to baseline {baseline_ts[:19]}" in stdio["diff"]
+    assert f"requested ≤ {stdio['cutoff_date_used']}" in stdio["diff"]
 
 
 def test_session_scoped_diff_omits_anchor_line(seeded_repo):
@@ -186,7 +228,9 @@ def test_days_based_one_snapshot_covers_range_matches_across_surfaces(single_sna
     pid, store_path = single_snapshot_repo
     stdio = _stdio_envelope(pid, days=7)
     tool = _tool_envelope(store_path, days=7)
-    assert stdio == tool
+    # The sentinel diff carries no anchor line, but the envelope still
+    # surfaces the (clock-derived) requested cutoff, so compare modulo it.
+    assert _clock_invariant(stdio) == _clock_invariant(tool)
     assert stdio["store"] == "local"
     assert stdio["diff"] == "Only one snapshot covers the requested time range — no diff available."
 
