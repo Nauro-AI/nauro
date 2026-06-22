@@ -20,6 +20,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/nauro/dist/
+          skip-existing: true
 
   publish-registry:
     needs: publish
