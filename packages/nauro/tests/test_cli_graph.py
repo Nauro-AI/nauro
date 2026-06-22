@@ -730,35 +730,39 @@ def test_timeline_marks_positioned_by_date_not_index(tmp_path, monkeypatch):
     assert cx[4] == max(cx.values())
 
 
-def test_include_bodies_flag_embeds_and_shows_body(tmp_path, monkeypatch):
-    """--include-bodies carries the decision body into the payload and detail panel.
+def test_bodies_default_on_and_no_include_bodies_redacts(tmp_path, monkeypatch):
+    """Decision bodies render by default (D331); --no-include-bodies redacts them.
 
-    Without the flag, no body key is embedded and no body expander renders. With
-    it, the body is embedded and surfaced behind a collapsed expander.
+    By default the body key is embedded and the rationale renders as structured
+    HTML in the detail panel. --no-include-bodies drops the body key and the
+    detail block, leaving the redacted titles-and-metadata artifact.
     """
     store = _new_store(tmp_path, monkeypatch)
-    body = "The full rationale text that should only appear under the flag."
+    body = "The full rationale text that should appear by default."
     _write_decision(store, 2, "with-body", _decision_md(2, "A decision", body=body))
 
-    # Default: no body embedded, no body expander.
+    # Default: body embedded and shown as structured detail.
     result = runner.invoke(app, ["graph", "--no-open"])
-    assert result.exit_code == 0
-    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
-    payload = _read_embedded_payload(html)
-    node = next(n for n in payload["nodes"] if n["number"] == 2)
-    assert "body" not in node
-    assert "Decision body</summary>" not in html
-
-    # With the flag: body embedded and shown behind an expander.
-    result = runner.invoke(app, ["graph", "--no-open", "--include-bodies"])
     assert result.exit_code == 0
     html = (store / "nauro-graph.html").read_text(encoding="utf-8")
     payload = _read_embedded_payload(html)
     node = next(n for n in payload["nodes"] if n["number"] == 2)
     # The body is the full markdown body, so the rationale lives inside it.
     assert body in node["body"]
-    assert "Decision body</summary>" in html
+    assert "Decision detail</summary>" in html
+    assert '<div class="body-md">' in html
+    # The rationale renders as structured markup, not raw markdown in a <pre>.
     assert body in html
+    assert '<pre class="body-text">' not in html
+
+    # --no-include-bodies: no body embedded, no detail block.
+    result = runner.invoke(app, ["graph", "--no-open", "--no-include-bodies"])
+    assert result.exit_code == 0
+    html = (store / "nauro-graph.html").read_text(encoding="utf-8")
+    payload = _read_embedded_payload(html)
+    node = next(n for n in payload["nodes"] if n["number"] == 2)
+    assert "body" not in node
+    assert "Decision detail</summary>" not in html
 
 
 # ── Graph view (round 3) ──
