@@ -65,8 +65,10 @@ def diff_since_last_session(
         latest_snapshot: Later snapshot dict, same shape. ``None`` signals
             no snapshots at all.
         cutoff_date_used: When the adapter resolved the baseline via a
-            time-based lookup, the baseline snapshot's timestamp is
-            threaded through here so callers can render it.
+            time-based lookup, the requested cutoff (``now - N days``) is
+            threaded through here so callers can render it. This is the
+            cutoff the caller asked for, not the (possibly older) baseline
+            snapshot's timestamp the lookup resolved to.
 
     Returns:
         :class:`DiffSinceLastSessionResult`. ``diff`` carries the
