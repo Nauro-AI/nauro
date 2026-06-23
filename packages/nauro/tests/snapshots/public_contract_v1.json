@@ -440,7 +440,7 @@
         "name": "graph",
         "params": [
           {
-            "default": false,
+            "default": true,
             "flags": [
               "--include-bodies",
               "--no-include-bodies"
