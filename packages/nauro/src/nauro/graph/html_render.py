@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import date as _date
 from html import escape as _html_escape
 
@@ -1877,14 +1878,112 @@ def _detail_question_links(number: int, question_refs: dict[int, list[str]]) -> 
 
 
 def _detail_body(node: dict) -> str:
-    """Render the decision body behind an expander when bodies are included."""
+    """Render the decision body as structured HTML when bodies are included.
+
+    Bodies are on by default (D331), so the rationale is the panel's primary
+    content rather than an opt-in dump. The markdown body is rendered into headed
+    blocks (Decision, Rejected Alternatives, and their subsections) so the
+    background context reads at a glance instead of as raw markdown. The block
+    stays a ``<details open>`` so a long body can be collapsed without losing the
+    default-visible posture.
+    """
     body = node.get("body")
     if not body:
         return ""
+    rendered = _render_body_markdown(body)
+    if not rendered:
+        return ""
     return (
-        '<details class="detail-body"><summary>Decision body</summary>'
-        f'<pre class="body-text">{_esc(body)}</pre></details>'
+        '<details class="detail-body" open><summary>Decision detail</summary>'
+        f'<div class="body-md">{rendered}</div></details>'
     )
+
+
+# Inline markdown spans applied after HTML-escaping, so the markup characters
+# this introduces are never re-escaped. Code is substituted first so emphasis
+# markers inside an inline-code span are left literal; bold (``**``) runs before
+# italic (``*``) so the single-asterisk rule never splits a bold marker.
+_BODY_CODE = re.compile(r"`([^`]+?)`")
+_BODY_BOLD = re.compile(r"\*\*(.+?)\*\*")
+_BODY_ITALIC = re.compile(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)")
+_BODY_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
+_BODY_BULLET = re.compile(r"^[-*]\s+(.*)$")
+_BODY_ORDERED = re.compile(r"^\d+\.\s+(.*)$")
+
+
+def _inline_md(escaped: str) -> str:
+    """Apply inline emphasis to already-escaped text."""
+    escaped = _BODY_CODE.sub(r"<code>\1</code>", escaped)
+    escaped = _BODY_BOLD.sub(r"<strong>\1</strong>", escaped)
+    escaped = _BODY_ITALIC.sub(r"<em>\1</em>", escaped)
+    return escaped
+
+
+def _render_body_markdown(body: str) -> str:
+    """Render a decision body's markdown into a small, safe HTML subset.
+
+    Supports ATX headings, ordered and unordered lists, blank-line-separated
+    paragraphs, and inline emphasis/code. The leading ``# N — title`` H1 is
+    dropped because the panel already shows the title above this block. Every
+    text fragment is escaped before any markup is added, so the output is safe to
+    embed directly in the self-contained file.
+    """
+    parts: list[str] = []
+    para: list[str] = []
+    items: list[str] = []
+    list_tag = "ul"
+    skipped_h1 = False
+
+    def flush_para() -> None:
+        if para:
+            parts.append(f"<p>{_inline_md(_esc(' '.join(para)))}</p>")
+            para.clear()
+
+    def flush_list() -> None:
+        if items:
+            lis = "".join(f"<li>{_inline_md(_esc(it))}</li>" for it in items)
+            parts.append(f"<{list_tag}>{lis}</{list_tag}>")
+            items.clear()
+
+    for raw in body.split("\n"):
+        stripped = raw.strip()
+        if not stripped:
+            flush_para()
+            flush_list()
+            continue
+
+        heading = _BODY_HEADING.match(stripped)
+        if heading:
+            flush_para()
+            flush_list()
+            level = len(heading.group(1))
+            if level == 1 and not skipped_h1:
+                skipped_h1 = True
+                continue
+            tag = "h4" if level <= 2 else ("h5" if level == 3 else "h6")
+            parts.append(
+                f'<{tag} class="body-h{min(level, 3)}">'
+                f"{_inline_md(_esc(heading.group(2).strip()))}</{tag}>"
+            )
+            continue
+
+        bullet = _BODY_BULLET.match(stripped)
+        ordered = _BODY_ORDERED.match(stripped)
+        if bullet or ordered:
+            flush_para()
+            tag = "ol" if ordered else "ul"
+            if items and tag != list_tag:
+                flush_list()
+            list_tag = tag
+            items.append((ordered or bullet).group(1).strip())
+            continue
+
+        flush_list()
+        para.append(stripped)
+
+    flush_para()
+    flush_list()
+    return "".join(parts)
 
 
 # ── Questions section ──
@@ -2357,18 +2456,30 @@ h2 {
 .detail-relations { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.8rem; }
 .chip-row { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
 .detail-empty { color: var(--muted); font-style: italic; }
-.detail-body { margin-top: 0.8rem; }
-.detail-body summary { cursor: pointer; color: var(--navy); }
-.body-text {
-  white-space: pre-wrap;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 0.78rem;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  padding: 0.6rem;
-  border-radius: 4px;
-  overflow-x: auto;
+.detail-body { margin-top: 0.9rem; border-top: 1px solid var(--line); padding-top: 0.7rem; }
+.detail-body summary {
+  cursor: pointer;
+  color: var(--navy);
+  font-weight: 600;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
+.body-md { margin-top: 0.7rem; font-size: 0.86rem; line-height: 1.55; color: var(--ink); }
+.body-md h4 {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--navy);
+  margin: 1.1rem 0 0.4rem;
+}
+.body-md h5 { font-size: 0.92rem; color: var(--ink); margin: 0.9rem 0 0.3rem; }
+.body-md h6 { font-size: 0.84rem; color: var(--muted); margin: 0.8rem 0 0.3rem; }
+.body-md p { margin: 0.5rem 0; }
+.body-md ul, .body-md ol { margin: 0.5rem 0; padding-left: 1.2rem; }
+.body-md li { margin: 0.25rem 0; }
+.body-md code { font-size: 0.85em; }
+.body-md strong { color: var(--ink); }
 .question.flash, li.flash, .q-expand.flash { background: var(--line); }
 code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;

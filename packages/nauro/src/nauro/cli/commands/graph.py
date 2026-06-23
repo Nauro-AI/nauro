@@ -3,14 +3,18 @@
 Reads the local store, builds the versioned graph payload in nauro-core, and
 writes one read-only HTML document with four views (Graph by default, then
 Lineage, Timeline, and Browse) and an integrated open-questions list. The output
-lands in the store directory by default because the HTML embeds decision titles
-and metadata plus open-question summaries; a current-directory default would
-invite committing that store extract into a repo. ``--output`` overrides the
-location, and ``--open`` (default on) opens the file in a browser.
+lands in the store directory by default because the HTML embeds the decision
+store (titles, metadata, open-question summaries, and full bodies by default); a
+current-directory default would invite committing that store extract into a
+repo. ``--output`` overrides the location, and ``--open`` (default on) opens the
+file in a browser.
 
-By default the file carries decision titles and metadata plus open-question
-summaries only, no decision bodies. ``--include-bodies`` adds each decision's
-full body markdown, surfaced behind an expander in the detail panel.
+By default the file carries decision titles, metadata, open-question summaries,
+and each decision's full body, rendered as structured HTML in the detail panel
+so the background context reads at a glance (D331). ``--no-include-bodies`` drops
+the bodies for a redacted artifact (titles and metadata only) that is safe to
+share more widely. The store-directory output default still keeps the file out
+of git working trees in both modes.
 """
 
 from __future__ import annotations
@@ -106,9 +110,10 @@ def graph(
         help="Open the generated file in a browser (default on).",
     ),
     include_bodies: bool = typer.Option(
-        False,
+        True,
         "--include-bodies/--no-include-bodies",
-        help="Embed full decision bodies behind an expander in the detail panel.",
+        help="Embed full decision bodies in the detail panel (default on). "
+        "Use --no-include-bodies for a redacted titles-and-metadata artifact.",
     ),
 ) -> None:
     """Render the project's decision graph to a self-contained HTML file."""
