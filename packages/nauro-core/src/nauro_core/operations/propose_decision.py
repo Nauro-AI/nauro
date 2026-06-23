@@ -191,7 +191,7 @@ def propose_decision(
         else:
             action, reason = "pass", None
     else:
-        parsed = _parse_all_decisions(store)
+        parsed = parse_all_decisions(store)
         action, reason = _screen_structural(store, proposal, parsed, affected_decision_id)
 
     if action == "reject":
@@ -204,7 +204,7 @@ def propose_decision(
 
     # --- Tier 2: BM25 similarity (advisory only — does not gate the write) ---
     if parsed is None:
-        parsed = _parse_all_decisions(store)
+        parsed = parse_all_decisions(store)
     _t2_action, similar_raw = check_bm25_similarity(proposal, parsed)
     similar_models = _to_related_decisions(similar_raw, parsed)
 
@@ -333,16 +333,6 @@ def _update_hash_index(store: Store, title: str, rationale: str, decision_id: st
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     _save_hash_index(store, index)
-
-
-def _parse_all_decisions(store: Store) -> list[Decision]:
-    """Read every decision from the store and parse via the v2 model.
-
-    Thin wrapper over the shared guarded scan: files that don't round-trip
-    through the v2 parser are logged at debug and skipped so they can sit on
-    disk during migrations without blocking the validation pipeline.
-    """
-    return parse_all_decisions(store)
 
 
 # ── Tier 2 result reshape ─────────────────────────────────────────────────
