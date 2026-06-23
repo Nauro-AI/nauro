@@ -351,11 +351,15 @@ def resolve_diff_snapshots(
         if not snapshots:
             return None, None, None
         now = datetime.now(timezone.utc)
-        # Clamp an out-of-range lookback before it overflows the subtraction:
-        # a --days reaching past the earliest representable date just means
-        # "everything", so anchor at the oldest in-range instant instead.
+        # Clamp the lookback to the representable date range on both sides
+        # before the subtraction. A huge positive --days reaches past the
+        # earliest representable date and just means "everything" (anchor at
+        # the oldest in-range instant); a huge negative --days would push the
+        # target past datetime.max and overflow. In-range negatives still
+        # resolve to the most-recent snapshot.
         max_days = (now - datetime.min.replace(tzinfo=timezone.utc)).days
-        target = now - timedelta(days=min(days, max_days))
+        min_days = -((datetime.max.replace(tzinfo=timezone.utc) - now).days)
+        target = now - timedelta(days=max(min(days, max_days), min_days))
         baseline_meta = find_snapshot_near_date(store_path, target)
         if baseline_meta is None:
             return None, None, None

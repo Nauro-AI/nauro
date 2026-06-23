@@ -75,6 +75,11 @@ class TestBm25Search:
         assert len(results) >= 1
         assert results[0]["title"] == "Use Auth0 for authentication"
 
+    def test_negative_limit_returns_empty_not_value_error(self):
+        """A negative limit must not reach numpy argpartition (k<0 raises ValueError)."""
+        assert bm25_search(DECISIONS, "authentication", limit=-1) == []
+        assert bm25_search(DECISIONS, "authentication", limit=0) == []
+
     def test_stemming_matches_vocabulary_variants(self):
         """'deploying' should match 'deployment' via stemming."""
         results = bm25_search(DECISIONS, "deploying Lambda")

@@ -62,6 +62,14 @@ def search_decisions(
             ),
         )
 
+    if limit < 1:
+        return SearchDecisionsResult(
+            error=ErrorPayload(
+                kind="rejected",
+                reason="search_decisions requires a positive limit.",
+            ),
+        )
+
     decisions = parse_all_decisions(store)
 
     if not include_superseded:
