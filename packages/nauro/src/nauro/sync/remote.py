@@ -144,14 +144,6 @@ def fetch_via_presigned_url(url: str) -> bytes:
     return response.content
 
 
-def get_via_presigned_url(url: str, local_path: Path) -> bytes:
-    """GET ``url`` and write the body to ``local_path``. Returns the bytes."""
-    content = fetch_via_presigned_url(url)
-    local_path.parent.mkdir(parents=True, exist_ok=True)
-    local_path.write_bytes(content)
-    return content
-
-
 def put_via_presigned_url(url: str, local_path: Path) -> str:
     """PUT the bytes at ``local_path`` to ``url``. Returns the new ETag."""
     data = local_path.read_bytes()
@@ -165,7 +157,6 @@ __all__ = [
     "PresignError",
     "fetch_manifest",
     "fetch_via_presigned_url",
-    "get_via_presigned_url",
     "put_via_presigned_url",
     "request_presigned_urls",
     "resolve_api_url",
