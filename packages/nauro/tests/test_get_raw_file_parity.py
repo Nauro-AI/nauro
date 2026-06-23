@@ -104,3 +104,18 @@ def test_traversal_envelope_matches_across_surfaces(demo_repo):
     assert "available_files" not in stdio
     assert stdio["error"]["kind"] == "error"
     assert stdio["error"]["reason"] == f"Invalid path: {TRAVERSAL_PATH}"
+
+
+def test_nul_path_returns_rejection_not_raw_traceback(demo_repo):
+    pid, store_path = demo_repo
+    # An embedded NUL makes Path.resolve() raise ValueError before the
+    # traversal check; the adapter must convert it to the same "Invalid path"
+    # rejection envelope as traversal, not let a raw ValueError escape.
+    nul_path = "foo\x00bar"
+    tool = _tool_envelope(store_path, nul_path)
+    assert tool["store"] == "local"
+    assert "content" not in tool
+    assert tool["error"]["kind"] == "error"
+    assert tool["error"]["reason"] == f"Invalid path: {nul_path}"
+    # Same clean envelope across surfaces.
+    assert _stdio_envelope(pid, nul_path) == tool

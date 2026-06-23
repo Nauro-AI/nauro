@@ -228,7 +228,7 @@ def resolve_project(path: Path) -> str | None:
     registry = load_registry()
     path = path.resolve()
     for name, entry in registry["projects"].items():
-        for repo in entry["repo_paths"]:
+        for repo in entry.get("repo_paths", []):
             repo_resolved = Path(repo).resolve()
             if path == repo_resolved or repo_resolved in path.parents:
                 return name  # type: ignore[no-any-return]

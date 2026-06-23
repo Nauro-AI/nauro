@@ -79,6 +79,14 @@ def test_whitespace_query_returns_rejection_error() -> None:
     assert result.error.kind == "rejected"
 
 
+def test_non_positive_limit_returns_rejection_error() -> None:
+    result = search_decisions(InMemoryStore(), "anything", limit=-1)
+    assert result.results == []
+    assert result.error is not None
+    assert result.error.kind == "rejected"
+    assert "limit" in result.error.reason
+
+
 def test_title_match_returns_hit_with_positive_score() -> None:
     stem, body = _seed_decision(
         1,

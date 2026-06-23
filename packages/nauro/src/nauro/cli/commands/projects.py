@@ -85,7 +85,14 @@ def remove_project(
     ),
 ) -> None:
     """Remove a project's registry entry, leaving its on-disk store intact."""
-    store_path = get_store_path_v2(project_id)
+    try:
+        store_path = get_store_path_v2(project_id)
+    except ValueError as exc:
+        # A project_id that escapes the projects root (e.g. ``..`` or an
+        # absolute path) trips the containment guard; reject it cleanly
+        # rather than surfacing a raw traceback.
+        typer.echo(f"Invalid project id {project_id!r}: {exc}", err=True)
+        raise typer.Exit(code=1) from None
     if not yes:
         typer.confirm(
             f"Remove registry entry for {project_id}? "

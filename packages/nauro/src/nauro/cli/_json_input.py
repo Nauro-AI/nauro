@@ -51,7 +51,10 @@ def parse_json_list_of_dicts(raw: str, flag_name: str) -> list[dict]:
         path = Path(raw[1:])
         if not path.exists() or not path.is_file():
             raise typer.BadParameter(f"{flag_name}: file '{path}' does not exist")
-        text = path.read_text(encoding="utf-8")
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise typer.BadParameter(f"{flag_name}: file '{path}' is not valid UTF-8") from exc
     else:
         text = raw
 

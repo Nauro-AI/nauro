@@ -38,7 +38,11 @@ from nauro.cli.commands.setup import (
 from nauro.cli.utils import refuse_global_config_collision
 from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
-from nauro.store.registry import find_projects_by_name_v2, register_project_v2
+from nauro.store.registry import (
+    RegistrySchemaError,
+    find_projects_by_name_v2,
+    register_project_v2,
+)
 from nauro.store.repo_config import save_repo_config
 from nauro.telemetry import capture
 from nauro.telemetry.events import project_created
@@ -302,7 +306,10 @@ def adopt(
             [repo_root],
             mode=REPO_CONFIG_MODE_LOCAL,
         )
-    except ValueError as exc:
+    except (ValueError, RegistrySchemaError) as exc:
+        # RegistrySchemaError carries the one-time v1->v2 migration guidance;
+        # surface it cleanly instead of as a raw traceback (the collision
+        # pre-check swallows it and returns empty, so it only fires here).
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from None
 

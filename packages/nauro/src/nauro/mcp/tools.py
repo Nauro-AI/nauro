@@ -590,9 +590,11 @@ def tool_get_raw_file(store_path: Path, path: str) -> dict:
 
     # Adapter-side traversal check. Distinct from the kernel-side
     # file-not-found case so callers get a clear "Invalid path" signal
-    # before any Store I/O.
-    resolved = (store_path / path).resolve()
+    # before any Store I/O. ``.resolve()`` is inside the guard because it
+    # itself raises ValueError on a path with an embedded NUL — same clean
+    # "Invalid path" rejection, not a raw traceback.
     try:
+        resolved = (store_path / path).resolve()
         resolved.relative_to(store_path.resolve())
     except ValueError:
         return {

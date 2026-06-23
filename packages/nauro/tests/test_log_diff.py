@@ -487,6 +487,17 @@ class TestDiffSinceLastSessionTimeBased:
         assert "v002" in result
         assert "v003" in result
 
+    def test_days_huge_negative_does_not_overflow(self, timed_store: Path):
+        """A huge negative days clamps instead of overflowing datetime arithmetic.
+
+        ``now - timedelta(days=-1e8)`` would push the target past datetime.max;
+        the two-sided clamp keeps the subtraction in range. The future cutoff
+        resolves to the most-recent snapshot, so the call returns cleanly
+        rather than raising OverflowError.
+        """
+        result = diff_since_last_session(timed_store, days=-100000000)
+        assert isinstance(result, str) and result
+
     def test_no_snapshots_graceful(self, store: Path):
         """days=7 with no snapshots returns graceful message."""
         result = diff_since_last_session(store, days=7)

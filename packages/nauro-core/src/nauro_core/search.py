@@ -57,7 +57,11 @@ def bm25_search(
     retriever = bm25s.BM25()
     retriever.index(corpus_tokens, show_progress=False)
 
-    k = min(limit, len(decisions))
+    # Clamp k into [0, N]: bm25s/numpy argpartition raises ValueError on a
+    # negative k, which a negative limit would otherwise pass straight through.
+    k = max(0, min(limit, len(decisions)))
+    if k == 0:
+        return []
     query_tokens = bm25s.tokenize([query], stopwords="en", stemmer=_stemmer, show_progress=False)
     results, scores = retriever.retrieve(query_tokens, k=k, show_progress=False)
 
