@@ -491,6 +491,8 @@ def status() -> None:
     """Show current authentication state."""
     config = load_config()
     auth = config.get("auth")
+    if not isinstance(auth, dict):
+        auth = {}
 
     if not auth or not auth.get("access_token"):
         typer.echo("Not authenticated. Run 'nauro auth login' to sign in.")
