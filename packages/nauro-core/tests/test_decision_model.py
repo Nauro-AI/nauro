@@ -701,3 +701,64 @@ class TestSupersessionRefValidator:
                 status=DecisionStatus.superseded,
                 superseded_by="070",
             )
+
+
+class TestSourceCitationRoundTrip:
+    """A free-text ``Source: file:line`` citation inside the rationale.
+
+    The Rapid Cited Seed records the provenance of a documented decision as a
+    plain ``Source: <file>:<line>`` line in the rationale body. That line must
+    survive ``format_decision`` -> ``parse_decision`` byte-for-byte and must
+    never be mistaken for the ``## Rejected Alternatives`` anchor (the
+    rationale/rejected split keys on a whole-line ``## Rejected Alternatives``
+    heading, not on the word "Rejected" appearing in prose).
+    """
+
+    def test_citation_line_survives_round_trip(self) -> None:
+        rationale = (
+            "Chose a store-owned daemon as the single shared store writer.\n\n"
+            "Source: docs/adr/0003-shared-store-daemon.md:26"
+        )
+        decision = _minimal_decision(rationale=rationale)
+
+        formatted = format_decision(decision)
+        reparsed = parse_decision(formatted, "002-shared-store-daemon.md")
+
+        assert reparsed.rationale == rationale
+        assert "Source: docs/adr/0003-shared-store-daemon.md:26" in reparsed.rationale
+        # No rejected alternatives were declared, so the citation prose did not
+        # spuriously open a Rejected Alternatives section.
+        assert reparsed.rejected == []
+
+    def test_citation_does_not_break_rejected_anchor(self) -> None:
+        """A citation line sitting just above a real Rejected Alternatives
+        block must stay in the rationale; the anchor split is unaffected."""
+        rationale = (
+            "Daemon owns the shared store.\n\nSource: docs/adr/0003-shared-store-daemon.md:26"
+        )
+        decision = _minimal_decision(
+            rationale=rationale,
+            rejected=[
+                RejectedAlternative(
+                    name="Keep CLI-Only Embedded Access",
+                    reason="No central place for request ordering or admission control.",
+                ),
+            ],
+        )
+
+        formatted = format_decision(decision)
+        reparsed = parse_decision(formatted, "002-shared-store-daemon.md")
+
+        # The citation rides with the rationale, not the rejected section.
+        assert reparsed.rationale == rationale
+        assert "Source: docs/adr" in reparsed.rationale
+        assert [r.name for r in reparsed.rejected] == ["Keep CLI-Only Embedded Access"]
+        assert "Source:" not in (reparsed.rejected[0].reason or "")
+
+    def test_citation_with_literal_colon_line_byte_identical(self) -> None:
+        """Reformat is idempotent with the citation present (byte-identical)."""
+        rationale = "Pinned the store path outside the repo.\n\nSource: CLAUDE.md:12"
+        decision = _minimal_decision(num=2, rationale=rationale)
+        once = format_decision(decision)
+        twice = format_decision(parse_decision(once, "002-store-path.md"))
+        assert once == twice
