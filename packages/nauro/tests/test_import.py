@@ -6,6 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.commands.import_cmd import (
+    _extract_adr_alternatives_strict,
     _import_adrs,
     _import_memory_bank,
     _import_progress,
@@ -17,6 +18,8 @@ from nauro.store.snapshot import list_snapshots
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture
@@ -709,3 +712,154 @@ def test_import_adr_no_matching_files_warns(tmp_path: Path, monkeypatch):
     assert "0 ADR(s) imported" in result.output
     assert "Warning" in result.output
     assert "<NNN>-title.md" in result.output
+
+
+# ===========================================================================
+# Strict, alternatives-aware ADR extractor (opt-in; default-False path)
+# ===========================================================================
+
+
+def test_strict_extractor_named_rejections_verbatim_drops_conditional():
+    """The `### `-aware extractor on a MADR `## Alternatives Considered` section.
+
+    The 0003 ADR fixture names three `### ` options. Two are genuine
+    rejections; the third ("Use the Embedded Engine's Daemon Directly") opens
+    with a conditional "This may become a valid storage transport ..." and is an
+    option held open, not a named rejection. The strict extractor returns the
+    two rejections with their bodies verbatim, drops the conditional, and never
+    scrapes `## Consequences`.
+    """
+    content = (FIXTURES / "adr" / "0003-shared-store-daemon.md").read_text()
+
+    result = _extract_adr_alternatives_strict(content)
+    assert result is not None
+    alternatives = [entry["alternative"] for entry in result]
+
+    # Two named rejections; the conditional "may become" option is excluded.
+    assert alternatives == [
+        "Keep CLI-Only Embedded Access",
+        "Add a Local File Lock Around CLI Writes",
+    ]
+    assert "Use the Embedded Engine's Daemon Directly" not in alternatives
+
+    # Reason text is the verbatim subsection body — quoted, never composed.
+    first = result[0]
+    assert first["reason"].startswith("This is the simplest short-term shape")
+    assert "central place for request ordering" in first["reason"]
+    second = result[1]
+    assert second["reason"].startswith("This is a useful emergency guard")
+
+    # The offset points at the `### ` heading line so a caller can cite file:line.
+    assert content[first["offset"] :].startswith("### Keep CLI-Only Embedded Access")
+
+    # No `## Consequences` scraping: nothing from the Consequences list leaks in.
+    reasons = " ".join(entry["reason"] for entry in result)
+    assert "one serialization and recovery boundary" not in reasons
+
+
+def test_strict_extractor_no_alternatives_section_yields_none():
+    """An ADR with no `## Alternatives`/`## Options Considered` section yields
+    None — no fabricated rejection, no `## Consequences` fallback."""
+    content = (
+        "# Use PostgreSQL\n\n"
+        "## Context\n\nWe need ACID.\n\n"
+        "## Decision\n\nUse PostgreSQL.\n\n"
+        "## Consequences\n\n"
+        "- Bad, because it rules out SQLite as an alternative\n"
+    )
+    assert _extract_adr_alternatives_strict(content) is None
+
+
+def test_strict_extractor_options_considered_heading_supported():
+    """`## Options Considered` is recognized alongside `## Alternatives Considered`."""
+    content = (
+        "# Choose a queue\n\n"
+        "## Decision\n\nUse SQS.\n\n"
+        "## Options Considered\n\n"
+        "### RabbitMQ\n\n"
+        "Heavier ops burden for our load.\n\n"
+        "### Kafka\n\n"
+        "Overkill for low-volume events.\n"
+    )
+    result = _extract_adr_alternatives_strict(content)
+    assert result is not None
+    assert [e["alternative"] for e in result] == ["RabbitMQ", "Kafka"]
+    assert result[0]["reason"] == "Heavier ops burden for our load."
+    assert result[1]["reason"] == "Overkill for low-volume events."
+
+
+def test_strict_extractor_excludes_held_open_revisit_after_marker():
+    """A held-open option phrased "Revisit after v2 ..." is excluded, not recorded
+    as a rejection — matching the adopt skill's advertised "revisit after v2"
+    held-open example. Guards the deferred-marker set against fabricating a
+    rejection from a deferral the source left open."""
+    content = (
+        "# Choose a transport\n\n"
+        "## Decision\n\nUse SSE now.\n\n"
+        "## Alternatives Considered\n\n"
+        "### WebSockets\n\n"
+        "Needs sticky sessions our proxies do not support.\n\n"
+        "### A gRPC streaming layer\n\n"
+        "Revisit after v2 ships; the streaming primitives are not in place yet.\n"
+    )
+    result = _extract_adr_alternatives_strict(content)
+    assert result is not None
+    alternatives = [e["alternative"] for e in result]
+    # The genuine rejection is kept; the "revisit after v2" option is held open.
+    assert alternatives == ["WebSockets"]
+    assert "A gRPC streaming layer" not in alternatives
+
+
+def test_strict_extractor_keeps_rejection_that_narrates_revisiting():
+    """A genuine rejection whose body recounts that the option was revisited and
+    reconsidered before being ruled out is KEPT. The deferred markers match
+    forward-looking held-open phrasings ("revisit after"), not past-tense
+    rejection narration ("we revisited X and rejected it")."""
+    content = (
+        "# Choose a store\n\n"
+        "## Decision\n\nUse the daemon.\n\n"
+        "## Alternatives Considered\n\n"
+        "### A shared connection pool\n\n"
+        "We revisited and reconsidered a pool of embedded handles, then rejected "
+        "it: it multiplies store owners instead of defining one.\n"
+    )
+    result = _extract_adr_alternatives_strict(content)
+    assert result is not None
+    assert [e["alternative"] for e in result] == ["A shared connection pool"]
+
+
+def test_strict_extractor_import_omits_rejected_when_none_named(store: Path, tmp_path: Path):
+    """On the strict path, an ADR with no alternatives section imports a
+    decision with no rejected list — no placeholder reason."""
+    adr_dir = tmp_path / "strict_adrs"
+    adr_dir.mkdir()
+    (adr_dir / "0001-no-alternatives.md").write_text(
+        "# Use a thing\n\n## Context\n\nC.\n\n## Decision\n\nDo it.\n\n"
+        "## Consequences\n\n- Good, it is simple\n"
+    )
+
+    counts = _import_adrs(adr_dir, store, strict_alternatives=True)
+    assert counts["imported"] == 1
+
+    decisions = sorted((store / "decisions").glob("*.md"))
+    imported = decisions[1].read_text()
+    # No fabricated placeholder reason leaks onto the strict path.
+    assert "Rejected reason not available in source ADR." not in imported
+    assert "## Rejected Alternatives" not in imported
+
+
+def test_strict_extractor_import_records_named_rejections(store: Path):
+    """The strict path imports the fixture's two named rejections with
+    their verbatim reasons and skips the conditional option."""
+    adr_dir = FIXTURES / "adr"
+
+    counts = _import_adrs(adr_dir, store, strict_alternatives=True)
+    assert counts["imported"] == 1
+
+    decisions = sorted((store / "decisions").glob("*.md"))
+    imported = decisions[1].read_text()
+    assert "## Rejected Alternatives" in imported
+    assert "### Keep CLI-Only Embedded Access" in imported
+    assert "### Add a Local File Lock Around CLI Writes" in imported
+    assert "### Use the Embedded Engine's Daemon Directly" not in imported
+    assert "This is the simplest short-term shape" in imported

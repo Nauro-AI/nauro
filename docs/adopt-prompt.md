@@ -30,8 +30,54 @@ The agent helps the user seed Nauro with context from the current repo. Before t
 
 The agent's behaviour depends on whether the surface can read the repo directly.
 
-- **Filesystem-capable surfaces** (Claude Code, Cursor, Codex CLI). The agent runs Steps 1–11 in full. Docs are read for rationale in Step 3; code, config, tests, manifests, and recent git history are inspected for evidence in Step 4; targeted probes in Step 6b turn evidence into rationale by asking the user.
-- **Chat surfaces** (Claude.ai, Perplexity). The agent has no shell. It operates only on content the user pastes into the chat (Step 3b), and only against an already-adopted project (verified in Step 3b). Steps 1, 2, and 4 are filesystem-bound and are skipped on chat surfaces; the Step 6b probes are likewise unavailable, and the agent does not ask the user to paste code in lieu of running shell commands. The skill skips from Step 3b directly to Step 5.
+- **Filesystem-capable surfaces** (Claude Code, Cursor, Codex CLI). The agent runs Step 0 and Steps 1–11 in full. Step 0 is an optional rapid first pass that files only the decisions carrying two verifiable citations; Docs are read for rationale in Step 3; code, config, tests, manifests, and recent git history are inspected for evidence in Step 4; targeted probes in Step 6b turn evidence into rationale by asking the user.
+- **Chat surfaces** (Claude.ai, Perplexity). The agent has no shell. It operates only on content the user pastes into the chat (Step 3b), and only against an already-adopted project (verified in Step 3b). Step 0 is filesystem-only and is skipped on chat surfaces, exactly as Steps 1, 2, and 4 are; the Step 6b probes are likewise unavailable, and the agent does not ask the user to paste code in lieu of running shell commands. The skill skips from Step 3b directly to Step 5.
+
+## Step 0 — Rapid Cited Seed
+
+Filesystem-capable surfaces only; skipped on chat surfaces exactly as Steps 1, 2, and 4 are. Step 0 is a fast first pass that files only the decisions whose rationale and rejected alternative are each a verbatim span the agent can point at by `file:line`. It reads **no new surface** — only the same Step 3 doc set (README; manifests; CONTRIBUTING / ARCHITECTURE / DESIGN / CLAUDE.md / AGENTS.md; the ADR dirs; the Memory-Bank files). Steps 1–11 still run afterward as the deep follow-up; Step 0 never replaces them or lowers their bar. A thin or empty Step 0 is a correct outcome — disciplined refusal, not a missed number.
+
+### Step 0.1 — Draft cited cards
+
+The agent reads the Step 3 doc set and drafts decision **cards**. A card qualifies for the batch **only** when the agent can quote **two** verifiable spans from those docs:
+
+1. a **rationale** span — the documented "why" for the choice, and
+2. a **named rejected-alternative** span — a *distinct* option the source names and sets aside. The grammatical inverse of the choice ("we did not not-do X") is **not** a rejected alternative; the span must name a real second option (e.g. "Memcached", "a monolith", "the embedded adapter"). A deferred or conditional option the source holds open ("this may become valid later", "revisit after v2") is held open, not rejected — it does not satisfy the second span.
+
+Each span is quoted with its `file:line`. There is **no quota**: file as many cards as carry two honest spans — even one, even zero. Never pad to a number, never weaken a span to reach a count.
+
+The agent does not compose rationale. Every character of a card's rationale is either a span quoted from a doc or text the user types. The agent never writes a "why" of its own, never paraphrases prose into a rationale the source did not state, and never infers a rejected alternative the source did not name.
+
+Per card, the agent prepares:
+
+- **Title** (≤60 chars) and a one-line summary (≤140 chars).
+- **Rationale span (read-only)**, shown with its `file:line`. This is source text the agent surfaces; it is not an editable field.
+- **Rejected-alternative span (read-only)**, the named option plus its `file:line`.
+- **An empty "your why" field**, separate from the read-only spans, left blank for the user to fill or edit. The agent never pre-fills this field with the source span or with anything else — a human-supplied or human-edited "why" lives only here, never folded into the read-only span.
+- **Confidence** — `high` only when the source carries a literal ADR `Status: Accepted`; otherwise `medium`. Tone, emphasis, or a confident-sounding paragraph never promote to `high`.
+
+### Step 0.2 — Pre-check each card
+
+Before presenting the batch, the agent calls `check_decision(proposed_approach=<title plus the one-line summary>, project_id=...)` **once per card** and annotates each card with any overlap the pre-pass surfaces (the related decisions and the assessment line). This is the same pre-pass Step 7 step 1 runs; doing it up front lets the user see, on each card, whether it collides with a decision already in the store before the batch is confirmed.
+
+### Step 0.3 — One batch confirm
+
+The agent presents all cards as a single batch and waits for one reply:
+
+> Reply `confirm 1 3` / `skip 2` / `edit 3: <title>` / `confirm all` / `skip all`.
+
+`edit N: <title>` adjusts the title only; rationale stays the cited span. A user "why" goes through the separate empty field, never by editing a read-only span.
+
+### Step 0.4 — File confirmed cards through Step 7's write loop
+
+For each confirmed card, the agent files it through the **unchanged** Step 7 write loop — the screened `propose_decision` path described there. Step 0 never calls a direct-write bypass; it routes every card through the same screened proposal the rest of the skill uses.
+
+- The rationale written for a card carries its provenance as a free-text line inside the rationale body: `Source: <file>:<line>`. This is plain rationale text — not a new field — and it round-trips through the decision format unchanged.
+- The agent **captures the `propose_decision` return status for every card** and does not assume confirm means filed. A card can come back **rejected** even after the user confirmed it — most commonly when its normalized title collides with a card written earlier in the *same* batch (active-title dedup). The agent reports each rejected card by title and reason, and does not silently drop it.
+
+### Step 0.5 — Held-back surface
+
+Cards the agent saw but could **not** back with two honest spans never enter the batch. The agent lists them on a separate **held-back surface**: each candidate, the `file:line` it came from, and one line on why it was withheld (e.g. "rationale span present, no named rejected alternative"; "rejected option is conditional, not set aside"). These route into the existing Step 6b probe loop, where the user supplies the missing "why" and promotes the candidate. A held-back list — even a long one against a short filed list — is the disciplined result, not a shortfall.
 
 ## Step 1 — Detect repo root
 

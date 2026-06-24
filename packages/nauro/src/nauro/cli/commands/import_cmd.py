@@ -218,7 +218,12 @@ def _parse_and_import_decisions(content: str, store_path: Path) -> int:
     return count
 
 
-def _import_adrs(adr_dir: Path, store_path: Path) -> dict[str, Any]:
+def _import_adrs(
+    adr_dir: Path,
+    store_path: Path,
+    *,
+    strict_alternatives: bool = False,
+) -> dict[str, Any]:
     """Import Architecture Decision Records from a directory into the store.
 
     Scans for markdown files matching ADR naming patterns (NNN-title.md or
@@ -228,6 +233,14 @@ def _import_adrs(adr_dir: Path, store_path: Path) -> dict[str, Any]:
     Args:
         adr_dir: Path to directory containing ADR markdown files.
         store_path: Path to the target project store.
+        strict_alternatives: When True, rejected alternatives come from
+            ``_extract_adr_alternatives_strict`` — only ``### <title>``
+            subsections under an explicit ``## Alternatives Considered`` /
+            ``## Options Considered`` section, each carrying its verbatim body
+            as the reason. No ``## Consequences`` scraping and no placeholder
+            reason: an ADR that names no alternatives imports with no rejected
+            list. Defaults to False, which preserves the legacy
+            ``_extract_adr_rejected`` path byte-for-byte.
 
     Returns:
         Dict with counts: imported, skipped.
@@ -257,22 +270,12 @@ def _import_adrs(adr_dir: Path, store_path: Path) -> dict[str, Any]:
             continue
 
         rationale = _extract_adr_rationale(content)
-        rejected = _extract_adr_rejected(content)
         confidence = _extract_adr_confidence(content)
 
-        # ADR source format has no structured reason-per-alternative; attach a
-        # placeholder so the v2 validator (which requires a reason on every
-        # rejected alternative of an active decision) accepts the import. The
-        # placeholder makes the data gap explicit rather than fabricating prose.
-        structured_rejected: list[dict] | None = None
-        if rejected:
-            structured_rejected = [
-                {
-                    "alternative": alt,
-                    "reason": "Rejected reason not available in source ADR.",
-                }
-                for alt in rejected
-            ]
+        if strict_alternatives:
+            structured_rejected = _extract_adr_alternatives_strict(content)
+        else:
+            structured_rejected = _legacy_structured_rejected(content)
 
         _import_append_decision(
             store_path,
@@ -285,6 +288,26 @@ def _import_adrs(adr_dir: Path, store_path: Path) -> dict[str, Any]:
 
     counts["_skipped_reasons"] = skipped_reasons
     return counts
+
+
+def _legacy_structured_rejected(content: str) -> list[dict] | None:
+    """Legacy default rejected-alternative shape for ``nauro import --adr``.
+
+    ADR source format has no structured reason-per-alternative; attach a
+    placeholder so the v2 validator (which requires a reason on every rejected
+    alternative of an active decision) accepts the import. The placeholder makes
+    the data gap explicit rather than fabricating prose.
+    """
+    rejected = _extract_adr_rejected(content)
+    if not rejected:
+        return None
+    return [
+        {
+            "alternative": alt,
+            "reason": "Rejected reason not available in source ADR.",
+        }
+        for alt in rejected
+    ]
 
 
 def _extract_adr_title(content: str) -> str | None:
@@ -328,6 +351,133 @@ def _extract_adr_rejected(content: str) -> list[str] | None:
             return rejected
 
     return None
+
+
+# A subsection title under "## Alternatives Considered" that opens with one of
+# these deferred/conditional phrasings names an option the source explicitly
+# left open, not a rejected one. A "may become valid later" alternative is not a
+# named rejected-alternative span, so the strict extractor drops it rather than
+# recording it as rejected with no honest rejection rationale.
+# Forward-looking, held-open dispositions only. Phrase-anchored on purpose: a
+# bare "revisit"/"reconsider" would also match past-tense rejection narration
+# ("we revisited X and rejected it"), dropping a genuine rejection as held-open.
+_DEFERRED_OPTION_MARKERS: tuple[str, ...] = (
+    "may become",
+    "might become",
+    "may later",
+    "maybe later",
+    "could become",
+    "to be decided",
+    "tbd",
+    "deferred",
+    "defer until",
+    "revisit later",
+    "revisit after",
+    "revisit when",
+    "revisit once",
+    "reconsider later",
+    "reconsider once",
+    "postpone",
+)
+
+
+def _extract_adr_alternatives_strict(content: str) -> list[dict] | None:
+    """Extract NAMED rejected alternatives from an explicit alternatives section.
+
+    Strict, alternatives-aware companion to ``_extract_adr_rejected`` — opt-in
+    and never on the default ``nauro import --adr`` path. It reads only a
+    ``## Alternatives Considered`` or ``## Options Considered`` section, splits
+    it into ``### <title>`` subsections, and returns one entry per subsection
+    whose body verbatim is the rejection reason::
+
+        {"alternative": <title>, "reason": <verbatim body>, "offset": <int>}
+
+    ``offset`` is the character index of the ``### `` heading line in
+    ``content``, so a caller can derive a file:line citation for the span.
+
+    Deliberately narrow, by design:
+
+    - No ``## Consequences`` scraping — that fallback infers rejection from
+      prose, which fabricates a "why" the source never stated.
+    - When the source names no alternatives section, returns ``None`` (the
+      caller omits ``rejected`` entirely — no placeholder reason).
+    - A subsection whose body opens with a deferred/conditional marker (e.g.
+      "This may become valid later") is an option held open, not a named
+      rejection, and is skipped.
+
+    Returns ``None`` when there is no alternatives section or it yields no
+    honest named rejection; otherwise a non-empty list.
+    """
+    section = _find_alternatives_section(content)
+    if section is None:
+        return None
+    section_text, section_start = section
+
+    entries: list[dict] = []
+    for title, body, rel_offset in _iter_subsections(section_text):
+        if _is_deferred_option(body):
+            continue
+        if not body:
+            continue
+        entries.append(
+            {
+                "alternative": title,
+                "reason": body,
+                "offset": section_start + rel_offset,
+            }
+        )
+    return entries or None
+
+
+def _find_alternatives_section(content: str) -> tuple[str, int] | None:
+    """Return ``(section_body, body_start_offset)`` for the alternatives section.
+
+    Matches ``## Alternatives Considered`` or ``## Options Considered`` (case
+    insensitive). ``body_start_offset`` is the character index in ``content``
+    where the section body begins (just after the heading line). Returns
+    ``None`` when neither heading is present.
+    """
+    pattern = re.compile(
+        r"^##\s+(?:Alternatives|Options)\s+Considered\s*$",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    m = pattern.search(content)
+    if not m:
+        return None
+    start = m.end()
+    next_heading = re.search(r"^##\s+", content[start:], re.MULTILINE)
+    body = content[start : start + next_heading.start()] if next_heading else content[start:]
+    return body, start
+
+
+def _iter_subsections(section_text: str):
+    """Yield ``(title, verbatim_body, offset)`` per ``### <title>`` subsection.
+
+    ``offset`` is the index of the ``###`` heading line within ``section_text``;
+    ``verbatim_body`` is the stripped text between this heading and the next
+    ``###`` (or end of section). The body is returned exactly as written — no
+    rewording, no summarization — so the reason is a quoted span, never composed.
+    """
+    heading = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
+    matches = list(heading.finditer(section_text))
+    for i, m in enumerate(matches):
+        title = m.group(1).strip()
+        body_start = m.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(section_text)
+        body = section_text[body_start:body_end].strip()
+        yield title, body, m.start()
+
+
+def _is_deferred_option(body: str) -> bool:
+    """True when a subsection body opens with a deferred/conditional marker.
+
+    Guards against recording an option the source held open ("may become valid
+    later") as a rejected alternative. Only the opening of the body is checked —
+    a marker buried mid-paragraph does not flip an otherwise-rejected option.
+    """
+    lowered = body.lstrip().lower()
+    opening = lowered[:200]
+    return any(marker in opening for marker in _DEFERRED_OPTION_MARKERS)
 
 
 def _extract_adr_confidence(content: str) -> str:

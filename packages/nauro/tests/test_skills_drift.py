@@ -27,8 +27,11 @@ from tests._skill_surfaces import REPO_ROOT, SKILL_SURFACES, load_docs_adopt_pro
 def test_load_adopt_body_returns_canonical_bytes():
     body = load_adopt_body()
     assert body.endswith("\n")
-    assert 1000 < len(body) < 25000
+    # Upper bound is a corruption/runaway sentinel, not a doctrine cap; raised
+    # to 30000 when Step 0 (Rapid Cited Seed) was added ahead of Step 1.
+    assert 1000 < len(body) < 30000
     # Anchor on key step markers — catches accidental empty / corrupted body.
+    assert "Step 0 — Rapid Cited Seed" in body
     assert "Step 1 — Detect repo root" in body
     assert "## Surface modes" in body
     assert "Step 4 — Read code evidence" in body
@@ -230,6 +233,67 @@ def test_adopt_body_delta_size_gloss_matches_constant():
         f"adopt_body.md delta-cap gloss is out of sync with MAX_DELTA_LENGTH "
         f"({MAX_DELTA_LENGTH} characters); expected the prose to read {gloss!r}."
     )
+
+
+def test_adopt_body_step0_mandates_two_citations_batch_confirm_and_precheck():
+    """Step 0 (Rapid Cited Seed) load-bearing contract.
+
+    Mirrors the prompt-content drift checks elsewhere in this module: anchor the
+    invariants that make Step 0 safe so a cleanup edit cannot quietly soften
+    them. Step 0 must (1) require two cited spans — a rationale span AND a named
+    rejected-alternative span — per card, (2) run ``check_decision`` once per
+    card before the batch, (3) gate every write behind one human batch confirm,
+    (4) route writes through the unchanged screened ``propose_decision`` path
+    (never a direct-write bypass), (5) capture each ``propose_decision`` status
+    rather than assume confirm == filed, (6) persist the citation as a free-text
+    ``Source: file:line`` line, and (7) hold back un-cited candidates.
+    """
+    body = load_adopt_body()
+
+    # The section exists and precedes Step 1 (rapid pass before the deep run).
+    assert "## Step 0 — Rapid Cited Seed" in body
+    assert body.index("## Step 0 — Rapid Cited Seed") < body.index("## Step 1 — Detect repo root")
+
+    # Two cited spans per card: a rationale span AND a named rejected alternative.
+    assert "rationale** span" in body
+    assert "named rejected-alternative" in body
+    assert "`file:line`" in body
+    # The grammatical-inverse trap is named so a card cannot pass on a fake
+    # second option.
+    assert "grammatical inverse" in body
+
+    # check_decision runs once per card before the batch is presented.
+    assert "`check_decision(" in body
+    assert "once per card" in body
+
+    # One human batch confirm is the write gate.
+    assert "confirm 1 3" in body
+    assert "confirm all" in body
+    assert "skip all" in body
+
+    # Writes route through the unchanged Step 7 screened propose_decision path,
+    # never a direct-write bypass.
+    assert "Step 7 write loop" in body
+    assert "propose_decision" in body
+    assert "direct-write bypass" in body
+
+    # Capture status; confirm does not imply filed (D272 active-title dedup can
+    # reject a card colliding with one written earlier in the same batch).
+    assert "captures the `propose_decision` return status" in body
+    assert "does not assume confirm means filed" in body
+
+    # Provenance persists as a free-text Source: file:line line in the rationale.
+    assert "Source: <file>:<line>" in body
+
+    # Un-cited candidates surface on a held-back list routed to Step 6b.
+    assert "held-back surface" in body
+    assert "Step 6b" in body
+
+    # NO_INVENT_RATIONALE: the agent never composes a why.
+    assert "does not compose rationale" in body
+
+    # confidence=high only on a literal ADR Status: Accepted.
+    assert "Status: Accepted" in body
 
 
 # --- render_skill produces frontmatter + body ---
