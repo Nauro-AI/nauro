@@ -471,6 +471,32 @@ class TestOpenQuestionsFilter:
         assert payload["open_questions"] == []
 
 
+class TestOpenQuestionsDiscoveryPointerExclusion:
+    """Discovery-pointer entries (BRIEF:/RESUME:/SELECT: body prefix) are
+    breadcrumbs for other agents, not graph-surface open questions: they must be
+    absent from the payload and excluded from the question count."""
+
+    def test_discovery_pointers_absent_and_uncounted(self):
+        content = (
+            "# Open Questions\n"
+            "- [Q1] BRIEF: context/a.md — shared brief\n"
+            "- [Q2] First genuine question?\n"
+            "- [Q3] RESUME: context/b.md — resume brief\n"
+            "- [Q4] Second genuine question?\n"
+            "- [Q5] SELECT: context/c.md — loop checkpoint\n"
+        )
+        questions = OpenQuestionsFile.parse(content)
+        payload = build_graph_payload([], questions=questions)
+        assert [q["id"] for q in payload["open_questions"]] == ["Q2", "Q4"]
+        bodies = " ".join(q["body"] for q in payload["open_questions"])
+        assert "BRIEF:" not in bodies
+        assert "RESUME:" not in bodies
+        assert "SELECT:" not in bodies
+        # The "N open questions" count the renderer shows derives from
+        # len(payload["open_questions"]), so pointers are not counted.
+        assert len(payload["open_questions"]) == 2
+
+
 class TestOpenQuestionReferences:
     def test_multiple_references_from_full_body(self):
         # Two references in the question body resolve to a sorted list. Both

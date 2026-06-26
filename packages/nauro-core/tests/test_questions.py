@@ -246,6 +246,73 @@ class TestUnresolvedEntries:
         assert file.open_ids == ["Q1"]
 
 
+class TestDiscoveryPointerClassification:
+    def test_brief_prefix_is_pointer(self):
+        e = QuestionEntry(num=1, body="BRIEF: context/x.md — shared brief")
+        assert e.is_discovery_pointer is True
+
+    def test_resume_prefix_is_pointer(self):
+        e = QuestionEntry(num=1, body="RESUME: context/y.md — resume brief")
+        assert e.is_discovery_pointer is True
+
+    def test_select_prefix_is_pointer(self):
+        e = QuestionEntry(num=1, body="SELECT: context/z.md — loop checkpoint")
+        assert e.is_discovery_pointer is True
+
+    def test_leading_whitespace_still_pointer(self):
+        e = QuestionEntry(num=1, body="   BRIEF: context/x.md")
+        assert e.is_discovery_pointer is True
+
+    def test_genuine_question_is_not_pointer(self):
+        e = QuestionEntry(num=1, body="Should we cache the index?")
+        assert e.is_discovery_pointer is False
+
+    def test_prefix_not_at_start_is_not_pointer(self):
+        # The marker must lead the body; a mention mid-sentence is a real question.
+        e = QuestionEntry(num=1, body="Where should the BRIEF: marker live?")
+        assert e.is_discovery_pointer is False
+
+
+class TestDiscoveryPointerPartition:
+    """``genuine_open_entries`` / ``discovery_pointers`` partition the
+    ``unresolved_entries`` set on the discovery-pointer flag, annotation-first."""
+
+    def _file(self) -> OpenQuestionsFile:
+        content = (
+            "# Open Questions\n"
+            "- [Q1] BRIEF: context/a.md — shared brief\n"
+            "- [Q2] First genuine question?\n"
+            "- [Resolved by D5 on 2026-04-02] [Q3] RESUME: context/b.md — settled pointer\n"
+            "- [Q4] SELECT: context/c.md — loop checkpoint\n"
+            "- [Resolved by D6 on 2026-04-03] [Q5] Already-settled question?\n"
+            "- [Q6] Second genuine question?\n"
+        )
+        return OpenQuestionsFile.parse(content)
+
+    def test_genuine_open_excludes_pointers_and_resolved(self):
+        file = self._file()
+        assert [e.id for e in file.genuine_open_entries] == ["Q2", "Q6"]
+
+    def test_discovery_pointers_are_unresolved_pointers_only(self):
+        # Q3 is a RESUME pointer but resolved-annotated, so it lands in neither
+        # half — the partition mirrors unresolved_entries on the "unresolved" axis.
+        file = self._file()
+        assert [e.id for e in file.discovery_pointers] == ["Q1", "Q4"]
+
+    def test_partition_covers_unresolved_exactly(self):
+        file = self._file()
+        partitioned = {e.id for e in file.genuine_open_entries} | {
+            e.id for e in file.discovery_pointers
+        }
+        assert partitioned == {e.id for e in file.unresolved_entries}
+
+    def test_pointer_free_file_genuine_equals_unresolved(self):
+        content = "# Open Questions\n- [Q1] One?\n- [Q2] Two?\n"
+        file = OpenQuestionsFile.parse(content)
+        assert [e.id for e in file.genuine_open_entries] == ["Q1", "Q2"]
+        assert file.discovery_pointers == []
+
+
 class TestResolve:
     def _file(self) -> OpenQuestionsFile:
         return OpenQuestionsFile.parse(

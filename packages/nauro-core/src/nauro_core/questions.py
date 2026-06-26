@@ -31,6 +31,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from nauro_core.constants import POINTER_FLAG_PREFIXES
+
 _TIMESTAMP_FMT = "%Y-%m-%d %H:%M UTC"
 _RESOLVED_HEADER = "## Resolved"
 _DEFAULT_HEADER = "# Open Questions"
@@ -79,6 +81,17 @@ class QuestionEntry(BaseModel):
             return f"Q{self.num}"
         assert self.timestamp is not None  # exactly_one_id validator
         return self.timestamp.strftime(_TIMESTAMP_FMT)
+
+    @property
+    def is_discovery_pointer(self) -> bool:
+        """True when the body is a discovery pointer, not a question for review.
+
+        Discovery pointers (``BRIEF:``/``RESUME:``/``SELECT:`` body prefix) are
+        breadcrumbs written by the nauro-context and nauro-loop skills, not
+        questions awaiting human review. The check is on the left-stripped body
+        against :data:`POINTER_FLAG_PREFIXES`.
+        """
+        return self.body.lstrip().startswith(POINTER_FLAG_PREFIXES)
 
     def render(self) -> list[str]:
         """Return the markdown lines for this entry."""
@@ -363,6 +376,27 @@ class OpenQuestionsFile(BaseModel):
             for b in self.blocks
             if isinstance(b, EntryBlock) and b.entry.resolved_by is None
         ]
+
+    @property
+    def genuine_open_entries(self) -> list[QuestionEntry]:
+        """Unresolved entries that are not discovery pointers, in file order.
+
+        The genuinely-open questions a human should see: the
+        :attr:`unresolved_entries` set (``resolved_by`` unset,
+        annotation-authoritative) minus the discovery-pointer breadcrumbs
+        (:attr:`QuestionEntry.is_discovery_pointer`).
+        """
+        return [e for e in self.unresolved_entries if not e.is_discovery_pointer]
+
+    @property
+    def discovery_pointers(self) -> list[QuestionEntry]:
+        """Unresolved entries that are discovery pointers, in file order.
+
+        The complement of :attr:`genuine_open_entries` within
+        :attr:`unresolved_entries`: ``BRIEF:``/``RESUME:``/``SELECT:``
+        breadcrumbs that are still open but are not questions for human review.
+        """
+        return [e for e in self.unresolved_entries if e.is_discovery_pointer]
 
     @property
     def known_question_ids(self) -> set[str]:
