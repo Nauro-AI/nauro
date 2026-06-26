@@ -50,10 +50,11 @@ def build_graph_payload(
             and the dropped number is recorded in ``stats.duplicate_numbers``.
             Only the kept decisions contribute edges and citations, so a dropped
             duplicate never fabricates an edge attributed to the kept node.
-        questions: Parsed open-questions file, or None. Only unresolved entries
-            appear in the payload; each body is capped to its first line or
-            sentence, and each entry carries the in-range decision numbers its
-            full body references.
+        questions: Parsed open-questions file, or None. Only genuinely-open
+            entries appear in the payload (unresolved and not a discovery-pointer
+            breadcrumb); each body is capped to its first line or sentence, and
+            each entry carries the in-range decision numbers its full body
+            references.
         project: Display name for the rendered title. Carried through verbatim.
         include_bodies: When True, each node dict gains a ``"body"`` key holding
             the decision's full body markdown. Default False keeps the artifact
@@ -315,12 +316,15 @@ def _filter_open_questions(
     node_numbers: set[int],
     max_decision_number: int,
 ) -> list[dict]:
-    """Return unresolved open-question entries with capped bodies and references.
+    """Return genuinely-open question entries with capped bodies and references.
 
     Openness is annotation-authoritative via ``OpenQuestionsFile``'s public
-    ``unresolved_entries`` (``resolved_by`` unset), regardless of where the
-    entry sits relative to the ``## Resolved`` divider. Each included body is
-    capped to its first sentence or line for display.
+    ``genuine_open_entries`` (``resolved_by`` unset AND not a discovery-pointer
+    breadcrumb), regardless of where the entry sits relative to the
+    ``## Resolved`` divider. Discovery pointers (``BRIEF:``/``RESUME:``/``SELECT:``
+    body prefix) are breadcrumbs for other agents, not questions for the graph
+    surface, so they are excluded from the count and the listing. Each included
+    body is capped to its first sentence or line for display.
 
     ``references`` holds the decision numbers the entry's FULL body cites (body
     plus every continuation line), not just the capped display body, scanned via
@@ -333,7 +337,7 @@ def _filter_open_questions(
     if questions is None:
         return []
     result: list[dict] = []
-    for entry in questions.unresolved_entries:
+    for entry in questions.genuine_open_entries:
         full_body = "\n".join([entry.body, *entry.continuation])
         cited = scan_decision_references(full_body, max_decision_number)
         references = sorted(n for n in cited if n in node_numbers)

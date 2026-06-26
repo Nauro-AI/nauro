@@ -14,7 +14,6 @@ from nauro_core.constants import (
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
     L1_DECISIONS_SUMMARY_LIMIT,
-    POINTER_FLAG_PREFIXES,
 )
 from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import (
@@ -34,17 +33,6 @@ _L0_AGE_PROJECTION_DAYS = 30
 def _active_decisions(decisions: list[Decision]) -> list[Decision]:
     """Filter to active decisions only."""
     return [d for d in decisions if d.status is DecisionStatus.active]
-
-
-def _is_discovery_pointer(body: str) -> bool:
-    """Return True when an entry body starts with a discovery-pointer prefix.
-
-    Discovery pointers (BRIEF:/RESUME:/SELECT: entries) are breadcrumbs written
-    by the nauro-context and nauro-loop skills, not questions for human review,
-    and are excluded from the L0 Open Questions projection.
-    """
-    stripped = body.lstrip()
-    return stripped.startswith(POINTER_FLAG_PREFIXES)
 
 
 def _render_l0_open_questions(content: str) -> str:
@@ -76,7 +64,7 @@ def _render_l0_open_questions(content: str) -> str:
             continue
         if block.entry.resolved_by is not None:
             continue
-        if _is_discovery_pointer(block.entry.body):
+        if block.entry.is_discovery_pointer:
             continue
         if rendered >= L0_QUESTIONS_LIMIT:
             break
