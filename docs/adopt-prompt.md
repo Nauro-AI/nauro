@@ -1,5 +1,7 @@
 # Nauro adopt prompt — chat surface (paste-content) variant
 
+Project home: [nauro.ai](https://nauro.ai).
+
 Use this prompt when adopting a Nauro project from a chat surface that has no
 filesystem access (Claude.ai, Perplexity). The chat agent reads
 content **you paste into the chat** instead of reading repo files itself.
