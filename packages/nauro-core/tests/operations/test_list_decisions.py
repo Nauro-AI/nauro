@@ -109,6 +109,16 @@ def test_limit_truncates_to_requested_size() -> None:
     assert [row.number for row in result.decisions] == [10, 9, 8, 7, 6]
 
 
+def test_negative_limit_returns_empty_not_negative_slice() -> None:
+    # A negative limit is out of domain. Clamp to an empty result rather than
+    # letting the Python negative slice silently drop the oldest rows
+    # (decisions[:-1] would return all-but-one).
+    seeded = [_seed_decision(i, f"Decision {i}") for i in range(1, 6)]
+    store = _store_with(*seeded)
+    result = list_decisions(store, limit=-1)
+    assert result.decisions == []
+
+
 def test_include_superseded_false_filters_out_superseded_rows() -> None:
     active = _seed_decision(1, "Active one")
     superseded = _seed_decision(2, "Old one", status=DecisionStatus.superseded)

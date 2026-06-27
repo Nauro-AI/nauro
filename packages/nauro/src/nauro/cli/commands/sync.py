@@ -176,7 +176,15 @@ def _show_status(project_flag: str | None) -> None:
 
     try:
         project_name, store_path = resolve_target_project(project_flag)
-    except SystemExit:
+    except typer.Exit:
+        # resolve_target_project raises typer.Exit (a RuntimeError, not a
+        # SystemExit, so the previous `except SystemExit` never caught it). When
+        # no project resolves from the cwd, swallow it so --status stays a clean
+        # two-state report instead of erroring out. An explicit --project that
+        # fails to resolve is a real error, though, so its message and a nonzero
+        # exit must agree: re-raise that case.
+        if project_flag is not None:
+            raise
         return
 
     from nauro.sync.state import file_changed_locally, load_state
