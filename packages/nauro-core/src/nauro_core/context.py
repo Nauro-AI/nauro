@@ -122,7 +122,8 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
 
     Args:
         files: Dict of store-relative keys to file contents.
-            Recognized keys: "project.md", "state.md", "stack.md", "questions.md".
+            Recognized keys: "project.md", "state_current.md" (preferred;
+            legacy "state.md"), "stack.md", "questions.md".
         decisions: List of parsed decision dicts (from parse_decision).
     """
     sections: list[str] = []

@@ -1,6 +1,6 @@
 """Canonical wording for Nauro protocol claims used across instruction surfaces.
 
-Five claims about Nauro's MCP tools recur in multiple surfaces:
+Six claims about Nauro's MCP tools recur in multiple surfaces:
 ``MCP_INSTRUCTIONS_STATIC`` (delivered via the MCP ``initialize.instructions``
 field) and the ``/nauro-adopt`` skill body. Restating them in each surface
 produced paraphrase-level drift that gave agents slightly different rules

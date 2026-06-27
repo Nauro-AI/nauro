@@ -110,7 +110,7 @@ GET_RAW_FILE: ToolSpec = {
     "description": (
         "Return the raw markdown content of any file in the Nauro project store.\n"
         "\n"
-        "Valid paths include: project.md, state.md, stack.md, open-questions.md, "
+        "Valid paths include: project.md, state_current.md, stack.md, open-questions.md, "
         "decisions/042-some-decision.md\n"
         "\n"
         "This is a low-level escape hatch. For most use cases, prefer:\n"
