@@ -54,6 +54,6 @@ def list_decisions(
             type=d.decision_type.value if d.decision_type else None,
             confidence=d.confidence.value,
         )
-        for d in decisions[:limit]
+        for d in decisions[: max(limit, 0)]
     ]
     return ListDecisionsResult(decisions=rows)

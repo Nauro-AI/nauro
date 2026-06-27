@@ -109,8 +109,8 @@ def _render_diff(snap_a: dict, snap_b: dict, cutoff_date_used: str | None = None
     # versionless remote shape) fall back to a single timestamp-only header.
     version_a = snap_a.get("version")
     version_b = snap_b.get("version")
-    ts_a = snap_a.get("timestamp", "?")[:19]
-    ts_b = snap_b.get("timestamp", "?")[:19]
+    ts_a = (snap_a.get("timestamp") or "?")[:19]
+    ts_b = (snap_b.get("timestamp") or "?")[:19]
     files_a = snap_a.get("files", {})
     files_b = snap_b.get("files", {})
     all_keys = sorted(set(files_a) | set(files_b))

@@ -109,6 +109,22 @@ def test_missing_versions_render_single_line_timestamp_header() -> None:
     assert lines[1] == ""
 
 
+def test_null_timestamp_renders_question_mark_not_typeerror() -> None:
+    # A malformed-on-disk snapshot can carry an explicit ``timestamp: null`` (a
+    # present key with a None value). ``.get("timestamp", "?")`` only defaults on
+    # a MISSING key, so None must be handled too -- otherwise ``None[:19]`` raises
+    # TypeError, which is not an OSError and escapes the CLI friendly wrapper as a
+    # raw traceback.
+    snap_a = {"timestamp": None, "files": {"stack.md": "# Stack\n- Python 3.11\n"}}
+    snap_b = {
+        "timestamp": "2026-05-02T10:00:00+00:00",
+        "files": {"stack.md": "# Stack\n- Python 3.11\n- PostgreSQL\n"},
+    }
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b)
+    assert result.diff is not None
+    assert result.diff.split("\n")[0] == "Changes from ? → 2026-05-02T10:00:00"
+
+
 def test_both_populated_renders_real_diff() -> None:
     result = diff_since_last_session(InMemoryStore(), _baseline(), _latest())
     assert result.error is None

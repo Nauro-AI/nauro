@@ -45,6 +45,46 @@ class TestSyncPathReporting:
         assert "authenticated (presign)" in result.output
         assert "Server:" in result.output
 
+    def test_authenticated_without_project_reports_cleanly(self, tmp_path, monkeypatch):
+        # Authenticated, but the cwd maps to no registered project, so
+        # resolve_target_project raises typer.Exit. --status must swallow it and
+        # stay a clean two-state report (exit 0), not crash with the resolver
+        # error and exit 1.
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+
+        result = runner.invoke(app, ["sync", "--status"])
+        assert result.exit_code == 0, result.output
+        assert "authenticated (presign)" in result.output
+        assert "Project:" not in result.output
+
+    def test_authenticated_with_unknown_explicit_project_errors(self, tmp_path, monkeypatch):
+        # An explicit --project that does not resolve is a real error, not the
+        # ambient no-project case: the nonzero exit must agree with the resolver
+        # error rather than being swallowed to exit 0.
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+
+        result = runner.invoke(app, ["sync", "--status", "--project", "does-not-exist"])
+        assert result.exit_code == 1, result.output
+        assert "authenticated (presign)" in result.output
+
     def test_no_credentials_reports_not_authenticated(self, tmp_path, monkeypatch):
         save_config({})
         monkeypatch.chdir(tmp_path)
