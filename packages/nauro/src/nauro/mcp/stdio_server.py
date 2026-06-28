@@ -73,12 +73,6 @@ mcp = FastMCP("nauro", instructions=MCP_INSTRUCTIONS, log_level="WARNING")
 mcp._mcp_server.version = __version__
 
 
-NOT_A_NAURO_REPO = (
-    "Not a nauro repo: no .nauro/config.json found. "
-    "Run 'nauro init <name>' in this repo, or pass project_id explicitly."
-)
-
-
 def _wrap_with_renderer(
     tool_name: str, result: dict, renderer_kwargs: dict[str, Any] | None = None
 ) -> CallToolResult:

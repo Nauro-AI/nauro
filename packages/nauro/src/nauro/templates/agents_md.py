@@ -147,7 +147,7 @@ def generate_agents_md(
     order = (
         section_order
         if section_order is not None
-        else _default_section_order(skills_section is not None, manual_section is not None)
+        else _default_section_order(skills_section is not None)
     )
     for section in order:
         if section == "skills" and skills_section is not None:
@@ -168,7 +168,7 @@ def generate_agents_md(
     return "\n".join(parts)
 
 
-def _default_section_order(has_skills: bool, has_manual: bool) -> list[str]:
+def _default_section_order(has_skills: bool) -> list[str]:
     """When no explicit order is provided, emit skills before manual."""
     out: list[str] = []
     if has_skills:

@@ -23,13 +23,6 @@ def read_text_lenient(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
-def _read_file(path: Path) -> str:
-    """Read a file, return empty string if missing."""
-    if path.exists():
-        return read_text_lenient(path)
-    return ""
-
-
 def _list_decisions(store_path: Path) -> list[Decision]:
     """Parse all decision files, return ``Decision`` objects sorted by number."""
     decisions_dir = store_path / DECISIONS_DIR
