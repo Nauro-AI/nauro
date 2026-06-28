@@ -135,7 +135,8 @@ def test_tty_user_enters_n(nauro_home, monkeypatch):
     assert section["consent_version"] == 1
 
 
-def test_first_run_empty_input_defaults_to_yes(nauro_home, monkeypatch):
+def test_first_run_empty_input_defaults_to_no(nauro_home, monkeypatch):
+    """Opt-in: a bare Enter on first run leaves telemetry disabled."""
     monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
     _set_tty(monkeypatch, True)
     _set_input(monkeypatch, "")
@@ -145,7 +146,7 @@ def test_first_run_empty_input_defaults_to_yes(nauro_home, monkeypatch):
     maybe_prompt()
 
     section = _read_telemetry(nauro_home)
-    assert section["enabled"] is True
+    assert section["enabled"] is False
     assert section["consent_version"] == 1
 
 
@@ -219,8 +220,9 @@ def test_already_consented_at_current_version_does_not_re_prompt(nauro_home, mon
     assert section["consented_at"] == "2026-04-30T00:00:00Z"
 
 
-def test_unrecognized_input_applies_stated_default_yes(nauro_home, monkeypatch, capsys):
-    """An unrecognized keystroke must apply the stated default, not its opposite."""
+def test_first_run_unrecognized_input_defaults_to_no(nauro_home, monkeypatch, capsys):
+    """Opt-in: an unrecognized keystroke on first run leaves telemetry disabled,
+    rather than being read as consent."""
     monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
     _set_tty(monkeypatch, True)
     _set_input(monkeypatch, "??")  # not y/n/yes/no/empty
@@ -230,8 +232,29 @@ def test_unrecognized_input_applies_stated_default_yes(nauro_home, monkeypatch, 
     maybe_prompt()
 
     section = _read_telemetry(nauro_home)
-    assert section["enabled"] is True  # default_yes=True on first run
+    assert section["enabled"] is False  # default_yes=False on first run
     assert section["consent_version"] == 1
+    out = capsys.readouterr().out
+    assert "Telemetry disabled." in out
+
+
+def test_reprompt_unrecognized_input_preserves_previous_yes(nauro_home, monkeypatch, capsys):
+    """A version-bump re-prompt still applies the stated default (the user's prior
+    answer): unrecognized input for a previously-opted-in user stays enabled."""
+    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
+    _seed(nauro_home, enabled=True, consent_version=1)
+    _set_tty(monkeypatch, True)
+    _set_input(monkeypatch, "??")
+
+    import nauro.telemetry.consent as consent_mod
+
+    monkeypatch.setattr(consent_mod, "TELEMETRY_CONSENT_VERSION", 2)
+
+    consent_mod.maybe_prompt()
+
+    section = _read_telemetry(nauro_home)
+    assert section["enabled"] is True  # default_yes=True (previous opt-in)
+    assert section["consent_version"] == 2
     out = capsys.readouterr().out
     assert "Telemetry enabled." in out
 

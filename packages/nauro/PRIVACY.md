@@ -1,6 +1,6 @@
 # Nauro Privacy & Data Paths
 
-Last updated: 2026-06-05
+Last updated: 2026-06-28
 
 ## Cloud sync
 
@@ -12,7 +12,7 @@ When connected to Claude AI, Perplexity, or another MCP client, your project con
 
 ## Telemetry
 
-Nauro collects anonymous product-usage telemetry to understand which commands are used, where users get stuck, and whether the tool is healthy. Telemetry is **default opt-in** via a one-line first-run prompt that points back to this document.
+Nauro collects anonymous product-usage telemetry to understand which commands are used, where users get stuck, and whether the tool is healthy. Telemetry is **opt-in and off by default**: a one-line first-run prompt (which defaults to *no*) points back to this document, and nothing is sent unless you explicitly turn it on.
 
 ### Events
 
