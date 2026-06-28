@@ -24,9 +24,10 @@ POSTHOG_HOST = "https://us.i.posthog.com"
 # This is an intentionally-public, WRITE-ONLY ingestion key (PostHog phc_ keys
 # can only submit events, never read them) — see PRIVACY.md for the full
 # data-collection contract. The NAURO_POSTHOG_KEY env var still overrides it.
-# Emission stays gated by consent (_should_emit): default-opt-in, set only on
-# an interactive first run, so CI and non-TTY installs never emit regardless of
-# this key. The "phc_REPLACE" guard in _resolve_project_key() is a safety net:
+# Emission stays gated by consent (_should_emit): off by default, enabled only
+# on an explicit interactive first-run opt-in, so CI and non-TTY installs never
+# emit regardless of this key. The "phc_REPLACE" guard in _resolve_project_key()
+# is a safety net:
 # if this value is ever reset to a placeholder, telemetry disables cleanly.
 _BAKED_PROJECT_KEY = "phc_oGL7Q29uiGrocGujHP5TvJzmPfJLKoej7BKsQRL5S35J"
 

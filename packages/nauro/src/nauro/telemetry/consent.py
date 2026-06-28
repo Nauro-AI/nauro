@@ -59,7 +59,10 @@ def maybe_prompt() -> None:
 
     is_first_run = cfg.consent_version is None
     if is_first_run:
-        default_yes = True
+        # Opt-in: a bare Enter or any unrecognized keystroke leaves telemetry
+        # off; only an explicit y/yes enables it. A re-prompt (version bump)
+        # still pre-selects the user's previous answer as the default below.
+        default_yes = False
     else:
         default_yes = cfg.enabled is True
         print(REPROMPT_PREFACE)
