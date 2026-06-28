@@ -49,10 +49,6 @@ def _get_distinct_id() -> str:
     return get_telemetry_config().anonymous_id
 
 
-def is_enabled() -> bool:
-    return _should_emit()
-
-
 def capture(event_name: str, properties: dict[str, Any] | None = None) -> None:
     """Send an event if telemetry is enabled. Silent on failure — must never crash the CLI."""
     if not _should_emit():

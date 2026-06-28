@@ -26,21 +26,6 @@ WELCOME_NO_PROJECT = (
     "Your decisions will then be available here and across all connected AI tools."
 )
 
-NO_DECISIONS_YET = (
-    "This project has no decisions yet.\n"
-    "\n"
-    "To add your first decision:\n"
-    '- Run: nauro note "Your decision here"\n'
-    "- Or use propose_decision right here in this conversation"
-)
-
-NO_SNAPSHOTS_YET = (
-    "No snapshots available yet.\n"
-    "\n"
-    "Snapshots are created automatically when decisions are written "
-    "or state is updated. Use propose_decision or update_state to get started."
-)
-
 NO_CONTEXT_YET = (
     "This project has no context data yet.\n"
     "\n"

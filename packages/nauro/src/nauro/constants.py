@@ -52,15 +52,6 @@ PROJECTS_DIR = "projects"
 # so listing both is safe.
 VALIDATED_STORE_FILES = (PROJECT_MD, STATE_CURRENT_FILENAME, STATE_LEGACY_FILENAME, STACK_MD)
 
-# Files counted toward L0 token estimate
-TOKEN_ESTIMATE_FILES = (
-    PROJECT_MD,
-    STATE_CURRENT_FILENAME,
-    STATE_LEGACY_FILENAME,
-    STACK_MD,
-    OPEN_QUESTIONS_MD,
-)
-
 # ── AGENTS.md ──
 AGENTS_MD = "AGENTS.md"
 CLAUDE_MD = "CLAUDE.md"
@@ -78,9 +69,6 @@ L0_TOKEN_LIMIT = 3500
 # this the flag is annotated with a hint pointing at the matching decision.
 FLAG_QUESTION_HINT_MIN_SCORE = 0.7
 FLAG_QUESTION_HINT_TITLE_LENGTH = 100
-
-# ── Writer limits ──
-SLUG_MAX_LENGTH = 60
 
 # ── Snapshot pruning intervals (days) ──
 PRUNE_KEEP_ALL_DAYS = 7
