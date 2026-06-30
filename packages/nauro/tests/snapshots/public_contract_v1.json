@@ -60,6 +60,28 @@
             "type": "boolean"
           },
           {
+            "default": false,
+            "flags": [
+              "--purge-store"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "purge_store",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--remove"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "remove",
+            "required": false,
+            "type": "boolean"
+          },
+          {
             "flags": [
               "--repo"
             ],
@@ -87,6 +109,17 @@
             "is_flag": true,
             "kind": "option",
             "name": "with_subagents",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--yes"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "yes",
             "required": false,
             "type": "boolean"
           }
