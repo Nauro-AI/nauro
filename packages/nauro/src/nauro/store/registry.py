@@ -559,6 +559,31 @@ def add_repo_v2(project_id: str, repo_path: Path) -> None:
         save_registry_v2(registry)
 
 
+def remove_repo_v2(project_id: str, repo_path_str: str) -> bool:
+    """Remove one repo path from a v2 project, leaving the project entry intact.
+
+    The mirror of ``add_repo_v2`` for teardown: ``nauro adopt --remove`` calls
+    it when un-adopting one repo of a multi-repo project, so the project and its
+    other repos survive. ``repo_path_str`` is matched exactly against the stored
+    value (registration stores ``str(path.resolve())``).
+
+    Returns:
+        True if the path was found and removed, False if the project is unknown
+        or the path was not associated with it.
+    """
+    with _registry_lock():
+        registry = load_registry_v2()
+        entry = registry["projects"].get(project_id)
+        if entry is None:
+            return False
+        paths = entry.get("repo_paths", [])
+        if repo_path_str not in paths:
+            return False
+        paths.remove(repo_path_str)
+        save_registry_v2(registry)
+    return True
+
+
 def remove_project_v2(project_id: str) -> bool:
     """Remove a v2 project's registry entry. Leaves the on-disk store intact.
 

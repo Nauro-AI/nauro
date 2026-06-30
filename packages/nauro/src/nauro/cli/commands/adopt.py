@@ -24,6 +24,7 @@ seeding the Nauro store via the existing MCP write tools.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -41,9 +42,13 @@ from nauro.skills import load_adopt_body
 from nauro.store.registry import (
     RegistrySchemaError,
     find_projects_by_name_v2,
+    get_repo_paths,
+    get_store_path_v2,
     register_project_v2,
+    remove_project_v2,
+    remove_repo_v2,
 )
-from nauro.store.repo_config import save_repo_config
+from nauro.store.repo_config import RepoConfigSchemaError, load_repo_config, save_repo_config
 from nauro.telemetry import capture
 from nauro.telemetry.events import project_created
 from nauro.templates.scaffolds import scaffold_project_store
@@ -171,6 +176,129 @@ def _install_into_adopted_repo(
     typer.echo("\nNext: restart your agent so it picks up the newly installed files.")
 
 
+def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) -> None:
+    """Inverse of adoption for one repo.
+
+    Un-wires Nauro across surfaces, removes the generated AGENTS.md and the
+    per-repo ``.nauro/config.json``, and deregisters. Only this repo is
+    affected: when the project has other associated repos, the project entry,
+    its store, and shared user-scope artifacts (codex entry, skills, subagents)
+    are preserved and only this repo is dropped. When this is the project's last
+    repo, the registry entry is removed; the store is kept unless ``purge_store``
+    (which is refused while other repos still depend on it).
+    """
+    config_path = repo_root / ".nauro" / "config.json"
+    if not config_path.exists():
+        typer.echo(
+            f"Error: {repo_root} is not adopted (no {config_path}). Nothing to remove.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    pid: str | None = None
+    name: str | None = None
+    try:
+        cfg = load_repo_config(repo_root)
+        pid = cfg.get("id")
+        name = cfg.get("name")
+    except RepoConfigSchemaError as exc:
+        # Corrupt/unreadable config: still tear down surface wiring and delete
+        # the file, but we cannot resolve the registry entry to clean up.
+        typer.echo(
+            f"Warning: {config_path} is unreadable ({exc}); removing surface "
+            f"wiring and the config file without registry cleanup.",
+            err=True,
+        )
+
+    repo_resolved = str(repo_root.resolve())
+    other_repos: list[str] = []
+    store_path: Path | None = None
+    if pid:
+        other_repos = [p for p in get_repo_paths(pid) if str(Path(p).resolve()) != repo_resolved]
+        try:
+            store_path = get_store_path_v2(pid)
+        except ValueError:
+            store_path = None
+    is_last_repo = not other_repos
+
+    if purge_store and not is_last_repo:
+        typer.echo(
+            "Error: --purge-store refused: this project has other associated "
+            f"repos ({len(other_repos)}) that still use the store. Un-adopt "
+            "those first, or drop this repo without --purge-store.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    # ── confirmation ───────────────────────────────────────────────────────
+    if not assume_yes:
+        plan = [f"Un-adopt '{name or repo_root.name}' for {repo_root}:"]
+        plan.append("  - remove Nauro MCP/skill/subagent/hook wiring for this repo")
+        plan.append("  - remove the generated AGENTS.md (a # Manual section is kept)")
+        plan.append(f"  - delete {config_path}")
+        if is_last_repo:
+            if pid:
+                plan.append(f"  - remove the project registry entry ({pid})")
+            if purge_store and store_path is not None:
+                plan.append(f"  - DELETE the store and all decision history at {store_path}")
+            elif store_path is not None:
+                plan.append(f"  - store left intact at {store_path}")
+        else:
+            plan.append(
+                f"  - drop only this repo; {len(other_repos)} other repo(s), the "
+                "project, its store, and shared skills are left intact"
+            )
+        typer.echo("\n".join(plan))
+        typer.confirm("Proceed?", abort=True)
+
+    # ── un-wire surfaces ───────────────────────────────────────────────────
+    # Force every surface on for teardown so artifacts installed via
+    # --with-subagents/--with-skills/--with-hooks are removed too, regardless of
+    # how this repo was originally adopted. The remove branches are idempotent
+    # (absent artifacts are a no-op) and the shared-user-scope guard still
+    # protects subagents/skills/codex when other projects remain.
+    typer.echo("\nRemoving Nauro integration across surfaces:")
+    for line in setup_all_surfaces(
+        [repo_root],
+        remove=True,
+        current_project_key=pid,
+        with_subagents=True,
+        with_skills=True,
+        with_hooks=True,
+        clear_user_scope_override=None if is_last_repo else False,
+    ):
+        typer.echo(line)
+
+    # ── delete the per-repo config (and the .nauro dir if it is now empty) ──
+    try:
+        config_path.unlink()
+        typer.echo(f"  removed {config_path}")
+        nauro_dir = config_path.parent
+        try:
+            next(nauro_dir.iterdir())
+        except StopIteration:
+            nauro_dir.rmdir()
+    except OSError as exc:
+        typer.echo(f"  could not remove {config_path}: {exc}", err=True)
+
+    # ── deregister ─────────────────────────────────────────────────────────
+    if not pid:
+        typer.echo("  skipped registry cleanup (no project id resolved from config)")
+    elif is_last_repo:
+        if remove_project_v2(pid):
+            typer.echo(f"  removed project registry entry {pid}")
+        if purge_store and store_path is not None:
+            if store_path.exists():
+                shutil.rmtree(store_path)
+                typer.echo(f"  deleted store {store_path}")
+        elif store_path is not None:
+            typer.echo(f"  store left intact: {store_path}")
+    elif remove_repo_v2(pid, repo_resolved):
+        typer.echo(f"  dropped this repo from project {pid}; {len(other_repos)} repo(s) remain")
+
+    typer.echo("\nDone. Restart your agent so it drops the Nauro MCP server.")
+
+
 _Opt_repo = typer.Option(None, "--repo", help="Repo root (default: current working directory).")
 
 
@@ -222,6 +350,29 @@ def adopt(
             "always-installed /nauro-adopt skill. Independent of --with-subagents."
         ),
     ),
+    remove: bool = typer.Option(
+        False,
+        "--remove",
+        help=(
+            "Un-adopt this repo: remove Nauro's MCP/skill/subagent/hook wiring, "
+            "delete the generated AGENTS.md and .nauro/config.json, and "
+            "deregister. Drops only this repo when the project spans several; "
+            "leaves the store intact unless --purge-store."
+        ),
+    ),
+    purge_store: bool = typer.Option(
+        False,
+        "--purge-store",
+        help=(
+            "With --remove on a project's last repo, also delete its on-disk "
+            "store and all decision history. Irreversible; prompts unless --yes."
+        ),
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help="Skip the --remove confirmation prompt (for scripting).",
+    ),
 ) -> None:
     """Adopt an existing repo into Nauro: register, wire MCP, install skills."""
     if print_prompt:
@@ -232,11 +383,15 @@ def adopt(
             or with_subagents
             or force_overwrite
             or with_skills
+            or remove
+            or purge_store
+            or yes
         ):
             typer.echo(
                 "Error: --print-prompt is mutually exclusive with --name, "
                 "--repo, --no-setup-and-skills, --with-subagents, "
-                "--force-overwrite, and --with-skills.",
+                "--force-overwrite, --with-skills, --remove, --purge-store, "
+                "and --yes.",
                 err=True,
             )
             raise typer.Exit(code=1)
@@ -253,6 +408,31 @@ def adopt(
     # adoption, and the recovery hint there ("remove .nauro/config.json")
     # would point at the user's auth and telemetry settings.
     refuse_global_config_collision(repo_root)
+
+    # ── teardown path ──────────────────────────────────────────────────────
+    # --remove inverts adoption for this repo. It resolves the project from the
+    # repo's own .nauro/config.json (so --name is not used) and needs no git
+    # precondition: a repo can be un-adopted even if its git status changed.
+    if remove:
+        if no_setup_and_skills or with_subagents or with_skills or force_overwrite:
+            typer.echo(
+                "Error: --remove cannot be combined with --no-setup-and-skills, "
+                "--with-subagents, --with-skills, or --force-overwrite.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        if name is not None:
+            typer.echo(
+                "Error: --remove resolves the project from this repo's "
+                ".nauro/config.json; drop --name and re-run.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        _remove_adoption(repo_root, purge_store=purge_store, assume_yes=yes)
+        return
+    if purge_store:
+        typer.echo("Error: --purge-store requires --remove.", err=True)
+        raise typer.Exit(code=1)
 
     # ── git precondition ───────────────────────────────────────────────────
     # Refuse before any registration or config write so the /nauro-adopt

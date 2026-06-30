@@ -25,7 +25,10 @@ from nauro.store.registry import (
     load_registry,
     load_registry_v2,
 )
-from nauro.templates.agents_md import regenerate_agents_md_for_project
+from nauro.templates.agents_md import (
+    regenerate_agents_md_for_project,
+    remove_generated_agents_md,
+)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -843,6 +846,7 @@ def setup_all_surfaces(
     force_overwrite: bool = False,
     with_skills: bool = False,
     with_hooks: bool = False,
+    clear_user_scope_override: bool | None = None,
 ) -> list[str]:
     """Wire MCP and materialize skills across Claude Code, Cursor, Codex.
 
@@ -880,8 +884,18 @@ def setup_all_surfaces(
     each repo's project-scope ``.claude/settings.json`` (Claude-Code-only).
     Off by default. A hook-wiring failure is caught and reported as a status
     line so it never aborts the rest of setup.
+
+    ``clear_user_scope_override`` forces the shared-user-scope decision instead
+    of deriving it from the registry. ``nauro adopt --remove`` passes ``False``
+    when it un-adopts one repo of a multi-repo project: the default
+    ``_user_scope_safe_to_clear`` check is project-granular, so it would wrongly
+    clear codex/skill/agent artifacts that the project's other repos still need.
+    Leave ``None`` for the default behavior.
     """
-    clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True
+    if clear_user_scope_override is not None:
+        clear_user_scope = clear_user_scope_override
+    else:
+        clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True
 
     lines: list[str] = []
 
@@ -975,6 +989,20 @@ def setup_all_surfaces(
                 lines.append(f"  {repo_path}: regenerated AGENTS.md")
         except Exception as exc:
             lines.append(f"AGENTS.md regeneration: error — {exc}")
+
+    # Mirror of the regen above: strip the generated AGENTS.md on teardown so a
+    # removed integration leaves no orphaned context file. User content in a
+    # ``# Manual`` section is preserved (the file is kept) by the helper.
+    if remove:
+        for repo in project_repos:
+            if not repo.is_dir():
+                continue
+            try:
+                removed_line = remove_generated_agents_md(repo)
+                if removed_line:
+                    lines.append(removed_line)
+            except Exception as exc:
+                lines.append(f"AGENTS.md removal ({repo}) failed: {exc}")
 
     return lines
 
