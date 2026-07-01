@@ -4,15 +4,14 @@ The authoritative shape for a parsed decision. `parse_decision` reads a
 markdown file with YAML frontmatter and returns a validated `Decision`.
 `format_decision` goes the other way.
 
-Strict by design — per the migration plan §9, unknown enum values, missing
-required fields, malformed YAML, non-ISO dates, reasonless rejected
-alternatives on active decisions, and superseded decisions without a
-`superseded_by` ref all raise.
+Strict by design. Unknown enum values, missing required fields, malformed
+YAML, non-ISO dates, reasonless rejected alternatives on active decisions,
+and superseded decisions without a `superseded_by` ref all raise.
 
 Supersession refs (`supersedes`, `superseded_by`) are validated as plain
 integer strings: "70", not "070" or "070-some-slug" or "D70".
 
-Field model (see plan §2):
+Field model:
     Required frontmatter: date, confidence.
     Defaulted frontmatter: version (1), status (active).
     Optional frontmatter: decision_type, reversibility, source, files_affected,
@@ -175,13 +174,13 @@ class Decision(BaseModel):
         return self
 
 
-# ── Frontmatter exclusion set (plan §12.2) ──
+# ── Frontmatter exclusion set ──
 #
 # Fields derived from the filename or body that must NOT appear in the
 # frontmatter dump. Kept as a module-level constant because
 # format_decision applies it; if this ends up being applied in a second
 # place (snapshot v2, a remote payload serializer), split the model into
-# DecisionMetadata + Decision per plan §12.2.
+# DecisionMetadata + Decision.
 _DERIVED_FIELDS: frozenset[str] = frozenset({"num", "title", "rationale", "body", "content"})
 
 # Canonical key order for the frontmatter block. `rejected` is not in this
@@ -210,29 +209,27 @@ _SUBSECTION_SPLIT = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
 _DECISION_ANCHOR = "## Decision"
 _REJECTED_ANCHOR = "## Rejected Alternatives"
 
+# Frontmatter fences and the H1 render template. Module-private, not part of the
+# public API. len(_FM_OPEN_FENCE) == 4 and len(_FM_CLOSE_FENCE) == 5, so slicing
+# by these lengths is byte-identical to the historical literal offsets.
+_FM_OPEN_FENCE = "---\n"
+_FM_CLOSE_FENCE = "\n---\n"
+_H1_FORMAT = "# {num:03d} \u2014 {title}"
+
 
 def parse_decision(text: str, filename: str) -> Decision:
     """Parse a decision markdown file into a validated ``Decision``.
 
     Strict by design: raises ``ValueError`` (and propagates
     ``pydantic.ValidationError``) on any deviation from the canonical
-    v2 format. Migration-time tolerance lives in the Phase 3 script.
+    v2 format.
 
     Raises:
         ValueError: missing/unterminated frontmatter, missing H1, missing
             `## Decision` section, malformed YAML, frontmatter not a mapping.
         pydantic.ValidationError: any field-level validation failure.
     """
-    if not text.startswith("---\n"):
-        raise ValueError(
-            f"{filename}: missing YAML frontmatter (decisions v2 requires a leading `---` fence)"
-        )
-    fm_end = text.find("\n---\n", 4)
-    if fm_end == -1:
-        raise ValueError(f"{filename}: unterminated YAML frontmatter")
-
-    frontmatter_block = text[4:fm_end]
-    body = text[fm_end + 5 :]
+    frontmatter_block, body = _split_frontmatter(text, filename)
 
     try:
         metadata = yaml.safe_load(frontmatter_block)
@@ -259,8 +256,8 @@ def parse_decision(text: str, filename: str) -> Decision:
     if rationale is None:
         raise ValueError(
             f"{filename}: missing `## Decision` section "
-            "(v2 does not accept `## Rationale` — Phase 3 migration renames "
-            "legacy files; the parser itself stays strict)"
+            "(the parser requires a `## Decision` heading and does not accept "
+            "the legacy `## Rationale` heading)"
         )
 
     rejected_list = _parse_rejected_subsections(rejected_body or "")
@@ -276,6 +273,23 @@ def parse_decision(text: str, filename: str) -> Decision:
         body=body,
         content=text,
     )
+
+
+def _split_frontmatter(text: str, filename: str) -> tuple[str, str]:
+    """Split a decision file into ``(frontmatter_block, body)`` on the fences.
+
+    The frontmatter is the text between the leading open fence and the first
+    following close fence. Raises ``ValueError`` when the open fence is absent
+    or the close fence is never found.
+    """
+    if not text.startswith(_FM_OPEN_FENCE):
+        raise ValueError(
+            f"{filename}: missing YAML frontmatter (decisions v2 requires a leading `---` fence)"
+        )
+    fm_end = text.find(_FM_CLOSE_FENCE, len(_FM_OPEN_FENCE))
+    if fm_end == -1:
+        raise ValueError(f"{filename}: unterminated YAML frontmatter")
+    return text[len(_FM_OPEN_FENCE) : fm_end], text[fm_end + len(_FM_CLOSE_FENCE) :]
 
 
 def _leading_fence_marker(line: str) -> str | None:
@@ -427,7 +441,7 @@ def format_decision(decision: Decision) -> str:
 
     sections: list[str] = [
         f"---\n{yaml_block}---",
-        f"# {decision.num:03d} \u2014 {decision.title}",
+        _H1_FORMAT.format(num=decision.num, title=decision.title),
         f"## Decision\n\n{decision.rationale.strip()}",
     ]
 
