@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -58,6 +59,17 @@ def test_current_only_non_overlapping_writes_new_body_and_appends_history() -> N
     history = store.read_file(STATE_HISTORY_FILENAME)
     assert history is not None
     assert "Implemented OAuth login flow with PKCE" in history
+
+
+def test_writes_byte_exact_current_and_history() -> None:
+    initial = "# Current State\n\n- Task one\n"
+    store = InMemoryStore(files={STATE_CURRENT_FILENAME: initial})
+    with patch("nauro_core.state._utc_timestamp", return_value="2026-04-08T15:30Z"):
+        update_state(store, "Task two")
+    assert store.read_file(STATE_CURRENT_FILENAME) == (
+        "# Current State\n\nTask two\n\n*Last updated: 2026-04-08T15:30Z*\n"
+    )
+    assert store.read_file(STATE_HISTORY_FILENAME) == "## 2026-04-08T15:30Z\n\n- Task one\n\n---\n"
 
 
 def test_current_only_overlapping_delta_surfaces_warning() -> None:

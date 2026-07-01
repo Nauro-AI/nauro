@@ -15,6 +15,7 @@ from nauro_core.constants import (
     MIN_RATIONALE_LENGTH,
     VALID_CONFIDENCES,
 )
+from nauro_core.decision_model import DecisionConfidence
 from nauro_core.search import bm25_retrieve
 
 # Tier-2 BM25 defaults shared by local (nauro) and remote (mcp-server) surfaces.
@@ -155,7 +156,7 @@ def screen_structural(
     if not rationale:
         return ("reject", "Rationale is empty.")
 
-    confidence = proposal.get("confidence", "medium")
+    confidence = proposal.get("confidence", DecisionConfidence.medium.value)
     if confidence not in VALID_CONFIDENCES:
         return ("reject", f"Invalid confidence: {confidence}. Must be one of: {VALID_CONFIDENCES}")
 

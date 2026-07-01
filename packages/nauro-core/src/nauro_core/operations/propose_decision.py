@@ -266,7 +266,9 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
         date=datetime.now(timezone.utc).date(),
         version=1,
         status=DecisionStatus.active,
-        confidence=DecisionConfidence(proposal.get("confidence") or "medium"),
+        confidence=DecisionConfidence(
+            proposal.get("confidence") or DecisionConfidence.medium.value
+        ),
         decision_type=_optional_enum(proposal.get("decision_type"), DecisionType),
         reversibility=_optional_enum(proposal.get("reversibility"), Reversibility),
         source=_optional_enum(proposal.get("source"), DecisionSource),
@@ -358,7 +360,7 @@ def _to_related_decisions(
     for hit in raw_hits:
         num = hit["number"]
         decision = by_num.get(num)
-        status = decision.status.value if decision else "active"
+        status = decision.status.value if decision else DecisionStatus.active.value
         date = decision.date.isoformat() if decision and decision.date else ""
         out.append(
             RelatedDecision(

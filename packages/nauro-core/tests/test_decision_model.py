@@ -850,3 +850,22 @@ class TestSplitFrontmatter:
     def test_unterminated_raises(self) -> None:
         with pytest.raises(ValueError, match="unterminated"):
             _split_frontmatter("---\ndate: 2026-04-01\n", "001-unterminated.md")
+
+
+# ── Enum-value byte pins ──
+
+
+class TestEnumValueBytes:
+    """Lock the serialized bytes of the enum members used as fallback literals.
+
+    Fallback defaults across the operations layer reference these members'
+    ``.value`` instead of bare string literals. The bytes must stay exact so a
+    future member rename fails here loudly instead of silently changing the
+    serialized status/confidence tokens on disk.
+    """
+
+    def test_status_active_value(self) -> None:
+        assert DecisionStatus.active.value == "active"
+
+    def test_confidence_medium_value(self) -> None:
+        assert DecisionConfidence.medium.value == "medium"
