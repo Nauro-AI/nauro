@@ -14,6 +14,11 @@ from nauro_core.constants import (
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
     L1_DECISIONS_SUMMARY_LIMIT,
+    PROJECT_MD,
+    STACK_MD,
+    STATE_CURRENT_FILENAME,
+    STATE_HISTORY_FILENAME,
+    STATE_MD,
 )
 from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import (
@@ -86,11 +91,11 @@ def _resolve_state(files: dict[str, str]) -> str | None:
     uses extract_current_state() to parse out only the current section
     (legacy format may have ## Current / ## History sections).
     """
-    current = files.get("state_current.md")
+    current = files.get(STATE_CURRENT_FILENAME)
     if current is not None and current.strip():
         return current
 
-    legacy = files.get("state.md", "")
+    legacy = files.get(STATE_MD, "")
     if legacy.strip():
         return legacy
 
@@ -128,13 +133,13 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
     """
     sections: list[str] = []
 
-    project = files.get("project.md", "")
+    project = files.get(PROJECT_MD, "")
     if project.strip():
         sections.append(project.strip())
 
     raw_state = _resolve_state(files)
     if raw_state:
-        if "state_current.md" in files:
+        if STATE_CURRENT_FILENAME in files:
             current = raw_state.strip()
         else:
             # Legacy fallback: parse out ## Current section
@@ -149,7 +154,7 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
             if body:
                 sections.append("## Current State\n" + body)
 
-    stack = files.get("stack.md", "")
+    stack = files.get(STACK_MD, "")
     oneliner = extract_stack_oneliner(stack)
     if oneliner:
         sections.append("**Stack:** " + oneliner)
@@ -180,7 +185,7 @@ def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
     """
     sections: list[str] = []
 
-    project = files.get("project.md", "")
+    project = files.get(PROJECT_MD, "")
     if project.strip():
         sections.append(project.strip())
 
@@ -194,7 +199,7 @@ def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
         if assembled and assembled.strip():
             sections.append(assembled.strip())
 
-    stack = files.get("stack.md", "")
+    stack = files.get(STACK_MD, "")
     if stack.strip():
         sections.append(stack.strip())
 
@@ -235,12 +240,12 @@ def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
     """
     sections: list[str] = []
 
-    project = files.get("project.md", "")
+    project = files.get(PROJECT_MD, "")
     if project.strip():
         sections.append(project.strip())
 
     raw_state = _resolve_state(files)
-    history = files.get("state_history.md")
+    history = files.get(STATE_HISTORY_FILENAME)
     if raw_state or history:
         assembled = assemble_state_for_context(
             raw_state, history_content=history, include_history=True
@@ -248,7 +253,7 @@ def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
         if assembled and assembled.strip():
             sections.append(assembled.strip())
 
-    stack = files.get("stack.md", "")
+    stack = files.get(STACK_MD, "")
     if stack.strip():
         sections.append(stack.strip())
 
