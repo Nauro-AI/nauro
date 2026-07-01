@@ -19,7 +19,7 @@ from nauro_core.constants import (
     NO_DECISIONS_TO_CHECK,
     NO_RELATED_DECISIONS,
 )
-from nauro_core.decision_model import Decision
+from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.operations.decision_lookup import parse_all_decisions
 from nauro_core.operations.results import (
     CheckDecisionResult,
@@ -111,7 +111,7 @@ def _hit_to_related(hit: dict, by_num: dict[int, Decision]) -> RelatedDecision:
     num = hit["number"]
     decision = by_num.get(num)
     canonical_id = _canonical_decision_id(num)
-    status = decision.status.value if decision else "active"
+    status = decision.status.value if decision else DecisionStatus.active.value
     date = decision.date.isoformat() if decision and decision.date else ""
     # Embedding-sourced hits carry similarity=None (no BM25 score); surface 0.0
     # so the score field stays a float and signals "not a BM25 match".

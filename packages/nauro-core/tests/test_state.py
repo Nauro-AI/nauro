@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from nauro_core.state import (
     StateUpdateResult,
+    _strip_current_header_footer,
     assemble_state_for_context,
     migrate_legacy_state,
     prepare_state_update,
@@ -123,3 +124,37 @@ class TestAssembleStateForContext:
     def test_default_include_history_is_false(self):
         result = assemble_state_for_context("current", "old")
         assert result == "current"
+
+
+class TestByteExactOutput:
+    """Byte-exact locks on the assembled state strings.
+
+    prepare_state_update, _strip_current_header_footer, and
+    assemble_state_for_context feed the on-disk state_current.md /
+    state_history.md bytes. These lock every character, including the trailing
+    newline, so single-sourcing the header/footer/separator markers cannot
+    silently change serialized output.
+    """
+
+    FIXED_TS = "2026-04-08T15:30Z"
+
+    def test_current_content_byte_exact(self):
+        with patch("nauro_core.state._utc_timestamp", return_value=self.FIXED_TS):
+            result = prepare_state_update("Working on v2", None)
+        assert result.current_content == (
+            "# Current State\n\nWorking on v2\n\n*Last updated: 2026-04-08T15:30Z*\n"
+        )
+
+    def test_history_entry_byte_exact(self):
+        old = "# Current State\n\n- Task one\n\n*Last updated: 2026-04-01T10:00Z*\n"
+        with patch("nauro_core.state._utc_timestamp", return_value=self.FIXED_TS):
+            result = prepare_state_update("Task two", old)
+        assert result.history_entry == "## 2026-04-08T15:30Z\n\n- Task one\n\n---\n"
+
+    def test_strip_current_header_footer_byte_exact(self):
+        content = "# Current State\n\n- Body\n\n*Last updated: 2026-04-01T10:00Z*\n"
+        assert _strip_current_header_footer(content) == "- Body"
+
+    def test_assemble_history_separator_byte_exact(self):
+        result = assemble_state_for_context("current body", "history body", include_history=True)
+        assert result == "current body\n\n# State History\n\nhistory body"

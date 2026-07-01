@@ -6,6 +6,23 @@ responsible for reading/writing files (local filesystem or S3).
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Final
+
+# Single-sourced state-file markers. state_current.md is written with the
+# header and the *Last updated* footer; _strip_current_header_footer must
+# recognize the same pair to peel a prior body back off before archiving it.
+# The write template and the strip helper therefore reference one constant each
+# so the recognized markers can never drift from the written ones.
+_CURRENT_STATE_HEADER: Final[str] = "# Current State"
+_LAST_UPDATED_PREFIX: Final[str] = "*Last updated: "
+_LAST_UPDATED_SUFFIX: Final[str] = "*"
+
+# ISO 8601, minute precision: the on-disk timestamp byte format.
+_TIMESTAMP_FORMAT: Final[str] = "%Y-%m-%dT%H:%MZ"
+
+# L2 context assembly joins state_current.md and state_history.md under this
+# heading separator.
+_STATE_HISTORY_SEPARATOR: Final[str] = "\n\n# State History\n\n"
 
 
 @dataclass
@@ -24,7 +41,7 @@ class StateUpdateResult:
 
 def _utc_timestamp() -> str:
     """Return current UTC time as ISO 8601 with minute precision."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+    return datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
 
 
 def _strip_current_header_footer(content: str) -> str:
@@ -33,9 +50,9 @@ def _strip_current_header_footer(content: str) -> str:
     stripped: list[str] = []
     for line in lines:
         s = line.strip()
-        if s.startswith("# Current State"):
+        if s.startswith(_CURRENT_STATE_HEADER):
             continue
-        if s.startswith("*Last updated: ") and s.endswith("*"):
+        if s.startswith(_LAST_UPDATED_PREFIX) and s.endswith(_LAST_UPDATED_SUFFIX):
             continue
         stripped.append(line)
     return "\n".join(stripped).strip()
@@ -52,7 +69,10 @@ def prepare_state_update(new_state: str, current_content: str | None) -> StateUp
     """
     timestamp = _utc_timestamp()
 
-    new_current = f"# Current State\n\n{new_state}\n\n*Last updated: {timestamp}*\n"
+    new_current = (
+        f"{_CURRENT_STATE_HEADER}\n\n{new_state}\n\n"
+        f"{_LAST_UPDATED_PREFIX}{timestamp}{_LAST_UPDATED_SUFFIX}\n"
+    )
 
     history_entry: str | None = None
     if current_content is not None:
@@ -93,7 +113,7 @@ def assemble_state_for_context(
         return current_content
 
     if current_content is not None and history_content is not None:
-        return current_content + "\n\n# State History\n\n" + history_content
+        return current_content + _STATE_HISTORY_SEPARATOR + history_content
     if current_content is not None:
         return current_content
     if history_content is not None:
