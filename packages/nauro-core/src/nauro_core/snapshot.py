@@ -13,11 +13,35 @@ and makes the output a pure function of its inputs.
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 from nauro_core.constants import (
     CHARS_PER_TOKEN,
     LEGACY_SCHEMA_VERSION,
     SNAPSHOT_SCHEMA_VERSION,
 )
+
+
+# Snapshot shape. These annotate the existing dict literals only; the dict is a
+# plain dict at runtime and the key order is unchanged, so the on-disk byte
+# order is preserved. Module-private (not in ``__all__``). ``version`` is a
+# conditional key, so it lives on a ``total=False`` subclass (3.10 target: mixed
+# totality, not ``NotRequired``).
+class SnapshotBase(TypedDict):
+    """The always-present keys of a serialized snapshot."""
+
+    schema_version: int
+    timestamp: str
+    trigger: str
+    trigger_detail: str
+    token_count: int
+    files: dict[str, str]
+
+
+class Snapshot(SnapshotBase, total=False):
+    """A snapshot; ``version`` is present only when the caller versions it."""
+
+    version: int
 
 
 def serialize_snapshot(
@@ -27,7 +51,7 @@ def serialize_snapshot(
     files: dict[str, str],
     trigger_detail: str = "",
     version: int | None = None,
-) -> dict:
+) -> Snapshot:
     """Build a canonical snapshot dict from its parts.
 
     Args:
@@ -70,7 +94,7 @@ def serialize_snapshot(
     return snapshot
 
 
-def normalize_snapshot(raw: dict) -> dict:
+def normalize_snapshot(raw: dict) -> Snapshot:
     """Fill in defaults for fields a legacy snapshot may omit.
 
     Legacy snapshots predate ``schema_version`` and may lack

@@ -25,6 +25,8 @@ Plain string operations only; no regex.
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 from nauro_core.decision_model import Decision
 from nauro_core.parsing import _cap_to_first_unit, scan_decision_references
 from nauro_core.questions import OpenQuestionsFile
@@ -35,12 +37,77 @@ from nauro_core.validation import is_scaffold_seed
 GRAPH_PAYLOAD_VERSION = 2
 
 
+# Payload shapes. These annotate the existing dict literals only; every dict is
+# a plain dict at runtime, so the emitted JSON is unchanged. Module-private (not
+# in ``__all__``): the payload is consumed by name-agnostic renderers.
+GraphEdge = TypedDict("GraphEdge", {"from": int, "to": int})
+
+
+class GraphNodeBase(TypedDict):
+    """The always-present keys of a graph node (see ``_node_dict``)."""
+
+    number: int
+    title: str
+    status: str
+    decision_type: str | None
+    confidence: str
+    date: str
+
+
+class GraphNode(GraphNodeBase, total=False):
+    """A graph node; ``body`` is present only when bodies are included."""
+
+    body: str
+
+
+class GraphComponent(TypedDict):
+    """One connected supersession component (see ``_build_components``)."""
+
+    nodes: list[int]
+    edges: list[GraphEdge]
+    branch_points: list[int]
+
+
+class GraphStats(TypedDict):
+    """Summary counts carried under the payload's ``stats`` key."""
+
+    isolated_node_count: int
+    supersession_edge_count: int
+    citation_edge_count: int
+    component_count: int
+    branch_point_count: int
+    duplicate_numbers: list[int]
+
+
+class GraphOpenQuestion(TypedDict):
+    """One genuinely-open question entry in the payload."""
+
+    id: str
+    body: str
+    references: list[int]
+
+
+class GraphPayload(TypedDict):
+    """The full versioned decision-graph payload (see ``build_graph_payload``)."""
+
+    payload_version: int
+    project: str
+    decision_count: int
+    max_decision_number: int
+    nodes: list[GraphNode]
+    supersession_edges: list[GraphEdge]
+    citation_edges: list[GraphEdge]
+    components: list[GraphComponent]
+    open_questions: list[GraphOpenQuestion]
+    stats: GraphStats
+
+
 def build_graph_payload(
     decisions: list[Decision],
     questions: OpenQuestionsFile | None = None,
     project: str = "",
     include_bodies: bool = False,
-) -> dict:
+) -> GraphPayload:
     """Build the decision-graph payload from parsed inputs. Pure; no I/O.
 
     Args:
@@ -147,7 +214,7 @@ def _collect_nodes(decisions: list[Decision]) -> tuple[list[Decision], list[int]
     return kept, duplicate_numbers
 
 
-def _node_dict(d: Decision, include_bodies: bool) -> dict:
+def _node_dict(d: Decision, include_bodies: bool) -> GraphNode:
     """Project a ``Decision`` onto the node schema.
 
     Parallel to ``operations/results.DecisionSummary`` (the list_decisions row
@@ -175,7 +242,7 @@ def _node_dict(d: Decision, include_bodies: bool) -> dict:
 
 def _collect_supersession_edges(
     kept: list[Decision], node_numbers: set[int]
-) -> tuple[list[dict], set[tuple[int, int]]]:
+) -> tuple[list[GraphEdge], set[tuple[int, int]]]:
     """Collect supersession edges as the deduped union of both directions.
 
     Iterates only the kept decisions, so a decision dropped during dedup never
@@ -209,7 +276,7 @@ def _scan_citation_pairs(
     node_numbers: set[int],
     max_decision_number: int,
     supersession_pairs: set[tuple[int, int]],
-) -> list[dict]:
+) -> list[GraphEdge]:
     """Scan kept decisions' bodies for D-references and emit citation edges.
 
     Iterates only the kept decisions, so a dropped duplicate contributes no
@@ -237,8 +304,8 @@ def _scan_citation_pairs(
 
 
 def _build_components(
-    supersession_edges: list[dict],
-) -> tuple[list[dict], set[int], int]:
+    supersession_edges: list[GraphEdge],
+) -> tuple[list[GraphComponent], set[int], int]:
     """Group nodes into connected components with branch points.
 
     Returns ``(components, incident_nodes, branch_point_count)`` so the caller
@@ -315,7 +382,7 @@ def _filter_open_questions(
     questions: OpenQuestionsFile | None,
     node_numbers: set[int],
     max_decision_number: int,
-) -> list[dict]:
+) -> list[GraphOpenQuestion]:
     """Return genuinely-open question entries with capped bodies and references.
 
     Openness is annotation-authoritative via ``OpenQuestionsFile``'s public

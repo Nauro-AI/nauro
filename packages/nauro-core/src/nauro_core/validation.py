@@ -16,7 +16,7 @@ from nauro_core.constants import (
     VALID_CONFIDENCES,
 )
 from nauro_core.decision_model import DecisionConfidence
-from nauro_core.search import bm25_retrieve
+from nauro_core.search import Bm25Hit, bm25_retrieve
 
 # Tier-2 BM25 defaults shared by local (nauro) and remote (mcp-server) surfaces.
 # Both call check_bm25_similarity below so the same proposal produces the same
@@ -70,7 +70,7 @@ def check_bm25_similarity(
     existing_decisions: list,
     top_k: int = TIER2_TOP_K,
     stopwords: list[str] | None = None,
-) -> tuple[str, list[dict]]:
+) -> tuple[str, list[Bm25Hit]]:
     """Tier-2 BM25 similarity check. Shared by local and remote surfaces.
 
     Filters the scaffold-seed decision (bookkeeping, not a user choice) and

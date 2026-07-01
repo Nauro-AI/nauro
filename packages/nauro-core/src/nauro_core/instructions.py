@@ -13,6 +13,18 @@ the caller has access to:
 
 from __future__ import annotations
 
+from typing import TypedDict
+
+
+# Module-private (not in ``__all__``); annotates the existing ``projects`` input
+# shape only, no behavior change.
+class ProjectRef(TypedDict):
+    """A project reference passed to ``build_remote_instructions``."""
+
+    project_id: str
+    name: str
+
+
 MAX_INLINE_PROJECTS = 3
 
 WELCOME_NO_PROJECT = (
@@ -33,7 +45,7 @@ WELCOME_NO_PROJECT = (
 
 def build_remote_instructions(
     static_block: str,
-    projects: list[dict],
+    projects: list[ProjectRef],
 ) -> str:
     """Combine static instructions with a per-user project section.
 

@@ -32,7 +32,7 @@ from nauro_core.parsing import (
     _decision_label,
     extract_decision_number,
 )
-from nauro_core.search import union_retrieve
+from nauro_core.search import Bm25Hit, union_retrieve
 from nauro_core.validation import check_content_length, is_scaffold_seed
 
 # Extended stopword list for ``check_decision`` retrieval. Mirrors the
@@ -106,7 +106,7 @@ def check_decision(
     )
 
 
-def _hit_to_related(hit: dict, by_num: dict[int, Decision]) -> RelatedDecision:
+def _hit_to_related(hit: Bm25Hit, by_num: dict[int, Decision]) -> RelatedDecision:
     """Lift a ``bm25_retrieve`` hit into the canonical retrieval-hit shape."""
     num = hit["number"]
     decision = by_num.get(num)
