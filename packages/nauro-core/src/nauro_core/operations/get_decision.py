@@ -24,7 +24,7 @@ from nauro_core.decision_model import Decision
 from nauro_core.operations.decision_lookup import parse_decision_or_none
 from nauro_core.operations.results import ErrorPayload, GetDecisionResult
 from nauro_core.operations.store import Store
-from nauro_core.parsing import extract_decision_number
+from nauro_core.parsing import _decision_filename, extract_decision_number
 
 # Frontmatter fields the header projection carries, in render order. These
 # are the triage signals a reader needs to decide whether a decision is
@@ -76,7 +76,7 @@ def get_decision(
             body = store.read_decision(stem)
             if body is not None:
                 if mode == "header":
-                    decision = parse_decision_or_none(body, f"{stem}.md")
+                    decision = parse_decision_or_none(body, _decision_filename(stem))
                     if decision is None:
                         return GetDecisionResult(
                             error=ErrorPayload(

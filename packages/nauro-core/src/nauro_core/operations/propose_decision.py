@@ -34,7 +34,6 @@ from typing import Literal
 
 from nauro_core.constants import (
     DECISION_HASHES_FILE,
-    DECISIONS_DIR,
     MIN_RATIONALE_LENGTH,
     OPEN_QUESTIONS_MD,
 )
@@ -60,7 +59,13 @@ from nauro_core.operations.results import (
     RelatedDecision,
 )
 from nauro_core.operations.store import Store
-from nauro_core.parsing import extract_decision_number
+from nauro_core.parsing import (
+    _canonical_decision_id,
+    _decision_filename,
+    _decision_number_prefix,
+    _decision_path,
+    extract_decision_number,
+)
 from nauro_core.questions import EntryBlock, OpenQuestionsFile
 from nauro_core.validation import (
     check_bm25_similarity,
@@ -254,7 +259,7 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
     next_num = _next_decision_num(store)
     title = proposal.get("title", "Untitled")
     slug = _slugify(title)
-    filename = f"{next_num:03d}-{slug}"
+    filename = f"{_decision_number_prefix(next_num)}{slug}"
     rationale = proposal.get("rationale") or title
 
     decision = Decision(
@@ -271,7 +276,7 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
         title=title,
         rationale=rationale,
     )
-    store.write_file(f"{DECISIONS_DIR}/{filename}.md", format_decision(decision))
+    store.write_file(_decision_path(filename), format_decision(decision))
 
     _update_hash_index(store, title, rationale, filename)
     return filename
@@ -357,7 +362,7 @@ def _to_related_decisions(
         date = decision.date.isoformat() if decision and decision.date else ""
         out.append(
             RelatedDecision(
-                id=f"decision-{num:03d}",
+                id=_canonical_decision_id(num),
                 title=hit.get("title", ""),
                 score=hit.get("similarity", 0.0),
                 status=status,
@@ -431,10 +436,10 @@ def _do_supersede(
                 ),
             ),
         )
-    new_decision = parse_decision(new_body, f"{new_decision_id}.md")
+    new_decision = parse_decision(new_body, _decision_filename(new_decision_id))
     new_decision_rewritten = new_decision.model_copy(update={"supersedes": str(old_num)})
     store.write_file(
-        f"{DECISIONS_DIR}/{new_decision_id}.md",
+        _decision_path(new_decision_id),
         format_decision(new_decision_rewritten),
     )
     new_num = new_decision.num
@@ -472,7 +477,7 @@ def _do_supersede(
             ),
         )
     try:
-        old_decision = parse_decision(old_body, f"{old_stem}.md")
+        old_decision = parse_decision(old_body, _decision_filename(old_stem))
         old_rewritten = old_decision.model_copy(
             update={
                 "status": DecisionStatus.superseded,
@@ -480,7 +485,7 @@ def _do_supersede(
             }
         )
         store.write_file(
-            f"{DECISIONS_DIR}/{old_stem}.md",
+            _decision_path(old_stem),
             format_decision(old_rewritten),
         )
     except Exception as exc:
@@ -540,7 +545,7 @@ def _do_update(
                 reason=f"update target {target_stem} could not be read.",
             ),
         )
-    target = parse_decision(body, f"{target_stem}.md")
+    target = parse_decision(body, _decision_filename(target_stem))
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     additional = (proposal.get("rationale") or "").strip()
     appended_rationale = (
@@ -553,7 +558,7 @@ def _do_update(
             "rationale": appended_rationale,
         }
     )
-    store.write_file(f"{DECISIONS_DIR}/{target_stem}.md", format_decision(updated))
+    store.write_file(_decision_path(target_stem), format_decision(updated))
 
     resolved, resolve_error = _apply_question_resolves(store, proposal, target_stem)
     if resolve_error is not None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from nauro_core.constants import STACK_EMPTY_MARKER
+from nauro_core.constants import DECISIONS_DIR, STACK_EMPTY_MARKER
 
 # Tokens that end in a period without ending the sentence. A terminator
 # closing one of these is treated as part of the abbreviation, not a sentence
@@ -155,6 +155,49 @@ def _scan_prefix(text: str, low: str, prefix: str, found: set[int], max_number: 
         # i is always at least start + plen >= start + 1, so resuming the scan
         # at i never re-examines the just-handled prefix.
         start = low.find(prefix, i)
+
+
+# Decision id / filename formatting. These are the write-side counterparts to
+# extract_decision_number: they render a decision number or file stem into the
+# canonical id, label, filename-prefix, filename, and store-path forms used
+# across the operations kernel. Module-private (not exported in a public API)
+# so callers converge on one spelling of each form.
+
+
+def _canonical_decision_id(num: int) -> str:
+    """Render ``num`` as the canonical ``decision-NNN`` retrieval id."""
+    return f"decision-{num:03d}"
+
+
+def _decision_label(num: int) -> str:
+    """Render ``num`` as the short ``DNNN`` display label."""
+    return f"D{num:03d}"
+
+
+def _decision_number_prefix(num: int) -> str:
+    """Render ``num`` as the ``NNN-`` file-stem prefix."""
+    return f"{num:03d}-"
+
+
+def _decision_filename(stem: str) -> str:
+    """Render a decision file stem as its ``<stem>.md`` filename."""
+    return f"{stem}.md"
+
+
+def _decision_path(stem: str) -> str:
+    """Render a decision file stem as its store-relative ``decisions/<stem>.md`` path."""
+    return f"{DECISIONS_DIR}/{stem}.md"
+
+
+def _stem_from_decision_path(path: str) -> str | None:
+    """Return the decision file stem when ``path`` targets ``decisions/*.md``."""
+    prefix = f"{DECISIONS_DIR}/"
+    if not path.startswith(prefix):
+        return None
+    tail = path[len(prefix) :]
+    if "/" in tail or not tail.endswith(".md"):
+        return None
+    return tail[: -len(".md")]
 
 
 def extract_current_state(state_content: str) -> str:

@@ -27,7 +27,11 @@ from nauro_core.operations.results import (
     RelatedDecision,
 )
 from nauro_core.operations.store import Store
-from nauro_core.parsing import extract_decision_number
+from nauro_core.parsing import (
+    _canonical_decision_id,
+    _decision_label,
+    extract_decision_number,
+)
 from nauro_core.search import union_retrieve
 from nauro_core.validation import check_content_length, is_scaffold_seed
 
@@ -106,7 +110,7 @@ def _hit_to_related(hit: dict, by_num: dict[int, Decision]) -> RelatedDecision:
     """Lift a ``bm25_retrieve`` hit into the canonical retrieval-hit shape."""
     num = hit["number"]
     decision = by_num.get(num)
-    canonical_id = f"decision-{num:03d}"
+    canonical_id = _canonical_decision_id(num)
     status = decision.status.value if decision else "active"
     date = decision.date.isoformat() if decision and decision.date else ""
     # Embedding-sourced hits carry similarity=None (no BM25 score); surface 0.0
@@ -133,7 +137,7 @@ def _assessment(related: list[RelatedDecision]) -> str:
     """
     top = related[0]
     top_num = extract_decision_number(top.id)
-    top_label = f"D{top_num:03d}" if top_num is not None else top.id
+    top_label = _decision_label(top_num) if top_num is not None else top.id
     # score == 0.0 marks an embedding-sourced hit carrying no BM25 score (see
     # _hit_to_related). Don't label it "BM25 0.0" — it didn't match lexically.
     match_note = f"BM25 {top.score:.1f}" if top.score > 0 else "semantic match"

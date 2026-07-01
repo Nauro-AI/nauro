@@ -14,7 +14,11 @@ import logging
 
 from nauro_core.decision_model import Decision, parse_decision
 from nauro_core.operations.store import Store
-from nauro_core.parsing import extract_decision_number
+from nauro_core.parsing import (
+    _decision_filename,
+    _decision_number_prefix,
+    extract_decision_number,
+)
 
 logger = logging.getLogger("nauro_core.operations.decision_lookup")
 
@@ -43,7 +47,7 @@ def parse_all_decisions(store: Store) -> list[Decision]:
         if body is None:
             continue
         try:
-            parsed.append(parse_decision(body, f"{stem}.md"))
+            parsed.append(parse_decision(body, _decision_filename(stem)))
         except Exception:
             logger.debug("Skipping unparseable decision file: %s.md", stem)
             continue
@@ -66,7 +70,7 @@ def parse_decision_or_none(body: str, filename: str) -> Decision | None:
 
 def find_decision_stem_by_num(store: Store, num: int) -> str | None:
     """Return the file stem whose ``NNN-`` prefix matches ``num``, or None."""
-    prefix = f"{num:03d}-"
+    prefix = _decision_number_prefix(num)
     for stem in store.list_decisions():
         if stem.startswith(prefix):
             return stem

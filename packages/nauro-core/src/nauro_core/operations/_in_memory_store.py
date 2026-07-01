@@ -7,9 +7,7 @@ introspecting the broader file table.
 
 from __future__ import annotations
 
-from nauro_core.constants import DECISIONS_DIR
-
-_DECISIONS_PREFIX = f"{DECISIONS_DIR}/"
+from nauro_core.parsing import _stem_from_decision_path
 
 
 class InMemoryStore:
@@ -69,9 +67,4 @@ class InMemoryStore:
 
 def _decision_stem(path: str) -> str | None:
     """Return the decision file stem when ``path`` targets ``decisions/*.md``."""
-    if not path.startswith(_DECISIONS_PREFIX):
-        return None
-    tail = path[len(_DECISIONS_PREFIX) :]
-    if "/" in tail or not tail.endswith(".md"):
-        return None
-    return tail[: -len(".md")]
+    return _stem_from_decision_path(path)

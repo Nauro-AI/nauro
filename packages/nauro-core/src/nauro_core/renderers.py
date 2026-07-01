@@ -29,6 +29,7 @@ Per-tool surface area:
 from __future__ import annotations
 
 from nauro_core.constants import NO_RELATED_DECISIONS
+from nauro_core.parsing import _decision_label
 
 # Width target for the rendered text blocks. Picked to fit standard
 # terminal widths and Markdown chat clients without horizontal scroll.
@@ -42,7 +43,7 @@ def _id_to_label(decision_id: str) -> str:
     if decision_id.startswith(prefix):
         suffix = decision_id[len(prefix) :]
         if suffix.isdigit():
-            return f"D{int(suffix):03d}"
+            return _decision_label(int(suffix))
     return decision_id
 
 
@@ -227,7 +228,7 @@ def render_search_decisions(result: dict, query: str | None = None) -> str:
 
     for hit in hits:
         number = hit.get("number")
-        label = f"D{number:03d}" if isinstance(number, int) else "D???"
+        label = _decision_label(number) if isinstance(number, int) else "D???"
         status = hit.get("status", "")
         score = hit.get("score", 0.0)
         score_str = f"BM25 {score:5.2f}" if isinstance(score, (int, float)) else "BM25 ?"
@@ -265,7 +266,7 @@ def render_list_decisions(result: dict) -> str:
 
     for d in decisions:
         number = d.get("number")
-        label = f"D{number:03d}" if isinstance(number, int) else "D???"
+        label = _decision_label(number) if isinstance(number, int) else "D???"
         status = d.get("status", "")
         title = d.get("title", "") or "(no title)"
         lines.append(f"  - {label}  [{status:<10}]  {_truncate(title, _TITLE_BUDGET)}")
