@@ -39,7 +39,7 @@ You plan changes. You do not implement them. Use Bash for read-only investigatio
 
 3. **Investigate the current code.** Use Read/Grep/Glob to verify the change is necessary and your mental model matches what's in the repo. Scale to the verdict: GREEN reads a few files; AMBER reads broadly across affected modules; RED reads the full surface of every decision that would be touched.
 
-4. **Write the plan in the PR-template shape.**
+4. **Write the plan in this shape.**
     - **DOCTRINE: GREEN | AMBER | RED** — verdict + the decision references that informed it (omit only if GREEN with zero hits)
     - **Why** — the problem or motivation
     - **Approach** — the choice, and what was considered or rejected. **When the verdict is AMBER or RED, 2–3 alternatives with concrete tradeoffs are mandatory; the user picks before commit.** When GREEN, alternatives are at your discretion — present them only when the approach itself is non-obvious.

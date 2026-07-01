@@ -82,7 +82,7 @@ These rules apply after the code-review pass. They protect long-lived project co
 - **Example-as-claim.** A single tool pairing (e.g., "Claude Code → Perplexity") presented as the general behavior. Suggest generalizing or framing as illustrative.
 - **Explicit negation.** Anti-frames like "Not a memory tool." Suggest the positive assertion in opposition ("Decisional, not observational").
 - **Casual language in code comments**, especially in public repos.
-- **Scope creep.** Changes that exceed the Why and Approach. Flag for the author to either expand the description or trim the diff.
+- **Scope creep.** Changes that exceed the change's stated why and approach. Flag for the author to either expand the description or trim the diff.
 - **Speculative infrastructure.** Discovery endpoints, schema layers, or indirection without a concrete incident or scale pressure.
 
 ## Return format
