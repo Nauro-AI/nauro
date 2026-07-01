@@ -8,9 +8,9 @@ Coverage:
     - Negative: every validation rule raises.
     - Positive: optional fields accept None / empty cleanly.
 
-Fixtures are synthesized inline because no file in the current store is in v2
-format yet — Phase 3 migration will produce v2 output. Each fixture is
-documented with a reference to the real decision it is modeled on.
+Fixtures are synthesized inline rather than read from the store, so the suite
+does not depend on store contents. Each fixture is documented with a reference
+to the real decision it is modeled on.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from nauro_core.decision_model import (
     DecisionType,
     RejectedAlternative,
     Reversibility,
+    _split_frontmatter,
     format_decision,
     parse_decision,
 )
@@ -389,6 +390,47 @@ class TestRationaleBoundary:
         d = parse_decision(text, "055-no-rejected.md")
         assert "## Context" in d.rationale
         assert "Second paragraph with a subsection heading." in d.rationale
+        assert d.rejected == []
+
+    def test_fenced_decision_heading_alone_raises(self) -> None:
+        """A `## Decision` that appears only inside a fenced code block must not
+        anchor. With no real section, the missing-section error is raised."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 057 — Fenced decision only\n\n"
+            "Here is a sample document, not the real section:\n\n"
+            "```markdown\n"
+            "## Decision\n\n"
+            "Sample body inside the fence.\n"
+            "```\n\n"
+            "Prose but no real Decision heading.\n"
+        )
+        with pytest.raises(ValueError, match="missing `## Decision`"):
+            parse_decision(text, "057-fenced-decision-only.md")
+
+    def test_fenced_fake_decision_before_real_anchors_on_real(self) -> None:
+        """A fenced fake `## Decision` before the real one must not anchor; the
+        real, non-fenced heading is the anchor and the body parses cleanly."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 058 — Fenced fake before real\n\n"
+            "```markdown\n"
+            "## Decision\n\n"
+            "This is a documentation sample, not the real section.\n"
+            "```\n\n"
+            "## Decision\n\n"
+            "The real chosen path lives here.\n"
+        )
+        d = parse_decision(text, "058-fenced-fake-before-real.md")
+        # The fenced sample precedes the anchor, so the rationale is exactly the
+        # real body below the genuine heading.
+        assert d.rationale == "The real chosen path lives here."
         assert d.rejected == []
 
 
@@ -762,3 +804,49 @@ class TestSourceCitationRoundTrip:
         once = format_decision(decision)
         twice = format_decision(parse_decision(once, "002-store-path.md"))
         assert once == twice
+
+
+# ── Frontmatter split helper ──
+
+
+class TestSplitFrontmatter:
+    """Direct unit tests for ``_split_frontmatter``.
+
+    The split must stay byte-identical to the historical inline slice, which
+    used the literal offsets 4 (length of the open fence) and 5 (length of the
+    close fence).
+    """
+
+    def test_valid_input_byte_exact_against_literal_slice(self) -> None:
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 001 — Title\n\n"
+            "## Decision\n\nChose A.\n"
+        )
+        # Reproduce the pre-refactor inline slice exactly.
+        fm_end = text.find("\n---\n", 4)
+        expected_block = text[4:fm_end]
+        expected_body = text[fm_end + 5 :]
+
+        block, body = _split_frontmatter(text, "001-title.md")
+        assert block == expected_block
+        assert body == expected_body
+
+    def test_empty_frontmatter_yields_empty_block(self) -> None:
+        # An open fence immediately followed by the close fence: the block and
+        # the body are both empty. ("---\n\n---\n" is the smallest input whose
+        # close fence has the leading newline the fence requires.)
+        block, body = _split_frontmatter("---\n\n---\n", "001-empty.md")
+        assert block == ""
+        assert body == ""
+
+    def test_missing_open_fence_raises(self) -> None:
+        with pytest.raises(ValueError, match="missing YAML frontmatter"):
+            _split_frontmatter("no fence here\n", "001-no-fence.md")
+
+    def test_unterminated_raises(self) -> None:
+        with pytest.raises(ValueError, match="unterminated"):
+            _split_frontmatter("---\ndate: 2026-04-01\n", "001-unterminated.md")
