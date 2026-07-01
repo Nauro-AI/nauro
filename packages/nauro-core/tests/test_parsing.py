@@ -5,10 +5,13 @@ import pytest
 from nauro_core.constants import DECISIONS_DIR
 from nauro_core.parsing import (
     _canonical_decision_id,
+    _cap_to_first_unit,
     _decision_filename,
     _decision_label,
     _decision_number_prefix,
     _decision_path,
+    _first_sentence_snippet,
+    _is_top_level_bullet,
     _stem_from_decision_path,
     extract_decision_number,
     first_sentence_end,
@@ -227,3 +230,200 @@ class TestStemFromDecisionPath:
 
     def test_nested_path_returns_none(self) -> None:
         assert _stem_from_decision_path(f"{DECISIONS_DIR}/sub/042.md") is None
+
+
+# ── Snippet / body-cap / bullet primitives ──
+#
+# Golden characterization guard for the module-private primitives lifted out of
+# search.py and graph.py. Each case pins the CURRENT byte-for-byte output the
+# inline block produced at its former call site: these strings feed user-visible
+# BM25 search snippets and the graph open-question payload, so a future edit that
+# shifts the ellipsis style, the strip ordering, or the boundary rule must fail
+# here rather than silently change either surface. Expected strings are recorded
+# literals, not re-derived from the input.
+
+# A first sentence of exactly 100 characters (no terminator) stays whole; one
+# character longer trips the 100-char cap and gains the three-dot ellipsis. The
+# 101-char input is the 100-char one plus a trailing character, and its output
+# is the 100-char prefix (which equals the 100-char input) plus "...".
+_SNIPPET_100_INPUT = (
+    "The single readable search snippet line holds exactly one hundred "
+    "characters before any ellipsis xxz"
+)
+_SNIPPET_101_INPUT = _SNIPPET_100_INPUT + "z"
+
+_FIRST_SENTENCE_SNIPPET_CASES = [
+    (
+        "real_rationale_multi_sentence",
+        "Memcached is simpler than Redis for session caching. Lower overhead suffices.",
+        "Memcached is simpler than Redis for session caching",
+    ),
+    (
+        "multi_sentence_single_line",
+        "First sentence here. Second one.",
+        "First sentence here",
+    ),
+    (
+        "eg_abbreviation_not_clipped",
+        "Should we e.g. cache the index?",
+        "Should we e.g. cache the index",
+    ),
+    (
+        "ie_abbreviation_not_clipped",
+        "Use one store, i.e. the local one. Done.",
+        "Use one store, i.e. the local one",
+    ),
+    (
+        "empty",
+        "",
+        "",
+    ),
+    (
+        "whitespace_only",
+        "   ",
+        "",
+    ),
+    (
+        "exactly_100_chars_no_ellipsis",
+        _SNIPPET_100_INPUT,
+        _SNIPPET_100_INPUT,
+    ),
+    (
+        "over_100_chars_gets_ellipsis",
+        _SNIPPET_101_INPUT,
+        _SNIPPET_100_INPUT + "...",
+    ),
+]
+
+
+class TestFirstSentenceSnippet:
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [(text, expected) for _, text, expected in _FIRST_SENTENCE_SNIPPET_CASES],
+        ids=[label for label, _, _ in _FIRST_SENTENCE_SNIPPET_CASES],
+    )
+    def test_matches_golden(self, text: str, expected: str) -> None:
+        assert _first_sentence_snippet(text) == expected
+
+    def test_exactly_100_input_is_100_chars_and_keeps_no_ellipsis(self) -> None:
+        assert len(_SNIPPET_100_INPUT) == 100
+        assert not _first_sentence_snippet(_SNIPPET_100_INPUT).endswith("...")
+
+    def test_over_100_input_is_101_chars_and_appends_three_dots(self) -> None:
+        assert len(_SNIPPET_101_INPUT) == 101
+        out = _first_sentence_snippet(_SNIPPET_101_INPUT)
+        assert out.endswith("...")
+        assert out[:-3] == _SNIPPET_101_INPUT[:100]
+
+    def test_length_argument_caps_and_ellipsizes(self) -> None:
+        # The cap and ellipsis track the length argument, not a hardcoded 100.
+        assert _first_sentence_snippet("abcdefghij", length=5) == "abcde..."
+
+
+_CAP_TO_FIRST_UNIT_CASES = [
+    (
+        "multi_line_first_line_terminated",
+        "First line of the note.\nSecond line with more detail.",
+        "First line of the note.",
+    ),
+    (
+        "multi_sentence_single_line",
+        "First sentence here. Second sentence should be dropped.",
+        "First sentence here.",
+    ),
+    (
+        "eg_abbreviation_single_line",
+        "Should we e.g. cache the index here?",
+        "Should we e.g. cache the index here?",
+    ),
+    (
+        "multi_line_first_line_unterminated",
+        "Just the first line\nSecond line here.",
+        "Just the first line",
+    ),
+    (
+        "empty",
+        "",
+        "",
+    ),
+    (
+        "whitespace_only",
+        "   \n  ",
+        "",
+    ),
+    (
+        "real_open_question",
+        "Should we support team sync in v1 or defer to v2?",
+        "Should we support team sync in v1 or defer to v2?",
+    ),
+    (
+        "real_multi_paragraph_body",
+        "Explicit decision tracking prevents context loss.\n\nMore detail follows.",
+        "Explicit decision tracking prevents context loss.",
+    ),
+]
+
+
+class TestCapToFirstUnit:
+    @pytest.mark.parametrize(
+        ("body", "expected"),
+        [(body, expected) for _, body, expected in _CAP_TO_FIRST_UNIT_CASES],
+        ids=[label for label, _, _ in _CAP_TO_FIRST_UNIT_CASES],
+    )
+    def test_matches_golden(self, body: str, expected: str) -> None:
+        assert _cap_to_first_unit(body) == expected
+
+
+_IS_TOP_LEVEL_BULLET_CASES = [
+    ("top_level", "- Shipped the graph payload builder", True),
+    ("top_level_bold", "- **Python + Typer** chosen for CLI", True),
+    ("two_space_indent", "  - nested item", False),
+    ("four_space_indent", "    - deeper nested", False),
+    ("one_space_indent_still_top_level", " - single space still top level", True),
+    ("tab_indent_still_top_level", "\t- tab indented", True),
+    ("heading_h2", "## Infrastructure", False),
+    ("heading_h1", "# Stack", False),
+    ("empty", "", False),
+    ("dash_without_space", "-nospace", False),
+]
+
+
+class TestIsTopLevelBullet:
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [(line, expected) for _, line, expected in _IS_TOP_LEVEL_BULLET_CASES],
+        ids=[label for label, _, _ in _IS_TOP_LEVEL_BULLET_CASES],
+    )
+    def test_matches_golden(self, line: str, expected: bool) -> None:
+        assert _is_top_level_bullet(line) is expected
+
+    def test_stack_sample_selects_only_top_level_bullets(self) -> None:
+        # Over a realistic stack.md sample, only the unindented "- " lines count;
+        # nested caveats and headings are excluded.
+        stack_sample = (
+            "# Stack\n"
+            "## Language & Framework\n"
+            "- **Python + Typer** chosen for fast CLI prototyping\n"
+            "  - sub-note about Typer version pinning\n"
+            "## Infrastructure\n"
+            "- **SQLite** for local-first storage\n"
+            "    - deeper nested caveat\n"
+        )
+        selected = [line for line in stack_sample.split("\n") if _is_top_level_bullet(line)]
+        assert selected == [
+            "- **Python + Typer** chosen for fast CLI prototyping",
+            "- **SQLite** for local-first storage",
+        ]
+
+    def test_questions_sample_selects_only_top_level_bullets(self) -> None:
+        questions_sample = (
+            "# Open Questions\n"
+            "- [Q1] Should we support team sync in v1 or defer to v2?\n"
+            "  - follow-up detail line\n"
+            "- [Q2] Do we need embeddings for retrieval?\n"
+        )
+        selected = [line for line in questions_sample.split("\n") if _is_top_level_bullet(line)]
+        assert selected == [
+            "- [Q1] Should we support team sync in v1 or defer to v2?",
+            "- [Q2] Do we need embeddings for retrieval?",
+        ]

@@ -26,7 +26,7 @@ Plain string operations only; no regex.
 from __future__ import annotations
 
 from nauro_core.decision_model import Decision
-from nauro_core.parsing import first_sentence_end, scan_decision_references
+from nauro_core.parsing import _cap_to_first_unit, scan_decision_references
 from nauro_core.questions import OpenQuestionsFile
 from nauro_core.validation import is_scaffold_seed
 
@@ -349,20 +349,3 @@ def _filter_open_questions(
             }
         )
     return result
-
-
-def _cap_to_first_unit(body: str) -> str:
-    """Cap a body to its first sentence or first line, whichever ends sooner.
-
-    The first line ends at the first newline; the first sentence ends per the
-    shared ``parsing.first_sentence_end`` grammar (terminator plus boundary,
-    abbreviations skipped). The shorter boundary wins, so a multi-sentence
-    single line truncates to the first sentence and a multi-line body to its
-    first line.
-    """
-    text = body.strip()
-    line_end = text.find("\n")
-    if line_end == -1:
-        line_end = len(text)
-    cut = min(line_end, first_sentence_end(text))
-    return text[:cut].rstrip()

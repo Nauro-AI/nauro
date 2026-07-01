@@ -19,7 +19,7 @@ import bm25s
 import Stemmer
 
 from nauro_core.decision_model import Decision, DecisionStatus
-from nauro_core.parsing import extract_relevance_snippet, first_sentence_end
+from nauro_core.parsing import _first_sentence_snippet, extract_relevance_snippet
 
 _stemmer = Stemmer.Stemmer("english")
 
@@ -76,13 +76,7 @@ def bm25_search(
         d = decisions[idx]
         snippet = extract_relevance_snippet(d.rationale, query_words)
         if not snippet and d.rationale:
-            # First sentence via the shared splitter, with the trailing
-            # terminator dropped to match the prior snippet shape.
-            end = first_sentence_end(d.rationale)
-            first_sentence = d.rationale[:end].rstrip(".!?")
-            snippet = first_sentence[:100].strip()
-            if len(first_sentence) > 100:
-                snippet += "..."
+            snippet = _first_sentence_snippet(d.rationale)
 
         ranked.append(
             {
