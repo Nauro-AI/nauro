@@ -67,6 +67,7 @@ from nauro_core.parsing import (
     extract_decision_number,
 )
 from nauro_core.questions import EntryBlock, OpenQuestionsFile
+from nauro_core.search import Bm25Hit
 from nauro_core.validation import (
     check_bm25_similarity,
     compute_hash,
@@ -346,7 +347,7 @@ def _update_hash_index(store: Store, title: str, rationale: str, decision_id: st
 
 
 def _to_related_decisions(
-    raw_hits: list[dict],
+    raw_hits: list[Bm25Hit],
     parsed_decisions: list[Decision],
 ) -> list[RelatedDecision]:
     """Lift the ``bm25_retrieve`` dict shape into :class:`RelatedDecision`.

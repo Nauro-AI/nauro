@@ -15,6 +15,8 @@ declined path's identity).
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 import bm25s
 import Stemmer
 
@@ -22,6 +24,29 @@ from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import _first_sentence_snippet, extract_relevance_snippet
 
 _stemmer = Stemmer.Stemmer("english")
+
+
+# Two distinct result shapes, deliberately not unified. Module-private (not in
+# ``__all__``). These annotate the existing dict literals only; each dict is a
+# plain dict at runtime, so the returned rows are unchanged.
+class Bm25SearchRow(TypedDict):
+    """One row of the ``bm25_search`` ranked result."""
+
+    number: int
+    title: str
+    date: str | None
+    status: str
+    relevance_snippet: str
+    score: float
+
+
+class Bm25Hit(TypedDict):
+    """One hit from ``bm25_retrieve`` / ``union_retrieve``."""
+
+    number: int
+    title: str
+    similarity: float | None
+    rationale_preview: str
 
 
 def _index_text(d: Decision) -> str:
@@ -40,7 +65,7 @@ def bm25_search(
     decisions: list[Decision],
     query: str,
     limit: int = 10,
-) -> list[dict]:
+) -> list[Bm25SearchRow]:
     """Rank decisions by BM25 relevance to query.
 
     Returns list of result dicts sorted by BM25 score descending.
@@ -97,7 +122,7 @@ def bm25_retrieve(
     query_text: str,
     top_k: int = 5,
     stopwords: str | list[str] = "en",
-) -> list[dict]:
+) -> list[Bm25Hit]:
     """Retrieve top-k related active decisions for conflict checking.
 
     Returns list of dicts sorted by BM25 score descending.
@@ -152,7 +177,7 @@ def union_retrieve(
     top_k: int = 5,
     stopwords: str | list[str] = "en",
     use_embeddings: bool = False,
-) -> list[dict]:
+) -> list[Bm25Hit]:
     """Retrieve a BM25 ∪ embedding candidate pool of related active decisions.
 
     With ``use_embeddings`` False this is exactly :func:`bm25_retrieve` — same
