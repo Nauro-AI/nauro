@@ -43,7 +43,7 @@ FULL_FILES = {
         "## Infrastructure\n"
         "- **AWS Lambda** \u2014 serverless\n"
     ),
-    "questions.md": (
+    "open-questions.md": (
         "# Open Questions\n"
         "- [Q1] How does auth work?\n"
         "- [Q2] What about caching?\n"
@@ -307,7 +307,7 @@ class TestBuildL0OpenQuestionsAgeProjection:
     _PROJECTION_PREFIX = "(open"
 
     def _files(self, content: str) -> dict[str, str]:
-        return {"questions.md": content}
+        return {"open-questions.md": content}
 
     def _today(self):
         return datetime.now(timezone.utc).date()
@@ -423,7 +423,7 @@ class TestBuildL0DiscoveryPointerExclusion:
     """
 
     def _files(self, content: str) -> dict[str, str]:
-        return {"questions.md": content}
+        return {"open-questions.md": content}
 
     def test_brief_pointer_excluded(self):
         content = (

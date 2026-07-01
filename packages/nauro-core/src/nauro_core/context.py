@@ -14,6 +14,7 @@ from nauro_core.constants import (
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
     L1_DECISIONS_SUMMARY_LIMIT,
+    OPEN_QUESTIONS_MD,
     PROJECT_MD,
     STACK_MD,
     STATE_CURRENT_FILENAME,
@@ -128,7 +129,7 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
     Args:
         files: Dict of store-relative keys to file contents.
             Recognized keys: "project.md", "state_current.md" (preferred;
-            legacy "state.md"), "stack.md", "questions.md".
+            legacy "state.md"), "stack.md", "open-questions.md".
         decisions: List of parsed decision dicts (from parse_decision).
     """
     sections: list[str] = []
@@ -159,7 +160,7 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
     if oneliner:
         sections.append("**Stack:** " + oneliner)
 
-    questions_content = files.get("questions.md", "")
+    questions_content = files.get(OPEN_QUESTIONS_MD, "")
     rendered_questions = _render_l0_open_questions(questions_content)
     if rendered_questions:
         sections.append("## Open Questions\n" + rendered_questions)
@@ -203,7 +204,7 @@ def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
     if stack.strip():
         sections.append(stack.strip())
 
-    questions_content = files.get("questions.md", "")
+    questions_content = files.get(OPEN_QUESTIONS_MD, "")
     if questions_content.strip():
         sections.append(questions_content.strip())
 
@@ -257,7 +258,7 @@ def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
     if stack.strip():
         sections.append(stack.strip())
 
-    questions_content = files.get("questions.md", "")
+    questions_content = files.get(OPEN_QUESTIONS_MD, "")
     if questions_content.strip():
         sections.append(questions_content.strip())
 

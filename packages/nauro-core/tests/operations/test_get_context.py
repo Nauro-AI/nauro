@@ -106,6 +106,24 @@ def test_l2_includes_state_history() -> None:
     assert "Adopt Postgres" in result.content
 
 
+def test_open_questions_body_reaches_every_level() -> None:
+    """The seeded ``open-questions.md`` body must survive the store to builder
+    hop at all three levels.
+
+    ``get_context`` loads ``open-questions.md`` and the builders read it back
+    under the same key. If either side drifts, the Open Questions section goes
+    silently empty while every other assertion here still passes. Pinning the
+    question body at L0/L1/L2 fails loudly on a half-done key change.
+    """
+    store = _seeded_store()
+    for level in (0, 1, 2):
+        result = get_context(store, level)
+        assert result.content is not None, f"level {level} returned None content"
+        assert "Do we cache?" in result.content, (
+            f"level {level} dropped the open-questions body: {result.content!r}"
+        )
+
+
 def test_legacy_state_md_falls_back_when_state_current_missing() -> None:
     """Pre-upgrade stores with only state.md still surface state content."""
     store = InMemoryStore(

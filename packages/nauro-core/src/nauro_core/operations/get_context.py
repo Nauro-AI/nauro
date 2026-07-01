@@ -27,12 +27,6 @@ from nauro_core.operations.decision_lookup import parse_all_decisions
 from nauro_core.operations.results import ErrorPayload, GetContextResult
 from nauro_core.operations.store import Store
 
-# build_l0/l1/l2 read questions content from the ``questions.md`` key
-# (a builder-internal convention that predates the ``open-questions.md``
-# on-disk filename). The kernel rebinds the loaded content under that
-# key so the builders find it.
-_QUESTIONS_BUILDER_KEY = "questions.md"
-
 # Builder dispatch keyed by level. Keeping this as a module-level dict
 # rather than an if/elif keeps the level-set check (``level in _BUILDERS``)
 # the single source of truth for valid levels.
@@ -63,7 +57,7 @@ def _load_context_files(store: Store, level: int) -> dict[str, str]:
 
     questions = store.read_file(OPEN_QUESTIONS_MD)
     if questions is not None:
-        files[_QUESTIONS_BUILDER_KEY] = questions
+        files[OPEN_QUESTIONS_MD] = questions
 
     # Prefer state_current.md; fall back to state.md for pre-upgrade stores.
     # Truthy check (not ``is not None``) so a migration that left an empty
