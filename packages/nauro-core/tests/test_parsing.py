@@ -1,6 +1,15 @@
 """Tests for nauro_core.parsing."""
 
+import pytest
+
+from nauro_core.constants import DECISIONS_DIR
 from nauro_core.parsing import (
+    _canonical_decision_id,
+    _decision_filename,
+    _decision_label,
+    _decision_number_prefix,
+    _decision_path,
+    _stem_from_decision_path,
     extract_decision_number,
     first_sentence_end,
     scan_decision_references,
@@ -134,3 +143,87 @@ class TestScanDecisionReferences:
 
     def test_multiple_references(self):
         assert scan_decision_references("D1 and D2 and decision-3", 100) == {1, 2, 3}
+
+
+# ── Decision id / filename formatters ──
+#
+# Byte-identity guard for the module-private formatters extracted from the
+# operations kernel. Each assertion pins the helper output against the exact
+# inline expression it replaced at its former call site, so a future edit to a
+# helper that drifts from that spelling fails here rather than silently at a
+# call site.
+
+_FORMATTER_NUMBERS = [0, 1, 5, 42, 100, 999]
+
+
+class TestDecisionNumberFormatters:
+    @pytest.mark.parametrize("num", _FORMATTER_NUMBERS)
+    def test_canonical_decision_id_matches_inline(self, num: int) -> None:
+        assert _canonical_decision_id(num) == f"decision-{num:03d}"
+
+    @pytest.mark.parametrize("num", _FORMATTER_NUMBERS)
+    def test_decision_label_matches_inline(self, num: int) -> None:
+        assert _decision_label(num) == f"D{num:03d}"
+
+    @pytest.mark.parametrize("num", _FORMATTER_NUMBERS)
+    def test_decision_number_prefix_matches_inline(self, num: int) -> None:
+        assert _decision_number_prefix(num) == f"{num:03d}-"
+
+
+class TestDecisionFilenameFormatters:
+    @pytest.mark.parametrize(
+        "stem",
+        ["001-foo", "042-use-postgres", "999-z", ""],
+    )
+    def test_decision_filename_matches_inline(self, stem: str) -> None:
+        assert _decision_filename(stem) == f"{stem}.md"
+
+    @pytest.mark.parametrize(
+        "stem",
+        ["001-foo", "042-use-postgres", "999-z", ""],
+    )
+    def test_decision_path_matches_inline(self, stem: str) -> None:
+        assert _decision_path(stem) == f"{DECISIONS_DIR}/{stem}.md"
+
+
+def _old_decision_stem(path: str) -> str | None:
+    """Reference copy of the former ``_in_memory_store._decision_stem`` logic."""
+    prefix = f"{DECISIONS_DIR}/"
+    if not path.startswith(prefix):
+        return None
+    tail = path[len(prefix) :]
+    if "/" in tail or not tail.endswith(".md"):
+        return None
+    return tail[: -len(".md")]
+
+
+class TestStemFromDecisionPath:
+    @pytest.mark.parametrize(
+        "path",
+        [
+            f"{DECISIONS_DIR}/001-foo.md",
+            f"{DECISIONS_DIR}/042-use-postgres.md",
+            f"{DECISIONS_DIR}/.md",
+            f"{DECISIONS_DIR}/001-foo",
+            f"{DECISIONS_DIR}/sub/001-foo.md",
+            f"{DECISIONS_DIR}/001-foo.txt",
+            "001-foo.md",
+            "state_current.md",
+            "",
+        ],
+    )
+    def test_matches_old_logic(self, path: str) -> None:
+        assert _stem_from_decision_path(path) == _old_decision_stem(path)
+
+    def test_prefixed_with_md_returns_stem(self) -> None:
+        path = f"{DECISIONS_DIR}/042-use-postgres.md"
+        assert _stem_from_decision_path(path) == "042-use-postgres"
+
+    def test_without_prefix_returns_none(self) -> None:
+        assert _stem_from_decision_path("042-use-postgres.md") is None
+
+    def test_prefixed_without_md_returns_none(self) -> None:
+        assert _stem_from_decision_path(f"{DECISIONS_DIR}/042-use-postgres") is None
+
+    def test_nested_path_returns_none(self) -> None:
+        assert _stem_from_decision_path(f"{DECISIONS_DIR}/sub/042.md") is None
