@@ -65,6 +65,40 @@ def _ends_with_abbreviation(text: str, period_idx: int) -> bool:
     return len(token) == 1 and token.isalpha()
 
 
+def _first_sentence_snippet(text: str, length: int = 100) -> str:
+    """First sentence of ``text``, trimmed to ``length`` with a trailing ellipsis.
+
+    Splits at the first sentence boundary via the co-located ``first_sentence_end``,
+    drops the trailing terminator, trims to ``length`` characters, and appends
+    ``...`` when the first sentence runs longer than ``length``. This is the BM25
+    search snippet fallback used when no query word matches the rationale, so its
+    output shape is user-visible on the search surface.
+    """
+    end = first_sentence_end(text)
+    first_sentence = text[:end].rstrip(".!?")
+    snippet = first_sentence[:length].strip()
+    if len(first_sentence) > length:
+        snippet += "..."
+    return snippet
+
+
+def _cap_to_first_unit(body: str) -> str:
+    """Cap a body to its first sentence or first line, whichever ends sooner.
+
+    The first line ends at the first newline; the first sentence ends per the
+    co-located ``first_sentence_end`` grammar (terminator plus boundary,
+    abbreviations skipped). The shorter boundary wins, so a multi-sentence
+    single line truncates to the first sentence and a multi-line body to its
+    first line. Feeds the graph payload's open-question display bodies.
+    """
+    text = body.strip()
+    line_end = text.find("\n")
+    if line_end == -1:
+        line_end = len(text)
+    cut = min(line_end, first_sentence_end(text))
+    return text[:cut].rstrip()
+
+
 def extract_decision_number(identifier: str) -> int | None:
     """Extract the decision number from a decision identifier.
 
@@ -221,6 +255,17 @@ def extract_current_state(state_content: str) -> str:
     return "\n".join(current_lines).strip()
 
 
+def _is_top_level_bullet(line: str) -> bool:
+    """Whether ``line`` is a top-level ``- `` bullet, not an indented child.
+
+    The stripped line opens with ``- `` and the raw line carries no leading
+    indent, so a nested bullet under a parent item does not count. Shared by the
+    stack extractors here and the snapshot stack diff so the three sites agree on
+    what a top-level bullet is.
+    """
+    return line.strip().startswith("- ") and not line.startswith("  ")
+
+
 def extract_stack_oneliner(stack_content: str) -> str:
     """Extract a one-line stack summary listing only technology names."""
     if not stack_content.strip() or stack_content.strip() == STACK_EMPTY_MARKER:
@@ -229,7 +274,7 @@ def extract_stack_oneliner(stack_content: str) -> str:
     names: list[str] = []
     for line in stack_content.split("\n"):
         stripped = line.strip()
-        if stripped.startswith("- ") and not line.startswith("  "):
+        if _is_top_level_bullet(line):
             m = re.match(r"-\s+\*\*(.+?)\*\*", stripped)
             if m:
                 names.append(m.group(1))
@@ -246,7 +291,7 @@ def extract_stack_summary(stack_content: str) -> str:
         stripped = line.strip()
         if stripped.startswith("# ") or stripped.startswith("<!--"):
             continue
-        if (stripped.startswith("- ") and not line.startswith("  ")) or stripped.startswith("## "):
+        if _is_top_level_bullet(line) or stripped.startswith("## "):
             lines.append(stripped)
     return "\n".join(lines)
 

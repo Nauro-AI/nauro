@@ -26,6 +26,7 @@ from nauro_core.constants import (
 )
 from nauro_core.operations.results import DiffSinceLastSessionResult
 from nauro_core.operations.store import Store
+from nauro_core.parsing import _is_top_level_bullet
 
 # Success-path sentinels rendered when the adapter cannot supply a usable
 # (baseline, latest) pair. Exposed as module constants so adapters can
@@ -236,11 +237,7 @@ def _diff_stack(old: str, new: str) -> list[str]:
     changes: list[str] = []
 
     def extract_bullets(content: str) -> list[str]:
-        return [
-            line.strip()
-            for line in content.split("\n")
-            if line.strip().startswith("- ") and not line.startswith("  ")
-        ]
+        return [line.strip() for line in content.split("\n") if _is_top_level_bullet(line)]
 
     old_bullets = extract_bullets(old)
     new_bullets = extract_bullets(new)
