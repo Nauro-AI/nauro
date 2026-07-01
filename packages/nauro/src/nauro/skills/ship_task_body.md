@@ -27,7 +27,7 @@ Before invoking `@nauro-planner`, the parent session confirms the planner will r
 
 ### 1. Plan
 
-Invoke the `@nauro-planner` subagent with the task description. The planner runs `check_decision` against the proposed approach, classifies as GREEN / AMBER / RED, reads related decision bodies via `get_decision`, investigates the code, and returns a plan in the PR-template shape (Why / Approach / What changes / What's deferred / Test plan), plus the verdict line and any decision number it drafted.
+Invoke the `@nauro-planner` subagent with the task description. The planner runs `check_decision` against the proposed approach, classifies as GREEN / AMBER / RED, reads related decision bodies via `get_decision`, investigates the code, and returns a plan in the plan shape (Why / Approach / What changes / What's deferred / Test plan), plus the verdict line and any decision number it drafted.
 
 If the planner returns RED with a supersede draft, the chain pauses here. Surface the draft to the user. Only on explicit user approval (or an explicit "override RED on the cited decision, proceed") does the chain continue to the executor.
 
@@ -83,7 +83,7 @@ If the body would be long, that's fine — paste it anyway. Skipping the verbati
 
 ### 8. Push
 
-On approval, push the branch. Write the drafted description to a file and open the PR with `gh pr create --body-file <file>` — passing the body inline breaks on quote characters in the drafted body. If `gh` is unavailable, hand the user the PR-creation URL the push prints (or the compare URL constructed from the remote and branch). Decisions filed during the chain go in the PR's Approach section by paraphrase, not by raw decision number — the public-repo convention is to describe the doctrine move ("the bundled-subagents pattern"), not cite internal D-numbers.
+On approval, push the branch. Write the drafted description to a file and open the PR with `gh pr create --body-file <file>` — passing the body inline breaks on quote characters in the drafted body. If `gh` is unavailable, hand the user the PR-creation URL the push prints (or the compare URL constructed from the remote and branch). Decisions filed during the chain go in the PR body by paraphrase (Why or What changed), not by raw decision number — the public-repo convention is to describe the doctrine move ("the bundled-subagents pattern"), not cite internal D-numbers.
 
 ## Rules
 
