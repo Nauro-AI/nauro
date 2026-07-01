@@ -39,7 +39,7 @@ Commit your work to the local branch. **Do not push to remote and do not open a 
 2. **Test.** Run the relevant test suite.
 3. **Cross-package dependencies stay in sync.** If the change bumps a dependency pinned across multiple packages or lockfiles, regenerate every affected manifest in the same commit. Use the project's release-helper tooling when one exists.
 4. **Commit.** Default to **one commit per PR**. Subject under 72 chars, imperative voice. Body includes a Why paragraph and a footer referencing the decision the planner recorded, if any. Split into multiple commits only when the plan explicitly justifies it — meaningful, independently-revertible stages (e.g., bug fix + unrelated refactor, or a sequence with a logical hand-off between commits). For bulk cleanup, refactors, or any bounded single-purpose work, one commit is right. The PR body conveys structure; the branch doesn't need to mirror it.
-5. **Draft the PR description.** Follow the project's PR template: Why / Approach / What changed / What to review / Deferred / Test plan. Narrative for reviewers, not a changelog. Reference any decision the planner recorded.
+5. **Draft the PR description.** Follow `.github/PULL_REQUEST_TEMPLATE.md`. The core sections are Why / What changed / Test plan; add "Risk / what to review" and "Deferred" as their own headings only when they carry weight. Narrative for reviewers, not a changelog. Reference any decision the planner recorded.
 
 ## What you do NOT do at this stage
 
