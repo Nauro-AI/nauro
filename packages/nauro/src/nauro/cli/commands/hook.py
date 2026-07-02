@@ -114,6 +114,7 @@ def _run_user_prompt_submit() -> None:
         return
 
     injected = fresh[:MAX_INJECTED]
+    _enrich_supersedes(store_path, injected)
     block = _format_block(injected)
     _record_seen(session_id, [r["number"] for r in injected])
 
@@ -244,24 +245,124 @@ def _apply_floor(hits: list[dict], corpus_size: int) -> list[dict]:
     return [h for h in hits if h["score"] >= floor]
 
 
+def _enrich_supersedes(store_path: Path, hits: list[dict]) -> None:
+    """Attach resolved structural supersedes refs to injected hits, in place.
+
+    For each hit, resolve whether the surfaced decision structurally supersedes
+    another and, if so, that older decision's number and title, stored under the
+    hit's ``supersedes_ref`` key. Resolution is fail-open per hit (see
+    ``_resolve_supersedes_ref``): a hit that does not resolve is left without the
+    key and renders the shipped line.
+    """
+    from nauro.store.filesystem_store import FilesystemStore
+
+    store = FilesystemStore(store_path)
+    for h in hits:
+        ref = _resolve_supersedes_ref(store, h["number"])
+        if ref is not None:
+            h["supersedes_ref"] = ref
+
+
+def _resolve_supersedes_ref(store, number: int) -> dict | None:
+    """Resolve a surfaced decision's structural supersedes ref, or None.
+
+    Returns ``{"number": old_num, "title": old_title}`` when the decision at
+    ``number`` carries a ``supersedes`` ref that resolves to a readable,
+    parseable decision on disk; otherwise None. Only a structural ref produces a
+    payload: a decision with no ``supersedes`` resolves to None, so no relation
+    wording is ever emitted without one.
+
+    Fail-open per hit: a missing target, an unparseable file, or any OSError
+    degrades to None so the hit renders the shipped line. Never propagates, since
+    propagating would lose the whole advisory block through the caller's
+    outer try/except.
+    """
+    from nauro_core.operations.decision_lookup import (
+        find_decision_stem_by_num,
+        parse_decision_or_none,
+    )
+
+    try:
+        stem = find_decision_stem_by_num(store, number)
+        if stem is None:
+            return None
+        body = store.read_decision(stem)
+        if body is None:
+            return None
+        decision = parse_decision_or_none(body, f"{stem}.md")
+        if decision is None or not decision.supersedes:
+            return None
+        old_number = int(decision.supersedes)
+        old_stem = find_decision_stem_by_num(store, old_number)
+        if old_stem is None:
+            return None
+        old_body = store.read_decision(old_stem)
+        if old_body is None:
+            return None
+        old_decision = parse_decision_or_none(old_body, f"{old_stem}.md")
+        if old_decision is None:
+            return None
+        return {"number": old_number, "title": old_decision.title}
+    except Exception:
+        return None
+
+
+def _hit_meta(h: dict) -> str:
+    """Render a hit's ``status`` or ``status, date`` metadata parenthetical."""
+    meta = h["status"]
+    if h["date"]:
+        meta = f"{meta}, {h['date']}"
+    return meta
+
+
+def _trimmed_preview(h: dict) -> str:
+    """Return the hit's rationale preview trimmed to the ``PREVIEW_CHARS`` cap."""
+    preview = (h["preview"] or "").strip()
+    if len(preview) > PREVIEW_CHARS:
+        preview = preview[: PREVIEW_CHARS - 1].rstrip() + "…"
+    return preview
+
+
+def _shipped_line(h: dict) -> str:
+    """Render the default hit line: id, quoted title, meta, then trimmed preview."""
+    line = f'D{h["number"]:03d} "{h["title"]}" ({_hit_meta(h)})'
+    preview = _trimmed_preview(h)
+    if preview:
+        line = f"{line} — {preview}"
+    return line
+
+
+def _explicit_line(h: dict, ref: dict) -> str:
+    """Render a hit line that states the rejection of the superseded decision.
+
+    Extends the shipped line's relation clause: instead of the bare preview, the
+    line names the superseded decision and states that this decision rejected it
+    in favor of the surfaced one, then appends the same trimmed preview.
+    """
+    old_title = ref["title"]
+    new_title = h["title"]
+    clause = (
+        f'supersedes D{ref["number"]:03d} "{old_title}": '
+        f'this decision rejected "{old_title}" in favor of "{new_title}".'
+    )
+    line = f'D{h["number"]:03d} "{new_title}" ({_hit_meta(h)}) — {clause}'
+    preview = _trimmed_preview(h)
+    if preview:
+        line = f"{line} {preview}"
+    return line
+
+
 def _format_block(hits: list[dict]) -> str:
     """Render the advisory block: a preamble, one line per hit, an instruction.
 
-    Each hit line is ``D### "title" (status, date) — <preview>`` using the
-    rationale preview already on the hit, so no get_decision call is needed.
+    A hit whose enrichment resolved a structural ``supersedes`` ref renders the
+    explicit rejection line; every other hit renders the shipped line, byte for
+    byte as before, so no get_decision call is needed.
     """
     lines = [_PREAMBLE]
     for h in hits:
-        preview = (h["preview"] or "").strip()
-        if len(preview) > PREVIEW_CHARS:
-            preview = preview[: PREVIEW_CHARS - 1].rstrip() + "…"
-        meta = h["status"]
-        if h["date"]:
-            meta = f"{meta}, {h['date']}"
-        line = f'D{h["number"]:03d} "{h["title"]}" ({meta})'
-        if preview:
-            line = f"{line} — {preview}"
-        lines.append(line)
+        ref = h.get("supersedes_ref")
+        lines.append(_explicit_line(h, ref) if ref is not None else _shipped_line(h))
     lines.append(_INSTRUCTION)
     return "\n".join(lines)
 
