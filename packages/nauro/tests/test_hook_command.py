@@ -30,6 +30,8 @@ def _write_decision(
     title: str,
     rationale: str,
     status: str = "active",
+    supersedes: str | None = None,
+    superseded_by: str | None = None,
 ) -> None:
     """Write a valid v2 decision file into the store's decisions directory."""
     decision = Decision(
@@ -39,6 +41,8 @@ def _write_decision(
         num=num,
         title=title,
         rationale=rationale,
+        supersedes=supersedes,
+        superseded_by=superseded_by,
     )
     content = format_decision(decision)
     slug = title.lower().replace(" ", "-")[:40]
@@ -472,3 +476,210 @@ def test_format_block_shape():
     assert hook._PREAMBLE in block
     assert hook._INSTRUCTION in block
     assert 'D007 "adopt postgres" (active, 2026-05-01)' in block
+    # No enrichment payload on the hit: no rejection-relation wording is emitted.
+    assert "supersedes" not in block
+    assert "in favor of" not in block
+
+
+# ── explicit rejection wording for structural supersedes refs ──────────────────
+
+
+def test_supersedes_ref_renders_explicit_rejection(tmp_path: Path):
+    """A surfaced decision that supersedes another states the rejection explicitly."""
+    repo, store_path = _make_project(tmp_path)
+    _write_decision(
+        store_path,
+        num=60,
+        title="use dynamodb as the primary datastore",
+        rationale="dynamodb chosen for the primary datastore key-value access",
+        status="superseded",
+        superseded_by="61",
+    )
+    _write_decision(
+        store_path,
+        num=61,
+        title="adopt postgres as the primary datastore",
+        rationale="postgres chosen over dynamodb for relational integrity and SQL tooling",
+        supersedes="60",
+    )
+    result = _invoke(
+        {
+            "prompt": "should we adopt postgres as the primary datastore for the service",
+            "cwd": str(repo),
+            "session_id": "supersede",
+        }
+    )
+    assert result.exit_code == 0
+    assert result.output != ""
+    ctx = json.loads(result.output)["hookSpecificOutput"]["additionalContext"]
+    assert "D061" in ctx
+    assert 'supersedes D060 "use dynamodb as the primary datastore"' in ctx
+    assert (
+        'rejected "use dynamodb as the primary datastore" '
+        'in favor of "adopt postgres as the primary datastore"' in ctx
+    )
+
+
+def test_supersedes_nonexistent_target_fails_open(tmp_path: Path):
+    """A supersedes ref to a missing decision degrades to today's shipped line."""
+    repo, store_path = _make_project(tmp_path)
+    _write_decision(
+        store_path,
+        num=62,
+        title="adopt redis for the cache tier layer",
+        rationale="redis chosen for the cache tier layer",
+        supersedes="999",
+    )
+    result = _invoke(
+        {
+            "prompt": "should we adopt redis for the cache tier layer",
+            "cwd": str(repo),
+            "session_id": "missing-target",
+        }
+    )
+    assert result.exit_code == 0
+    assert result.output != ""
+    ctx = json.loads(result.output)["hookSpecificOutput"]["additionalContext"]
+    assert "D062" in ctx
+    # Fail-open: the shipped line renders, with no relation wording.
+    assert (
+        'D062 "adopt redis for the cache tier layer" (active, 2026-05-01) — '
+        "redis chosen for the cache tier layer" in ctx
+    )
+    assert "supersedes" not in ctx
+    assert "in favor of" not in ctx
+
+
+def test_supersedes_unparseable_target_fails_open(tmp_path: Path):
+    """A present-but-unparseable supersedes target degrades to the shipped line."""
+    repo, store_path = _make_project(tmp_path)
+    # A file that carries the 063 number prefix but does not parse as v2.
+    (store_path / "decisions" / "063-broken.md").write_text("not a valid decision file at all")
+    _write_decision(
+        store_path,
+        num=64,
+        title="adopt kafka for the event stream bus",
+        rationale="kafka chosen for the event stream bus",
+        supersedes="63",
+    )
+    result = _invoke(
+        {
+            "prompt": "should we adopt kafka for the event stream bus",
+            "cwd": str(repo),
+            "session_id": "unparseable-target",
+        }
+    )
+    assert result.exit_code == 0
+    assert result.output != ""
+    ctx = json.loads(result.output)["hookSpecificOutput"]["additionalContext"]
+    assert "D064" in ctx
+    assert "supersedes" not in ctx
+    assert "in favor of" not in ctx
+
+
+def test_three_injected_refs_block_bounded(tmp_path: Path):
+    """Three surfaced decisions carrying refs stay within the injection cap."""
+    repo, store_path = _make_project(tmp_path)
+    for old_num, new_num in ((65, 75), (66, 76), (67, 77)):
+        _write_decision(
+            store_path,
+            num=old_num,
+            title=f"legacy datastore choice number {old_num}",
+            rationale=f"legacy datastore option {old_num} retired",
+            status="superseded",
+            superseded_by=str(new_num),
+        )
+        _write_decision(
+            store_path,
+            num=new_num,
+            title=f"adopt postgres as the primary datastore variant {new_num}",
+            rationale=(
+                "postgres chosen as the primary datastore for relational integrity, "
+                "SQL tooling, mature operational story, and strong transactional "
+                "guarantees across the whole service surface area"
+            ),
+            supersedes=str(old_num),
+        )
+    result = _invoke(
+        {
+            "prompt": "adopt postgres as the primary datastore for the service",
+            "cwd": str(repo),
+            "session_id": "three-refs",
+        }
+    )
+    assert result.exit_code == 0
+    assert result.output != ""
+    ctx = json.loads(result.output)["hookSpecificOutput"]["additionalContext"]
+    d_lines = [ln for ln in ctx.split("\n") if len(ln) >= 4 and ln[0] == "D" and ln[1:4].isdigit()]
+    # The injection cap holds even when every hit carries a ref.
+    assert 1 <= len(d_lines) <= hook.MAX_INJECTED
+    # Every surfaced decision here supersedes another, so each line states it.
+    for ln in d_lines:
+        assert "in favor of" in ln
+
+
+# ── unit coverage of the rejection-wording renderer ────────────────────────────
+
+
+def test_format_block_line_byte_identical_without_ref():
+    """A hit without an enrichment payload renders exactly today's block."""
+    hit = {
+        "number": 7,
+        "title": "adopt postgres",
+        "score": 5.0,
+        "status": "active",
+        "date": "2026-05-01",
+        "preview": "postgres chosen for relational integrity",
+    }
+    expected = "\n".join(
+        [
+            hook._PREAMBLE,
+            'D007 "adopt postgres" (active, 2026-05-01) — postgres chosen for relational integrity',
+            hook._INSTRUCTION,
+        ]
+    )
+    assert hook._format_block([hit]) == expected
+
+
+def test_format_block_explicit_line_for_enriched_hit():
+    """An enriched hit renders the explicit rejection line verbatim."""
+    hit = {
+        "number": 61,
+        "title": "adopt postgres as the primary datastore",
+        "score": 5.0,
+        "status": "active",
+        "date": "2026-05-01",
+        "preview": "postgres chosen over dynamodb for relational integrity",
+        "supersedes_ref": {"number": 60, "title": "use dynamodb as the primary datastore"},
+    }
+    expected_line = (
+        'D061 "adopt postgres as the primary datastore" (active, 2026-05-01) — '
+        'supersedes D060 "use dynamodb as the primary datastore": this decision '
+        'rejected "use dynamodb as the primary datastore" in favor of '
+        '"adopt postgres as the primary datastore". '
+        "postgres chosen over dynamodb for relational integrity"
+    )
+    expected = "\n".join([hook._PREAMBLE, expected_line, hook._INSTRUCTION])
+    assert hook._format_block([hit]) == expected
+
+
+def test_explicit_line_snippet_respects_preview_cap():
+    """The rationale snippet on an explicit line reuses the shared 120-char cap."""
+    long_preview = "postgres chosen for relational integrity and operational maturity " * 10
+    hit = {
+        "number": 61,
+        "title": "adopt postgres",
+        "score": 5.0,
+        "status": "active",
+        "date": "2026-05-01",
+        "preview": long_preview,
+        "supersedes_ref": {"number": 60, "title": "use dynamodb"},
+    }
+    block = hook._format_block([hit])
+    line = next(ln for ln in block.split("\n") if ln.startswith("D061"))
+    assert 'supersedes D060 "use dynamodb"' in line
+    assert 'rejected "use dynamodb" in favor of "adopt postgres"' in line
+    marker = 'in favor of "adopt postgres".'
+    snippet = line[line.index(marker) + len(marker) :].strip()
+    assert snippet.endswith("…")
+    assert len(snippet) <= hook.PREVIEW_CHARS
