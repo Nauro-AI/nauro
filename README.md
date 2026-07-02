@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
 
 *A coding agent checks the project's prior decisions before it plans, then records the approved decision and makes the change. Captured in Codex.*
 
-**Status:** Stable (1.0). The nauro CLI, the stdio MCP tool contract, and the on-disk store format follow semantic versioning. Cloud sync is versioned and operated separately.
+**Status:** Stable (1.x). The nauro CLI, the stdio MCP tool contract, and the on-disk store format follow semantic versioning. Cloud sync is versioned and operated separately.
 
 More at [nauro.ai](https://nauro.ai).
 
@@ -53,7 +53,7 @@ The demo store holds thirteen example decisions. One of them ruled out WebSocket
       "rationale_preview": "Server-Sent Events (SSE) for pushing live task updates to the frontend. SSE uses standard HTTP, reconnects automatically on disconnect, and works through every proxy and load balancer..."
     }
   ],
-  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live updates\" (status active, decided 2026-03-15, BM25 6.6). Call get_decision on each related decision before proposing.",
+  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live updates\" (status active, decided 2026-03-15, BM25 6.6). Ranked by keyword overlap, not meaning — judge relevance from the decision body, not the rank. Call get_decision on each related decision before proposing.",
   "project": { "id": "01K...", "name": "demo-project" }
 }
 ```
@@ -152,7 +152,7 @@ Requires Codex 0.131.0 or newer. Enter the URL exactly as shown, with no trailin
 `nauro check-decision "<approach>"` runs `check_decision` from the shell. The write tools surface the same way:
 
 ```bash
-nauro propose-decision "Adopt Redis" "In-memory cache for hot read paths" \
+nauro propose-decision "In-memory cache for hot read paths" --title "Adopt Redis" \
     --files-affected src/cache.py --files-affected src/api.py \
     --rejected '[{"alternative": "Memcached", "reason": "Less feature-rich"}]'
 ```
