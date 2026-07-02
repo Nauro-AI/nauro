@@ -28,6 +28,8 @@ uv tool install nauro     # uv fetches its own Python — nothing else needed
 
 No `uv`? Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` (macOS/Linux) or the [PowerShell line](https://docs.astral.sh/uv/getting-started/installation/) on Windows. Already on Python 3.10+? `pipx install nauro` (or `pip install nauro`) works too.
 
+First run asks once about anonymous telemetry, defaulting to no; nothing is sent unless you opt in. `nauro telemetry status` shows the current setting, and `NAURO_TELEMETRY=0` disables both the telemetry and the prompt.
+
 ## Quickstart
 
 No account, no MCP wiring, no restart:
@@ -158,6 +160,16 @@ nauro propose-decision "In-memory cache for hot read paths" --title "Adopt Redis
 ```
 
 Repeat `--files-affected` for each entry. `--rejected` accepts inline JSON, `@file.json`, or `-` to read from stdin.
+
+## Uninstall
+
+```bash
+nauro adopt --remove   # from the repo root
+```
+
+`adopt --remove` is the inverse of `nauro adopt` for that repo: it removes the MCP, skill, subagent, and hook wiring across surfaces, strips the generated `AGENTS.md` (a hand-written `# Manual` section is preserved), deletes `.nauro/config.json`, and deregisters the repo, after one confirmation prompt (`--yes` skips it). When a project spans several repos, only the current repo is dropped and shared artifacts stay for the siblings.
+
+The decision store is never deleted by default; it stays on disk as plain markdown. Pass `--purge-store` to delete it too, allowed only on the project's last repo. `nauro setup <surface> --remove` un-wires a single surface instead, and `uv tool uninstall nauro` (or `pipx uninstall nauro`) removes the CLI itself.
 
 ## Packages
 
