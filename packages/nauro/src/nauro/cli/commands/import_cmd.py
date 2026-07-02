@@ -239,8 +239,11 @@ def _import_adrs(
             ``## Options Considered`` section, each carrying its verbatim body
             as the reason. No ``## Consequences`` scraping and no placeholder
             reason: an ADR that names no alternatives imports with no rejected
-            list. Defaults to False, which preserves the legacy
-            ``_extract_adr_rejected`` path byte-for-byte.
+            list. Defaults to False, which selects the legacy
+            ``_extract_adr_rejected`` path (unchanged in shape). Section
+            extraction is heading-level-aware per ``_extract_section``, so h3
+            ``### Rejected``/``### Consequences`` sections now reach the legacy
+            path where they were previously dropped.
 
     Returns:
         Dict with counts: imported, skipped.
@@ -491,24 +494,37 @@ def _extract_adr_confidence(content: str) -> str:
 
 
 def _extract_section(content: str, heading: str) -> str | None:
-    """Extract the body text of a ## heading section.
+    """Extract the body text of an h2 or h3 heading section, stripped.
 
-    Returns the text between the given ## heading and the next ## heading
-    (or end of file), stripped. Returns None if the section is not found
-    or is empty.
+    An h2 heading is preferred over h3: the heading is matched at level 2 first
+    (``## <heading>``) and level 3 (``### <heading>``) is tried only when no h2
+    of that name exists anywhere in the content, so an h2 section extracts
+    identically to the h2-only rule even when a same-named ``###`` sits earlier
+    in the content. The body runs up to the next heading at the matched level or
+    shallower: for an h2 match the boundary is the next h2, so nested ``###``
+    subsections stay in the body; for an h3 match the boundary is the next h2 or
+    h3. h1 is never a boundary and never a section heading (the level floor is
+    2); h4 and deeper never match as a heading and stay inside the body. Setext
+    headings are not supported. Returns None if the section is not found or is
+    empty.
     """
-    pattern = rf"^##\s+{re.escape(heading)}\s*$"
-    m = re.search(pattern, content, re.MULTILINE | re.IGNORECASE)
-    if not m:
-        return None
+    for level in (2, 3):
+        hashes = "#" * level
+        pattern = rf"^{hashes}\s+{re.escape(heading)}\s*$"
+        m = re.search(pattern, content, re.MULTILINE | re.IGNORECASE)
+        if not m:
+            continue
 
-    start = m.end()
-    # Find next ## heading or end of content
-    next_heading = re.search(r"^##\s+", content[start:], re.MULTILINE)
-    body = content[start : start + next_heading.start()] if next_heading else content[start:]
+        start = m.end()
+        # Boundary is the next heading at the matched level or shallower.
+        boundary = re.compile(rf"^#{{2,{level}}}\s+", re.MULTILINE)
+        next_heading = boundary.search(content[start:])
+        body = content[start : start + next_heading.start()] if next_heading else content[start:]
 
-    body = body.strip()
-    return body if body else None
+        body = body.strip()
+        return body if body else None
+
+    return None
 
 
 def _extract_list_items(text: str) -> list[str]:

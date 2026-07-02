@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.commands.import_cmd import (
     _extract_adr_alternatives_strict,
+    _extract_section,
     _import_adrs,
     _import_memory_bank,
     _import_progress,
@@ -583,6 +584,88 @@ def test_import_nygard_format(store: Path, nygard_directory: Path):
 
     # Nygard consequences with "rejected" keyword should be extracted
     assert "monolith" in micro_content
+
+
+@pytest.fixture
+def h3_adr_directory(tmp_path: Path) -> Path:
+    """Directory with an h3-heading ADR: h1 title, sections under ### headings."""
+    adr_dir = tmp_path / "h3_adrs"
+    adr_dir.mkdir()
+
+    (adr_dir / "001-use-structured-logging.md").write_text(
+        "# Use structured logging\n\n"
+        "### Status\n\n"
+        "Accepted\n\n"
+        "### Context\n\n"
+        "Plain-text logs are hard to query in aggregation tools.\n\n"
+        "### Decision\n\n"
+        "Emit logs as JSON with a stable field schema.\n\n"
+        "### Consequences\n\n"
+        "- Logs are machine-parseable\n"
+        "- Local reading needs a pretty-printer\n"
+    )
+    return adr_dir
+
+
+def test_import_h3_heading_adr(store: Path, h3_adr_directory: Path):
+    """h3-heading ADRs (h1 title + ### sections) capture rationale and status.
+
+    Before the fix ### sections were not matched, so these imported title-only
+    with rationale None and default (medium) confidence.
+    """
+    counts = _import_adrs(h3_adr_directory, store)
+
+    assert counts["imported"] == 1
+    assert counts["skipped"] == 0
+
+    decisions = sorted((store / "decisions").glob("*.md"))
+    assert len(decisions) == 2  # 001 scaffold + 1 imported
+
+    content = decisions[1].read_text()
+    assert "Use structured logging" in content
+    # Rationale captures both the ### Context and ### Decision bodies.
+    assert "Plain-text logs are hard to query in aggregation tools." in content
+    assert "Emit logs as JSON with a stable field schema." in content
+    # ### Status "Accepted" maps to high confidence.
+    assert "confidence: high" in content
+
+
+def test_extract_section_mixed_h2_context_h3_decision():
+    """A mixed-level ADR extracts an h3 subsection heading as its own section.
+
+    The h3 heading is independently extractable (was None before the fix),
+    while an h3 nested under an h2 stays inside the h2 body (unchanged
+    boundary at level 2).
+    """
+    content = (
+        "# Mixed heading levels\n\n"
+        "## Context\n\n"
+        "The context section text.\n\n"
+        "### Decision\n\n"
+        "The decision section text.\n"
+    )
+    assert _extract_section(content, "Decision") == "The decision section text."
+
+    context = _extract_section(content, "Context")
+    assert context is not None
+    assert context.startswith("The context section text.")
+    assert "### Decision" in context
+
+
+def test_extract_section_prefers_h2_over_earlier_h3():
+    """When a heading name exists at both h3 and h2, the h2 body wins even if
+    the h3 appears first, so h2 extraction is byte-identical to the h2-only rule.
+    """
+    content = (
+        "# Title\n\n"
+        "## Decision\n\n"
+        "Use the daemon.\n\n"
+        "### Context\n\n"
+        "A nested detail that must not shadow the top-level section.\n\n"
+        "## Context\n\n"
+        "The real top-level context body.\n"
+    )
+    assert _extract_section(content, "Context") == "The real top-level context body."
 
 
 def test_import_skips_non_adr_markdown(store: Path, tmp_path: Path):
