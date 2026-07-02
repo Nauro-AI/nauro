@@ -115,6 +115,15 @@ Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bund
 
 Chat surfaces (Claude.ai, Perplexity): run `nauro adopt` from a terminal first, then point the chat agent at [`docs/adopt-prompt.md`](docs/adopt-prompt.md).
 
+**Already keeping ADRs or a Memory Bank:**
+
+```bash
+nauro import --adr docs/adr          # NNN-title.md decision records
+nauro import --memory-bank .context  # Cline / Roo Code Memory Bank
+```
+
+`nauro import` migrates the existing records into the current repo's project store (run `nauro init` or `nauro adopt` first) and captures a snapshot. Memory-Bank `decisionLog.md` entries need `## Decision: <title>` headings to import.
+
 ## Cross-surface sync (optional)
 
 The steps above work fully on your machine with no account. To sync a project to the cloud and reach it from surfaces without a local copy (claude.ai web) or from another machine:
