@@ -30,7 +30,16 @@ No `uv`? Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` (macO
 
 First run asks once about anonymous telemetry, defaulting to no; nothing is sent unless you opt in. `nauro telemetry status` shows the current setting, and `NAURO_TELEMETRY=0` disables both the telemetry and the prompt.
 
-## Quickstart
+## Use it on your repo
+
+```bash
+cd your-repo
+nauro adopt   # registers the project, wires MCP for Claude Code, Cursor, and Codex
+```
+
+Restart your agent and invoke `/nauro-adopt`: the installed skill seeds the store from your README, manifests, ADRs, and git history, and asks you for the reasoning it cannot cite. `nauro adopt` writes `.nauro/config.json` into the repo (commit it), and `nauro adopt --remove` undoes everything it wired. Just looking first? The demo below runs with no wiring and no restart.
+
+## Try it in 30 seconds
 
 No account, no MCP wiring, no restart:
 
@@ -60,9 +69,9 @@ The demo store holds thirteen example decisions. One of them ruled out WebSocket
 }
 ```
 
-Output abbreviated to the top match; the live call returns all five related decisions, ranked by score. The same result reaches your agent through the MCP `check_decision` tool, so it sees the prior decision in the flow rather than after the fact.
+Output abbreviated to the top match; the live call returns all five related decisions, ranked by score. The same result reaches your agent through the MCP `check_decision` tool, so it sees the prior decision in the flow rather than after the fact. To run the same check against your own decisions, jump back to [Use it on your repo](#use-it-on-your-repo).
 
-`nauro graph` renders the decision history to one self-contained HTML file and opens it. The file has four views: Graph (a node-link map of the whole store on a deterministic layout, the default), Lineage (one drawn supersession DAG per thread, with consolidations as the prominent fan-ins), Timeline (decisions on a true date axis), and Browse (every decision grouped by category, with superseded ones dimmed). By default the file embeds the full decision store — titles, metadata, open-question summaries, and each decision's full body, rendered as structured detail in the side panel so the rationale reads at a glance — so it lands in the store directory rather than the repo; pass `--output` to write it elsewhere. Pass `--no-include-bodies` for a redacted artifact (titles and metadata only) that is safer to share more widely.
+`nauro graph` renders the decision history to one self-contained HTML file and opens it: a node-link map of the whole store, a lineage view per supersession thread, a timeline, and a category browser with superseded decisions dimmed. The file embeds the decision bodies by default, so it lands in the store directory rather than the repo; the flags for writing it elsewhere or redacting bodies are in the [CLI reference](https://nauro.ai/docs/cli).
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/graph-dark.png"><img src="docs/images/graph-light.png" alt="The nauro graph default view of a project store: decisions as nodes colored by category across five clusters, with the largest node linked to the seven earlier decisions it retired, plus smaller supersession fans and two short supersession chains at the edges." width="900"></picture>
 
@@ -82,7 +91,18 @@ Nauro pays off when an agent needs project judgment before acting: architecture 
 
 The limits are worth knowing. It surfaces only what has been recorded as a decision. It adds an MCP round-trip to the agent's flow. Retrieval is keyword-based, which is fast, offline, and auditable, and can miss a decision phrased in different words than the proposal; an optional embeddings index is available for closer synonym matching.
 
-## Adopt Nauro in your project
+## Adoption paths and options
+
+`nauro adopt` above covers the common case: one existing repo. The variants:
+
+**Already keeping ADRs or a Memory Bank:**
+
+```bash
+nauro import --adr docs/adr          # NNN-title.md decision records
+nauro import --memory-bank .context  # Cline / Roo Code Memory Bank
+```
+
+`nauro import` migrates the existing records into the current repo's project store (run `nauro init` or `nauro adopt` first) and captures a snapshot. Memory-Bank `decisionLog.md` entries need `## Decision: <title>` headings to import.
 
 **New project:**
 
@@ -102,31 +122,14 @@ nauro init my-project --add-repo .
 
 Re-running plain `nauro init my-project` in a second repo creates a *separate* project that shares no decisions — use `--add-repo` to link them instead.
 
-**Existing repo with docs to seed from:**
+**Chat surfaces** (Claude.ai, Perplexity): run `nauro adopt` from a terminal first, then point the chat agent at [`docs/adopt-prompt.md`](docs/adopt-prompt.md).
 
-```bash
-nauro adopt
-```
-
-`nauro adopt` registers the project, wires MCP across Claude Code, Cursor, and Codex, and installs a `/nauro-adopt` skill. Restart your agent and invoke `/nauro-adopt`.
-
-Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bundled Claude Code subagents into `~/.claude/agents/`. The typical workflow:
+**Optional: bundled subagents.** Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bundled Claude Code subagents into `~/.claude/agents/`. They are off by default; installed, a typical chain looks like:
 
 - `@nauro-planner` before non-trivial work. Drafts a plan and classifies doctrine risk (GREEN/AMBER/RED) against your decision log.
 - `@nauro-executor` after a plan is agreed. Implements it, runs tests, opens a PR.
 - `@nauro-reviewer` before merging. Audits the diff for real bugs and for missing decision references.
 - `@nauro-tech-lead` to set or correct direction. Reads the decision log, audits PRs against doctrine, files decisions when direction is established.
-
-Chat surfaces (Claude.ai, Perplexity): run `nauro adopt` from a terminal first, then point the chat agent at [`docs/adopt-prompt.md`](docs/adopt-prompt.md).
-
-**Already keeping ADRs or a Memory Bank:**
-
-```bash
-nauro import --adr docs/adr          # NNN-title.md decision records
-nauro import --memory-bank .context  # Cline / Roo Code Memory Bank
-```
-
-`nauro import` migrates the existing records into the current repo's project store (run `nauro init` or `nauro adopt` first) and captures a snapshot. Memory-Bank `decisionLog.md` entries need `## Decision: <title>` headings to import.
 
 ## Cross-surface sync (optional)
 
