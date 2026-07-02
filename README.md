@@ -68,9 +68,13 @@ Output abbreviated to the top match; the live call returns all five related deci
 
 *A project store rendered by nauro graph: supersession threads converge on the decisions that replaced them, and standalone decisions cluster by category.*
 
-## Why not ADRs, grep, or CLAUDE.md?
+## Why not ADRs, grep, CLAUDE.md, or a memory product?
 
-A decision log in your repo is a good record. The gap is on the read side: a file is read when a person opens it, and a fresh agent session starts with no knowledge that it exists. Nauro closes that gap. The relevant decision reaches your agent automatically, through MCP, at the moment it proposes a change. The store lives outside any single agent's memory, so the same project record is available across tools and sessions instead of being trapped in one prompt file, repo note, or chat history.
+A decision log in your repo is a good record. The gap is on the read side: a file is read when a person opens it, and a fresh agent session starts with no knowledge that it exists. Nauro closes that gap twice over: the relevant decision reaches your agent through MCP at the moment it proposes a change, and `nauro sync` regenerates a committable `AGENTS.md` summary in every associated repo, so clones and tools without MCP wiring still start from the current record.
+
+Against a coding tool's built-in memory (Claude Code memory, Cursor memories): those are scoped to one tool and one user. Nauro's record belongs to the project. The same store answers in Claude, Cursor, Codex, and any MCP client, across every repo you associate with it.
+
+Against agent-memory products: most extract and store memories from conversations automatically. Nauro records decisions instead: an entry is a reviewed choice with its rationale and the alternatives you rejected, written only on an explicit call after approval in the conversation, retrieved by deterministic keyword search you can audit, and superseded rather than silently rewritten. It is plain markdown in a folder you own; remove Nauro and the record stays readable.
 
 ## When Nauro helps, and when it doesn't
 
