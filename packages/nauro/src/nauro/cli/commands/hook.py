@@ -113,8 +113,8 @@ def _run_user_prompt_submit() -> None:
     if not fresh:
         return
 
-    injected = fresh[:MAX_INJECTED]
-    _enrich_supersedes(store_path, injected)
+    _enrich_supersedes(store_path, fresh)
+    injected = _select_injected(fresh)
     block = _format_block(injected)
     _record_seen(session_id, [r["number"] for r in injected])
 
@@ -305,6 +305,27 @@ def _resolve_supersedes_ref(store, number: int) -> dict | None:
         return {"number": old_number, "title": old_decision.title}
     except Exception:
         return None
+
+
+def _select_injected(candidates: list[dict]) -> list[dict]:
+    """Select the injected hits, guaranteeing a slot for a superseding decision.
+
+    Starts from the top ``MAX_INJECTED`` candidates by relevance. When none of
+    them supersedes an older decision but a lower-ranked candidate does, the
+    first such superseding hit takes the last slot, keeping the two strongest
+    top hits. This guarantees the block always carries the top floor-clearing
+    decision that supersedes another when one is present, at the cost of at most
+    one relevance slot. Detection is structural: a hit carries a truthy
+    ``supersedes_ref`` payload only when enrichment resolved a real supersedes
+    relation on disk, so no relation is ever promoted without one.
+    """
+    injected = candidates[:MAX_INJECTED]
+    if any(h.get("supersedes_ref") is not None for h in injected):
+        return injected
+    for h in candidates[MAX_INJECTED:]:
+        if h.get("supersedes_ref") is not None:
+            return injected[: MAX_INJECTED - 1] + [h]
+    return injected
 
 
 def _hit_meta(h: dict) -> str:

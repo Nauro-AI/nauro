@@ -683,3 +683,165 @@ def test_explicit_line_snippet_respects_preview_cap():
     snippet = line[line.index(marker) + len(marker) :].strip()
     assert snippet.endswith("…")
     assert len(snippet) <= hook.PREVIEW_CHARS
+
+
+# ── guaranteed slot for the top superseding decision: _select_injected ─────────
+
+
+def _cand(number: int, *, ref: bool = False) -> dict:
+    """Build a minimal candidate dict for _select_injected unit coverage."""
+    hit: dict = {"number": number}
+    if ref:
+        hit["supersedes_ref"] = {"number": number - 1, "title": f"old {number - 1}"}
+    return hit
+
+
+def test_select_injected_ref_in_top3_unchanged():
+    """A superseding hit already inside the cap leaves the top-3 untouched."""
+    candidates = [_cand(1, ref=True), _cand(2), _cand(3), _cand(4, ref=True)]
+    assert hook._select_injected(candidates) == candidates[:3]
+
+
+def test_select_injected_no_ref_anywhere_unchanged():
+    """With no superseding hit at all, the plain top-3 is returned."""
+    candidates = [_cand(1), _cand(2), _cand(3), _cand(4), _cand(5)]
+    assert hook._select_injected(candidates) == candidates[:3]
+
+
+def test_select_injected_swaps_ref_from_index_three():
+    """A superseding hit below the cap takes the last slot, keeping ranks 1-2."""
+    candidates = [_cand(1), _cand(2), _cand(3), _cand(4, ref=True)]
+    result = hook._select_injected(candidates)
+    assert result == [candidates[0], candidates[1], candidates[3]]
+
+
+def test_select_injected_only_first_ref_below_cap_swaps():
+    """Only the first superseding hit below the cap is promoted; later ones are not."""
+    candidates = [_cand(1), _cand(2), _cand(3), _cand(4, ref=True), _cand(5, ref=True)]
+    result = hook._select_injected(candidates)
+    assert result == [candidates[0], candidates[1], candidates[3]]
+    assert candidates[4] not in result
+
+
+def test_select_injected_fewer_than_cap_no_swap():
+    """Fewer candidates than the cap returns them all, with no swap and no crash."""
+    candidates = [_cand(1), _cand(2)]
+    assert hook._select_injected(candidates) == candidates
+
+
+# ── guaranteed slot: integration through the invocation path ───────────────────
+
+
+def _fixed_hit(number: int, title: str) -> dict:
+    """Build a full kernel-shaped hit dict that clears any corpus-scaled floor."""
+    return {
+        "number": number,
+        "title": title,
+        "score": 20.0,
+        "status": "active",
+        "date": "2026-05-01",
+        "preview": f"rationale preview for {title}",
+    }
+
+
+def _patch_fixed_check(monkeypatch, hits: list[dict]) -> None:
+    """Patch hook._check to return a fixed ordered hit list, bypassing the kernel."""
+    monkeypatch.setattr(hook, "_check", lambda store_path, prompt: [dict(h) for h in hits])
+
+
+def _seed_reversal_at_index_three(tmp_path: Path, monkeypatch) -> Path:
+    """Seed a real reversal pair and a 5-hit order with the reversal at index 3.
+
+    Ranks 1-3 are non-superseding distractors; the superseding decision (D201,
+    which supersedes D200) sits at index 3, below the cap. Returns the repo dir.
+    """
+    repo, store_path = _make_project(tmp_path)
+    _write_decision(
+        store_path,
+        num=200,
+        title="use dynamodb as the primary datastore",
+        rationale="dynamodb chosen for the primary datastore key-value access",
+        status="superseded",
+        superseded_by="201",
+    )
+    _write_decision(
+        store_path,
+        num=201,
+        title="adopt postgres as the primary datastore",
+        rationale="postgres chosen over dynamodb for relational integrity and SQL tooling",
+        supersedes="200",
+    )
+    hits = [
+        _fixed_hit(100, "first unrelated choice"),
+        _fixed_hit(101, "second unrelated choice"),
+        _fixed_hit(102, "third unrelated choice"),
+        _fixed_hit(201, "adopt postgres as the primary datastore"),
+        _fixed_hit(103, "fifth unrelated choice"),
+    ]
+    _patch_fixed_check(monkeypatch, hits)
+    return repo
+
+
+def test_guaranteed_slot_swaps_in_reversal(tmp_path: Path, monkeypatch):
+    """A reversal below the cap is promoted into the block with explicit wording."""
+    repo = _seed_reversal_at_index_three(tmp_path, monkeypatch)
+    result = _invoke(
+        {"prompt": "adopt a primary datastore", "cwd": str(repo), "session_id": "swap-a"}
+    )
+    assert result.exit_code == 0
+    assert result.output != ""
+    ctx = json.loads(result.output)["hookSpecificOutput"]["additionalContext"]
+    # The reversal is in the block, stated explicitly.
+    assert "D201" in ctx
+    assert 'supersedes D200 "use dynamodb as the primary datastore"' in ctx
+    assert 'in favor of "adopt postgres as the primary datastore"' in ctx
+    # Ranks 1-2 are retained; the weakest top hit is displaced.
+    assert "D100" in ctx
+    assert "D101" in ctx
+    assert "D102" not in ctx
+
+
+def test_guaranteed_slot_no_swap_on_unparseable_target(tmp_path: Path, monkeypatch):
+    """A reversal whose target does not parse yields no ref, so no swap happens."""
+    repo, store_path = _make_project(tmp_path)
+    # A file that carries the 063 number prefix but does not parse as v2.
+    (store_path / "decisions" / "063-broken.md").write_text("not a valid decision file at all")
+    _write_decision(
+        store_path,
+        num=64,
+        title="adopt kafka for the event stream bus",
+        rationale="kafka chosen for the event stream bus",
+        supersedes="63",
+    )
+    hits = [
+        _fixed_hit(100, "first unrelated choice"),
+        _fixed_hit(101, "second unrelated choice"),
+        _fixed_hit(102, "third unrelated choice"),
+        _fixed_hit(64, "adopt kafka for the event stream bus"),
+        _fixed_hit(103, "fifth unrelated choice"),
+    ]
+    _patch_fixed_check(monkeypatch, hits)
+    result = _invoke({"prompt": "adopt an event bus", "cwd": str(repo), "session_id": "swap-d"})
+    assert result.exit_code == 0
+    assert result.output != ""
+    ctx = json.loads(result.output)["hookSpecificOutput"]["additionalContext"]
+    # No ref resolves, so the plain top-3 renders and nothing is promoted.
+    assert "D100" in ctx
+    assert "D101" in ctx
+    assert "D102" in ctx
+    assert "D064" not in ctx
+    assert "in favor of" not in ctx
+
+
+def test_guaranteed_slot_records_swapped_in_number(tmp_path: Path, monkeypatch):
+    """Session-seen state records the promoted decision, not the displaced one."""
+    repo = _seed_reversal_at_index_three(tmp_path, monkeypatch)
+    session_id = "swap-e"
+    result = _invoke(
+        {"prompt": "adopt a primary datastore", "cwd": str(repo), "session_id": session_id}
+    )
+    assert result.exit_code == 0
+    state_file = tmp_path / "hook-state" / f"{session_id}.json"
+    seen = json.loads(state_file.read_text())["seen"]
+    assert 201 in seen
+    assert 102 not in seen
