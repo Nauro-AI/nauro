@@ -330,3 +330,56 @@ def test_kernel_does_not_import_snapshot_discovery() -> None:
         f"kernel imports snapshot discovery primitives: {forbidden & imported}; "
         "those live in the adapter, not the kernel."
     )
+
+
+# ── Rendered text keeps content-leading markers (removeprefix, not lstrip) ──
+
+
+def test_completed_item_keeps_leading_dashes() -> None:
+    # lstrip("- ") stripped any leading dash/space run, so an item whose
+    # content itself starts with a dash (a CLI flag, a negative number) lost
+    # it: "- --dry-run flag added" rendered as "dry-run flag added".
+    snap_a = _snapshot(
+        1,
+        "2026-05-01T10:00:00+00:00",
+        {"state_current.md": "# Current State\n\n- Set up CI\n"},
+    )
+    snap_b = _snapshot(
+        2,
+        "2026-05-02T10:00:00+00:00",
+        {"state_current.md": "# Current State\n\n- Set up CI\n- --dry-run flag added\n"},
+    )
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b)
+    assert result.diff == (
+        "Changes from v001 → v002\n"
+        "  (2026-05-01T10:00:00 → 2026-05-02T10:00:00)\n"
+        "\n"
+        "  ~ state_current.md\n"
+        "    + Completed: --dry-run flag added"
+    )
+
+
+def test_new_decision_title_keeps_leading_hash() -> None:
+    # Same over-strip class on the new-file summary: lstrip("# ") turned a
+    # decision titled "#1 priority hotfix" into "1 priority hotfix".
+    snap_a = _snapshot(
+        1,
+        "2026-05-01T10:00:00+00:00",
+        {"stack.md": "# Stack\n- Python 3.11\n"},
+    )
+    snap_b = _snapshot(
+        2,
+        "2026-05-02T10:00:00+00:00",
+        {
+            "stack.md": "# Stack\n- Python 3.11\n",
+            "decisions/002-hotfix.md": "# #1 priority hotfix\n\nReasoned.\n",
+        },
+    )
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b)
+    assert result.diff == (
+        "Changes from v001 → v002\n"
+        "  (2026-05-01T10:00:00 → 2026-05-02T10:00:00)\n"
+        "\n"
+        "  + New file: decisions/002-hotfix.md\n"
+        "    #1 priority hotfix"
+    )
