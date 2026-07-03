@@ -38,28 +38,34 @@ def _config_file() -> Path:
 
 
 @contextmanager
-def _config_lock():
+def _config_lock(timeout: float = -1):
     """Exclusive file lock on config.json for atomic read-modify-write.
 
     Mirrors ``registry._registry_lock``. The lock is NOT re-entrant — callers
     must never open a ``config_transaction`` inside another, or it deadlocks.
+    ``timeout`` is forwarded to ``FileLock``: the default of -1 waits forever
+    (every existing caller), while a non-negative bound raises
+    ``filelock.Timeout`` on expiry so a stuck holder cannot block a caller
+    indefinitely.
     """
     lock_path = _config_file().with_suffix(".lock")
     _ensure_nauro_home()  # lock_path.parent is the home dir; create it owner-only
-    with FileLock(str(lock_path)):
+    with FileLock(str(lock_path), timeout=timeout):
         yield
 
 
 @contextmanager
-def config_transaction():
+def config_transaction(timeout: float = -1):
     """Lock, reload fresh, yield the working dict, then persist on clean exit.
 
     Binding the lock to a reload-and-save means a holder can never operate on a
     stale snapshot. A body that raises skips ``save_config`` entirely, leaving
     the file untouched. The lock is not re-entrant: a body must not open a
-    second ``config_transaction`` (sequence the writes instead).
+    second ``config_transaction`` (sequence the writes instead). ``timeout`` is
+    forwarded to the lock: the default waits forever, a bound raises
+    ``filelock.Timeout`` on expiry.
     """
-    with _config_lock():
+    with _config_lock(timeout=timeout):
         data = load_config()
         yield data
         save_config(data)
