@@ -22,11 +22,12 @@ from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import filelock
 import httpx
 import typer
 from nauro_core import sanitize_sub
 
-from nauro.store.config import config_transaction, load_config
+from nauro.store.config import _config_lock, config_transaction, load_config
 
 logger = logging.getLogger("nauro.auth")
 
@@ -155,26 +156,32 @@ def load_access_token() -> str | None:
     return str(token) if token else None
 
 
-def refresh_access_token() -> str:
-    """Exchange the stored refresh token for a fresh access token.
+# Serializes token refresh within a single process: N concurrent 401 callers
+# collapse to one /oauth/token exchange while the losers take the zero-network
+# fast path. Bounded acquires keep a stuck refresher from blocking others
+# forever; on timeout the refresh fails loudly rather than exchanging unguarded,
+# which under rotating tokens could trip Auth0 reuse detection and log every
+# surface out.
+_REFRESH_LOCK = threading.Lock()
+_REFRESH_LOCK_TIMEOUT_SECONDS = 30.0
+# Bound for the config filelock acquires on the refresh path only. Every other
+# config caller keeps the infinite default.
+_REFRESH_CONFIG_LOCK_TIMEOUT_SECONDS = 30.0
 
-    Persists the new access token (and the new refresh token, if Auth0 rotates
-    it). Stored tokens are left intact on failure so the user can retry without
-    losing state.
+_REFRESH_TIMEOUT_MESSAGE = (
+    "Timed out waiting to refresh credentials. Another refresh may be stuck; "
+    "run 'nauro auth login' to re-authenticate."
+)
+
+
+def _exchange_refresh_token(domain: str, client_id: str, refresh_token: str) -> tuple[str, object]:
+    """Run the /oauth/token refresh exchange.
+
+    Returns ``(new_access_token, rotated_refresh)`` where ``rotated_refresh`` is
+    whatever Auth0 returned under ``refresh_token`` (a string when the client
+    rotates, otherwise absent); the caller decides whether to persist it. Every
+    failure mode raises ``AuthRefreshError``.
     """
-    config = load_config()
-    auth = config.get("auth") or {}
-    if not isinstance(auth, dict):
-        auth = {}
-    refresh_token = auth.get("refresh_token")
-    if not refresh_token:
-        raise AuthRefreshError("No refresh token stored. Run 'nauro auth login' to authenticate.")
-
-    try:
-        domain, client_id, _api_url, _audience = _resolve_auth_config(os.environ, config)
-    except PartialAuthConfigError as exc:
-        raise AuthRefreshError(str(exc)) from exc
-
     try:
         response = _post_with_429_retry(
             lambda: httpx.post(
@@ -209,22 +216,94 @@ def refresh_access_token() -> str:
     if not isinstance(new_access_token, str) or not new_access_token:
         raise AuthRefreshError("Auth0 refresh response did not include an access_token.")
 
-    rotated_refresh = body.get("refresh_token")
+    return new_access_token, body.get("refresh_token")
 
-    # The transaction is entered only after a successful exchange, so a failed
-    # refresh never reaches a save and stored tokens stay intact. The auth
-    # section is reloaded fresh under the lock so a concurrent login isn't
-    # clobbered — only the token fields are updated.
-    with config_transaction() as config:
-        auth = config.get("auth")
-        if not isinstance(auth, dict):
-            auth = {}
-        auth["access_token"] = new_access_token
-        if isinstance(rotated_refresh, str) and rotated_refresh:
-            auth["refresh_token"] = rotated_refresh
-        config["auth"] = auth
 
-    return new_access_token
+def refresh_access_token(stale_access_token: str | None = None) -> str:
+    """Exchange the stored refresh token for a fresh access token.
+
+    Single-flighted within the process by a module-level lock: one caller runs
+    the /oauth/token exchange while concurrent callers wait and then take a
+    zero-network fast path. Persists the new access token (and the new refresh
+    token, if Auth0 rotates it). Stored tokens are left intact on failure so the
+    user can retry without losing state.
+
+    ``stale_access_token`` is the token that just received a 401. When another
+    caller has already refreshed, the stored token now differs from it and the
+    fast path returns that stored token with no network call. Direct callers
+    that pass ``None`` always run the exchange.
+    """
+    if not _REFRESH_LOCK.acquire(timeout=_REFRESH_LOCK_TIMEOUT_SECONDS):
+        raise AuthRefreshError(_REFRESH_TIMEOUT_MESSAGE)
+    try:
+        # ELECTION: read-only re-validate under a bounded config filelock. If a
+        # concurrent refresher already committed, the stored access token now
+        # differs from the one that got the 401, so return it with zero network.
+        # Otherwise capture the refresh token and release the lock before any
+        # network call.
+        try:
+            with _config_lock(timeout=_REFRESH_CONFIG_LOCK_TIMEOUT_SECONDS):
+                config = load_config()
+                auth = config.get("auth")
+                if not isinstance(auth, dict):
+                    auth = {}
+                stored_access = auth.get("access_token")
+                if (
+                    stale_access_token is not None
+                    and isinstance(stored_access, str)
+                    and stored_access
+                    and stored_access != stale_access_token
+                ):
+                    return stored_access
+                refresh_token = auth.get("refresh_token")
+                if not refresh_token:
+                    raise AuthRefreshError(
+                        "No refresh token stored. Run 'nauro auth login' to authenticate."
+                    )
+        except filelock.Timeout as exc:
+            raise AuthRefreshError(_REFRESH_TIMEOUT_MESSAGE) from exc
+
+        try:
+            domain, client_id, _api_url, _audience = _resolve_auth_config(os.environ, config)
+        except PartialAuthConfigError as exc:
+            raise AuthRefreshError(str(exc)) from exc
+
+        # EXCHANGE outside the config filelock (the threading lock still
+        # serializes us). Holding the filelock across the network call would
+        # block every unrelated config writer for the whole retry tail.
+        new_access_token, rotated_refresh = _exchange_refresh_token(
+            domain, client_id, refresh_token
+        )
+
+        # COMMIT: re-validate under a bounded transaction. If the stored refresh
+        # token no longer matches the one we exchanged, a concurrent
+        # login/logout/refresh intervened; defer to the stored state rather than
+        # clobber it. A fresh stored access token is returned (consistent with
+        # the election fast path); if the auth section was cleared by a logout,
+        # the refresh fails loudly rather than resurrecting the just-minted token.
+        try:
+            with config_transaction(timeout=_REFRESH_CONFIG_LOCK_TIMEOUT_SECONDS) as config:
+                auth = config.get("auth")
+                if not isinstance(auth, dict):
+                    auth = {}
+                if auth.get("refresh_token") != refresh_token:
+                    stored_access = auth.get("access_token")
+                    if isinstance(stored_access, str) and stored_access:
+                        return stored_access
+                    raise AuthRefreshError(
+                        "Authentication was cleared during refresh. "
+                        "Run 'nauro auth login' to authenticate."
+                    )
+                auth["access_token"] = new_access_token
+                if isinstance(rotated_refresh, str) and rotated_refresh:
+                    auth["refresh_token"] = rotated_refresh
+                config["auth"] = auth
+        except filelock.Timeout as exc:
+            raise AuthRefreshError(_REFRESH_TIMEOUT_MESSAGE) from exc
+
+        return new_access_token
+    finally:
+        _REFRESH_LOCK.release()
 
 
 def with_token_refresh(call: Callable[[str], httpx.Response]) -> httpx.Response:
@@ -243,7 +322,7 @@ def with_token_refresh(call: Callable[[str], httpx.Response]) -> httpx.Response:
     if response.status_code != 401:
         return response
 
-    new_token = refresh_access_token()
+    new_token = refresh_access_token(stale_access_token=token)
     return call(new_token)
 
 

@@ -12,11 +12,13 @@ behaviors that get repeated through the suite:
 
 from __future__ import annotations
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
+import nauro.cli.commands.auth as auth_mod
 from nauro.cli.commands.auth import (
     AuthRefreshError,
     refresh_access_token,
@@ -227,6 +229,124 @@ class TestRefreshRateLimitBackoff:
         assert new_token == "access_new"
         assert post.call_count == 2
         sleep.assert_called_once_with(1.0)
+
+
+# --- refresh_access_token single-flight ---
+
+
+class TestRefreshSingleFlight:
+    def test_barrier_race_collapses_to_one_exchange(self):
+        # N threads released together all present the same stale token. The
+        # in-process lock elects one exchange; the rest take the fast path on
+        # the freshly stored access token. Exactly one POST, all get the token.
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        n = 8
+        barrier = threading.Barrier(n)
+        results: list[str] = []
+        errors: list[BaseException] = []
+        collect = threading.Lock()
+
+        post = MagicMock(return_value=_mock_post(200, {"access_token": "access_new"}))
+
+        def worker() -> None:
+            barrier.wait()
+            try:
+                token = refresh_access_token(stale_access_token="access_orig")
+            except BaseException as exc:  # noqa: BLE001 - re-raised via assert below
+                with collect:
+                    errors.append(exc)
+                return
+            with collect:
+                results.append(token)
+
+        with patch("nauro.cli.commands.auth.httpx.post", post):
+            threads = [threading.Thread(target=worker) for _ in range(n)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+        assert errors == []
+        assert post.call_count == 1
+        assert results == ["access_new"] * n
+        assert load_config()["auth"]["access_token"] == "access_new"
+
+    def test_loser_fast_path_returns_stored_token_without_network(self):
+        # The stored access token already differs from the stale one, so a
+        # concurrent refresher must have committed first: return it, no network.
+        _seed_auth(refresh_token="refresh_orig", access_token="access_fresh")
+
+        post = MagicMock()
+        with patch("nauro.cli.commands.auth.httpx.post", post):
+            token = refresh_access_token(stale_access_token="access_stale")
+
+        assert token == "access_fresh"
+        post.assert_not_called()
+
+    def test_lock_timeout_raises_without_unguarded_exchange(self):
+        # With the in-process lock already held, a bounded acquire must fail
+        # loudly rather than hang or exchange unguarded.
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        post = MagicMock()
+        auth_mod._REFRESH_LOCK.acquire()
+        try:
+            with (
+                patch("nauro.cli.commands.auth.httpx.post", post),
+                patch.object(auth_mod, "_REFRESH_LOCK_TIMEOUT_SECONDS", 0.05),
+                pytest.raises(AuthRefreshError),
+            ):
+                refresh_access_token(stale_access_token="access_orig")
+        finally:
+            auth_mod._REFRESH_LOCK.release()
+
+        post.assert_not_called()
+
+    def test_commit_defers_when_refresh_token_changed_mid_exchange(self):
+        # A concurrent login rotates the stored tokens while our exchange is in
+        # flight. The commit re-validate must defer to that state, not clobber
+        # it with the token we minted against the now-superseded refresh token.
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        def concurrent_then_ok(*_args, **_kwargs):
+            save_config(
+                {
+                    "auth": {
+                        "sub": "auth0|test",
+                        "access_token": "access_other",
+                        "refresh_token": "refresh_other",
+                    }
+                }
+            )
+            return _mock_post(200, {"access_token": "access_new"})
+
+        with patch("nauro.cli.commands.auth.httpx.post", side_effect=concurrent_then_ok):
+            token = refresh_access_token(stale_access_token="access_orig")
+
+        assert token == "access_other"
+        auth = load_config()["auth"]
+        assert auth["access_token"] == "access_other"
+        assert auth["refresh_token"] == "refresh_other"
+
+    def test_commit_raises_when_auth_cleared_mid_exchange(self):
+        # A concurrent logout clears the auth section while our exchange is in
+        # flight. The commit must fail loudly rather than resurrect the token we
+        # minted, and it must leave the store logged out.
+        _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
+
+        def logout_then_ok(*_args, **_kwargs):
+            save_config({})
+            return _mock_post(200, {"access_token": "access_new"})
+
+        with (
+            patch("nauro.cli.commands.auth.httpx.post", side_effect=logout_then_ok),
+            pytest.raises(AuthRefreshError, match="cleared during refresh"),
+        ):
+            refresh_access_token(stale_access_token="access_orig")
+
+        # The minted token was not written back; the store stays logged out.
+        assert "auth" not in load_config()
 
 
 # --- with_token_refresh ---
