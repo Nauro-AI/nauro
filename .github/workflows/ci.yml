@@ -26,8 +26,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
-      - run: uv sync --package nauro-core --all-extras --python 3.12
-      - run: uv run --package nauro-core lint-imports
+      - run: uv sync --locked --package nauro-core --all-extras --python 3.12
+      - run: uv run --no-sync --package nauro-core lint-imports
         working-directory: packages/nauro-core
 
   test-nauro-core:
@@ -39,8 +39,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python-version }}
-      - run: uv sync --package nauro-core --all-extras --python ${{ matrix.python-version }}
-      - run: uv run --package nauro-core pytest packages/nauro-core/tests/ -v --tb=short
+      - run: uv sync --locked --package nauro-core --all-extras --python ${{ matrix.python-version }}
+      - run: uv run --no-sync --package nauro-core pytest packages/nauro-core/tests/ -v --tb=short
 
   test-nauro:
     runs-on: ubuntu-latest
@@ -51,5 +51,5 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python-version }}
-      - run: uv sync --package nauro --all-extras --python ${{ matrix.python-version }}
-      - run: uv run --package nauro pytest packages/nauro/tests/ --ignore=packages/nauro/tests/cross_surface -v --tb=short
+      - run: uv sync --locked --package nauro --all-extras --python ${{ matrix.python-version }}
+      - run: uv run --no-sync --package nauro pytest packages/nauro/tests/ --ignore=packages/nauro/tests/cross_surface -v --tb=short
