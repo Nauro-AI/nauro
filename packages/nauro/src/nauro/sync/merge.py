@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.graph import DEFAULT_GRAPH_FILENAME
+from nauro.store.store_lock import DIR_LOCK_NAME, RMW_LOCK_SUFFIX
 from nauro.sync.state import SyncState
 
 logger = logging.getLogger("nauro.sync")
@@ -37,10 +38,23 @@ APPEND_ONLY_PATTERNS = ("open-questions.md", "state_history.md")
 # and is not guarded here; only the default filename is.
 NEVER_SYNC = (".sync-state.json", DEFAULT_GRAPH_FILENAME)
 
+# Lock-file artifacts are local concurrency plumbing, not store content.
+# filelock keeps Unix lock files after release as of 3.29.5 (deleting them
+# raced concurrent acquirers), so store writes leave these behind: the
+# per-target ``<name>.md.lock`` from write_file, the read-modify-write
+# ``<name>.rmwlock``, and the bare ``.lock`` directory sentinels. Syncing them
+# would fan the droppings out to every collaborator's store. The suffixes are
+# deliberately narrow (``.md.lock``, not ``.lock``) so a legitimate store file
+# such as ``context/poetry.lock`` still syncs.
+LOCK_ARTIFACT_SUFFIXES = (".md.lock", RMW_LOCK_SUFFIX)
+
 
 def should_skip(relative_path: str) -> bool:
     """Return True if this file should never be synced."""
-    return relative_path in NEVER_SYNC
+    if relative_path in NEVER_SYNC:
+        return True
+    basename = relative_path.rsplit("/", 1)[-1]
+    return basename == DIR_LOCK_NAME or relative_path.endswith(LOCK_ARTIFACT_SUFFIXES)
 
 
 def detect_conflict(
