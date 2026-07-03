@@ -672,7 +672,12 @@ def _slugify(title: str) -> str:
             prev_dash = True
     slug = "".join(out_chars).strip("-")
     if len(slug) > _SLUG_MAX_LENGTH:
-        slug = slug[:_SLUG_MAX_LENGTH].rsplit("-", 1)[0]
+        truncated = slug[:_SLUG_MAX_LENGTH]
+        # Prefer cutting at a word boundary, but only while that keeps at
+        # least half the cap: a title whose only dash sits early would
+        # otherwise collapse to a near-empty slug (and filename).
+        trimmed = truncated.rsplit("-", 1)[0]
+        slug = trimmed if len(trimmed) >= _SLUG_MAX_LENGTH // 2 else truncated
     return slug
 
 

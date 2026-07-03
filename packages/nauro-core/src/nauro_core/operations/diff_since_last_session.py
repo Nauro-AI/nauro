@@ -169,7 +169,7 @@ def _summarize_new_file(filename: str, content: str) -> str:
     if filename.startswith(DECISIONS_DIR + "/"):
         for line in content.split("\n"):
             if line.startswith("# "):
-                return line.lstrip("# ").strip()
+                return line.removeprefix("# ").strip()
         return ""
     return ""
 
@@ -227,7 +227,7 @@ def _diff_state(old: str, new: str) -> list[str]:
     ]
     added = [i for i in new_items if i not in old_items]
     for item in added:
-        changes.append(f"+ Completed: {item.lstrip('- ')}")
+        changes.append(f"+ Completed: {item.removeprefix('- ')}")
 
     return changes
 
@@ -270,9 +270,9 @@ def _diff_questions(old: str, new: str) -> list[str]:
     removed = [q for q in old_qs if q not in new_qs]
 
     for q in added:
-        changes.append(f"+ New question: {q.lstrip('- ')}")
+        changes.append(f"+ New question: {q.removeprefix('- ')}")
     for q in removed:
-        changes.append(f"- Resolved/removed: {q.lstrip('- ')}")
+        changes.append(f"- Resolved/removed: {q.removeprefix('- ')}")
 
     return changes
 

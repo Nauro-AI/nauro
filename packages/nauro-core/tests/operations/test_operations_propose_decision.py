@@ -852,3 +852,43 @@ def test_every_advertised_decision_type_commits(decision_type: str) -> None:
         decision_type=decision_type,
     )
     assert result.status == "confirmed"
+
+
+# ── Slug truncation goldens ─────────────────────────────────────────────
+
+
+def test_slug_early_dash_no_longer_collapses_slug() -> None:
+    # The word-boundary backoff after truncation had no floor: a title whose
+    # only dash sits early collapsed to a near-empty slug ("001-aaaa"). The
+    # backoff now applies only while it keeps at least half the cap;
+    # otherwise the hard character cut stands.
+    result = propose_decision(
+        InMemoryStore(),
+        title=f"Aaaa {'b' * 80}",
+        rationale="A rationale long enough to clear the minimum length threshold.",
+        confidence="medium",
+    )
+    assert result.status == "confirmed"
+    assert result.decision_id == "001-aaaa-" + "b" * 55
+
+
+def test_slug_multiword_title_still_trims_at_word_boundary() -> None:
+    result = propose_decision(
+        InMemoryStore(),
+        title="word " * 20,
+        rationale="A rationale long enough to clear the minimum length threshold.",
+        confidence="medium",
+    )
+    assert result.status == "confirmed"
+    assert result.decision_id == "001-" + "word-" * 11 + "word"
+
+
+def test_slug_single_giant_word_hard_cuts_at_cap() -> None:
+    result = propose_decision(
+        InMemoryStore(),
+        title="x" * 80,
+        rationale="A rationale long enough to clear the minimum length threshold.",
+        confidence="medium",
+    )
+    assert result.status == "confirmed"
+    assert result.decision_id == "001-" + "x" * 60
