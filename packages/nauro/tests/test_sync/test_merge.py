@@ -39,6 +39,20 @@ class TestShouldSkip:
         # via --output is their explicit choice and may sync.
         assert should_skip("reports/nauro-graph.html") is False
 
+    def test_lock_artifacts_are_skipped(self):
+        # filelock keeps Unix lock files after release as of 3.29.5, so store
+        # writes leave these behind; they are concurrency plumbing, not content.
+        assert should_skip("decisions/.lock") is True
+        assert should_skip("decisions/002-use-redis.md.lock") is True
+        assert should_skip("open-questions.md.rmwlock") is True
+        assert should_skip("snapshots/.lock") is True
+
+    def test_non_artifact_lock_names_still_sync(self):
+        # Only the store's own artifact shapes are skipped; user content that
+        # happens to end in .lock is not.
+        assert should_skip("context/poetry.lock") is False
+        assert should_skip("uv.lock") is False
+
 
 class TestIsAppendOnly:
     def test_decision_file(self):

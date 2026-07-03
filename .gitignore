@@ -12,6 +12,7 @@ build/
 .nauro/
 .env
 *.lock
+!uv.lock
 AGENTS.md
 .claude/*
 !.claude/skills/
