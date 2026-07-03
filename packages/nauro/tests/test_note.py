@@ -129,8 +129,8 @@ def test_note_empty_string_rejects(tmp_path: Path, monkeypatch):
     assert result.exit_code == 1
     assert "cannot be empty" in result.output
     decisions_dir = store / "decisions"
-    decision_files = [f for f in decisions_dir.iterdir() if f.name != "001-initial-setup.md"]
-    assert decision_files == []
+    decision_files = sorted(decisions_dir.glob("*.md"))
+    assert decision_files == [decisions_dir / "001-initial-setup.md"]
 
 
 def test_note_whitespace_only_rejects(tmp_path: Path, monkeypatch):
@@ -143,8 +143,8 @@ def test_note_whitespace_only_rejects(tmp_path: Path, monkeypatch):
     assert result.exit_code == 1
     assert "cannot be empty" in result.output
     decisions_dir = store / "decisions"
-    decision_files = [f for f in decisions_dir.iterdir() if f.name != "001-initial-setup.md"]
-    assert decision_files == []
+    decision_files = sorted(decisions_dir.glob("*.md"))
+    assert decision_files == [decisions_dir / "001-initial-setup.md"]
 
 
 def test_note_nonempty_text_succeeds(tmp_path: Path, monkeypatch):
@@ -156,6 +156,8 @@ def test_note_nonempty_text_succeeds(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["note", "Use Redis for session storage"])
     assert result.exit_code == 0, result.output
     decisions_dir = store / "decisions"
-    new_files = [f for f in decisions_dir.iterdir() if f.name != "001-initial-setup.md"]
+    # Count only decision documents: depending on the filelock version, the
+    # write may leave <name>.lock / .lock artifacts behind in the directory.
+    new_files = [f for f in decisions_dir.glob("*.md") if f.name != "001-initial-setup.md"]
     assert len(new_files) == 1
     assert "use-redis-for-session-storage" in new_files[0].name
