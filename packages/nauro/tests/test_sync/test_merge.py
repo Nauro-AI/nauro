@@ -46,6 +46,8 @@ class TestShouldSkip:
         assert should_skip("decisions/002-use-redis.md.lock") is True
         assert should_skip("open-questions.md.rmwlock") is True
         assert should_skip("snapshots/.lock") is True
+        # write_file's one non-markdown target, the decision-hash index.
+        assert should_skip(".decision-hashes.json.lock") is True
 
     def test_non_artifact_lock_names_still_sync(self):
         # Only the store's own artifact shapes are skipped; user content that

@@ -41,12 +41,13 @@ NEVER_SYNC = (".sync-state.json", DEFAULT_GRAPH_FILENAME)
 # Lock-file artifacts are local concurrency plumbing, not store content.
 # filelock keeps Unix lock files after release as of 3.29.5 (deleting them
 # raced concurrent acquirers), so store writes leave these behind: the
-# per-target ``<name>.md.lock`` from write_file, the read-modify-write
-# ``<name>.rmwlock``, and the bare ``.lock`` directory sentinels. Syncing them
-# would fan the droppings out to every collaborator's store. The suffixes are
-# deliberately narrow (``.md.lock``, not ``.lock``) so a legitimate store file
-# such as ``context/poetry.lock`` still syncs.
-LOCK_ARTIFACT_SUFFIXES = (".md.lock", RMW_LOCK_SUFFIX)
+# per-target ``<name>.lock`` from write_file (its targets are ``*.md`` files
+# plus the ``.decision-hashes.json`` index, hence both suffixes below), the
+# read-modify-write ``<name>.rmwlock``, and the bare ``.lock`` directory
+# sentinels. Syncing them would fan the droppings out to every collaborator's
+# store. The suffixes are deliberately narrow (``.md.lock``, not ``.lock``) so
+# a legitimate store file such as ``context/poetry.lock`` still syncs.
+LOCK_ARTIFACT_SUFFIXES = (".md.lock", ".json.lock", RMW_LOCK_SUFFIX)
 
 
 def should_skip(relative_path: str) -> bool:
