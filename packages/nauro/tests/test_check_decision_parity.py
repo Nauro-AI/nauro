@@ -31,7 +31,7 @@ from nauro.mcp.tools import tool_check_decision
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 
-DEMO_PROMPT = "Add a WebSocket endpoint for live task updates"
+DEMO_PROMPT = "Store dollar amounts as decimal numbers"
 
 
 @pytest.fixture

@@ -46,25 +46,25 @@ No account, no MCP wiring, no restart:
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
 nauro init --demo
-nauro check-decision "Add a WebSocket endpoint for live task updates"
+nauro check-decision "Store dollar amounts as decimal numbers"
 ```
 
-The demo store holds thirteen example decisions. One of them ruled out WebSocket in favor of SSE, and `check-decision` surfaces it as the top match before your agent can re-propose it:
+The demo store holds thirteen example decisions for a local-first budgeting app. One of them ruled out storing money as floating-point dollars in favor of integer cents, because binary floating point cannot hold a value like 0.10 exactly and totals drift by a penny, and `check-decision` surfaces it as the top match before your agent can re-propose it:
 
 ```json
 {
   "store": "local",
   "related_decisions": [
     {
-      "id": "decision-004",
-      "title": "SSE over WebSocket for live updates",
-      "score": 6.635,
+      "id": "decision-001",
+      "title": "Amounts stored in integer cents, never floating point",
+      "score": 8.462,
       "status": "active",
       "date": "2026-03-15",
-      "rationale_preview": "Server-Sent Events (SSE) for pushing live task updates to the frontend. SSE uses standard HTTP, reconnects automatically on disconnect, and works through every proxy and load balancer..."
+      "rationale_preview": "Every monetary amount (transactions, budgets, balances) is stored as an integer number of cents and formatted to dollars only for display. Binary floating point cannot represent most decimal amounts..."
     }
   ],
-  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live updates\" (status active, decided 2026-03-15, BM25 6.6). Ranked by keyword overlap, not meaning — judge relevance from the decision body, not the rank. Call get_decision on each related decision before proposing.",
+  "assessment": "Found 5 related decisions. Top match: D001 \"Amounts stored in integer cents, never floating point\" (status active, decided 2026-03-15, BM25 8.5). Ranked by keyword overlap, not meaning — judge relevance from the decision body, not the rank. Call get_decision on each related decision before proposing.",
   "project": { "id": "01K...", "name": "demo-project" }
 }
 ```

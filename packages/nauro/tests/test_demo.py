@@ -46,15 +46,18 @@ class TestDemoProjectStructure:
     def test_decision_titles(self, demo_store):
         decisions = _list_decisions(demo_store)
         titles = [d.title for d in decisions]
-        assert "PostgreSQL over MongoDB" in titles
-        assert "REST over GraphQL" in titles
-        assert "Monorepo over polyrepo" in titles
-        assert "SSE over WebSocket for live updates" in titles
-        assert "No background workers" in titles
-        assert "Cursor-based pagination" in titles
-        assert "Hard delete with audit log" in titles
-        assert "Unified Express middleware stack for validation, errors, and logging" in titles
-        assert "Rate limiting at the API gateway" in titles
+        assert "On-device storage, no cloud account" in titles
+        assert "One-time purchase, no subscription" in titles
+        assert "Amounts stored in integer cents, never floating point" in titles
+        assert "Native mobile app over web app" in titles
+        assert "Passcode and biometric lock, no user accounts" in titles
+        assert "Envelope budgeting method" in titles
+        assert "No ads, no data monetization" in titles
+        assert (
+            "Unified transaction pipeline for categorization, formatting, and de-duplication"
+            in titles
+        )
+        assert "Pay-cycle budget periods" in titles
 
     def test_has_snapshot(self, demo_store):
         snapshots = list_snapshots(demo_store)
@@ -75,12 +78,12 @@ class TestDemoProjectStructure:
 
     def test_open_questions_has_content(self, demo_store):
         content = (demo_store / constants.OPEN_QUESTIONS_MD).read_text()
-        assert "rate limit quotas" in content
-        assert "Redis" in content
+        assert "roll over" in content
+        assert "export" in content
 
     def test_project_md_has_content(self, demo_store):
         content = (demo_store / constants.PROJECT_MD).read_text()
-        assert "TaskFlow" in content
+        assert "Pennykeep" in content
         assert "Goals" in content
 
 
@@ -142,7 +145,7 @@ class TestDemoWithContext:
     def test_l0_context_works(self, demo_store):
         """L0 context should include decision summaries."""
         context = read_project_context(demo_store, level=0)
-        assert "PostgreSQL" in context or "REST" in context
+        assert "On-device" in context or "cloud" in context
 
     def test_l1_context_works(self, demo_store):
         """L1 context should include full decisions."""
@@ -152,5 +155,5 @@ class TestDemoWithContext:
     def test_l2_context_works(self, demo_store):
         """L2 context should include everything."""
         context = read_project_context(demo_store, level=2)
-        assert "PostgreSQL" in context
-        assert "Turborepo" in context
+        assert "Pennykeep" in context
+        assert "SQLite" in context

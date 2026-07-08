@@ -224,7 +224,7 @@ class TestDiffSinceLastSession:
 
 class TestSearchDecisions:
     def test_happy_path(self, demo_repo) -> None:
-        result = runner.invoke(app, ["search-decisions", "WebSocket"])
+        result = runner.invoke(app, ["search-decisions", "budget"])
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.stdout)
         assert envelope["store"] == "local"
@@ -236,15 +236,15 @@ class TestSearchDecisions:
 
 
 class TestCheckDecision:
-    DEMO_PROMPT = "Add a WebSocket endpoint for live task updates"
+    DEMO_PROMPT = "Store dollar amounts as decimal numbers"
 
-    def test_demo_prompt_finds_sse_decision(self, demo_repo) -> None:
+    def test_demo_prompt_finds_integer_cents_decision(self, demo_repo) -> None:
         result = runner.invoke(app, ["check-decision", self.DEMO_PROMPT])
         assert result.exit_code == 0, result.output
         envelope = json.loads(result.stdout)
         assert envelope["store"] == "local"
         titles = [d["title"] for d in envelope.get("related_decisions", [])]
-        assert any("SSE over WebSocket" in t for t in titles)
+        assert any("Amounts stored in integer cents, never floating point" in t for t in titles)
 
     def test_no_project(self, tmp_path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
