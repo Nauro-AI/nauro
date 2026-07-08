@@ -11,9 +11,10 @@ would. They must not mutate the input dict.
 
 Per-tool surface area:
 
-* ``check_decision`` — top hit with rationale preview + lower hits as a
-  short list; the agent-facing call-to-action footer comes from the
-  upstream ``assessment`` field.
+* ``check_decision`` — a single honest lead line (count + call-to-action +
+  lexical-rank caveat), then the hit list: top hit with rationale preview +
+  lower hits as a short list. The agent-facing call-to-action in the lead
+  comes from the upstream ``assessment`` field.
 * ``get_decision`` — light header on top of the markdown body the kernel
   already returns.
 * ``search_decisions`` — query echo, then a ranked short list of hits
@@ -28,7 +29,7 @@ Per-tool surface area:
 
 from __future__ import annotations
 
-from nauro_core.constants import NO_RELATED_DECISIONS
+from nauro_core.constants import LEXICAL_RANK_CAVEAT, NO_RELATED_DECISIONS
 from nauro_core.parsing import _decision_label
 
 # Width target for the rendered text blocks. Picked to fit standard
@@ -108,10 +109,19 @@ def render_check_decision(result: dict) -> str:
 
     lines: list[str] = []
     count = len(related)
-    if count == 1:
-        lines.append("Found 1 related decision:")
-    else:
-        lines.append(f"Found {count} related decisions:")
+    # One honest lead line: the count, the actionable call-to-action, and the
+    # lexical-rank caveat so the ranking is not read as a relevance verdict.
+    # Prefer the upstream assessment's "Call ..." sentence so the get_decision
+    # number and pluralization stay in sync with the kernel; fall back to a
+    # generic prompt.
+    cta = (
+        _extract_call_to_action(assessment)
+        or "Call get_decision on each related decision before proposing."
+    )
+    lead = (
+        f"{count} related {'decision' if count == 1 else 'decisions'}. {cta} {LEXICAL_RANK_CAVEAT}"
+    )
+    lines.append(lead)
     lines.append("")
 
     for idx, hit in enumerate(related):
@@ -132,15 +142,6 @@ def render_check_decision(result: dict) -> str:
                 lines.append(f'    "{preview_line}"')
         lines.append("")
 
-    # Call-to-action footer. Prefer the upstream assessment's "Call ..."
-    # sentence so the get_decision number and pluralization stay in sync
-    # with what the kernel decided. Fall back to a generic prompt.
-    footer = _extract_call_to_action(assessment)
-    if footer:
-        lines.append(footer)
-    else:
-        lines.append("Call get_decision on each related decision before proposing.")
-
     return "\n".join(lines).rstrip()
 
 
@@ -149,7 +150,7 @@ def _extract_call_to_action(assessment: str) -> str:
 
     The kernel always emits a single ``Call ...`` clause as the last
     sentence; if the format ever drifts, fall back to an empty string and
-    let the renderer default footer fire.
+    let the renderer's default call-to-action fire in the lead line.
     """
     idx = assessment.find("Call ")
     if idx == -1:

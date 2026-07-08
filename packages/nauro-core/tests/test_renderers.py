@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from nauro_core.constants import NO_RELATED_DECISIONS
+from nauro_core.constants import LEXICAL_RANK_CAVEAT, NO_RELATED_DECISIONS
 from nauro_core.renderers import (
     render_check_decision,
     render_get_context,
@@ -71,7 +71,7 @@ class TestRenderCheckDecision:
         assert "19.07" in text or "19.1" in text
         assert "Adopt 1-hour prompt cache tier" in text
         assert "Planner cache_control" in text
-        # Call-to-action footer must mention get_decision
+        # Lead-line call-to-action must mention get_decision
         assert "get_decision" in text
 
     def test_multi_hit_marks_top_and_lists_rest(self):
@@ -117,9 +117,9 @@ class TestRenderCheckDecision:
             ),
         }
         text = render_check_decision(result)
-        # Top match marker only on the top hit
-        top_marker_count = text.count("top match")
-        assert top_marker_count == 1
+        # The "<- top match" row marker appears on exactly one hit row; the
+        # lead line no longer carries a "top match" phrase.
+        assert text.count("<- top match") == 1
         # All three decision labels appear
         assert "D145" in text
         assert "D058" in text
@@ -132,8 +132,47 @@ class TestRenderCheckDecision:
         assert "Pareto sets the planner" in text
         assert "Cache per role" not in text
         assert "Modes go away" not in text
-        # Footer guidance
+        # Lead-line call-to-action mentions get_decision
         assert "get_decision" in text
+
+    def test_takeaway_leads_before_list(self):
+        """The honest takeaway (count + call-to-action + lexical caveat)
+        leads the block, above the first hit row, and the lexical-rank
+        caveat now reaches the rendered surface."""
+        result = {
+            "store": "remote",
+            "related_decisions": [
+                {
+                    "id": "decision-145",
+                    "title": "Adopt 1-hour prompt cache tier for planner",
+                    "score": 19.07,
+                    "status": "active",
+                    "date": "2026-05-10",
+                    "rationale_preview": "Planner cache_control set to ttl: 1h.",
+                },
+                {
+                    "id": "decision-058",
+                    "title": "Prompt cache strategy per role",
+                    "score": 18.05,
+                    "status": "active",
+                    "date": "2026-03-22",
+                    "rationale_preview": "Cache per role.",
+                },
+            ],
+            "assessment": (
+                "Found 2 related decisions. "
+                'Top match: D145 "Adopt 1-hour prompt cache tier for planner" '
+                "(status active, decided 2026-05-10, BM25 19.1). "
+                "Call get_decision on each related decision before proposing."
+            ),
+        }
+        text = render_check_decision(result)
+        # The call-to-action lead appears before the first hit row.
+        assert text.index("Call get_decision") < text.index("- D145")
+        # The count also leads, above the list.
+        assert text.index("2 related decisions") < text.index("- D145")
+        # The lexical-rank caveat now reaches the rendered surface.
+        assert LEXICAL_RANK_CAVEAT in text
 
     def test_long_title_does_not_blow_up(self):
         long_title = "x" * 200

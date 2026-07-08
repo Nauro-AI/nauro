@@ -246,8 +246,8 @@ class TestCheckDecision:
                 project_id="testproj",
             )
         )
-        # Renderer surfaces either the "Found N related decisions" header
-        # plus a call-to-action footer, or the empty-state guidance.
+        # Renderer surfaces either the honest lead line (count + call-to-action
+        # + lexical caveat) above the hit list, or the empty-state guidance.
         assert "related decision" in rendered.lower() or "no related decisions" in rendered.lower()
 
 
