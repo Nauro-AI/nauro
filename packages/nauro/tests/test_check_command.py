@@ -1,7 +1,7 @@
 """Tests for the auto-generated ``nauro check-decision`` CLI command.
 
 Covers:
-- The demo prompt retrieves the canonical SSE-over-WebSocket decision.
+- The demo prompt retrieves the canonical integer-cents decision.
 - The auto-gen command emits a parseable JSON envelope on stdout.
 - Project-resolution and rejection error paths exit non-zero with guidance.
 - The CLI surface routes through the ``@mcp_tool`` adapter — both
@@ -27,8 +27,8 @@ runner = CliRunner()
 
 
 # Canonical demo prompt — pinned so README references and integration assertions
-# share one source of truth. Used by test_demo_prompt_returns_sse_decision.
-DEMO_PROMPT = "Add a WebSocket endpoint for live task updates"
+# share one source of truth. Used by test_demo_prompt_returns_integer_cents_decision.
+DEMO_PROMPT = "Store dollar amounts as decimal numbers"
 
 
 @pytest.fixture
@@ -47,17 +47,17 @@ def demo_repo(tmp_path, monkeypatch):
     return "demo-project", pid, store_path, repo
 
 
-# --- happy path: demo prompt retrieves the SSE-over-WebSocket decision ------
+# --- happy path: demo prompt retrieves the integer-cents decision -----------
 
 
-def test_demo_prompt_returns_sse_decision(demo_repo):
+def test_demo_prompt_returns_integer_cents_decision(demo_repo):
     result = runner.invoke(app, ["check-decision", DEMO_PROMPT])
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     titles = [d["title"] for d in payload.get("related_decisions", [])]
     ids = [d["id"] for d in payload.get("related_decisions", [])]
-    assert any("SSE over WebSocket" in t for t in titles)
-    assert "decision-004" in ids
+    assert any("Amounts stored in integer cents, never floating point" in t for t in titles)
+    assert "decision-001" in ids
 
 
 def test_demo_prompt_json_output_is_parseable(demo_repo):

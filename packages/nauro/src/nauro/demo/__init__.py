@@ -61,196 +61,222 @@ def _decision(
 
 # ── Demo decisions ──
 #
-# The first seven carry the original demo prose at the shared 2026-03-15 date.
-# Decisions 8 through 13 add the two supersession structures the demo store was
-# always meant to show, dated across the project's timeline so the graph's
-# timeline and lineage views both read:
+# The first seven carry the product's foundational choices at the shared
+# 2026-03-15 date. Decisions 8 through 13 add the two supersession structures
+# the demo store was always meant to show, dated across the project's timeline
+# so the graph's timeline and lineage views both read:
 #
-#   Consolidation fan: decision 13 (a unified Express middleware stack) retires
-#   three earlier ad-hoc cross-cutting approaches (8, 9, 10). It carries a scalar
+#   Consolidation fan: decision 13 (one ordered transaction pipeline) retires
+#   three earlier per-screen approaches (8 inline category guessing, 9 per-screen
+#   amount formatting, 10 dashboard-only de-duplication). It carries a scalar
 #   supersedes pointing at the earliest of the three (8); all three flip to
 #   superseded and carry superseded_by pointing back at 13. This mirrors the
 #   on-disk shape that propose_decision's supersede path writes.
 #
-#   Short chain: decision 11 (in-memory per-process rate limiting) is superseded
-#   by decision 12 (rate limiting at the API gateway), a two-step lineage.
+#   Short chain: decision 11 (calendar-month budget periods) is superseded by
+#   decision 12 (pay-cycle budget periods), a two-step lineage.
 
 DEMO_DECISIONS: list[Decision] = [
     _decision(
         1,
-        "PostgreSQL over MongoDB",
+        "Amounts stored in integer cents, never floating point",
         DecisionConfidence.high,
         DecisionType.data_model,
         Reversibility.hard,
-        "PostgreSQL was chosen as the primary database for its strong ACID compliance, "
-        "mature ecosystem, and excellent support for complex queries. Data integrity is "
-        "critical for a task management system where users rely on accurate state "
-        "transitions and audit trails.",
+        "Every monetary amount (transactions, budgets, balances) is stored as an integer "
+        "number of cents and formatted to dollars only for display. Binary floating point "
+        "cannot represent most decimal amounts exactly (0.10 + 0.20 comes out as "
+        "0.30000000000000004), so with floating-point dollars, sums and budgets drift by a "
+        "cent and a balance that should read 0.00 shows -0.01. Integer cents are exact, "
+        "every calculation is plain integer math, and decimals appear only at the "
+        "formatting boundary when an amount is shown to the user.",
         [
             RejectedAlternative(
-                name="MongoDB",
+                name="Floating-point dollars (a decimal amount field)",
                 reason=(
-                    "Eventual consistency model is unsuitable for task state transitions where "
-                    "users expect immediate consistency. The flexible schema is appealing but "
-                    "our data model is well-defined and benefits from strict typing."
+                    "The obvious representation, and what a quick prototype reaches for, but "
+                    "binary floating point cannot hold values like 0.10 exactly, so totals "
+                    "accumulate rounding error and reconciliations fail by a penny. A "
+                    "fixed-precision decimal type avoids the drift but is heavier than integer "
+                    "math and still lets a stray float coercion reintroduce the error. Integer "
+                    "cents keep every amount exact with plain integers."
                 ),
             ),
         ],
     ),
     _decision(
         2,
-        "REST over GraphQL",
+        "One-time purchase, no subscription",
         DecisionConfidence.medium,
-        DecisionType.api_design,
+        DecisionType.pattern,
         Reversibility.moderate,
-        "REST was chosen over GraphQL for the API layer. The team has deep REST "
-        "experience and our resource model maps naturally to REST endpoints. For "
-        "a v1 with a small frontend team, the added complexity of a GraphQL schema, "
-        "resolvers, and client-side caching is not justified.",
+        "Pennykeep is a single upfront purchase; there is no recurring fee. Budgeting "
+        "is the one category where a monthly charge is self-defeating: asking someone "
+        "who is trying to control their spending to accept yet another subscription is "
+        "exactly the friction that sent them looking for a budgeting tool. A one-time "
+        "price also fits the local-first model: with no server to run per user, there "
+        "is no per-user cost to recover every month.",
         [
             RejectedAlternative(
-                name="GraphQL",
+                name="Monthly subscription",
                 reason=(
-                    "Would provide more flexible querying and reduce over-fetching, but adds "
-                    "significant complexity: schema management, resolver implementation, and "
-                    "requires a more sophisticated client. Reconsidering for v2 if the frontend "
-                    "needs grow beyond simple CRUD."
+                    "Recurring revenue is smoother for the business, but in this category "
+                    "it reads as precisely the kind of small recurring charge the user is "
+                    "trying to hunt down and cancel. Early testers resented paying every "
+                    "month for a tool whose whole job is to question recurring charges, and "
+                    "the churn showed it."
                 ),
             ),
         ],
     ),
     _decision(
         3,
-        "Monorepo over polyrepo",
+        "On-device storage, no cloud account",
         DecisionConfidence.high,
-        DecisionType.architecture,
-        Reversibility.moderate,
-        "All services (API, web frontend, shared libraries) live in a single monorepo "
-        "managed by Turborepo. This simplifies cross-package changes, ensures consistent "
-        "tooling, and makes CI/CD pipelines straightforward. Shared TypeScript types "
-        "between frontend and backend are a major win.",
+        DecisionType.data_model,
+        Reversibility.hard,
+        "Budgets and transactions live in an encrypted store on the device. There "
+        "is no server and no account. A budgeting app that keeps people's financial "
+        "history on a server is a standing breach liability and an ongoing "
+        "operational cost, and it asks every user to trust an operator they cannot "
+        "audit. Local-first keeps the data private and available offline, and leaves "
+        "nothing central to secure or subpoena. The catch worth stating plainly: "
+        "this is a product boundary, not a missing feature. There is no server to "
+        "bolt on later without re-deciding the whole privacy model.",
         [
             RejectedAlternative(
-                name="Polyrepo (separate repos per service)",
+                name="Cloud sync across devices (server accounts)",
                 reason=(
-                    "Dependency management overhead is significant with only 2-3 developers. "
-                    "Version pinning across repos, coordinating releases, and keeping shared "
-                    "types in sync would slow us down considerably at this team size."
+                    "Holding budgets and transactions on a server so they sync across a "
+                    "user's devices is the obvious convenience ask, but it makes the app a "
+                    "custodian of financial data: a breach liability, a compliance surface, "
+                    "and a running cost, all for a single-user tool. Local-first gives up "
+                    "multi-device convenience to keep the promise that the data never "
+                    "leaves the owner's hands."
                 ),
             ),
         ],
     ),
     _decision(
         4,
-        "SSE over WebSocket for live updates",
-        DecisionConfidence.high,
-        DecisionType.infrastructure,
-        Reversibility.moderate,
-        "Server-Sent Events (SSE) for pushing live task updates to the frontend. "
-        "SSE uses standard HTTP, reconnects automatically on disconnect, and works "
-        "through every proxy and load balancer without configuration. During ECS "
-        "rolling deploys, WebSocket connections were not released cleanly — new "
-        "tasks routed to draining containers, causing 30-second stalls until "
-        "timeout. SSE clients reconnect to healthy targets within 3 seconds.",
+        "Native mobile app over web app",
+        DecisionConfidence.medium,
+        DecisionType.architecture,
+        Reversibility.hard,
+        "Pennykeep ships as native iOS and Android apps rather than a web or PWA front "
+        "end. A single web codebase is cheaper to maintain, but the three things this "
+        "product leans on are all first-class on native and second-class in a browser: "
+        "a fully offline session, an encrypted on-phone store, and a biometric lock on "
+        "open. Building those to a standard people would trust with their finances "
+        "fights the browser the whole way; on native they are platform features.",
         [
             RejectedAlternative(
-                name="WebSocket",
+                name="Web app / PWA",
                 reason=(
-                    "Persistent connections were not released during ECS rolling deploys, "
-                    "causing connection storms when multiple containers drained simultaneously. "
-                    "Debugging required custom connection-tracking middleware. The bidirectional "
-                    "channel is unnecessary — clients never push data through the event stream."
+                    "One codebase across platforms is the obvious economy, but "
+                    "offline-by-default storage, OS-backed encryption at rest, and Face ID / "
+                    "fingerprint unlock are exactly where a PWA degrades to a best-effort "
+                    "imitation. For an app whose selling point is that your financial data "
+                    "stays locked on your phone, best-effort is not enough."
                 ),
             ),
         ],
     ),
     _decision(
         5,
-        "No background workers",
-        DecisionConfidence.medium,
-        DecisionType.pattern,
-        Reversibility.moderate,
-        "All task processing (notifications, state transitions, webhook deliveries) "
-        "happens synchronously in the request path. No job queue, no worker "
-        "processes. p99 API latency is under 200ms with this approach, and the "
-        "operational surface stays small: one container type, one log stream, "
-        "one failure mode.",
+        "Passcode and biometric lock, no user accounts",
+        DecisionConfidence.high,
+        DecisionType.data_model,
+        Reversibility.hard,
+        "The app is protected by the device passcode and Face ID / fingerprint, not by "
+        "a username and password. There is no server to authenticate against, so a "
+        "login would be theatre: it would introduce an attack surface and a credential "
+        "to leak while protecting nothing that is not already behind the phone's own "
+        "lock screen. Tying access to the device's biometric gate keeps the security "
+        "model honest with the local-first storage decision.",
         [
             RejectedAlternative(
-                name="Background job queue (Redis + Bull / SQS)",
+                name="Email and password login",
                 reason=(
-                    "Added three failure modes the team couldn't monitor in v1: stuck jobs, "
-                    "duplicate delivery on retry, and silent queue backup when the worker "
-                    "fell behind. For current throughput (~50 req/s peak), synchronous "
-                    "processing is fast enough and dramatically simpler to debug."
+                    "A familiar login screen looks reassuring, but with no server behind it "
+                    "there is nothing to sign in to: the data is already on the phone. It "
+                    "would only add a password for the user to reuse and for us to be blamed "
+                    "for leaking, with no security gain over the OS lock."
                 ),
             ),
         ],
     ),
     _decision(
         6,
-        "Cursor-based pagination",
-        DecisionConfidence.high,
-        DecisionType.api_design,
-        Reversibility.hard,
-        "All list endpoints use cursor-based pagination with opaque encoded cursors. "
-        "Offset pagination breaks when items are inserted or deleted between pages — "
-        "users see duplicates or miss items entirely. Cursor pagination provides "
-        "stable iteration regardless of concurrent writes, which matters for a "
-        "multi-user task board where tasks move between states constantly.",
+        "Envelope budgeting method",
+        DecisionConfidence.medium,
+        DecisionType.pattern,
+        Reversibility.moderate,
+        "The core model is envelope budgeting: every dollar of income is assigned to a "
+        "named category envelope before it is spent, and spending draws down a specific "
+        "envelope. The alternative, showing people where their money went after the "
+        "fact, is easier to build and easier to sell, but a rear-view report does not "
+        "change behavior. Committing each dollar in advance is what turns a tracker "
+        "into a budget.",
         [
             RejectedAlternative(
-                name="LIMIT/OFFSET",
+                name="Passive spending tracker",
                 reason=(
-                    "Simple to implement but produces inconsistent results under concurrent "
-                    "writes. With 50+ active users modifying task state, offset drift caused "
-                    "visible duplicates in the frontend during testing. Also degrades at scale: "
-                    "OFFSET 10000 still scans and discards 10,000 rows."
+                    "Categorizing past transactions into charts is lower-friction and demos "
+                    "well, but it answers 'where did it go?' rather than 'what is this for?'. "
+                    "Testers who only saw past spend kept overspending; the ones who had to "
+                    "assign money up front changed what they did."
                 ),
             ),
         ],
     ),
     _decision(
         7,
-        "Hard delete with audit log",
+        "No ads, no data monetization",
         DecisionConfidence.high,
-        DecisionType.data_model,
-        Reversibility.hard,
-        "Deleted tasks are removed from the tasks table and a record is written to "
-        "the audit_events table. No soft deletes. The audit log captures who deleted "
-        "what and when, satisfying compliance requirements without polluting the "
-        "primary table.",
+        DecisionType.pattern,
+        Reversibility.moderate,
+        "The only revenue is the one-time purchase. The app shows no ads and sells no "
+        "data, anonymized or otherwise. A budgeting app funded by monetizing financial "
+        "data is a contradiction in terms, and the local-first architecture makes it "
+        "not merely wrong but impossible: the data never reaches us, so there is "
+        "nothing to package or resell. Writing it down as a decision keeps a future "
+        "growth push from quietly proposing 'anonymized insights' as a revenue line.",
         [
             RejectedAlternative(
-                name="Soft deletes (deleted_at column)",
+                name="Free with ads / anonymized data resale",
                 reason=(
-                    "Leaks into every query: every WHERE clause, every index, every JOIN needs "
-                    "to filter on deleted_at IS NULL. In testing, three bugs shipped because "
-                    "a query forgot the filter and showed deleted tasks in the UI. The audit "
-                    "log table provides the same compliance trail without the query tax."
+                    "Ad-supported and data-resale models lower the price of entry, but for a "
+                    "tool holding someone's spending history they poison the trust the "
+                    "product is built on. And under local-first there is no user data on our "
+                    "side to aggregate or sell, so the model could not be built even if we "
+                    "wanted it."
                 ),
             ),
         ],
     ),
-    # ── Consolidation fan: 8, 9, 10 are early ad-hoc cross-cutting approaches,
-    #    all retired by 13 once the pattern was clear. ──
+    # ── Consolidation fan: 8, 9, 10 are early per-screen approaches to
+    #    categorization, formatting, and de-duplication, all retired by 13 once
+    #    the transaction pipeline was the clear shape. ──
     _decision(
         8,
-        "Inline request validation",
+        "Inline category guessing in the import screen",
         DecisionConfidence.low,
         DecisionType.pattern,
         Reversibility.easy,
-        "Each route handler validates its own request body inline at the top of "
-        "the function, checking required fields and types by hand before touching "
-        "the database. This kept the first handlers small and avoided pulling in a "
-        "validation library while the request shapes were still in flux.",
+        "The CSV import screen guesses each transaction's category inline, matching the "
+        "merchant string against a hardcoded list of keywords right where the rows are "
+        "parsed. With only a handful of recognized merchants this kept the first import "
+        "flow self-contained and avoided standing up a shared rules layer before we "
+        "knew what the rules should be.",
         [
             RejectedAlternative(
-                name="A shared validation schema layer",
+                name="A shared categorization rules layer",
                 reason=(
-                    "Felt premature with only a handful of endpoints and request shapes "
-                    "still changing weekly. Hand-written checks were faster to write for "
-                    "the first three handlers than agreeing on a schema format."
+                    "A general rules engine felt premature for the dozen merchants we "
+                    "recognized at first. Inline keyword checks were faster to write and "
+                    "easy to read next to the parsing code for the first screen that needed "
+                    "them."
                 ),
             ),
         ],
@@ -260,21 +286,22 @@ DEMO_DECISIONS: list[Decision] = [
     ),
     _decision(
         9,
-        "Endpoint error mapping",
+        "Per-screen amount formatting",
         DecisionConfidence.low,
         DecisionType.pattern,
         Reversibility.easy,
-        "Each handler wraps its body in a try/catch and maps caught errors to HTTP "
-        "status codes locally, so the endpoint that knows the failure decides the "
-        "response. Early on this made each handler self-contained and easy to read "
-        "in isolation.",
+        "Each screen formats currency amounts itself, calling the platform number "
+        "formatter with its own sign and rounding conventions at the point of display. "
+        "With only two screens showing money early on, a shared formatter was more "
+        "indirection than the duplication it would have removed.",
         [
             RejectedAlternative(
-                name="A central error-handling middleware",
+                name="A shared money formatter",
                 reason=(
-                    "Not worth the indirection while there were only two error shapes. "
-                    "Local try/catch kept the mapping next to the code that raised it, "
-                    "which read clearly for the first endpoints."
+                    "Extracting one formatting helper is the textbook move, but for two call "
+                    "sites it was not worth the indirection, and each screen wanted slightly "
+                    "different sign and rounding treatment while the designs were still "
+                    "moving."
                 ),
             ),
         ],
@@ -284,21 +311,23 @@ DEMO_DECISIONS: list[Decision] = [
     ),
     _decision(
         10,
-        "Logging calls in each handler",
+        "Duplicate detection in the dashboard",
         DecisionConfidence.low,
         DecisionType.pattern,
         Reversibility.easy,
-        "Handlers call the structured logger directly, emitting a start and end log "
-        "line with the request id and outcome. Putting the calls in the handler let "
-        "each one log exactly the fields that mattered for its own path without a "
-        "shared convention to agree on first.",
+        "The dashboard de-duplicates re-imported rows itself, comparing new "
+        "transactions against what it already shows by date, amount, and merchant "
+        "before rendering. Only the dashboard re-imported at first, so putting the "
+        "check there kept it close to the screen that needed it rather than a shared "
+        "step every importer would have to call.",
         [
             RejectedAlternative(
-                name="A logging middleware around every request",
+                name="A shared de-duplication step",
                 reason=(
-                    "A uniform middleware log line would have missed the per-handler "
-                    "fields we cared about, and we had not yet settled which fields those "
-                    "were. Hand-placed calls were the fastest way to learn what to log."
+                    "A common de-dup pass sounded right in principle, but only the dashboard "
+                    "was re-importing early on, so a shared step would have been "
+                    "infrastructure for a single caller. Doing it inline was the smaller move "
+                    "while that stayed true."
                 ),
             ),
         ],
@@ -309,21 +338,22 @@ DEMO_DECISIONS: list[Decision] = [
     # ── Short chain: 11 superseded by 12. ──
     _decision(
         11,
-        "In-process rate limiting",
+        "Calendar-month budget periods",
         DecisionConfidence.medium,
-        DecisionType.infrastructure,
+        DecisionType.pattern,
         Reversibility.moderate,
-        "Rate limiting is enforced in process with an in-memory counter per client, "
-        "reset on a sliding window. With a single container this is exact, adds no "
-        "network hop, and needed no extra infrastructure to ship the first abuse "
-        "protection.",
+        "Budgets run on the calendar month and reset on the 1st. It is the obvious "
+        "default (everyone knows what 'this month' means), and it was less code than "
+        "modeling arbitrary period boundaries for the first version of the budgeting "
+        "core.",
         [
             RejectedAlternative(
-                name="A shared counter in Redis",
+                name="Pay-cycle periods",
                 reason=(
-                    "Added a dependency and a network round-trip per request before we "
-                    "had evidence we needed cross-instance limits. A single container "
-                    "made the in-memory counter correct for the launch traffic."
+                    "Aligning periods to a user's payday would model how money actually "
+                    "arrives, but it meant carrying a configurable cycle and handling partial "
+                    "first periods. Calendar months were the obvious, cheaper default to ship "
+                    "the first budget loop."
                 ),
             ),
         ],
@@ -333,61 +363,64 @@ DEMO_DECISIONS: list[Decision] = [
     ),
     _decision(
         12,
-        "Rate limiting at the API gateway",
+        "Pay-cycle budget periods",
         DecisionConfidence.high,
-        DecisionType.infrastructure,
+        DecisionType.pattern,
         Reversibility.moderate,
-        "Rate limiting moved to the API gateway, which enforces a shared per-client "
-        "budget across every container before a request reaches application code. "
-        "Once the service scaled past one instance, per-process counters each saw "
-        "only a fraction of a client's traffic, so a client could exceed the "
-        "intended limit by a factor of the container count. Enforcing at the gateway "
-        "restores one consistent budget and keeps the limiting load off the app.",
+        "Budget periods now align to the user's payday rather than the calendar 1st. "
+        "Money arrives on payday, and that is when people mentally reset their budget; "
+        "a calendar month looked flush on the 30th and then broke on the 2nd, when rent "
+        "cleared before the 'new month' of income had landed. Anchoring the period to "
+        "payday makes the numbers on screen match how the user actually experiences "
+        "their month.",
         [
             RejectedAlternative(
-                name="A shared counter in Redis",
+                name="Keep calendar months / arbitrary start day",
                 reason=(
-                    "Would make the limit consistent across instances but keeps every "
-                    "request paying a round-trip and puts the application on the critical "
-                    "path for abuse protection. The gateway already sees all traffic and "
-                    "rejects over-budget requests before they cost the app anything."
+                    "The calendar 1st is simplest and a user-chosen start day is the flexible "
+                    "option, but neither matches the one date that actually governs a "
+                    "person's cash: payday. Testers on a fixed calendar month kept seeing a "
+                    "healthy balance that was really next month's rent still sitting in the "
+                    "account."
                 ),
             ),
         ],
         decided=date(2026, 4, 20),
         supersedes="11",
     ),
-    # ── Consolidation: 13 retires the three ad-hoc approaches (8, 9, 10). ──
+    # ── Consolidation: 13 retires the three per-screen approaches (8, 9, 10). ──
     _decision(
         13,
-        "Unified Express middleware stack for validation, errors, and logging",
+        "Unified transaction pipeline for categorization, formatting, and de-duplication",
         DecisionConfidence.high,
         DecisionType.architecture,
         Reversibility.moderate,
-        "Request validation, error mapping, and request logging move into one "
-        "ordered Express middleware stack applied to every route. Handlers receive "
-        "an already-validated body, throw typed errors that a single error "
-        "middleware maps to responses, and emit no logging of their own. The three "
-        "concerns had been handled inline in each handler, which drifted: validation "
-        "rules diverged between endpoints, two handlers mapped the same error to "
-        "different status codes, and several paths logged nothing on failure. One "
-        "stack makes the behavior uniform and keeps handlers focused on their own "
-        "logic.",
+        "Every imported transaction now passes through one ordered pipeline "
+        "(de-duplicate, categorize, then format) before any screen sees it. The three "
+        "concerns had been handled inline on whichever screen first needed them, and "
+        "they drifted: the import screen and a later quick-add path guessed categories "
+        "from different keyword lists, two screens formatted the same amount "
+        "differently, and duplicate rows slipped through everywhere except the "
+        "dashboard. One pipeline applied at the point of import makes every screen "
+        "consume already-clean, already-categorized, already-formatted transactions.",
         [
             RejectedAlternative(
-                name="Keeping the concerns inline but extracting shared helpers",
+                name="Keep the logic inline but extract shared helpers",
                 reason=(
-                    "Shared helpers still leave each handler responsible for calling them "
-                    "in the right order, which is exactly what drifted. A middleware stack "
-                    "applies the order once and cannot be forgotten by a new handler."
+                    "Pulling the keyword matcher, the formatter, and the de-dup check into "
+                    "shared helpers removes the copy-paste, but each screen still decides "
+                    "whether and in what order to call them, which is exactly what drifted. "
+                    "A single pipeline applies the order once, and a new screen cannot forget "
+                    "a step."
                 ),
             ),
             RejectedAlternative(
-                name="A heavier framework with the cross-cutting concerns built in",
+                name="Adopt a heavier data-layer library that bundles these concerns",
                 reason=(
-                    "Rewriting onto a new framework to get middleware conventions would "
-                    "touch every handler for a gain Express middleware already delivers "
-                    "without the migration."
+                    "A batteries-included import library would provide categorization and "
+                    "de-dup out of the box, but adopting it is a rewrite of the transaction "
+                    "path to gain what one small ordered pipeline already delivers, and it "
+                    "pulls a large dependency into an app that ships almost nothing else."
                 ),
             ),
         ],
@@ -400,63 +433,67 @@ DEMO_DECISIONS: list[Decision] = [
 DEMO_STATE_CURRENT_MD = f"""\
 # Current State
 
-Implementing user authentication \u2014 building JWT-based auth flow \
-with refresh tokens and RBAC.
+Building the CSV import flow: mapping statement columns to the transaction \
+model and running each row through the categorization pipeline before it reaches \
+the dashboard.
 
 *Last updated: {_DEMO_DATE.isoformat()}T12:00Z*
 """
 
 OPEN_QUESTIONS_MD = """\
 # Open Questions
-- [Q1] Should gateway rate limit quotas differ per client tier, or stay uniform?
-- [Q2] Redis vs in-memory caching for session storage?
+- [Q1] Should an unspent envelope roll over to the next period, or reset each period?
+- [Q2] Add an optional encrypted export for manual transfer, or stay strictly single-device?
 """
 
 PROJECT_MD = """\
-# TaskFlow
+# Pennykeep
 
-**One-liner:** A task management API for teams that need structured workflows.
+**One-liner:** A local-first budgeting app that keeps your money on your phone, not on a server.
 
 ## Goals
-- Ship a production-ready REST API with auth, task CRUD, and team management
-- Support workflow automation (task state transitions, notifications)
+- Ship a native budgeting app where every transaction and budget lives encrypted on the phone
+- Help everyday people run an envelope budget without linking a bank or creating an account
 
 ## Non-goals
-- Not a project management tool — no Gantt charts, resource planning, or budgeting
-- No mobile app in v1 — API-first, web frontend only
+- No cloud account and no third-party bank linking; nothing is uploaded to a server or aggregator
+- Not a wealth-management or investing tool; this is day-to-day budgeting
 
 ## Users
-Small engineering teams (3-10 people) who need a lightweight task tracker
-with API access for integrations. Primary users are developers who want
-to automate task workflows via the API.
+Everyday people who want to budget without linking their bank to a third-party app.
+They are comfortable typing or importing transactions, and they care more about
+privacy and staying offline than about automatic multi-account aggregation.
 
 ## Constraints
-- Must ship MVP by June 2026
-- PostgreSQL for persistence (ACID required for task state transitions)
-- Deploy on AWS (team has existing infrastructure)
+- Must ship the first iOS build by June 2026
+- All financial data stays in an encrypted on-phone store (SQLCipher); no server holds it
+- Single-developer maintenance budget: keep the operational surface near zero
 """
 
 STACK_MD = """\
 # Stack
 
 ## Language & Framework
-- **TypeScript + Express** — Chosen for: team familiarity, strong typing across \
-frontend and backend. Rejected: Go (faster runtime, but slower iteration), \
-Python/FastAPI (weaker typing story for shared models).
+- **React Native + Expo**. Chosen for: one codebase across iOS and Android with \
+native modules for biometric unlock and encrypted storage. Rejected: Flutter \
+(capable, but the team's TypeScript experience carries over to React Native), \
+two separate native codebases (best platform fit, but double the build for a small team).
 
-## Database
-- **PostgreSQL 16** — Chosen for: ACID compliance, mature tooling, excellent \
-JSON support for flexible metadata. Rejected: MongoDB (eventual consistency \
-unsuitable for task state), SQLite (no concurrent write support for multi-user).
+## Storage
+- **SQLCipher-encrypted SQLite**. Chosen for: a single-file encrypted database \
+that lives on the phone and never leaves it, matching the local-first promise. \
+Rejected: plain SQLite (no encryption at rest for financial data), a hosted \
+database (would put transactions on a server, which the product explicitly refuses).
 
-## Infrastructure
-- **AWS ECS Fargate** — Chosen for: managed containers without server maintenance, \
-auto-scaling. Rejected: Lambda (cold starts hurt UX for API), EC2 (operational overhead).
+## Budgeting Core
+- **Envelope allocation engine**. Chosen for: every dollar is assigned to a \
+category envelope, the model the product is built around. Rejected: a passive \
+spend tracker (reports past spending but does not change behavior), spreadsheet \
+import only (flexible, but leaves the budgeting logic to the user).
 
 ## Key Libraries
-- **Prisma** for ORM — type-safe database access, excellent migration tooling
-- **Passport.js** for auth — battle-tested, supports multiple strategies
-- **Turborepo** for monorepo management — fast builds, smart caching
+- **expo-local-authentication** for the Face ID / fingerprint lock on open
+- **A CSV parser** for importing bank statement exports into the transaction pipeline
 """
 
 
@@ -465,19 +502,19 @@ def _decision_filename(decision: Decision, slug: str) -> str:
 
 
 _DEMO_SLUGS = {
-    1: "chose-postgresql-over-mongodb",
-    2: "rest-api-over-graphql",
-    3: "monorepo-with-turborepo",
-    4: "sse-over-websocket",
-    5: "no-background-workers",
-    6: "cursor-based-pagination",
-    7: "hard-delete-with-audit-log",
-    8: "inline-request-validation",
-    9: "per-endpoint-error-mapping",
-    10: "logging-calls-in-handlers",
-    11: "in-memory-rate-limiting",
-    12: "rate-limiting-at-gateway",
-    13: "middleware-stack-consolidation",
+    1: "amounts-in-integer-cents",
+    2: "one-time-purchase-no-subscription",
+    3: "on-device-storage-no-cloud-account",
+    4: "native-mobile-over-web-app",
+    5: "passcode-biometric-lock-no-accounts",
+    6: "envelope-budgeting-method",
+    7: "no-ads-no-data-monetization",
+    8: "inline-category-guessing-import",
+    9: "per-screen-amount-formatting",
+    10: "duplicate-detection-in-dashboard",
+    11: "calendar-month-budget-periods",
+    12: "pay-cycle-budget-periods",
+    13: "unified-transaction-pipeline",
 }
 
 

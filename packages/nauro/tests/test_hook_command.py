@@ -282,11 +282,14 @@ def test_effective_floor_env_override(monkeypatch):
 
 
 def test_demo_store_surfaces_conflict_without_corpus_padding(tmp_path: Path):
-    """The 7-decision demo store must surface its marquee websocket→SSE conflict.
+    """The demo store must surface its marquee integer-cents vs. floating-point conflict.
 
-    Regression for the fixed 8.0 floor that no demo decision could reach (D004
-    scores ~5), making --with-hooks look broken on the obvious demo path. No
-    distractor padding here — the corpus-aware floor must do the work.
+    Regression for the fixed 8.0 floor that no demo decision could reach, making
+    --with-hooks look broken on the obvious demo path. The 13-decision demo store
+    gets no distractor padding here, so the corpus-aware floor must do the work,
+    and D001 ("Amounts stored in integer cents, never floating point") concentrates
+    the query's dollar / amounts / decimal vocabulary, so it clears the scaled
+    floor by a wide margin.
     """
     from nauro.demo import create_demo_project
 
@@ -297,7 +300,7 @@ def test_demo_store_surfaces_conflict_without_corpus_padding(tmp_path: Path):
 
     result = _invoke(
         {
-            "prompt": "add a websocket endpoint for live task updates",
+            "prompt": "store dollar amounts as decimal numbers",
             "cwd": str(repo),
             "session_id": "demo",
         }
@@ -305,7 +308,7 @@ def test_demo_store_surfaces_conflict_without_corpus_padding(tmp_path: Path):
     assert result.exit_code == 0
     assert result.output != ""
     out = json.loads(result.output)["hookSpecificOutput"]
-    assert "D004" in out["additionalContext"]
+    assert "D001" in out["additionalContext"]
 
 
 def test_distinct_session_resurfaces(tmp_path: Path):

@@ -19,7 +19,7 @@ Catch a conflict in about 30 seconds. No account, MCP wiring, or restart require
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
 nauro init --demo
-nauro check-decision "Add a WebSocket endpoint for live task updates"
+nauro check-decision "Store dollar amounts as decimal numbers"
 ```
 
 You'll see a JSON envelope with the related decisions and a deterministic assessment, e.g.:
@@ -29,19 +29,19 @@ You'll see a JSON envelope with the related decisions and a deterministic assess
   "store": "local",
   "related_decisions": [
     {
-      "id": "decision-004",
-      "title": "SSE over WebSocket for live updates",
-      "score": 6.635,
+      "id": "decision-001",
+      "title": "Amounts stored in integer cents, never floating point",
+      "score": 8.462,
       "status": "active",
       "date": "2026-03-15",
-      "rationale_preview": "Server-Sent Events (SSE) for pushing live task updates..."
+      "rationale_preview": "Every monetary amount (transactions, budgets, balances) is stored as an integer number of cents and formatted to dollars only for display..."
     }
   ],
-  "assessment": "Found 5 related decisions. Top match: D004 \"SSE over WebSocket for live updates\"..."
+  "assessment": "Found 5 related decisions. Top match: D001 \"Amounts stored in integer cents, never floating point\"..."
 }
 ```
 
-The demo project ruled out WebSocket because persistent connections weren't released during ECS rolling deploys. Without Nauro, a fresh agent has no record of that and would re-propose WebSocket.
+The demo project ruled out storing money as floating-point dollars because binary floating point cannot represent a value like 0.10 exactly, so totals accumulate rounding error and a balance that should read 0.00 shows -0.01. Without Nauro, a fresh agent has no record of that and could re-propose a floating-point amount field.
 
 `nauro graph` renders the store to one self-contained HTML file and opens it: a node-link map of every decision as the default view, plus drawn supersession lineage, a timeline, and a category browser. The demo store's consolidation, three retired decisions converging on the one that replaced them, draws as a fan. By default the file carries the full decision store, including each decision's body rendered as structured detail in the side panel, and lands in the store directory rather than your repo; `--no-include-bodies` produces a redacted titles-and-metadata artifact for wider sharing.
 
