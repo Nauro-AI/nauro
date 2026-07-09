@@ -16,6 +16,7 @@ from pathlib import Path
 import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL
+from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import refuse_global_config_collision
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.registry import (
@@ -84,6 +85,8 @@ def attach(
             "server_url": DEFAULT_API_URL,
         },
     )
+    for warning in public_surface_git_warnings(repo_path, ".nauro/config.json"):
+        typer.echo(warning, err=True)
 
     typer.echo(f"Attached '{name}' to {repo_path.resolve()}")
     typer.echo(f"  Project id: {project_id}")

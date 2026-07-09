@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,6 +26,10 @@ else:
     import tomli as tomllib
 
 runner = CliRunner()
+
+
+def _git_init(repo: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
 
 
 # ─── nauro setup cursor ─────────────────────────────────────────────────────
@@ -212,6 +217,55 @@ def test_setup_claude_code_subcommand_unchanged(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["setup", "claude-code"])
     assert result.exit_code == 0, result.output
     assert "Configured Nauro" in result.output
+
+
+def test_setup_claude_code_warns_for_untracked_unignored_known_paths(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _git_init(repo)
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "claude-code"])
+    assert result.exit_code == 0, result.output
+    assert ".mcp.json is untracked and not git-ignored" in result.output
+    assert "AGENTS.md is untracked and not git-ignored" in result.output
+    assert "easy to add by accident" in result.output
+
+
+def test_setup_claude_code_warns_for_tracked_known_path(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / ".mcp.json").write_text("{}\n")
+    subprocess.run(["git", "add", ".mcp.json"], cwd=repo, check=True)
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "claude-code"])
+    assert result.exit_code == 0, result.output
+    assert ".mcp.json is tracked by git" in result.output
+    assert "local Nauro wiring" in result.output
+
+
+def test_setup_claude_code_suppresses_warning_for_ignored_known_paths(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / ".gitignore").write_text(".mcp.json\nAGENTS.md\n")
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "claude-code"])
+    assert result.exit_code == 0, result.output
+    assert "untracked and not git-ignored" not in result.output
+    assert "is tracked by git" not in result.output
 
 
 def test_setup_top_level_help_lists_new_subcommands():

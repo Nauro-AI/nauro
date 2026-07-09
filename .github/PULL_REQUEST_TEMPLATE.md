@@ -4,7 +4,7 @@ Keep it short and scale it to the change: a small PR needs only a line or two pe
 Write under each heading; the comment prompts are guidance and do not render.
 Add "## Risk / what to review" (non-obvious logic, edge cases, a frozen surface, lower-confidence areas)
 or "## Deferred" (intentionally out of scope; link the follow-up) as their own headings only when they carry weight.
-Link related issues, e.g. "Closes #123". Reference Nauro decisions by number, e.g. D154, where relevant.
+Link related issues, e.g. "Closes #123". Public-facing PR bodies, commits, docs, code comments, schema text, and branch names should paraphrase Nauro rationale instead of raw internal decision or question ids.
 -->
 
 ## Why

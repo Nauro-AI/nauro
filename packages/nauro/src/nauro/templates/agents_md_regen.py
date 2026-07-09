@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.store.registry import get_repo_paths
 from nauro.templates.agents_md import regenerate_agents_md_for_project
 
@@ -42,4 +43,9 @@ def warn_then_regen(
                 f"  Warning: repo path does not exist, skipping AGENTS.md: {repo_str}\n"
                 f"  Fix: remove from registry or update path in ~/.nauro/registry.json"
             )
-    return regenerate_agents_md_for_project(project_key, store_path)
+    updated = regenerate_agents_md_for_project(project_key, store_path)
+    if warn is not None:
+        for repo_path in updated:
+            for message in public_surface_git_warnings(repo_path, "AGENTS.md"):
+                warn(message)
+    return updated

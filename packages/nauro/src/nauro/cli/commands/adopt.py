@@ -36,6 +36,7 @@ from nauro.cli.commands.setup import (
     _find_nauro_command,
     setup_all_surfaces,
 )
+from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import refuse_global_config_collision
 from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
@@ -52,6 +53,11 @@ from nauro.store.repo_config import RepoConfigSchemaError, load_repo_config, sav
 from nauro.telemetry import capture
 from nauro.telemetry.events import project_created
 from nauro.templates.scaffolds import scaffold_project_store
+
+
+def _echo_repo_config_warnings(repo_root: Path) -> None:
+    for warning in public_surface_git_warnings(repo_root, ".nauro/config.json"):
+        typer.echo(warning, err=True)
 
 
 def _resolve_repo_root(repo_arg: Path | None) -> Path:
@@ -503,6 +509,7 @@ def adopt(
             "name": project_name,
         },
     )
+    _echo_repo_config_warnings(repo_root)
     scaffold_project_store(project_name, store_path)
 
     typer.echo(f"Adopted project '{project_name}' (id: {pid})")

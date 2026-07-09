@@ -22,6 +22,7 @@ from typer.testing import CliRunner
 from nauro.agents import AGENT_NAMES, emit_plugin_agents, load_agent_body, render_agent
 
 AGENTS_DIR = Path(__file__).resolve().parents[1] / "src" / "nauro" / "agents"
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 AGENT_ANCHORS: dict[str, tuple[str, ...]] = {
@@ -117,6 +118,16 @@ def test_agent_names_matches_files_on_disk() -> None:
     on_disk = sorted(p.stem for p in AGENTS_DIR.glob("*.md"))
     registered = sorted(AGENT_NAMES)
     assert on_disk == registered
+
+
+def test_public_surface_pointer_rule_stays_in_agent_and_pr_guidance() -> None:
+    phrase = "Public-facing PR bodies, commits, docs, code comments, schema text, and branch names"
+    for name in ("nauro-executor", "nauro-reviewer"):
+        assert phrase in load_agent_body(name)
+
+    template = (REPO_ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
+    assert phrase in template
+    assert "Reference Nauro decisions by number" not in template
 
 
 @pytest.mark.parametrize("name", list(AGENT_NAMES))

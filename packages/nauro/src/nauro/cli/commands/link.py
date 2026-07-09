@@ -15,6 +15,7 @@ from __future__ import annotations
 import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL, load_access_token
+from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
     REPO_CONFIG_MODE_LOCAL,
@@ -119,6 +120,8 @@ def link(
             "server_url": DEFAULT_API_URL,
         },
     )
+    for warning in public_surface_git_warnings(repo_root, ".nauro/config.json"):
+        typer.echo(warning, err=True)
 
     typer.echo(f"Linked '{name}' to cloud project")
     typer.echo(f"  Old id: {local_id}")

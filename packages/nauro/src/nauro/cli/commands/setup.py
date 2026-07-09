@@ -17,6 +17,7 @@ from pathlib import Path
 
 import typer
 
+from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
 from nauro.store.reader import read_text_lenient
@@ -167,7 +168,9 @@ def _configure_json_mcp(
     servers["nauro"] = nauro_entry
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config, indent=2) + "\n")
-    return f"  {repo_path}: wrote nauro to {label}"
+    lines = [f"  {repo_path}: wrote nauro to {label}"]
+    lines.extend(public_surface_git_warnings(repo_path, config_rel_path))
+    return "\n".join(lines)
 
 
 def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
@@ -302,6 +305,8 @@ def claude_code(
             typer.echo("\nAGENTS.md:")
             for repo_path in updated_repos:
                 typer.echo(f"  {repo_path}: regenerated AGENTS.md")
+                for warning in public_surface_git_warnings(repo_path, "AGENTS.md"):
+                    typer.echo(warning, err=True)
 
         typer.echo(
             "\nNext: start a Claude Code session in one of the repos."
@@ -788,7 +793,9 @@ def _add_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
     event_matchers.append({"hooks": [_nauro_hook_entry()]})
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
-    return f"  {repo}: wrote nauro hook to .claude/settings.json"
+    lines = [f"  {repo}: wrote nauro hook to .claude/settings.json"]
+    lines.extend(public_surface_git_warnings(repo, ".claude/settings.json"))
+    return "\n".join(lines)
 
 
 def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
@@ -987,6 +994,7 @@ def setup_all_surfaces(
             updated = regenerate_agents_md_for_project(current_project_key, store_path)
             for repo_path in updated:
                 lines.append(f"  {repo_path}: regenerated AGENTS.md")
+                lines.extend(public_surface_git_warnings(repo_path, "AGENTS.md"))
         except Exception as exc:
             lines.append(f"AGENTS.md regeneration: error — {exc}")
 
