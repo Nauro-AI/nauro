@@ -39,10 +39,15 @@ def test_generate_includes_all_sections():
 
 def test_generate_includes_behavioral_instructions():
     result = generate_agents_md("myproj", "payload")
+    public_artifacts_rule = (
+        "**Keep public-facing artifacts public.** Paraphrase Nauro rationale instead of\n"
+        "citing raw decision or question ids. Internal planning and review may cite ids."
+    )
     assert "When to use these tools" in result
     assert "Propose a decision" in result
     assert "Flag a question" in result
     assert "Update state" in result
+    assert result.count(public_artifacts_rule) == 1
 
 
 def test_routing_block_steers_to_local_stdio_with_project_id():

@@ -14,7 +14,7 @@ You review a diff against the PR template and the project's conventions. You rea
 1. Read the drafted PR description from your prompt.
 2. Read the diff: `git diff origin/main...HEAD` (or against the actual base branch — confirm with `git log --oneline origin/main..HEAD`).
 3. **Code review pass.** Apply the criteria in "What to look for" below. Flag real bugs only — prefer zero findings to weak findings.
-4. **Hard rule check** against the diff and the drafted PR body. For every decision reference, call `get_decision` and confirm it resolves.
+4. **Hard rule check** against the diff and the drafted PR body. Reject raw decision or question ids on public surfaces, then call `get_decision` for each remaining internal decision reference and confirm it resolves.
 5. Skim for soft flags.
 6. Return a structured report.
 

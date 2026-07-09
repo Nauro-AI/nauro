@@ -125,6 +125,19 @@ def test_public_surface_pointer_rule_stays_in_agent_and_pr_guidance() -> None:
     for name in ("nauro-executor", "nauro-reviewer"):
         assert phrase in load_agent_body(name)
 
+    reviewer = load_agent_body("nauro-reviewer")
+    reviewer_instruction = (
+        "4. **Hard rule check** against the diff and the drafted PR body. Reject raw decision "
+        "or question ids on public surfaces, then call `get_decision` for each remaining "
+        "internal decision reference and confirm it resolves."
+    )
+    stale_instruction = (
+        "4. **Hard rule check** against the diff and the drafted PR body. For every decision "
+        "reference, call `get_decision` and confirm it resolves."
+    )
+    assert reviewer.count(reviewer_instruction) == 1
+    assert stale_instruction not in reviewer
+
     template = (REPO_ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text(encoding="utf-8")
     assert phrase in template
     assert "Reference Nauro decisions by number" not in template
