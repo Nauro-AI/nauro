@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
 
 *An agent checks the project's prior decisions before it plans, then records the approved decision and makes the change. Captured in Codex.*
 
-**Status:** Stable (1.x). The nauro CLI, the stdio MCP tool contract, and the on-disk store format follow semantic versioning. Cloud sync is versioned and operated separately.
+**Status:** Stable (1.x). The nauro CLI, the stdio MCP tool contract, and the on-disk store format follow semantic versioning. CI covers Python 3.10-3.14, and the public packages currently carry 2,102 tests across 142 files. Cloud sync is versioned and operated separately.
 
 More at [nauro.ai](https://nauro.ai).
 
