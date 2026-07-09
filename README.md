@@ -18,6 +18,8 @@ More at [nauro.ai](https://nauro.ai).
 
 Nauro stores your project's decisions as plain markdown files, each with the alternatives you ruled out and the reasoning behind them. The store can also carry current state and open questions. When an agent proposes an approach, `check_decision` runs deterministic keyword retrieval (BM25) over those files and surfaces the related ones before the agent plans or writes code.
 
+At session start, agents can read a compact L0 standing-context summary: project summary, current state, top open questions, and the last 10 decisions, then pull specific decisions on demand. On Nauro's own 368-decision store, that L0 summary measured about 2,600 Claude tokens; the full store was 539,469 tokens.
+
 No model judges your decisions. The check is advisory and never blocks a change. A decision is recorded only by an explicit write call, and the approval gate lives in the conversation. The store is a folder you own; remove Nauro and the markdown stays.
 
 ## Install
