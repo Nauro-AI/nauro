@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "nauro"
 version = "1.2.1"
-description = "Local CLI + MCP server: project judgment for every connected coding agent."
+description = "Local CLI + MCP server: project judgement for every connected agent."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"

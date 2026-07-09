@@ -1,6 +1,6 @@
 # Nauro
 
-Nauro gives every coding agent project judgment. It keeps your project's product direction, decisions, rationale, open questions, and rejected paths in plain markdown files, then surfaces the relevant ones before an AI agent plans or changes code.
+Nauro gives every connected agent project judgement. It keeps your project's product direction, decisions, rationale, open questions, and rejected paths in plain markdown files, then surfaces the relevant ones before an AI agent plans or changes code.
 
 It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The same decision record travels with the work, not with a single tool or session.
 
@@ -8,7 +8,7 @@ It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The same 
 
 https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
 
-*A coding agent checks the project's prior decisions before it plans, then records the approved decision and makes the change. Captured in Codex.*
+*An agent checks the project's prior decisions before it plans, then records the approved decision and makes the change. Captured in Codex.*
 
 **Status:** Stable (1.x). The nauro CLI, the stdio MCP tool contract, and the on-disk store format follow semantic versioning. Cloud sync is versioned and operated separately.
 
@@ -87,7 +87,7 @@ Against tools that extract notes from conversations automatically: Nauro records
 
 ## When Nauro helps, and when it doesn't
 
-Nauro pays off when an agent needs project judgment before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions, tools, repos, machines, or handoffs.
+Nauro pays off when an agent needs project judgement before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions, tools, repos, machines, or handoffs.
 
 If one small repo plus a tight `CLAUDE.md` already keeps your agents oriented, Nauro may be too much.
 

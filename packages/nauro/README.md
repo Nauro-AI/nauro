@@ -1,6 +1,6 @@
 # Nauro
 
-Project judgment for every coding agent.
+Project judgement for every connected agent.
 
 Your project's product direction, decisions, rationale, open questions, and rejected paths travel with every connected agent. When an agent proposes an approach, Nauro surfaces the related decisions, so the agent sees the prior reasoning before it writes code. The check is advisory: it never blocks, and you approve anything that gets recorded. Works with Claude, Perplexity, Cursor, Codex, and any MCP client.
 
