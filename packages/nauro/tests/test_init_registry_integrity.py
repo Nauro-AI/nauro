@@ -11,6 +11,8 @@ fixtures; tests that need a specific cwd override on the same monkeypatch.
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 from typer.testing import CliRunner
 
@@ -19,6 +21,10 @@ from nauro.store import registry
 from nauro.store.registry import find_projects_by_name_v2, register_project_v2
 
 runner = CliRunner()
+
+
+def _git_init(repo) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
 
 
 # ── duplicate-claim refusal ────────────────────────────────────────────────────
@@ -182,3 +188,23 @@ def test_init_demo_without_name_still_uses_demo_project(tmp_path, monkeypatch):
     result = runner.invoke(app, ["init", "--demo"])
     assert result.exit_code == 0, result.output
     assert len(find_projects_by_name_v2("demo-project")) == 1
+
+
+def test_init_warns_for_unignored_repo_config_in_git_repo(tmp_path, monkeypatch):
+    _git_init(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["init", "gitproj"])
+    assert result.exit_code == 0, result.output
+    assert ".nauro/config.json is untracked and not git-ignored" in result.output
+    assert "repo-local Nauro project config" in result.output
+
+
+def test_init_suppresses_repo_config_warning_when_ignored(tmp_path, monkeypatch):
+    _git_init(tmp_path)
+    (tmp_path / ".gitignore").write_text(".nauro/config.json\n")
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["init", "gitproj"])
+    assert result.exit_code == 0, result.output
+    assert ".nauro/config.json is untracked and not git-ignored" not in result.output

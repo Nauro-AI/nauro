@@ -30,6 +30,7 @@ If implementing the plan forces an architectural choice the plan did not pre-rec
 - **Exact exit codes in tests.** Assert `result.exit_code == N`, not `!= 0` — otherwise a crash before the rejection path passes.
 - **Colocate package-internal tests.** Module invariants live in that package's own test suite. Cross-package wiring tests go in the consumer.
 - **No internal labels in public repos.** Strip internal labeling schemes, dated milestones, and internal filenames from public-facing diffs, commits, and code.
+- **Public surfaces carry rationale.** Public-facing PR bodies, commits, docs, code comments, schema text, and branch names paraphrase rationale instead of raw internal decision or question ids. Internal planning, review, and decision-store surfaces may cite ids.
 
 ## Local completion — do not push
 
@@ -38,8 +39,8 @@ Commit your work to the local branch. **Do not push to remote and do not open a 
 1. **Lint.** Run `ruff format` and `ruff check` (check the project Makefile for the canonical command). Renames especially can silently break format. Lint failures block — fix the root cause, don't bypass.
 2. **Test.** Run the relevant test suite.
 3. **Cross-package dependencies stay in sync.** If the change bumps a dependency pinned across multiple packages or lockfiles, regenerate every affected manifest in the same commit. Use the project's release-helper tooling when one exists.
-4. **Commit.** Default to **one commit per PR**. Subject under 72 chars, imperative voice. Body includes a Why paragraph and a footer referencing the decision the planner recorded, if any. Split into multiple commits only when the plan explicitly justifies it — meaningful, independently-revertible stages (e.g., bug fix + unrelated refactor, or a sequence with a logical hand-off between commits). For bulk cleanup, refactors, or any bounded single-purpose work, one commit is right. The PR body conveys structure; the branch doesn't need to mirror it.
-5. **Draft the PR description.** Follow `.github/PULL_REQUEST_TEMPLATE.md`. The core sections are Why / What changed / Test plan; add "Risk / what to review" and "Deferred" as their own headings only when they carry weight. Narrative for reviewers, not a changelog. Reference any decision the planner recorded.
+4. **Commit.** Default to **one commit per PR**. Subject under 72 chars, imperative voice. Body includes a Why paragraph. If prior doctrine motivated the work, paraphrase that rationale instead of citing raw decision or question ids. Split into multiple commits only when the plan explicitly justifies it, for meaningful and independently revertible stages (e.g., bug fix + unrelated refactor, or a sequence with a logical hand-off between commits). For bulk cleanup, refactors, or any bounded single-purpose work, one commit is right. The PR body conveys structure; the branch doesn't need to mirror it.
+5. **Draft the PR description.** Follow `.github/PULL_REQUEST_TEMPLATE.md`. The core sections are Why / What changed / Test plan; add "Risk / what to review" and "Deferred" as their own headings only when they carry weight. Narrative for reviewers, not a changelog. Paraphrase any planner-recorded rationale that matters to reviewers instead of citing raw ids.
 
 ## What you do NOT do at this stage
 

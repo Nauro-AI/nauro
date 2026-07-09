@@ -141,6 +141,9 @@ def generate_agents_md(
         "scope boundaries.\n\n"
         "**Update state** when you complete a meaningful unit of work — a feature,\n"
         "a refactor, a bug fix — so the next session starts with current context.\n"
+        "\n"
+        "**Keep public-facing artifacts public.** Paraphrase Nauro rationale instead of\n"
+        "citing raw decision or question ids. Internal planning and review may cite ids.\n"
     )
 
     # Preserved sections in source-appearance order.

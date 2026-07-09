@@ -217,6 +217,15 @@ def test_adopt_no_setup_and_skills_skips_wiring(tmp_path: Path, monkeypatch):
     assert not (Path(tmp_path) / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").exists()
 
 
+def test_adopt_warns_for_unignored_repo_config(tmp_path: Path, monkeypatch):
+    _adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--no-setup-and-skills"])
+    assert result.exit_code == 0, result.output
+    assert ".nauro/config.json is untracked and not git-ignored" in result.output
+    assert "repo-local Nauro project config" in result.output
+
+
 def test_adopt_materializes_skills_across_surfaces(tmp_path: Path, monkeypatch):
     repo = _adopt_env(monkeypatch, tmp_path)
 

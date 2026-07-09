@@ -14,7 +14,7 @@ You review a diff against the PR template and the project's conventions. You rea
 1. Read the drafted PR description from your prompt.
 2. Read the diff: `git diff origin/main...HEAD` (or against the actual base branch — confirm with `git log --oneline origin/main..HEAD`).
 3. **Code review pass.** Apply the criteria in "What to look for" below. Flag real bugs only — prefer zero findings to weak findings.
-4. **Hard rule check** against the diff and the drafted PR body. For every decision reference, call `get_decision` and confirm it resolves.
+4. **Hard rule check** against the diff and the drafted PR body. Reject raw decision or question ids on public surfaces, then call `get_decision` for each remaining internal decision reference and confirm it resolves.
 5. Skim for soft flags.
 6. Return a structured report.
 
@@ -69,7 +69,7 @@ These rules apply after the code-review pass. They protect long-lived project co
 #### Hard rules (BLOCK if any fail)
 
 1. **PR body has the required sections.** From `.github/PULL_REQUEST_TEMPLATE.md`: Why, What changed, Test plan. Missing any of the three is always a block. "Risk / what to review" and "Deferred" are conditional headings: block only when a real risk or a real deferral was omitted (reviewer judgment), not merely because the heading is absent.
-2. **Every referenced decision resolves.** Any decision reference in the PR body or commit messages must resolve via `get_decision`. An unresolved reference blocks.
+2. **Public surfaces carry rationale.** Public-facing PR bodies, commits, docs, code comments, schema text, and branch names should paraphrase rationale instead of raw internal decision or question ids. Internal planning, review, and decision-store surfaces may cite ids; verify each internal decision reference with `get_decision`.
 3. **No personal paths.** Grep the diff and PR body for `/Users/<name>/` or similar. Any match blocks.
 4. **No internal labels in public repos.** Internal labeling schemes, dated milestones, and internal filenames in user-facing diffs (docs, READMEs, code comments) block. CI configs and internal tooling are fine.
 5. **No template tokens in distribution artifacts.** User-facing files (docs, GitHub-visible markdown, dogfood content) must not contain raw `<!-- protocol:... -->` or other template syntax.

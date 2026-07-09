@@ -16,9 +16,11 @@ Paths covered:
 
 from __future__ import annotations
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -212,6 +214,38 @@ def test_link_cloud_succeeds_with_only_auth_token(tmp_path, monkeypatch):
     new_entry = registry.get_project_v2(CLOUD_PID)
     assert new_entry is not None
     assert new_entry["mode"] == "cloud"
+
+
+@pytest.mark.parametrize(
+    ("track_config", "expected"),
+    [
+        (False, ".nauro/config.json is untracked and not git-ignored"),
+        (True, ".nauro/config.json is tracked by git"),
+    ],
+)
+def test_link_cloud_warns_for_repo_config_git_hygiene(
+    tmp_path, monkeypatch, track_config, expected
+):
+    _seed_token(monkeypatch, tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+    init_result = runner.invoke(app, ["init", "linkproj"])
+    assert init_result.exit_code == 0, init_result.output
+    if track_config:
+        subprocess.run(["git", "add", ".nauro/config.json"], cwd=tmp_path, check=True)
+
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=_create_response()),
+        patch.object(remote.httpx, "post", side_effect=_presign_post),
+        patch.object(remote.httpx, "put", return_value=_ok_put()),
+    ):
+        result = runner.invoke(app, ["link", "--cloud"])
+
+    assert result.exit_code == 0, result.output
+    assert expected in result.output
+    assert "repo-local Nauro project config" in result.output
 
 
 def test_link_cloud_with_no_repo_config_errors(tmp_path, monkeypatch):

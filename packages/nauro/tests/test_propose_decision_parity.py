@@ -25,6 +25,9 @@ side-effects (snapshot, AGENTS.md regen, push) fire only on
 
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+
 import pytest
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
@@ -33,6 +36,7 @@ from nauro.mcp.stdio_server import propose_decision as stdio_propose_decision
 from nauro.mcp.tools import tool_propose_decision
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
+from nauro.templates.agents_md_regen import warn_then_regen
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
 
@@ -375,3 +379,22 @@ def test_regen_runs_only_on_confirmed(seeded_repo, monkeypatch):
     )
     assert second["status"] == "confirmed", second
     assert len(regen_called) == 1
+
+
+def test_confirmed_regen_surfaces_tracked_agents_warning(seeded_repo, monkeypatch):
+    _pid, store_path = seeded_repo
+    repo = Path.cwd()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "AGENTS.md").write_text("stale\n", encoding="utf-8")
+    subprocess.run(["git", "add", "AGENTS.md"], cwd=repo, check=True)
+    monkeypatch.setattr(mcp_tools, "warn_then_regen", warn_then_regen)
+
+    envelope = tool_propose_decision(
+        store_path,
+        title="Refresh generated agent context",
+        rationale="Keep connected agents current after recording project decisions.",
+        confidence="high",
+    )
+
+    assert envelope["status"] == "confirmed"
+    assert "AGENTS.md is tracked by git" in envelope["assessment"]
