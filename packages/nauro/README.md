@@ -1,8 +1,8 @@
 # Nauro
 
-A decision system for agentic engineering.
+Project judgment for every coding agent.
 
-Catch the moment an agent re-proposes something you already ruled out. Your project's decisions, including what you chose and what you ruled out, travel with every connected agent. When an agent proposes an approach, Nauro surfaces the past decisions related to it, so the agent sees the prior reasoning before it writes code. The check is advisory: it never blocks, and you approve anything that gets recorded. Works with Claude, Perplexity, Cursor, and any MCP client.
+Your project's product direction, decisions, rationale, open questions, and rejected paths travel with every connected agent. When an agent proposes an approach, Nauro surfaces the related decisions, so the agent sees the prior reasoning before it writes code. The check is advisory: it never blocks, and you approve anything that gets recorded. Works with Claude, Perplexity, Cursor, Codex, and any MCP client.
 
 ## Install
 
@@ -14,7 +14,7 @@ No `uv`? Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` (macO
 
 ## Quickstart
 
-Catch a conflict in about 30 seconds. No account, MCP wiring, or restart required:
+See a prior decision in about 30 seconds. No account, MCP wiring, or restart required:
 
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
@@ -55,7 +55,7 @@ Nauro is decisional, not observational. It captures what you decided and what yo
 
 No model judges your decisions. The check uses deterministic keyword retrieval (BM25), is advisory, and never blocks a change. You approve every decision before it is recorded.
 
-`check_decision` returns the related prior decisions (the `related_decisions` list shown above) so the agent can weigh them before proposing; Nauro ranks by keyword relevance and does not judge whether they conflict. When you record a choice with `propose_decision`, near-matches surface as advisory `similar_decisions` on the same call, and a clean proposal commits in one call. What you decide in one tool, every connected agent inherits; for example, a decision recorded in Claude Code is available later in Perplexity. The store is plain markdown in a folder you own. Run it fully locally with no account; cloud sync is opt-in.
+`check_decision` returns the related prior decisions (the `related_decisions` list shown above) so the agent can weigh them before proposing; Nauro ranks by keyword relevance and does not judge the proposal. When you record a choice with `propose_decision`, near-matches surface as advisory `similar_decisions` on the same call, and a clean proposal commits in one call. What you decide in one tool, every connected agent inherits; for example, a decision recorded in Claude Code is available later in Perplexity. The store is plain markdown in a folder you own. Run it fully locally with no account; cloud sync is opt-in.
 
 ## Pricing
 

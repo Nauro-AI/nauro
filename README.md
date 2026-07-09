@@ -1,8 +1,8 @@
 # Nauro
 
-Nauro is a decision system for agentic engineering. It keeps your project's decisions, rationale, and rejected paths in plain markdown files, then surfaces the relevant ones before an AI agent plans or changes code.
+Nauro gives every coding agent project judgment. It keeps your project's product direction, decisions, rationale, open questions, and rejected paths in plain markdown files, then surfaces the relevant ones before an AI agent plans or changes code.
 
-It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The result is persistent project judgment that travels with the work, not with a single tool or session.
+It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The same decision record travels with the work, not with a single tool or session.
 
 [![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![Python](https://img.shields.io/pypi/pyversions/nauro.svg)](https://pypi.org/project/nauro/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -16,7 +16,7 @@ More at [nauro.ai](https://nauro.ai).
 
 ## How it works
 
-Nauro stores your project's decisions as plain markdown files, each with the alternatives you ruled out and the reasoning behind them. When an agent proposes an approach, `check_decision` runs deterministic keyword retrieval (BM25) over those files and surfaces the related ones before the agent plans or writes code.
+Nauro stores your project's decisions as plain markdown files, each with the alternatives you ruled out and the reasoning behind them. The store can also carry current state and open questions. When an agent proposes an approach, `check_decision` runs deterministic keyword retrieval (BM25) over those files and surfaces the related ones before the agent plans or writes code.
 
 No model judges your decisions. The check is advisory and never blocks a change. A decision is recorded only by an explicit write call, and the approval gate lives in the conversation. The store is a folder you own; remove Nauro and the markdown stays.
 
@@ -77,17 +77,19 @@ Output abbreviated to the top match; the live call returns all five related deci
 
 *A project store rendered by nauro graph: supersession threads converge on the decisions that replaced them, and standalone decisions cluster by category.*
 
-## Why not ADRs, grep, CLAUDE.md, or a memory product?
+## Why not ADRs, grep, CLAUDE.md, or built-in agent notes?
 
 A decision log in your repo is a good record. The gap is on the read side: a file is read when a person opens it, and a fresh agent session starts with no knowledge that it exists. Nauro closes that gap twice over: the relevant decision reaches your agent through MCP at the moment it proposes a change, and `nauro sync` regenerates a committable `AGENTS.md` summary in every associated repo, so clones and tools without MCP wiring still start from the current record.
 
 Against a coding tool's built-in memory (Claude Code memory, Cursor memories): those are scoped to one tool and one user. Nauro's record belongs to the project. The same store answers in Claude, Cursor, Codex, and any MCP client, across every repo you associate with it.
 
-Against agent-memory products: most extract and store memories from conversations automatically. Nauro records decisions instead: an entry is a reviewed choice with its rationale and the alternatives you rejected, written only on an explicit call after approval in the conversation, retrieved by deterministic keyword search you can audit, and superseded rather than silently rewritten. It is plain markdown in a folder you own; remove Nauro and the record stays readable.
+Against tools that extract notes from conversations automatically: Nauro records decisions instead. An entry is a reviewed choice with its rationale and the alternatives you rejected, written only on an explicit call after approval in the conversation, retrieved by deterministic keyword search you can audit, and superseded rather than silently rewritten. It is plain markdown in a folder you own; remove Nauro and the record stays readable.
 
 ## When Nauro helps, and when it doesn't
 
-Nauro pays off when an agent needs project judgment before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions or tools.
+Nauro pays off when an agent needs project judgment before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions, tools, repos, machines, or handoffs.
+
+If one small repo plus a tight `CLAUDE.md` already keeps your agents oriented, Nauro may be too much.
 
 The limits are worth knowing. It surfaces only what has been recorded as a decision. It adds an MCP round-trip to the agent's flow. Retrieval is keyword-based, which is fast, offline, and auditable, and can miss a decision phrased in different words than the proposal; an optional embeddings index is available for closer synonym matching.
 
