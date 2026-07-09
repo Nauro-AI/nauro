@@ -50,18 +50,20 @@ class ErrorPayload(BaseModel):
 class CheckDecisionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.check_decision`.
 
-    On the success path ``related_decisions`` contains zero or more
-    :class:`RelatedDecision` hits and ``assessment`` carries the
-    deterministic human-readable summary. On the rejection path
-    ``error`` is populated; ``related_decisions`` stays empty and
-    ``assessment`` stays empty. ``store`` is not part of the model;
+    ``assessment`` is declared first so the takeaway leads the serialized
+    payload (Pydantic ``model_dump`` preserves declaration order), matching
+    the rendered block's takeaway-first order. On the success path it carries
+    the deterministic human-readable summary and ``related_decisions``
+    contains zero or more :class:`RelatedDecision` hits. On the rejection
+    path ``error`` is populated; ``assessment`` stays empty and
+    ``related_decisions`` stays empty. ``store`` is not part of the model;
     transport adapters add it back at serialization time.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    related_decisions: list[RelatedDecision] = Field(default_factory=list)
     assessment: str = ""
+    related_decisions: list[RelatedDecision] = Field(default_factory=list)
     error: ErrorPayload | None = None
 
 

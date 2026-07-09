@@ -79,7 +79,7 @@
       }
     },
     "additionalProperties": false,
-    "description": "Return shape for :func:`nauro_core.operations.check_decision`.\n\nOn the success path ``related_decisions`` contains zero or more\n:class:`RelatedDecision` hits and ``assessment`` carries the\ndeterministic human-readable summary. On the rejection path\n``error`` is populated; ``related_decisions`` stays empty and\n``assessment`` stays empty. ``store`` is not part of the model;\ntransport adapters add it back at serialization time.",
+    "description": "Return shape for :func:`nauro_core.operations.check_decision`.\n\n``assessment`` is declared first so the takeaway leads the serialized\npayload (Pydantic ``model_dump`` preserves declaration order), matching\nthe rendered block's takeaway-first order. On the success path it carries\nthe deterministic human-readable summary and ``related_decisions``\ncontains zero or more :class:`RelatedDecision` hits. On the rejection\npath ``error`` is populated; ``assessment`` stays empty and\n``related_decisions`` stays empty. ``store`` is not part of the model;\ntransport adapters add it back at serialization time.",
     "properties": {
       "assessment": {
         "default": "",
