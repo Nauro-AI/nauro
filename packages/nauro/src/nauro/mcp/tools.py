@@ -391,7 +391,10 @@ def tool_propose_decision(
     if result.status == "confirmed":
         capture_snapshot(store_path, trigger=f"decision: {result.decision_id}")
         if touched:
-            warn_then_regen(store_path.name, store_path)
+            regen_warnings: list[str] = []
+            warn_then_regen(store_path.name, store_path, warn=regen_warnings.append)
+            if regen_warnings:
+                response["assessment"] = "\n\n".join([response["assessment"], *regen_warnings])
         _try_push(store_path)
 
     return response

@@ -28,9 +28,9 @@ def warn_then_regen(
     Args:
         project_key: Either a v2 project_id (ULID) or a v1 project name.
         store_path: Path to the project store directory.
-        warn: Optional callback for the per-repo "repo path does not exist"
-            warning. When ``None`` (the MCP adapter case) missing repo
-            paths are silently skipped.
+        warn: Optional callback for missing-repo and git-hygiene warnings.
+            When ``None``, missing repo paths are silently skipped and
+            git-hygiene checks do not run.
 
     Returns:
         The list of repo paths whose ``AGENTS.md`` was successfully
