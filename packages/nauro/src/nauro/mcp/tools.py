@@ -20,7 +20,11 @@ from nauro_core.constants import (
     MAX_RATIONALE_LENGTH,
     MAX_TITLE_LENGTH,
     OPEN_QUESTIONS_MD,
+    PROJECT_MD,
+    SNAPSHOTS_DIR,
+    STACK_MD,
     STATE_CURRENT_FILENAME,
+    STATE_HISTORY_FILENAME,
     STATE_MD,
 )
 from nauro_core.operations import ErrorPayload, find_decision_stem_by_id
@@ -408,7 +412,9 @@ tool_propose_decision.__doc__ = f"""\
 Propose a new decision through the validation pipeline.
 
 Args:
-    title: Short title for the decision.
+    title: Short title for the decision. Required non-empty for add and
+        supersede; omit for update, which appends rationale only and
+        rejects a non-empty title.
     rationale: Why this decision is being made.
     operation: How this proposal relates to existing decisions.
 
@@ -481,7 +487,7 @@ def tool_flag_question(
         return {"store": "local", "status": "error", "guidance": guidance}
 
     if resolved_by is not None:
-        return _flag_question_resolve(store_path, targets, resolved_by)
+        return _flag_question_resolve(store_path, question, targets, resolved_by)
 
     # Content size limits
     for err in (
@@ -551,15 +557,18 @@ def tool_flag_question(
 
 def _flag_question_resolve(
     store_path: Path,
+    question: str | None,
     targets: list[str] | None,
     resolved_by: str,
 ) -> dict:
     """Resolve the ``targets`` entries against ``resolved_by``.
 
     Skips the BM25 similarity hint — resolving against a known decision is
-    not a duplicate-flag situation. On success this is a write, so capture
-    a snapshot (labelled to distinguish resolve from append) and push; on
-    rejection the kernel performed no write, so neither runs.
+    not a duplicate-flag situation. ``question`` is forwarded so the kernel's
+    pass-exactly-one rejection fires when the caller sent both. On success
+    this is a write, so capture a snapshot (labelled to distinguish resolve
+    from append) and push; on rejection the kernel performed no write, so
+    neither runs.
     """
     # The resolve action reads open-questions.md, stamps the targets, and
     # writes the file back — same read-modify-write race as the append path,
@@ -567,7 +576,7 @@ def _flag_question_resolve(
     with store_write_lock(store_path, OPEN_QUESTIONS_MD):
         result = _flag_question_op(
             FilesystemStore(store_path),
-            None,
+            question,
             None,
             targets=targets,
             resolved_by=resolved_by,
@@ -581,6 +590,53 @@ def _flag_question_resolve(
     capture_snapshot(store_path, trigger=f"resolved by {resolved_by}: {targets or []}")
     _try_push(store_path)
     return response
+
+
+# Composed adapter-locally rather than exported from nauro-core: the fixed
+# ordering is a hint-presentation concern of this surface, not a new public
+# store-format constant.
+_CANONICAL_ROOT_FILES: tuple[str, ...] = (
+    PROJECT_MD,
+    STATE_CURRENT_FILENAME,
+    STATE_HISTORY_FILENAME,
+    STACK_MD,
+    OPEN_QUESTIONS_MD,
+)
+
+
+def _available_files_hint(store_path: Path, cap: int = 20) -> list[str]:
+    """Ordered ``available_files`` entries for the ``get_raw_file`` miss envelope.
+
+    Canonical root files lead in a fixed order (when present), then remaining
+    root-level markdown files ascending by name, then one anchor per visible
+    subdirectory ascending by directory name: its lexicographically-last
+    markdown path (for a flat, zero-padded ``decisions/`` layout, the newest
+    decision) plus a ``<dir>/ (N files)`` roll-up when the directory holds
+    more than one file.
+    ``snapshots/`` and dot-directories are excluded. The cap applies after
+    ordering so root files are never crowded out by a large directory.
+    """
+    root_files: set[str] = set()
+    subdir_files: dict[str, list[str]] = {}
+    for f in store_path.rglob("*.md"):
+        rel = f.relative_to(store_path)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        if rel.parts[0] == SNAPSHOTS_DIR:
+            continue
+        if len(rel.parts) == 1:
+            root_files.add(rel.name)
+        else:
+            subdir_files.setdefault(rel.parts[0], []).append(str(rel))
+
+    entries: list[str] = [name for name in _CANONICAL_ROOT_FILES if name in root_files]
+    entries.extend(sorted(root_files - set(_CANONICAL_ROOT_FILES)))
+    for dirname in sorted(subdir_files):
+        files = sorted(subdir_files[dirname])
+        entries.append(files[-1])
+        if len(files) > 1:
+            entries.append(f"{dirname}/ ({len(files)} files)")
+    return entries[:cap]
 
 
 @mcp_tool("get_raw_file")
@@ -613,12 +669,7 @@ def tool_get_raw_file(store_path: Path, path: str) -> dict:
     # Store protocol's locked surface. Cap at 20 entries so the miss
     # envelope stays bounded for stores with many markdown files.
     if result.error is not None:
-        available = []
-        for f in sorted(store_path.rglob("*.md")):
-            rel = f.relative_to(store_path)
-            if not str(rel).startswith("snapshots/"):
-                available.append(str(rel))
-        envelope["available_files"] = available[:20]
+        envelope["available_files"] = _available_files_hint(store_path)
 
     return envelope
 
