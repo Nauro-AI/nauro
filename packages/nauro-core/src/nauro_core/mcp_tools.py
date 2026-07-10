@@ -331,7 +331,14 @@ PROPOSE_DECISION: ToolSpec = {
             "title": {
                 "type": "string",
                 "default": "",
-                "description": "Short title for the decision.",
+                "description": (
+                    "Short title for the decision. Required non-empty for "
+                    "operation=add and operation=supersede: an empty title is "
+                    "structurally rejected. Omit (or leave empty) for "
+                    "operation=update, which appends rationale only and "
+                    "rejects a non-empty title; the target decision keeps its "
+                    "existing title."
+                ),
             },
             "rationale": {
                 "type": "string",
@@ -501,9 +508,9 @@ UPDATE_STATE: ToolSpec = {
     "title": "Update project state",
     "description": (
         "Update the project's current state with a progress delta and trigger "
-        "a snapshot. Before writing, checks for potential contradictions with "
-        "recent state entries and returns a warning if found (the update is "
-        "still applied).\n"
+        "a snapshot. Before writing, checks whether the delta appears to "
+        "repeat work already recorded in recent state entries and returns a "
+        "warning if found (the update is still applied).\n"
         "\n"
         "Use when you complete a meaningful unit of work — a feature, a "
         "refactor, a bug fix — so the next session starts with current context."

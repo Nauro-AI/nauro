@@ -188,6 +188,34 @@ def test_resolve_unknown_decision_rejection_matches_across_tool_and_cli(seeded_r
     assert cli_envelope == tool_envelope
 
 
+def test_both_question_and_resolved_by_rejects_across_tool_and_stdio(seeded_repo):
+    pid, store_path = seeded_repo
+    _seed_resolvable(store_path, "Q1")
+    before = (store_path / "open-questions.md").read_text()
+    snapshots_dir = store_path / "snapshots"
+    snapshots_before = sorted(snapshots_dir.glob("*")) if snapshots_dir.exists() else []
+
+    tool_envelope = tool_flag_question(
+        store_path, question="Also new?", targets=["Q1"], resolved_by="D42"
+    )
+    assert tool_envelope["store"] == "local"
+    assert tool_envelope["status"] == "rejected"
+    assert "not both" in tool_envelope["error"]["reason"]
+
+    # The stdio surface renders the same kernel rejection reason.
+    stdio_string = stdio_flag_question(
+        question="Also new?", targets=["Q1"], resolved_by="D42", project_id=pid
+    )
+    assert stdio_string == tool_envelope["error"]["reason"]
+
+    # No write occurred: the file is untouched, the entry is not stamped, and
+    # no snapshot was captured.
+    assert (store_path / "open-questions.md").read_text() == before
+    assert "[Resolved by" not in before
+    snapshots_after = sorted(snapshots_dir.glob("*")) if snapshots_dir.exists() else []
+    assert snapshots_after == snapshots_before
+
+
 def test_neither_question_nor_resolved_by_rejects_across_tool_and_cli(seeded_repo):
     pid, store_path = seeded_repo
 
