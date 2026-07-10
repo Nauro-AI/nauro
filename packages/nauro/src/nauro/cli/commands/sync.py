@@ -39,8 +39,9 @@ def sync(
 
     With cloud sync configured, pulls from the server first (git-style
     pull-then-push), then pushes the updated store back. Project state in
-    state_current.md is not touched — use the MCP ``update_state`` tool to
-    record what changed.
+    state_current.md is not touched — use the MCP 'update_state' tool to
+    record what changed. After a successful sync, structural store
+    validation runs and any warnings are printed at the end.
     """
     if status:
         _show_status(project)
@@ -77,7 +78,8 @@ def sync(
             typer.echo(f"  Updated AGENTS.md: {repo_path}")
     else:
         typer.echo(
-            f"Snapshot v{version:03d} captured locally; not uploaded.",
+            f"Error: cloud push failed for {project_name}; snapshot v{version:03d} "
+            "was captured locally and will be pushed on the next successful sync.",
             err=True,
         )
         raise typer.Exit(code=1)

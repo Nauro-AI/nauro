@@ -19,7 +19,7 @@ def log(
     all_decisions: bool = typer.Option(
         False,
         "--all",
-        help="Show all decisions including superseded ones.",
+        help="Show all decisions including superseded ones (only with --decisions).",
     ),
     decisions: bool = typer.Option(
         False,
@@ -32,7 +32,10 @@ def log(
         help="Target project name. Overrides cwd resolution.",
     ),
 ) -> None:
-    """List recent snapshots with version, timestamp, trigger, and change summary."""
+    """List recent snapshots with version, timestamp, and trigger.
+
+    --decisions lists the decision history instead; --all includes superseded.
+    """
     _project_name, store_path = resolve_target_project(project)
 
     if decisions:

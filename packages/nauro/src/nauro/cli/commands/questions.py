@@ -34,7 +34,7 @@ def migrate(
         help="Print the legacy to Q### rename map and write nothing.",
     ),
 ) -> None:
-    """Mint sequential ``Q###`` ids for legacy timestamp question entries."""
+    """Mint sequential 'Q###' ids for legacy timestamp question entries."""
     project_name, store_path = resolve_target_project(project)
     fs_store = FilesystemStore(store_path)
 

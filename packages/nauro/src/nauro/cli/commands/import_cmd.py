@@ -578,7 +578,11 @@ def import_cmd(
         help="Target project name. Overrides cwd resolution.",
     ),
 ) -> None:
-    """Import context from an external source into the project store."""
+    """Import context from an external source into the project store.
+
+    Each import captures a snapshot; AGENTS.md in the associated repos is
+    not refreshed here — run 'nauro sync' afterwards.
+    """
     if memory_bank is None and adr is None:
         typer.echo(
             "Error: specify --memory-bank <path> or --adr <path>. See nauro import --help",

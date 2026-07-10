@@ -435,7 +435,7 @@ def codex(
         False, "--remove", help="Remove Nauro integration instead of adding it."
     ),
 ) -> None:
-    """Configure Codex CLI to use Nauro (writes ``~/.codex/config.toml``)."""
+    """Configure Codex CLI to use Nauro (writes '~/.codex/config.toml')."""
     # Standalone codex wiring is user-global, so removing it without first
     # tearing down the other projects would leave them pointed at a missing
     # MCP entry. Gate on the registry: only the last project's teardown clears.

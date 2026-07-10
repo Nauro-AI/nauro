@@ -119,6 +119,56 @@ def test_note_warns_about_missing_repo_paths(tmp_path: Path, monkeypatch):
     assert "Move billing to Stripe" in (live_repo / "AGENTS.md").read_text()
 
 
+def test_note_question_with_rationale_warns(tmp_path: Path, monkeypatch):
+    """--rationale on the question path is ignored, and the user is told so."""
+    store = register_project("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app, ["note", "Should we shard the database?", "--rationale", "scaling pressure"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "Warning: --rationale/--confidence apply to decisions only" in result.output
+    # Still recorded as a question, not a decision.
+    assert "Question added" in result.output
+
+
+def test_note_question_with_confidence_warns(tmp_path: Path, monkeypatch):
+    """A non-default --confidence on the question path triggers the warning."""
+    store = register_project("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["note", "--question", "Which queue to use", "-c", "high"])
+    assert result.exit_code == 0, result.output
+    assert "Warning: --rationale/--confidence apply to decisions only" in result.output
+
+
+def test_note_both_question_and_decision_warns(tmp_path: Path, monkeypatch):
+    """--question and --decision together warn that --question wins."""
+    store = register_project("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["note", "Pick a message broker", "--question", "--decision"])
+    assert result.exit_code == 0, result.output
+    assert "Warning: --question and --decision were both passed; --question wins" in result.output
+    assert "Question added" in result.output
+
+
+def test_note_plain_decision_no_warning(tmp_path: Path, monkeypatch):
+    """The decision path with --rationale emits no flag-usage warning."""
+    store = register_project("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["note", "Use Postgres", "--rationale", "battle-tested"])
+    assert result.exit_code == 0, result.output
+    assert "Warning: --rationale/--confidence apply to decisions only" not in result.output
+    assert "Warning: --question and --decision" not in result.output
+
+
 def test_note_empty_string_rejects(tmp_path: Path, monkeypatch):
     """Empty text is rejected before any store write."""
     store = register_project("myproj", [tmp_path])

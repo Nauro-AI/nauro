@@ -139,7 +139,7 @@ def _schema_to_typer_params(spec: ToolSpec) -> list[inspect.Parameter]:
             default=typer.Option(
                 True,
                 "--json/--no-json",
-                help="Emit JSON output (default; no-op identity for parity).",
+                help="Compatibility no-op; JSON is the only output format.",
             ),
             annotation=bool,
         )
@@ -349,7 +349,9 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
 
     command.__signature__ = inspect.Signature(parameters=params)  # type: ignore[attr-defined]
     command.__name__ = f"autogen_{tool_name}"
-    command.__doc__ = spec["description"]
+    # First paragraph only: the full tool description is MCP-client prose
+    # (multi-paragraph agent guidance) and would dominate --help output.
+    command.__doc__ = spec["description"].split("\n\n", 1)[0]
     return command
 
 
@@ -372,4 +374,4 @@ def register_autogen_commands(app: typer.Typer) -> None:
             continue
         command_name = _command_name(spec["name"])
         callback = _make_command(spec)
-        app.command(name=command_name, help=spec["description"])(callback)
+        app.command(name=command_name, help=spec["description"].split("\n\n", 1)[0])(callback)

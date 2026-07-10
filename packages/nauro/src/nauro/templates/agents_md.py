@@ -126,7 +126,9 @@ def generate_agents_md(
     total_count = read_count + write_count
     parts.append(
         f"## Nauro MCP Tools\n\n"
-        f"If your tool supports MCP, these {total_count} tools are available:\n\n"
+        f"If your tool supports MCP, these {total_count} tools are available; "
+        f"without MCP, the same tools work as `nauro <tool-name>` shell commands "
+        f"(e.g. `nauro check-decision`).\n\n"
         f"**Read tools ({read_count}):**\n"
         f"{_render_tool_rows(READ_TOOL_ROWS)}\n\n"
         f"**Write tools ({write_count}):**\n"
