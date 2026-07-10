@@ -380,3 +380,11 @@ class TestTrimmedGuidanceCanonicalHome:
         desc = get_tool_spec("get_context")["description"]
         assert "list_decisions" in desc
         assert "after get_context" in desc
+
+    def test_get_context_description_carries_scale_guidance(self):
+        """Payload sizes scale with the store, and only the get_context
+        description says so. A rewrite that drops the guidance re-invites
+        full-dump L2 calls against mature stores."""
+        desc = get_tool_spec("get_context")["description"]
+        assert "bounded working set" in desc
+        assert "scale with the store" in desc

@@ -225,9 +225,12 @@ class TestBuildL1:
         result = build_l1(FULL_FILES, DECISIONS)
         assert "Chose over Go for ecosystem" in result
 
-    def test_full_questions_included(self):
+    def test_questions_projection_renders_all_under_cap(self):
+        # Six genuine open entries against a cap of 10: the projection
+        # renders every entry and appends no omission trailer.
         result = build_l1(FULL_FILES, DECISIONS)
         assert "Sixth question?" in result
+        assert "more open questions" not in result
 
     def test_full_decision_content(self):
         result = build_l1(FULL_FILES, DECISIONS)
@@ -335,6 +338,8 @@ class TestBuildL2:
     def test_superset_of_l1(self):
         # Every project/stack/questions string L1 surfaces must also appear in
         # the full dump, and L2 must additionally carry superseded decisions.
+        # L1's omission trailer and age-nudge lines are projection annotations,
+        # not store content, so they are absent from L2 (same as L0's today).
         l1 = build_l1(FULL_FILES, DECISIONS)
         l2 = build_l2(FULL_FILES, DECISIONS)
         for marker in ("# MyProject", "Chose over Go for ecosystem", "Sixth question?"):
@@ -567,3 +572,146 @@ class TestBuildL0DiscoveryPointerExclusion:
         )
         result = build_l0(self._files(content), [])
         assert "## Open Questions" not in result
+
+
+class TestBuildL1OpenQuestionsProjection:
+    """L1 renders a capped projection of genuine open questions.
+
+    The section carries the first ``L1_QUESTIONS_LIMIT`` genuine open
+    entries in file order. Resolved history (both the ``## Resolved``
+    section and ``resolved_by``-annotated entries above the divider) and
+    discovery pointers are excluded and never consume a slot. When genuine
+    entries are omitted beyond the cap, a single trailer line reports the
+    count and points at ``get_raw_file`` for the full file.
+    """
+
+    _TRAILER_2 = (
+        '(+2 more open questions — see get_raw_file("open-questions.md") '
+        "for the full file, including resolved history)"
+    )
+
+    def _files(self, content: str) -> dict[str, str]:
+        return {"open-questions.md": content}
+
+    def _genuine(self, n: int, start: int = 1) -> str:
+        return "".join(f"- [Q{start + i}] Genuine question {start + i}?\n" for i in range(n))
+
+    def test_cap_enforced_with_trailer(self):
+        # 12 genuine entries: exactly the first 10 render, plus one trailer
+        # naming the 2 omitted.
+        content = "# Open Questions\n\n" + self._genuine(12)
+        result = build_l1(self._files(content), [])
+        for i in range(1, 11):
+            assert f"Genuine question {i}?" in result
+        assert "Genuine question 11?" not in result
+        assert "Genuine question 12?" not in result
+        assert self._TRAILER_2 in result
+        assert result.count("more open questions") == 1
+
+    def test_trailer_absent_when_nothing_omitted(self):
+        content = "# Open Questions\n\n" + self._genuine(10)
+        result = build_l1(self._files(content), [])
+        assert "Genuine question 10?" in result
+        assert "more open questions" not in result
+
+    def test_resolved_entries_excluded(self):
+        # Entries under ## Resolved and resolved_by-annotated entries above
+        # the divider drop out of L1 entirely.
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] Still open?\n"
+            "- [Resolved by D7 on 2026-05-01] [Q2] Annotated above divider?\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D9 on 2026-05-02] [Q3] Under the divider?\n"
+        )
+        result = build_l1(self._files(content), [])
+        assert "Still open?" in result
+        assert "Annotated above divider?" not in result
+        assert "Under the divider?" not in result
+        assert "## Resolved" not in result
+
+    def test_pointers_consume_no_slot_and_are_not_counted(self):
+        # 12 genuine entries plus 3 interleaved pointers: 10 genuine render,
+        # the trailer counts only the 2 omitted genuine entries, and no
+        # pointer surfaces.
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q100] BRIEF: context/a.md — pointer one\n"
+            + self._genuine(5)
+            + "- [Q101] RESUME: context/b.md — pointer two\n"
+            + self._genuine(7, start=6)
+            + "- [Q102] SELECT: context/c.md — pointer three\n"
+        )
+        result = build_l1(self._files(content), [])
+        for i in range(1, 11):
+            assert f"Genuine question {i}?" in result
+        assert "Genuine question 11?" not in result
+        assert self._TRAILER_2 in result
+        assert "BRIEF:" not in result
+        assert "RESUME:" not in result
+        assert "SELECT:" not in result
+
+    def test_file_order_preserved(self):
+        content = "# Open Questions\n\n" + self._genuine(12)
+        result = build_l1(self._files(content), [])
+        rendered_ids = [
+            line.split("]")[0] + "]" for line in result.split("\n") if line.startswith("- [Q")
+        ]
+        assert rendered_ids[0] == "- [Q1]"
+        assert rendered_ids[-1] == "- [Q10]"
+        assert rendered_ids == [f"- [Q{i}]" for i in range(1, 11)]
+
+    def test_whole_entries_never_split(self):
+        # A multi-line entry in the last slot renders complete with its
+        # continuation lines; the cap never cuts mid-entry.
+        content = (
+            "# Open Questions\n"
+            "\n" + self._genuine(9) + "- [Q10] Tenth with detail?\n"
+            "  continuation line one\n"
+            "  continuation line two\n"
+            "- [Q11] Beyond the cap?\n"
+        )
+        result = build_l1(self._files(content), [])
+        assert "Tenth with detail?" in result
+        assert "  continuation line one" in result
+        assert "  continuation line two" in result
+        assert "Beyond the cap?" not in result
+
+    def test_empty_file_renders_no_section(self):
+        result = build_l1(self._files(""), [])
+        assert "Open Questions" not in result
+
+    def test_missing_file_renders_no_section(self):
+        result = build_l1({}, [])
+        assert "Open Questions" not in result
+
+    def test_all_resolved_file_renders_no_section(self):
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D5 on 2026-04-01] [Q1] Done and dusted?\n"
+        )
+        result = build_l1(self._files(content), [])
+        assert "Open Questions" not in result
+        assert "Done and dusted?" not in result
+
+    def test_age_nudge_renders_at_l1(self):
+        today = datetime.now(timezone.utc).date()
+        target = today - timedelta(days=45)
+        content = f"# Open Questions\n\n- [{_legacy_id(target)}] Stale at L1?\n"
+        result = build_l1(self._files(content), [])
+        assert "(open 45 days; consider closing or deferring)" in result
+        assert "Stale at L1?" in result
+
+    def test_l0_never_carries_trailer(self):
+        # The trailer is an L1 annotation only; L0 output stays byte-stable
+        # (the surface parity baseline pins L0 bytes).
+        content = "# Open Questions\n\n" + self._genuine(12)
+        result = build_l0(self._files(content), [])
+        assert "more open questions" not in result
