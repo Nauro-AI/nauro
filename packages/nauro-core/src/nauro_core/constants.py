@@ -9,7 +9,6 @@ from nauro_core.protocol import (
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
     NO_INVENT_RATIONALE,
-    UPDATE_SUPERSEDE_CARE,
 )
 
 # ── L0/L1/L2 payload limits ──
@@ -161,17 +160,18 @@ MAX_BRIEF_BYTES = 50 * 1024
 # Canonical claims about check_decision/get_decision/propose_decision live in
 # nauro_core.protocol (imported at the top of this module) and are spliced
 # in below; MCP-specific framing prose (precondition / first-principles /
-# push back / vendor swap) stays inline. The PROPOSE_DECISION_OPERATIONS and
-# RESOLVES_OPEN_QUESTIONS fragments are deliberately omitted here — they are
-# bound to the `propose_decision` ToolSpec parameter descriptions instead,
-# where the agent reads them at the moment of use. For the same budget reason
-# the `update_state` "meaningful unit of work" guidance and the `get_context`
-# "do not call list_decisions afterward" nuance are omitted here too — they
-# live on the matching ToolSpec descriptions in mcp_tools.py, which the client
-# delivers intact via tools/list even when initialize.instructions is
-# truncated. Keeping all four out of the static block trims the budget so the
-# per-user project section the remote server prepends survives client-side
-# truncation of the `initialize.instructions` field.
+# push back / vendor swap) stays inline. The PROPOSE_DECISION_OPERATIONS,
+# UPDATE_SUPERSEDE_CARE, and RESOLVES_OPEN_QUESTIONS fragments are
+# deliberately omitted here — they are bound to the `propose_decision`
+# ToolSpec parameter descriptions instead, where the agent reads them at the
+# moment of use. For the same budget reason the `update_state` "meaningful
+# unit of work" guidance and the `get_context` "do not call list_decisions
+# afterward" nuance are omitted here too — they live on the matching ToolSpec
+# descriptions in mcp_tools.py, which the client delivers intact via
+# tools/list even when initialize.instructions is truncated. Keeping all five
+# out of the static block trims the budget so the per-user project section
+# the remote server prepends survives client-side truncation of the
+# `initialize.instructions` field.
 # MCP_INSTRUCTIONS remains as a backward-compatible alias.
 MCP_INSTRUCTIONS_STATIC = (
     "Nauro carries this project's doctrine across every agent session. "
@@ -195,9 +195,8 @@ MCP_INSTRUCTIONS_STATIC = (
     "Call `propose_decision` when you choose between two or more approaches, "
     "replace or remove a dependency, establish a new pattern, or cut scope. "
     "Do it at the moment the decision is made, not at the end of the "
-    "session. Always include what was rejected and why.\n"
-    "\n"
-    f"You own this classification. {UPDATE_SUPERSEDE_CARE}\n"
+    "session. Always include what was rejected and why. You own this "
+    "classification.\n"
     "\n"
     f"{NO_INVENT_RATIONALE} Do NOT propose decisions for obvious bug fixes, "
     "adding tests for existing behavior, or renaming variables.\n"
