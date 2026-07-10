@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import socket
 import sys
 from unittest.mock import patch
@@ -229,6 +230,41 @@ def test_get_client_none_with_placeholder_baked_key(nauro_home, monkeypatch):
     monkeypatch.setattr(client_mod, "_BAKED_PROJECT_KEY", "phc_REPLACE_WITH_PROD_KEY")
 
     assert client_mod.get_client() is None
+
+
+def test_get_client_silences_posthog_logger(nauro_home, monkeypatch):
+    """get_client() pins the "posthog" logger to CRITICAL after construction.
+
+    posthog catches transport errors internally and logs them at ERROR via the
+    "posthog" logger without re-raising, so capture()'s try/except can't stop a
+    full traceback from reaching stderr when the network is unreachable (offline,
+    or a sandboxed agent). The override must land AFTER Posthog(), which itself
+    resets the logger to WARNING — so a fake constructor that mimics that reset
+    guards the ordering as well as the final level.
+    """
+    import nauro.telemetry.client as client_mod
+
+    monkeypatch.delenv("NAURO_POSTHOG_KEY", raising=False)
+    monkeypatch.setattr(client_mod, "_BAKED_PROJECT_KEY", _REALISTIC_BAKED_KEY)
+
+    posthog_logger = logging.getLogger("posthog")
+    original_level = posthog_logger.level
+    posthog_logger.setLevel(logging.NOTSET)
+
+    def _fake_posthog(**kwargs):
+        # Mimic Posthog.__init__ pinning its logger to WARNING; the override in
+        # get_client() must run after this to win.
+        posthog_logger.setLevel(logging.WARNING)
+        return object()
+
+    monkeypatch.setattr("posthog.Posthog", _fake_posthog)
+
+    try:
+        client_mod.get_client()
+        assert posthog_logger.level == logging.CRITICAL
+    finally:
+        # Restore the process-global logger level so this test doesn't leak state.
+        posthog_logger.setLevel(original_level)
 
 
 def test_should_emit_false_under_shipped_placeholder(nauro_home, monkeypatch):

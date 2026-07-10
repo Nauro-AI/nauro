@@ -13,6 +13,7 @@ surface in a short-lived process the user is watching exit.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from typing import Any
@@ -89,7 +90,7 @@ def get_client() -> Any | None:
             return _client
         from posthog import Posthog
 
-        _client = Posthog(
+        client = Posthog(
             project_api_key=key,
             host=POSTHOG_HOST,
             sync_mode=True,
@@ -97,4 +98,16 @@ def get_client() -> Any | None:
             enable_exception_autocapture=False,
             before_send=_before_send,
         )
+        # posthog's client catches transport errors internally and re-emits them
+        # via logging.getLogger("posthog").exception(...) at ERROR level — it does
+        # NOT re-raise, so capture()'s try/except can't suppress them. Left alone,
+        # a network failure (offline, or a sandboxed agent with no DNS) dumps a
+        # full traceback to stderr even though the CLI command succeeds. CRITICAL
+        # keeps those failures silent while letting telemetry send normally where
+        # the network is reachable. Two ordering constraints: run it AFTER
+        # Posthog.__init__ (which resets this logger to WARNING), and set it BEFORE
+        # publishing _client so no other thread can observe the client and emit
+        # through the still-WARNING logger before the override lands.
+        logging.getLogger("posthog").setLevel(logging.CRITICAL)
+        _client = client
     return _client
