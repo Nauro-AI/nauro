@@ -151,6 +151,26 @@ def test_rejected_envelope_tier_1(seeded_repo):
     assert "touched_decisions" not in envelope
 
 
+def test_nameless_rejected_item_rejected_at_tier_1(seeded_repo):
+    """A dict-form rejected item with no 'alternative'/'name' label surfaces
+    the kernel Tier 1 rejection through the adapter envelope."""
+    _pid, store_path = seeded_repo
+    envelope = tool_propose_decision(
+        store_path,
+        title="Adopt Redis for hot caching",
+        rationale="In-memory cache for the hot read paths across the API tier.",
+        confidence="high",
+        rejected=[{"title": "Memcached", "reason": "No native persistence."}],
+    )
+    assert envelope["store"] == "local"
+    assert envelope["status"] == "rejected"
+    assert envelope["tier"] == 1
+    assert "rejected[0] has no label" in envelope["assessment"]
+    assert "'alternative'" in envelope["assessment"]
+    assert "decision_id" not in envelope
+    assert "touched_decisions" not in envelope
+
+
 def test_stdio_returns_dict_envelope_matching_adapter(seeded_repo):
     """The stdio MCP ``propose_decision`` returns the same dict envelope
     as the direct adapter call. This is the load-bearing dict-return

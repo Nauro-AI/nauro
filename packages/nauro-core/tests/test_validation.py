@@ -8,6 +8,7 @@ from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
     DecisionStatus,
+    RejectedAlternative,
 )
 from nauro_core.validation import (
     check_bm25_similarity,
@@ -244,6 +245,87 @@ class TestScreenStructural:
         action, reason = screen_structural(self._proposal(rationale=None), set(), [])
         assert action == "reject"
         assert "Rationale is empty" in reason
+
+
+class TestScreenStructuralRejectedLabels:
+    def _proposal(self, **overrides):
+        base = {
+            "title": "Use FastAPI for MCP server",
+            "rationale": "FastAPI provides async support and type safety for the server.",
+            "confidence": "high",
+        }
+        base.update(overrides)
+        return base
+
+    def test_item_without_label_key_rejects_and_echoes_keys(self):
+        proposal = self._proposal(rejected=[{"title": "Flask", "reason": "Sync-only workers."}])
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "reject"
+        assert "rejected[0] has no label" in reason
+        assert "'alternative'" in reason
+        assert "'name'" in reason
+        assert "['title', 'reason']" in reason
+        # Key names only — never the offending item's values.
+        assert "Flask" not in reason
+        assert "Sync-only" not in reason
+
+    def test_empty_alternative_without_name_rejects(self):
+        proposal = self._proposal(rejected=[{"alternative": "", "reason": "Too slow."}])
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "reject"
+        assert "rejected[0] has no label" in reason
+
+    def test_whitespace_only_label_rejects(self):
+        proposal = self._proposal(rejected=[{"alternative": "   ", "name": "\t"}])
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "reject"
+        assert "rejected[0] has no label" in reason
+
+    def test_later_item_named_by_index(self):
+        proposal = self._proposal(
+            rejected=[
+                {"alternative": "Flask", "reason": "Sync-only workers."},
+                {"reason": "No label here."},
+            ]
+        )
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "reject"
+        assert "rejected[1] has no label" in reason
+
+    def test_empty_alternative_with_name_passes(self):
+        # The or-chain fallthrough: an empty 'alternative' resolves to 'name'.
+        proposal = self._proposal(rejected=[{"alternative": "", "name": "Flask"}])
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "pass"
+        assert reason is None
+
+    def test_labeled_items_pass(self):
+        proposal = self._proposal(
+            rejected=[{"alternative": "Flask", "reason": "Sync-only workers."}]
+        )
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "pass"
+        assert reason is None
+
+    def test_string_items_pass(self):
+        proposal = self._proposal(rejected=["Flask", "Django"])
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "pass"
+        assert reason is None
+
+    def test_rejected_alternative_instances_pass(self):
+        proposal = self._proposal(
+            rejected=[RejectedAlternative(name="Flask", reason="Sync-only workers.")]
+        )
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "pass"
+        assert reason is None
+
+    def test_none_rejected_passes(self):
+        proposal = self._proposal(rejected=None)
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "pass"
+        assert reason is None
 
 
 class TestFindEnvelopeToken:

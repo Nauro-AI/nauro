@@ -605,6 +605,69 @@ def test_add_short_rationale_rejected_at_tier_1() -> None:
     assert result.tier == 1
 
 
+def test_add_rejected_item_without_label_rejected_at_tier_1() -> None:
+    """A dict-form rejected item with no 'alternative'/'name' label rejects
+    at Tier 1 instead of silently defaulting the heading, and nothing is
+    written to the store."""
+    store = InMemoryStore()
+    result = propose_decision(
+        store,
+        title="Adopt Redis for hot caching",
+        rationale="In-memory cache for the hot read paths across the API tier.",
+        confidence="medium",
+        rejected=[{"title": "Memcached", "reason": "No native persistence."}],
+    )
+    assert result.status == "rejected"
+    assert result.tier == 1
+    assert result.operation == "reject"
+    assert "rejected[0] has no label" in result.assessment
+    assert "'alternative'" in result.assessment
+    assert store.list_decisions() == []
+
+
+def test_add_valid_rejected_writes_labeled_headings() -> None:
+    store = InMemoryStore()
+    result = propose_decision(
+        store,
+        title="Adopt Redis for hot caching",
+        rationale="In-memory cache for the hot read paths across the API tier.",
+        confidence="medium",
+        rejected=[{"alternative": "Memcached", "reason": "No native persistence."}],
+    )
+    assert result.status == "confirmed"
+    body = store.read_decision(result.decision_id)
+    assert body is not None
+    assert "## Rejected Alternatives" in body
+    assert "### Memcached" in body
+
+
+def test_supersede_rejected_item_without_label_rejects_before_write() -> None:
+    store = _store_with(
+        _seed_decision(
+            1,
+            "Adopt PostgreSQL primary database",
+            "Mature ecosystem with strong JSON support and excellent tooling.",
+        ),
+    )
+    result = propose_decision(
+        store,
+        title="Switch to managed PostgreSQL provider",
+        rationale="Reduces operational burden; the self-hosting rationale no longer applies.",
+        confidence="medium",
+        operation="supersede",
+        affected_decision_id="decision-001",
+        rejected=[{"reason": "No label on this one."}],
+    )
+    assert result.status == "rejected"
+    assert result.tier == 1
+    assert "rejected[0] has no label" in result.assessment
+    # No new decision written; the supersede target is untouched.
+    assert store.list_decisions() == ["001-adopt-postgresql-primary-database"]
+    old_body = store.read_decision("001-adopt-postgresql-primary-database")
+    assert old_body is not None
+    assert "status: active" in old_body
+
+
 # ── resolves_questions ──────────────────────────────────────────────────
 
 

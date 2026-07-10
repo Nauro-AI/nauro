@@ -227,6 +227,26 @@ class TestProposeDecisionRejections:
         assert envelope["error"]["kind"] == "rejected"
         assert "exceeds" in envelope["error"]["reason"].lower()
 
+    def test_nameless_rejected_item_rejected(self, seeded_repo) -> None:
+        # Well-formed JSON, wrong keys: parse succeeds, the kernel rejects
+        # at Tier 1. Caller-fixable — envelope on stdout, exit 0.
+        result = runner.invoke(
+            app,
+            [
+                "propose-decision",
+                "In-memory cache for the hot read paths across the API tier.",
+                "--title",
+                "Adopt Redis for hot caching",
+                "--rejected",
+                '[{"title": "Memcached", "reason": "No native persistence."}]',
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.stdout)
+        assert envelope["status"] == "rejected"
+        assert envelope["tier"] == 1
+        assert "rejected[0] has no label" in envelope["assessment"]
+
     def test_propose_missing_store_exits_one_with_guidance(
         self, tmp_path: Path, monkeypatch
     ) -> None:

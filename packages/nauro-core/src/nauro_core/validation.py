@@ -124,6 +124,25 @@ def _normalize_title(title: str) -> str:
     return " ".join(title.lower().split())
 
 
+def rejected_item_label(item: dict) -> str | None:
+    """Extract the label from a dict-form rejected-alternative item.
+
+    The label is the first value under ``alternative`` then the legacy
+    ``name`` alias that is non-empty after stripping; an empty
+    ``alternative`` falls through to ``name``. Returns the stripped label,
+    or None when neither key carries one. Shared by the Tier 1 screen and
+    the write-path coercer so both agree on what counts as labeled.
+    """
+    for key in ("alternative", "name"):
+        value = item.get(key)
+        if value is None:
+            continue
+        label = str(value).strip()
+        if label:
+            return label
+    return None
+
+
 def screen_structural(
     proposal: dict,
     existing_hashes: set[str],
@@ -132,8 +151,9 @@ def screen_structural(
     """Run structural screening on a proposal. No I/O.
 
     Checks: schema validation (title, rationale, confidence), minimum rationale
-    length, hash dedup against existing_hashes, and title dedup against
-    active_decisions (same title as a decision still in force).
+    length, rejected-alternative labels (each dict item must carry a non-empty
+    'alternative' or 'name'), hash dedup against existing_hashes, and title
+    dedup against active_decisions (same title as a decision still in force).
 
     This function is operation-agnostic: it dedups the proposal title against
     whatever list the caller hands it. The caller decides which decisions are
@@ -165,6 +185,17 @@ def screen_structural(
             "reject",
             f"Rationale too short ({len(rationale)} chars). Minimum {MIN_RATIONALE_LENGTH}.",
         )
+
+    # Dict-form rejected items must carry a label; a nameless item used to
+    # silently default its heading to "Unknown" on the write path. The
+    # message echoes key names only — never the item's values.
+    for idx, item in enumerate(proposal.get("rejected") or ()):
+        if isinstance(item, dict) and rejected_item_label(item) is None:
+            return (
+                "reject",
+                f"rejected[{idx}] has no label: expected a non-empty "
+                f"'alternative' (or 'name') key; got keys {list(item.keys())}.",
+            )
 
     # Hash dedup
     content_hash = compute_hash(title, rationale)

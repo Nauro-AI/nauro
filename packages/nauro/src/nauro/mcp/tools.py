@@ -424,7 +424,9 @@ Args:
 
     affected_decision_id: Required when ``operation`` is ``update`` or
         ``supersede``. The id (e.g. "decision-042") being modified.
-    rejected: List of {{alternative, reason}} dicts.
+    rejected: List of {{alternative, reason}} dicts. Each item must carry a
+        non-empty 'alternative' key (legacy alias: 'name'); items without
+        one are rejected at the boundary.
     confidence: "high" | "medium" | "low".
     decision_type: Optional category string.
     reversibility: Optional "easy" | "moderate" | "hard".
