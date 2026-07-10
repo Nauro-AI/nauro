@@ -41,32 +41,47 @@ def note(
         False,
         "--question",
         "-q",
-        help="Force treating as a question.",
+        help="Force treating as a question. Takes precedence over --decision.",
     ),
     decision: bool = typer.Option(
         False,
         "--decision",
         "-d",
-        help="Force treating as a decision (default).",
+        help=(
+            "Force treating as a decision (default). Only disables the "
+            "trailing-'?' question autodetect; --question wins when both "
+            "are passed."
+        ),
     ),
     rationale: str | None = typer.Option(
         None,
         "--rationale",
         "-r",
-        help="Why this decision was made.",
+        help="Why this decision was made (decisions only; ignored for questions).",
     ),
     confidence: str = typer.Option(
         "medium",
         "--confidence",
         "-c",
-        help="Confidence: high, medium, low.",
+        help="Confidence: high, medium, low (decisions only; ignored for questions).",
         callback=_validate_confidence,
     ),
 ) -> None:
-    """Record a decision or question in the project store."""
+    """Record a decision or question in the project store.
+
+    Decisions are written to decisions/NNN-title.md; questions are appended
+    to open-questions.md. Every note also regenerates AGENTS.md in all
+    associated repos.
+    """
     if not text.strip():
         typer.echo("Note text cannot be empty.", err=True)
         raise typer.Exit(1)
+
+    if question and decision:
+        typer.echo(
+            "Warning: --question and --decision were both passed; --question wins.",
+            err=True,
+        )
 
     project_name, store_path = resolve_target_project(project)
     fs_store = FilesystemStore(store_path)
@@ -74,6 +89,14 @@ def note(
     is_question = question or (text.rstrip().endswith("?") and not decision)
 
     if is_question:
+        # Explicit `-c medium` is indistinguishable from the default, so it
+        # cannot trigger the warning; that trade-off is accepted.
+        if rationale is not None or confidence != "medium":
+            typer.echo(
+                "Warning: --rationale/--confidence apply to decisions only; "
+                "ignored for this question.",
+                err=True,
+            )
         # Hold the lock across the read-mint-insert-write append so concurrent
         # local writers cannot read the same open-questions.md pre-image and
         # clobber one another's entry. Mirrors the decision branch below, which

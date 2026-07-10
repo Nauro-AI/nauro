@@ -380,7 +380,9 @@ def adopt(
         help="Skip the --remove confirmation prompt (for scripting).",
     ),
 ) -> None:
-    """Adopt an existing repo into Nauro: register, wire MCP, install skills."""
+    """Adopt an existing repo into Nauro: register, wire MCP, install skills;
+    --remove inverts adoption (--purge-store also deletes the store).
+    """
     if print_prompt:
         if (
             name is not None

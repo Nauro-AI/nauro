@@ -259,7 +259,10 @@ def init(
     cloud: bool = typer.Option(
         False,
         "--cloud",
-        help="Create a cloud-scoped project on the remote MCP server.",
+        help=(
+            "Create a cloud-scoped project on the remote MCP server. "
+            "Requires prior 'nauro auth login'."
+        ),
     ),
     force: bool = typer.Option(
         False,
@@ -275,7 +278,7 @@ def init(
 
     If a project with the given name already exists locally and --add-repo
     is provided, the repos are appended to the existing local-mode entry.
-    Cloud-mode entries cannot be extended this way — use ``nauro attach``.
+    Cloud-mode entries cannot be extended this way — use 'nauro attach'.
     """
     # --demo seeds pre-written decisions directly to disk; the --cloud path
     # goes through propose_decision, which has no batch-seed bypass. Reject

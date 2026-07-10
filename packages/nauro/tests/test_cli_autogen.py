@@ -253,6 +253,36 @@ class TestCheckDecision:
         assert "No project found" in result.output
 
 
+# ── Help surface ────────────────────────────────────────────────────────────
+
+
+class TestAutogenHelp:
+    def test_command_help_is_exactly_the_first_description_paragraph(self) -> None:
+        """Registered help must equal the tool description's first paragraph.
+
+        The rest of the description is MCP-client prose (multi-paragraph
+        agent guidance) and stays off the --help surface.
+        """
+        import click
+        import typer as typer_mod
+
+        command = typer_mod.main.get_command(app)
+        ctx = click.Context(command, info_name="nauro")
+        specs = {spec["name"]: spec for spec in ALL_TOOLS}
+        for name in AUTOGEN_ALLOWLIST:
+            sub = command.get_command(ctx, name.replace("_", "-"))
+            assert sub is not None
+            assert sub.help == specs[name]["description"].split("\n\n", 1)[0]
+
+    def test_propose_decision_help_omits_later_paragraphs(self) -> None:
+        """'Tier 2' appears only in the description's second paragraph — a
+        marker that later paragraphs never leak into --help output."""
+        result = runner.invoke(app, ["propose-decision", "--help"])
+        assert result.exit_code == 0, result.output
+        assert "Record an architectural decision" in result.output
+        assert "Tier 2" not in result.output
+
+
 # ── Cross-cutting invariants ────────────────────────────────────────────────
 
 

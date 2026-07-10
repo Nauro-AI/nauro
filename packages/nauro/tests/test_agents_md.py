@@ -104,6 +104,15 @@ def test_tool_counts_derived_from_row_catalogs():
     assert f"**Write tools ({write_count}):**" in result
 
 
+def test_tools_lead_line_covers_no_mcp_agents():
+    """The tools section tells MCP-less agents about the CLI mirror."""
+    result = generate_agents_md("myproj", "payload")
+    assert (
+        "without MCP, the same tools work as `nauro <tool-name>` shell commands "
+        "(e.g. `nauro check-decision`)."
+    ) in result
+
+
 def test_generate_with_manual_section():
     result = generate_agents_md("proj", "payload", manual_section="Use conventional commits.\n")
     assert "# Manual" in result

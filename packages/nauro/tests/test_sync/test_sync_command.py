@@ -179,6 +179,9 @@ class TestSyncHonesty:
         assert result.exit_code == 1, combined
         assert "Warning: this is a cloud-mode project" in combined
         assert "not authenticated" in combined
+        # The final line leads with the failure, not the local capture.
+        assert "Error: cloud push failed for cloudproj" in combined
+        assert "will be pushed on the next successful sync" in combined
         assert "Synced cloudproj" not in result.output
 
     def test_local_project_without_auth_succeeds(self, project_store):

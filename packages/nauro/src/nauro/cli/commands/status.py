@@ -1,6 +1,7 @@
 """nauro status — Show capability table for the current project."""
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import typer
 
@@ -48,6 +49,68 @@ def _count_remote_decisions(project_id: str) -> int | None:
         and entry.get("path", "").startswith("decisions/")
         and entry.get("path", "").endswith(".md")
     )
+
+
+def _codex_config_path() -> Path:
+    """User-global Codex config path (same location setup.py writes)."""
+    return Path.home() / ".codex" / "config.toml"
+
+
+def _repo_has_mcp_wiring(repo: Path) -> bool:
+    """True when the repo declares a nauro MCP server in .mcp.json or .cursor/mcp.json.
+
+    Read-only probe: a missing, unreadable, or malformed config counts as
+    not wired — status must never crash on someone else's config file.
+    """
+    import json
+
+    for rel in (".mcp.json", ".cursor/mcp.json"):
+        try:
+            config = json.loads((repo / rel).read_text())
+        except Exception:
+            continue
+        if not isinstance(config, dict):
+            continue
+        servers = config.get("mcpServers")
+        if isinstance(servers, dict) and "nauro" in servers:
+            return True
+    return False
+
+
+def _codex_global_wired() -> bool:
+    """True when the user-global Codex config declares a nauro MCP server.
+
+    Same parse approach as setup.py; any read or parse failure counts as
+    not wired.
+    """
+    import sys
+
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
+
+    try:
+        with _codex_config_path().open("rb") as f:
+            config = tomllib.load(f)
+    except Exception:
+        return False
+    servers = config.get("mcp_servers")
+    return isinstance(servers, dict) and "nauro" in servers
+
+
+def _repo_has_generated_agents_md(repo: Path) -> bool:
+    """True when the repo's AGENTS.md carries the Nauro generation footer.
+
+    A file without the footer is hand-written (or stale beyond recognition)
+    and counts as not generated. Unreadable files count as not generated.
+    """
+    from nauro.templates.agents_md import FOOTER_MARKER
+
+    try:
+        return FOOTER_MARKER in (repo / "AGENTS.md").read_text()
+    except Exception:
+        return False
 
 
 def status(
@@ -103,16 +166,49 @@ def status(
     elif not is_cloud:
         typer.echo(
             "  Sync          inactive — local-only project."
-            " Enable with `nauro auth login`, then `nauro link --cloud`."
+            " Enable with 'nauro auth login', then 'nauro link --cloud'."
         )
     else:
-        typer.echo("  Sync          inactive — run `nauro auth login` to enable")
+        typer.echo("  Sync          inactive — run 'nauro auth login' to enable")
 
-    # MCP
-    typer.echo("  MCP           active")
+    # MCP + AGENTS.md — computed from on-disk wiring, never assumed. Every
+    # probe is guarded (same rationale as the shared-name check above): a
+    # corrupt config or unreadable file counts as not wired, never a crash.
+    try:
+        from nauro.store.registry import get_repo_paths
 
-    # AGENTS.md
-    typer.echo("  AGENTS.md     active")
+        repo_paths = [Path(p) for p in get_repo_paths(project_id)]
+    except Exception:
+        repo_paths = []
+
+    try:
+        mcp_wired = sum(1 for repo in repo_paths if _repo_has_mcp_wiring(repo))
+    except Exception:
+        mcp_wired = 0
+    try:
+        codex_global = _codex_global_wired()
+    except Exception:
+        codex_global = False
+
+    if mcp_wired or codex_global:
+        details = []
+        if repo_paths:
+            details.append(f"wired in {mcp_wired}/{len(repo_paths)} repos")
+        if codex_global:
+            details.append("Codex global")
+        typer.echo(f"  MCP           active ({'; '.join(details)})")
+    else:
+        typer.echo("  MCP           inactive — run 'nauro setup all'")
+
+    try:
+        agents_generated = sum(1 for repo in repo_paths if _repo_has_generated_agents_md(repo))
+    except Exception:
+        agents_generated = 0
+
+    if agents_generated:
+        typer.echo(f"  AGENTS.md     active ({agents_generated}/{len(repo_paths)} repos)")
+    else:
+        typer.echo("  AGENTS.md     inactive — run 'nauro sync'")
 
     # Decision counts and sync divergence
     from nauro.store.reader import _list_decisions
