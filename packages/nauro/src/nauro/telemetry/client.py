@@ -13,6 +13,7 @@ surface in a short-lived process the user is watching exit.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from typing import Any
@@ -89,7 +90,7 @@ def get_client() -> Any | None:
             return _client
         from posthog import Posthog
 
-        _client = Posthog(
+        client = Posthog(
             project_api_key=key,
             host=POSTHOG_HOST,
             sync_mode=True,
@@ -97,4 +98,11 @@ def get_client() -> Any | None:
             enable_exception_autocapture=False,
             before_send=_before_send,
         )
+        # posthog swallows transport errors internally and logs them at ERROR via
+        # the "posthog" logger, so capture()'s try/except never sees them and a
+        # network failure would traceback to stderr. Ordering is load-bearing:
+        # AFTER Posthog() (its __init__ resets this logger to WARNING) and BEFORE
+        # publishing _client (so no thread emits through the still-WARNING logger).
+        logging.getLogger("posthog").setLevel(logging.CRITICAL)
+        _client = client
     return _client

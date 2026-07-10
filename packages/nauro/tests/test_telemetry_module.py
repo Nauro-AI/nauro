@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import socket
 import sys
 from unittest.mock import patch
@@ -229,6 +230,58 @@ def test_get_client_none_with_placeholder_baked_key(nauro_home, monkeypatch):
     monkeypatch.setattr(client_mod, "_BAKED_PROJECT_KEY", "phc_REPLACE_WITH_PROD_KEY")
 
     assert client_mod.get_client() is None
+
+
+def test_get_client_silences_posthog_logger(nauro_home, monkeypatch):
+    """get_client() pins the "posthog" logger to CRITICAL after construction.
+
+    posthog logs swallowed transport errors at ERROR via this logger, so only
+    the level override keeps tracebacks off stderr. The fake constructor mimics
+    Posthog.__init__ resetting the logger to WARNING, so the assert also guards
+    the after-construction ordering.
+    """
+    import nauro.telemetry.client as client_mod
+
+    monkeypatch.delenv("NAURO_POSTHOG_KEY", raising=False)
+    monkeypatch.setattr(client_mod, "_BAKED_PROJECT_KEY", _REALISTIC_BAKED_KEY)
+
+    posthog_logger = logging.getLogger("posthog")
+    original_level = posthog_logger.level
+    posthog_logger.setLevel(logging.NOTSET)
+
+    def _fake_posthog(**kwargs):
+        posthog_logger.setLevel(logging.WARNING)  # mimic Posthog.__init__'s reset
+        return object()
+
+    monkeypatch.setattr("posthog.Posthog", _fake_posthog)
+
+    try:
+        client_mod.get_client()
+        assert posthog_logger.level == logging.CRITICAL
+    finally:
+        posthog_logger.setLevel(original_level)
+
+
+def test_get_client_pins_real_posthog_logger(nauro_home, monkeypatch):
+    """Same guard as above, against the real Posthog constructor.
+
+    The fake in the ordering test mirrors today's Posthog.__init__; this one
+    fails if a future posthog release changes how it configures the "posthog"
+    logger. Safe without network: sync_mode=True means no consumer threads and
+    __init__ performs no I/O.
+    """
+    import nauro.telemetry.client as client_mod
+
+    monkeypatch.delenv("NAURO_POSTHOG_KEY", raising=False)
+    monkeypatch.setattr(client_mod, "_BAKED_PROJECT_KEY", _REALISTIC_BAKED_KEY)
+
+    posthog_logger = logging.getLogger("posthog")
+    original_level = posthog_logger.level
+    try:
+        assert client_mod.get_client() is not None
+        assert posthog_logger.level == logging.CRITICAL
+    finally:
+        posthog_logger.setLevel(original_level)
 
 
 def test_should_emit_false_under_shipped_placeholder(nauro_home, monkeypatch):
