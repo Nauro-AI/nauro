@@ -15,6 +15,7 @@ in nauro-core.
 from datetime import datetime, timezone
 from pathlib import Path
 
+from nauro_core.constants import PROJECT_MD_SCAFFOLD_BODY
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
@@ -25,25 +26,10 @@ from nauro_core.decision_model import (
 
 from nauro import constants as C  # noqa: N812
 
-PROJECT_MD = """\
-# {project_name}
-**One-liner:** [What this does in one sentence, e.g. \
-"A CLI tool that syncs project context to AI coding agents."]
-## Goals
-- [Primary goal — what success looks like in concrete terms, \
-e.g. "Reduce agent ramp-up from 5 min to under 30 seconds"]
-- [Secondary goal]
-## Non-goals
-- [Something explicitly out of scope, \
-e.g. "Not a project management tool — no task tracking"]
-## Users
-[Who uses this and how — be specific. \
-"Mobile-first consumers aged 18-35 discovering recipes" \
-is useful. "Users" is not.]
-## Constraints
-- [Hard limits: budget, timeline, regulatory, platform, e.g. "Must ship MVP by June 2026"]
-- [Technical constraints, e.g. "Must run offline — no cloud dependency in v1"]
-"""
+# Composed from the shared body constant so this template and the kernel's
+# scaffold-form guard (nauro_core.parsing.is_scaffold_project_md, which lets
+# build_l0 skip unedited scaffolds) can never drift apart.
+PROJECT_MD = "# {project_name}\n" + PROJECT_MD_SCAFFOLD_BODY
 
 STATE_CURRENT_MD = """\
 # Current State

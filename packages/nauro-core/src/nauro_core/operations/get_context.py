@@ -40,16 +40,16 @@ _BUILDERS = {
 def _load_context_files(store: Store, level: int) -> dict[str, str]:
     """Load the markdown files the context builders consume.
 
-    L0 deliberately omits ``project.md``: the AGENTS.md surface re-includes
-    that content and rendering it twice would push every L0 caller over its
-    token budget. L1/L2 carry it. Each builder ignores keys it does not
-    use, so the remaining files are loaded unconditionally.
+    ``project.md`` is loaded at every level: L0 carries it as a stable-scope
+    preamble (``build_l0`` skips content still in unedited scaffold form at
+    composition time), and L1/L2 carry it verbatim. Each builder ignores keys
+    it does not use, so files other than the state history are loaded
+    unconditionally.
     """
     files: dict[str, str] = {}
-    if level != 0:
-        project = store.read_file(PROJECT_MD)
-        if project is not None:
-            files[PROJECT_MD] = project
+    project = store.read_file(PROJECT_MD)
+    if project is not None:
+        files[PROJECT_MD] = project
 
     stack = store.read_file(STACK_MD)
     if stack is not None:

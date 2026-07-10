@@ -25,7 +25,7 @@ def _context_text(store_path: Path, level: int) -> str:
 
 
 def build_l0_payload(store_path: Path) -> str:
-    """Build L0 payload (~2,000-4,000 tokens)."""
+    """Build L0 payload (concise summary)."""
     return _context_text(store_path, 0)
 
 

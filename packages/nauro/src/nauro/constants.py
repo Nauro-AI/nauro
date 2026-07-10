@@ -63,6 +63,11 @@ SKILLS_SECTION_HEADER = "## Skills"
 # ── Validation thresholds (CLI-specific) ──
 STALE_SYNC_DAYS = 7
 L0_TOKEN_LIMIT = 3500
+# project.md leads every L0 payload as the stable-scope preamble, so its size
+# lands on every session start across every surface. 2,000 estimated tokens
+# (8 KB at CHARS_PER_TOKEN = 4) is several times a healthy scope file; beyond
+# that the detail belongs in stack.md or decisions.
+PROJECT_MD_TOKEN_WARN = 2_000
 
 # ── flag_question similar-decision hint ──
 # Compared against a raw BM25 score (not a normalized 0-1 similarity); above

@@ -3,6 +3,7 @@
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 
+from nauro_core.constants import PROJECT_MD_SCAFFOLD_BODY
 from nauro_core.context import build_l0, build_l1, build_l2
 from nauro_core.decision_model import (
     Decision,
@@ -65,7 +66,9 @@ DECISIONS = [
 class TestBuildL0:
     def test_full_files(self):
         result = build_l0(FULL_FILES, DECISIONS)
-        assert "# MyProject" in result
+        # The project body leads the payload; its H1 is stripped.
+        assert "Goal: build something great." in result
+        assert "# MyProject" not in result
         assert "## Current State" in result
         assert "Shipping v1" in result
         assert "**Stack:** Python 3.11+" in result
@@ -114,7 +117,8 @@ class TestBuildL0:
     def test_empty_decisions(self):
         result = build_l0(FULL_FILES, [])
         assert "## Recent Decisions" not in result
-        assert "# MyProject" in result
+        assert "Goal: build something great." in result
+        assert "# MyProject" not in result
 
     def test_empty_files(self):
         result = build_l0({}, [])
@@ -147,6 +151,64 @@ class TestBuildL0:
         result = build_l0(files, [])
         assert "New format wins" in result
         assert "Shipping v1" not in result
+
+
+class TestBuildL0ProjectPreamble:
+    """L0 leads with the project.md body as a stable-scope preamble.
+
+    The leading H1 is stripped (the consuming surface supplies the title
+    heading), and content still in unedited ``nauro init`` scaffold form is
+    skipped entirely. L1/L2 are untouched: they carry project.md verbatim.
+    """
+
+    SCAFFOLD = "# my-proj\n" + PROJECT_MD_SCAFFOLD_BODY
+
+    def test_project_body_is_first_section(self):
+        result = build_l0(FULL_FILES, DECISIONS)
+        assert result.startswith("Goal: build something great.")
+        assert result.index("Goal: build something great.") < result.index("## Current State")
+
+    def test_scaffold_form_project_md_skipped(self):
+        files = {**FULL_FILES, "project.md": self.SCAFFOLD}
+        result = build_l0(files, DECISIONS)
+        assert "**One-liner:**" not in result
+        assert "my-proj" not in result
+        assert result.startswith("## Current State")
+
+    def test_h1_strip_handles_leading_blank_lines(self):
+        files = {"project.md": "\n\n# MyProject\n\nGoal: something.\n"}
+        result = build_l0(files, [])
+        assert result == "Goal: something."
+
+    def test_crlf_project_md_renders_preamble_without_carriage_returns(self):
+        files = {"project.md": "# MyProject\r\n\r\nGoal: something.\r\n## Goals\r\n- ship it\r\n"}
+        result = build_l0(files, [])
+        assert "\r" not in result
+        assert result.startswith("Goal: something.")
+        assert "## Goals" in result
+
+    def test_no_h1_file_passes_through(self):
+        files = {"project.md": "Goal without heading.\n## Goals\n- ship it\n"}
+        result = build_l0(files, [])
+        assert result.startswith("Goal without heading.")
+        assert "## Goals" in result
+
+    def test_h1_only_project_md_renders_nothing(self):
+        files = {"project.md": "# MyProject\n"}
+        result = build_l0(files, [])
+        assert result == ""
+
+    def test_l1_includes_scaffold_form_project_md_verbatim(self):
+        files = {**FULL_FILES, "project.md": self.SCAFFOLD}
+        result = build_l1(files, DECISIONS)
+        assert "# my-proj" in result
+        assert "**One-liner:**" in result
+
+    def test_l2_includes_scaffold_form_project_md_verbatim(self):
+        files = {**FULL_FILES, "project.md": self.SCAFFOLD}
+        result = build_l2(files, DECISIONS)
+        assert "# my-proj" in result
+        assert "**One-liner:**" in result
 
 
 class TestBuildL1:

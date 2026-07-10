@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from nauro_core.constants import DECISIONS_DIR, STACK_EMPTY_MARKER
+from nauro_core.constants import DECISIONS_DIR, PROJECT_MD_SCAFFOLD_BODY, STACK_EMPTY_MARKER
 
 # Tokens that end in a period without ending the sentence. A terminator
 # closing one of these is treated as part of the abbreviation, not a sentence
@@ -232,6 +232,40 @@ def _stem_from_decision_path(path: str) -> str | None:
     if "/" in tail or not tail.endswith(".md"):
         return None
     return tail[: -len(".md")]
+
+
+def strip_leading_h1(content: str) -> str:
+    """Drop a leading ``# ...`` H1 line plus surrounding blank lines.
+
+    Mirrors ``context._strip_leading_current_header`` but for any H1: leading
+    blank lines are dropped, one H1 line is removed when present, and the
+    remainder is returned stripped. Content without a leading H1 passes
+    through (stripped) unchanged. Shared by ``is_scaffold_project_md`` and the
+    L0 project-scope preamble, which renders project.md under its own section
+    ordering and must not stutter the file's title heading.
+    """
+    # S3-synced bytes on the hosted path decode without the universal-newline
+    # translation local Path.read_text gets; normalizing here fixes both the
+    # scaffold-guard comparison and preamble rendering for CRLF files.
+    content = content.replace("\r\n", "\n")
+    lines = content.strip().split("\n")
+    if lines and lines[0].startswith("# "):
+        lines = lines[1:]
+        while lines and not lines[0].strip():
+            lines.pop(0)
+    return "\n".join(lines).strip()
+
+
+def is_scaffold_project_md(content: str) -> bool:
+    """Whether ``content`` is an unedited ``nauro init`` project.md scaffold.
+
+    The scaffold interpolates only the ``# {project_name}`` heading, so the
+    check strips a leading H1 and compares the remainder against
+    ``PROJECT_MD_SCAFFOLD_BODY`` exactly (trailing whitespace stripped on both
+    sides). Any edit to the body — even one character — means the user has
+    started filling in real scope and the content is no longer scaffold-form.
+    """
+    return strip_leading_h1(content) == PROJECT_MD_SCAFFOLD_BODY.strip()
 
 
 def extract_current_state(state_content: str) -> str:

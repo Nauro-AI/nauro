@@ -2,7 +2,7 @@
 
 import pytest
 
-from nauro_core.constants import DECISIONS_DIR
+from nauro_core.constants import DECISIONS_DIR, PROJECT_MD_SCAFFOLD_BODY
 from nauro_core.parsing import (
     _canonical_decision_id,
     _cap_to_first_unit,
@@ -15,7 +15,9 @@ from nauro_core.parsing import (
     _stem_from_decision_path,
     extract_decision_number,
     first_sentence_end,
+    is_scaffold_project_md,
     scan_decision_references,
+    strip_leading_h1,
 )
 
 
@@ -55,6 +57,46 @@ class TestExtractDecisionNumber:
 
     def test_decision_without_number_returns_none(self):
         assert extract_decision_number("decision-") is None
+
+
+class TestStripLeadingH1:
+    def test_strips_h1_and_following_blank_lines(self):
+        assert strip_leading_h1("# Title\n\n\nBody line.\n") == "Body line."
+
+    def test_leading_blank_lines_before_h1(self):
+        assert strip_leading_h1("\n\n# Title\n\nBody line.\n") == "Body line."
+
+    def test_no_h1_passes_through_stripped(self):
+        assert strip_leading_h1("Body only.\n\nMore body.\n") == "Body only.\n\nMore body."
+
+    def test_h2_is_not_stripped(self):
+        assert strip_leading_h1("## Section\nBody.") == "## Section\nBody."
+
+    def test_empty_string(self):
+        assert strip_leading_h1("") == ""
+
+
+class TestIsScaffoldProjectMd:
+    def _render(self, project_name: str) -> str:
+        return f"# {project_name}\n" + PROJECT_MD_SCAFFOLD_BODY
+
+    def test_rendered_scaffold_is_scaffold(self):
+        for name in ("x", "my-project", "A Project With Spaces"):
+            assert is_scaffold_project_md(self._render(name)) is True
+
+    def test_crlf_rendered_scaffold_is_scaffold(self):
+        assert is_scaffold_project_md(self._render("x").replace("\n", "\r\n")) is True
+
+    def test_one_character_edit_is_not_scaffold(self):
+        edited = self._render("x").replace("[Secondary goal]", "[Secondary goal!]")
+        assert edited != self._render("x")
+        assert is_scaffold_project_md(edited) is False
+
+    def test_filled_project_md_is_not_scaffold(self):
+        assert is_scaffold_project_md("# proj\n**One-liner:** Ships things.\n") is False
+
+    def test_empty_string_is_not_scaffold(self):
+        assert is_scaffold_project_md("") is False
 
 
 class TestFirstSentenceEnd:

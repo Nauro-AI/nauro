@@ -172,11 +172,14 @@ def test_missing_store_guidance_matches_across_surfaces(missing_store):
 # transport-decoration regression (Last-synced trailer, snapshot diff,
 # NO_CONTEXT_YET sentinel) or a kernel content change.
 #
-# Deviates from that capture in one intended way: the redundant "# Current
+# Deviates from that capture in two intended ways: the redundant "# Current
 # State" sub-header (the file's own header, doubled under L0's "## Current
-# State" section header) is now stripped.
+# State" section header) is now stripped, and the project.md body (leading
+# H1 stripped) now opens the payload as the stable-scope preamble.
 
-_BASELINE_L0 = """## Current State
+_BASELINE_L0 = """Goal: ship Nauro CLI v1 with strong opinions.
+
+## Current State
 **Sprint:** ship beta
 **Blocker:** none
 

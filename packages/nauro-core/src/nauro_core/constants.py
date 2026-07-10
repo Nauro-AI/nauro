@@ -110,6 +110,31 @@ POINTER_FLAG_PREFIXES: tuple[str, ...] = ("BRIEF:", "RESUME:", "SELECT:")
 # ── Stack empty marker ──
 STACK_EMPTY_MARKER = "# Stack\n<!-- Tech choices with rationale and rejected alternatives -->"
 
+# ── project.md scaffold body ──
+# The project.md scaffold text after the "# {project_name}" heading line.
+# Single source: nauro's templates/scaffolds.py composes its PROJECT_MD
+# template from this constant, and build_l0 uses it (via
+# parsing.is_scaffold_project_md) to skip unedited scaffold content when
+# rendering the L0 project-scope preamble.
+PROJECT_MD_SCAFFOLD_BODY = """\
+**One-liner:** [What this does in one sentence, e.g. \
+"A CLI tool that syncs project context to AI coding agents."]
+## Goals
+- [Primary goal — what success looks like in concrete terms, \
+e.g. "Reduce agent ramp-up from 5 min to under 30 seconds"]
+- [Secondary goal]
+## Non-goals
+- [Something explicitly out of scope, \
+e.g. "Not a project management tool — no task tracking"]
+## Users
+[Who uses this and how — be specific. \
+"Mobile-first consumers aged 18-35 discovering recipes" \
+is useful. "Users" is not.]
+## Constraints
+- [Hard limits: budget, timeline, regulatory, platform, e.g. "Must ship MVP by June 2026"]
+- [Technical constraints, e.g. "Must run offline — no cloud dependency in v1"]
+"""
+
 # ── Content size limits (H3 — STRIDE) ──
 MAX_TITLE_LENGTH = 300
 MAX_RATIONALE_LENGTH = 10_000
