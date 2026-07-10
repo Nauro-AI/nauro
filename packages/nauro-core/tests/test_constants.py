@@ -29,15 +29,17 @@ from nauro_core.protocol import (
     RESOLVES_OPEN_QUESTIONS,
 )
 
-# The static instruction block must stay under the claude.ai
-# initialize.instructions truncation point (~2,023 chars) with room for the
-# per-user project section the remote server prepends. Trimming the trailing
-# update-state and get-context-followup guidance — now carried on the
-# matching ToolSpec descriptions, which tools/list delivers intact — brought
-# the block back under the cliff. This is the post-trim ceiling: modest
-# headroom above the current length so future growth past the cliff forces a
-# conscious bump and a re-check that the composed remote payload still keeps
-# every section header under the truncation point.
+# The static block's ceiling exists to leave headroom under the claude.ai
+# initialize.instructions truncation point (~2,023 chars) for the per-user
+# project section the remote server prepends. The composed payload holds a
+# tiered contract, enforced by TestInstructionsSurviveTruncation in
+# test_mcp_tools.py: 0- and 1-project compositions survive in full;
+# realistic inline multi-project compositions keep every section header and
+# the whole per-user section before the cliff (static tail-body truncation
+# accepted); pathological max-name inline compositions guarantee only the
+# per-user section. Guidance relocated out of the static block lives on the
+# matching ToolSpec descriptions, which tools/list delivers intact past the
+# cliff — that durable home is what makes static-tail loss acceptable.
 MCP_INSTRUCTIONS_TRUNCATION_LIMIT = 2023
 MCP_INSTRUCTIONS_STATIC_MAX_CHARS = 1891
 

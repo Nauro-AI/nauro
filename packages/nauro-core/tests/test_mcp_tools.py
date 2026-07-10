@@ -286,6 +286,15 @@ THREE_PROJECTS = [
 ]
 ONE_PROJECT = [{"project_id": "01KQ6AZGNA0B3QBF67NBXP3S45", "name": "nauro"}]
 
+# Pathological but server-legal inputs: 100 characters is the server-side
+# project-name cap (no nauro-core constant exists for it), paired with full
+# 26-char ULIDs.
+MAX_NAME_PROJECTS = [
+    {"project_id": "01KQ6AZGNA0B3QBF67NBXP3S45", "name": "a" * 100},
+    {"project_id": "01KREWKMPDW2EVR66F9XXNERGB", "name": "b" * 100},
+    {"project_id": "01KRVJWEPXJHTC7ZZNHVAR0PV5", "name": "c" * 100},
+]
+
 SECTION_HEADERS = (
     "## When to check decisions",
     "## When to propose decisions",
@@ -294,13 +303,34 @@ SECTION_HEADERS = (
 
 
 class TestInstructionsSurviveTruncation:
-    """The real static block, composed with a per-user project section, must
-    keep every section header before the client-side truncation point so no
-    load-bearing guidance silently falls off the chat surface."""
+    """Tiered contract for what survives the claude.ai client's truncation
+    of the composed ``initialize.instructions`` payload.
 
-    @pytest.mark.parametrize("projects", [ONE_PROJECT, THREE_PROJECTS])
-    def test_every_section_header_before_truncation(self, projects):
+    The per-user section is the load-bearing payload: it carries the
+    project_id a multi-project caller must pass, and no other surface
+    delivers it. Static-block guidance has a durable home on the matching
+    ToolSpec descriptions, which tools/list delivers intact, so losing the
+    static tail is recoverable — losing the per-user section is not.
+
+    - Tier 1 (full survival): 0- and 1-project compositions fit entirely
+      under the cliff.
+    - Tier 2 (header + per-user survival): a realistic inline multi-project
+      composition keeps every static section header and the whole per-user
+      section before the cliff; static tail-body truncation is accepted.
+    - Tier 3 (per-user survival): a pathological max-name composition
+      guarantees only the per-user section; static headers may truncate.
+    """
+
+    @pytest.mark.parametrize("projects", [[], ONE_PROJECT], ids=["zero", "one"])
+    def test_tier1_full_composition_survives(self, projects):
         result = build_remote_instructions(MCP_INSTRUCTIONS_STATIC, projects)
+        assert len(result) <= INSTRUCTIONS_TRUNCATION_LIMIT, (
+            f"composed instructions are {len(result)} chars, past the "
+            f"{INSTRUCTIONS_TRUNCATION_LIMIT}-char truncation point"
+        )
+
+    def test_tier2_every_section_header_before_truncation(self):
+        result = build_remote_instructions(MCP_INSTRUCTIONS_STATIC, THREE_PROJECTS)
         for header in SECTION_HEADERS:
             offset = result.find(header)
             assert offset != -1, f"{header} missing from composed instructions"
@@ -308,6 +338,28 @@ class TestInstructionsSurviveTruncation:
                 f"{header} falls at offset {offset}, past the "
                 f"{INSTRUCTIONS_TRUNCATION_LIMIT}-char truncation point"
             )
+
+    def test_tier2_per_user_section_before_truncation(self):
+        """The entire per-user section (project list plus the explicit
+        project_id directive) must end before the cliff — the static block
+        may lose tail body here, but never the per-user payload."""
+        result = build_remote_instructions(MCP_INSTRUCTIONS_STATIC, THREE_PROJECTS)
+        static_offset = result.index(MCP_INSTRUCTIONS_STATIC)
+        assert static_offset < INSTRUCTIONS_TRUNCATION_LIMIT, (
+            f"static block starts at offset {static_offset}, past the "
+            f"{INSTRUCTIONS_TRUNCATION_LIMIT}-char truncation point"
+        )
+
+    def test_tier3_per_user_section_before_truncation_max_names(self):
+        """Accepted limit: with server-cap-length names, static section
+        headers may fall past the cliff — only the per-user section (project
+        list plus the explicit-project_id directive) is guaranteed."""
+        result = build_remote_instructions(MCP_INSTRUCTIONS_STATIC, MAX_NAME_PROJECTS)
+        static_offset = result.index(MCP_INSTRUCTIONS_STATIC)
+        assert static_offset < INSTRUCTIONS_TRUNCATION_LIMIT, (
+            f"static block starts at offset {static_offset}, past the "
+            f"{INSTRUCTIONS_TRUNCATION_LIMIT}-char truncation point"
+        )
 
 
 class TestTrimmedGuidanceCanonicalHome:

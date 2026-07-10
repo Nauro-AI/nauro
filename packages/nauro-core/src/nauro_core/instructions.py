@@ -27,19 +27,17 @@ class ProjectRef(TypedDict):
 
 MAX_INLINE_PROJECTS = 3
 
+# Compressed hard: the 0-project composition must fit entirely under the
+# claude.ai initialize.instructions truncation point (2,023 chars). That
+# point minus the static block (1,811 chars today) and the two joining
+# newlines leaves ~210 chars for the per-user section at the current
+# static size — less if the static block grows toward its 1,891-char
+# ceiling — so this copy targets ≤195 to keep headroom.
 WELCOME_NO_PROJECT = (
-    "Welcome to Nauro. You have no projects yet.\n"
-    "\n"
-    "Next steps:\n"
-    "1. Run `nauro auth login` (required before any cloud operation).\n"
-    "2. Create a project:\n"
-    "   - `nauro init <name>` for a local-only project (no network).\n"
-    "   - `nauro init --cloud <name>` to create a server-minted cloud project.\n"
-    "3. Or, if a teammate already created a cloud project, run "
-    "`nauro attach <project_id>` to connect this machine to it.\n"
-    "\n"
-    "Once a project exists, tools auto-resolve to it — you do not need to "
-    "pass a project_id."
+    "`nauro auth login` before cloud ops. "
+    "`nauro init <name>` (local), `nauro init --cloud <name>`, or "
+    "`nauro attach <project_id>` (teammate's cloud project). "
+    "Tools then auto-resolve (no project_id)."
 )
 
 
