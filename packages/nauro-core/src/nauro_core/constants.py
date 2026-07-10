@@ -17,6 +17,8 @@ L0_QUESTIONS_LIMIT = 3
 L0_DECISIONS_SUMMARY_LIMIT = 10
 L1_DECISIONS_LIMIT = 10
 L1_DECISIONS_SUMMARY_LIMIT = 10
+# L1 working-set cap on genuine open questions, mirrors L1_DECISIONS_LIMIT.
+L1_QUESTIONS_LIMIT = 10
 
 # ── Validation thresholds ──
 VALID_CONFIDENCES: set[str] = {"high", "medium", "low"}

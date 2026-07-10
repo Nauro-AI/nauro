@@ -122,11 +122,14 @@ class TestL1Payload:
         payload = build_l1_payload(store)
         assert "Rationale" in payload
 
-    def test_contains_full_questions(self, store: Path):
+    def test_questions_projection_renders_all_under_cap(self, store: Path):
+        # Seven genuine open entries against the L1 cap of 10: the
+        # projection renders every entry and appends no omission trailer.
         payload = build_l1_payload(store)
         assert "Open Questions" in payload
         for i in range(1, 8):
             assert f"Question {i}?" in payload
+        assert "more open questions" not in payload
 
 
 class TestL2Payload:

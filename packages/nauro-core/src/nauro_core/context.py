@@ -13,6 +13,7 @@ from nauro_core.constants import (
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
     L1_DECISIONS_SUMMARY_LIMIT,
+    L1_QUESTIONS_LIMIT,
     OPEN_QUESTIONS_MD,
     PROJECT_MD,
     STACK_MD,
@@ -34,7 +35,7 @@ from nauro_core.state import assemble_state_for_context
 # Open questions older than this nudge the reader to close or defer.
 # Q-form entries without a minted-at timestamp silently skip the projection
 # until ``flag_question`` starts stamping them.
-_L0_AGE_PROJECTION_DAYS = 30
+_AGE_PROJECTION_DAYS = 30
 
 
 def _active_decisions(decisions: list[Decision]) -> list[Decision]:
@@ -42,28 +43,36 @@ def _active_decisions(decisions: list[Decision]) -> list[Decision]:
     return [d for d in decisions if d.status is DecisionStatus.active]
 
 
-def _render_l0_open_questions(content: str) -> str:
-    """Render the first ``L0_QUESTIONS_LIMIT`` open ``EntryBlock``s for L0.
+def _render_open_questions(
+    parsed: OpenQuestionsFile,
+    limit: int,
+    include_omission_trailer: bool,
+) -> str:
+    """Render the first ``limit`` genuine open ``EntryBlock``s.
 
     Walks the parsed block list so the entry's ``timestamp`` survives for
     the age projection. Entries
-    physically under ``## Resolved`` are skipped via the divider index.
+    physically under ``## Resolved`` are skipped via the divider index, as
+    are entries annotated ``resolved_by`` above it.
     Discovery-pointer entries (body starts with ``BRIEF:``, ``RESUME:`` or
     ``SELECT:``) are excluded entirely and do not consume a slot in the limit.
     A ``(open NN days; consider closing or deferring)`` line is prepended
     when ``entry.timestamp`` is set and the entry is older than
-    :data:`_L0_AGE_PROJECTION_DAYS`. Q-form entries without a timestamp
-    render without the projection.
-    """
-    if not content.strip():
-        return ""
+    :data:`_AGE_PROJECTION_DAYS`. Q-form entries without a timestamp
+    render without the projection. Entries render whole — the limit never
+    cuts mid-entry.
 
-    parsed = OpenQuestionsFile.parse(content)
+    When ``include_omission_trailer`` is set and genuine entries were
+    omitted beyond the limit, one trailer line reports the omitted count
+    and points at ``get_raw_file`` for the full file. Pointers never count
+    toward the omitted total.
+    """
     divider = parsed.resolved_divider_idx
     today = datetime.now(timezone.utc).date()
 
     lines: list[str] = []
     rendered = 0
+    omitted = 0
     for idx, block in enumerate(parsed.blocks):
         if divider is not None and idx >= divider:
             break
@@ -73,17 +82,35 @@ def _render_l0_open_questions(content: str) -> str:
             continue
         if block.entry.is_discovery_pointer:
             continue
-        if rendered >= L0_QUESTIONS_LIMIT:
-            break
+        if rendered >= limit:
+            omitted += 1
+            continue
         entry = block.entry
         if entry.timestamp is not None:
             age_days = (today - entry.timestamp.date()).days
-            if age_days > _L0_AGE_PROJECTION_DAYS:
+            if age_days > _AGE_PROJECTION_DAYS:
                 lines.append(f"(open {age_days} days; consider closing or deferring)")
         lines.extend(entry.render())
         rendered += 1
 
+    if include_omission_trailer and omitted:
+        lines.append(
+            f'(+{omitted} more open questions — see get_raw_file("open-questions.md") '
+            "for the full file, including resolved history)"
+        )
+
     return "\n".join(lines)
+
+
+def _render_l0_open_questions(content: str) -> str:
+    """Render the L0 open-questions body: top 3 genuine entries, no trailer."""
+    if not content.strip():
+        return ""
+    return _render_open_questions(
+        OpenQuestionsFile.parse(content),
+        L0_QUESTIONS_LIMIT,
+        include_omission_trailer=False,
+    )
 
 
 def _resolve_state(files: dict[str, str]) -> str | None:
@@ -183,10 +210,16 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
 
 
 def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
-    """Build L1 payload (working set).
+    """Build L1 payload (bounded working set).
 
     Canonical section order: project → state → stack → questions →
     full decisions (last N active) → earlier decisions summary.
+
+    The questions section is a capped projection of genuine open entries,
+    not the raw file: resolved history and discovery pointers drop out,
+    the first ``L1_QUESTIONS_LIMIT`` genuine entries render in file order,
+    and a single trailer line reports how many genuine entries were
+    omitted. The full file stays reachable via get_raw_file and L2.
 
     Args:
         files: Dict of store-relative keys to file contents.
@@ -214,7 +247,14 @@ def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
 
     questions_content = files.get(OPEN_QUESTIONS_MD, "")
     if questions_content.strip():
-        sections.append(questions_content.strip())
+        parsed_questions = OpenQuestionsFile.parse(questions_content)
+        rendered_questions = _render_open_questions(
+            parsed_questions,
+            L1_QUESTIONS_LIMIT,
+            include_omission_trailer=True,
+        )
+        if rendered_questions:
+            sections.append(parsed_questions.header + "\n" + rendered_questions)
 
     active = _active_decisions(decisions)
     if active:

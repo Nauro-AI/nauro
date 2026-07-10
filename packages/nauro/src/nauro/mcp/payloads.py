@@ -30,7 +30,7 @@ def build_l0_payload(store_path: Path) -> str:
 
 
 def build_l1_payload(store_path: Path) -> str:
-    """Build L1 payload (~4,000-6,000 tokens)."""
+    """Build L1 payload (bounded working set; size scales with the store)."""
     return _context_text(store_path, 1)
 
 
