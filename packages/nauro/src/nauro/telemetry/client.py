@@ -98,16 +98,11 @@ def get_client() -> Any | None:
             enable_exception_autocapture=False,
             before_send=_before_send,
         )
-        # posthog's client catches transport errors internally and re-emits them
-        # via logging.getLogger("posthog").exception(...) at ERROR level — it does
-        # NOT re-raise, so capture()'s try/except can't suppress them. Left alone,
-        # a network failure (offline, or a sandboxed agent with no DNS) dumps a
-        # full traceback to stderr even though the CLI command succeeds. CRITICAL
-        # keeps those failures silent while letting telemetry send normally where
-        # the network is reachable. Two ordering constraints: run it AFTER
-        # Posthog.__init__ (which resets this logger to WARNING), and set it BEFORE
-        # publishing _client so no other thread can observe the client and emit
-        # through the still-WARNING logger before the override lands.
+        # posthog swallows transport errors internally and logs them at ERROR via
+        # the "posthog" logger, so capture()'s try/except never sees them and a
+        # network failure would traceback to stderr. Ordering is load-bearing:
+        # AFTER Posthog() (its __init__ resets this logger to WARNING) and BEFORE
+        # publishing _client (so no thread emits through the still-WARNING logger).
         logging.getLogger("posthog").setLevel(logging.CRITICAL)
         _client = client
     return _client
