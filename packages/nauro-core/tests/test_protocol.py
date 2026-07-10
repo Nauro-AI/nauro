@@ -179,17 +179,16 @@ class TestMcpInstructionsComposition:
     """MCP_INSTRUCTIONS_STATIC must contain every fragment used by the MCP
     surface verbatim, and must be fully resolved (no leftover tokens).
 
-    ``PROPOSE_DECISION_OPERATIONS`` and ``RESOLVES_OPEN_QUESTIONS`` are
-    deliberately omitted from the static block — they live on the matching
-    ``propose_decision`` ToolSpec parameter descriptions instead, where the
-    agent reads them at the moment of use. The positive splice asserts
-    below pin those relocations.
+    ``PROPOSE_DECISION_OPERATIONS``, ``UPDATE_SUPERSEDE_CARE``, and
+    ``RESOLVES_OPEN_QUESTIONS`` are deliberately omitted from the static
+    block — they live on the matching ``propose_decision`` ToolSpec
+    parameter descriptions instead, where the agent reads them at the
+    moment of use. The positive splice asserts below pin those relocations.
     """
 
     REQUIRED_FRAGMENTS = (
         CHECK_DECISION_RETURNS,
         GET_DECISION_BEFORE_PROPOSING,
-        UPDATE_SUPERSEDE_CARE,
         NO_INVENT_RATIONALE,
     )
 
@@ -207,6 +206,20 @@ class TestMcpInstructionsComposition:
         spec = get_tool_spec("propose_decision")
         op_desc = spec["input_schema"]["properties"]["operation"]["description"]
         assert PROPOSE_DECISION_OPERATIONS in op_desc
+
+    def test_update_supersede_care_not_in_static(self) -> None:
+        """Relocated to the propose_decision.operation parameter description
+        so the static block stays under the truncation budget; the fragment
+        must not silently reappear in the static block."""
+        assert UPDATE_SUPERSEDE_CARE not in MCP_INSTRUCTIONS_STATIC
+
+    def test_update_supersede_care_in_operation_parameter(self) -> None:
+        """Relocation guard: the fragment must appear verbatim on the
+        ``propose_decision.operation`` parameter description so the agent
+        still reads the default-to-add guidance at the moment of use."""
+        spec = get_tool_spec("propose_decision")
+        op_desc = spec["input_schema"]["properties"]["operation"]["description"]
+        assert UPDATE_SUPERSEDE_CARE in op_desc
 
     def test_resolves_open_questions_in_resolves_questions_parameter(self) -> None:
         """Relocation guard: the fragment must appear verbatim on the

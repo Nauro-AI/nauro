@@ -144,10 +144,8 @@ _CWD_PARAM = Annotated[
     str | None,
     Field(
         description=(
-            "Optional. Absolute directory path used to resolve the project "
-            "from the local registry when project_id is not given. Callers "
-            "pass their working directory so resolution matches the repo "
-            "they are operating in."
+            "Optional. The caller's absolute working directory; resolves "
+            "the project from the local registry when project_id is omitted."
         )
     ),
 ]

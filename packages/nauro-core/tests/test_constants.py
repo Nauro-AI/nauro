@@ -41,7 +41,7 @@ from nauro_core.protocol import (
 # matching ToolSpec descriptions, which tools/list delivers intact past the
 # cliff — that durable home is what makes static-tail loss acceptable.
 MCP_INSTRUCTIONS_TRUNCATION_LIMIT = 2023
-MCP_INSTRUCTIONS_STATIC_MAX_CHARS = 1891
+MCP_INSTRUCTIONS_STATIC_MAX_CHARS = 1700
 
 
 class TestLimits:

@@ -50,10 +50,8 @@ class ToolSpec(TypedDict):
 _PROJECT_PARAM: dict[str, Any] = {
     "type": "string",
     "description": (
-        "Optional. If you have one project, the server resolves it "
-        "automatically. Pass explicitly if you have multiple: the hosted "
-        "server's list_projects tool returns the available IDs, and on the "
-        "local server the `nauro projects` terminal command lists them."
+        "Optional; auto-resolved when you have one project. With multiple, "
+        "list ids via list_projects (hosted) or `nauro projects` (local)."
     ),
 }
 
@@ -245,9 +243,6 @@ SEARCH_DECISIONS: ToolSpec = {
         "than browsing the full list. More token-efficient than list_decisions "
         "for targeted lookups.\n"
         "\n"
-        'Example: search_decisions("authentication") returns all decisions '
-        "related to auth, OAuth, JWT, etc.\n"
-        "\n"
         "Returns decision number, title, date, status, and a relevance "
         "snippet from the matching rationale. Requires a non-empty query."
     ),
@@ -280,8 +275,8 @@ CHECK_DECISION: ToolSpec = {
     "title": "Check decision against existing decisions",
     "description": (
         "Check whether a proposed approach overlaps with existing decisions "
-        "WITHOUT writing anything. Returns related decisions (via Tier 1 + "
-        "Tier 2 BM25 retrieval) and a deterministic assessment string.\n"
+        "WITHOUT writing anything. Returns related decisions via BM25 "
+        "keyword retrieval and a deterministic assessment string.\n"
         "\n"
         f"This tool does NOT judge conflicts. {GET_DECISION_BEFORE_PROPOSING}\n"
         "\n"
@@ -315,13 +310,12 @@ PROPOSE_DECISION: ToolSpec = {
     "name": "propose_decision",
     "title": "Propose a decision",
     "description": (
-        "Record an architectural decision. The kernel commits on Tier 1 "
-        "structural validation pass; the write is single-call.\n"
+        "Record an architectural decision. The write commits in a single "
+        "call once structural validation passes.\n"
         "\n"
-        "Tier 2 BM25 similarity is advisory: any hits return on "
-        "similar_decisions in the response and do not block the write. "
-        "Review similar_decisions before drafting and surface them to the "
-        "user; the human-in-the-loop gate is the chat-session approval "
+        "Similarity hits are advisory: they return on similar_decisions and "
+        "never block the write. Review them before drafting and surface "
+        "them to the user; the human-in-the-loop gate is the chat approval "
         "before this call, not a second tool call after it.\n"
         "\n"
         "Call this when you choose between two or more approaches, replace "
@@ -394,10 +388,9 @@ PROPOSE_DECISION: ToolSpec = {
                 # CLI autogen surface) materialise "medium", which the kernel
                 # then rejects as a disallowed metadata change on update.
                 "description": (
-                    "Author's confidence in the decision. Use 'high' only "
-                    "when a source explicitly accepts or approves the choice; "
-                    "'medium' when it is the best available given known "
-                    "tradeoffs; 'low' when it is a working assumption that "
+                    "Author's confidence: 'high' only when a source "
+                    "explicitly approves; 'medium' when best available given "
+                    "known tradeoffs; 'low' for a working assumption that "
                     "may be revisited."
                 ),
             },
@@ -494,8 +487,7 @@ FLAG_QUESTION: ToolSpec = {
                     "the response names the resolving decision. On the resolve "
                     "action (resolved_by set), the entries to stamp as resolved "
                     "— every id must exist in open-questions.md or the call is "
-                    "rejected. Freshness is bounded by the most recent pull, so "
-                    "a remote resolution may be missed by a stale local copy."
+                    "rejected."
                 ),
             },
             "resolved_by": {
