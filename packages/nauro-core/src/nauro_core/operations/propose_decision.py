@@ -71,6 +71,7 @@ from nauro_core.search import Bm25Hit
 from nauro_core.validation import (
     check_bm25_similarity,
     compute_hash,
+    rejected_item_label,
     screen_structural,
 )
 
@@ -721,9 +722,17 @@ def _coerce_rejected(rejected) -> list[RejectedAlternative]:
         if isinstance(item, RejectedAlternative):
             out.append(item)
         elif isinstance(item, dict):
-            name = item.get("alternative") or item.get("name") or "Unknown"
+            # Tier 1 already rejects nameless items on the validated path;
+            # raising here is fail-loud insurance for bypass callers rather
+            # than silently defaulting the heading.
+            name = rejected_item_label(item)
+            if name is None:
+                raise ValueError(
+                    "rejected item has no label: expected a non-empty "
+                    f"'alternative' (or 'name') key; got keys {list(item.keys())}."
+                )
             reason = item.get("reason")
-            out.append(RejectedAlternative(name=str(name), reason=reason or None))
+            out.append(RejectedAlternative(name=name, reason=reason or None))
         elif isinstance(item, str):
             out.append(RejectedAlternative(name=item, reason=None))
     return out

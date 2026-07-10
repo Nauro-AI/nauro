@@ -377,7 +377,12 @@ PROPOSE_DECISION: ToolSpec = {
                         "reason": {"type": "string"},
                     },
                 },
-                "description": "Alternatives considered and rejected, each with reason.",
+                "description": (
+                    "Alternatives considered and rejected. Each item must "
+                    "carry a non-empty 'alternative' key (legacy alias: "
+                    "'name') plus a 'reason'; items without one are rejected "
+                    "at the boundary."
+                ),
             },
             "confidence": {
                 "type": "string",
