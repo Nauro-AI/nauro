@@ -2,9 +2,8 @@
 
 Accepts pre-loaded file contents (``dict[str, str]``) and parsed decision
 lists (``list[Decision]``) via function injection. Callers control which
-files to include, allowing surface-specific customization (e.g., local L0
-can omit project.md for AGENTS.md compatibility) without nauro-core needing
-to know about I/O.
+files to include, allowing surface-specific customization (e.g., only L2
+loads state_history.md) without nauro-core needing to know about I/O.
 """
 
 from datetime import datetime, timezone
@@ -26,6 +25,8 @@ from nauro_core.parsing import (
     decisions_summary_lines,
     extract_current_state,
     extract_stack_oneliner,
+    is_scaffold_project_md,
+    strip_leading_h1,
 )
 from nauro_core.questions import EntryBlock, OpenQuestionsFile
 from nauro_core.state import assemble_state_for_context
@@ -123,8 +124,13 @@ def _strip_leading_current_header(assembled: str) -> str:
 def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
     """Build L0 payload (concise summary).
 
-    Section order: project → state → stack summary → open questions (top 5) →
-    recent decisions summary (last 10 active).
+    Section order: project scope preamble → state → stack summary →
+    open questions (top 3) → recent decisions summary (last 10 active).
+
+    project.md leads the payload as a stable-scope preamble, with its leading
+    H1 stripped (the surrounding surface supplies the title heading). An
+    unedited ``nauro init`` scaffold is skipped entirely — placeholder
+    prompts are not project scope.
 
     Args:
         files: Dict of store-relative keys to file contents.
@@ -135,8 +141,10 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
     sections: list[str] = []
 
     project = files.get(PROJECT_MD, "")
-    if project.strip():
-        sections.append(project.strip())
+    if project.strip() and not is_scaffold_project_md(project):
+        body = strip_leading_h1(project)
+        if body:
+            sections.append(body)
 
     raw_state = _resolve_state(files)
     if raw_state:

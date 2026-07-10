@@ -214,6 +214,53 @@ def test_sync_writes_agents_md(tmp_path: Path, monkeypatch):
     assert "# Manual" in content
 
 
+def test_sync_agents_md_carries_project_scope_without_h1_stutter(tmp_path: Path, monkeypatch):
+    """A filled project.md body reaches AGENTS.md under "## Project: {name}".
+
+    The file's own H1 is stripped by the L0 builder, so the payload must not
+    stutter a "# myproj" heading directly under the section header.
+    """
+    from nauro.store.registry import register_project
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store = register_project("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    (store / "project.md").write_text(
+        "# myproj\n\n**One-liner:** Ships the thing.\n## Goals\n- Ship v1\n"
+    )
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["sync"])
+    assert result.exit_code == 0
+
+    content = (repo / "AGENTS.md").read_text()
+    assert "## Project: myproj" in content
+    assert "**One-liner:** Ships the thing." in content
+    assert content.index("## Project: myproj") < content.index("**One-liner:** Ships the thing.")
+    assert "\n# myproj" not in content
+
+
+def test_sync_agents_md_omits_scaffold_project_placeholders(tmp_path: Path, monkeypatch):
+    """A freshly scaffolded store must not leak project.md placeholder prompts."""
+    from nauro.store.registry import register_project
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store = register_project("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["sync"])
+    assert result.exit_code == 0
+
+    content = (repo / "AGENTS.md").read_text()
+    assert "**One-liner:** [What this does" not in content
+    assert "[Primary goal" not in content
+    assert "[Who uses this and how" not in content
+    assert "[Hard limits" not in content
+
+
 def test_sync_multi_repo(tmp_path: Path, monkeypatch):
     from nauro.store.registry import register_project
 

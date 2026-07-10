@@ -11,6 +11,8 @@ from nauro.constants import (
     CHARS_PER_TOKEN,
     DECISIONS_DIR,
     L0_TOKEN_LIMIT,
+    PROJECT_MD,
+    PROJECT_MD_TOKEN_WARN,
     STALE_SYNC_DAYS,
     STATE_CURRENT_FILENAME,
     STATE_LEGACY_FILENAME,
@@ -28,6 +30,7 @@ def validate_store(store_path: Path) -> list[str]:
     - Unfilled bracket prompts remaining in project.md, state.md, stack.md
     - state.md "Last synced" older than 7 days
     - L0 token count exceeds 3,500
+    - project.md token count exceeds the L0-preamble warning threshold
     - Decision numbering is sequential with no gaps
 
     Args:
@@ -109,6 +112,16 @@ def validate_store(store_path: Path) -> list[str]:
         warnings.append(
             f"L0 token count ~{token_estimate} exceeds {L0_TOKEN_LIMIT:,} — consider trimming"
         )
+
+    # Check project.md size — it leads every L0 payload as the scope preamble.
+    project_path = store_path / PROJECT_MD
+    if project_path.exists():
+        project_estimate = len(read_text_lenient(project_path)) // CHARS_PER_TOKEN
+        if project_estimate > PROJECT_MD_TOKEN_WARN:
+            warnings.append(
+                f"{PROJECT_MD}: ~{project_estimate} estimated tokens exceeds "
+                f"{PROJECT_MD_TOKEN_WARN:,} — move detail to stack.md or decisions"
+            )
 
     # Check decision numbering is sequential with no gaps
     decisions_dir = store_path / DECISIONS_DIR

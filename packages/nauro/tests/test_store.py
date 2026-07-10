@@ -721,6 +721,46 @@ def test_validate_no_warnings_clean_store(tmp_path: Path):
     assert len(warnings) == 0
 
 
+def _clean_store_with_project_md(tmp_path: Path, project_md: str) -> Path:
+    """Build a warning-free store whose project.md is the given content."""
+    store = tmp_path / "projects" / "sized"
+    store.mkdir(parents=True)
+    (store / "decisions").mkdir()
+    (store / "snapshots").mkdir()
+    (store / "project.md").write_text(project_md)
+    (store / "state.md").write_text("# State\n\n## Current\nShipping v1\n\n## History\n")
+    (store / "stack.md").write_text("# Stack\n- Python 3.11\n")
+    (store / "open-questions.md").write_text("# Open Questions\n")
+    _minimal_v2_decision(store / "decisions" / "001-init.md", num=1, title="Init")
+    return store
+
+
+def test_validate_project_md_over_token_threshold_warns(tmp_path: Path):
+    from nauro.constants import CHARS_PER_TOKEN, PROJECT_MD_TOKEN_WARN
+
+    # One char over the threshold in estimated tokens.
+    oversized = "# Big\n" + "x" * (PROJECT_MD_TOKEN_WARN * CHARS_PER_TOKEN)
+    store = _clean_store_with_project_md(tmp_path, oversized)
+
+    warnings = validate_store(store)
+    size_warnings = [w for w in warnings if "estimated tokens" in w]
+    assert len(size_warnings) == 1
+    assert size_warnings[0].startswith("project.md:")
+    assert f"{PROJECT_MD_TOKEN_WARN:,}" in size_warnings[0]
+    assert "stack.md" in size_warnings[0]
+
+
+def test_validate_project_md_at_token_threshold_is_silent(tmp_path: Path):
+    from nauro.constants import CHARS_PER_TOKEN, PROJECT_MD_TOKEN_WARN
+
+    # Exactly at the threshold: the warning fires only above it.
+    at_threshold = "x" * (PROJECT_MD_TOKEN_WARN * CHARS_PER_TOKEN)
+    store = _clean_store_with_project_md(tmp_path, at_threshold)
+
+    warnings = validate_store(store)
+    assert [w for w in warnings if "estimated tokens" in w] == []
+
+
 def _minimal_v2_decision(path: Path, num: int, title: str) -> None:
     """Write a minimal valid v2 decision file for tests that just need one file."""
     path.write_text(

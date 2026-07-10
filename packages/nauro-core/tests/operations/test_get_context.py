@@ -80,11 +80,11 @@ def test_l2_on_empty_store_returns_empty_string() -> None:
     assert result.content == ""
 
 
-def test_l0_omits_project_md() -> None:
-    """L0 deliberately drops project.md — AGENTS.md re-includes it."""
+def test_l0_includes_project_md() -> None:
+    """L0 carries the project.md body as its stable-scope preamble."""
     result = get_context(_seeded_store(), 0)
     assert result.content is not None
-    assert "Goal: build the thing." not in result.content
+    assert "Goal: build the thing." in result.content
     # L0 still renders state, stack, and decisions.
     assert "Current State" in result.content
     assert "Python 3.11" in result.content
