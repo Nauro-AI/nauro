@@ -29,6 +29,7 @@ push stay on the adapter side per the locked Store Protocol boundary.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -90,6 +91,22 @@ _UPDATE_DISALLOWED_FIELDS: tuple[str, ...] = (
 )
 
 _SLUG_MAX_LENGTH = 60
+
+
+@dataclass(frozen=True)
+class _QuestionResolveOutcome:
+    """Result of stamping (and self-healing) ``resolves_questions`` entries.
+
+    ``resolved_ids`` are the ids whose ``resolved_by`` ended set;
+    ``relocated_ids`` / ``skipped_prose_ids`` come from the post-stamp
+    ``normalize`` step and feed the propose result's observability fields.
+    Internal to the propose write path — carried in the execute tuple so the
+    error branches (which never relocate) can return an empty instance.
+    """
+
+    resolved_ids: tuple[str, ...] = ()
+    relocated_ids: tuple[str, ...] = ()
+    skipped_prose_ids: tuple[str, ...] = ()
 
 
 def propose_decision(
@@ -216,7 +233,7 @@ def propose_decision(
     similar_models = _to_related_decisions(similar_raw, parsed)
 
     # --- Commit ---
-    decision_id, actual_operation, touched, resolved_ids, error = _execute_operation(
+    decision_id, actual_operation, touched, resolve_outcome, error = _execute_operation(
         store, operation, proposal, affected_decision_id
     )
     if error is not None:
@@ -246,7 +263,9 @@ def propose_decision(
         similar_decisions=similar_models,
         decision_id=decision_id,
         touched_decisions=list(touched),
-        resolved_questions=list(resolved_ids),
+        resolved_questions=list(resolve_outcome.resolved_ids),
+        relocated_ids=resolve_outcome.relocated_ids or None,
+        skipped_prose_ids=resolve_outcome.skipped_prose_ids or None,
     )
 
 
@@ -385,30 +404,32 @@ def _execute_operation(
     operation: str,
     proposal: dict,
     affected_decision_id: str | None,
-) -> tuple[str | None, str, tuple[str, ...], tuple[str, ...], ErrorPayload | None]:
+) -> tuple[str | None, str, tuple[str, ...], _QuestionResolveOutcome, ErrorPayload | None]:
     """Execute the validated operation against the store.
 
     Returns:
-        ``(decision_id, actual_operation, touched, resolved_question_ids,
-        error)``. ``touched`` enumerates the decision file stems the kernel
-        rewrote — used by the adapter to drive AGENTS.md regen. On the
-        supersede half-state path ``decision_id`` is the newly-written
-        decision and ``error`` names the un-flipped old id.
+        ``(decision_id, actual_operation, touched, resolve_outcome, error)``.
+        ``touched`` enumerates the decision file stems the kernel rewrote —
+        used by the adapter to drive AGENTS.md regen. ``resolve_outcome``
+        carries the resolved / relocated / prose-skipped question ids from the
+        ``resolves_questions`` ingestion (empty on the error branches, which
+        never relocate). On the supersede half-state path ``decision_id`` is
+        the newly-written decision and ``error`` names the un-flipped old id.
     """
     if operation == "supersede" and affected_decision_id:
         return _do_supersede(store, proposal, affected_decision_id)
     if operation == "update" and affected_decision_id:
         return _do_update(store, proposal, affected_decision_id)
     decision_id = _write_decision_direct(store, proposal)
-    resolved, resolve_error = _apply_question_resolves(store, proposal, decision_id)
-    return decision_id, "add", (decision_id,), resolved, resolve_error
+    resolve_outcome, resolve_error = _apply_question_resolves(store, proposal, decision_id)
+    return decision_id, "add", (decision_id,), resolve_outcome, resolve_error
 
 
 def _do_supersede(
     store: Store,
     proposal: dict,
     affected_decision_id: str,
-) -> tuple[str | None, str, tuple[str, ...], tuple[str, ...], ErrorPayload | None]:
+) -> tuple[str | None, str, tuple[str, ...], _QuestionResolveOutcome, ErrorPayload | None]:
     """Two-write supersede: new decision first, then flipped old."""
     old_num = extract_decision_number(affected_decision_id)
     if old_num is None:
@@ -416,7 +437,7 @@ def _do_supersede(
             None,
             "supersede",
             (),
-            (),
+            _QuestionResolveOutcome(),
             ErrorPayload(
                 kind="error",
                 reason=f"Cannot derive supersession ref from {affected_decision_id!r}.",
@@ -431,7 +452,7 @@ def _do_supersede(
             None,
             "supersede",
             (new_decision_id,),
-            (),
+            _QuestionResolveOutcome(),
             ErrorPayload(
                 kind="error",
                 reason=(
@@ -456,7 +477,7 @@ def _do_supersede(
             new_decision_id,
             "supersede",
             (new_decision_id,),
-            (),
+            _QuestionResolveOutcome(),
             ErrorPayload(
                 kind="error",
                 reason=(
@@ -471,7 +492,7 @@ def _do_supersede(
             new_decision_id,
             "supersede",
             (new_decision_id,),
-            (),
+            _QuestionResolveOutcome(),
             ErrorPayload(
                 kind="error",
                 reason=(
@@ -497,7 +518,7 @@ def _do_supersede(
             new_decision_id,
             "supersede",
             (new_decision_id,),
-            (),
+            _QuestionResolveOutcome(),
             ErrorPayload(
                 kind="error",
                 reason=(
@@ -507,23 +528,23 @@ def _do_supersede(
             ),
         )
 
-    resolved, resolve_error = _apply_question_resolves(store, proposal, new_decision_id)
+    resolve_outcome, resolve_error = _apply_question_resolves(store, proposal, new_decision_id)
     if resolve_error is not None:
         return (
             new_decision_id,
             "supersede",
             (new_decision_id, old_stem),
-            resolved,
+            resolve_outcome,
             resolve_error,
         )
-    return new_decision_id, "supersede", (new_decision_id, old_stem), resolved, None
+    return new_decision_id, "supersede", (new_decision_id, old_stem), resolve_outcome, None
 
 
 def _do_update(
     store: Store,
     proposal: dict,
     affected_decision_id: str,
-) -> tuple[str | None, str, tuple[str, ...], tuple[str, ...], ErrorPayload | None]:
+) -> tuple[str | None, str, tuple[str, ...], _QuestionResolveOutcome, ErrorPayload | None]:
     """Rationale-only update: bump version, append dated paragraph."""
     target_stem = find_decision_stem_by_id(store, affected_decision_id)
     if target_stem is None:
@@ -531,7 +552,7 @@ def _do_update(
             None,
             "update",
             (),
-            (),
+            _QuestionResolveOutcome(),
             ErrorPayload(
                 kind="error",
                 reason=f"update target {affected_decision_id!r} not found in store.",
@@ -543,7 +564,7 @@ def _do_update(
             None,
             "update",
             (),
-            (),
+            _QuestionResolveOutcome(),
             ErrorPayload(
                 kind="error",
                 reason=f"update target {target_stem} could not be read.",
@@ -564,10 +585,10 @@ def _do_update(
     )
     store.write_file(_decision_path(target_stem), format_decision(updated))
 
-    resolved, resolve_error = _apply_question_resolves(store, proposal, target_stem)
+    resolve_outcome, resolve_error = _apply_question_resolves(store, proposal, target_stem)
     if resolve_error is not None:
-        return target_stem, "update", (target_stem,), resolved, resolve_error
-    return target_stem, "update", (target_stem,), resolved, None
+        return target_stem, "update", (target_stem,), resolve_outcome, resolve_error
+    return target_stem, "update", (target_stem,), resolve_outcome, None
 
 
 # ── resolves_questions ingestion ──────────────────────────────────────────
@@ -577,33 +598,45 @@ def _apply_question_resolves(
     store: Store,
     proposal: dict,
     decision_id: str,
-) -> tuple[tuple[str, ...], ErrorPayload | None]:
-    """Move named open questions to ``## Resolved`` after a successful write.
+) -> tuple[_QuestionResolveOutcome, ErrorPayload | None]:
+    """Stamp named open questions resolved, then self-heal the file layout.
 
-    The boundary already rejected unknown / ambiguous ids, so a failure
-    here can only come from a read/write fault. The decision write stands
-    in either case; the error payload names the half-state.
+    ``resolve`` flips ``resolved_by`` in place; the following ``normalize``
+    relocates every prose-safe stamped entry below ``## Resolved`` (whole-file
+    scope, so pre-existing strays heal on the same write) and reports what a
+    detached body paragraph held back. The boundary already rejected unknown /
+    ambiguous ids, so a failure here can only come from a read/write fault. The
+    decision write stands in either case; the error payload names the
+    half-state.
     """
     ids = list(proposal.get("resolves_questions") or [])
     if not ids:
-        return (), None
+        return _QuestionResolveOutcome(), None
     num = extract_decision_number(decision_id)
     if num is None:
-        return (), None
+        return _QuestionResolveOutcome(), None
     try:
         content = store.read_file(OPEN_QUESTIONS_MD) or ""
         questions_file = OpenQuestionsFile.parse(content)
         result = questions_file.resolve(ids, num, datetime.now(timezone.utc).date())
-        store.write_file(OPEN_QUESTIONS_MD, result.file.format())
+        normalized = result.file.normalize()
+        store.write_file(OPEN_QUESTIONS_MD, normalized.file.format())
     except Exception as exc:
-        return (), ErrorPayload(
+        return _QuestionResolveOutcome(), ErrorPayload(
             kind="error",
             reason=(
                 f"question-resolution half-state: decision {decision_id} written; "
                 f"open-questions.md not updated ({exc.__class__.__name__})."
             ),
         )
-    return result.moved_ids, None
+    return (
+        _QuestionResolveOutcome(
+            resolved_ids=result.moved_ids,
+            relocated_ids=normalized.relocated_ids,
+            skipped_prose_ids=normalized.skipped_prose_ids,
+        ),
+        None,
+    )
 
 
 # ── Question-id boundary helpers ──────────────────────────────────────────

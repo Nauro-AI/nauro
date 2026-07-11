@@ -9,6 +9,7 @@ from nauro_core.questions import (
     EntryBlock,
     HeaderBlock,
     MigrationRename,
+    NormalizeResult,
     OpenQuestionsFile,
     ProseBlock,
     QuestionEntry,
@@ -923,3 +924,279 @@ class TestMigrate:
         ]
         # The collision is gone after migration.
         assert result.file.ambiguous_ids == {}
+
+
+def _entry_ids(file: OpenQuestionsFile) -> list[str]:
+    """Sorted multiset of every entry id in the file, position-independent."""
+    return sorted(b.entry.id for b in file.blocks if isinstance(b, EntryBlock))
+
+
+class TestNormalize:
+    """Prose-safe relocation of stamped-resolved entries below ``## Resolved``."""
+
+    def test_single_stamped_entry_relocates_below_divider(self):
+        """Spec 1: a single-line stamped entry above the divider moves below it."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] still open\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D10 on 2026-05-01] [Q3] resolved earlier\n"
+        )
+        result = OpenQuestionsFile.parse(content).normalize()
+        assert isinstance(result, NormalizeResult)
+        assert result.relocated_ids == ("Q5",)
+        assert result.skipped_prose_ids == ()
+        # Q5 now lives below the divider, after the pre-existing resolved entry.
+        assert result.file.open_ids == ["Q1"]
+        assert result.file.resolved_ids == ["Q3", "Q5"]
+
+    def test_non_blank_trailing_paragraph_is_skipped(self):
+        """Spec 2: a stamped entry with a detached body paragraph is left in place."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved with body\n"
+            "\n"
+            "This is a detached body paragraph the entry does not own.\n"
+            "\n"
+            "## Resolved\n"
+        )
+        parsed = OpenQuestionsFile.parse(content)
+        before = parsed.format()
+        result = parsed.normalize()
+        assert result.relocated_ids == ()
+        assert result.skipped_prose_ids == ("Q5",)
+        # Nothing eligible: the file is returned unchanged (identity).
+        assert result.file is parsed
+        assert result.file.format() == before
+        assert "This is a detached body paragraph the entry does not own." in before
+
+    def test_blank_then_next_entry_relocates_without_spacing_growth(self):
+        """Spec 3: a blank line trailing the entry is safe and is not accumulated."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "\n"
+            "- [Q1] still open\n"
+            "\n"
+            "## Resolved\n"
+        )
+        result = OpenQuestionsFile.parse(content).normalize()
+        assert result.relocated_ids == ("Q5",)
+        assert result.file.open_ids == ["Q1"]
+        assert result.file.resolved_ids == ["Q5"]
+        # The blank that trailed Q5 was dropped — the open region has no
+        # double blank left behind.
+        open_region = result.file.format().partition("## Resolved")[0]
+        assert "\n\n\n" not in open_region
+
+    def test_entries_below_divider_are_never_touched(self):
+        """Spec 4: entries below the divider are untouched regardless of annotation."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] still open\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D10 on 2026-05-01] [Q3] resolved below\n"
+            "- [Q7] unannotated but physically below the divider\n"
+        )
+        parsed = OpenQuestionsFile.parse(content)
+        result = parsed.normalize()
+        assert result.relocated_ids == ()
+        assert result.skipped_prose_ids == ()
+        assert result.file is parsed
+        assert result.file.resolved_ids == ["Q3", "Q7"]
+
+    def test_no_divider_creates_one_and_lands_entry_below(self):
+        """Spec 5: with no divider present, one is created and the entry lands below."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] still open\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+        )
+        result = OpenQuestionsFile.parse(content).normalize()
+        rendered = result.file.format()
+        assert result.relocated_ids == ("Q5",)
+        assert rendered.count("## Resolved") == 1
+        assert result.file.open_ids == ["Q1"]
+        assert result.file.resolved_ids == ["Q5"]
+
+    def test_nothing_eligible_is_byte_identical(self):
+        """Spec 6: parse -> normalize -> format is identity when nothing is eligible."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] still open\n"
+            "- [Q2] also open\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D10 on 2026-05-01] [Q3] properly resolved below\n"
+        )
+        parsed = OpenQuestionsFile.parse(content)
+        result = parsed.normalize()
+        assert result.relocated_ids == ()
+        assert result.skipped_prose_ids == ()
+        assert result.file is parsed
+        assert result.file.format() == parsed.format()
+
+    def test_idempotent_second_normalize_is_noop(self):
+        """Spec 7: a second normalize over relocated output changes nothing."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] still open\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "\n"
+            "## Resolved\n"
+        )
+        once = OpenQuestionsFile.parse(content).normalize()
+        twice = once.file.normalize()
+        assert twice.relocated_ids == ()
+        assert twice.file is once.file
+        assert twice.file.format() == once.file.format()
+
+    def test_projection_invariance_across_normalize(self):
+        """Spec 8: unresolved, genuine-open, and the id multiset are unchanged."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Q1] still open\n"
+            "- [Q2] BRIEF: a discovery pointer, still open\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D10 on 2026-05-01] [Q3] resolved below\n"
+        )
+        parsed = OpenQuestionsFile.parse(content)
+        result = parsed.normalize()
+        assert result.relocated_ids == ("Q5",)
+        assert [e.id for e in result.file.unresolved_entries] == [
+            e.id for e in parsed.unresolved_entries
+        ]
+        assert [e.id for e in result.file.genuine_open_entries] == [
+            e.id for e in parsed.genuine_open_entries
+        ]
+        assert _entry_ids(result.file) == _entry_ids(parsed)
+
+    def test_batch_relocation_preserves_relative_order(self):
+        """Spec 9: multiple eligible entries relocate in file order."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] first stray\n"
+            "- [Q1] still open\n"
+            "- [Resolved by D43 on 2026-05-15] [Q8] second stray\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D10 on 2026-05-01] [Q3] existing resolved\n"
+        )
+        result = OpenQuestionsFile.parse(content).normalize()
+        assert result.relocated_ids == ("Q5", "Q8")
+        assert result.file.open_ids == ["Q1"]
+        assert result.file.resolved_ids == ["Q3", "Q5", "Q8"]
+
+    def test_relocation_lands_before_later_hand_added_header(self):
+        """Spec 13: a hand-added ``## Active`` after ``## Resolved`` is not colonized."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "\n"
+            "## Resolved\n"
+            "\n"
+            "- [Resolved by D10 on 2026-05-01] [Q3] resolved below\n"
+            "\n"
+            "## Active\n"
+            "\n"
+            "- [Q9] active work item\n"
+        )
+        result = OpenQuestionsFile.parse(content).normalize()
+        rendered = result.file.format()
+        assert result.relocated_ids == ("Q5",)
+        # Q5 lands inside the Resolved section, before the later Active header.
+        assert rendered.index("## Resolved") < rendered.index("[Q5]") < rendered.index("## Active")
+        # Q9 stays under Active, untouched.
+        assert rendered.index("[Q9]") > rendered.index("## Active")
+
+    def test_owned_continuation_relocates_with_its_entry(self):
+        """Spec 14: two-space-indented continuation lines move as one unit."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "  Context: extra detail owned by the entry\n"
+            "\n"
+            "## Resolved\n"
+        )
+        result = OpenQuestionsFile.parse(content).normalize()
+        rendered = result.file.format()
+        assert result.relocated_ids == ("Q5",)
+        assert result.skipped_prose_ids == ()
+        # The continuation follows the relocated head line, both below the divider.
+        head_idx = rendered.index("[Q5] resolved stray")
+        cont_idx = rendered.index("  Context: extra detail owned by the entry")
+        assert rendered.index("## Resolved") < head_idx < cont_idx
+
+    def test_detached_indented_block_after_blank_is_skipped(self):
+        """Spec 15: indented lines after a blank line are a non-owned ProseBlock."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "\n"
+            "  Context: detached indented block after a blank line\n"
+            "\n"
+            "## Resolved\n"
+        )
+        parsed = OpenQuestionsFile.parse(content)
+        result = parsed.normalize()
+        assert result.relocated_ids == ()
+        assert result.skipped_prose_ids == ("Q5",)
+        assert result.file is parsed
+        assert "Q5" in result.file.open_ids
+
+    def test_triple_hash_adjacency_is_skipped(self):
+        """Spec 16a: a trailing ``### `` topic block blocks relocation (conservative)."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "\n"
+            "### Topic: deployment\n"
+            "narrative kept verbatim\n"
+            "\n"
+            "## Resolved\n"
+        )
+        parsed = OpenQuestionsFile.parse(content)
+        result = parsed.normalize()
+        assert result.relocated_ids == ()
+        assert result.skipped_prose_ids == ("Q5",)
+        assert result.file is parsed
+
+    def test_unparsable_adjacency_is_skipped(self):
+        """Spec 16b: a trailing unparsable ``- [`` line blocks relocation."""
+        content = (
+            "# Open Questions\n"
+            "\n"
+            "- [Resolved by D42 on 2026-05-14] [Q5] resolved stray\n"
+            "- [malformed entry that never closes its bracket\n"
+            "- [Q1] still open\n"
+            "\n"
+            "## Resolved\n"
+        )
+        parsed = OpenQuestionsFile.parse(content)
+        result = parsed.normalize()
+        assert result.relocated_ids == ()
+        assert result.skipped_prose_ids == ("Q5",)
+        assert result.file is parsed

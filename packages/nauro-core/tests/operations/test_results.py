@@ -429,6 +429,37 @@ def test_flag_question_result_exclude_none_strips_empties() -> None:
     }
 
 
+def test_flag_question_result_accepts_relocation_fields() -> None:
+    result = FlagQuestionResult(
+        status="ok",
+        relocated_ids=("Q1", "Q9"),
+        skipped_prose_ids=("Q7",),
+    )
+    assert result.relocated_ids == ("Q1", "Q9")
+    assert result.skipped_prose_ids == ("Q7",)
+
+
+def test_flag_question_result_relocation_fields_default_none_dropped_by_exclude_none() -> None:
+    bare = FlagQuestionResult()
+    assert bare.relocated_ids is None
+    assert bare.skipped_prose_ids is None
+    dumped = bare.model_dump(mode="json", exclude_none=True)
+    assert "relocated_ids" not in dumped
+    assert "skipped_prose_ids" not in dumped
+
+    with_relocation = FlagQuestionResult(status="ok", relocated_ids=("Q1",))
+    assert with_relocation.model_dump(mode="json", exclude_none=True) == {
+        "status": "ok",
+        "relocated_ids": ["Q1"],
+    }
+
+
+def test_flag_question_result_relocation_fields_are_frozen() -> None:
+    result = FlagQuestionResult(status="ok", relocated_ids=("Q1",))
+    with pytest.raises(ValidationError):
+        result.relocated_ids = ("Q2",)
+
+
 def test_flag_question_result_rejects_unknown_fields() -> None:
     with pytest.raises(ValidationError):
         FlagQuestionResult(status="ok", num=1, unexpected_field="value")
@@ -537,6 +568,40 @@ def test_propose_decision_result_rejected_with_error_payload() -> None:
     dumped = result.model_dump(mode="json", exclude_none=True)
     assert dumped["error"] == {"kind": "error", "reason": "old decision not flipped"}
     assert dumped["touched_decisions"] == ["003-new-decision"]
+
+
+def test_propose_decision_result_accepts_relocation_fields() -> None:
+    result = ProposeDecisionResult(
+        status="confirmed",
+        tier=2,
+        operation="add",
+        relocated_ids=("Q1",),
+        skipped_prose_ids=("Q7",),
+    )
+    assert result.relocated_ids == ("Q1",)
+    assert result.skipped_prose_ids == ("Q7",)
+
+
+def test_propose_decision_result_relocation_fields_default_none_dropped_by_exclude_none() -> None:
+    bare = ProposeDecisionResult(status="confirmed", tier=2, operation="add")
+    assert bare.relocated_ids is None
+    assert bare.skipped_prose_ids is None
+    dumped = bare.model_dump(mode="json", exclude_none=True)
+    assert "relocated_ids" not in dumped
+    assert "skipped_prose_ids" not in dumped
+
+    with_relocation = ProposeDecisionResult(
+        status="confirmed", tier=2, operation="add", relocated_ids=("Q1",)
+    )
+    assert with_relocation.model_dump(mode="json", exclude_none=True)["relocated_ids"] == ["Q1"]
+
+
+def test_propose_decision_result_relocation_fields_are_frozen() -> None:
+    result = ProposeDecisionResult(
+        status="confirmed", tier=2, operation="add", relocated_ids=("Q1",)
+    )
+    with pytest.raises(ValidationError):
+        result.relocated_ids = ("Q2",)
 
 
 def test_propose_decision_result_rejects_unknown_fields() -> None:
