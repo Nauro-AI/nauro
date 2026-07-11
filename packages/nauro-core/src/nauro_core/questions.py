@@ -222,9 +222,13 @@ class ResolveResult:
 
     Attributes:
         file: A new :class:`OpenQuestionsFile` with the resolutions applied.
-        moved_ids: Ids whose state ended in ``resolved_by`` set. Includes
-            ids that were already resolved (idempotent — desired state
-            achieved).
+        moved_ids: Ids whose ``resolved_by`` ended set — nothing is
+            physically moved. The name is legacy (stale D139-era "move"
+            vocabulary); ``resolve`` stamps the annotation in place and
+            never reorders blocks. Relocation is the separate
+            :meth:`normalize` step. Includes ids that were already resolved
+            (idempotent — desired state achieved). Renaming is deferred to a
+            future major because the field is exported public API.
         unknown_ids: Ids absent from the file. The caller decides whether
             to surface this as a hard rejection.
         ambiguous_ids: Ids that matched more than one EntryBlock. When
@@ -237,6 +241,29 @@ class ResolveResult:
     moved_ids: tuple[str, ...]
     unknown_ids: tuple[str, ...]
     ambiguous_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class NormalizeResult:
+    """Outcome of :meth:`OpenQuestionsFile.normalize`.
+
+    Attributes:
+        file: A new :class:`OpenQuestionsFile` with prose-safe resolved
+            entries relocated below the ``## Resolved`` divider. When
+            nothing is eligible the input file is returned unchanged
+            (identity, reuse-by-reference like :meth:`migrate`).
+        relocated_ids: Ids of the entries moved below the divider, in file
+            order. Empty when nothing was relocated.
+        skipped_prose_ids: Ids of entries that carry a ``resolved_by``
+            annotation and sit above the divider but were left in place
+            because a non-blank block trails them (a real body paragraph,
+            triple-hash topic, or unparsable line). Empty when no eligible
+            entry was blocked by prose.
+    """
+
+    file: OpenQuestionsFile
+    relocated_ids: tuple[str, ...]
+    skipped_prose_ids: tuple[str, ...]
 
 
 class OpenQuestionsFile(BaseModel):
@@ -541,6 +568,127 @@ class OpenQuestionsFile(BaseModel):
         return MigrationResult(
             file=self.model_copy(update={"blocks": new_blocks}),
             renames=tuple(renames),
+        )
+
+    def normalize(self) -> NormalizeResult:
+        """Relocate prose-safe resolved entries below the ``## Resolved`` divider.
+
+        A distinct post-stamp step, never part of :meth:`format` (which stays
+        a faithful serializer). Pure, deterministic, and idempotent:
+        ``normalize(normalize(f)) == normalize(f)``. Whole-file scope — every
+        eligible entry present at call time is relocated, not only ids stamped
+        in the current call, so pre-existing strays self-heal on the next
+        resolution.
+
+        An :class:`EntryBlock` is *relocation-eligible* iff all of:
+
+        1. its ``resolved_by`` is set;
+        2. it sits above the ``## Resolved`` divider (or no divider exists) —
+           entries already below the divider are never touched; and
+        3. every block strictly between it and the next EntryBlock/HeaderBlock
+           (or end of file) is a :class:`ProseBlock` whose lines are all
+           empty or whitespace-only.
+
+        Rule 3 distinguishes pure spacing (safe) from a real trailing
+        paragraph, triple-hash topic, or unparsable line (unsafe). An entry
+        blocked by trailing prose is left in place and reported in
+        ``skipped_prose_ids``. The conservatism of rule 3 is by design — the
+        parser binds an entry only to its head line and two-space-indented
+        continuations, so a blank-line-separated body paragraph is a
+        free-floating ProseBlock the entry does not own, and moving the entry
+        without it would strand the body.
+
+        Eligible entries are removed from the open region in file order and
+        inserted at the end of the Resolved section — immediately before the
+        next HeaderBlock after the divider, or at end of file when none
+        exists — so hand-added sections after ``## Resolved`` are never
+        colonized. All-blank ProseBlocks that immediately trailed a moved
+        entry are dropped so spacing does not accumulate in the open region.
+        When no divider exists and at least one entry is eligible, a blank
+        ProseBlock plus the ``## Resolved`` HeaderBlock are appended first
+        (mirroring :meth:`resolve`).
+
+        Divider detection uses :attr:`resolved_divider_idx`. Its substring
+        matching (``"resolved" in stripped.lower()`` in :meth:`parse`) means a
+        hand-added header such as ``## Unresolved threads`` would be treated as
+        the divider — a pre-existing limitation shared with :meth:`resolve`,
+        out of scope here.
+        """
+        blocks = self.blocks
+        n = len(blocks)
+        divider_idx = self.resolved_divider_idx
+
+        relocated_ids: list[str] = []
+        skipped_prose_ids: list[str] = []
+        to_relocate: list[EntryBlock] = []
+        remove_indices: set[int] = set()
+
+        for i, block in enumerate(blocks):
+            if not isinstance(block, EntryBlock) or block.entry.resolved_by is None:
+                continue
+            if divider_idx is not None and i >= divider_idx:
+                continue
+
+            trailing_blank: list[int] = []
+            prose_safe = True
+            j = i + 1
+            while j < n:
+                nxt = blocks[j]
+                if isinstance(nxt, (EntryBlock, HeaderBlock)):
+                    break
+                if isinstance(nxt, ProseBlock) and all(not line.strip() for line in nxt.lines):
+                    trailing_blank.append(j)
+                    j += 1
+                    continue
+                prose_safe = False
+                break
+
+            if prose_safe:
+                relocated_ids.append(block.entry.id)
+                to_relocate.append(block)
+                remove_indices.add(i)
+                remove_indices.update(trailing_blank)
+            else:
+                skipped_prose_ids.append(block.entry.id)
+
+        if not to_relocate:
+            return NormalizeResult(
+                file=self,
+                relocated_ids=(),
+                skipped_prose_ids=tuple(skipped_prose_ids),
+            )
+
+        kept = [b for idx, b in enumerate(blocks) if idx not in remove_indices]
+
+        relocated_blocks: list[Block] = []
+        for entry_block in to_relocate:
+            relocated_blocks.append(ProseBlock(lines=("",)))
+            relocated_blocks.append(entry_block)
+
+        if divider_idx is None:
+            new_blocks = [
+                *kept,
+                ProseBlock(lines=("",)),
+                HeaderBlock(text=_RESOLVED_HEADER, is_resolved_divider=True),
+                *relocated_blocks,
+            ]
+        else:
+            div_pos = next(
+                pos
+                for pos, b in enumerate(kept)
+                if isinstance(b, HeaderBlock) and b.is_resolved_divider
+            )
+            insert_pos = len(kept)
+            for pos in range(div_pos + 1, len(kept)):
+                if isinstance(kept[pos], HeaderBlock):
+                    insert_pos = pos
+                    break
+            new_blocks = [*kept[:insert_pos], *relocated_blocks, *kept[insert_pos:]]
+
+        return NormalizeResult(
+            file=self.model_copy(update={"blocks": new_blocks}),
+            relocated_ids=tuple(relocated_ids),
+            skipped_prose_ids=tuple(skipped_prose_ids),
         )
 
 

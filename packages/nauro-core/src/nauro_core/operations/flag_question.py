@@ -19,7 +19,11 @@ Two actions share the entry point, discriminated by ``resolved_by``:
 
 * **resolve** (``resolved_by`` is set) — stamp the entries named in
   ``targets`` as resolved by that decision, flipping each entry's
-  ``resolved_by`` in place. Blocks are never relocated. Re-resolving an
+  ``resolved_by`` in place, then run ``normalize`` so prose-safe stamped
+  entries relocate below the ``## Resolved`` divider. Normalize has
+  whole-file scope, so pre-existing strays self-heal on the same write;
+  ``relocated_ids`` and ``skipped_prose_ids`` on the result name what moved
+  and what a detached body paragraph held back. Re-resolving an
   already-resolved id is idempotent (returns ok); the append-path
   already-resolved short-circuit does not apply here.
 
@@ -233,5 +237,11 @@ def _resolve(
         decision_num=num,
         date=datetime.now(timezone.utc).date(),
     )
-    store.write_file(OPEN_QUESTIONS_MD, result.file.format())
-    return FlagQuestionResult(status="ok", num=None)
+    normalized = result.file.normalize()
+    store.write_file(OPEN_QUESTIONS_MD, normalized.file.format())
+    return FlagQuestionResult(
+        status="ok",
+        num=None,
+        relocated_ids=normalized.relocated_ids or None,
+        skipped_prose_ids=normalized.skipped_prose_ids or None,
+    )

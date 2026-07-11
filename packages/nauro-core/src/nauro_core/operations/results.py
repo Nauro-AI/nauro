@@ -222,12 +222,22 @@ class FlagQuestionResult(BaseModel):
     live on the adapter and surface through a separate envelope shape.
     ``store`` is not part of the model; transport adapters add it back
     at serialization time.
+
+    ``relocated_ids`` and ``skipped_prose_ids`` are populated on the resolve
+    action from the post-stamp ``normalize`` step: ``relocated_ids`` names the
+    entries moved below ``## Resolved``, ``skipped_prose_ids`` the stamped
+    entries a detached body paragraph held in place. They stay None (dropped
+    by ``exclude_none``) on the append path and whenever nothing moved or was
+    skipped — the compensating observability so a self-heal riding an
+    unrelated resolve is reported, never silent.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     status: Literal["ok", "rejected"] = "ok"
     num: int | None = None
+    relocated_ids: tuple[str, ...] | None = None
+    skipped_prose_ids: tuple[str, ...] | None = None
     error: ErrorPayload | None = None
 
 
@@ -270,9 +280,15 @@ class ProposeDecisionResult(BaseModel):
 
     ``similar_decisions`` carries the canonical :class:`RelatedDecision`
     shape ``check_decision`` already returns. ``resolved_questions``
-    lists the ``open-questions.md`` ids the kernel moved under
-    ``## Resolved`` on the success path. The ``store`` field is not part
-    of the model; transport adapters add it back at serialization time.
+    lists the ``open-questions.md`` ids the kernel stamped resolved on the
+    success path. ``relocated_ids`` and ``skipped_prose_ids`` come from the
+    post-stamp ``normalize`` step on the ``resolves_questions`` path:
+    ``relocated_ids`` names the entries moved below ``## Resolved``,
+    ``skipped_prose_ids`` the stamped entries a detached body paragraph held
+    in place. Both stay None (dropped by ``exclude_none``) when no relocation
+    or prose-skip occurred — the compensating observability so a self-heal
+    riding a resolve is reported, never silent. The ``store`` field is not
+    part of the model; transport adapters add it back at serialization time.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -285,4 +301,6 @@ class ProposeDecisionResult(BaseModel):
     decision_id: str | None = None
     touched_decisions: list[str] = Field(default_factory=list)
     resolved_questions: list[str] = Field(default_factory=list)
+    relocated_ids: tuple[str, ...] | None = None
+    skipped_prose_ids: tuple[str, ...] | None = None
     error: ErrorPayload | None = None

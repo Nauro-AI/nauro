@@ -422,6 +422,29 @@ class TestSetUnionMarkdown:
             assert once_lines.count(token) == 1, f"{token!r} repeats in {once!r}"
             assert twice_lines.count(token) == 1, f"{token!r} repeats in {twice!r}"
 
+    def test_relocated_vs_unrelocated_skew_degrades_to_annotated_stray(self):
+        """Self-heal merge-skew guard.
+
+        When one side relocated a resolved entry below ``## Resolved`` and the
+        other still carries it as an annotated stray above the divider, the
+        set-union merge yields no duplicate id and preserves the resolution
+        annotation. The entry may legally reappear above the divider as an
+        annotated stray — the status quo the self-heal decision verified
+        against, not corruption or data loss.
+        """
+        annotation = "- [Resolved by D42 on 2026-05-14] [Q5] resolved body"
+        normalized = ("# Open Questions\n\n## Resolved\n\n" + annotation + "\n").encode()
+        unrelocated = ("# Open Questions\n\n" + annotation + "\n\n## Resolved\n").encode()
+
+        result = _set_union_markdown(normalized, unrelocated).decode()
+
+        # No duplicate id: the annotation line survives exactly once.
+        assert result.split("\n").count(annotation) == 1
+        # The resolution annotation is preserved.
+        assert "[Resolved by D42 on 2026-05-14] [Q5]" in result
+        # Exactly one divider.
+        assert result.count("## Resolved") == 1
+
     def test_decisions_do_not_route_to_set_union(self, tmp_path, monkeypatch):
         """Decision conflicts resolve by last-write-wins, not _set_union_markdown."""
         project_path = tmp_path / "project"

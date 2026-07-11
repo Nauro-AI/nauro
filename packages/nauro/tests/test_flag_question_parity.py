@@ -152,8 +152,9 @@ def test_resolve_ok_matches_across_tool_and_cli(seeded_repo):
 
     tool_envelope = tool_flag_question(store_path, resolved_by="D42", targets=["Q1"])
     assert tool_envelope.pop("project")["id"] == pid
-    assert tool_envelope == {"store": "local", "status": "ok"}
-    # The targeted entry is stamped in place; nothing appended.
+    # The single-line entry is prose-safe: normalize relocates it below a
+    # created divider and names it in the envelope; nothing is appended.
+    assert tool_envelope == {"store": "local", "status": "ok", "relocated_ids": ["Q1"]}
     content = (store_path / "open-questions.md").read_text()
     assert "[Resolved by D42 on " in content
     assert "[Q2]" not in content
@@ -163,7 +164,7 @@ def test_resolve_ok_matches_across_tool_and_cli(seeded_repo):
     exit_code, cli_envelope, output = _cli_envelope(["--resolved-by", "D42", "--targets", "Q1"])
     assert exit_code == 0, output
     assert cli_envelope.pop("project")["id"] == pid
-    assert cli_envelope == {"store": "local", "status": "ok"}
+    assert cli_envelope == {"store": "local", "status": "ok", "relocated_ids": ["Q1"]}
 
     # And the stdio surface returns the resolve-specific confirmation string.
     _seed_resolvable(store_path, "Q1")

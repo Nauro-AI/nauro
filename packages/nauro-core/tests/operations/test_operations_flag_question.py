@@ -257,7 +257,7 @@ def _decisions(*nums: int) -> dict[str, str]:
     return {f"{n:03d}-some-decision": f"# Decision {n}\n" for n in nums}
 
 
-def test_resolve_stamps_target_in_place_and_returns_ok() -> None:
+def test_resolve_relocates_target_below_divider_and_returns_ok() -> None:
     store = InMemoryStore(
         decisions=_decisions(42),
         files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()},
@@ -265,15 +265,16 @@ def test_resolve_stamps_target_in_place_and_returns_ok() -> None:
     result = flag_question(store, targets=["Q5"], resolved_by="D42")
     assert result.status == "ok"
     assert result.num is None
+    # The stamped entry is a single line (prose-safe), so normalize relocates
+    # it below a freshly created ## Resolved divider and names it in the
+    # envelope. Q1 stays open above the divider.
+    assert result.relocated_ids == ("Q5",)
+    assert result.skipped_prose_ids is None
     content = store.read_file(OPEN_QUESTIONS_MD)
     assert content is not None
-    # Q5 is stamped in place — its line keeps its position (after Q1) and the
-    # entry block is never relocated under ## Resolved.
-    lines = content.split("\n")
-    q5_line = next(line for line in lines if "[Q5]" in line)
+    q5_line = next(line for line in content.split("\n") if "[Q5]" in line)
     assert q5_line.startswith("- [Resolved by D42 on ")
-    assert "[Q1] still open" in content
-    assert lines.index(q5_line) > lines.index("- [Q1] still open")
+    assert content.index("[Q1] still open") < content.index("## Resolved") < content.index("[Q5]")
 
 
 def test_resolve_does_not_append_a_question() -> None:
@@ -290,9 +291,21 @@ def test_resolve_does_not_append_a_question() -> None:
 
 
 def test_resolve_already_resolved_id_is_idempotent_ok() -> None:
+    # Seed Q5 already below the divider so the whole-file normalize is a true
+    # no-op. This pins the resolve-path idempotency itself; the self-heal of a
+    # stray sitting above the divider is covered separately.
+    seed = (
+        "# Open Questions\n"
+        "\n"
+        "- [Q1] still open\n"
+        "\n"
+        "## Resolved\n"
+        "\n"
+        "- [Resolved by D42 on 2026-05-20] [Q5] already resolved by D42\n"
+    )
     store = InMemoryStore(
         decisions=_decisions(42),
-        files={OPEN_QUESTIONS_MD: _resolved_q5_seed()},
+        files={OPEN_QUESTIONS_MD: seed},
     )
     before = store.read_file(OPEN_QUESTIONS_MD)
     result = flag_question(store, targets=["Q5"], resolved_by="D42")
@@ -301,6 +314,34 @@ def test_resolve_already_resolved_id_is_idempotent_ok() -> None:
     assert result.status == "ok"
     after = store.read_file(OPEN_QUESTIONS_MD)
     assert after == before
+
+
+def test_resolve_heals_pre_existing_stray_whole_file_scope() -> None:
+    """Whole-file scope: resolving Q1 also relocates a pre-existing stray Q9
+    that was stamped resolved earlier but never moved below the divider."""
+    seed = (
+        "# Open Questions\n"
+        "\n"
+        "- [Q1] target to resolve now\n"
+        "- [Resolved by D40 on 2026-05-01] [Q9] pre-existing stray above divider\n"
+        "\n"
+        "## Resolved\n"
+        "\n"
+        "- [Resolved by D30 on 2026-04-01] [Q3] properly resolved earlier\n"
+    )
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: seed},
+    )
+    result = flag_question(store, targets=["Q1"], resolved_by="D42")
+    assert result.status == "ok"
+    # The freshly-stamped Q1 and the untouched pre-existing Q9 stray both move.
+    assert result.relocated_ids == ("Q1", "Q9")
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    divider_at = content.index("## Resolved")
+    assert divider_at < content.index("[Q1]")
+    assert divider_at < content.index("[Q9]")
 
 
 def test_resolve_unparseable_decision_id_rejects() -> None:

@@ -111,8 +111,9 @@ def test_resolve_matches_across_stores(both_stores):
     fs_result = flag_question(fs_store, targets=["Q1"], resolved_by="D42")
     cloud_result = flag_question(cloud, targets=["Q1"], resolved_by="D42")
 
-    assert _dump(fs_result) == _dump(cloud_result) == {"status": "ok"}
-    # The resolve stamps the entry in place identically on both stores.
+    # The single-line entry is prose-safe, so normalize relocates it below the
+    # divider and names it in the envelope — identically on both stores.
+    assert _dump(fs_result) == _dump(cloud_result) == {"status": "ok", "relocated_ids": ["Q1"]}
     assert fs_store.read_file(OPEN_QUESTIONS_MD) == cloud.read_file(OPEN_QUESTIONS_MD)
     assert "[Resolved by D42 on " in fs_store.read_file(OPEN_QUESTIONS_MD)
 

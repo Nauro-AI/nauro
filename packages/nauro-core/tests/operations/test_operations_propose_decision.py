@@ -671,9 +671,10 @@ def test_supersede_rejected_item_without_label_rejects_before_write() -> None:
 # ── resolves_questions ──────────────────────────────────────────────────
 
 
-def test_resolves_questions_flips_entry_resolved_by() -> None:
-    """A confirmed add with ``resolves_questions=["Q1"]`` writes the
-    decision file AND annotates the matching entry with the decision ref."""
+def test_resolves_questions_relocates_entry_below_divider() -> None:
+    """A confirmed add with ``resolves_questions=["Q1"]`` writes the decision
+    file, stamps Q1 with the decision ref, and — the entry being prose-safe —
+    relocates it below the ## Resolved divider (self-heal on resolve)."""
     open_questions = (
         "# Open Questions\n\n## Active\n\n- [Q1] Should we adopt PostgreSQL?\n\n## Resolved\n"
     )
@@ -688,13 +689,50 @@ def test_resolves_questions_flips_entry_resolved_by() -> None:
     assert result.status == "confirmed"
     assert result.decision_id is not None
     assert result.resolved_questions == ["Q1"]
+    assert result.relocated_ids == ("Q1",)
+    assert result.skipped_prose_ids is None
     updated = store.read_file(OPEN_QUESTIONS_MD)
     assert updated is not None
-    # The entry stays in place but carries the resolved-by ref.
+    # The entry now sits below the ## Resolved divider, carrying the ref.
     assert "[Q1] Should we adopt PostgreSQL?" in updated
+    assert updated.index("## Resolved") < updated.index("[Q1]")
     # Pull the leading number off the decision id stem to confirm the ref points to it.
     decision_num = int(result.decision_id.split("-", 1)[0])
     assert f"D{decision_num}" in updated or f"decision-{decision_num:03d}" in updated
+
+
+def test_resolves_questions_heals_pre_existing_stray_whole_file_scope() -> None:
+    """Whole-file scope: resolving Q1 also relocates a pre-existing stray Q9
+    that was stamped resolved earlier but never moved below the divider."""
+    open_questions = (
+        "# Open Questions\n"
+        "\n"
+        "## Active\n"
+        "\n"
+        "- [Q1] Should we adopt PostgreSQL?\n"
+        "- [Resolved by D40 on 2026-05-01] [Q9] pre-existing stray above divider\n"
+        "\n"
+        "## Resolved\n"
+        "\n"
+        "- [Resolved by D30 on 2026-04-01] [Q3] properly resolved earlier\n"
+    )
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: open_questions})
+    result = propose_decision(
+        store,
+        title="Adopt PostgreSQL for the data layer",
+        rationale="Mature ecosystem with strong JSON support and excellent tooling.",
+        confidence="medium",
+        resolves_questions=["Q1"],
+    )
+    assert result.status == "confirmed"
+    assert result.resolved_questions == ["Q1"]
+    # Both the freshly-stamped Q1 and the pre-existing Q9 stray move down.
+    assert result.relocated_ids == ("Q1", "Q9")
+    updated = store.read_file(OPEN_QUESTIONS_MD)
+    assert updated is not None
+    divider_at = updated.index("## Resolved")
+    assert divider_at < updated.index("[Q1]")
+    assert divider_at < updated.index("[Q9]")
 
 
 def test_resolves_questions_unknown_id_rejected_at_boundary() -> None:
