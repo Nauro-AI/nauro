@@ -5,6 +5,7 @@ from pathlib import Path
 
 import typer
 
+from nauro.cli import utils as cli_utils
 from nauro.cli.utils import resolve_target_project
 
 
@@ -56,14 +57,20 @@ def _codex_config_path() -> Path:
     return Path.home() / ".codex" / "config.toml"
 
 
-def _repo_has_mcp_wiring(repo: Path) -> bool:
-    """True when the repo declares a nauro MCP server in .mcp.json or .cursor/mcp.json.
+def _repo_recorded_commands(repo: Path) -> list[str | None]:
+    """Recorded nauro MCP commands in this repo's configs, one entry per wired config.
 
-    Read-only probe: a missing, unreadable, or malformed config counts as
-    not wired — status must never crash on someone else's config file.
+    Single read of ``.mcp.json`` and ``.cursor/mcp.json`` each — presence
+    ("the repo is wired" iff the list is non-empty) and the recorded command
+    both derive from the same parse. A wired config whose nauro entry carries a
+    missing or empty command contributes ``None``: it still counts as wired,
+    but there is nothing to probe. Read-only and soft-failing: a missing,
+    unreadable, or malformed config contributes nothing — status must never
+    crash on someone else's config file.
     """
     import json
 
+    commands: list[str | None] = []
     for rel in (".mcp.json", ".cursor/mcp.json"):
         try:
             config = json.loads((repo / rel).read_text())
@@ -72,15 +79,20 @@ def _repo_has_mcp_wiring(repo: Path) -> bool:
         if not isinstance(config, dict):
             continue
         servers = config.get("mcpServers")
-        if isinstance(servers, dict) and "nauro" in servers:
-            return True
-    return False
+        if not isinstance(servers, dict) or "nauro" not in servers:
+            continue
+        entry = servers["nauro"]
+        cmd = entry.get("command") if isinstance(entry, dict) else None
+        commands.append(cmd if isinstance(cmd, str) and cmd else None)
+    return commands
 
 
-def _codex_global_wired() -> bool:
-    """True when the user-global Codex config declares a nauro MCP server.
+def _codex_recorded_command() -> tuple[bool, str | None]:
+    """Return ``(wired, recorded command)`` for the user-global Codex config.
 
-    Same parse approach as setup.py; any read or parse failure counts as
+    Single read of ``~/.codex/config.toml``, same parse approach as setup.py.
+    ``(True, None)`` means a nauro entry exists but records no usable command —
+    wired for presence, nothing to probe. Any read or parse failure counts as
     not wired.
     """
     import sys
@@ -94,9 +106,23 @@ def _codex_global_wired() -> bool:
         with _codex_config_path().open("rb") as f:
             config = tomllib.load(f)
     except Exception:
-        return False
+        return (False, None)
     servers = config.get("mcp_servers")
-    return isinstance(servers, dict) and "nauro" in servers
+    if not isinstance(servers, dict) or "nauro" not in servers:
+        return (False, None)
+    entry = servers["nauro"]
+    cmd = entry.get("command") if isinstance(entry, dict) else None
+    return (True, cmd if isinstance(cmd, str) and cmd else None)
+
+
+def _probe_distinct_commands(commands: set[str]) -> dict[str, bool]:
+    """Probe each distinct recorded command once for liveness.
+
+    Sequential: N repos usually share one recorded path, so the common case is
+    a single short probe. ``probe_nauro_command`` soft-fails by contract, so a
+    dead command costs at most its timeout, never an exception.
+    """
+    return {cmd: cli_utils.probe_nauro_command(cmd) for cmd in commands}
 
 
 def _repo_has_generated_agents_md(repo: Path) -> bool:
@@ -118,6 +144,11 @@ def status(
         None,
         "--project",
         help="Target project name.",
+    ),
+    no_probe: bool = typer.Option(
+        False,
+        "--no-probe",
+        help="Skip the MCP liveness probe; report wiring presence only.",
     ),
 ) -> None:
     """Show which Nauro capabilities are active or inactive."""
@@ -181,14 +212,17 @@ def status(
     except Exception:
         repo_paths = []
 
+    # Each wiring config is read once: presence and the recorded command come
+    # from the same parse.
     try:
-        mcp_wired = sum(1 for repo in repo_paths if _repo_has_mcp_wiring(repo))
+        repo_commands = [_repo_recorded_commands(repo) for repo in repo_paths]
     except Exception:
-        mcp_wired = 0
+        repo_commands = []
+    mcp_wired = sum(1 for cmds in repo_commands if cmds)
     try:
-        codex_global = _codex_global_wired()
+        codex_global, codex_command = _codex_recorded_command()
     except Exception:
-        codex_global = False
+        codex_global, codex_command = False, None
 
     if mcp_wired or codex_global:
         details = []
@@ -196,7 +230,31 @@ def status(
             details.append(f"wired in {mcp_wired}/{len(repo_paths)} repos")
         if codex_global:
             details.append("Codex global")
-        typer.echo(f"  MCP           active ({'; '.join(details)})")
+        detail_str = "; ".join(details)
+
+        # Liveness: wiring can point at a nauro that no longer runs (a rebuilt or
+        # corrupted project venv). Probe the distinct recorded commands so a
+        # wired-but-dead install renders BROKEN instead of a false-green active.
+        healthy = True
+        if not no_probe:
+            try:
+                commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
+                if codex_command:
+                    commands.add(codex_command)
+                if commands:
+                    healthy = all(_probe_distinct_commands(commands).values())
+            except Exception:
+                # A probe error must never crash status or flip a live wiring to
+                # BROKEN; fall back to presence-only reporting.
+                healthy = True
+
+        if healthy:
+            typer.echo(f"  MCP           active ({detail_str})")
+        else:
+            typer.echo(
+                f"  MCP           BROKEN — {detail_str} but the recorded command "
+                "won't run; re-run 'nauro setup all'"
+            )
     else:
         typer.echo("  MCP           inactive — run 'nauro setup all'")
 
