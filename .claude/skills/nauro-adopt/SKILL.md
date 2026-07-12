@@ -37,21 +37,21 @@ Per card, the agent prepares:
 - **An empty "your why" field**, separate from the read-only spans, left blank for the user to fill or edit. The agent never pre-fills this field with the source span or with anything else — a human-supplied or human-edited "why" lives only here, never folded into the read-only span.
 - **Confidence** — `high` only when the source carries a literal ADR `Status: Accepted`; otherwise `medium`. Tone, emphasis, or a confident-sounding paragraph never promote to `high`.
 
-### Step 0.2 — Pre-check each card
+### Step 0.2: Pre-check and classify each card
 
-Before presenting the batch, the agent calls `check_decision(proposed_approach=<title plus the one-line summary>, project_id=...)` **once per card** and annotates each card with any overlap the pre-pass surfaces (the related decisions and the assessment line). This is the same pre-pass Step 7 step 1 runs; doing it up front lets the user see, on each card, whether it collides with a decision already in the store before the batch is confirmed.
+Before presenting the batch, the agent runs Step 7 steps 1–3 for each card: call `check_decision(proposed_approach=<title plus the one-line summary>, project_id=...)` **once per card**, read every related decision, classify the operation, and prepare the complete operation-specific proposal. Annotate each card with the related decisions and assessment from the pre-pass. Doing this up front lets the batch show the exact proposed write and any overlap before confirmation.
 
 ### Step 0.3 — One batch confirm
 
-The agent presents all cards as a single batch and waits for one reply:
+The agent presents all complete classified proposals as a single batch and waits for one reply. Each card includes its operation, affected decision id when applicable, title, rationale, rejected alternatives, confidence, related decisions, and assessment:
 
 > Reply `confirm 1 3` / `skip 2` / `edit 3: <title>` / `confirm all` / `skip all`.
 
-`edit N: <title>` adjusts the title only; rationale stays the cited span. A user "why" goes through the separate empty field, never by editing a read-only span.
+`confirm` is explicit approval for the complete proposal shown on that card. `edit N: <title>` adjusts the title only; rationale stays the cited span. A user "why" goes through the separate empty field, never by editing a read-only span. An edit changes the proposal, so the agent reruns Step 0.2 and presents the revised card for fresh approval.
 
 ### Step 0.4 — File confirmed cards through Step 7's write loop
 
-For each confirmed card, the agent files it through the **unchanged** Step 7 write loop — the screened `propose_decision` path described there. Step 0 never calls a direct-write bypass; it routes every card through the same screened proposal the rest of the skill uses.
+For each confirmed card, the agent routes it through the **unchanged** Step 7 write loop, the screened `propose_decision` path described there. Step 0 never calls a direct-write bypass. If the Step 7 recheck changes the operation, payload, related decisions, or assessment from what the user confirmed, the agent presents the revised complete proposal and waits for fresh approval before filing.
 
 - The rationale written for a card carries its provenance as a free-text line inside the rationale body: `Source: <file>:<line>`. This is plain rationale text — not a new field — and it round-trips through the decision format unchanged.
 - The agent **captures the `propose_decision` return status for every card** and does not assume confirm means filed. A card can come back **rejected** even after the user confirmed it — most commonly when its normalized title collides with a card written earlier in the *same* batch (active-title dedup). The agent reports each rejected card by title and reason, and does not silently drop it.
@@ -168,7 +168,8 @@ For each kept candidate from 6a and each rationale-supplied 6b answer, the agent
     - **update** when the candidate augments an existing decision's rationale only. The server consumes only `rationale` on update; `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, and `rejected` are rejected at the boundary — use supersede if any of those must change.
     - **supersede** when the title or other metadata must change, or the candidate replaces or contradicts an existing decision. Pass the full new body and set `affected_decision_id`.
     - **skip** when the candidate is a duplicate (e.g. matches `001-initial-setup` or a candidate already seeded earlier in this same adopt run).
-4. Call `propose_decision` using the call signature for the chosen operation — these are operation-specific by design so an agent copying the template cannot accidentally send a field the server will reject:
+4. Present the complete classified proposal to the user: operation, affected decision id when applicable, title, rationale, rejected alternatives, confidence, and the related decisions and assessment from Step 7 step 1. Earlier `keep` replies select candidates; they do not approve a later `propose_decision` call. A Step 0 `confirm` counts only when the proposal and surfaced overlaps remain unchanged. Otherwise, wait for explicit approval of the exact current proposal and overlaps. On reject, skip it. On modification, revise, rerun `check_decision`, and present the complete proposal again; any changed proposal needs fresh approval.
+5. Only after approval, call `propose_decision` using the call signature for the chosen operation. These are operation-specific by design so an agent copying the template cannot accidentally send a field the server will reject:
     - For **add** (new decisions):
       ```
       propose_decision(project_id=..., title=..., rationale=..., operation="add", rejected=..., confidence=...)
@@ -183,7 +184,7 @@ For each kept candidate from 6a and each rationale-supplied 6b answer, the agent
       ```
 
    `rationale` is drawn from explicit Step 3 source text (6a) or the user's probe answer (6b). `confidence` defaults to `medium`; use `high` only when a source explicitly says "accepted" or "approved". Include rejected alternatives only when the source names them or the user supplies them in the probe answer.
-5. After `propose_decision`, the kernel commits immediately on Tier 1 clean. If `similar_decisions` is non-empty, surface those hits to the user before drafting the next candidate; the human approval gate is the chat-session moment before this call, not a second tool call after it.
+6. After `propose_decision`, the kernel commits immediately on Tier 1 clean. If `similar_decisions` is non-empty, surface those hits to the user before drafting the next candidate; the human approval gate is the chat-session moment before this call, not a second tool call after it.
 
 One `propose_decision` per candidate. No batching across candidates without surfacing each `similar_decisions` response first.
 

@@ -242,6 +242,41 @@ def test_non_filing_agents_cannot_write_doctrine(name: str) -> None:
         assert tool not in tools_line, f"{name}.md tools allowlist grants store-write tool {tool!r}"
 
 
+def test_planner_gates_every_decision_operation_on_explicit_user_approval() -> None:
+    body = load_agent_body("nauro-planner")
+
+    assert "all three operations: `add`, `update`, and `supersede`" in body
+    assert "A planner subagent without a user channel never files directly." in body
+    assert "re-invokes the planner with the user's explicit approval" in body
+    assert "On a standalone invocation, show the complete draft and return without filing" in body
+    assert "related decisions and assessment from `check_decision`" in body
+
+
+def test_tech_lead_gates_every_decision_operation_on_explicit_user_approval() -> None:
+    body = load_agent_body("nauro-tech-lead")
+
+    assert "every `add`, `update`, and `supersede`" in body
+    assert "Standalone" in body
+    assert "AskUserQuestion" in body
+    assert "Inside the `/nauro-ship-task` chain" in body
+    assert "return the complete draft to the parent and do not file in-run" in body
+    assert "Mode B never files an `add` directly from the transcript." in body
+    assert "related decisions and assessment from `check_decision`" in body
+    assert "For each real architectural decision identified in step 3" in body
+    assert "If the transcript has no `check_decision` precedent" in body
+    assert "For an existing or retroactive check, call `get_decision`" in body
+
+
+def test_tech_lead_mode_c_preserves_surface_first_merge_posture() -> None:
+    body = load_agent_body("nauro-tech-lead")
+
+    assert "SURFACE the drift first" in body
+    assert "Hold the merge for a landed supersede only when" in body
+    assert "frozen public surface" in body
+    assert "or write it into the project store" in body
+    assert "otherwise the human may merge" in body
+
+
 # --- plugin emitter + render-plugin command -------------------------------
 #
 # A separate plugin repo commits byte-identical copies of the subagents and

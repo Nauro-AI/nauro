@@ -1,8 +1,8 @@
 # Nauro
 
-Nauro gives every connected agent project judgement. It keeps your project's product direction, decisions, rationale, open questions, and rejected paths in plain markdown files, then surfaces the relevant ones before an AI agent plans or changes code.
+Nauro gives every connected agent project judgement. It helps you capture and approve the intent, decisions, tradeoffs, open questions, and rejected paths that define a project, then brings the relevant judgement into an agent's work.
 
-It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The same decision record travels with the work, not with a single tool or session.
+It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The same human-ratified project judgement travels with the work, rather than belonging to a single tool or session.
 
 [![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![Python](https://img.shields.io/pypi/pyversions/nauro.svg)](https://pypi.org/project/nauro/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -14,13 +14,20 @@ https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
 
 More at [nauro.ai](https://nauro.ai).
 
-## How it works
+## How the loop works
 
-Nauro stores your project's decisions as plain markdown files, each with the alternatives you ruled out and the reasoning behind them. The store can also carry current state and open questions. When an agent proposes an approach, `check_decision` runs deterministic keyword retrieval (BM25) over those files and surfaces the related ones before the agent plans or writes code.
+1. You and an agent capture or elicit the project judgement relevant to the work.
+2. The agent drafts any addition, update, or supersession, and you explicitly approve what becomes project truth.
+3. Relevant judgement reaches an agent before it plans or changes work.
+4. The agent explains how that judgement affected its recommendation or implementation.
+5. You accept, correct, except, reopen, or supersede the result in conversation.
+6. Approved corrections become part of what later agents inherit.
+
+Nauro supports this loop with a plain markdown store, compact context, and deterministic retrieval. Decisions include the alternatives you ruled out and the reasoning behind them; the store can also carry current state and open questions. When an agent proposes an approach, `check_decision` runs keyword retrieval (BM25) over those files and surfaces related records before the agent plans or writes code.
 
 At session start, agents can read a compact L0 standing-context summary: project summary, current state, top open questions, and the last 10 decisions, then pull specific decisions on demand. On Nauro's own 386-decision store, that L0 summary measures about 1,700 tokens against a full store of about 350,000 (o200k_base tokenizer).
 
-No model judges your decisions. The check is advisory and never blocks a change. A decision is recorded only by an explicit write call, and the approval gate lives in the conversation. The store is a folder you own; remove Nauro and the markdown stays.
+No model judges your decisions. The check is advisory and never blocks a change. Agents draft decision additions, updates, and supersessions; you explicitly approve each one in the conversation before `propose_decision` commits it in one call. The store is a folder you own; remove Nauro and the markdown stays.
 
 ## Install
 
@@ -81,15 +88,15 @@ Output abbreviated to the top match; the live call returns all five related deci
 
 ## Why not ADRs, grep, CLAUDE.md, or built-in agent notes?
 
-A decision log in your repo is a good record. The gap is on the read side: a file is read when a person opens it, and a fresh agent session starts with no knowledge that it exists. Nauro closes that gap twice over: the relevant decision reaches your agent through MCP at the moment it proposes a change, and `nauro sync` regenerates a committable `AGENTS.md` summary in every associated repo, so clones and tools without MCP wiring still start from the current record.
+A committed decision log plus a reliable pointer in `AGENTS.md` or `CLAUDE.md` can be enough, especially in a small repo. Nauro is designed for longer histories that must stay available across sessions, tools, repos, machines, or repeated handoffs. It can surface related decisions through MCP when an agent proposes a change, while `nauro sync` regenerates a committable `AGENTS.md` summary for clones and tools without MCP wiring.
 
 Against a coding tool's built-in memory (Claude Code memory, Cursor memories): those are scoped to one tool and one user. Nauro's record belongs to the project. The same store answers in Claude, Cursor, Codex, and any MCP client, across every repo you associate with it.
 
-Against tools that extract notes from conversations automatically: Nauro records decisions instead. An entry is a reviewed choice with its rationale and the alternatives you rejected, written only on an explicit call after approval in the conversation, retrieved by deterministic keyword search you can audit, and superseded rather than silently rewritten. It is plain markdown in a folder you own; remove Nauro and the record stays readable.
+Against tools that extract notes from conversations automatically: Nauro records human-ratified judgement. An entry is a reviewed choice with its rationale and the alternatives you rejected. An agent drafts the change, you explicitly approve it, and `propose_decision` commits it in one call. Entries are retrieved by deterministic keyword search you can audit and superseded rather than silently rewritten. They remain plain markdown in a folder you own.
 
 ## When Nauro helps, and when it doesn't
 
-Nauro pays off when an agent needs project judgement before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions, tools, repos, machines, or handoffs.
+Nauro is designed for long-lived projects where agents need project judgement before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions, tools, repos, machines, or handoffs.
 
 If one small repo plus a tight `CLAUDE.md` already keeps your agents oriented, Nauro may be too much.
 
@@ -131,9 +138,9 @@ Re-running plain `nauro init my-project` in a second repo creates a *separate* p
 **Optional: bundled subagents.** Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bundled Claude Code subagents into `~/.claude/agents/`. They are off by default; installed, a typical chain looks like:
 
 - `@nauro-planner` before non-trivial work. Drafts a plan and classifies doctrine risk (GREEN/AMBER/RED) against your decision log.
-- `@nauro-executor` after a plan is agreed. Implements it, runs tests, opens a PR.
+- `@nauro-executor` after a plan is agreed. Implements it, runs tests, commits locally, and drafts the PR body. It does not push or open a PR.
 - `@nauro-reviewer` before merging. Audits the diff for real bugs and for missing decision references.
-- `@nauro-tech-lead` to set or correct direction. Reads the decision log, audits PRs against doctrine, files decisions when direction is established.
+- `@nauro-tech-lead` to set or correct direction. Reads the decision log, audits PRs against doctrine, and drafts any needed doctrine change for your approval.
 
 ## Cross-surface sync (optional)
 

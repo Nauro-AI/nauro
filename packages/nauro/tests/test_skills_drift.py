@@ -266,7 +266,8 @@ def test_adopt_body_step0_mandates_two_citations_batch_confirm_and_precheck():
     assert "`check_decision(" in body
     assert "once per card" in body
 
-    # One human batch confirm is the write gate.
+    # One human batch confirm approves the complete proposals after operation
+    # classification and overlap surfacing.
     assert "confirm 1 3" in body
     assert "confirm all" in body
     assert "skip all" in body
@@ -294,6 +295,29 @@ def test_adopt_body_step0_mandates_two_citations_batch_confirm_and_precheck():
 
     # confidence=high only on a literal ADR Status: Accepted.
     assert "Status: Accepted" in body
+
+
+def test_adopt_body_gates_each_classified_proposal_before_write():
+    body = load_adopt_body()
+
+    assert "Present the complete classified proposal to the user" in body
+    assert "Earlier `keep` replies select candidates" in body
+    assert (
+        "A Step 0 `confirm` counts only when the proposal and surfaced overlaps remain unchanged"
+        in body
+    )
+    assert "wait for explicit approval of the exact current proposal" in body
+    assert "related decisions and assessment from Step 7 step 1" in body
+    assert "rerun `check_decision`" in body
+
+
+def test_ship_task_routes_all_decision_drafts_through_parent_approval():
+    body = load_ship_task_body()
+
+    assert "all three operations: `add`, `update`, and `supersede`" in body
+    assert "re-invoke the planner with that approval" in body
+    assert "re-invoke the tech-lead with that approval" in body
+    assert "The parent never files a subagent's draft itself." in body
 
 
 # --- render_skill produces frontmatter + body ---
