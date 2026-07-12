@@ -48,18 +48,30 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import sys
 from importlib import metadata
 from pathlib import Path
 
 import bm25s
+from _stats import (
+    clopper_pearson_lower,
+    mcnemar_exact_p,
+    required_n_fired,
+    rule_of_three_upper,
+    wilson_lower,
+)
 from nauro_core.decision_model import Decision, DecisionStatus, parse_decision
 from nauro_core.operations.check_decision import _CHECK_DECISION_STOPWORDS
 from nauro_core.parsing import first_sentence_end
 from nauro_core.search import union_retrieve
 
 BENCH_VERSION = "1"
+# Schema version of the privacy-preserving aggregate summary (build_summary).
+# v2 adds per-class surfacing_hits, the exposure object, and the top-level
+# version tag; pool_certify.py rejects any summary that is not v2. Bumped
+# independently of BENCH_VERSION: the measurement kernel and the exchange
+# envelope version on their own cadences.
+SUMMARY_SCHEMA_VERSION = "2"
 
 # The fixed precision counterweight: generic engineering proposals with no
 # project-private content, committed so contributors can run the precision
@@ -125,171 +137,6 @@ RANK_CUTOFFS = (1, 3, 5, 10)
 def battery_hash() -> str:
     text = "\n".join(NOVEL_BATTERY + OFF_DOMAIN_BATTERY)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-
-
-# ---------------------------------------------------------------------------
-# Stage-0 statistics: pure-Python, no scipy. Every proportion m/n is
-# reported with a Wilson and a conservative Clopper-Pearson 95% interval; the
-# gate reads the LOWER bound, never the point estimate. These functions take
-# only counts, never store text, so they are safe to exercise in CI.
-# ---------------------------------------------------------------------------
-
-# 97.5th percentile of the standard normal (two-sided 95%).
-_Z_95 = 1.959963984540054
-
-
-def wilson_lower(k: int, n: int, z: float = _Z_95) -> float:
-    """Wilson score lower bound for a binomial proportion k/n.
-
-    Closed-form; the asymmetric interval the small-N gate needs. Returns 0.0
-    for n == 0 (no evidence bounds nothing).
-    """
-    if n == 0:
-        return 0.0
-    p = k / n
-    z2 = z * z
-    denom = 1.0 + z2 / n
-    center = p + z2 / (2 * n)
-    margin = z * math.sqrt(p * (1 - p) / n + z2 / (4 * n * n))
-    return max(0.0, (center - margin) / denom)
-
-
-def _betacf(a: float, b: float, x: float) -> float:
-    """Continued-fraction expansion for the incomplete beta (Lentz)."""
-    fpmin = 1e-300
-    qab, qap, qam = a + b, a + 1.0, a - 1.0
-    c = 1.0
-    d = 1.0 - qab * x / qap
-    if abs(d) < fpmin:
-        d = fpmin
-    d = 1.0 / d
-    h = d
-    for m in range(1, 201):
-        m2 = 2 * m
-        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
-        d = 1.0 + aa * d
-        if abs(d) < fpmin:
-            d = fpmin
-        c = 1.0 + aa / c
-        if abs(c) < fpmin:
-            c = fpmin
-        d = 1.0 / d
-        h *= d * c
-        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
-        d = 1.0 + aa * d
-        if abs(d) < fpmin:
-            d = fpmin
-        c = 1.0 + aa / c
-        if abs(c) < fpmin:
-            c = fpmin
-        d = 1.0 / d
-        delta = d * c
-        h *= delta
-        if abs(delta - 1.0) < 3e-16:
-            break
-    return h
-
-
-def _betai(a: float, b: float, x: float) -> float:
-    """Regularized incomplete beta I_x(a, b) via the continued fraction."""
-    if x <= 0.0:
-        return 0.0
-    if x >= 1.0:
-        return 1.0
-    lbeta = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
-    front = math.exp(a * math.log(x) + b * math.log(1.0 - x) - lbeta)
-    if x < (a + 1.0) / (a + b + 2.0):
-        return front * _betacf(a, b, x) / a
-    return 1.0 - front * _betacf(b, a, 1.0 - x) / b
-
-
-def _beta_ppf(p: float, a: float, b: float) -> float:
-    """Inverse of the regularized incomplete beta by bisection.
-
-    Stdlib-only: scipy's ``beta.ppf`` is the conventional route, but the
-    benchmark holds its dependency footprint to compute-only kernel deps, so
-    the Clopper-Pearson bound is built on this bisection over ``_betai``.
-    """
-    lo, hi = 0.0, 1.0
-    for _ in range(200):
-        mid = (lo + hi) / 2.0
-        if _betai(a, b, mid) < p:
-            lo = mid
-        else:
-            hi = mid
-    return (lo + hi) / 2.0
-
-
-def clopper_pearson_lower(k: int, n: int, alpha: float = 0.05) -> float:
-    """Conservative (exact) Clopper-Pearson lower bound for k/n.
-
-    The lower limit is the (alpha/2)-quantile of Beta(k, n-k+1); 0.0 at k == 0
-    (the rule of three then bounds the true rate, not this interval).
-    """
-    if n == 0 or k == 0:
-        return 0.0
-    if k == n:
-        # Closed form avoids a bisection edge at the boundary: (alpha/2)^(1/n).
-        return (alpha / 2.0) ** (1.0 / n)
-    return _beta_ppf(alpha / 2.0, k, n - k + 1)
-
-
-def rule_of_three_upper(n: int) -> float:
-    """Upper bound on a true rate after 0 observed events in n trials (~3/n).
-
-    The honest reading of a clean run: 0/n does not bound the FP rate at 0, only
-    at roughly 3/n at 95% confidence. Returns 1.0 for n == 0.
-    """
-    return 1.0 if n == 0 else min(1.0, 3.0 / n)
-
-
-def mcnemar_exact_p(b: int, c: int) -> float:
-    """Two-sided exact McNemar p-value for discordant pairs (b, c).
-
-    Binomial test on the discordant cells with p = 1/2. Used to report the
-    rejected-name-indexing catch moves (44->46, 46->47) as not statistically
-    distinguishable: at
-    n = 48 the discordant set is 2-4 items, far short of significance.
-    """
-    n = b + c
-    if n == 0:
-        return 1.0
-    k = min(b, c)
-    tail = sum(math.comb(n, i) for i in range(k + 1)) * (0.5**n)
-    return min(1.0, 2.0 * tail)
-
-
-def holm_reject(pvalues: list[float], alpha: float = 0.05) -> list[bool]:
-    """Holm step-down multiplicity correction over the operating points searched.
-
-    Returns a reject/keep mask aligned with the input order. Holm dominates
-    plain Bonferroni at the same family-wise error rate; both are reported so a
-    post-hoc operating-point search cannot manufacture a significant cell.
-    """
-    m = len(pvalues)
-    if m == 0:
-        return []
-    order = sorted(range(m), key=lambda i: pvalues[i])
-    reject = [False] * m
-    for rank, idx in enumerate(order):
-        if pvalues[idx] <= alpha / (m - rank):
-            reject[idx] = True
-        else:
-            break
-    return reject
-
-
-def required_n_fired(target_lb: float, z: float = _Z_95) -> int:
-    """Smallest perfect-run n whose Wilson lower bound reaches ``target_lb``.
-
-    A first-class output: ~120-150 for a 0.975 lower bound; 48/48 caps at
-    ~0.926, so the high-stakes tier is years away on a single store. Capped to
-    avoid an unbounded loop on an unreachable target.
-    """
-    for n in range(1, 100001):
-        if wilson_lower(n, n, z) >= target_lb:
-            return n
-    return -1
 
 
 # ---------------------------------------------------------------------------
@@ -1030,16 +877,30 @@ def build_fingerprint(
 
 
 def build_summary(result: dict) -> dict:
-    """Privacy-preserving aggregate SUMMARY: counts and bounds only.
+    """Privacy-preserving aggregate SUMMARY (schema v2): counts and bounds only.
 
-    A second party reproduces the METHOD on their own store from this; it
-    carries NO store text -- no titles, no rationale, no false-fire transcript,
-    no query strings. Only n_fired, m/n counts, interval lower bounds, per-class
-    cell sizes, battery_hash, and the fingerprint cross into it.
+    A second party reproduces the METHOD on their own store from this, and
+    pool_certify.py pools it across stores. It carries NO store text -- no
+    titles, no rationale, no false-fire transcript, no query strings. Only
+    n_fired, m/n counts, interval lower bounds, per-class cell sizes,
+    battery_hash, and the fingerprint cross into it.
+
+    Schema invariant (the exchange contract pool_certify.py depends on): the
+    summary must never contain rejected-alternative tokens or any per-token
+    sketches, hashes, or digests of a store's lexicon; only counts, bounds,
+    versions, and the fingerprint. The top-level key set is closed -- a new
+    field is a schema change, not an incremental add -- so a store-text leak
+    cannot ride in unnoticed.
+
+    v2 over v1: a top-level ``summary_schema_version`` tag; ``surfacing_hits``
+    per class in ``per_class_cell_sizes`` (so precision pools per class, not
+    only per store); and ``exposure`` as an object of raw counts plus rate,
+    replacing the flat ``exposure_rate`` (so exposure pools by summing counts).
     """
     fp = result["fingerprint"]
     art = result.get("artifact_regime")
     summary: dict = {
+        "summary_schema_version": SUMMARY_SCHEMA_VERSION,
         "fingerprint": fp,
         "battery_hash": fp["battery_hash"],
     }
@@ -1061,9 +922,19 @@ def build_summary(result: dict) -> dict:
             "wilson_lb": art["coverage"]["wilson_lb"],
             "cp_lb": art["coverage"]["cp_lb"],
         },
-        "exposure_rate": art["exposure"]["rate"],
+        "exposure": {
+            "wrong_fires": art["exposure"]["wrong_fires"],
+            "artifacts_reviewed": art["exposure"]["artifacts_reviewed"],
+            "rate": art["exposure"]["rate"],
+        },
         "per_class_cell_sizes": {
-            klass: {"candidate": cell["candidate"], "fired": cell["fired"]}
+            klass: {
+                "candidate": cell["candidate"],
+                "fired": cell["fired"],
+                # The value already exists in run_artifact_regime's per-class
+                # diagnostics as the numerator of the class surfacing interval.
+                "surfacing_hits": cell["surfacing_precision"]["k"],
+            }
             for klass, cell in art["per_class"].items()
         },
         "required_n_fired": art["required_n_fired"],
