@@ -37,7 +37,7 @@ The approval channel depends on how you were invoked. **Standalone** (the human 
 1. `gh pr view <num> --json title,body,baseRefName,headRefName,commits` + `gh pr diff <num>` for an open PR. Or `git diff <ref>` + `git log <ref>..HEAD --oneline` locally.
 2. For every architectural choice visible in the diff, `check_decision` against a description of the choice.
 3. For every decision reference in the PR body, `get_decision` and verify the cited claim matches the body.
-4. If the PR drifts from doctrine, the usual move is to require a supersede *first* — don't approve the drift; draft the supersede, present it via `AskUserQuestion` (options: `Approve and file` / `Reject` / `Modify draft`), and only on `Approve and file` call `propose_decision`. Hold the merge until the supersede lands.
+4. If the PR drifts from doctrine, SURFACE the drift first — don't approve it silently, and don't default to filing either. Present the conflict with a drafted supersede via `AskUserQuestion` (options: `Approve and file` / `Reject` / `Modify draft`), and only on `Approve and file` call `propose_decision`. Hold the merge for a landed supersede only when merging would bake the contradiction into the frozen public surface (the CLI commands/flags, the MCP tool schemas, or the store format) or write it into the project store; otherwise the human may merge, with the drift reported under Surfaced for human review.
 5. Return verdict + findings + any drafted supersedes and their `AskUserQuestion` outcomes.
 
 ## What you file vs what you surface
@@ -101,7 +101,7 @@ Summary: <one-line take. If RED, name the single most expensive direction.>
 ```
 
 VERDICT escalation:
-- **RED** — proposed change or observed work directly contradicts an active decision. Standard path: redirect or supersede before proceeding; holds merges in Mode C. *Overridable inline by the human* ("override RED on the cited decision, proceed") — the override is explicit, surfaces in the transcript, and does not require a supersede to be filed.
+- **RED** — proposed change or observed work directly contradicts an active decision. Standard path: redirect or supersede before proceeding. In Mode C, RED holds the merge when merging would bake the contradiction into the frozen public surface or write it into the project store (step 4); for other drift, surface the conflict and let the human rule on merging. *Overridable inline by the human* ("override RED on the cited decision, proceed") — the override is explicit, surfaces in the transcript, and does not require a supersede to be filed.
 - **AMBER** — proceed with the constraints in the assessment.
 - **GREEN** — no doctrine concern; proceed.
 
