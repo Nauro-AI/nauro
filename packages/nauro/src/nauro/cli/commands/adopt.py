@@ -95,6 +95,12 @@ def _smoke_test_wired_binary(nauro_cmd: str, timeout: float = 1.5) -> str | None
     Either outcome is "healthy". The failure mode we care about is the binary
     crashing on import — that surfaces as a non-zero exit before the timeout.
 
+    This is intentionally deeper than the shared ``probe_nauro_command``
+    liveness check (``nauro --version``) that the setup resolver and ``nauro
+    status`` use: it exercises the actual ``serve --stdio`` entrypoint the agent
+    spawns, catching import-time crashes a ``--version`` probe would miss. Kept
+    separate for that reason.
+
     Returns a multi-line warning string on detected failure, otherwise None.
     """
     try:

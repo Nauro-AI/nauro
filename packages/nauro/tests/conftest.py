@@ -135,6 +135,32 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _neutralize_nauro_command_probe(monkeypatch):
+    """Never spawn a real nauro binary, and reset the resolver cache per test.
+
+    ``_find_nauro_command`` (setup) and ``nauro status`` liveness both go through
+    ``nauro.cli.utils.probe_nauro_command`` — the single subprocess seam. Default
+    it to "runs fine" and mark every path durable so surface-wiring tests take
+    the historical fast path (record the interpreter-sibling, no warning) and get
+    a valid absolute command without a subprocess. Tests that exercise
+    dead/fragile wiring override these on their own monkeypatch instance (later
+    setattr wins). The module-level resolver cache is cleared so each test
+    resolves fresh and any warnings emit deterministically.
+
+    Probe/durability unit tests capture the real functions at import time (before
+    this fixture patches) and call them directly, so they are unaffected.
+    """
+    from nauro.cli import utils as cli_utils
+    from nauro.cli.commands import setup as setup_mod
+
+    monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda cmd, **kwargs: True)
+    monkeypatch.setattr(cli_utils, "_is_durable_install_path", lambda path: True)
+    setup_mod._find_nauro_command_cache_clear()
+    yield
+    setup_mod._find_nauro_command_cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_nauro_home(tmp_path, monkeypatch):
     """Point NAURO_HOME at tmp_path so tests never see the dev's real store.
 

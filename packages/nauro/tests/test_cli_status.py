@@ -5,6 +5,7 @@ import json
 from typer.testing import CliRunner
 
 import nauro.cli.commands.status as status_mod
+from nauro.cli import utils as cli_utils
 from nauro.cli.main import app
 from nauro.store.registry import register_project
 from nauro.templates.agents_md import FOOTER_MARKER
@@ -139,6 +140,57 @@ def test_status_sync_inactive(tmp_path, monkeypatch):
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
     assert "Sync          inactive" in result.output
+
+
+# ── MCP liveness probe ──────────────────────────────────────────────────────
+
+
+def test_status_mcp_broken_when_recorded_command_dead(tmp_path, monkeypatch):
+    """Wired but the recorded command fails the liveness probe → BROKEN, exit 0."""
+    _setup_project(tmp_path, monkeypatch)
+    _wire_repo_mcp(tmp_path)
+    monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda cmd, **kwargs: False)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "MCP           BROKEN" in result.output
+    assert "won't run" in result.output
+    assert "re-run 'nauro setup all'" in result.output
+
+
+def test_status_no_probe_skips_liveness(tmp_path, monkeypatch):
+    """`--no-probe` reports presence only and never calls the probe."""
+    _setup_project(tmp_path, monkeypatch)
+    _wire_repo_mcp(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        cli_utils, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
+    )
+
+    result = runner.invoke(app, ["status", "--no-probe"])
+    assert result.exit_code == 0
+    assert calls == []
+    assert "MCP           active (wired in 1/1 repos)" in result.output
+
+
+def test_status_dedupes_shared_command_to_one_probe(tmp_path, monkeypatch):
+    """N repos sharing one recorded command probe that command exactly once."""
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    repo1.mkdir()
+    repo2.mkdir()
+    _setup_project(tmp_path, monkeypatch, repos=[repo1, repo2])
+    _wire_repo_mcp(repo1)
+    _wire_repo_mcp(repo2)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        cli_utils, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
+    )
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert calls == ["nauro"]  # deduped to a single probe
+    assert "MCP           active (wired in 2/2 repos)" in result.output
 
 
 def test_status_no_project_shows_friendly_message(tmp_path, monkeypatch):

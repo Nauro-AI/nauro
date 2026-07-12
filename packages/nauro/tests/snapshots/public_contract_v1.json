@@ -1274,6 +1274,17 @@
         "name": "status",
         "params": [
           {
+            "default": false,
+            "flags": [
+              "--no-probe"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "no_probe",
+            "required": false,
+            "type": "boolean"
+          },
+          {
             "flags": [
               "--project"
             ],

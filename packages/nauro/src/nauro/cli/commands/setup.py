@@ -17,6 +17,7 @@ from pathlib import Path
 
 import typer
 
+from nauro.cli import utils as cli_utils
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
@@ -76,23 +77,105 @@ def _remove_claude_md(repo_path: Path) -> str | None:
         return f"  {repo_path}: removed legacy Nauro block from {CLAUDE_MD}"
 
 
-def _find_nauro_command() -> str:
-    """Resolve an absolute path to the nauro entrypoint for MCP/hook configs.
+def _interpreter_sibling_candidate() -> str | None:
+    """Return the absolute path to a ``nauro`` console script next to the running
+    interpreter, or None when there isn't one.
 
-    Prefer the console script next to the running interpreter — the install the
-    user actually invoked, which a pip-into-venv or pipx/uv-tool layout often
-    keeps off the PATH that Claude Code / Cursor / Codex launch with. Recording
-    an absolute path keeps the spawned stdio server and the per-turn hook
-    independent of the agent's launch environment. Fall back to a PATH lookup,
-    then the bare name.
+    This is the install the user actually invoked, which pipx/uv-tool layouts
+    keep off the PATH that GUI-launched agents see — recording its absolute path
+    is what makes the spawned stdio server and per-turn hook independent of the
+    agent's launch environment.
     """
     bindir = Path(sys.executable).parent
     for name in ("nauro", "nauro.exe"):
         candidate = bindir / name
         if candidate.is_file():
             return str(candidate)
-    path = shutil.which("nauro")
-    return path if path else "nauro"
+    return None
+
+
+_FRAGILE_COMMAND_WARNING = (
+    "WARNING: recording nauro from a project virtualenv ({command}).\n"
+    "  This path breaks if the repo's virtualenv is rebuilt, moved, or "
+    "corrupted, silently killing Nauro's MCP server and hooks. Install nauro "
+    "durably (pipx install nauro, or uv tool install nauro) and re-run "
+    "'nauro setup all'."
+)
+
+_UNRESOLVED_COMMAND_WARNING = (
+    "WARNING: could not validate a working nauro; recorded '{command}'.\n"
+    "  Nauro's MCP server and hooks will not work until nauro is installed on a "
+    "durable PATH (pipx install nauro, or uv tool install nauro), then re-run "
+    "'nauro setup all'."
+)
+
+# Memoized per process so `setup all` validates the entrypoint once rather than
+# once per sink (five subprocess probes collapse to one). Warnings surface on
+# first resolution only; cleared between tests via the cache-clear seam.
+_RESOLVED_NAURO_COMMAND: str | None = None
+
+
+def _find_nauro_command() -> str:
+    """Resolve — and cache for the process — the nauro entrypoint recorded into
+    MCP and hook configs."""
+    global _RESOLVED_NAURO_COMMAND
+    if _RESOLVED_NAURO_COMMAND is None:
+        _RESOLVED_NAURO_COMMAND = _resolve_nauro_command()
+    return _RESOLVED_NAURO_COMMAND
+
+
+def _find_nauro_command_cache_clear() -> None:
+    """Reset the per-process resolution cache (test seam)."""
+    global _RESOLVED_NAURO_COMMAND
+    _RESOLVED_NAURO_COMMAND = None
+
+
+def _resolve_nauro_command() -> str:
+    """Pick the nauro entrypoint to record into MCP/hook configs.
+
+    Prefers a validated, durable install so the recorded command keeps working
+    after a project virtualenv is rebuilt, moved, or corrupted (the observed
+    failure: a ``uv run`` / ``.venv``-invoked setup recorded a fragile
+    repo-venv path that later died). Resolution order:
+
+      1. Interpreter-sibling that both runs and looks durable — the fast path,
+         byte-identical to the historical behavior for pipx/uv-tool/desktop.
+      2. Otherwise a PATH-resolved absolute shim that runs and looks durable —
+         diverts away from a dead or fragile project venv.
+      3. Otherwise the sibling if it merely runs (fragile but working) —
+         recorded with a loud warning naming the project-venv fragility.
+      4. Otherwise the best absolute path we have (else bare ``nauro``), with a
+         loud warning that MCP will not work until nauro is on a durable PATH.
+
+    An absolute path is always preferred over bare ``nauro``; bare ``nauro`` is
+    only the terminal fallback, because GUI-launched agents start with an empty
+    PATH. Durability checks run before the (subprocess) probe so a non-durable
+    candidate short-circuits without spawning.
+    """
+    sibling = _interpreter_sibling_candidate()
+    which = shutil.which("nauro")
+
+    if (
+        sibling is not None
+        and cli_utils._is_durable_install_path(sibling)
+        and cli_utils.probe_nauro_command(sibling)
+    ):
+        return sibling
+
+    if (
+        which is not None
+        and cli_utils._is_durable_install_path(which)
+        and cli_utils.probe_nauro_command(which)
+    ):
+        return which
+
+    if sibling is not None and cli_utils.probe_nauro_command(sibling):
+        typer.echo(_FRAGILE_COMMAND_WARNING.format(command=sibling), err=True)
+        return sibling
+
+    fallback = sibling or which or "nauro"
+    typer.echo(_UNRESOLVED_COMMAND_WARNING.format(command=fallback), err=True)
+    return fallback
 
 
 def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
