@@ -144,7 +144,7 @@ def _neutralize_nauro_command_probe(monkeypatch):
     the historical fast path (record the interpreter-sibling, no warning) and get
     a valid absolute command without a subprocess. Tests that exercise
     dead/fragile wiring override these on their own monkeypatch instance (later
-    setattr wins). The module-level resolver cache is cleared so each test
+    setattr wins). The functools cache on the resolver is cleared so each test
     resolves fresh and any warnings emit deterministically.
 
     Probe/durability unit tests capture the real functions at import time (before
@@ -155,9 +155,9 @@ def _neutralize_nauro_command_probe(monkeypatch):
 
     monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda cmd, **kwargs: True)
     monkeypatch.setattr(cli_utils, "_is_durable_install_path", lambda path: True)
-    setup_mod._find_nauro_command_cache_clear()
+    setup_mod._find_nauro_command.cache_clear()
     yield
-    setup_mod._find_nauro_command_cache_clear()
+    setup_mod._find_nauro_command.cache_clear()
 
 
 @pytest.fixture(autouse=True)

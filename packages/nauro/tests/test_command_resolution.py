@@ -225,7 +225,7 @@ def test_find_nauro_command_memoizes_resolution(monkeypatch):
     monkeypatch.setattr(setup_mod.shutil, "which", lambda name: None)
     monkeypatch.setattr(cli_utils, "probe_nauro_command", counting_probe)
     monkeypatch.setattr(cli_utils, "_is_durable_install_path", lambda p: True)
-    setup_mod._find_nauro_command_cache_clear()
+    setup_mod._find_nauro_command.cache_clear()
 
     first = setup_mod._find_nauro_command()
     after_first = len(calls)
@@ -254,7 +254,7 @@ def test_setup_all_resolves_command_once(tmp_path, monkeypatch):
         cli_utils, "probe_nauro_command", lambda cmd, **k: calls.append(cmd) or True
     )
     monkeypatch.setattr(cli_utils, "_is_durable_install_path", lambda p: True)
-    setup_mod._find_nauro_command_cache_clear()
+    setup_mod._find_nauro_command.cache_clear()
 
     setup_all_surfaces([repo1, repo2], remove=False)
 

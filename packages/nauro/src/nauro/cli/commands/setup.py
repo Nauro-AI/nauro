@@ -10,6 +10,7 @@ Subcommands:
 
 from __future__ import annotations
 
+import functools
 import json
 import shutil
 import sys
@@ -109,25 +110,18 @@ _UNRESOLVED_COMMAND_WARNING = (
     "'nauro setup all'."
 )
 
-# Memoized per process so `setup all` validates the entrypoint once rather than
-# once per sink (five subprocess probes collapse to one). Warnings surface on
-# first resolution only; cleared between tests via the cache-clear seam.
-_RESOLVED_NAURO_COMMAND: str | None = None
 
-
+@functools.cache
 def _find_nauro_command() -> str:
     """Resolve — and cache for the process — the nauro entrypoint recorded into
-    MCP and hook configs."""
-    global _RESOLVED_NAURO_COMMAND
-    if _RESOLVED_NAURO_COMMAND is None:
-        _RESOLVED_NAURO_COMMAND = _resolve_nauro_command()
-    return _RESOLVED_NAURO_COMMAND
+    MCP and hook configs.
 
-
-def _find_nauro_command_cache_clear() -> None:
-    """Reset the per-process resolution cache (test seam)."""
-    global _RESOLVED_NAURO_COMMAND
-    _RESOLVED_NAURO_COMMAND = None
+    Cached so `setup all` validates the entrypoint once rather than once per
+    sink (five subprocess probes collapse to one). Warnings surface on the
+    cache-miss resolution only; tests reset via
+    ``_find_nauro_command.cache_clear()``.
+    """
+    return _resolve_nauro_command()
 
 
 def _resolve_nauro_command() -> str:

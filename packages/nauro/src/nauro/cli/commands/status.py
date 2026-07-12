@@ -57,14 +57,20 @@ def _codex_config_path() -> Path:
     return Path.home() / ".codex" / "config.toml"
 
 
-def _repo_has_mcp_wiring(repo: Path) -> bool:
-    """True when the repo declares a nauro MCP server in .mcp.json or .cursor/mcp.json.
+def _repo_recorded_commands(repo: Path) -> list[str | None]:
+    """Recorded nauro MCP commands in this repo's configs, one entry per wired config.
 
-    Read-only probe: a missing, unreadable, or malformed config counts as
-    not wired — status must never crash on someone else's config file.
+    Single read of ``.mcp.json`` and ``.cursor/mcp.json`` each — presence
+    ("the repo is wired" iff the list is non-empty) and the recorded command
+    both derive from the same parse. A wired config whose nauro entry carries a
+    missing or empty command contributes ``None``: it still counts as wired,
+    but there is nothing to probe. Read-only and soft-failing: a missing,
+    unreadable, or malformed config contributes nothing — status must never
+    crash on someone else's config file.
     """
     import json
 
+    commands: list[str | None] = []
     for rel in (".mcp.json", ".cursor/mcp.json"):
         try:
             config = json.loads((repo / rel).read_text())
@@ -73,15 +79,20 @@ def _repo_has_mcp_wiring(repo: Path) -> bool:
         if not isinstance(config, dict):
             continue
         servers = config.get("mcpServers")
-        if isinstance(servers, dict) and "nauro" in servers:
-            return True
-    return False
+        if not isinstance(servers, dict) or "nauro" not in servers:
+            continue
+        entry = servers["nauro"]
+        cmd = entry.get("command") if isinstance(entry, dict) else None
+        commands.append(cmd if isinstance(cmd, str) and cmd else None)
+    return commands
 
 
-def _codex_global_wired() -> bool:
-    """True when the user-global Codex config declares a nauro MCP server.
+def _codex_recorded_command() -> tuple[bool, str | None]:
+    """Return ``(wired, recorded command)`` for the user-global Codex config.
 
-    Same parse approach as setup.py; any read or parse failure counts as
+    Single read of ``~/.codex/config.toml``, same parse approach as setup.py.
+    ``(True, None)`` means a nauro entry exists but records no usable command —
+    wired for presence, nothing to probe. Any read or parse failure counts as
     not wired.
     """
     import sys
@@ -95,92 +106,23 @@ def _codex_global_wired() -> bool:
         with _codex_config_path().open("rb") as f:
             config = tomllib.load(f)
     except Exception:
-        return False
+        return (False, None)
     servers = config.get("mcp_servers")
-    return isinstance(servers, dict) and "nauro" in servers
-
-
-def _recorded_repo_commands(repo: Path) -> list[str]:
-    """Return the nauro MCP command strings recorded in a repo's configs.
-
-    Reads ``.mcp.json`` and ``.cursor/mcp.json`` and extracts
-    ``mcpServers.nauro.command`` from each. Read-only and soft-failing: a
-    missing, unreadable, malformed, or command-less config contributes nothing.
-    """
-    import json
-
-    commands: list[str] = []
-    for rel in (".mcp.json", ".cursor/mcp.json"):
-        try:
-            config = json.loads((repo / rel).read_text())
-        except Exception:
-            continue
-        if not isinstance(config, dict):
-            continue
-        servers = config.get("mcpServers")
-        if not isinstance(servers, dict):
-            continue
-        entry = servers.get("nauro")
-        if isinstance(entry, dict):
-            cmd = entry.get("command")
-            if isinstance(cmd, str) and cmd:
-                commands.append(cmd)
-    return commands
-
-
-def _recorded_codex_command() -> str | None:
-    """Return the nauro command recorded in the user-global Codex config, if any.
-
-    Same parse approach as ``_codex_global_wired``; any read or parse failure
-    yields None.
-    """
-    import sys
-
-    if sys.version_info >= (3, 11):
-        import tomllib
-    else:
-        import tomli as tomllib
-
-    try:
-        with _codex_config_path().open("rb") as f:
-            config = tomllib.load(f)
-    except Exception:
-        return None
-    servers = config.get("mcp_servers")
-    if not isinstance(servers, dict):
-        return None
-    entry = servers.get("nauro")
-    if isinstance(entry, dict):
-        cmd = entry.get("command")
-        if isinstance(cmd, str) and cmd:
-            return cmd
-    return None
-
-
-def _safe_probe(cmd: str) -> bool:
-    """Liveness probe wrapper that never raises (status soft-fail contract)."""
-    try:
-        return cli_utils.probe_nauro_command(cmd)
-    except Exception:
-        return False
+    if not isinstance(servers, dict) or "nauro" not in servers:
+        return (False, None)
+    entry = servers["nauro"]
+    cmd = entry.get("command") if isinstance(entry, dict) else None
+    return (True, cmd if isinstance(cmd, str) and cmd else None)
 
 
 def _probe_distinct_commands(commands: set[str]) -> dict[str, bool]:
     """Probe each distinct recorded command once for liveness.
 
-    Sequential for a single command — the common case, where N repos share one
-    recorded path. A small bounded thread pool only when several distinct
-    commands exist, so their probes overlap instead of summing their timeouts.
+    Sequential: N repos usually share one recorded path, so the common case is
+    a single short probe. ``probe_nauro_command`` soft-fails by contract, so a
+    dead command costs at most its timeout, never an exception.
     """
-    distinct = list(commands)
-    if not distinct:
-        return {}
-    if len(distinct) == 1:
-        return {distinct[0]: _safe_probe(distinct[0])}
-    from concurrent.futures import ThreadPoolExecutor
-
-    with ThreadPoolExecutor(max_workers=min(4, len(distinct))) as pool:
-        return dict(zip(distinct, pool.map(_safe_probe, distinct)))
+    return {cmd: cli_utils.probe_nauro_command(cmd) for cmd in commands}
 
 
 def _repo_has_generated_agents_md(repo: Path) -> bool:
@@ -270,14 +212,17 @@ def status(
     except Exception:
         repo_paths = []
 
+    # Each wiring config is read once: presence and the recorded command come
+    # from the same parse.
     try:
-        mcp_wired = sum(1 for repo in repo_paths if _repo_has_mcp_wiring(repo))
+        repo_commands = [_repo_recorded_commands(repo) for repo in repo_paths]
     except Exception:
-        mcp_wired = 0
+        repo_commands = []
+    mcp_wired = sum(1 for cmds in repo_commands if cmds)
     try:
-        codex_global = _codex_global_wired()
+        codex_global, codex_command = _codex_recorded_command()
     except Exception:
-        codex_global = False
+        codex_global, codex_command = False, None
 
     if mcp_wired or codex_global:
         details = []
@@ -293,12 +238,9 @@ def status(
         healthy = True
         if not no_probe:
             try:
-                commands: set[str] = set()
-                for repo in repo_paths:
-                    commands.update(_recorded_repo_commands(repo))
-                codex_cmd = _recorded_codex_command()
-                if codex_cmd:
-                    commands.add(codex_cmd)
+                commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
+                if codex_command:
+                    commands.add(codex_command)
                 if commands:
                     healthy = all(_probe_distinct_commands(commands).values())
             except Exception:
