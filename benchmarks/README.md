@@ -52,8 +52,44 @@ consolidation fan, and emits schema-valid JSON. It asserts nothing about
 catch, rank, or score; green CI means the tool runs, not that retrieval
 quality is verified.
 
+## Cross-store pooling
+
+A single store is years from the high-stakes surfacing lower bound; the only
+path to the emit tier is pooling the measurement across independently operated
+stores. `pool_certify.py` does that pooling and certification, stdlib-only:
+
+```bash
+python benchmarks/pool_certify.py --manifest pool.json --pooling-operator me
+python benchmarks/pool_certify.py --manifest pool.json --pooling-operator me \
+    --json-out report.json
+```
+
+Its inputs are the privacy-preserving schema-v2 summaries that
+`retrieval_bench.py --summary-out` emits (counts and bounds only, never store
+text). The manifest lists contributions, each pairing a summary JSON with a
+consent record (operator, attestor, a hash linking the consent to the summary's
+fingerprint, date, scope, revocation terms). Contributions pool only within a
+stratum keyed on firing class, battery hash, bench major version, and g version.
+
+Each stratum lands on one of three verdicts:
+
+- **CERTIFIED** — every pre-registered gate clears (pooled and leave-one-store-out
+  precision lower bounds, coverage, exposure, minimum pooled fires, a breadth
+  floor on stores/operators/attestors, and dual attestation).
+- **HETEROGENEOUS** — the stores disagree (the homogeneity test rejects at the
+  Holm-adjusted alpha); there is no pooled claim and no post-hoc re-stratification
+  to rescue it.
+- **UNATTAINABLE** — stay dark; the bar is not met on this pool.
+
+The pre-registered floors live pinned in code and are never echoed into a report;
+reports carry booleans and measured bounds only.
+
 ## Data posture
 
 The tool and its generic batteries are public. Anything derived from a real
 store (conflict events, paraphrases of decisions, replayed traffic) stays
 private with the store. No store content is ever committed here.
+
+No collection is authorized. `pool_certify.py` never fetches anything: summaries
+are exchanged by hand as attested artifacts under written consent, and pooling
+runs only over what an operator was given directly.

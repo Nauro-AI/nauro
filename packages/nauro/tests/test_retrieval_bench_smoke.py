@@ -31,6 +31,12 @@ from nauro.demo import DEMO_DECISIONS, create_demo_project
 
 SCRIPT = Path(__file__).resolve().parents[3] / "benchmarks" / "retrieval_bench.py"
 
+# retrieval_bench.py imports its sibling _stats module; a direct script run
+# resolves that via sys.path[0]. Under pytest the loader below must put the
+# benchmarks/ directory on sys.path for the sibling import to resolve.
+if str(SCRIPT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent))
+
 
 def _load_bench_module():
     """Import the out-of-package benchmark script as a module for direct calls.
@@ -171,3 +177,68 @@ def test_g_abstains_on_negative_probe() -> None:
     decisions = {d.num: d for d in DEMO_DECISIONS}
     slice_result = bench.run_abstain_slice(decisions)
     assert slice_result["correct_abstain"], slice_result["fires"]
+
+
+def _build_demo_result(bench, store: Path) -> dict:
+    """Reconstruct main()'s result dict for the demo store at the function boundary."""
+    decisions, unparseable = bench.load_decisions(store)
+    events, skipped_order = bench.extract_events(decisions)
+    catching, skipped_temporal = bench.run_conflict_catching(decisions, events, False)
+    artifact_regime = bench.run_artifact_regime(decisions, events)
+    return {
+        "fingerprint": bench.build_fingerprint(
+            decisions, events, skipped_order, skipped_temporal, unparseable, False
+        ),
+        "conflict_catching": catching,
+        "batteries": bench.run_batteries(decisions),
+        "artifact_regime": artifact_regime,
+        "abstain_slice": bench.run_abstain_slice(decisions),
+        "feasibility": bench.feasibility_sweep(artifact_regime),
+    }
+
+
+def test_summary_schema_v2(tmp_path: Path) -> None:
+    """build_summary emits schema v2 and never widens the closed top-level key set.
+
+    Structure-only: version tag, per-class surfacing_hits, exposure raw counts,
+    and a hard allowlist on the top-level keys so a store-text or lexicon field
+    cannot leak into the exchanged summary. No precision/catch number is asserted.
+    """
+    bench = _load_bench_module()
+    store = tmp_path / "demo-store"
+    create_demo_project(store)
+    summary = bench.build_summary(_build_demo_result(bench, store))
+
+    assert summary["summary_schema_version"] == "2"
+    assert summary["summary_schema_version"] == bench.SUMMARY_SCHEMA_VERSION
+
+    # The top-level key set is closed: a new field is a schema change, so a
+    # store-text/lexicon field cannot ride in unnoticed.
+    assert set(summary) == {
+        "summary_schema_version",
+        "fingerprint",
+        "battery_hash",
+        "artifact_regime",
+    }
+
+    art = summary["artifact_regime"]
+    assert set(art) == {
+        "n_candidate_conflicts",
+        "n_fired",
+        "min_n_fired_met",
+        "surfacing_precision",
+        "coverage",
+        "exposure",
+        "per_class_cell_sizes",
+        "required_n_fired",
+        "feasibility_verdict",
+    }
+
+    # Exposure is an object of raw counts plus rate (poolable by summation).
+    assert set(art["exposure"]) == {"wrong_fires", "artifacts_reviewed", "rate"}
+
+    # Every per-class cell carries surfacing_hits alongside the cell sizes.
+    assert set(art["per_class_cell_sizes"]) == {"forward", "reverse_only", "cross_vocabulary"}
+    for cell in art["per_class_cell_sizes"].values():
+        assert set(cell) == {"candidate", "fired", "surfacing_hits"}
+        assert cell["surfacing_hits"] <= cell["fired"]
