@@ -1,8 +1,14 @@
 # Nauro
 
-Nauro gives every connected agent project judgement. It helps you capture and approve the intent, decisions, tradeoffs, open questions, and rejected paths that define a project, then brings the relevant judgement into an agent's work.
+**Give your agents the context code leaves out.**
 
-It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The same human-ratified project judgement travels with the work, rather than belonging to a single tool or session.
+Nauro keeps current state, open questions, and human-approved project judgment in one record, ready for every agent you connect.
+
+Nauro keeps a living project record. It combines project scope, current state, and open questions with human-approved project judgment: intent, goals, decisions, rationale, tradeoffs, and rejected paths. Project judgment is the human-ratified part of the record; context is the relevant slice of the record an agent receives for the work in front of it.
+
+Before connected agents plan or change work, Nauro surfaces the relevant parts of that record. Afterward, they explain how the context shaped the result and report what changed. New or revised judgment becomes project truth only after you approve it.
+
+It works across Claude, Cursor, Codex, Perplexity, and any MCP client. The same project record travels with the work, rather than belonging to a single tool or session.
 
 [![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![Python](https://img.shields.io/pypi/pyversions/nauro.svg)](https://pypi.org/project/nauro/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -16,14 +22,14 @@ More at [nauro.ai](https://nauro.ai).
 
 ## How the loop works
 
-1. You and an agent capture or elicit the project judgement relevant to the work.
-2. The agent drafts any addition, update, or supersession, and you explicitly approve what becomes project truth.
-3. Relevant judgement reaches an agent before it plans or changes work.
-4. The agent explains how that judgement affected its recommendation or implementation.
-5. You accept, correct, except, reopen, or supersede the result in conversation.
-6. Approved corrections become part of what later agents inherit.
+1. Nauro orients the agent with project scope, current state, open questions, and relevant prior judgment.
+2. You and the agent clarify missing intent, constraints, or tradeoffs.
+3. If the work needs new or revised judgment, the agent drafts it and waits for your explicit approval.
+4. The agent plans, recommends, or implements with that context in view.
+5. The agent explains how the context shaped the result, and you accept, correct, except, reopen, or supersede it in conversation.
+6. The agent reports meaningful completed progress as current state, so later connected agents inherit the updated state and approved judgment.
 
-Nauro supports this loop with a plain markdown store, compact context, and deterministic retrieval. Decisions include the alternatives you ruled out and the reasoning behind them; the store can also carry current state and open questions. When an agent proposes an approach, `check_decision` runs keyword retrieval (BM25) over those files and surfaces related records before the agent plans or writes code.
+Nauro supports this loop with a plain markdown store, compact context, and deterministic retrieval. Decisions include the alternatives you ruled out and the reasoning behind them; the record also carries current state and open questions. When an agent proposes an approach, `check_decision` runs keyword retrieval (BM25) over those files and surfaces related records before the agent plans or writes code.
 
 At session start, agents can read L0 for a concise orientation, use L1 for a bounded working set, or request L2 for a full dump. On mature stores, L2 can reach hundreds of thousands of tokens, so agents should start with L0 and pull exact decisions as needed.
 
@@ -94,13 +100,13 @@ A committed decision log plus a reliable pointer in `AGENTS.md` or `CLAUDE.md` c
 
 Against a coding tool's built-in memory (Claude Code memory, Cursor memories): those are scoped to one tool and one user. Nauro's record belongs to the project. The same store answers in Claude, Cursor, Codex, and any MCP client, across every repo you associate with it.
 
-Against tools that extract notes from conversations automatically: Nauro records human-ratified judgement. An entry is a reviewed choice with its rationale and the alternatives you rejected. An agent drafts the change, you explicitly approve it, and `propose_decision` commits it in one call. Entries are retrieved by deterministic keyword search you can audit and superseded rather than silently rewritten. They remain plain markdown in a folder you own.
+Against tools that extract notes from conversations automatically: Nauro records human-ratified judgment. An entry is a reviewed choice with its rationale and the alternatives you rejected. An agent drafts the change, you explicitly approve it, and `propose_decision` commits it in one call. Entries are retrieved by deterministic keyword search you can audit and superseded rather than silently rewritten. They remain plain markdown in a folder you own.
 
 ## When Nauro helps, and when it doesn't
 
-Nauro is designed for long-lived projects where agents need project judgement before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions, tools, repos, machines, or handoffs.
+Nauro is designed for long-lived projects where agents need project judgment before acting: architecture choices, rejected approaches, migration plans, operational constraints, and decisions that recur across sessions, tools, repos, machines, or handoffs.
 
-If one small repo plus a tight `CLAUDE.md` already keeps your agents oriented, Nauro may be too much.
+If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Nauro may be more than you need.
 
 The limits are worth knowing. It surfaces only what has been recorded as a decision. It adds an MCP round-trip to the agent's flow. Retrieval is keyword-based, which is fast, offline, and auditable, and can miss a decision phrased in different words than the proposal; an optional embeddings index is available for closer synonym matching.
 
