@@ -6,6 +6,7 @@ defaults, and similarity thresholds.
 """
 
 from nauro_core.protocol import (
+    _APPROVAL_BEFORE_PROPOSE,
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
     NO_INVENT_RATIONALE,
@@ -54,8 +55,9 @@ NO_DECISIONS_TO_CHECK = (
     "No existing decisions to check against.\n"
     "\n"
     "Use propose_decision to record your first architectural decision, "
-    "then check_decision can help verify new approaches against "
-    "your recorded decisions."
+    "then check_decision can surface related records for new approaches.\n"
+    "\n"
+    f"{_APPROVAL_BEFORE_PROPOSE}"
 )
 
 # ── No-keyword-match assessment (used in check_decision) ──
@@ -154,7 +156,7 @@ MAX_BRIEF_BYTES = 50 * 1024
 
 # ── MCP server instructions ──
 # Delivered via the MCP `initialize` response to every connected client.
-# Single source of truth — both local (stdio) and remote (HTTP) servers
+# Single source of truth: both local (stdio) and remote (HTTP) servers
 # reference MCP_INSTRUCTIONS_STATIC. Remote callers compose it with a
 # per-user project section via build_remote_instructions() in instructions.py.
 # Canonical claims about check_decision/get_decision/propose_decision live in
@@ -164,7 +166,9 @@ MAX_BRIEF_BYTES = 50 * 1024
 # UPDATE_SUPERSEDE_CARE, and RESOLVES_OPEN_QUESTIONS fragments are
 # deliberately omitted here — they are bound to the `propose_decision`
 # ToolSpec parameter descriptions instead, where the agent reads them at the
-# moment of use. For the same budget reason the `update_state` "meaningful
+# moment of use. The private approval fragment remains here because both
+# servers must deliver the human-authority boundary at initialization. For the
+# same budget reason the `update_state` "meaningful
 # unit of work" guidance and the `get_context` "do not call list_decisions
 # afterward" nuance are omitted here too — they live on the matching ToolSpec
 # descriptions in mcp_tools.py, which the client delivers intact via
@@ -174,37 +178,35 @@ MAX_BRIEF_BYTES = 50 * 1024
 # `initialize.instructions` field.
 # MCP_INSTRUCTIONS remains as a backward-compatible alias.
 MCP_INSTRUCTIONS_STATIC = (
-    "Nauro carries this project's doctrine across every agent session. "
-    "Use it to check past decisions before adopting an approach, and to "
-    "record new decisions as you make them.\n"
+    "Nauro carries human-ratified project judgment across agent sessions. "
+    "Use it to surface relevant prior judgment before choosing an approach, "
+    "and record only decisions the user approves.\n"
     "\n"
     "## When to check decisions\n"
     "\n"
-    "Before responding to any technical change request — architecture, "
-    "library choice, API design, data model, infrastructure, vendor swap — "
-    "call `check_decision` with a description of what's being proposed. "
-    'This includes "should we...", "what if we...", "can we...", '
-    '"check if..." framings, and applies even when you intend to push back '
-    "or refuse. Your first-principles reasoning is not a substitute for "
-    "project history; `check_decision` is a precondition, not an option.\n"
+    "Before responding to any technical change request, including architecture, "
+    "library choice, API design, data model, infrastructure, or a vendor swap, "
+    "call `check_decision` with the proposal. This applies even when you "
+    "intend to push back or refuse. Your first-principles reasoning is not a "
+    "substitute for project history; `check_decision` is a precondition, not an option.\n"
     "\n"
     f"{CHECK_DECISION_RETURNS} {GET_DECISION_BEFORE_PROPOSING}\n"
     "\n"
     "## When to propose decisions\n"
     "\n"
-    "Call `propose_decision` when you choose between two or more approaches, "
-    "replace or remove a dependency, establish a new pattern, or cut scope. "
-    "Do it at the moment the decision is made, not at the end of the "
-    "session. Always include what was rejected and why. You own this "
-    "classification.\n"
+    "Call `propose_decision` when a user chooses between approaches, replaces "
+    "or removes a dependency, establishes a pattern, or cuts scope. Record it "
+    "when decided, not at session end, and include what was rejected and why.\n"
+    "\n"
+    f"{_APPROVAL_BEFORE_PROPOSE}\n"
     "\n"
     f"{NO_INVENT_RATIONALE} Do NOT propose decisions for obvious bug fixes, "
     "adding tests for existing behavior, or renaming variables.\n"
     "\n"
     "## When to get context\n"
     "\n"
-    "Call `get_context` at the start of a session or when you need to "
-    "understand the project's current state, goals, and constraints."
+    "Call `get_context` at session start or when you need the project's state, "
+    "goals, and constraints."
 )
 
 MCP_INSTRUCTIONS = MCP_INSTRUCTIONS_STATIC

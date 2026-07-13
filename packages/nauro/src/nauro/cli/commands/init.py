@@ -235,7 +235,9 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
             "its resolution to the demo doctrine.",
             err=True,
         )
-    typer.echo("  Next: run 'nauro check-decision \"<approach>\"' to try a conflict check")
+    typer.echo(
+        "  Next: run 'nauro check-decision \"<approach>\"' to surface related prior decisions"
+    )
 
 
 _Opt_add_repo_paths = typer.Option(

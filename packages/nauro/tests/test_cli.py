@@ -17,6 +17,8 @@ def test_app_shows_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "nauro" in result.output.lower()
+    assert "Human-ratified project judgment" in result.output
+    assert "doctrine once" not in result.output
 
 
 def test_version_flag_matches_package_metadata():

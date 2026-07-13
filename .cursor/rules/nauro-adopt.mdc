@@ -161,8 +161,8 @@ Languages, frameworks, package managers, license, lint tooling, and similar fact
 
 For each kept candidate from 6a and each rationale-supplied 6b answer, the agent runs the full propose protocol:
 
-1. Call `check_decision(proposed_approach=<for a 6a candidate: the title plus the one-line summary; for a 6b candidate: the observed fact plus the core of the rationale the user supplied>, project_id=...)`. `check_decision` returns related decisions via BM25 retrieval and a deterministic assessment. It does NOT judge conflicts.
-2. When the response lists related decisions, call `get_decision` on each before proposing — `mode=header` to triage, `mode=full` for those you reason about; the assessment doesn't judge. Call signature: `get_decision(number=N, project_id=...)`.
+1. Call `check_decision(proposed_approach=<for a 6a candidate: the title plus the one-line summary; for a 6b candidate: the observed fact plus the core of the rationale the user supplied>, project_id=...)`. `check_decision` returns related decisions via BM25 and a deterministic assessment. It does NOT judge conflicts.
+2. When related decisions appear, call `get_decision` on each before proposing: `mode=header` to triage and `mode=full` for those you reason about. Call signature: `get_decision(number=N, project_id=...)`.
 3. Classify the operation:
     - **add** (default; new ground, no existing decision covers it).
     - **update** when the candidate augments an existing decision's rationale only. The server consumes only `rationale` on update; `title`, `confidence`, `decision_type`, `reversibility`, `files_affected`, and `rejected` are rejected at the boundary — use supersede if any of those must change.

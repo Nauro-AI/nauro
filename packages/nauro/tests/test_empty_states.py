@@ -79,11 +79,15 @@ class TestEmptyStore:
         result = tool_get_context(empty_store, 0)
         content = result["content"]
         assert "no context data yet" in content or "propose_decision" in content
+        assert "complete add, update, or supersede draft" in content
+        assert "explicit user approval" in content
 
     def test_check_decision_returns_no_decisions_guidance(self, empty_store):
         result = tool_check_decision(empty_store, "Use Redis")
         assert result["related_decisions"] == []
         assert "No existing decisions" in result["assessment"]
+        assert "complete add, update, or supersede draft" in result["assessment"]
+        assert "explicit user approval" in result["assessment"]
 
     def test_propose_decision_works_on_empty_store(self, empty_store):
         """First decision should work normally — not blocked by empty state."""

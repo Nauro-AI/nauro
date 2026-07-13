@@ -1,4 +1,4 @@
-"""``check_decision`` — surface conflicts between a proposed approach and the store.
+"""``check_decision`` retrieves related decisions for assessment.
 
 Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
 all call this function with the same arguments and receive the same
@@ -50,7 +50,7 @@ def check_decision(
     context: str | None = None,
     use_embeddings: bool = False,
 ) -> CheckDecisionResult:
-    """Return the conflict-check result for ``proposed_approach``.
+    """Return related-decision retrieval and assessment for ``proposed_approach``.
 
     Args:
         store: Storage adapter providing ``list_decisions`` / ``read_decision``.

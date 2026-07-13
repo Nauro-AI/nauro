@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "ai.nauro/nauro",
   "title": "Nauro",
-  "description": "Decision system for AI coding agents. Surfaces what your project decided, and why, before changes.",
+  "description": "Human-ratified project judgment for AI coding agents. Surfaces relevant prior judgment before work and carries approved corrections forward.",
   "websiteUrl": "https://nauro.ai",
   "repository": {
     "url": "https://github.com/Nauro-AI/nauro",

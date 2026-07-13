@@ -9,6 +9,7 @@ from nauro_core.instructions import (
     build_remote_instructions,
 )
 from nauro_core.mcp_tools import ALL_TOOLS, get_tool_spec
+from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
 
 # Real-shaped 26-char ULIDs for the inline-rendering tests.
 ULID_ALPHA = "01AAAAAAAAAAAAAAAAAAAAAAAA"
@@ -129,6 +130,10 @@ class TestLookup:
     def test_get_tool_spec_unknown_raises(self):
         with pytest.raises(KeyError):
             get_tool_spec("not_a_tool")
+
+    @pytest.mark.parametrize("name", ["check_decision", "propose_decision"])
+    def test_decision_write_guidance_carries_approval_boundary(self, name: str) -> None:
+        assert _APPROVAL_BEFORE_PROPOSE in get_tool_spec(name)["description"]
 
 
 class TestGetContextLevel:

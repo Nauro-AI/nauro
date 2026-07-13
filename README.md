@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
 
 *An agent checks the project's prior decisions before it plans, then records the approved decision and makes the change. Captured in Codex.*
 
-**Status:** Stable (1.x). The nauro CLI, the stdio MCP tool contract, and the on-disk store format follow semantic versioning. CI covers Python 3.10-3.14, and the public packages currently carry 2,102 tests across 142 files. Cloud sync is versioned and operated separately.
+**Status:** Stable (1.x). The nauro CLI, the stdio MCP tool contract, and the on-disk store format follow semantic versioning. CI covers both public packages on Python 3.10-3.14. Cloud sync is versioned and operated separately.
 
 More at [nauro.ai](https://nauro.ai).
 
@@ -25,7 +25,7 @@ More at [nauro.ai](https://nauro.ai).
 
 Nauro supports this loop with a plain markdown store, compact context, and deterministic retrieval. Decisions include the alternatives you ruled out and the reasoning behind them; the store can also carry current state and open questions. When an agent proposes an approach, `check_decision` runs keyword retrieval (BM25) over those files and surfaces related records before the agent plans or writes code.
 
-At session start, agents can read a compact L0 standing-context summary: project summary, current state, top open questions, and the last 10 decisions, then pull specific decisions on demand. On Nauro's own 386-decision store, that L0 summary measures about 1,700 tokens against a full store of about 350,000 (o200k_base tokenizer).
+At session start, agents can read L0 for a concise orientation, use L1 for a bounded working set, or request L2 for a full dump. On mature stores, L2 can reach hundreds of thousands of tokens, so agents should start with L0 and pull exact decisions as needed.
 
 No model judges your decisions. The check is advisory and never blocks a change. Agents draft decision additions, updates, and supersessions; you explicitly approve each one in the conversation before `propose_decision` commits it in one call. The store is a folder you own; remove Nauro and the markdown stays.
 
@@ -135,7 +135,7 @@ Re-running plain `nauro init my-project` in a second repo creates a *separate* p
 
 **Chat surfaces** (Claude.ai, Perplexity): run `nauro adopt` from a terminal first, then point the chat agent at [`docs/adopt-prompt.md`](docs/adopt-prompt.md).
 
-**Optional: bundled subagents.** Add `--with-subagents` on `nauro adopt` or `nauro setup` to install Nauro's bundled Claude Code subagents into `~/.claude/agents/`. They are off by default; installed, a typical chain looks like:
+**Optional: bundled subagents.** Add `--with-subagents` to `nauro adopt`, or run `nauro setup all --with-subagents`, to install Nauro's bundled Claude Code subagents into `~/.claude/agents/`. They are off by default; installed, a typical chain looks like:
 
 - `@nauro-planner` before non-trivial work. Drafts a plan and classifies doctrine risk (GREEN/AMBER/RED) against your decision log.
 - `@nauro-executor` after a plan is agreed. Implements it, runs tests, commits locally, and drafts the PR body. It does not push or open a PR.

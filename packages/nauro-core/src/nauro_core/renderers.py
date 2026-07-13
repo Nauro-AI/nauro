@@ -88,7 +88,7 @@ def _guidance(result: dict) -> str:
 
 
 def render_check_decision(result: dict) -> str:
-    """Render the conflict-check result for chat-UI consumption.
+    """Render a related-decision result for chat-UI consumption.
 
     Empty-store and zero-hit assessments flow through unchanged. The
     rendered list pulls structure from ``related_decisions`` so the
