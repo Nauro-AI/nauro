@@ -89,7 +89,6 @@ def _show_summary(store_path: Path, snapshots: list[dict]) -> None:
         ts = snap["timestamp"][:19].replace("T", " ")
         trigger = snap.get("trigger", "") or "—"
 
-        # Truncate long triggers
         if len(trigger) > 30:
             trigger = trigger[:27] + "..."
 

@@ -70,10 +70,6 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
     archive all but the last to state_history.md, which build_l0 ignores
     (include_history=False), making the imported state invisible to L0.
 
-    Args:
-        memory_bank: Path to the .context/ directory.
-        store_path: Path to the target project store.
-
     Returns:
         Dict with counts of imported items by type.
     """
@@ -193,9 +189,6 @@ def _parse_and_import_decisions(content: str, store_path: Path) -> int:
     """Parse decision blocks from decisionLog.md and create decision files.
 
     Expects ## Decision: <title> blocks. Each block's body becomes the rationale.
-
-    Returns:
-        Number of decisions imported.
     """
     # Split on ## Decision: headers. The title must begin with a non-whitespace
     # char (\S): this stops an empty heading ("## Decision:" with no title, with
@@ -231,8 +224,6 @@ def _import_adrs(
     confidence from each file.
 
     Args:
-        adr_dir: Path to directory containing ADR markdown files.
-        store_path: Path to the target project store.
         strict_alternatives: When True, rejected alternatives come from
             ``_extract_adr_alternatives_strict`` — only ``### <title>``
             subsections under an explicit ``## Alternatives Considered`` /

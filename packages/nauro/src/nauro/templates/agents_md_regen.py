@@ -1,10 +1,9 @@
 """Shared warn-then-regen helper for AGENTS.md across write paths.
 
 ``nauro note`` and ``tool_propose_decision`` both refresh ``AGENTS.md`` in
-every associated repo after writing a decision. The two paths previously
-duplicated the registry-lookup / missing-repo-warning loop. This helper
-collapses them into one shape so the warning message and skip behaviour
-cannot drift between callers.
+every associated repo after writing a decision. This helper owns the
+registry-lookup / missing-repo-warning loop in one shape so the warning
+message and skip behaviour cannot drift between callers.
 """
 
 from __future__ import annotations

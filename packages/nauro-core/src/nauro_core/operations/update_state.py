@@ -7,9 +7,9 @@ plumbing through the :class:`~nauro_core.operations.store.Store`
 protocol; snapshot capture, cloud-sync push, telemetry, and length
 validation stay on the adapter side.
 
-The kernel uses the migrated pure-function helpers in
-:mod:`nauro_core.state` (``prepare_state_update`` / ``migrate_legacy_state``)
-so the on-disk format is identical to the pre-cutover writer.
+The kernel uses the pure-function helpers in :mod:`nauro_core.state`
+(``prepare_state_update`` / ``migrate_legacy_state``) so the on-disk
+format is identical across surfaces.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def update_state(store: Store, delta: str) -> UpdateStateResult:
     Returns:
         :class:`UpdateStateResult`. ``status="ok"`` on a successful write,
         ``status="noop"`` when the store has no existing state file
-        (mirrors the pre-cutover writer's early-return). ``warning``
+        (the kernel early-returns without writing). ``warning``
         carries a keyword-overlap caution when the delta heavily mirrors
         an existing bullet in ``state_current.md``.
     """

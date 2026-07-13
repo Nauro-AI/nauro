@@ -313,9 +313,7 @@ def init(
     # is the global config (auth tokens, telemetry consent). Refused for every
     # target path before any registry or store mutation, and deliberately
     # before the --force-aware overwrite checks below, which must not be able
-    # to bypass it. Previously `nauro init --demo` from $HOME hit the generic
-    # config-exists branch, whose "Re-run with --force" hint replaced the
-    # global config.
+    # to bypass it.
     for rp in repo_paths:
         refuse_global_config_collision(rp)
 

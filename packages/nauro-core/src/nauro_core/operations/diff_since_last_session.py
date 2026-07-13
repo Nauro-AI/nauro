@@ -81,8 +81,8 @@ def diff_since_last_session(
         path. ``error`` stays unset — the sentinel paths are normal
         success-path results, not errors.
     """
-    # ``store`` is part of the locked kernel signature (see PRs 1-6); the
-    # diff body operates on the supplied snapshot dicts only.
+    # ``store`` is part of the locked kernel signature; the diff body
+    # operates on the supplied snapshot dicts only.
     del store
 
     if latest_snapshot is None or baseline_snapshot is None:
@@ -105,8 +105,7 @@ def diff_since_last_session(
 def _render_diff(snap_a: dict, snap_b: dict, cutoff_date_used: str | None = None) -> str:
     """Render the semantic diff body between two snapshot dicts."""
     # Version numbers come from the snapshot dict itself, not a caller-supplied
-    # integer like the pre-cutover ``diff_snapshots(store_path, version_a,
-    # version_b)``. Snapshots that carry no integer ``version`` (e.g. the
+    # integer. Snapshots that carry no integer ``version`` (e.g. the
     # versionless remote shape) fall back to a single timestamp-only header.
     version_a = snap_a.get("version")
     version_b = snap_b.get("version")

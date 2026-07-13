@@ -12,7 +12,7 @@ Two actions share the entry point, discriminated by ``resolved_by``:
 * **append** (``resolved_by`` is None) — mint a fresh ``Q###`` and insert
   it directly after the file's top-level ``# `` header, skipping blank
   lines and leading HTML comments so the on-disk format stays
-  byte-identical to the pre-cutover writer. When the caller passes
+  byte-identical across surfaces. When the caller passes
   ``targets``, the append short-circuits if any named id already carries
   a ``resolved_by`` reference, returning a rejection envelope naming the
   resolving decision.

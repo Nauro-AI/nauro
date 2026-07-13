@@ -197,10 +197,10 @@ def _coerce_level(level: int | str) -> int:
 def _last_synced_trailer(store_path: Path) -> str:
     """Return the italicised ``*Last synced: ...*`` trailer or empty string.
 
-    Mirrors the pre-cutover local-L0 behaviour: scan state_current.md
-    (with legacy state.md fallback) for the ``**Last synced:**`` marker
-    and render the value into an italic line the kernel content can be
-    appended to. No-op when the marker is absent.
+    Local-L0 surface behaviour: scan state_current.md (with legacy
+    state.md fallback) for the ``**Last synced:**`` marker and render
+    the value into an italic line the kernel content can be appended
+    to. No-op when the marker is absent.
     """
     state = ""
     current = store_path / STATE_CURRENT_FILENAME
@@ -380,7 +380,7 @@ def tool_propose_decision(
     dumped = result.model_dump(mode="json", exclude_none=True)
     # touched_decisions is consumed by the adapter to drive AGENTS.md regen;
     # it is not part of the local stdio envelope contract. Pop it before
-    # surfacing so byte-identity with the pre-cutover surface is preserved.
+    # surfacing so the pinned local envelope shape is preserved.
     touched = dumped.pop("touched_decisions", []) or []
     # similar_decisions stays empty on most branches; keep it omitted when
     # absent so the envelope stays tight on the success path.
@@ -540,9 +540,9 @@ def tool_flag_question(
 
     response: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
     # The kernel result carries ``num`` for callers that want the minted id;
-    # the pre-cutover envelope did not, so drop it to preserve byte-identity
-    # for the local surface envelope. Adapters that want the id can read it
-    # from the on-disk file or call the kernel directly.
+    # the local surface envelope omits it, so drop it here to preserve the
+    # pinned envelope shape. Adapters that want the id can read it from the
+    # on-disk file or call the kernel directly.
     response.pop("num", None)
 
     if result.status == "rejected":
@@ -739,11 +739,11 @@ def tool_diff_since_last_session(
         cutoff_date_used=cutoff,
     )
     envelope = result.model_dump(mode="json", exclude_none=True)
-    # Pre-cutover the session-scoped branch surfaced "Not enough
-    # snapshots…" for zero snapshots; the kernel's (None, None) branch
+    # The local surface contract renders "Not enough snapshots…" for the
+    # session-scoped zero-snapshot case; the kernel's (None, None) branch
     # renders "No snapshots available." (the more accurate string).
-    # Rewrite at the adapter so byte-identical parity with the pre-cutover
-    # local CLI/MCP output is preserved.
+    # Rewrite at the adapter so local CLI/MCP output stays byte-identical
+    # to that contract.
     if days is None and baseline is None and latest is None:
         envelope["diff"] = "Not enough snapshots to compute a diff (need at least 2)."
     return {"store": "local", **envelope}
@@ -795,7 +795,7 @@ def tool_update_state(store_path: Path, delta: str) -> dict:
 
     # Adapter-side side effects only run on the success path. ``noop``
     # means the kernel had no existing state file to update — skip the
-    # snapshot/push to mirror the pre-cutover early-return semantics.
+    # snapshot/push since nothing was written.
     if result.status != "noop":
         capture_snapshot(store_path, trigger=f"state: {delta}")
         _try_push(store_path)

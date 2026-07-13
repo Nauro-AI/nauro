@@ -279,9 +279,7 @@ def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
     stack → questions → all decisions. L2 is a superset of L1: it carries
     project.md and stack.md verbatim (the loader fetches both for level 2),
     the appended state history that L1 omits, and every decision including
-    superseded ones rather than L1's recent-active cap. Omitting project and
-    stack here previously made the "full dump" both incomplete and smaller
-    than L1.
+    superseded ones rather than L1's recent-active cap.
 
     Args:
         files: Dict of store-relative keys to file contents.

@@ -36,11 +36,10 @@ from nauro_core.search import Bm25Hit, union_retrieve
 from nauro_core.validation import check_content_length, is_scaffold_seed
 
 # Extended stopword list for ``check_decision`` retrieval. Mirrors the
-# tier-2 ``TIER2_STOPWORDS`` curation (``nauro_core/validation.py:20-38``):
-# bm25s's default English list omits common action verbs that appear in
-# almost every decision title, so adding ``"use"`` collapses the
-# false-positive matches that otherwise surface as near-neighbours on
-# every call.
+# tier-2 ``TIER2_STOPWORDS`` curation: bm25s's default English list omits
+# common action verbs that appear in almost every decision title, so adding
+# ``"use"`` collapses the false-positive matches that otherwise surface as
+# near-neighbours on every call.
 _CHECK_DECISION_STOPWORDS = [*list(STOPWORDS_EN), "use"]
 
 
@@ -79,10 +78,10 @@ def check_decision(
     if not decisions:
         return CheckDecisionResult(assessment=NO_DECISIONS_TO_CHECK)
 
-    # Match the pre-cutover BM25 input envelope: title-style head (capped
-    # at 100) joined to the full approach + context (capped at 200). The
-    # bm25s tokenizer is order-insensitive, but the 100/200 cap shapes
-    # which tokens reach the index — preserving the prior caller's
+    # The BM25 input envelope is fixed for byte-parity across surfaces:
+    # title-style head (capped at 100) joined to the full approach + context
+    # (capped at 200). The bm25s tokenizer is order-insensitive, but the
+    # 100/200 cap shapes which tokens reach the index — the
     # ``pseudo_proposal`` truncation locks the same retrieval surface.
     approach_head = proposed_approach[:100]
     body_text = proposed_approach + (f" {context}" if context else "")
@@ -133,7 +132,7 @@ def _assessment(related: list[RelatedDecision]) -> str:
     semantic-match origin), status, date — plus a fixed caveat that the
     ranking is lexical. It is never a confidence verdict on the match: the
     agent reads the decision body and judges; the kernel does not grade
-    (D130/D245 — no automated classification or scoring verdict).
+    (no automated classification or scoring verdict).
     """
     top = related[0]
     top_num = extract_decision_number(top.id)

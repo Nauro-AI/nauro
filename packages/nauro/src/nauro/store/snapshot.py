@@ -331,8 +331,8 @@ def resolve_diff_snapshots(
 
     * ``days=None`` + 0 snapshots → ``(None, None, None)``. Adapters
       rewrite the kernel's ``No snapshots available.`` rendering to
-      ``Not enough snapshots…`` so byte-identical CLI/MCP parity with
-      pre-cutover output is preserved.
+      ``Not enough snapshots…`` — the pinned local surface string for
+      this branch.
     * ``days=None`` + 1 snapshot → ``(None, latest, None)``. Kernel
       sentinel: ``Not enough snapshots…``
     * ``days=None`` + 2+ snapshots → previous-to-latest pair.

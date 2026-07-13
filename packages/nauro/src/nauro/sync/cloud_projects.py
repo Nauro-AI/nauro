@@ -52,10 +52,7 @@ class CloudProjectError(Exception):
 
 
 def _parse_project(raw: object) -> ProjectView:
-    """Coerce a server-returned object into a ProjectView.
-
-    Pass-through ISO 8601 string for ``created_at`` — no date parsing.
-    """
+    """Coerce a server-returned object into a ProjectView."""
     if not isinstance(raw, dict):
         raise CloudProjectError(f"Unexpected project payload from server (not an object): {raw!r}")
     try:

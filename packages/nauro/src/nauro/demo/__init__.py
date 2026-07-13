@@ -62,9 +62,9 @@ def _decision(
 # ── Demo decisions ──
 #
 # The first seven carry the product's foundational choices at the shared
-# 2026-03-15 date. Decisions 8 through 13 add the two supersession structures
-# the demo store was always meant to show, dated across the project's timeline
-# so the graph's timeline and lineage views both read:
+# 2026-03-15 date. Decisions 8 through 13 add two supersession structures,
+# dated across the project's timeline so the graph's timeline and lineage
+# views both read:
 #
 #   Consolidation fan: decision 13 (one ordered transaction pipeline) retires
 #   three earlier per-screen approaches (8 inline category guessing, 9 per-screen

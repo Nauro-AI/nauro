@@ -128,12 +128,12 @@ def save_registry(data: dict) -> None:
 # ── v2 registry (id-keyed) ───────────────────────────────────────────────────
 #
 # v2 introduces a project_id (ULID) primary key and tracks ``mode`` plus an
-# optional ``server_url`` per project. v2 is read/written by the new
-# project-scoped commands shipping in 2c-B; existing v1 commands continue to
-# use load_registry/save_registry above.
+# optional ``server_url`` per project. v2 is read/written by the
+# project-scoped commands; existing v1 commands continue to use
+# load_registry/save_registry above.
 #
 # v2 is a strict loader: it refuses to read a v1 registry and tells the user
-# to run the one-time manual migration documented in 2c-B's release notes.
+# to run the one-time manual migration documented in the release notes.
 # Auto-migration is intentionally out of scope — solo-founder scale, single
 # existing project, three shell commands beat code that needs idempotency,
 # directory renames, and adopt-existing-config fallbacks.
