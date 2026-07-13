@@ -23,15 +23,14 @@ from nauro.store import registry
 from nauro.store.repo_config import load_repo_config
 from nauro.sync import cloud_projects
 from tests._ansi import strip_ansi
+from tests.conftest import seed_auth_config
 
 runner = CliRunner()
 
 
 def _seed_token(monkeypatch, tmp_path):
     """Make cloud_projects believe the user is authenticated."""
-    from nauro.store.config import save_config
-
-    save_config({"auth": {"access_token": "test-token", "sub": "auth0|test"}})
+    seed_auth_config()
 
 
 # ── local mode ────────────────────────────────────────────────────────────────

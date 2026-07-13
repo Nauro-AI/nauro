@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import seed_consented_config
+from tests.conftest import make_nauro_home, seed_consented_config
 
 _ALLOWED_KEYS = frozenset({"tool_name", "transport", "success", "duration_bucket"})
 _DURATION_PATTERN = re.compile(r"^(<10ms|10-100ms|100ms-1s|1-10s|>10s)$")
@@ -27,11 +27,7 @@ _DURATION_PATTERN = re.compile(r"^(<10ms|10-100ms|100ms-1s|1-10s|>10s)$")
 
 @pytest.fixture
 def nauro_home(tmp_path, monkeypatch):
-    home = tmp_path / ".nauro"
-    home.mkdir()
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
-    return home
+    return make_nauro_home(tmp_path, monkeypatch, delenv_telemetry=True)
 
 
 @pytest.fixture

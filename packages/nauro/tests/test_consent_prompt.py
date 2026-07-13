@@ -5,15 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-import pytest
-
-
-@pytest.fixture
-def nauro_home(tmp_path, monkeypatch):
-    home = tmp_path / ".nauro"
-    home.mkdir()
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    return home
+from tests.conftest import seed_consented_config
 
 
 def _set_tty(monkeypatch, value: bool) -> None:
@@ -33,18 +25,7 @@ def _read_telemetry(home) -> dict:
 
 
 def _seed(home, *, enabled, consent_version) -> None:
-    (home / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": "11111111-1111-4111-8111-111111111111",
-                    "enabled": enabled,
-                    "consent_version": consent_version,
-                    "consented_at": "2026-04-30T00:00:00Z",
-                }
-            }
-        )
-    )
+    seed_consented_config(home, enabled=enabled, consent_version=consent_version)
 
 
 def test_non_tty_does_not_fire_prompt(nauro_home, monkeypatch):

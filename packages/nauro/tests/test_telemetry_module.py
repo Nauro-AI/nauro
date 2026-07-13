@@ -13,14 +13,6 @@ import pytest
 from tests.conftest import seed_consented_config
 
 
-@pytest.fixture
-def nauro_home(tmp_path, monkeypatch):
-    home = tmp_path / ".nauro"
-    home.mkdir()
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    return home
-
-
 @pytest.fixture(autouse=True)
 def _reset_client_singleton():
     """Each test gets a fresh client singleton — protects against leak across tests."""

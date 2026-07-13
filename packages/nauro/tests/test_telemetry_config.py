@@ -3,16 +3,7 @@
 import json
 import uuid
 
-import pytest
-
-
-@pytest.fixture
-def nauro_home(tmp_path, monkeypatch):
-    """Set up a temporary NAURO_HOME."""
-    home = tmp_path / ".nauro"
-    home.mkdir()
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    return home
+from tests.conftest import TEST_ANONYMOUS_ID
 
 
 def test_first_call_generates_anonymous_id(nauro_home):
@@ -47,7 +38,7 @@ def test_env_override_forces_disabled(nauro_home, monkeypatch):
         json.dumps(
             {
                 "telemetry": {
-                    "anonymous_id": "11111111-1111-4111-8111-111111111111",
+                    "anonymous_id": TEST_ANONYMOUS_ID,
                     "enabled": True,
                     "consent_version": 1,
                     "consented_at": "2026-04-30T00:00:00Z",
@@ -66,7 +57,7 @@ def test_env_override_forces_disabled(nauro_home, monkeypatch):
 def test_env_override_does_not_mutate_file(nauro_home, monkeypatch):
     initial = {
         "telemetry": {
-            "anonymous_id": "11111111-1111-4111-8111-111111111111",
+            "anonymous_id": TEST_ANONYMOUS_ID,
             "enabled": True,
             "consent_version": 1,
             "consented_at": "2026-04-30T00:00:00Z",

@@ -15,11 +15,12 @@ from nauro.sync.cloud_projects import (
     create_project,
     list_projects,
 )
+from tests.conftest import seed_auth_config
 
 
 def _seed_token(monkeypatch, tmp_path, token: str = "test-token") -> None:
     """Write a config.json with an OAuth access token, mirroring `nauro auth login`."""
-    save_config({"auth": {"access_token": token, "sub": "auth0|test"}})
+    seed_auth_config(access_token=token)
 
 
 def _stub_request(handler):

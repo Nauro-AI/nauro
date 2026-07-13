@@ -25,18 +25,11 @@ from nauro.cli.commands.auth import (
     with_token_refresh,
 )
 from nauro.store.config import load_config, save_config
+from tests.conftest import seed_auth_config
 
 
 def _seed_auth(refresh_token: str = "refresh_orig", access_token: str = "access_orig") -> None:
-    save_config(
-        {
-            "auth": {
-                "sub": "auth0|test",
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-            }
-        }
-    )
+    seed_auth_config(variant="sync", access_token=access_token, refresh_token=refresh_token)
 
 
 def _mock_post(status_code: int = 200, payload: dict | None = None, headers: dict | None = None):

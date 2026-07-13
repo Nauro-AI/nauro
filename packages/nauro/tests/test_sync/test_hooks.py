@@ -32,6 +32,7 @@ from nauro.sync.state import (
     save_state,
 )
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
 
 
@@ -44,15 +45,7 @@ def _ok(status: int, payload: dict) -> httpx.Response:
 
 
 def _seed_token() -> None:
-    save_config(
-        {
-            "auth": {
-                "sub": "auth0|test",
-                "access_token": "tok_orig",
-                "refresh_token": "refresh_orig",
-            }
-        }
-    )
+    seed_auth_config(variant="sync")
 
 
 # --- gating: silent no-op semantics ---

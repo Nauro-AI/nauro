@@ -27,7 +27,7 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import TEST_ANONYMOUS_ID
+from tests.conftest import TEST_ANONYMOUS_ID, make_nauro_home, seed_consented_config
 
 _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
@@ -52,11 +52,7 @@ class FakeClient:
 
 @pytest.fixture
 def nauro_home(tmp_path, monkeypatch):
-    home = tmp_path / ".nauro"
-    home.mkdir()
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
-    return home
+    return make_nauro_home(tmp_path, monkeypatch, delenv_telemetry=True)
 
 
 @pytest.fixture(autouse=True)
@@ -80,19 +76,7 @@ def fake_posthog(monkeypatch):
 
 def _seed_telemetry_config(home, *, enabled: bool, anonymous_id: str | None = None) -> str:
     aid = anonymous_id or TEST_ANONYMOUS_ID
-    (home / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": aid,
-                    "enabled": enabled,
-                    "consent_version": 1,
-                    "consented_at": "2026-04-30T00:00:00Z",
-                }
-            }
-        )
-    )
-    return aid
+    return seed_consented_config(home, enabled=enabled, anonymous_id=aid)
 
 
 # ── 1. Login order (telemetry enabled): alias FIRST, then set ───────────────

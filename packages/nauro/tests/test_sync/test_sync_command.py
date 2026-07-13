@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import _scaffolded_cloud_project
 
 runner = CliRunner()
@@ -270,18 +271,8 @@ class TestSyncPullSurfacesAndMerges:
     def _seed_cloud_auth(name: str, tmp_path: Path):
         import json as _json
 
-        from nauro.store.config import save_config
-
         store = _scaffolded_cloud_project(name, tmp_path)
-        save_config(
-            {
-                "auth": {
-                    "sub": "auth0|test",
-                    "access_token": "tok_orig",
-                    "refresh_token": "refresh_orig",
-                }
-            }
-        )
+        seed_auth_config(variant="sync")
         return store, _json
 
     @staticmethod

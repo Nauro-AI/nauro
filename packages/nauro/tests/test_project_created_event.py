@@ -7,18 +7,12 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from tests.conftest import FakeClient, seed_consented_config
+from tests.conftest import FakeClient, make_nauro_home, seed_consented_config
 
 
 @pytest.fixture
 def nauro_home(tmp_path, monkeypatch):
-    home = tmp_path / "user_home"
-    home.mkdir()
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    monkeypatch.chdir(repo)
-    return home
+    return make_nauro_home(tmp_path, monkeypatch, dirname="user_home", chdir_repo=True)
 
 
 def _events_named(fake: FakeClient, name: str) -> list[dict[str, Any]]:

@@ -22,6 +22,7 @@ from nauro.cli.main import app
 from nauro.constants import DECISIONS_DIR, OPEN_QUESTIONS_MD
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import write_decision_file
 
 runner = CliRunner()
 
@@ -81,10 +82,6 @@ def _decision_md(
     return format_decision(decision)
 
 
-def _write_decision(store: Path, num: int, slug: str, content: str) -> None:
-    (store / DECISIONS_DIR / f"{num:03d}-{slug}.md").write_text(content, encoding="utf-8")
-
-
 def _new_store(tmp_path, monkeypatch, name: str = "graphproj") -> Path:
     """Register and scaffold a project, chdir into its repo, return the store."""
     store = register_project(name, [tmp_path])
@@ -96,7 +93,7 @@ def _new_store(tmp_path, monkeypatch, name: str = "graphproj") -> Path:
 def _populated_store(tmp_path, monkeypatch) -> Path:
     """A store with a supersession thread, a citation, and an open question."""
     store = _new_store(tmp_path, monkeypatch)
-    _write_decision(
+    write_decision_file(
         store,
         2,
         "rest-api",
@@ -110,7 +107,7 @@ def _populated_store(tmp_path, monkeypatch) -> Path:
             body="Pairs with the pagination decision D3 for the read surface.",
         ),
     )
-    _write_decision(
+    write_decision_file(
         store,
         3,
         "offset-pagination",
@@ -123,7 +120,7 @@ def _populated_store(tmp_path, monkeypatch) -> Path:
             date="2026-03-17",
         ),
     )
-    _write_decision(
+    write_decision_file(
         store,
         4,
         "graphql-gateway",
@@ -284,7 +281,7 @@ def test_output_is_self_contained(tmp_path, monkeypatch):
     """
     store = _populated_store(tmp_path, monkeypatch)
     # Put a URL in a decision title to prove the scan tolerates inert text.
-    _write_decision(
+    write_decision_file(
         store,
         5,
         "link-in-title",
@@ -347,7 +344,7 @@ def test_default_view_is_graph_with_color_schemes(tmp_path, monkeypatch):
 def test_api_design_lane_label(tmp_path, monkeypatch):
     """The api_design lane renders as 'API design', not 'Api Design'."""
     store = _new_store(tmp_path, monkeypatch)
-    _write_decision(store, 2, "rest", _decision_md(2, "Use REST", decision_type="api_design"))
+    write_decision_file(store, 2, "rest", _decision_md(2, "Use REST", decision_type="api_design"))
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -431,7 +428,9 @@ def test_browser_open_failure_prints_hint(tmp_path, monkeypatch):
 def test_malformed_decision_is_skipped_with_warning(tmp_path, monkeypatch):
     store = _populated_store(tmp_path, monkeypatch)
     # A file that the strict parser rejects (missing required frontmatter).
-    _write_decision(store, 9, "broken", "---\nnot: valid frontmatter for a decision\n---\n\nbody\n")
+    write_decision_file(
+        store, 9, "broken", "---\nnot: valid frontmatter for a decision\n---\n\nbody\n"
+    )
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -501,7 +500,7 @@ def test_long_title_wraps_in_full_in_browse_view(tmp_path, monkeypatch):
     """
     store = _new_store(tmp_path, monkeypatch)
     long_title = "Adopt the layered ingestion pipeline " + "x" * 400
-    _write_decision(store, 2, "long-title", _decision_md(2, long_title))
+    write_decision_file(store, 2, "long-title", _decision_md(2, long_title))
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -530,7 +529,7 @@ def test_script_breakout_in_title_question_and_body_is_escaped(tmp_path, monkeyp
     store = _new_store(tmp_path, monkeypatch)
     hostile_title = 'Title </script><script>alert("x")</script> & <b>bold</b> "quote\''
     hostile_body = 'Body </script><script>alert("b")</script> & <i>i</i> "q\' angle <z>'
-    _write_decision(store, 2, "hostile", _decision_md(2, hostile_title, body=hostile_body))
+    write_decision_file(store, 2, "hostile", _decision_md(2, hostile_title, body=hostile_body))
     (store / OPEN_QUESTIONS_MD).write_text(
         '# Open Questions\n\n- [Q1] Body </script><img src=x onerror="y"> & "quote\'.\n',
         encoding="utf-8",
@@ -567,14 +566,14 @@ def _fan_in_store(tmp_path, monkeypatch, retired: int = 4) -> Path:
     """
     store = _new_store(tmp_path, monkeypatch)
     targets = list(range(2, 2 + retired))
-    _write_decision(
+    write_decision_file(
         store,
         10,
         "consolidate",
         _decision_md(10, "Consolidate the cluster", supersedes=str(targets[0]), date="2026-04-10"),
     )
     for i, num in enumerate(targets):
-        _write_decision(
+        write_decision_file(
             store,
             num,
             f"retired-{num}",
@@ -668,7 +667,7 @@ def test_question_references_link_both_directions(tmp_path, monkeypatch):
     badge linking back to the questions section.
     """
     store = _new_store(tmp_path, monkeypatch)
-    _write_decision(store, 2, "rest", _decision_md(2, "Use REST", date="2026-03-15"))
+    write_decision_file(store, 2, "rest", _decision_md(2, "Use REST", date="2026-03-15"))
     (store / OPEN_QUESTIONS_MD).write_text(
         "# Open Questions\n\n- [Q1] Does the REST surface in D2 need versioning.\n",
         encoding="utf-8",
@@ -699,9 +698,9 @@ def test_timeline_marks_positioned_by_date_not_index(tmp_path, monkeypatch):
     gutter and the latest at the right edge of the plot.
     """
     store = _new_store(tmp_path, monkeypatch)
-    _write_decision(store, 2, "early", _decision_md(2, "Early one", date="2026-03-01"))
-    _write_decision(store, 3, "early-two", _decision_md(3, "Early two", date="2026-03-02"))
-    _write_decision(store, 4, "late", _decision_md(4, "Late one", date="2026-06-01"))
+    write_decision_file(store, 2, "early", _decision_md(2, "Early one", date="2026-03-01"))
+    write_decision_file(store, 3, "early-two", _decision_md(3, "Early two", date="2026-03-02"))
+    write_decision_file(store, 4, "late", _decision_md(4, "Late one", date="2026-06-01"))
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -739,7 +738,7 @@ def test_bodies_default_on_and_no_include_bodies_redacts(tmp_path, monkeypatch):
     """
     store = _new_store(tmp_path, monkeypatch)
     body = "The full rationale text that should appear by default."
-    _write_decision(store, 2, "with-body", _decision_md(2, "A decision", body=body))
+    write_decision_file(store, 2, "with-body", _decision_md(2, "A decision", body=body))
 
     # Default: body embedded and shown as structured detail.
     result = runner.invoke(app, ["graph", "--no-open"])
@@ -772,7 +771,7 @@ def test_graph_has_one_node_element_per_payload_node(tmp_path, monkeypatch):
     """Every payload node renders exactly one Graph circle, keyed by number."""
     store = _populated_store(tmp_path, monkeypatch)
     # Add an isolated decision so the disc path is exercised alongside threads.
-    _write_decision(store, 7, "isolated", _decision_md(7, "Standalone", date="2026-03-20"))
+    write_decision_file(store, 7, "isolated", _decision_md(7, "Standalone", date="2026-03-20"))
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -847,7 +846,7 @@ def test_no_relation_chip_dead_ends(tmp_path, monkeypatch):
     store = _populated_store(tmp_path, monkeypatch)
     # D5 cites D2 and D3 in its body but has no supersession edge: an isolated
     # citation source whose chips must still resolve.
-    _write_decision(
+    write_decision_file(
         store,
         5,
         "isolated-citer",
@@ -884,14 +883,14 @@ def test_timeline_same_day_same_lane_marks_stack(tmp_path, monkeypatch):
     """Three decisions on the same date in the same lane get three distinct y."""
     store = _new_store(tmp_path, monkeypatch)
     for num in (2, 3, 4):
-        _write_decision(
+        write_decision_file(
             store,
             num,
             f"sameday-{num}",
             _decision_md(num, f"Same day {num}", decision_type="architecture", date="2026-04-10"),
         )
     # A second date so there is a real span and the lane is not degenerate.
-    _write_decision(store, 5, "later", _decision_md(5, "Later", date="2026-05-10"))
+    write_decision_file(store, 5, "later", _decision_md(5, "Later", date="2026-05-10"))
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -919,9 +918,9 @@ def test_timeline_uses_exact_calendar_dates(tmp_path, monkeypatch):
     so lane stacking does not perturb the x positions under test.
     """
     store = _new_store(tmp_path, monkeypatch)
-    _write_decision(store, 2, "feb28", _decision_md(2, "Feb 28", date="2024-02-28"))
-    _write_decision(store, 3, "feb29", _decision_md(3, "Leap day", date="2024-02-29"))
-    _write_decision(store, 4, "mar01", _decision_md(4, "Mar 1", date="2024-03-01"))
+    write_decision_file(store, 2, "feb28", _decision_md(2, "Feb 28", date="2024-02-28"))
+    write_decision_file(store, 3, "feb29", _decision_md(3, "Leap day", date="2024-02-29"))
+    write_decision_file(store, 4, "mar01", _decision_md(4, "Mar 1", date="2024-03-01"))
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -1015,7 +1014,7 @@ def test_question_refs_route_through_jump_to_node(tmp_path, monkeypatch):
     handler routes through the same Graph-first helper the relation chips use.
     """
     store = _new_store(tmp_path, monkeypatch)
-    _write_decision(store, 2, "rest", _decision_md(2, "Use REST", date="2026-03-15"))
+    write_decision_file(store, 2, "rest", _decision_md(2, "Use REST", date="2026-03-15"))
     (store / OPEN_QUESTIONS_MD).write_text(
         "# Open Questions\n\n- [Q1] Does the REST surface in D2 need versioning.\n",
         encoding="utf-8",
@@ -1073,21 +1072,21 @@ def test_story_strip_renders_deterministic_metrics(tmp_path, monkeypatch):
     # D4 already retires D2 and D3 (consolidation defined at the 2+ threshold).
     # Add an active decision cited in another body so the anchor is defined, and
     # a question that references a decision so the hotspot is defined.
-    _write_decision(
+    write_decision_file(
         store,
         7,
         "anchor",
         _decision_md(7, "Anchored choice", date="2026-03-21"),
     )
-    _write_decision(
+    write_decision_file(
         store,
         8,
         "citer",
         _decision_md(8, "Cites the anchor", date="2026-03-22", body="Builds on D7."),
     )
     # Two decisions on one date so the recent-activity cluster is defined (2+).
-    _write_decision(store, 9, "busy-a", _decision_md(9, "Busy day A", date="2026-03-25"))
-    _write_decision(store, 10, "busy-b", _decision_md(10, "Busy day B", date="2026-03-25"))
+    write_decision_file(store, 9, "busy-a", _decision_md(9, "Busy day A", date="2026-03-25"))
+    write_decision_file(store, 10, "busy-b", _decision_md(10, "Busy day B", date="2026-03-25"))
     (store / OPEN_QUESTIONS_MD).write_text(
         "# Open Questions\n\n- [Q1] Should the gateway in D4 expose subscriptions.\n",
         encoding="utf-8",
@@ -1135,7 +1134,7 @@ def test_story_strip_omits_undefined_metrics(tmp_path, monkeypatch):
     nothing rather than empty buttons.
     """
     store = _new_store(tmp_path, monkeypatch)
-    _write_decision(store, 2, "lonely", _decision_md(2, "A single decision", date="2026-03-15"))
+    write_decision_file(store, 2, "lonely", _decision_md(2, "A single decision", date="2026-03-15"))
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -1152,7 +1151,7 @@ def test_timeline_single_day_shows_one_tick(tmp_path, monkeypatch):
     """
     store = _new_store(tmp_path, monkeypatch)
     for num in (2, 3):
-        _write_decision(
+        write_decision_file(
             store,
             num,
             f"sameday-{num}",
@@ -1208,8 +1207,8 @@ def test_insight_labels_pinned_to_insight_nodes_only(tmp_path, monkeypatch):
     store = _populated_store(tmp_path, monkeypatch)
     # Add an anchor (cited active decision) and a question hotspot so multiple
     # insight targets exist alongside the consolidation D4.
-    _write_decision(store, 7, "anchor", _decision_md(7, "Anchor", date="2026-03-21"))
-    _write_decision(
+    write_decision_file(store, 7, "anchor", _decision_md(7, "Anchor", date="2026-03-21"))
+    write_decision_file(
         store, 8, "citer", _decision_md(8, "Cites anchor", date="2026-03-22", body="On D7.")
     )
 
@@ -1574,8 +1573,8 @@ def test_story_chip_selection_state_and_aria(tmp_path, monkeypatch):
     """
     store = _populated_store(tmp_path, monkeypatch)
     # Two decisions on one date so the date (busiest-day) chip is defined.
-    _write_decision(store, 9, "busy-a", _decision_md(9, "Busy day A", date="2026-03-25"))
-    _write_decision(store, 10, "busy-b", _decision_md(10, "Busy day B", date="2026-03-25"))
+    write_decision_file(store, 9, "busy-a", _decision_md(9, "Busy day A", date="2026-03-25"))
+    write_decision_file(store, 10, "busy-b", _decision_md(10, "Busy day B", date="2026-03-25"))
 
     result = runner.invoke(app, ["graph"])
     assert result.exit_code == 0
@@ -1607,7 +1606,7 @@ def test_category_labels_still_rendered(tmp_path, monkeypatch):
     store = _new_store(tmp_path, monkeypatch)
     # Several isolated decisions in one category form a labelled disc.
     for num in range(2, 7):
-        _write_decision(
+        write_decision_file(
             store,
             num,
             f"iso-{num}",
