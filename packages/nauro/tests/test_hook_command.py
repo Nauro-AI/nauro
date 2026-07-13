@@ -18,7 +18,7 @@ from typer.testing import CliRunner
 from nauro.cli.commands import hook
 from nauro.cli.main import app
 from nauro.store.registry import register_project, register_project_v2
-from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import register_v2_repo
 
 runner = CliRunner()
 
@@ -90,18 +90,15 @@ _DISTRACTOR_TOPICS = [
 
 def _make_project(tmp_path: Path) -> tuple[Path, Path]:
     """Register a project rooted at a fresh repo dir; return (repo, store_path)."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _pid, store_path = register_project_v2("hookproj", [repo])
-    scaffold_project_store("hookproj", store_path)
+    result = register_v2_repo(tmp_path, "hookproj", save_config=False, chdir=False)
     for i, topic in enumerate(_DISTRACTOR_TOPICS, start=100):
         _write_decision(
-            store_path,
+            result.store_path,
             num=i,
             title=f"approach for the {topic} subsystem",
             rationale=f"the {topic} subsystem uses a dedicated module with isolated state",
         )
-    return repo, store_path
+    return result.repo, result.store_path
 
 
 def _invoke(payload: dict):

@@ -27,7 +27,6 @@ from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
     DecisionStatus,
-    format_decision,
 )
 from nauro_core.renderers import RENDERERS
 
@@ -36,26 +35,16 @@ from nauro.mcp.stdio_server import search_decisions as stdio_search_decisions
 from nauro.mcp.tools import tool_search_decisions
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
-
-
-def _seed(store_path: Path, *decisions: Decision) -> None:
-    decisions_dir = store_path / "decisions"
-    decisions_dir.mkdir(parents=True, exist_ok=True)
-    for d in decisions:
-        slug = d.title.lower().replace(" ", "-")
-        (decisions_dir / f"{d.num:03d}-{slug}.md").write_text(format_decision(d))
+from tests.conftest import register_v2_repo, seed_decisions_into
 
 
 @pytest.fixture
 def seeded_repo(tmp_path, monkeypatch):
     """Seed a project with two decisions whose titles + rationale make
     BM25 searches deterministic for the parity assertions below."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2("parity-search", [repo], mode=REPO_CONFIG_MODE_LOCAL)
-    save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "parity-search"})
-    _seed(
-        store_path,
+    result = register_v2_repo(tmp_path, "parity-search", monkeypatch=monkeypatch, seed="none")
+    seed_decisions_into(
+        result.store_path,
         Decision(
             date=date(2026, 1, 1),
             confidence=DecisionConfidence.high,
@@ -73,8 +62,7 @@ def seeded_repo(tmp_path, monkeypatch):
             rationale="FastAPI plus Mangum is the Lambda deployment combination.",
         ),
     )
-    monkeypatch.chdir(repo)
-    return pid, store_path
+    return result.pid, result.store_path
 
 
 @pytest.fixture

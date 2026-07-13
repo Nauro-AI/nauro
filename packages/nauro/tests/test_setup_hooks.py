@@ -21,8 +21,7 @@ from nauro.cli.commands.setup import (
     setup_all_surfaces,
 )
 from nauro.cli.main import app
-from nauro.store.registry import register_project_v2
-from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import register_v2_repo
 
 runner = CliRunner()
 
@@ -41,11 +40,8 @@ def _nauro_entries(settings: dict) -> list[dict]:
 
 
 def _make_project(tmp_path: Path) -> tuple[Path, Path]:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _pid, store_path = register_project_v2("hookproj", [repo])
-    scaffold_project_store("hookproj", store_path)
-    return repo, store_path
+    result = register_v2_repo(tmp_path, "hookproj", save_config=False, chdir=False)
+    return result.repo, result.store_path
 
 
 # ── direct helper: add path ────────────────────────────────────────────────────

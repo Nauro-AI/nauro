@@ -26,13 +26,10 @@ from nauro_core.constants import MAX_RATIONALE_LENGTH
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.mcp import tools as mcp_tools
-from nauro.store.registry import register_project_v2
-from nauro.store.repo_config import save_repo_config
-from nauro.templates.scaffolds import scaffold_project_store
 from tests._ansi import strip_ansi
 from tests._writer_compat import append_decision
+from tests.conftest import register_v2_repo
 
 runner = CliRunner()
 
@@ -58,20 +55,8 @@ def _no_snapshot(monkeypatch):
 @pytest.fixture
 def seeded_repo(tmp_path: Path, monkeypatch) -> tuple[str, Path, Path]:
     """Register a project, scaffold the store, and chdir into the repo."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2(
-        "cli-write",
-        [repo],
-        mode=REPO_CONFIG_MODE_LOCAL,
-    )
-    save_repo_config(
-        repo,
-        {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "cli-write"},
-    )
-    scaffold_project_store("cli-write", store_path)
-    monkeypatch.chdir(repo)
-    return pid, store_path, repo
+    result = register_v2_repo(tmp_path, "cli-write", monkeypatch=monkeypatch)
+    return result.pid, result.store_path, result.repo
 
 
 # ── Happy paths ─────────────────────────────────────────────────────────────

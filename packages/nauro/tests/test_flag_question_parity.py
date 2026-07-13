@@ -26,13 +26,10 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app as cli_app
-from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.mcp import tools as mcp_tools
 from nauro.mcp.stdio_server import flag_question as stdio_flag_question
 from nauro.mcp.tools import tool_flag_question
-from nauro.store.registry import register_project_v2
-from nauro.store.repo_config import save_repo_config
-from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import register_v2_repo
 
 
 @pytest.fixture(autouse=True)
@@ -44,20 +41,8 @@ def _no_push(monkeypatch):
 @pytest.fixture
 def seeded_repo(tmp_path, monkeypatch):
     """Register a project, scaffold the store, and chdir into the repo."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2(
-        "parity-flag-question",
-        [repo],
-        mode=REPO_CONFIG_MODE_LOCAL,
-    )
-    save_repo_config(
-        repo,
-        {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "parity-flag-question"},
-    )
-    scaffold_project_store("parity-flag-question", store_path)
-    monkeypatch.chdir(repo)
-    return pid, store_path
+    result = register_v2_repo(tmp_path, "parity-flag-question", monkeypatch=monkeypatch)
+    return result.pid, result.store_path
 
 
 @pytest.fixture

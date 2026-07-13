@@ -32,6 +32,7 @@ from nauro.store.repo_config import save_repo_config
 from nauro.store.snapshot import capture_snapshot, load_snapshot
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
+from tests.conftest import register_v2_repo
 
 
 def _backdate_snapshot(store_path: Path, version: int, days_ago: int) -> None:
@@ -44,16 +45,11 @@ def _backdate_snapshot(store_path: Path, version: int, days_ago: int) -> None:
 @pytest.fixture
 def seeded_repo(tmp_path, monkeypatch):
     """Register a project, scaffold the store, capture two snapshots."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2("parity-diff", [repo], mode=REPO_CONFIG_MODE_LOCAL)
-    save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "parity-diff"})
-    scaffold_project_store("parity-diff", store_path)
-    capture_snapshot(store_path, trigger="initial")
-    append_decision(store_path, "Adopt Postgres", rationale="ACID semantics matter.")
-    capture_snapshot(store_path, trigger="with-decision")
-    monkeypatch.chdir(repo)
-    return pid, store_path
+    result = register_v2_repo(tmp_path, "parity-diff", monkeypatch=monkeypatch)
+    capture_snapshot(result.store_path, trigger="initial")
+    append_decision(result.store_path, "Adopt Postgres", rationale="ACID semantics matter.")
+    capture_snapshot(result.store_path, trigger="with-decision")
+    return result.pid, result.store_path
 
 
 @pytest.fixture

@@ -38,31 +38,22 @@ from nauro.mcp.tools import tool_list_decisions
 from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
+from tests.conftest import register_v2_repo
 
 
 @pytest.fixture
 def demo_repo(tmp_path, monkeypatch):
     """Seed a demo project + chdir into the repo so cwd resolution wins."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2("parity-project", [repo], mode=REPO_CONFIG_MODE_LOCAL)
-    save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "parity-project"})
-    create_demo_project(store_path)
-    monkeypatch.chdir(repo)
-    return pid, store_path
+    result = register_v2_repo(tmp_path, "parity-project", monkeypatch=monkeypatch, seed="none")
+    create_demo_project(result.store_path)
+    return result.pid, result.store_path
 
 
 @pytest.fixture
 def empty_repo(tmp_path, monkeypatch):
     """Register a project with an empty store (no decisions) and chdir in."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2("empty-project", [repo], mode=REPO_CONFIG_MODE_LOCAL)
-    save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "empty-project"})
-    # Create the store path but no decisions/ subdir.
-    store_path.mkdir(parents=True, exist_ok=True)
-    monkeypatch.chdir(repo)
-    return pid, store_path
+    result = register_v2_repo(tmp_path, "empty-project", monkeypatch=monkeypatch, seed="mkdir")
+    return result.pid, result.store_path
 
 
 def _stdio_rendered(pid: str, *, limit: int = 20, include_superseded: bool = False) -> str:
