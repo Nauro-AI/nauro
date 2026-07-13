@@ -39,6 +39,7 @@ from tests.conftest import (  # noqa: E402
     CROSS_SURFACE_USER_ID,
     moto_s3_bucket,
 )
+from tests.cross_surface.conftest import _dump  # noqa: E402
 
 CloudStore = cloud_store_module.CloudStore
 
@@ -55,10 +56,6 @@ def both_stores(tmp_path, monkeypatch):
 def _seed_open_questions(fs_store: FilesystemStore, cloud: CloudStore, body: str) -> None:
     fs_store.write_file(OPEN_QUESTIONS_MD, body)
     cloud.write_file(OPEN_QUESTIONS_MD, body)
-
-
-def _dump(result) -> dict:
-    return result.model_dump(mode="json", exclude_none=True)
 
 
 def test_empty_store_matches_across_stores(both_stores):

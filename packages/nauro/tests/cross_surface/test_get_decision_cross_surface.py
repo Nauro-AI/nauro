@@ -18,8 +18,6 @@ locally to catch local-vs-cloud envelope drift before merge.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 cloud_store_module = pytest.importorskip(
@@ -39,13 +37,10 @@ from nauro_core.decision_model import (  # noqa: E402
 )
 from nauro_core.operations import get_decision  # noqa: E402
 
-from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
-from tests.conftest import (  # noqa: E402
-    CROSS_SURFACE_BUCKET,
-    CROSS_SURFACE_PROJECT_ID,
-    CROSS_SURFACE_USER_ID,
-    cloud_prefix,
-    moto_s3_bucket,
+from tests.conftest import moto_s3_bucket  # noqa: E402
+from tests.cross_surface.conftest import (  # noqa: E402
+    seed_cloud_store,
+    seed_filesystem_store,
 )
 
 CloudStore = cloud_store_module.CloudStore
@@ -73,25 +68,6 @@ SEED_DECISIONS: dict[str, str] = {
 }
 
 
-def _seed_filesystem_store(root: Path) -> FilesystemStore:
-    decisions_dir = root / "decisions"
-    decisions_dir.mkdir(parents=True, exist_ok=True)
-    for stem, body in SEED_DECISIONS.items():
-        (decisions_dir / f"{stem}.md").write_text(body)
-    return FilesystemStore(root)
-
-
-def _seed_cloud_store(s3_client) -> CloudStore:
-    prefix = cloud_prefix(CROSS_SURFACE_USER_ID, CROSS_SURFACE_PROJECT_ID)
-    for stem, body in SEED_DECISIONS.items():
-        s3_client.put_object(
-            Bucket=CROSS_SURFACE_BUCKET,
-            Key=f"{prefix}/decisions/{stem}.md",
-            Body=body.encode(),
-        )
-    return CloudStore(user_id=CROSS_SURFACE_USER_ID, project_id=CROSS_SURFACE_PROJECT_ID)
-
-
 @pytest.fixture
 def both_stores(tmp_path, monkeypatch):
     """Yield a (FilesystemStore, CloudStore) pair seeded with identical decisions.
@@ -100,8 +76,8 @@ def both_stores(tmp_path, monkeypatch):
     the test never touches AWS.
     """
     with moto_s3_bucket(monkeypatch) as s3_client:
-        fs_store = _seed_filesystem_store(tmp_path)
-        cloud = _seed_cloud_store(s3_client)
+        fs_store = seed_filesystem_store(tmp_path, SEED_DECISIONS)
+        cloud = seed_cloud_store(s3_client, SEED_DECISIONS)
         yield fs_store, cloud
 
 

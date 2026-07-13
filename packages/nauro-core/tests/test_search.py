@@ -2,6 +2,8 @@
 
 from datetime import date
 
+from conftest import make_decision
+
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
@@ -10,39 +12,25 @@ from nauro_core.decision_model import (
 )
 from nauro_core.search import bm25_retrieve, bm25_search
 
-
-def _make_decision(num: int, title: str, rationale: str, status: str = "active") -> Decision:
-    status_enum = DecisionStatus(status)
-    return Decision(
-        date=date(2026, 4, 7),
-        confidence=DecisionConfidence.medium,
-        status=status_enum,
-        superseded_by="999" if status_enum is DecisionStatus.superseded else None,
-        num=num,
-        title=title,
-        rationale=rationale,
-    )
-
-
 DECISIONS = [
-    _make_decision(
+    make_decision(
         1,
         "Use Auth0 for authentication",
         "Auth0 provides OAuth 2.1 support and handles JWT validation.",
     ),
-    _make_decision(
+    make_decision(
         2,
         "Chose Memcached for session state",
         "Memcached is simpler than Redis for session caching. "
         "Lower operational overhead and sufficient for our read-heavy workload.",
     ),
-    _make_decision(
+    make_decision(
         3,
         "Use FastAPI for MCP server",
         "FastAPI provides async support and automatic OpenAPI docs. "
         "Works well with Mangum for Lambda deployment.",
     ),
-    _make_decision(
+    make_decision(
         4,
         "Defer multi-repo sync to v2",
         "Current scope is single-repo. Multi-repo sync adds complexity "

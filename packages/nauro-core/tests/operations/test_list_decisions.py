@@ -7,14 +7,12 @@ each transport's own suite.
 
 from __future__ import annotations
 
-from datetime import date
+from conftest import _seed_decision, _store_with
 
 from nauro_core.decision_model import (
-    Decision,
     DecisionConfidence,
     DecisionStatus,
     DecisionType,
-    format_decision,
 )
 from nauro_core.operations import (
     DecisionSummary,
@@ -22,39 +20,6 @@ from nauro_core.operations import (
     ListDecisionsResult,
     list_decisions,
 )
-
-
-def _seed_decision(
-    num: int,
-    title: str,
-    rationale: str = "Test rationale.",
-    *,
-    status: DecisionStatus = DecisionStatus.active,
-    confidence: DecisionConfidence = DecisionConfidence.medium,
-    decision_type: DecisionType | None = None,
-    decision_date: date | None = date(2026, 1, 1),
-    stem: str | None = None,
-) -> tuple[str, str]:
-    """Return (file_stem, formatted_markdown) for a minimal v2 decision."""
-    superseded_by = "999" if status is DecisionStatus.superseded else None
-    decision = Decision(
-        date=decision_date,
-        confidence=confidence,
-        status=status,
-        superseded_by=superseded_by,
-        decision_type=decision_type,
-        num=num,
-        title=title,
-        rationale=rationale,
-    )
-    if stem is None:
-        slug = title.lower().replace(" ", "-")
-        stem = f"{num:03d}-{slug}"
-    return stem, format_decision(decision)
-
-
-def _store_with(*decisions: tuple[str, str]) -> InMemoryStore:
-    return InMemoryStore(decisions=dict(decisions))
 
 
 def test_returns_result_type() -> None:
