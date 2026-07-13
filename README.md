@@ -86,6 +86,8 @@ Output abbreviated to the top match; the live call returns all five related deci
 
 *A project store rendered by nauro graph: supersession threads converge on the decisions that replaced them, and standalone decisions cluster by category.*
 
+`nauro doctor` checks the store for structural defects: unparseable decision files, supersession refs pointing at a decision that no longer exists or forming a cycle, and status contradictions such as an active decision that also records being superseded. It is deterministic and report-only — it never edits the store and always exits 0 — so it is safe to run any time you want to confirm the record is internally consistent.
+
 ## Why not ADRs, grep, CLAUDE.md, or built-in agent notes?
 
 A committed decision log plus a reliable pointer in `AGENTS.md` or `CLAUDE.md` can be enough, especially in a small repo. Nauro is designed for longer histories that must stay available across sessions, tools, repos, machines, or repeated handoffs. It can surface related decisions through MCP when an agent proposes a change, while `nauro sync` regenerates a committable `AGENTS.md` summary for clones and tools without MCP wiring.

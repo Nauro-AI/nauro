@@ -53,6 +53,7 @@ def _register_commands() -> None:
         attach,
         auth,
         config,
+        doctor,
         graph,
         hook,
         import_cmd,
@@ -87,6 +88,7 @@ def _register_commands() -> None:
     app.command(name="render-plugin", hidden=True)(render_plugin.render_plugin)
     app.add_typer(setup.setup_app, name="setup")
     app.command(name="status")(status.status)
+    app.command(name="doctor")(doctor.doctor)
     app.add_typer(config.config_app, name="config")
     app.add_typer(validate.validate_app, name="validate")
     app.add_typer(auth.auth_app, name="auth")
