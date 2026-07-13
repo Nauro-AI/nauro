@@ -22,6 +22,7 @@ for the other failure modes.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NamedTuple
 
 from nauro.store.registry import (
     find_projects_by_name_v2,
@@ -81,11 +82,29 @@ class MultipleProjectsError(StoreResolutionError):
     """
 
 
-def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
-    """Walk up from ``start`` looking for ``.nauro/config.json``.
+class RepoResolution(NamedTuple):
+    """A cwd resolved to a project store.
 
-    Returns ``(project_id, store_path)`` or ``None`` when no config is found.
-    Mirrors how git locates ``.git`` from anywhere inside a working tree.
+    ``project_id`` is the store key: a ULID for v2 projects (from the repo
+    config or the v2 registry) or the legacy name for v1 projects. It is the
+    key the sync layer pulls under. ``display_name`` is the human-facing name
+    for CLI output. ``store_path`` is not existence-checked — each caller
+    decides how to treat a resolved-but-missing store.
+    """
+
+    store_path: Path
+    project_id: str
+    display_name: str
+
+
+def _resolve_repo_config_from_cwd(start: Path | None) -> tuple[dict, Path] | None:
+    """Walk up from ``start`` for ``.nauro/config.json`` and load it.
+
+    Returns ``(config, store_path)`` or ``None`` when no config is found or the
+    config is unreadable. Both ``RepoConfigSchemaError`` (schema mismatch, or a
+    corrupt-JSON error the reader remaps to it) and ``OSError`` (an unreadable
+    file) degrade to ``None`` so a resolution failure surfaces the no-project
+    fallback rather than crashing the transport.
     """
     config_path = find_repo_config(start=start)
     if config_path is None:
@@ -93,12 +112,55 @@ def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
     repo_root = config_path.parent.parent
     try:
         cfg = load_repo_config(repo_root)
-    except RepoConfigSchemaError:
-        # Covers both schema-mismatch and corrupt JSON (the reader remaps a
-        # JSONDecodeError to RepoConfigSchemaError), so either degrades to the
-        # no-project fallback rather than crashing the transport.
+    except (RepoConfigSchemaError, OSError):
         return None
-    return cfg["id"], get_store_path_v2(cfg["id"])
+    return cfg, get_store_path_v2(cfg["id"])
+
+
+def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
+    """Walk up from ``start`` looking for ``.nauro/config.json``.
+
+    Returns ``(project_id, store_path)`` or ``None`` when no config is found.
+    Mirrors how git locates ``.git`` from anywhere inside a working tree.
+    """
+    resolved = _resolve_repo_config_from_cwd(start)
+    if resolved is None:
+        return None
+    cfg, store_path = resolved
+    return cfg["id"], store_path
+
+
+def resolve_from_cwd(cwd: str | Path | None) -> RepoResolution | None:
+    """Resolve a cwd to a project store via the canonical waterfall.
+
+    Applies the three cwd-based tiers in order and returns the first match:
+
+      1. ``.nauro/config.json`` walk-up (id-keyed v2 store).
+      2. v2 registry matched by repo path.
+      3. v1 ``resolve_project`` (legacy, name-keyed).
+
+    Returns a :class:`RepoResolution`, or ``None`` when no tier matches. Does
+    NOT check that ``store_path`` exists — each caller decides how to treat a
+    resolved-but-missing store.
+    """
+    start = Path(cwd) if cwd else Path.cwd()
+
+    resolved = _resolve_repo_config_from_cwd(start)
+    if resolved is not None:
+        cfg, store_path = resolved
+        pid = cfg["id"]
+        return RepoResolution(store_path, pid, cfg.get("name") or pid)
+
+    v2_match = resolve_v2_from_path(start)
+    if v2_match is not None:
+        pid, entry = v2_match
+        return RepoResolution(get_store_path_v2(pid), pid, entry.get("name", pid))
+
+    name = resolve_project(start)
+    if name:
+        return RepoResolution(get_store_path(name), name, name)
+
+    return None
 
 
 def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
@@ -190,8 +252,10 @@ __all__ = [
     "NoProjectError",
     "ProjectIdMismatchError",
     "ProjectNotFoundError",
+    "RepoResolution",
     "StoreMissingError",
     "StoreResolutionError",
+    "resolve_from_cwd",
     "resolve_store",
     "resolve_via_repo_config",
 ]
