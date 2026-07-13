@@ -10,12 +10,18 @@ PR time: it fails if ``server.json``'s top-level ``version`` or its first
 package's ``version`` drifts from the ``nauro`` package version in
 ``packages/nauro/pyproject.toml``.
 
+It also enforces the MCP registry's ``description`` length cap (100
+characters) — the registry rejects longer descriptions with a 422 at the
+same post-tag moment (this happened on the 1.3.0 release, after a copy
+rewrite grew the description to 140 characters).
+
 Usage::
 
     python scripts/check_server_json_version.py
     python scripts/check_server_json_version.py server.json packages/nauro/pyproject.toml
 
-Exits 0 when in lockstep, 1 on a version mismatch, 2 on a usage/IO error.
+Exits 0 when in lockstep, 1 on a version mismatch or an over-long
+description, 2 on a usage/IO error.
 """
 
 from __future__ import annotations
@@ -23,6 +29,9 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+
+# The MCP registry rejects a server description longer than this (HTTP 422).
+MAX_DESCRIPTION_CHARS = 100
 
 
 def project_version(pyproject_text: str) -> str:
@@ -90,7 +99,20 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    print(f"server.json is version-locked to the nauro package ({pkg_version}).")
+    description = server.get("description") or ""
+    if len(description) > MAX_DESCRIPTION_CHARS:
+        print(
+            f"server.json .description is {len(description)} characters; the MCP "
+            f"registry caps it at {MAX_DESCRIPTION_CHARS} and rejects the publish "
+            "with a 422 after the tag is cut. Shorten it before releasing."
+        )
+        return 1
+
+    print(
+        f"server.json is version-locked to the nauro package ({pkg_version}) "
+        f"and its description fits the registry cap "
+        f"({len(description)}/{MAX_DESCRIPTION_CHARS} chars)."
+    )
     return 0
 
 
