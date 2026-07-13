@@ -275,11 +275,6 @@ def remove_generated_agents_md(repo_path: Path) -> str | None:
     return f"  {repo_path}: removed generated AGENTS.md"
 
 
-def parse_manual_section(agents_md_path: Path) -> str | None:
-    """Backward-compat wrapper — returns just the manual section body."""
-    return parse_preserved_sections(agents_md_path).manual
-
-
 def parse_preserved_sections(agents_md_path: Path) -> PreservedSections:
     """Parse ``## Skills`` and ``# Manual`` sections from an existing AGENTS.md.
 

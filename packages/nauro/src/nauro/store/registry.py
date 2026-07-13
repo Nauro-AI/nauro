@@ -4,8 +4,8 @@ Two on-disk shapes are supported during the project-scoped migration:
 
 * **v1 (legacy)** — keyed by project name; store path ``~/.nauro/projects/<name>/``.
   Helpers: ``load_registry``, ``save_registry``, ``register_project``,
-  ``resolve_project``, ``add_repo``, ``remove_repo``, ``find_stale_paths``,
-  ``suggest_project_for_path``, ``get_project``, ``get_store_path``.
+  ``resolve_project``, ``suggest_project_for_path``, ``get_project``,
+  ``get_store_path``.
 * **v2 (canonical post-migration)** — keyed by project_id (ULID), tracks
   ``mode`` + optional ``server_url``. Store path ``~/.nauro/projects/<id>/``.
   Helpers: ``load_registry_v2``, ``save_registry_v2``, ``register_project_v2``,
@@ -266,21 +266,6 @@ def register_project(name: str, repo_paths: list[Path]) -> Path:
     return store_path
 
 
-def find_stale_paths() -> list[tuple[str, str]]:
-    """Check all registered repo paths and return those that no longer exist.
-
-    Returns:
-        List of (project_name, path_string) tuples for missing paths.
-    """
-    registry = load_registry()
-    stale = []
-    for name, entry in registry["projects"].items():
-        for repo_str in entry.get("repo_paths", []):
-            if not Path(repo_str).is_dir():
-                stale.append((name, repo_str))
-    return stale
-
-
 def suggest_project_for_path(path: Path) -> str | None:
     """Suggest a project that might match a path based on directory name.
 
@@ -301,51 +286,6 @@ def suggest_project_for_path(path: Path) -> str | None:
             return name  # type: ignore[no-any-return]
 
     return None
-
-
-def add_repo(project_name: str, repo_path: Path) -> None:
-    """Add a repo path to an existing project.
-
-    Args:
-        project_name: Name of the project to update.
-        repo_path: Repo path to associate.
-
-    Raises:
-        KeyError: If project doesn't exist.
-    """
-    with _registry_lock():
-        registry = load_registry()
-        if project_name not in registry["projects"]:
-            raise KeyError(f"Project '{project_name}' not found in registry.")
-        resolved = str(repo_path.resolve())
-        if resolved not in registry["projects"][project_name]["repo_paths"]:
-            registry["projects"][project_name]["repo_paths"].append(resolved)
-        save_registry(registry)
-
-
-def remove_repo(project_name: str, repo_path_str: str) -> bool:
-    """Remove a repo path from an existing project.
-
-    Args:
-        project_name: Name of the project to update.
-        repo_path_str: Repo path string to remove (exact match against stored value).
-
-    Returns:
-        True if the path was found and removed, False if not found.
-
-    Raises:
-        KeyError: If project doesn't exist.
-    """
-    with _registry_lock():
-        registry = load_registry()
-        if project_name not in registry["projects"]:
-            raise KeyError(f"Project '{project_name}' not found in registry.")
-        paths = registry["projects"][project_name]["repo_paths"]
-        if repo_path_str in paths:
-            paths.remove(repo_path_str)
-            save_registry(registry)
-            return True
-    return False
 
 
 # ── v2 registry CRUD (id-keyed) ──────────────────────────────────────────────

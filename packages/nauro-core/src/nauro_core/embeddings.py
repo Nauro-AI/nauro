@@ -27,16 +27,6 @@ _model = None
 _load_failed = False
 
 
-def embeddings_available() -> bool:
-    """Return whether the optional embedding dependency can be imported."""
-    try:
-        import model2vec  # noqa: F401
-        import numpy  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
 def _get_model():
     """Load and memoize the Model2Vec model, or return None if unavailable.
 

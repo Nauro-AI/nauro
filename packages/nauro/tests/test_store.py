@@ -15,10 +15,7 @@ from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import _list_decisions
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
 from nauro.store.validator import validate_store
-from nauro.templates.scaffolds import (
-    get_scaffolds,
-    scaffold_project_store,
-)
+from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
 from tests.conftest import read_project_context
 
@@ -90,15 +87,6 @@ def test_scaffold_creates_first_decision(store: Path):
     assert "confidence: high" in frontmatter
     assert "# 001 \u2014 Initial project setup" in content
     assert "## Rejected Alternatives" in content
-
-
-def test_get_scaffolds_returns_dict():
-    scaffolds = get_scaffolds()
-    assert "project.md" in scaffolds
-    assert "state_current.md" in scaffolds
-    assert "state.md" not in scaffolds
-    assert "stack.md" in scaffolds
-    assert "open-questions.md" in scaffolds
 
 
 def test_scaffolded_first_decision_parses_as_v2(store: Path):

@@ -1157,9 +1157,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.embeddings:
-        from nauro_core.embeddings import embeddings_available
-
-        if not embeddings_available():
+        # Probe the optional embeddings extra up front so a missing dependency
+        # fails with a clear message instead of mid-run inside the union arm.
+        try:
+            import model2vec  # noqa: F401
+            import numpy  # noqa: F401
+        except ImportError:
             print(
                 "error: --embeddings requires the optional extra "
                 "(uv pip install 'nauro-core[embeddings]')",

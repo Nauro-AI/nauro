@@ -14,11 +14,6 @@ import json
 from tests.conftest import TEST_ANONYMOUS_ID, FakeClient, seed_consented_config
 
 
-def test_test_anonymous_id_is_the_uuid4_used_across_telemetry_tests():
-    """The magic UUID that previously appeared in five test files verbatim."""
-    assert TEST_ANONYMOUS_ID == "11111111-1111-4111-8111-111111111111"
-
-
 def test_fake_client_records_event_distinct_id_and_properties():
     fake = FakeClient()
 

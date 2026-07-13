@@ -95,20 +95,6 @@ def _build_first_decision(date_str: str) -> str:
     return format_decision(decision)
 
 
-def get_scaffolds() -> dict[str, str]:
-    """Return all scaffold templates as a dict keyed by filename.
-
-    Returns:
-        Dict mapping filenames to their template strings.
-    """
-    return {
-        C.PROJECT_MD: PROJECT_MD,
-        C.STATE_CURRENT_FILENAME: STATE_CURRENT_MD,
-        C.STACK_MD: STACK_MD,
-        C.OPEN_QUESTIONS_MD: OPEN_QUESTIONS_MD,
-    }
-
-
 def scaffold_project_store(project_name: str, store_path: Path) -> None:
     """Write all template files to the project store directory.
 
