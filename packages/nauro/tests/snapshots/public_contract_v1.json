@@ -284,6 +284,21 @@
       },
       {
         "kind": "command",
+        "name": "doctor",
+        "params": [
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
         "name": "flag-question",
         "params": [
           {

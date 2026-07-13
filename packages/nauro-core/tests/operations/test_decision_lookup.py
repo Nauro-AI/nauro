@@ -22,8 +22,10 @@ from nauro_core.decision_model import (
 )
 from nauro_core.operations import InMemoryStore, find_decision_stem_by_id
 from nauro_core.operations.decision_lookup import (
+    ParseFailure,
     find_decision_stem_by_num,
     parse_all_decisions,
+    scan_decisions,
 )
 
 
@@ -122,3 +124,41 @@ def test_parse_all_decisions_reasserts_list_order_not_mapping_order() -> None:
     ]
     parsed = parse_all_decisions(store)
     assert [d.num for d in parsed] == [1, 2, 3]
+
+
+# ── scan_decisions: the capturing primitive behind parse_all_decisions ──
+
+
+def test_scan_decisions_returns_parsed_and_failures() -> None:
+    store = InMemoryStore(
+        decisions={
+            "001-alpha": _decision_body(1, "Alpha"),
+            "002-broken": "not a decision file",
+            "003-charlie": _decision_body(3, "Charlie"),
+        }
+    )
+    parsed, failures = scan_decisions(store)
+    assert [d.num for d in parsed] == [1, 3]
+    assert len(failures) == 1
+    failure = failures[0]
+    assert isinstance(failure, ParseFailure)
+    assert failure.stem == "002-broken"
+    assert failure.error
+
+
+def test_parse_all_decisions_matches_scan_parsed_half() -> None:
+    store = InMemoryStore(
+        decisions={
+            "001-alpha": _decision_body(1, "Alpha"),
+            "002-broken": "not a decision file",
+        }
+    )
+    parsed, _ = scan_decisions(store)
+    assert [d.num for d in parse_all_decisions(store)] == [d.num for d in parsed]
+
+
+def test_scan_decisions_clean_store_has_no_failures() -> None:
+    store = InMemoryStore(decisions={"001-alpha": _decision_body(1, "Alpha")})
+    parsed, failures = scan_decisions(store)
+    assert [d.num for d in parsed] == [1]
+    assert failures == []

@@ -11,6 +11,7 @@ here rather than inside either operation module.
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
 from nauro_core.decision_model import Decision, parse_decision
 from nauro_core.operations.store import Store
@@ -23,13 +24,28 @@ from nauro_core.parsing import (
 logger = logging.getLogger("nauro_core.operations.decision_lookup")
 
 
-def parse_all_decisions(store: Store) -> list[Decision]:
-    """Read and parse every decision in the store, skipping unparseable files.
+class ParseFailure(NamedTuple):
+    """A decision file that did not round-trip through the v2 parser.
 
-    A single malformed file on disk (a half-written body, a pre-v2 file left
-    during a migration) must not take down the read path. Each file that does
-    not round-trip through the v2 parser is logged at debug and skipped, so
-    the scan returns the decisions it could parse rather than raising.
+    ``stem`` is the on-disk file stem; ``error`` is the parser's message. The
+    guarded scan captures these rather than dropping them so a caller that
+    reports on store integrity (``doctor``) can name the offending file.
+    """
+
+    stem: str
+    error: str
+
+
+def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
+    """Read every decision, capturing the parsed set and the parse failures.
+
+    The single guarded scan: one place reads every stem, parses each body, and
+    routes the outcome to one of two lists. A malformed file on disk (a
+    half-written body, a pre-v2 file left during a migration) must not take
+    down the read path, so a file that does not round-trip through the v2
+    parser is logged at debug and recorded as a :class:`ParseFailure` rather
+    than raising. :func:`parse_all_decisions` consumes only the parsed list;
+    ``doctor`` consumes both.
 
     Bodies are fetched in one bulk :meth:`Store.read_decisions` call, but the
     scan still reasserts :meth:`Store.list_decisions` order: it iterates the
@@ -40,6 +56,7 @@ def parse_all_decisions(store: Store) -> list[Decision]:
     callers that need a status or seed filter apply it after the scan returns.
     """
     parsed: list[Decision] = []
+    failures: list[ParseFailure] = []
     stems = store.list_decisions()
     bodies = store.read_decisions(stems)
     for stem in stems:
@@ -48,9 +65,21 @@ def parse_all_decisions(store: Store) -> list[Decision]:
             continue
         try:
             parsed.append(parse_decision(body, _decision_filename(stem)))
-        except Exception:
+        except Exception as exc:
             logger.debug("Skipping unparseable decision file: %s.md", stem)
-            continue
+            failures.append(ParseFailure(stem=stem, error=str(exc)))
+    return parsed, failures
+
+
+def parse_all_decisions(store: Store) -> list[Decision]:
+    """Read and parse every decision in the store, skipping unparseable files.
+
+    Thin wrapper over :func:`scan_decisions` that discards the parse failures.
+    The retrieval hot path only needs the decisions it could parse, so this
+    keeps the historical return shape while the capturing scan lives in one
+    place.
+    """
+    parsed, _ = scan_decisions(store)
     return parsed
 
 
