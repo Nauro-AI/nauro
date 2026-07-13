@@ -8,6 +8,7 @@ from nauro.cli.main import app
 from nauro.store.registry import get_project, register_project
 from nauro.store.snapshot import capture_snapshot
 from nauro.templates.scaffolds import scaffold_project_store
+from tests._ansi import strip_ansi
 
 runner = CliRunner()
 
@@ -17,7 +18,11 @@ def test_app_shows_help():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "nauro" in result.output.lower()
-    assert "Human-ratified project judgment" in result.output
+    normalized = " ".join(strip_ansi(result.output).split())
+    assert (
+        "Human-approved project judgment and current state for connected AI agents, "
+        "surfaced before work." in normalized
+    )
     assert "doctrine once" not in result.output
 
 

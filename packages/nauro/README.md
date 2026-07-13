@@ -1,19 +1,21 @@
 # Nauro
 
-Project judgement for every connected agent.
+Give your agents the context code leaves out.
 
-Nauro carries human-ratified project judgement across agents, sessions, and tools. It helps you capture and approve the intent, decisions, rationale, open questions, and rejected paths that define a project, then brings the relevant judgement into an agent's work. Works with Claude, Perplexity, Cursor, Codex, and any MCP client.
+Nauro keeps current state, open questions, and human-approved project judgment in one record, ready for every agent you connect.
+
+Nauro keeps a living project record. It combines project scope, current state, and open questions with human-approved project judgment: intent, goals, decisions, rationale, tradeoffs, and rejected paths. Project judgment is the human-ratified part of the record; context is the relevant slice of the record an agent receives for the work in front of it. Works with Claude, Perplexity, Cursor, Codex, and any MCP client.
 
 ## How the loop works
 
-1. You and an agent capture or elicit the judgement relevant to the work.
-2. The agent drafts any addition, update, or supersession, and you explicitly approve what becomes project truth.
-3. Relevant judgement reaches an agent before it plans or changes work.
-4. The agent explains how the judgement affected its recommendation or implementation.
-5. You accept, correct, except, reopen, or supersede the result in conversation.
-6. Approved corrections become part of what later agents inherit.
+1. Nauro orients the agent with project scope, current state, open questions, and relevant prior judgment.
+2. You and the agent clarify missing intent, constraints, or tradeoffs.
+3. If the work needs new or revised judgment, the agent drafts it and waits for your explicit approval.
+4. The agent plans, recommends, or implements with that context in view.
+5. The agent explains how the context shaped the result, and you accept, correct, except, reopen, or supersede it in conversation.
+6. The agent reports meaningful completed progress as current state, so later connected agents inherit the updated state and approved judgment.
 
-The markdown store, context summaries, BM25 retrieval, advisory checks, and optional sync support this loop. They do not replace your judgement or silently change project truth.
+The markdown store, context summaries, BM25 retrieval, advisory checks, and optional sync support this loop. They do not replace your judgment or silently change project truth.
 
 ## Install
 
@@ -54,7 +56,7 @@ You'll see a JSON envelope with the related decisions and a deterministic assess
 
 The demo project ruled out storing money as floating-point dollars because binary floating point cannot represent a value like 0.10 exactly, so totals accumulate rounding error and a balance that should read 0.00 shows -0.01. This protective example isolates Nauro's retrieval mechanism: it brings a recorded constraint into the proposal flow before an agent can re-propose the rejected field.
 
-A committed ADR plus a reliable `AGENTS.md` or `CLAUDE.md` pointer can provide enough continuity in a small repo. Nauro is designed for project judgement that must persist across longer histories, sessions, tools, repos, machines, or repeated handoffs.
+If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Nauro may be more than you need. Nauro is designed for context that must persist across longer histories, sessions, tools, repos, machines, or repeated handoffs.
 
 `nauro graph` renders the store to one self-contained HTML file and opens it: a node-link map of every decision as the default view, plus drawn supersession lineage, a timeline, and a category browser. The demo store's consolidation, three retired decisions converging on the one that replaced them, draws as a fan. By default the file carries the full decision store, including each decision's body rendered as structured detail in the side panel, and lands in the store directory rather than your repo; `--no-include-bodies` produces a redacted titles-and-metadata artifact for wider sharing.
 
@@ -66,7 +68,7 @@ For real-project setup (`nauro init` / `nauro adopt`), cross-surface access, MCP
 
 ## Why Nauro?
 
-Nauro supports a human-ratified project-judgement loop. It captures what you decided and what you ruled out, with the reasoning, then brings related judgement into agent work. Keyword search over the decision store is one mechanism for putting prior reasoning in front of an agent at proposal time.
+Nauro supports a human-ratified project-judgment loop. It captures what you decided and what you ruled out, with the reasoning, then brings related judgment into agent work. Keyword search over the decision store is one mechanism for putting prior reasoning in front of an agent at proposal time.
 
 No model judges your decisions. The check uses deterministic keyword retrieval (BM25), is advisory, and never blocks a change. Agents draft additions, updates, and supersessions; you explicitly approve each one before `propose_decision` commits it in one call.
 

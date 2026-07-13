@@ -24,7 +24,8 @@ def _version_callback(value: bool) -> None:
 app = typer.Typer(
     name="nauro",
     help=(
-        "Human-ratified project judgment for every connected AI agent."
+        "Human-approved project judgment and current state for connected AI agents, "
+        "surfaced before work."
         "\n\nRun 'nauro telemetry --help' to manage anonymous usage telemetry."
     ),
     no_args_is_help=True,
@@ -42,7 +43,9 @@ def main(
         help="Show version and exit.",
     ),
 ) -> None:
-    """Human-ratified project judgment for every connected AI agent."""
+    """Human-approved project judgment and current state for connected AI agents,
+    surfaced before work.
+    """
     consent.maybe_prompt()
 
 
