@@ -277,6 +277,115 @@ def test_get_context_does_not_crash_transport_on_corrupt_config(tmp_path, monkey
     assert len(result.content) == 1
 
 
+# ── resolve_from_cwd: the canonical cwd waterfall shared by every surface ─────
+
+
+def test_resolve_from_cwd_repo_config_tier(tmp_path, monkeypatch):
+    """Tier 1: a ``.nauro/config.json`` walk-up resolves to the id-keyed store."""
+    from nauro.store.resolution import resolve_from_cwd
+
+    cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
+
+    resolution = resolve_from_cwd(repo_root)
+
+    assert resolution is not None
+    assert resolution.store_path == tmp_path / "projects" / cloud_pid
+    assert resolution.project_id == cloud_pid
+    assert resolution.display_name == "nauro"
+
+
+def test_resolve_from_cwd_v2_registry_by_path_tier(tmp_path, monkeypatch):
+    """Tier 2: no repo config, but the cwd is a registered v2 repo path."""
+    from nauro.store.resolution import resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid, store = registry.register_project_v2("byname", [repo])
+
+    resolution = resolve_from_cwd(repo)
+
+    assert resolution is not None
+    assert resolution.store_path == store
+    assert resolution.project_id == pid
+    assert resolution.display_name == "byname"
+
+
+def test_resolve_from_cwd_v1_legacy_tier(tmp_path, monkeypatch):
+    """Tier 3: neither a repo config nor a v2 path match; the v1 registry wins."""
+    from nauro.store.resolution import resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store = registry.register_project("legacy", [repo])
+
+    resolution = resolve_from_cwd(repo)
+
+    assert resolution is not None
+    assert resolution.store_path == store
+    assert resolution.project_id == "legacy"
+    assert resolution.display_name == "legacy"
+
+
+def test_resolve_from_cwd_repo_config_precedes_v2_registry(tmp_path, monkeypatch):
+    """Tier 1 wins over tier 2: the repo config id is honored even when the same
+    cwd is also a registered v2 repo path pointing at a different project."""
+    from nauro.store.resolution import resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    # The cwd is registered by path under one project id ...
+    pid_by_path, _store = registry.register_project_v2("bypath", [repo])
+    # ... but its repo config names a different, config-only project id.
+    pid_config, _store2 = registry.register_project_v2("byconfig", [tmp_path / "elsewhere"])
+    save_repo_config(repo, {"mode": "local", "id": pid_config, "name": "byconfig"})
+
+    resolution = resolve_from_cwd(repo)
+
+    assert resolution is not None
+    assert resolution.project_id == pid_config
+    assert resolution.store_path == tmp_path / "projects" / pid_config
+    assert pid_config != pid_by_path
+
+
+def test_resolve_from_cwd_none_when_nothing_matches(tmp_path, monkeypatch):
+    """No repo config, no v2 path, no v1 match: the waterfall returns None."""
+    from nauro.store.resolution import resolve_from_cwd
+
+    isolated = tmp_path / "isolated"
+    isolated.mkdir()
+
+    assert resolve_from_cwd(isolated) is None
+
+
+def test_stdio_resolve_welcome_on_oserror_reading_repo_config(tmp_path, monkeypatch):
+    """Fork 1a: a raw OSError while reading the repo config degrades to the
+    welcome/no-project outcome rather than propagating out of the transport.
+
+    Before the shared tier-1 helper caught OSError alongside
+    RepoConfigSchemaError, an unreadable ``.nauro/config.json`` let the OSError
+    escape ``_resolve_store`` and crash the tool call. Now it reaches the same
+    NoProjectError the genuine no-project case surfaces as the welcome screen.
+    """
+    from nauro.store import resolution
+    from nauro.store.resolution import NoProjectError
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    save_repo_config(
+        repo_root,
+        {"mode": "local", "id": "01KQ6AZGNA0B3QBF67NBXP3S45", "name": "proj"},
+    )
+
+    def _raise_oserror(_repo_root):
+        raise OSError("simulated unreadable repo config")
+
+    monkeypatch.setattr(resolution, "load_repo_config", _raise_oserror)
+    monkeypatch.chdir(repo_root)
+
+    with pytest.raises(NoProjectError, match="No Nauro project found"):
+        _resolve_store(None, None)
+
+
 # ── integration: two projects coexist post-migration ─────────────────────────
 
 

@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.commands import hook
 from nauro.cli.main import app
-from nauro.store.registry import register_project_v2
+from nauro.store.registry import register_project, register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -162,6 +162,21 @@ def test_missing_store_exits_zero_empty(tmp_path: Path):
     result = _invoke({"prompt": "rework the auth layer", "cwd": str(repo), "session_id": "s1"})
     assert result.exit_code == 0
     assert result.output == ""
+
+
+def test_v1_registry_project_resolves_for_hook(tmp_path: Path):
+    """A project registered only in the v1 (name-keyed) registry resolves.
+
+    The hook's resolver delegates to the canonical ``resolve_from_cwd``
+    waterfall, whose third tier is the v1 legacy registry. Previously the hook
+    stopped after the repo-config and v2-by-path tiers, so a v1-only project
+    got no advisory context; now it resolves like every other surface.
+    """
+    repo = tmp_path / "v1repo"
+    repo.mkdir()
+    store_path = register_project("v1only", [repo])
+
+    assert hook._resolve_store_path(repo) == store_path
 
 
 def test_oversize_prompt_exits_zero_empty(tmp_path: Path):

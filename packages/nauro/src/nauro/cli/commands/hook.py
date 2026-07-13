@@ -130,33 +130,15 @@ def _run_user_prompt_submit() -> None:
 def _resolve_store_path(cwd: Path) -> Path | None:
     """Resolve the project store path from a hook payload's cwd.
 
-    Reuses the per-repo config walk-up and the v2 registry path resolution that
+    Delegates to the canonical ``resolve_from_cwd`` waterfall that
     ``cli/utils.resolve_target_project`` uses, but operates against the payload's
     cwd rather than the process cwd and returns None instead of raising — the
     hook never errors a turn over an unresolvable directory.
     """
-    from nauro.store.registry import get_store_path_v2, resolve_v2_from_path
-    from nauro.store.repo_config import (
-        RepoConfigSchemaError,
-        find_repo_config,
-        load_repo_config,
-    )
+    from nauro.store.resolution import resolve_from_cwd
 
-    config_path = find_repo_config(cwd)
-    if config_path is not None:
-        repo_root = config_path.parent.parent
-        try:
-            cfg = load_repo_config(repo_root)
-        except (RepoConfigSchemaError, OSError):
-            cfg = None
-        if cfg is not None:
-            return get_store_path_v2(cfg["id"])
-
-    v2_match = resolve_v2_from_path(cwd)
-    if v2_match is not None:
-        pid, _entry = v2_match
-        return get_store_path_v2(pid)
-    return None
+    resolution = resolve_from_cwd(cwd)
+    return resolution.store_path if resolution is not None else None
 
 
 def _check(store_path: Path, prompt: str) -> list[dict]:

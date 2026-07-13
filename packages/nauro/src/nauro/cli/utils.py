@@ -30,16 +30,10 @@ from nauro.store.registry import (
     load_registry,
     load_registry_v2,
     register_project_v2,
-    resolve_project,
-    resolve_v2_from_path,
     suggest_project_for_path,
 )
-from nauro.store.repo_config import (
-    RepoConfigSchemaError,
-    collides_with_global_config,
-    find_repo_config,
-    load_repo_config,
-)
+from nauro.store.repo_config import collides_with_global_config
+from nauro.store.resolution import resolve_from_cwd
 
 
 def probe_nauro_command(cmd: str, *, timeout: float = 1.5) -> bool:
@@ -145,26 +139,6 @@ def _available_project_names() -> list[str]:
     return sorted((v1_names | v2_names) - {""})
 
 
-def _resolve_from_repo_config() -> tuple[str, Path] | None:
-    """Resolve via ``.nauro/config.json`` walk-up from cwd.
-
-    Returns (display_name, store_path) or None when no repo config is found.
-    A repo-config that names a project_id missing from the v2 registry is
-    still honored — the store path uses the id from the config.
-    """
-    config_path = find_repo_config()
-    if config_path is None:
-        return None
-    repo_root = config_path.parent.parent
-    try:
-        cfg = load_repo_config(repo_root)
-    except (RepoConfigSchemaError, OSError):
-        return None
-    pid = cfg["id"]
-    name = cfg.get("name") or pid
-    return name, get_store_path_v2(pid)
-
-
 def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
     """Resolve the target project from --project flag or cwd.
 
@@ -211,24 +185,13 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
             typer.echo("No projects registered. Run 'nauro init' first.", err=True)
         raise typer.Exit(code=1)
 
-    # 2 — repo config walk-up
-    via_repo = _resolve_from_repo_config()
-    if via_repo is not None:
-        return via_repo
-
-    # 2b — v2 registry by cwd repo_paths (no repo config, but registered)
+    # 2 — cwd waterfall: repo config walk-up → v2 registry by path → v1 legacy
     cwd = Path.cwd()
-    v2_match = resolve_v2_from_path(cwd)
-    if v2_match is not None:
-        pid, entry = v2_match
-        return entry.get("name", pid), get_store_path_v2(pid)
+    resolution = resolve_from_cwd(cwd)
+    if resolution is not None:
+        return resolution.display_name, resolution.store_path
 
-    # 3 — v1 fallback (legacy)
-    project_name = resolve_project(cwd)
-    if project_name:
-        return project_name, get_store_path(project_name)
-
-    # 4 — error
+    # 3 — error
     available = _available_project_names()
     typer.echo("No project found for current directory.", err=True)
 

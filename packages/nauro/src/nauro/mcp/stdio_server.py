@@ -52,17 +52,11 @@ from nauro.mcp.tools import (
     tool_update_state,
 )
 from nauro.onboarding import WELCOME_NO_PROJECT
-from nauro.store.registry import (
-    get_store_path,
-    get_store_path_v2,
-    resolve_project,
-    resolve_v2_from_path,
-)
 from nauro.store.resolution import (
     NoProjectError,
     StoreResolutionError,
+    resolve_from_cwd,
     resolve_store,
-    resolve_via_repo_config,
 )
 
 logger = logging.getLogger("nauro.stdio")
@@ -132,10 +126,28 @@ def _param_desc(tool_name: str, param: str) -> str:
     return props[param]["description"]
 
 
-# Back-compat re-exports — tests import these symbols from this module.
+# Back-compat re-export — tests import this symbol from this module.
 # The resolution logic itself lives in nauro.store.resolution.
 _resolve_store = resolve_store
-_resolve_via_repo_config = resolve_via_repo_config
+
+
+def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
+    """Resolve a store path, or translate a resolution failure to an error dict.
+
+    Every tool wrapper shares this preamble: on success it returns
+    ``(store_path, None)``; on failure it returns ``(None, error_dict)`` where
+    the dict carries the transport-appropriate guidance — the welcome screen for
+    the genuine no-project case, the specific diagnostic otherwise. Each wrapper
+    routes the dict to its own output shape (renderer envelope, dict, or the
+    guidance string).
+    """
+    try:
+        return _resolve_store(project_id, cwd), None
+    except NoProjectError:
+        return None, {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except StoreResolutionError as exc:
+        return None, {"store": "local", "status": "error", "guidance": str(exc)}
+
 
 # ``cwd`` exists only on the local transport (the hosted server has no
 # filesystem to resolve against), so its description lives here rather than
@@ -162,15 +174,9 @@ def get_context(
         Field(description=_param_desc("get_context", "level")),
     ] = "L0",
 ) -> CallToolResult:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        result = {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        result = {"store": "local", "status": "error", "guidance": str(exc)}
-    else:
-        # tool_get_context accepts both int and string levels.
-        result = tool_get_context(store_path, level)
+    store_path, err = _resolve_or_error(project_id, cwd)
+    # tool_get_context accepts both int and string levels.
+    result = err if err is not None else tool_get_context(store_path, level)
     return _wrap_with_renderer("get_context", result)
 
 
@@ -182,12 +188,9 @@ def get_raw_file(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> dict:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        return {"store": "local", "status": "error", "guidance": str(exc)}
+    store_path, err = _resolve_or_error(project_id, cwd)
+    if err is not None:
+        return err
     return tool_get_raw_file(store_path, path)
 
 
@@ -202,14 +205,8 @@ def list_decisions(
         bool, Field(description=_param_desc("list_decisions", "include_superseded"))
     ] = False,
 ) -> CallToolResult:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        result = {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        result = {"store": "local", "status": "error", "guidance": str(exc)}
-    else:
-        result = tool_list_decisions(store_path, limit, include_superseded)
+    store_path, err = _resolve_or_error(project_id, cwd)
+    result = err if err is not None else tool_list_decisions(store_path, limit, include_superseded)
     return _wrap_with_renderer("list_decisions", result)
 
 
@@ -224,14 +221,8 @@ def get_decision(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        result = {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        result = {"store": "local", "status": "error", "guidance": str(exc)}
-    else:
-        result = tool_get_decision(store_path, number, mode)
+    store_path, err = _resolve_or_error(project_id, cwd)
+    result = err if err is not None else tool_get_decision(store_path, number, mode)
     return _wrap_with_renderer("get_decision", result, {"mode": mode})
 
 
@@ -246,12 +237,9 @@ def diff_since_last_session(
         int | None, Field(description=_param_desc("diff_since_last_session", "days"))
     ] = None,
 ) -> dict:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        return {"store": "local", "status": "error", "guidance": str(exc)}
+    store_path, err = _resolve_or_error(project_id, cwd)
+    if err is not None:
+        return err
     return tool_diff_since_last_session(store_path, days)
 
 
@@ -267,14 +255,12 @@ def search_decisions(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        result = {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        result = {"store": "local", "status": "error", "guidance": str(exc)}
-    else:
-        result = tool_search_decisions(store_path, query, limit, include_superseded)
+    store_path, err = _resolve_or_error(project_id, cwd)
+    result = (
+        err
+        if err is not None
+        else tool_search_decisions(store_path, query, limit, include_superseded)
+    )
     # The kernel envelope omits the echoed query (pruned at the operations
     # cutover); thread it to the renderer so the local header shows the term,
     # matching the remote transport, which still carries query in its envelope.
@@ -294,14 +280,8 @@ def check_decision(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        result = {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        result = {"store": "local", "status": "error", "guidance": str(exc)}
-    else:
-        result = tool_check_decision(store_path, proposed_approach, context)
+    store_path, err = _resolve_or_error(project_id, cwd)
+    result = err if err is not None else tool_check_decision(store_path, proposed_approach, context)
     return _wrap_with_renderer("check_decision", result)
 
 
@@ -358,12 +338,9 @@ def propose_decision(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> dict:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except StoreResolutionError as exc:
-        return {"store": "local", "status": "error", "guidance": str(exc)}
+    store_path, err = _resolve_or_error(project_id, cwd)
+    if err is not None:
+        return err
     return tool_propose_decision(
         store_path,
         title=title,
@@ -398,12 +375,9 @@ def flag_question(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> str:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        return WELCOME_NO_PROJECT
-    except StoreResolutionError as exc:
-        return str(exc)
+    store_path, err = _resolve_or_error(project_id, cwd)
+    if err is not None:
+        return err["guidance"]
     result = tool_flag_question(
         store_path, question, context, targets=targets, resolved_by=resolved_by
     )
@@ -426,12 +400,9 @@ def update_state(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> str:
-    try:
-        store_path = _resolve_store(project_id, cwd)
-    except NoProjectError:
-        return WELCOME_NO_PROJECT
-    except StoreResolutionError as exc:
-        return str(exc)
+    store_path, err = _resolve_or_error(project_id, cwd)
+    if err is not None:
+        return err["guidance"]
     result = tool_update_state(store_path, delta)
     if result.get("warning"):
         return f"State updated. {result['warning']}"
@@ -447,26 +418,11 @@ def _pull_on_startup() -> None:
     and the server starts with local state.
     """
     try:
-        cwd = Path(os.getcwd())
-        project_key: str | None = None
-        store_path: Path | None = None
-
-        via_config = _resolve_via_repo_config(cwd)
-        if via_config is not None:
-            project_key, store_path = via_config
-        else:
-            v2_match = resolve_v2_from_path(cwd)
-            if v2_match is not None:
-                pid, _entry = v2_match
-                project_key, store_path = pid, get_store_path_v2(pid)
-            else:
-                legacy_name = resolve_project(cwd)
-                if legacy_name:
-                    project_key, store_path = legacy_name, get_store_path(legacy_name)
-
-        if not project_key or store_path is None:
+        resolution = resolve_from_cwd(Path(os.getcwd()))
+        if resolution is None:
             logger.debug("session-start pull: no project found in cwd, skipping")
             return
+        project_key, store_path = resolution.project_id, resolution.store_path
         if not store_path.exists():
             logger.debug("session-start pull: store not found for %s, skipping", project_key)
             return
