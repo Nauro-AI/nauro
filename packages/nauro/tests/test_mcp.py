@@ -6,7 +6,7 @@ import pytest
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations import update_state as _update_state_op
 
-from nauro.mcp.payloads import build_l0_payload, build_l1_payload, build_l2_payload
+from nauro.mcp.payloads import build_l0_payload
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import capture_snapshot
 from nauro.templates.scaffolds import scaffold_project_store
@@ -106,49 +106,14 @@ class TestL0Payload:
         assert 50 <= word_count <= 1000, f"L0 word count {word_count} outside expected range"
 
 
-class TestL1Payload:
-    def test_contains_full_stack(self, store: Path):
-        payload = build_l1_payload(store)
-        assert "# Stack" in payload
-        assert "Python 3.11" in payload
-
-    def test_contains_last10_decisions(self, store: Path):
-        payload = build_l1_payload(store)
-        # We have 6 decisions, all should be present
-        for i in range(1, 7):
-            assert f"Decision {i}" in payload
-
-    def test_decisions_have_rationale(self, store: Path):
-        payload = build_l1_payload(store)
-        assert "Rationale" in payload
-
-    def test_questions_projection_renders_all_under_cap(self, store: Path):
-        # Seven genuine open entries against the L1 cap of 10: the
-        # projection renders every entry and appends no omission trailer.
-        payload = build_l1_payload(store)
-        assert "Open Questions" in payload
-        for i in range(1, 8):
-            assert f"Question {i}?" in payload
-        assert "more open questions" not in payload
-
-
 class TestL2Payload:
-    def test_contains_all_decisions(self, store: Path):
-        payload = build_l2_payload(store)
-        for i in range(1, 7):
-            assert f"Decision {i}" in payload
-
-    def test_contains_questions(self, store: Path):
-        payload = build_l2_payload(store)
-        assert "Open Questions" in payload
-
     def test_snapshot_diff(self, store: Path):
         capture_snapshot(store, trigger="first")
         append_decision(store, "New after snap 1", rationale="Testing diff")
         capture_snapshot(store, trigger="second")
 
-        # Snapshot-diff trailer is a transport-side decoration; surface it
-        # via tool_get_context, not the internal build_l2_payload helper.
+        # Snapshot-diff trailer is a transport-side decoration on
+        # tool_get_context, not part of the underlying context payload.
         from nauro.mcp.tools import tool_get_context
 
         envelope = tool_get_context(store, 2)
@@ -242,35 +207,3 @@ class TestL0DecisionsSummary:
         recent_section = payload[payload.index("## Recent Decisions") :]
         summary_lines = [line for line in recent_section.split("\n") if line.startswith("- D")]
         assert len(summary_lines) == 10
-
-
-class TestL1DecisionsSummary:
-    """Tests for the L1 decisions summary (beyond full decisions)."""
-
-    def test_l1_summary_no_duplicates(self, tmp_path: Path):
-        """L1 summary covers decisions beyond those shown in full."""
-        store_path = tmp_path / "projects" / "testproj"
-        scaffold_project_store("testproj", store_path)
-        # scaffold creates 001, these are 002-016 (16 total active)
-        for i in range(15):
-            append_decision(store_path, f"Decision {i + 1}", rationale=f"Rationale {i + 1}")
-        payload = build_l1_payload(store_path)
-        # Should have "Earlier Decisions" section
-        assert "## Earlier Decisions" in payload
-        earlier_section = payload[payload.index("## Earlier Decisions") :]
-        # Most recent 10 (D16-D7) shown in full, earlier covers D6-D1
-        for i in range(1, 7):
-            assert f"D{i} —" in earlier_section
-        # Decisions shown in full should NOT be in the earlier summary
-        for i in range(7, 17):
-            assert f"D{i} —" not in earlier_section
-
-    def test_l1_no_earlier_section_when_few_decisions(self, tmp_path: Path):
-        """No Earlier Decisions section when all decisions fit in full."""
-        store_path = tmp_path / "projects" / "testproj"
-        scaffold_project_store("testproj", store_path)
-        # scaffold creates 001, these are 002-006 (6 total, under limit of 10)
-        for i in range(5):
-            append_decision(store_path, f"Decision {i + 1}", rationale=f"Rationale {i + 1}")
-        payload = build_l1_payload(store_path)
-        assert "## Earlier Decisions" not in payload

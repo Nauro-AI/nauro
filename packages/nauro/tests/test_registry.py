@@ -45,32 +45,6 @@ def test_register_duplicate_raises(tmp_path, monkeypatch):
         registry.register_project("dup", [repo])
 
 
-def test_add_repo(tmp_path, monkeypatch):
-    repo1 = tmp_path / "repo1"
-    repo2 = tmp_path / "repo2"
-    repo1.mkdir()
-    repo2.mkdir()
-    registry.register_project("proj", [repo1])
-    registry.add_repo("proj", repo2)
-    data = registry.load_registry()
-    paths = data["projects"]["proj"]["repo_paths"]
-    assert str(repo2.resolve()) in paths
-
-
-def test_add_repo_idempotent(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    registry.register_project("proj", [repo])
-    registry.add_repo("proj", repo)
-    data = registry.load_registry()
-    assert len(data["projects"]["proj"]["repo_paths"]) == 1
-
-
-def test_add_repo_missing_project(tmp_path, monkeypatch):
-    with pytest.raises(KeyError):
-        registry.add_repo("nope", tmp_path)
-
-
 # --- resolve_project ---
 
 
@@ -96,26 +70,6 @@ def test_resolve_project_no_match(tmp_path, monkeypatch):
     other = tmp_path / "other"
     other.mkdir()
     assert registry.resolve_project(other) is None
-
-
-# --- find_stale_paths ---
-
-
-def test_find_stale_paths_none(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    registry.register_project("proj", [repo])
-    assert registry.find_stale_paths() == []
-
-
-def test_find_stale_paths_detects_missing(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    registry.register_project("proj", [repo])
-    repo.rmdir()
-    stale = registry.find_stale_paths()
-    assert len(stale) == 1
-    assert stale[0][0] == "proj"
 
 
 # --- suggest_project_for_path ---
@@ -335,23 +289,6 @@ def test_init_add_repo_to_existing_writes_per_repo_config(tmp_path, monkeypatch)
     assert cfg1["id"] == cfg2["id"]
     pid, _ = _v2_entry_for_name("proj")
     assert cfg2["id"] == pid
-
-
-def test_remove_repo(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    registry.register_project("proj", [repo])
-    removed = registry.remove_repo("proj", str(repo.resolve()))
-    assert removed is True
-    data = registry.load_registry()
-    assert str(repo.resolve()) not in data["projects"]["proj"]["repo_paths"]
-
-
-def test_remove_repo_not_found(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    registry.register_project("proj", [repo])
-    assert registry.remove_repo("proj", "/nonexistent") is False
 
 
 # --- Corrupt-shape tolerance ---

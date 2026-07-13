@@ -167,16 +167,6 @@ def test_event_keys_exhaustive_no_disallowed(nauro_home, telemetry_key, fake_pos
     assert keys.isdisjoint(_DISALLOWED_KEYS)
 
 
-def test_bucket_classification():
-    from nauro.telemetry.cli_wrapper import _bucket
-
-    assert _bucket(0.005) == "<10ms"
-    assert _bucket(0.05) == "10-100ms"
-    assert _bucket(0.5) == "100ms-1s"
-    assert _bucket(5.0) == "1-10s"
-    assert _bucket(50.0) == ">10s"
-
-
 def test_version_flag_does_not_emit(nauro_home, telemetry_key, fake_posthog):
     seed_consented_config(nauro_home, enabled=True)
 

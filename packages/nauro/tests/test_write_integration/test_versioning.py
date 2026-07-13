@@ -4,11 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from nauro.store.reader import (
-    _list_decisions,
-    get_decision_history,
-    list_active_decisions,
-)
+from nauro.store.reader import _list_decisions
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision, supersede_decision, update_decision
 
@@ -71,24 +67,6 @@ class TestSupersedeDecision:
         assert new.status.value == "active"
         assert new.supersedes == "2"
 
-    def test_superseded_decision_not_in_active_list(self, store):
-        old_path = append_decision(
-            store, "Use MySQL", rationale="Cheap and widely available database option."
-        )
-        supersede_decision(
-            old_path.stem,
-            {
-                "title": "Switch to Postgres",
-                "rationale": "Better JSON support needed.",
-            },
-            store,
-        )
-
-        active = list_active_decisions(store)
-        titles = [d.title for d in active]
-        assert "Use MySQL" not in titles
-        assert "Switch to Postgres" in titles
-
 
 class TestUpdateDecision:
     def test_update_increments_version(self, store):
@@ -127,42 +105,3 @@ class TestUpdateDecision:
         content = path.read_text()
         assert "*Update (v2)" in content
         assert "*Update (v3)" in content
-
-
-class TestDecisionHistory:
-    def test_history_single_decision(self, store):
-        path = append_decision(store, "Use Postgres", rationale="Better JSON support for our app.")
-        history = get_decision_history(store, path.stem)
-        assert len(history) == 1
-        assert history[0].title == "Use Postgres"
-
-    def test_history_supersede_chain(self, store):
-        p1 = append_decision(
-            store, "Use SQLite", rationale="Simple embedded database for prototype."
-        )
-        supersede_decision(
-            p1.stem,
-            {
-                "title": "Switch to Postgres",
-                "rationale": "Need proper concurrency support.",
-            },
-            store,
-        )
-
-        history = get_decision_history(store, p1.stem)
-        assert len(history) == 2
-        assert history[0].title == "Use SQLite"
-        assert history[1].title == "Switch to Postgres"
-
-    def test_list_active_excludes_superseded(self, store):
-        p1 = append_decision(store, "Use MySQL", rationale="Available and cheap option.")
-        supersede_decision(
-            p1.stem,
-            {"title": "Switch to Postgres", "rationale": "Better JSON support."},
-            store,
-        )
-
-        active = list_active_decisions(store)
-        titles = [d.title for d in active]
-        assert "Use MySQL" not in titles
-        assert "Switch to Postgres" in titles

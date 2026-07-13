@@ -12,10 +12,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-from nauro_core.constants import DECISIONS_DIR, OPEN_QUESTIONS_MD
+from nauro_core.constants import DECISIONS_DIR
 from nauro_core.decision_model import DecisionStatus, format_decision, parse_decision
 from nauro_core.operations.propose_decision import _write_decision_direct
-from nauro_core.questions import OpenQuestionsFile, ResolveResult
 
 from nauro.store.filesystem_store import FilesystemStore
 
@@ -125,23 +124,6 @@ def update_decision(
     updated = decision.model_copy(update={"version": decision.version + 1, "rationale": appended})
     target_path.write_text(format_decision(updated))
     return decision_id
-
-
-def resolve_questions_in_file(
-    store_path: Path,
-    ids: list[str],
-    decision_num: int,
-    decision_date,
-) -> ResolveResult:
-    """Move named open questions under ``## Resolved`` in open-questions.md."""
-    if not ids:
-        return ResolveResult(file=OpenQuestionsFile(), moved_ids=(), unknown_ids=())
-    oq_path = store_path / OPEN_QUESTIONS_MD
-    content = oq_path.read_text() if oq_path.exists() else ""
-    file = OpenQuestionsFile.parse(content)
-    result = file.resolve(ids, decision_num, decision_date)
-    oq_path.write_text(result.file.format())
-    return result
 
 
 def _extract_num(decision_id: str) -> int | None:

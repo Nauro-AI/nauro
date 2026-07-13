@@ -142,8 +142,7 @@ def unset_config(key: str) -> bool:
     """Remove a config key. Returns True if the key existed.
 
     Uses the lock primitive directly rather than ``config_transaction`` so the
-    missing-key path can return without rewriting the file, mirroring
-    ``registry.remove_repo``.
+    missing-key path can return without rewriting the file.
     """
     with _config_lock():
         data = load_config()
