@@ -44,6 +44,7 @@ from tests.conftest import (  # noqa: E402
     CROSS_SURFACE_USER_ID,
     moto_s3_bucket,
 )
+from tests.cross_surface.conftest import _dump  # noqa: E402
 
 CloudStore = cloud_store_module.CloudStore
 
@@ -65,10 +66,6 @@ def _seed_current(fs_store: FilesystemStore, cloud: CloudStore, body: str) -> No
 def _seed_legacy(fs_store: FilesystemStore, cloud: CloudStore, body: str) -> None:
     fs_store.write_file(STATE_LEGACY_FILENAME, body)
     cloud.write_file(STATE_LEGACY_FILENAME, body)
-
-
-def _dump(result) -> dict:
-    return result.model_dump(mode="json", exclude_none=True)
 
 
 def test_noop_branch_matches_across_stores(both_stores):

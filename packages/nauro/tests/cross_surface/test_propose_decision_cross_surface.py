@@ -46,6 +46,7 @@ from tests.conftest import (  # noqa: E402
     CROSS_SURFACE_USER_ID,
     moto_s3_bucket,
 )
+from tests.cross_surface.conftest import _dump  # noqa: E402
 
 CloudStore = cloud_store_module.CloudStore
 
@@ -71,10 +72,6 @@ def _seed_postgres(store) -> str:
             "confidence": "high",
         },
     )
-
-
-def _dump(result) -> dict:
-    return result.model_dump(mode="json", exclude_none=True)
 
 
 def test_add_confirmed_decision_file_byte_identical(both_stores):

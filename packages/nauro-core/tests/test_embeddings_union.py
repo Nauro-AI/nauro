@@ -13,46 +13,30 @@ against a deterministic encoder.
 
 from __future__ import annotations
 
-from datetime import date
-
 import numpy as np
 import pytest
+from conftest import make_decision
 
 import nauro_core.embeddings as embeddings_mod
-from nauro_core.decision_model import Decision, DecisionConfidence, DecisionStatus
 from nauro_core.search import bm25_retrieve, union_retrieve
 
-
-def _make_decision(num: int, title: str, rationale: str, status: str = "active") -> Decision:
-    status_enum = DecisionStatus(status)
-    return Decision(
-        date=date(2026, 4, 7),
-        confidence=DecisionConfidence.medium,
-        status=status_enum,
-        superseded_by="999" if status_enum is DecisionStatus.superseded else None,
-        num=num,
-        title=title,
-        rationale=rationale,
-    )
-
-
 DECISIONS = [
-    _make_decision(
+    make_decision(
         1,
         "Use Auth0 for authentication",
         "Auth0 provides OAuth 2.1 support and handles JWT validation.",
     ),
-    _make_decision(
+    make_decision(
         2,
         "Chose Memcached for session state",
         "Memcached is simpler than Redis for session caching.",
     ),
-    _make_decision(
+    make_decision(
         3,
         "Use FastAPI for MCP server",
         "FastAPI provides async support and automatic OpenAPI docs.",
     ),
-    _make_decision(
+    make_decision(
         4,
         "Identity tokens carry no email scope",
         "Login tokens omit the email claim, so users land without a profile.",

@@ -20,50 +20,19 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from conftest import _seed_decision, _store_with
 from pydantic import ValidationError
 
 from nauro_core.constants import OPEN_QUESTIONS_MD
 from nauro_core.decision_model import (
     DECISION_TYPE_VALUES,
-    Decision,
-    DecisionConfidence,
     DecisionStatus,
-    format_decision,
 )
 from nauro_core.operations import (
     InMemoryStore,
     ProposeDecisionResult,
     propose_decision,
 )
-
-
-def _seed_decision(
-    num: int,
-    title: str,
-    rationale: str,
-    *,
-    status: DecisionStatus = DecisionStatus.active,
-    decision_date: date | None = None,
-) -> tuple[str, str]:
-    """Return ``(file_stem, formatted_markdown)`` for a parseable v2 decision."""
-    superseded_by = "999" if status is DecisionStatus.superseded else None
-    decision = Decision(
-        date=decision_date or date(2026, 1, 1),
-        confidence=DecisionConfidence.medium,
-        status=status,
-        superseded_by=superseded_by,
-        num=num,
-        title=title,
-        rationale=rationale,
-    )
-    slug = title.lower().replace(" ", "-")
-    stem = f"{num:03d}-{slug}"
-    return stem, format_decision(decision)
-
-
-def _store_with(*decisions: tuple[str, str], **files: str) -> InMemoryStore:
-    return InMemoryStore(decisions=dict(decisions), files=dict(files))
-
 
 # ── Result type / shape ─────────────────────────────────────────────────
 
