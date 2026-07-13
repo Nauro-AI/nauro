@@ -275,13 +275,11 @@ class TestAutogenHelp:
             assert sub.help == specs[name]["description"].split("\n\n", 1)[0]
 
     def test_propose_decision_help_omits_later_paragraphs(self) -> None:
-        """'human-in-the-loop' appears only in the description's second
-        paragraph — a marker that later paragraphs never leak into --help
-        output."""
+        """Approval prose stays off help because only paragraph one renders."""
         result = runner.invoke(app, ["propose-decision", "--help"])
         assert result.exit_code == 0, result.output
         assert "Record an architectural decision" in result.output
-        assert "human-in-the-loop" not in result.output
+        assert "explicit user approval" not in result.output
 
 
 # ── Cross-cutting invariants ────────────────────────────────────────────────

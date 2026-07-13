@@ -65,7 +65,7 @@ Read:
 - `get_decision(project, number)` — full content of a specific decision
 - `diff_since_last_session(project, days)` — what changed since last session
 - `search_decisions(project, query, limit)` — keyword search across decisions
-- `check_decision(proposed_approach)` — check for conflicts without writing
+- `check_decision(proposed_approach)`: surface related decisions without writing
 - `list_projects()` — list user's projects (remote-only)
 
 Write:

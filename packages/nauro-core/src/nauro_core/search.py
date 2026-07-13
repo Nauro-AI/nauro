@@ -123,7 +123,7 @@ def bm25_retrieve(
     top_k: int = 5,
     stopwords: str | list[str] = "en",
 ) -> list[Bm25Hit]:
-    """Retrieve top-k related active decisions for conflict checking.
+    """Retrieve top-k related active decisions for agent assessment.
 
     Returns list of dicts sorted by BM25 score descending.
     Only active decisions are considered; results with score <= 0 are excluded.

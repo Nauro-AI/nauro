@@ -19,6 +19,7 @@ from typing import Any, TypedDict
 
 from nauro_core.decision_model import DECISION_TYPE_VALUES
 from nauro_core.protocol import (
+    _APPROVAL_BEFORE_PROPOSE,
     GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
@@ -283,8 +284,8 @@ CHECK_DECISION: ToolSpec = {
         "Use this to consult the project's decision history before committing "
         'to an approach — especially when the user asks "should we...", '
         '"what if we...", "can we...", or "check if...". If check_decision '
-        "returns no related decisions and you want to record the choice, "
-        "call propose_decision next."
+        "returns no related decisions and the choice should be recorded, "
+        f"follow this approval boundary: {_APPROVAL_BEFORE_PROPOSE}"
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -314,14 +315,13 @@ PROPOSE_DECISION: ToolSpec = {
         "call once structural validation passes.\n"
         "\n"
         "Similarity hits are advisory: they return on similar_decisions and "
-        "never block the write. Review them before drafting and surface "
-        "them to the user; the human-in-the-loop gate is the chat approval "
-        "before this call, not a second tool call after it.\n"
+        "never block the write.\n"
+        "\n"
+        f"{_APPROVAL_BEFORE_PROPOSE}\n"
         "\n"
         "Call this when you choose between two or more approaches, replace "
         "or remove a dependency, establish a new pattern, or cut scope. "
-        "Always include what was rejected and why. Do not propose without "
-        "explicit user consent on the drafted body."
+        "Always include what was rejected and why."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
     "input_schema": {

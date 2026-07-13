@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import pytest
 
+from nauro_core import protocol
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.mcp_tools import get_tool_spec
 from nauro_core.protocol import (
+    _APPROVAL_BEFORE_PROPOSE,
     CANONICAL_FRAGMENTS,
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -29,6 +31,17 @@ from nauro_core.protocol import (
 
 
 class TestFragmentAnchors:
+    def test_private_approval_fragment_pins_human_authority(self) -> None:
+        for operation in ("add", "update", "supersede"):
+            assert operation in _APPROVAL_BEFORE_PROPOSE
+        assert "related decisions" in _APPROVAL_BEFORE_PROPOSE
+        assert "explicit user approval" in _APPROVAL_BEFORE_PROPOSE
+        assert "commits immediately after validation" in _APPROVAL_BEFORE_PROPOSE
+
+    def test_approval_fragment_is_not_public_protocol_api(self) -> None:
+        assert "_APPROVAL_BEFORE_PROPOSE" not in protocol.__all__
+        assert "APPROVAL_BEFORE_PROPOSE" not in CANONICAL_FRAGMENTS
+
     def test_check_decision_returns_names_bm25_and_deterministic(self) -> None:
         assert "BM25" in CHECK_DECISION_RETURNS
         assert "deterministic" in CHECK_DECISION_RETURNS
@@ -195,6 +208,10 @@ class TestMcpInstructionsComposition:
     @pytest.mark.parametrize("fragment", REQUIRED_FRAGMENTS)
     def test_mcp_static_contains_fragment_verbatim(self, fragment: str) -> None:
         assert fragment in MCP_INSTRUCTIONS_STATIC
+
+    def test_mcp_static_contains_private_approval_fragment(self) -> None:
+        assert _APPROVAL_BEFORE_PROPOSE in MCP_INSTRUCTIONS_STATIC
+        assert "human-ratified project judgment" in MCP_INSTRUCTIONS_STATIC
 
     def test_mcp_static_has_no_unresolved_tokens(self) -> None:
         assert protocol_tokens_in(MCP_INSTRUCTIONS_STATIC) == []

@@ -27,12 +27,10 @@ class ProjectRef(TypedDict):
 
 MAX_INLINE_PROJECTS = 3
 
-# Compressed hard: the 0-project composition must fit entirely under the
-# claude.ai initialize.instructions truncation point (2,023 chars). That
-# point minus the static block (1,811 chars today) and the two joining
-# newlines leaves ~210 chars for the per-user section at the current
-# static size — less if the static block grows toward its 1,891-char
-# ceiling — so this copy targets ≤195 to keep headroom.
+# The 0-project composition must fit entirely under the claude.ai
+# initialize.instructions truncation point (2,023 chars). The static block is
+# capped at 1,700 characters, so this copy targets at most 195 characters and
+# leaves headroom for the two joining newlines.
 WELCOME_NO_PROJECT = (
     "`nauro auth login` before cloud ops. "
     "`nauro init <name>` (local), `nauro init --cloud <name>`, or "

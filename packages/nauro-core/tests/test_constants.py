@@ -24,6 +24,7 @@ from nauro_core.constants import (
 from nauro_core.decision_model import DecisionType
 from nauro_core.instructions import build_remote_instructions
 from nauro_core.protocol import (
+    _APPROVAL_BEFORE_PROPOSE,
     GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
@@ -111,6 +112,10 @@ class TestFilenames:
 
 
 class TestMcpInstructions:
+    def test_human_authority_and_approval_contract_are_present(self):
+        assert "human-ratified project judgment" in MCP_INSTRUCTIONS_STATIC
+        assert _APPROVAL_BEFORE_PROPOSE in MCP_INSTRUCTIONS_STATIC
+
     def test_check_decision_section_is_a_precondition(self):
         """The check_decision guidance must explicitly forbid the skip-on-rejection
         loophole. A competent agent with a strong premise to attack can otherwise

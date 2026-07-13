@@ -85,6 +85,8 @@ def test_demo_next_step_points_at_check_decision(tmp_path, monkeypatch):
     result = runner.invoke(app, ["init", "--demo"])
     assert result.exit_code == 0, result.output
     assert "check-decision" in result.output
+    assert "surface related prior decisions" in result.output
+    assert "conflict check" not in result.output
 
 
 # ── repeat-demo reset message ────────────────────────────────────────────────────

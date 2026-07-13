@@ -24,14 +24,14 @@ instruction framing and 3rd-person skill-body framing.
 from __future__ import annotations
 
 CHECK_DECISION_RETURNS = (
-    "`check_decision` returns related decisions via BM25 retrieval and a "
-    "deterministic assessment. It does NOT judge conflicts."
+    "`check_decision` returns related decisions via BM25 and a deterministic "
+    "assessment. It does NOT judge conflicts."
 )
 
 GET_DECISION_BEFORE_PROPOSING = (
-    "When the response lists related decisions, call `get_decision` on each "
-    "before proposing — `mode=header` to triage, `mode=full` for those you "
-    "reason about; the assessment doesn't judge."
+    "When related decisions appear, call `get_decision` on each before "
+    "proposing: `mode=header` to triage and `mode=full` for those you reason "
+    "about."
 )
 
 PROPOSE_DECISION_OPERATIONS = (
@@ -54,6 +54,12 @@ UPDATE_SUPERSEDE_CARE = (
 NO_INVENT_RATIONALE = (
     "Do not invent rationale. Record only what was actually decided, with the "
     "reasoning that supports it."
+)
+
+_APPROVAL_BEFORE_PROPOSE = (
+    "Before `propose_decision`, present the complete add, update, or supersede "
+    "draft with any related decisions and obtain explicit user approval. The "
+    "call commits immediately after validation."
 )
 
 RESOLVES_OPEN_QUESTIONS = (

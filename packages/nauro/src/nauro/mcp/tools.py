@@ -441,7 +441,7 @@ def tool_check_decision(
     proposed_approach: str,
     context: str | None = None,
 ) -> dict:
-    """Check for conflicts with existing decisions without writing anything."""
+    """Surface related existing decisions without writing anything."""
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
@@ -460,7 +460,7 @@ def tool_check_decision(
 # the check_decision ToolSpec. Guarded by test_retired_paraphrase_absent
 # in packages/nauro/tests/test_protocol_drift.py.
 tool_check_decision.__doc__ = f"""\
-Check for conflicts with existing decisions without writing anything.
+Surface related existing decisions without writing anything.
 
 {CHECK_DECISION_RETURNS}
 
