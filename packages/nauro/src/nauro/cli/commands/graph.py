@@ -9,12 +9,11 @@ current-directory default would invite committing that store extract into a
 repo. ``--output`` overrides the location, and ``--open`` (default on) opens the
 file in a browser.
 
-By default the file carries decision titles, metadata, open-question summaries,
-and each decision's full body, rendered as structured HTML in the detail panel
-so the background context reads at a glance (D331). ``--no-include-bodies`` drops
-the bodies for a redacted artifact (titles and metadata only) that is safe to
-share more widely. The store-directory output default still keeps the file out
-of git working trees in both modes.
+The full bodies are rendered as structured HTML in the detail panel so the
+background context reads at a glance. ``--no-include-bodies`` drops the bodies
+for a redacted artifact (titles and metadata only) that is safe to share more
+widely. The store-directory output default still keeps the file out of git
+working trees in both modes.
 """
 
 from __future__ import annotations

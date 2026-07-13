@@ -358,7 +358,6 @@ def claude_code(
         if pruned:
             mcp_results.append(pruned)
 
-    # Print summary
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro for project '{project_name}':\n")
     for line in mcp_results:

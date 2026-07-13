@@ -66,7 +66,7 @@ NO_DECISIONS_TO_CHECK = (
 # lexical miss does not read as a clean all-clear: BM25 ranks on keyword
 # overlap, so a related decision phrased differently can score zero and never
 # surface. Stating the retrieval limitation is a fact about the tool, not a
-# judgement of the approach — the agent still reads and judges (D130/D245: no
+# judgement of the approach — the agent still reads and judges (no
 # automated scoring verdict). Shared between local (nauro) and remote
 # (mcp-server) so the cross-surface string cannot drift.
 NO_RELATED_DECISIONS = (
@@ -80,7 +80,7 @@ NO_RELATED_DECISIONS = (
 # Appended whenever check_decision returns hits, so a low (or merely
 # top-of-a-thin-pool) match is not read as an authoritative verdict. Surfaces
 # the retrieval method's nature without grading the match — the BM25 score is a
-# keyword-overlap fact, not a confidence judgement (D130/D245).
+# keyword-overlap fact, not a confidence judgement.
 LEXICAL_RANK_CAVEAT = (
     "Ranked by keyword overlap, not meaning — judge relevance from the decision "
     "body, not the rank."
@@ -106,8 +106,8 @@ REVERSIBILITY_LEVELS: tuple[str, ...] = ("easy", "moderate", "hard")
 # ── Discovery-pointer flag markers ──
 # Entries in open-questions.md whose body starts with one of these prefixes
 # are discovery breadcrumbs (BRIEF for shared context briefs, RESUME for
-# agent resume briefs, SELECT for /nauro-loop candidate-set checkpoints per
-# D322), not questions for human review.
+# agent resume briefs, SELECT for /nauro-loop candidate-set checkpoints),
+# not questions for human review.
 POINTER_FLAG_PREFIXES: tuple[str, ...] = ("BRIEF:", "RESUME:", "SELECT:")
 
 # ── Stack empty marker ──

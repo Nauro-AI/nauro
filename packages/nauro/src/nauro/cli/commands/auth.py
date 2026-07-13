@@ -332,7 +332,6 @@ def _decode_jwt_payload(token: str) -> dict:
     if len(parts) != 3:
         raise ValueError("Invalid JWT format")
     payload_b64 = parts[1]
-    # Add padding if needed
     padding = 4 - len(payload_b64) % 4
     if padding != 4:
         payload_b64 += "=" * padding

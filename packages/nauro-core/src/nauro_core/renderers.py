@@ -206,8 +206,8 @@ def render_search_decisions(result: dict, query: str | None = None) -> str:
 
     ``query`` is render-time display context for the result header. The
     kernel envelope intentionally omits the echoed query (a verbatim copy
-    of the caller's argument, pruned at the operations cutover), so the
-    local stdio transport threads it here via renderer kwargs. When given
+    of the caller's argument), so the local stdio transport threads it
+    here via renderer kwargs. When given
     it takes precedence; the remote transport, whose wire envelope still
     carries ``query``, keeps rendering via the dict fallback.
     """

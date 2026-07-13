@@ -62,7 +62,8 @@ def _load_context_files(store: Store, level: int) -> dict[str, str]:
     # Prefer state_current.md; fall back to state.md for pre-upgrade stores.
     # Truthy check (not ``is not None``) so a migration that left an empty
     # state_current.md placeholder still falls through to the populated
-    # legacy state.md — matches the pre-cutover ``_load_files`` contract.
+    # legacy state.md — this fallback contract keeps the payload
+    # byte-identical across surfaces.
     current = store.read_file(STATE_CURRENT_FILENAME)
     if current:
         files[STATE_CURRENT_FILENAME] = current

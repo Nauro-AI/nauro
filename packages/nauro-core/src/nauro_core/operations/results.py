@@ -121,9 +121,10 @@ class GetRawFileResult(BaseModel):
 class DecisionSummary(BaseModel):
     """One row in :class:`ListDecisionsResult`.
 
-    Carries the same row fields the pre-cutover ``tool_list_decisions``
-    envelope exposed (``number``, ``title``, ``date``, ``status``,
-    ``type``, ``confidence``). ``date`` and ``type`` stay optional so
+    The row fields (``number``, ``title``, ``date``, ``status``,
+    ``type``, ``confidence``) are fixed — the ``tool_list_decisions``
+    envelope stays byte-identical across surfaces. ``date`` and
+    ``type`` stay optional so
     decisions written without those frontmatter fields still serialize;
     the adapter's ``exclude_none=True`` template choice drops the keys
     when they are unset.
@@ -156,9 +157,10 @@ class ListDecisionsResult(BaseModel):
 class SearchHit(BaseModel):
     """One ranked row in :class:`SearchDecisionsResult`.
 
-    Carries the BM25 row fields the pre-cutover ``tool_search_decisions``
-    envelope exposed (``number``, ``title``, ``date``, ``status``,
-    ``relevance_snippet``, ``score``). ``date`` and ``relevance_snippet``
+    The BM25 row fields (``number``, ``title``, ``date``, ``status``,
+    ``relevance_snippet``, ``score``) are fixed — the
+    ``tool_search_decisions`` envelope stays byte-identical across
+    surfaces. ``date`` and ``relevance_snippet``
     stay optional so decisions without a parsed date or without a snippet
     extraction still serialize; the adapter's ``exclude_none=True``
     template choice drops the keys when they are unset.
@@ -247,7 +249,7 @@ class DiffSinceLastSessionResult(BaseModel):
     ``diff`` carries the human-readable diff body. The "not enough
     snapshots" and "only one snapshot covers the requested range" cases
     populate ``diff`` with their respective sentinel strings rather than
-    surfacing as errors — pre-cutover behaviour the surface tests pin.
+    surfacing as errors — behaviour the surface tests pin.
     ``cutoff_date_used`` echoes the baseline snapshot timestamp when the
     adapter resolved the baseline via a time-based lookup; it stays
     unset for session-scoped diffs. ``store`` is not part of the model;

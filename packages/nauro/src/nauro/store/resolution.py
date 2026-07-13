@@ -12,11 +12,9 @@ Resolution order:
   3. ``project_id`` argument matched against v1 registry by name (legacy).
   4. ``cwd`` argument → v1 ``resolve_project`` (legacy).
 
-Previously both transports raised a bare ``ValueError`` and the wrappers
-swallowed every failure into the same ``WELCOME_NO_PROJECT`` onboarding
-screen. The typed subclasses below let the wrappers reserve the welcome
-screen for the genuinely-no-project case and surface specific diagnostics
-for the other failure modes.
+The typed subclasses below let the wrappers reserve the
+``WELCOME_NO_PROJECT`` onboarding screen for the genuinely-no-project case
+and surface specific diagnostics for the other failure modes.
 """
 
 from __future__ import annotations

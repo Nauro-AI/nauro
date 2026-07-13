@@ -223,7 +223,7 @@ class ResolveResult:
     Attributes:
         file: A new :class:`OpenQuestionsFile` with the resolutions applied.
         moved_ids: Ids whose ``resolved_by`` ended set — nothing is
-            physically moved. The name is legacy (stale D139-era "move"
+            physically moved. The name is legacy (stale "move"
             vocabulary); ``resolve`` stamps the annotation in place and
             never reorders blocks. Relocation is the separate
             :meth:`normalize` step. Includes ids that were already resolved

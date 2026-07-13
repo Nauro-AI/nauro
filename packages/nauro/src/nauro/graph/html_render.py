@@ -1880,7 +1880,7 @@ def _detail_question_links(number: int, question_refs: dict[int, list[str]]) -> 
 def _detail_body(node: dict) -> str:
     """Render the decision body as structured HTML when bodies are included.
 
-    Bodies are on by default (D331), so the rationale is the panel's primary
+    Bodies are on by default, so the rationale is the panel's primary
     content rather than an opt-in dump. The markdown body is rendered into headed
     blocks (Decision, Rejected Alternatives, and their subsections) so the
     background context reads at a glance instead of as raw markdown. The block
