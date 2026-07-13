@@ -30,15 +30,12 @@ from pathlib import Path
 
 import pytest
 
-from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.mcp import tools as mcp_tools
 from nauro.mcp.stdio_server import propose_decision as stdio_propose_decision
 from nauro.mcp.tools import tool_propose_decision
-from nauro.store.registry import register_project_v2
-from nauro.store.repo_config import save_repo_config
 from nauro.templates.agents_md_regen import warn_then_regen
-from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
+from tests.conftest import register_v2_repo
 
 
 @pytest.fixture(autouse=True)
@@ -62,20 +59,8 @@ def _no_snapshot(monkeypatch):
 @pytest.fixture
 def seeded_repo(tmp_path, monkeypatch):
     """Register a project, scaffold the store, and chdir into the repo."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2(
-        "parity-propose",
-        [repo],
-        mode=REPO_CONFIG_MODE_LOCAL,
-    )
-    save_repo_config(
-        repo,
-        {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "parity-propose"},
-    )
-    scaffold_project_store("parity-propose", store_path)
-    monkeypatch.chdir(repo)
-    return pid, store_path
+    result = register_v2_repo(tmp_path, "parity-propose", monkeypatch=monkeypatch)
+    return result.pid, result.store_path
 
 
 @pytest.fixture

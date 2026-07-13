@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
-from tests.conftest import FakeClient, seed_consented_config
+from tests.conftest import FakeClient, make_nauro_home, seed_consented_config
 
 _SYNC_COMPLETED_KEYS = frozenset({"snapshot_count", "duration_bucket", "bytes_bucket"})
 _DURATION_PATTERN = re.compile(r"^(<10ms|10-100ms|100ms-1s|1-10s|>10s)$")
@@ -27,11 +27,7 @@ runner = CliRunner()
 
 @pytest.fixture
 def nauro_home(tmp_path, monkeypatch):
-    home = tmp_path / "user_home"
-    home.mkdir()
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
-    return home
+    return make_nauro_home(tmp_path, monkeypatch, dirname="user_home", delenv_telemetry=True)
 
 
 @pytest.fixture

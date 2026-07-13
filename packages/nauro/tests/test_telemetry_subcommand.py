@@ -9,32 +9,23 @@ import uuid
 import pytest
 from typer.testing import CliRunner
 
+from tests.conftest import TEST_ANONYMOUS_ID, make_nauro_home, seed_consented_config
+
 _UUID4_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 
 
 @pytest.fixture
 def nauro_home(tmp_path, monkeypatch):
-    home = tmp_path / "user_home"
-    home.mkdir()
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    monkeypatch.chdir(repo)
-    return home
+    return make_nauro_home(tmp_path, monkeypatch, dirname="user_home", chdir_repo=True)
 
 
 def _seed_config(home, *, enabled, consent_version, consented_at, anonymous_id) -> None:
-    (home / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": anonymous_id,
-                    "enabled": enabled,
-                    "consent_version": consent_version,
-                    "consented_at": consented_at,
-                }
-            }
-        )
+    seed_consented_config(
+        home,
+        enabled=enabled,
+        consent_version=consent_version,
+        consented_at=consented_at,
+        anonymous_id=anonymous_id,
     )
 
 
@@ -60,7 +51,7 @@ def test_disable_persists_and_blocks_emit(nauro_home, telemetry_key):
         enabled=True,
         consent_version=1,
         consented_at="2026-04-30T00:00:00Z",
-        anonymous_id="11111111-1111-4111-8111-111111111111",
+        anonymous_id=TEST_ANONYMOUS_ID,
     )
 
     from nauro.cli.main import app
@@ -86,7 +77,7 @@ def test_enable_persists_and_allows_emit(nauro_home, telemetry_key, monkeypatch)
         enabled=False,
         consent_version=1,
         consented_at="2026-04-30T00:00:00Z",
-        anonymous_id="11111111-1111-4111-8111-111111111111",
+        anonymous_id=TEST_ANONYMOUS_ID,
     )
 
     from nauro.cli.main import app
@@ -156,7 +147,7 @@ def test_rotate_anonymous_id_helper_unit(nauro_home):
         enabled=True,
         consent_version=1,
         consented_at="2026-04-30T00:00:00Z",
-        anonymous_id="11111111-1111-4111-8111-111111111111",
+        anonymous_id=TEST_ANONYMOUS_ID,
     )
 
     from nauro.telemetry import _rotate_anonymous_id

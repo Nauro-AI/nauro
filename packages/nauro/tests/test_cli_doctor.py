@@ -14,9 +14,9 @@ from nauro_core.decision_model import Decision, format_decision
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.constants import DECISIONS_DIR
 from nauro.store.registry import register_project
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import write_decision_file
 
 runner = CliRunner()
 
@@ -26,10 +26,6 @@ def _new_store(tmp_path: Path, name: str = "docproj") -> Path:
     store = register_project(name, [tmp_path])
     scaffold_project_store(name, store)
     return store
-
-
-def _write_decision(store: Path, num: int, slug: str, content: str) -> None:
-    (store / DECISIONS_DIR / f"{num:03d}-{slug}.md").write_text(content, encoding="utf-8")
 
 
 def _decision_md(num: int, *, supersedes: str | None = None) -> str:
@@ -54,8 +50,8 @@ def test_clean_store_exits_zero(tmp_path: Path) -> None:
 
 def test_defective_store_exits_zero_and_renders_defects(tmp_path: Path) -> None:
     store = _new_store(tmp_path)
-    _write_decision(store, 10, "broken", "this file does not parse as a decision")
-    _write_decision(store, 11, "dangling", _decision_md(11, supersedes="999"))
+    write_decision_file(store, 10, "broken", "this file does not parse as a decision")
+    write_decision_file(store, 11, "dangling", _decision_md(11, supersedes="999"))
 
     result = runner.invoke(app, ["doctor", "--project", "docproj"])
 

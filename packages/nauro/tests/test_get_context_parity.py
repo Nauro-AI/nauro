@@ -37,29 +37,19 @@ from nauro.mcp.stdio_server import get_context as stdio_get_context
 from nauro.mcp.tools import tool_get_context
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
-
-
-def _seed(store_path: Path, *decisions: Decision) -> None:
-    decisions_dir = store_path / "decisions"
-    decisions_dir.mkdir(parents=True, exist_ok=True)
-    for d in decisions:
-        slug = d.title.lower().replace(" ", "-")
-        (decisions_dir / f"{d.num:03d}-{slug}.md").write_text(format_decision(d))
+from tests.conftest import register_v2_repo, seed_decisions_into
 
 
 @pytest.fixture
 def seeded_repo(tmp_path, monkeypatch):
     """Seed a project with two decisions plus the canonical store files."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2("parity-context", [repo], mode=REPO_CONFIG_MODE_LOCAL)
-    save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "parity-context"})
-    store_path.mkdir(parents=True, exist_ok=True)
+    result = register_v2_repo(tmp_path, "parity-context", monkeypatch=monkeypatch, seed="mkdir")
+    store_path = result.store_path
     (store_path / "project.md").write_text("# Project\n\nGoal: ship the thing.\n")
     (store_path / "state_current.md").write_text("# Current State\n\n- Shipped Postgres adoption\n")
     (store_path / "stack.md").write_text("# Stack\n- **Python 3.11** — primary language\n")
     (store_path / "open-questions.md").write_text("# Open Questions\n- [Q1] Should we add Redis?\n")
-    _seed(
+    seed_decisions_into(
         store_path,
         Decision(
             date=date(2026, 1, 1),
@@ -78,8 +68,7 @@ def seeded_repo(tmp_path, monkeypatch):
             rationale="FastAPI plus Mangum is the Lambda deployment combination.",
         ),
     )
-    monkeypatch.chdir(repo)
-    return pid, store_path
+    return result.pid, store_path
 
 
 @pytest.fixture

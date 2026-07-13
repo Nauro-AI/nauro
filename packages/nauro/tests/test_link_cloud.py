@@ -25,9 +25,9 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store import registry
-from nauro.store.config import save_config
 from nauro.store.repo_config import load_repo_config, save_repo_config
 from nauro.sync import cloud_projects, remote
+from tests.conftest import seed_auth_config
 
 runner = CliRunner()
 
@@ -36,11 +36,7 @@ CLOUD_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 
 def _seed_token(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
-    save_config(
-        {
-            "auth": {"access_token": "test-token", "sub": "auth0|test"},
-        }
-    )
+    seed_auth_config()
 
 
 def _create_response(name: str = "linkproj", project_id: str = CLOUD_PID):

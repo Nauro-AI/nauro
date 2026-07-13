@@ -30,6 +30,7 @@ from nauro.sync.state import (
     load_state,
     save_state,
 )
+from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
 
 
@@ -42,15 +43,7 @@ def _ok(status: int, payload: dict) -> httpx.Response:
 
 
 def _seed_token(access_token: str = "tok_orig", refresh_token: str = "refresh_orig") -> None:
-    save_config(
-        {
-            "auth": {
-                "sub": "auth0|test",
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-            }
-        }
-    )
+    seed_auth_config(variant="sync", access_token=access_token, refresh_token=refresh_token)
 
 
 # --- mode detection ---

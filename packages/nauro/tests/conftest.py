@@ -6,11 +6,17 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
+from nauro_core.decision_model import Decision, format_decision
 
+from nauro.constants import DECISIONS_DIR, REPO_CONFIG_MODE_LOCAL
 from nauro.mcp.tools import tool_get_context
+from nauro.store.config import save_config
+from nauro.store.registry import register_project_v2
+from nauro.store.repo_config import save_repo_config
+from nauro.templates.scaffolds import scaffold_project_store
 
 # Magic UUID4 used by every telemetry test that seeds a consented config.
 # Centralized so a rotation in one file can't drift away from the rest.
@@ -39,6 +45,72 @@ def read_project_context(store_path: Path, level: int = 0) -> str:
     caring about the surrounding envelope fields.
     """
     return tool_get_context(store_path, level)["content"]
+
+
+class V2Repo(NamedTuple):
+    """Result of the canonical v2 registration body shared by parity fixtures."""
+
+    pid: str
+    store_path: Path
+    repo: Path
+
+
+def register_v2_repo(
+    tmp_path: Path,
+    name: str,
+    *,
+    monkeypatch: pytest.MonkeyPatch | None = None,
+    mode: str = REPO_CONFIG_MODE_LOCAL,
+    seed: str = "scaffold",
+    save_config: bool = True,
+    chdir: bool = True,
+) -> V2Repo:
+    """Run the canonical v2 registration body the local parity fixtures share.
+
+    Creates ``tmp_path/"repo"``, registers a v2 project, optionally writes the
+    per-repo config, seeds the store, and chdirs into the repo. ``seed`` selects
+    the store body: ``"scaffold"`` runs ``scaffold_project_store``, ``"mkdir"``
+    just creates the store directory, and ``"none"`` leaves it to the caller
+    (which then writes its own content, e.g. via ``seed_decisions_into`` or a
+    demo project). ``monkeypatch`` is required only when ``chdir`` is True.
+
+    This body is v2-only by design: v1 ``register_project`` seeders are left
+    untouched and must never be routed through here.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid, store_path = register_project_v2(name, [repo], mode=mode)
+    if save_config:
+        save_repo_config(repo, {"mode": mode, "id": pid, "name": name})
+    if seed == "scaffold":
+        scaffold_project_store(name, store_path)
+    elif seed == "mkdir":
+        store_path.mkdir(parents=True, exist_ok=True)
+    if chdir:
+        monkeypatch.chdir(repo)
+    return V2Repo(pid, store_path, repo)
+
+
+def seed_decisions_into(store_path: Path, *decisions: Decision) -> None:
+    """Write decision files into ``store_path/"decisions"`` (creating the dir).
+
+    Filenames follow the ``NNN-slugified-title.md`` rule the context and search
+    parity fixtures both relied on.
+    """
+    decisions_dir = store_path / "decisions"
+    decisions_dir.mkdir(parents=True, exist_ok=True)
+    for d in decisions:
+        slug = d.title.lower().replace(" ", "-")
+        (decisions_dir / f"{d.num:03d}-{slug}.md").write_text(format_decision(d))
+
+
+def write_decision_file(store: Path, num: int, slug: str, content: str) -> None:
+    """Write raw ``content`` to ``store/decisions/NNN-slug.md`` verbatim.
+
+    Unlike ``seed_decisions_into``, this takes an already-rendered body so tests
+    can seed malformed or hand-crafted decision files.
+    """
+    (store / DECISIONS_DIR / f"{num:03d}-{slug}.md").write_text(content, encoding="utf-8")
 
 
 @contextmanager
@@ -82,25 +154,91 @@ class FakeClient:
         self.events.append({"event": event, "distinct_id": distinct_id, "properties": properties})
 
 
-def seed_consented_config(home: Path, *, enabled: bool) -> str:
+def seed_consented_config(
+    home: Path,
+    *,
+    enabled: bool,
+    consent_version: int = 1,
+    consented_at: str = "2026-04-30T00:00:00Z",
+    anonymous_id: str = TEST_ANONYMOUS_ID,
+) -> str:
     """Write a fully consented telemetry config under ``home/config.json``.
 
     Returns the seeded anonymous_id so tests that need to compare against the
-    persisted value have a single source of truth.
+    persisted value have a single source of truth. The consent fields default
+    to the shared fixture values; callers override them to exercise stale or
+    custom-identity configs.
     """
     (home / "config.json").write_text(
         json.dumps(
             {
                 "telemetry": {
-                    "anonymous_id": TEST_ANONYMOUS_ID,
+                    "anonymous_id": anonymous_id,
                     "enabled": enabled,
-                    "consent_version": 1,
-                    "consented_at": "2026-04-30T00:00:00Z",
+                    "consent_version": consent_version,
+                    "consented_at": consented_at,
                 }
             }
         )
     )
-    return TEST_ANONYMOUS_ID
+    return anonymous_id
+
+
+def seed_auth_config(
+    *,
+    variant: str = "local",
+    access_token: str | None = None,
+    refresh_token: str = "refresh_orig",
+    sub: str = "auth0|test",
+) -> None:
+    """Write an ``auth`` block via ``save_config`` in one of two seeder shapes.
+
+    ``variant="local"`` mirrors ``nauro auth login`` output (keys
+    ``access_token, sub``); ``variant="sync"`` adds a refresh token and orders
+    keys ``sub, access_token, refresh_token`` the way the sync suites seeded it.
+    Writing through ``save_config`` keeps the serialized config byte-identical to
+    the hand-written seeders. ``access_token`` defaults to ``"test-token"`` for
+    the local shape and ``"tok_orig"`` for the sync shape.
+    """
+    if access_token is None:
+        access_token = "test-token" if variant == "local" else "tok_orig"
+    if variant == "local":
+        auth = {"access_token": access_token, "sub": sub}
+    else:
+        auth = {"sub": sub, "access_token": access_token, "refresh_token": refresh_token}
+    save_config({"auth": auth})
+
+
+def make_nauro_home(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    dirname: str = ".nauro",
+    delenv_telemetry: bool = False,
+    chdir_repo: bool = False,
+) -> Path:
+    """Create a temp NAURO_HOME under ``tmp_path`` and point the env var at it.
+
+    ``delenv_telemetry`` clears a stray ``NAURO_TELEMETRY`` override; ``chdir_repo``
+    additionally creates a sibling ``repo`` dir and chdirs into it. Both mirror
+    the per-file extras the telemetry and event suites layered on the shared body.
+    """
+    home = tmp_path / dirname
+    home.mkdir()
+    monkeypatch.setenv("NAURO_HOME", str(home))
+    if delenv_telemetry:
+        monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
+    if chdir_repo:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+    return home
+
+
+@pytest.fixture
+def nauro_home(tmp_path, monkeypatch):
+    """Canonical temp NAURO_HOME at ``tmp_path/".nauro"`` for telemetry tests."""
+    return make_nauro_home(tmp_path, monkeypatch)
 
 
 @pytest.fixture
