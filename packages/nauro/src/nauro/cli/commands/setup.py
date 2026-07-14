@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import functools
 import json
-import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -20,7 +19,14 @@ from pathlib import Path
 import typer
 
 from nauro.cli import utils as cli_utils
-from nauro.cli.commands.hook import CODEX_HOOK_EVENTS
+from nauro.cli._codex_hooks import (
+    _CODEX_HOOK_PROBE_ARGS,
+    _CodexHookConfigError,
+    _format_codex_hooks,
+    _parse_codex_hooks,
+    _transform_codex_hooks,
+    _validate_codex_hooks,
+)
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
@@ -982,32 +988,21 @@ def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
     return f"  {repo}: removed nauro hook from .claude/settings.json"
 
 
-CODEX_HOOK_SUBCOMMAND = "hook codex-bootstrap"
-CODEX_HOOK_PROBE_ARGS: tuple[str, ...] = ("hook", "codex-bootstrap", "--help")
-CODEX_HOOK_TIMEOUT_SECONDS = 10
-CODEX_HOOK_STATUS_MESSAGE = "Loading Nauro project context"
-_CODEX_HOOK_COMMAND_MARKER = CODEX_HOOK_SUBCOMMAND
-
-
 def _codex_hooks_path(repo: Path) -> Path:
     return repo / ".codex" / "hooks.json"
-
-
-def _powershell_quote(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
 
 
 @functools.cache
 def _find_nauro_codex_hook_command() -> str | None:
     command = _find_nauro_command()
-    if cli_utils.probe_nauro_command(command, args=CODEX_HOOK_PROBE_ARGS):
+    if cli_utils.probe_nauro_command(command, args=_CODEX_HOOK_PROBE_ARGS):
         return command
 
     sibling = _interpreter_sibling_candidate()
     if (
         sibling is not None
         and sibling != command
-        and cli_utils.probe_nauro_command(sibling, args=CODEX_HOOK_PROBE_ARGS)
+        and cli_utils.probe_nauro_command(sibling, args=_CODEX_HOOK_PROBE_ARGS)
     ):
         typer.echo(
             f"WARNING: '{command}' does not support Codex bootstrap hooks. "
@@ -1026,139 +1021,48 @@ def _find_nauro_codex_hook_command() -> str | None:
     return None
 
 
-def _nauro_codex_hook_entry(command: str) -> dict:
-    posix_command = shlex.quote(command)
-    windows_command = _powershell_quote(command)
-    if Path(command).is_absolute():
-        posix_guard = f"test -x {posix_command}"
-        windows_script = (
-            f"if (Test-Path -LiteralPath {windows_command} -PathType Leaf) "
-            f"{{ & {windows_command} {CODEX_HOOK_SUBCOMMAND} }}; exit 0"
-        )
-    else:
-        posix_guard = f"command -v {posix_command} >/dev/null 2>&1"
-        windows_script = (
-            f"if (Get-Command {windows_command} -ErrorAction SilentlyContinue) "
-            f"{{ & {windows_command} {CODEX_HOOK_SUBCOMMAND} }}; exit 0"
-        )
-    # Codex can launch Windows hooks through cmd.exe or the active PowerShell.
-    windows_invocation = (
-        f'powershell.exe -NoLogo -NoProfile -NonInteractive -Command "{windows_script}"'
-    )
-    return {
-        "type": "command",
-        "command": f"{posix_guard} || exit 0; exec {posix_command} {CODEX_HOOK_SUBCOMMAND}",
-        "commandWindows": windows_invocation,
-        "timeout": CODEX_HOOK_TIMEOUT_SECONDS,
-        "statusMessage": CODEX_HOOK_STATUS_MESSAGE,
-    }
-
-
-def _codex_hook_command_for_platform(entry: object, *, windows: bool) -> str | None:
-    if not isinstance(entry, dict):
-        return None
-    if windows:
-        windows_command = entry.get("commandWindows")
-        if isinstance(windows_command, str):
-            return windows_command
-    command = entry.get("command")
-    return command if isinstance(command, str) and command else None
-
-
-def _is_nauro_codex_hook(entry: object, *, windows: bool | None = None) -> bool:
-    if windows is not None:
-        command = _codex_hook_command_for_platform(entry, windows=windows)
-        return command is not None and _CODEX_HOOK_COMMAND_MARKER in command
-    if not isinstance(entry, dict):
-        return False
-    return any(
-        isinstance(entry.get(field), str) and _CODEX_HOOK_COMMAND_MARKER in entry[field]
-        for field in ("command", "commandWindows")
-    )
-
-
-def _strip_nauro_codex_hooks(event_matchers: list) -> tuple[list, int]:
-    surviving_matchers = []
-    removed = 0
-    for matcher in event_matchers:
-        if not isinstance(matcher, dict):
-            surviving_matchers.append(matcher)
-            continue
-        entries = matcher.get("hooks")
-        if not isinstance(entries, list):
-            surviving_matchers.append(matcher)
-            continue
-        kept = [entry for entry in entries if not _is_nauro_codex_hook(entry)]
-        removed_here = len(entries) - len(kept)
-        removed += removed_here
-        if removed_here == 0:
-            surviving_matchers.append(matcher)
-        elif kept:
-            surviving_matchers.append({**matcher, "hooks": kept})
-        elif set(matcher) - {"hooks"}:
-            surviving_matchers.append({**matcher, "hooks": []})
-    return surviving_matchers, removed
-
-
 def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
     """Add or remove project-scoped Codex lifecycle hooks for ``repo``."""
     hooks_path = _codex_hooks_path(repo)
+    existing_text: str | None = None
     if hooks_path.exists():
         try:
-            config = json.loads(hooks_path.read_text(encoding="utf-8"))
+            existing_text = hooks_path.read_text(encoding="utf-8")
+            config = _parse_codex_hooks(existing_text)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             return f"  {repo}: could not parse .codex/hooks.json - {exc}"
-        if not isinstance(config, dict):
-            return f"  {repo}: .codex/hooks.json is not a JSON object, skipped"
+        except _CodexHookConfigError as exc:
+            return f"  {repo}: {exc}"
     else:
         config = {}
 
-    hooks = config.get("hooks")
-    if hooks is None:
-        if remove:
-            return f"  {repo}: no nauro Codex hooks to remove"
-        hooks = {}
-        config["hooks"] = hooks
-    if not isinstance(hooks, dict):
-        return f"  {repo}: hooks key in .codex/hooks.json is not a JSON object, skipped"
+    try:
+        _validate_codex_hooks(config)
+    except _CodexHookConfigError as exc:
+        return f"  {repo}: {exc}"
 
     command = None if remove else _find_nauro_codex_hook_command()
     if not remove and command is None:
         return f"  {repo}: Codex hook wiring skipped; no compatible Nauro command"
 
-    removed = 0
-    for event in CODEX_HOOK_EVENTS:
-        event_matchers = hooks.get(event)
-        if event_matchers is None:
-            continue
-        if not isinstance(event_matchers, list):
-            return f"  {repo}: hooks.{event} is not a JSON array, skipped"
-        hooks[event], event_removed = _strip_nauro_codex_hooks(event_matchers)
-        removed += event_removed
-        if not hooks[event]:
-            hooks.pop(event)
+    try:
+        transformed = _transform_codex_hooks(config, command=command)
+    except _CodexHookConfigError as exc:
+        return f"  {repo}: {exc}"
 
     if remove:
-        if removed == 0:
+        if transformed.removed == 0:
             return f"  {repo}: no nauro Codex hooks to remove"
-        if not hooks:
-            config.pop("hooks", None)
-        if config:
-            hooks_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        if transformed.config:
+            hooks_path.write_text(_format_codex_hooks(transformed.config), encoding="utf-8")
         else:
             hooks_path.unlink()
         return f"  {repo}: removed nauro hooks from .codex/hooks.json"
 
-    entry = _nauro_codex_hook_entry(command)
-    for event in CODEX_HOOK_EVENTS:
-        hooks.setdefault(event, []).append({"hooks": [entry]})
-    hooks_path.parent.mkdir(parents=True, exist_ok=True)
-    rendered = json.dumps(config, indent=2) + "\n"
-    unchanged = removed == len(CODEX_HOOK_EVENTS) and hooks_path.exists()
-    if unchanged:
-        unchanged = hooks_path.read_text(encoding="utf-8") == rendered
-    if unchanged:
+    rendered = _format_codex_hooks(transformed.config)
+    if existing_text == rendered:
         return f"  {repo}: nauro hooks already present in .codex/hooks.json"
+    hooks_path.parent.mkdir(parents=True, exist_ok=True)
     hooks_path.write_text(rendered, encoding="utf-8")
     lines = [f"  {repo}: wrote nauro hooks to .codex/hooks.json"]
     lines.extend(public_surface_git_warnings(repo, ".codex/hooks.json"))

@@ -14,9 +14,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from nauro.cli._codex_hooks import _CODEX_HOOK_EVENTS, _CODEX_HOOK_SUBCOMMAND
 from nauro.cli.commands.setup import (
-    CODEX_HOOK_EVENTS,
-    CODEX_HOOK_SUBCOMMAND,
     HOOK_EVENT_NAME,
     HOOK_SUBCOMMAND,
     HOOK_TIMEOUT_SECONDS,
@@ -52,7 +51,7 @@ def _codex_nauro_entries(config: dict, event: str) -> list[dict]:
     for matcher in config.get("hooks", {}).get(event, []):
         for entry in matcher.get("hooks", []):
             fields = (entry.get("command", ""), entry.get("commandWindows", ""))
-            if any(CODEX_HOOK_SUBCOMMAND in value for value in fields):
+            if any(_CODEX_HOOK_SUBCOMMAND in value for value in fields):
                 out.append(entry)
     return out
 
@@ -205,7 +204,7 @@ def test_materialize_codex_writes_both_lifecycle_events(tmp_path: Path, monkeypa
 
     assert "wrote nauro hooks" in line
     config = json.loads(_codex_hooks(repo).read_text())
-    for event in CODEX_HOOK_EVENTS:
+    for event in _CODEX_HOOK_EVENTS:
         entries = _codex_nauro_entries(config, event)
         assert len(entries) == 1
         assert entries[0]["command"] == (
@@ -278,6 +277,26 @@ def test_materialize_codex_skips_when_no_compatible_command(tmp_path: Path, monk
 
     assert line == f"  {repo}: Codex hook wiring skipped; no compatible Nauro command"
     assert not _codex_hooks(repo).exists()
+
+
+def test_materialize_codex_validates_config_before_resolving_command(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    hooks_path = _codex_hooks(repo)
+    hooks_path.parent.mkdir(parents=True)
+    hooks_path.write_text('{"hooks": []}', encoding="utf-8")
+
+    import nauro.cli.commands.setup as setup_mod
+
+    monkeypatch.setattr(setup_mod, "_interpreter_sibling_candidate", lambda: "/opt/nauro")
+    monkeypatch.setattr(
+        setup_mod.cli_utils,
+        "probe_nauro_command",
+        lambda *args, **kwargs: pytest.fail("command resolution should not run"),
+    )
+
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert line == (f"  {repo}: hooks key in .codex/hooks.json is not a JSON object, skipped")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX command guard")
@@ -371,7 +390,7 @@ def test_materialize_codex_is_idempotent_and_preserves_user_hooks(tmp_path: Path
     assert "already present" in line
     assert writes == 0
     config = json.loads(hooks_path.read_text())
-    for event in CODEX_HOOK_EVENTS:
+    for event in _CODEX_HOOK_EVENTS:
         assert len(_codex_nauro_entries(config, event)) == 1
     assert config["hooks"]["SessionStart"][0]["hooks"][0]["command"] == "load-notes"
     assert config["hooks"]["Stop"][0]["hooks"][0]["command"] == "cleanup"
@@ -415,7 +434,7 @@ def test_materialize_codex_refreshes_recorded_command(tmp_path: Path, monkeypatc
 
     assert "wrote nauro hooks" in line
     config = json.loads(_codex_hooks(repo).read_text())
-    for event in CODEX_HOOK_EVENTS:
+    for event in _CODEX_HOOK_EVENTS:
         entries = _codex_nauro_entries(config, event)
         assert len(entries) == 1
         assert "/new/nauro" in entries[0]["command"]
@@ -502,7 +521,7 @@ def test_setup_codex_with_hooks_wires_project_repos_and_prints_trust_guidance(
 
     assert result.exit_code == 0, result.output
     config = json.loads(_codex_hooks(repo).read_text())
-    for event in CODEX_HOOK_EVENTS:
+    for event in _CODEX_HOOK_EVENTS:
         assert len(_codex_nauro_entries(config, event)) == 1
     assert "/hooks" in result.output
     assert "review and trust" in result.output
@@ -587,7 +606,7 @@ def test_setup_all_with_hooks_wires_claude_code_and_codex(tmp_path: Path):
     settings = json.loads(_settings(repo).read_text())
     assert len(_nauro_entries(settings)) == 1
     codex_config = json.loads(_codex_hooks(repo).read_text())
-    for event in CODEX_HOOK_EVENTS:
+    for event in _CODEX_HOOK_EVENTS:
         assert len(_codex_nauro_entries(codex_config, event)) == 1
     assert not (repo / ".cursor" / "settings.json").exists()
 

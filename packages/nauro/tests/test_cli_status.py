@@ -6,7 +6,7 @@ from typer.testing import CliRunner
 
 import nauro.cli.commands.status as status_mod
 from nauro.cli import utils as cli_utils
-from nauro.cli.commands.setup import CODEX_HOOK_PROBE_ARGS
+from nauro.cli._codex_hooks import _CODEX_HOOK_PROBE_ARGS
 from nauro.cli.main import app
 from nauro.store.registry import register_project
 from nauro.templates.agents_md import FOOTER_MARKER
@@ -271,7 +271,7 @@ def test_status_probes_shared_mcp_and_hook_command_for_each_purpose(tmp_path, mo
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
-    assert calls == [("nauro", ("--version",)), ("nauro", CODEX_HOOK_PROBE_ARGS)]
+    assert calls == [("nauro", ("--version",)), ("nauro", _CODEX_HOOK_PROBE_ARGS)]
     assert "MCP           active" in result.output
     assert "Codex hooks   configured" in result.output
 
@@ -300,7 +300,7 @@ def test_status_shared_command_can_have_broken_mcp_and_healthy_hooks(tmp_path, m
     monkeypatch.setattr(
         cli_utils,
         "probe_nauro_command",
-        lambda _command, **kwargs: kwargs["args"] == CODEX_HOOK_PROBE_ARGS,
+        lambda _command, **kwargs: kwargs["args"] == _CODEX_HOOK_PROBE_ARGS,
     )
 
     result = runner.invoke(app, ["status"])
@@ -376,20 +376,6 @@ def test_status_treats_empty_windows_override_as_inactive(tmp_path, monkeypatch)
 
     assert result.exit_code == 0
     assert "Codex hooks   inactive" in result.output
-
-
-def test_status_extracts_direct_windows_hook_commands():
-    cases = [
-        (
-            '"C:\\Program Files\\Nauro\\nauro.exe" hook codex-bootstrap',
-            "C:\\Program Files\\Nauro\\nauro.exe",
-        ),
-        ("nauro.exe hook codex-bootstrap", "nauro.exe"),
-    ]
-
-    for command_windows, expected in cases:
-        entry = {"command": "user-posix-hook", "commandWindows": command_windows}
-        assert status_mod._codex_hook_recorded_command(entry, windows=True) == expected
 
 
 def test_status_dedupes_shared_command_to_one_probe(tmp_path, monkeypatch):

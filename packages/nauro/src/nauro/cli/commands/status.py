@@ -2,14 +2,19 @@
 
 import json
 import os
-import re
-import shlex
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
 
 from nauro.cli import utils as cli_utils
+from nauro.cli._codex_hooks import (
+    _CODEX_HOOK_PROBE_ARGS,
+    _CodexHookState,
+    _inspect_codex_hooks,
+    _parse_codex_hooks,
+)
 from nauro.cli.utils import resolve_target_project
 
 
@@ -147,94 +152,233 @@ def _repo_has_generated_agents_md(repo: Path) -> bool:
         return False
 
 
-def _codex_hook_recorded_command(
-    entry: object,
-    *,
-    windows: bool | None = None,
-) -> str | None:
-    """Return the Nauro executable recorded in a Codex bootstrap hook."""
-    from nauro.cli.commands.setup import (
-        _codex_hook_command_for_platform,
-        _is_nauro_codex_hook,
-    )
-
-    windows = _is_windows() if windows is None else windows
-    if not _is_nauro_codex_hook(entry, windows=windows):
-        return None
-    command = _codex_hook_command_for_platform(entry, windows=windows)
-    if command is None:
-        return None
-    uses_windows_override = (
-        windows
-        and isinstance(entry, dict)
-        and isinstance(entry.get("commandWindows"), str)
-        and bool(entry["commandWindows"])
-    )
-    if uses_windows_override:
-        quoted = re.search(
-            r"&\s+'((?:[^']|'')+)'\s+hook\s+codex-bootstrap(?:\s|[;}])",
-            command,
-        )
-        if quoted is not None:
-            return quoted.group(1).replace("''", "'")
-        bare = re.search(r"&\s+([^\s;{}]+)\s+hook\s+codex-bootstrap(?:\s|[;}])", command)
-        if bare is not None:
-            return bare.group(1)
-        direct_quoted = re.search(
-            r'^\s*"([^"]+)"\s+hook\s+codex-bootstrap(?:\s|$)',
-            command,
-        )
-        if direct_quoted is not None:
-            return direct_quoted.group(1)
-        direct_bare = re.search(
-            r"^\s*([^\s\"]+)\s+hook\s+codex-bootstrap(?:\s|$)",
-            command,
-        )
-        return direct_bare.group(1) if direct_bare is not None else None
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return None
-    for index, token in enumerate(tokens):
-        if token == "hook" and tokens[index : index + 2] == ["hook", "codex-bootstrap"]:
-            if index > 0:
-                return tokens[index - 1]
-    return None
-
-
-def _repo_codex_hook_state(repo: Path) -> tuple[bool, bool, list[str | None]]:
+def _repo_codex_hook_state(repo: Path) -> _CodexHookState:
     """Return presence, structural completeness, and commands for Codex hooks."""
-    from nauro.cli.commands.setup import CODEX_HOOK_EVENTS, _is_nauro_codex_hook
-
     try:
-        config = json.loads((repo / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+        text = (repo / ".codex" / "hooks.json").read_text(encoding="utf-8")
+        config = _parse_codex_hooks(text)
     except Exception:
-        return (False, False, [])
-    if not isinstance(config, dict):
-        return (False, False, [])
-    hooks = config.get("hooks")
-    if not isinstance(hooks, dict):
-        return (False, False, [])
+        return _CodexHookState(False, False, ())
+    return _inspect_codex_hooks(config, windows=_is_windows())
 
-    found_events: list[bool] = []
-    commands: list[str | None] = []
-    for event in CODEX_HOOK_EVENTS:
-        found = False
-        event_matchers = hooks.get(event)
-        if isinstance(event_matchers, list):
-            for matcher in event_matchers:
-                if not isinstance(matcher, dict):
-                    continue
-                entries = matcher.get("hooks")
-                if not isinstance(entries, list):
-                    continue
-                for entry in entries:
-                    if not _is_nauro_codex_hook(entry, windows=_is_windows()):
-                        continue
-                    found = True
-                    commands.append(_codex_hook_recorded_command(entry))
-        found_events.append(found)
-    return (any(found_events), all(found_events), commands)
+
+@dataclass(frozen=True)
+class _WiringSnapshot:
+    repo_count: int
+    mcp_wired: int
+    codex_global: bool
+    mcp_commands: frozenset[str]
+    hook_states: tuple[_CodexHookState, ...]
+    agents_generated: int
+
+    @property
+    def configured_hooks(self) -> tuple[_CodexHookState, ...]:
+        return tuple(state for state in self.hook_states if state.present)
+
+    @property
+    def hook_commands(self) -> frozenset[str]:
+        return frozenset(
+            command
+            for state in self.configured_hooks
+            for command in state.recorded_commands
+            if command
+        )
+
+
+@dataclass(frozen=True)
+class _WiringProbeResults:
+    skipped: bool
+    mcp: dict[str, bool] | None
+    hooks: dict[str, bool] | None
+
+
+def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
+    try:
+        repo_commands = [_repo_recorded_commands(repo) for repo in repo_paths]
+    except Exception:
+        repo_commands = []
+    try:
+        codex_global, codex_command = _codex_recorded_command()
+    except Exception:
+        codex_global, codex_command = False, None
+    try:
+        hook_states = tuple(_repo_codex_hook_state(repo) for repo in repo_paths)
+    except Exception:
+        hook_states = ()
+    try:
+        agents_generated = sum(1 for repo in repo_paths if _repo_has_generated_agents_md(repo))
+    except Exception:
+        agents_generated = 0
+
+    mcp_commands = {command for commands in repo_commands for command in commands if command}
+    if codex_command:
+        mcp_commands.add(codex_command)
+    return _WiringSnapshot(
+        repo_count=len(repo_paths),
+        mcp_wired=sum(1 for commands in repo_commands if commands),
+        codex_global=codex_global,
+        mcp_commands=frozenset(mcp_commands),
+        hook_states=hook_states,
+        agents_generated=agents_generated,
+    )
+
+
+def _probe_wiring(snapshot: _WiringSnapshot, *, no_probe: bool) -> _WiringProbeResults:
+    if no_probe:
+        return _WiringProbeResults(True, None, None)
+    mcp_results = _probe_commands(snapshot.mcp_commands, args=("--version",))
+    hook_results = _probe_commands(snapshot.hook_commands, args=_CODEX_HOOK_PROBE_ARGS)
+    return _WiringProbeResults(False, mcp_results, hook_results)
+
+
+def _probe_commands(
+    commands: frozenset[str],
+    *,
+    args: tuple[str, ...],
+) -> dict[str, bool] | None:
+    if not commands:
+        return None
+    try:
+        return _probe_distinct_commands(set(commands), args=args)
+    except Exception:
+        return None
+
+
+def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
+    if not snapshot.mcp_wired and not snapshot.codex_global:
+        return "  MCP           inactive - run 'nauro setup all'"
+    details = []
+    if snapshot.repo_count:
+        details.append(f"wired in {snapshot.mcp_wired}/{snapshot.repo_count} repos")
+    if snapshot.codex_global:
+        details.append("Codex global")
+    detail = "; ".join(details)
+    healthy = probes.mcp is None or all(
+        probes.mcp.get(command, True) for command in snapshot.mcp_commands
+    )
+    if healthy:
+        return f"  MCP           active ({detail})"
+    return (
+        f"  MCP           BROKEN - {detail} but the recorded command won't run; "
+        "re-run 'nauro setup all'"
+    )
+
+
+def _codex_hooks_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
+    configured = snapshot.configured_hooks
+    if not configured:
+        return "  Codex hooks   inactive - run 'nauro setup codex --with-hooks'"
+    detail = f"wired in {len(configured)}/{snapshot.repo_count} repos"
+    complete = all(
+        state.complete and state.recorded_commands and all(state.recorded_commands)
+        for state in configured
+    )
+    if not complete:
+        return (
+            f"  Codex hooks   BROKEN - {detail} but the lifecycle wiring is incomplete; "
+            "re-run 'nauro setup all --with-hooks'"
+        )
+    if probes.skipped:
+        return f"  Codex hooks   configured ({detail}; liveness not probed)"
+    if probes.hooks is None:
+        return f"  Codex hooks   configured ({detail}; liveness unknown)"
+    healthy = all(probes.hooks.get(command, True) for command in snapshot.hook_commands)
+    if healthy:
+        return f"  Codex hooks   configured ({detail}; command healthy)"
+    return (
+        f"  Codex hooks   BROKEN - {detail} but the recorded command won't run; "
+        "re-run 'nauro setup all --with-hooks'"
+    )
+
+
+def _agents_status_line(snapshot: _WiringSnapshot) -> str:
+    if snapshot.agents_generated:
+        return f"  AGENTS.md     active ({snapshot.agents_generated}/{snapshot.repo_count} repos)"
+    return "  AGENTS.md     inactive - run 'nauro sync'"
+
+
+def _render_wiring_status(repo_paths: list[Path], *, no_probe: bool) -> None:
+    snapshot = _collect_wiring(repo_paths)
+    probes = _probe_wiring(snapshot, no_probe=no_probe)
+    typer.echo(_mcp_status_line(snapshot, probes))
+    typer.echo(_codex_hooks_status_line(snapshot, probes))
+    typer.echo(_agents_status_line(snapshot))
+
+
+def _warn_if_project_name_shared(project_name: str, project_id: str) -> None:
+    try:
+        from nauro.store.registry import find_projects_by_name_v2
+
+        shared = [
+            candidate_id
+            for candidate_id, _ in find_projects_by_name_v2(project_name)
+            if candidate_id != project_id
+        ]
+    except Exception:
+        shared = []
+    if shared:
+        typer.echo(
+            f"  Warning: {len(shared)} other local project(s) share the name "
+            f"'{project_name}'. They are separate stores - run `nauro projects` "
+            "to inspect.\n",
+            err=True,
+        )
+
+
+def _render_sync_status(project_id: str) -> bool:
+    from nauro.cli.commands.auth import load_access_token
+    from nauro.store.registry import is_cloud_project
+
+    has_token = bool(load_access_token())
+    is_cloud = is_cloud_project(project_id)
+    if has_token and is_cloud:
+        typer.echo("  Sync          active (event-driven, presign)")
+        return True
+    if not is_cloud:
+        typer.echo(
+            "  Sync          inactive - local-only project."
+            " Enable with 'nauro auth login', then 'nauro link --cloud'."
+        )
+    else:
+        typer.echo("  Sync          inactive - run 'nauro auth login' to enable")
+    return False
+
+
+def _repo_paths(project_id: str) -> list[Path]:
+    try:
+        from nauro.store.registry import get_repo_paths
+
+        return [Path(path) for path in get_repo_paths(project_id)]
+    except Exception:
+        return []
+
+
+def _render_decision_status(store_path: Path, project_id: str, *, sync_enabled: bool) -> None:
+    from nauro.store.reader import _list_decisions
+
+    local_count = len(_list_decisions(store_path))
+    if not sync_enabled:
+        typer.echo(f"\n  Decisions: {local_count} local")
+        return
+
+    remote_count = _count_remote_decisions(project_id)
+    if remote_count is None:
+        typer.echo(f"\n  Decisions: {local_count} local (could not reach remote)")
+        return
+
+    sync_label = "in sync" if local_count == remote_count else "out of sync"
+    typer.echo(f"\n  Decisions: {local_count} local, {remote_count} remote ({sync_label})")
+
+    from nauro.sync.state import load_state
+
+    sync_state = load_state(store_path)
+    if sync_state.last_full_sync:
+        time_ago = _format_time_ago(sync_state.last_full_sync)
+        timestamp = sync_state.last_full_sync[:19].replace("T", " ") + " UTC"
+        typer.echo(f"  Last sync: {timestamp} ({time_ago})")
+
+    if local_count != remote_count:
+        typer.echo("  Run `nauro sync` to reconcile.")
 
 
 def status(
@@ -257,198 +401,10 @@ def status(
         raise typer.Exit(exc.exit_code) from exc
 
     typer.echo(f"Project: {project_name}")
-    # Surface the absolute store path. The store lives at ~/.nauro/projects/<id>/,
-    # outside any repo, and no other command prints it — an agent following the
-    # nauro-context skill needs it to resolve where to write context/<slug>.md.
     typer.echo(f"Store:   {store_path}\n")
 
-    # Warn when another local project shares this name — a separate store that
-    # shares no decisions, usually an accidental fork. Broadly guarded so this
-    # status nicety can never break the command; a v1 registry yields [] from
-    # the helper, so the check simply no-ops there.
-    current_id = store_path.name
-    try:
-        from nauro.store.registry import find_projects_by_name_v2
-
-        shared = [pid for pid, _ in find_projects_by_name_v2(project_name) if pid != current_id]
-    except Exception:
-        shared = []
-    if shared:
-        typer.echo(
-            f"  Warning: {len(shared)} other local project(s) share the name "
-            f"'{project_name}'. They are separate stores - run `nauro projects` to inspect.\n",
-            err=True,
-        )
-
-    # Sync — gated on auth token + v2 cloud-mode (matches hooks.py semantics).
-    # ``store_path.name`` is the project_id for v2; v1 entries pass their name
-    # here and silent-no-op inside is_cloud_project.
     project_id = store_path.name
-    from nauro.cli.commands.auth import load_access_token
-    from nauro.store.registry import is_cloud_project
-
-    has_token = bool(load_access_token())
-    is_cloud = is_cloud_project(project_id)
-    sync_enabled = has_token and is_cloud
-    if sync_enabled:
-        typer.echo("  Sync          active (event-driven, presign)")
-    elif not is_cloud:
-        typer.echo(
-            "  Sync          inactive - local-only project."
-            " Enable with 'nauro auth login', then 'nauro link --cloud'."
-        )
-    else:
-        typer.echo("  Sync          inactive - run 'nauro auth login' to enable")
-
-    # MCP + AGENTS.md — computed from on-disk wiring, never assumed. Every
-    # probe is guarded (same rationale as the shared-name check above): a
-    # corrupt config or unreadable file counts as not wired, never a crash.
-    try:
-        from nauro.store.registry import get_repo_paths
-
-        repo_paths = [Path(p) for p in get_repo_paths(project_id)]
-    except Exception:
-        repo_paths = []
-
-    # Each wiring config is read once: presence and the recorded command come
-    # from the same parse.
-    try:
-        repo_commands = [_repo_recorded_commands(repo) for repo in repo_paths]
-    except Exception:
-        repo_commands = []
-    mcp_wired = sum(1 for cmds in repo_commands if cmds)
-    try:
-        codex_global, codex_command = _codex_recorded_command()
-    except Exception:
-        codex_global, codex_command = False, None
-    try:
-        codex_hook_states = [_repo_codex_hook_state(repo) for repo in repo_paths]
-    except Exception:
-        codex_hook_states = []
-    configured_states = [state for state in codex_hook_states if state[0]]
-
-    mcp_recorded_commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
-    if codex_command:
-        mcp_recorded_commands.add(codex_command)
-    hook_recorded_commands = {
-        command
-        for _present, _complete, commands in configured_states
-        for command in commands
-        if command
-    }
-    mcp_probe_results: dict[str, bool] | None = None
-    hook_probe_results: dict[str, bool] | None = None
-    if not no_probe and mcp_recorded_commands:
-        try:
-            mcp_probe_results = _probe_distinct_commands(mcp_recorded_commands)
-        except Exception:
-            pass
-    if not no_probe and hook_recorded_commands:
-        from nauro.cli.commands.setup import CODEX_HOOK_PROBE_ARGS
-
-        try:
-            hook_probe_results = _probe_distinct_commands(
-                hook_recorded_commands,
-                args=CODEX_HOOK_PROBE_ARGS,
-            )
-        except Exception:
-            pass
-
-    if mcp_wired or codex_global:
-        details = []
-        if repo_paths:
-            details.append(f"wired in {mcp_wired}/{len(repo_paths)} repos")
-        if codex_global:
-            details.append("Codex global")
-        detail_str = "; ".join(details)
-
-        # Liveness: wiring can point at a nauro that no longer runs (a rebuilt or
-        # corrupted project venv). Probe the distinct recorded commands so a
-        # wired-but-dead install renders BROKEN instead of a false-green active.
-        healthy = True
-        if not no_probe:
-            if mcp_probe_results is not None and mcp_recorded_commands:
-                healthy = all(
-                    mcp_probe_results.get(command, True) for command in mcp_recorded_commands
-                )
-
-        if healthy:
-            typer.echo(f"  MCP           active ({detail_str})")
-        else:
-            typer.echo(
-                f"  MCP           BROKEN - {detail_str} but the recorded command "
-                "won't run; re-run 'nauro setup all'"
-            )
-    else:
-        typer.echo("  MCP           inactive - run 'nauro setup all'")
-
-    if configured_states:
-        hook_detail = f"wired in {len(configured_states)}/{len(repo_paths)} repos"
-        structurally_complete = all(
-            complete and commands and all(command for command in commands)
-            for _present, complete, commands in configured_states
-        )
-        if not structurally_complete:
-            typer.echo(
-                f"  Codex hooks   BROKEN - {hook_detail} but the lifecycle wiring "
-                "is incomplete; re-run 'nauro setup all --with-hooks'"
-            )
-        elif no_probe:
-            typer.echo(f"  Codex hooks   configured ({hook_detail}; liveness not probed)")
-        elif hook_probe_results is None:
-            typer.echo(f"  Codex hooks   configured ({hook_detail}; liveness unknown)")
-        else:
-            hook_command_healthy = all(
-                hook_probe_results.get(command, True) for command in hook_recorded_commands
-            )
-            if hook_command_healthy:
-                typer.echo(f"  Codex hooks   configured ({hook_detail}; command healthy)")
-            else:
-                typer.echo(
-                    f"  Codex hooks   BROKEN - {hook_detail} but the recorded command "
-                    "won't run; re-run 'nauro setup all --with-hooks'"
-                )
-    else:
-        typer.echo("  Codex hooks   inactive - run 'nauro setup codex --with-hooks'")
-
-    try:
-        agents_generated = sum(1 for repo in repo_paths if _repo_has_generated_agents_md(repo))
-    except Exception:
-        agents_generated = 0
-
-    if agents_generated:
-        typer.echo(f"  AGENTS.md     active ({agents_generated}/{len(repo_paths)} repos)")
-    else:
-        typer.echo("  AGENTS.md     inactive - run 'nauro sync'")
-
-    # Decision counts and sync divergence
-    from nauro.store.reader import _list_decisions
-
-    local_decisions = _list_decisions(store_path)
-    local_count = len(local_decisions)
-
-    if sync_enabled:
-        remote_count = _count_remote_decisions(project_id)
-        if remote_count is not None:
-            if local_count == remote_count:
-                typer.echo(f"\n  Decisions: {local_count} local, {remote_count} remote (in sync)")
-            else:
-                typer.echo(
-                    f"\n  Decisions: {local_count} local, {remote_count} remote (out of sync)"
-                )
-
-            # Last sync time
-            from nauro.sync.state import load_state
-
-            sync_state = load_state(store_path)
-            if sync_state.last_full_sync:
-                time_ago = _format_time_ago(sync_state.last_full_sync)
-                ts_display = sync_state.last_full_sync[:19].replace("T", " ") + " UTC"
-                typer.echo(f"  Last sync: {ts_display} ({time_ago})")
-
-            if local_count != remote_count:
-                typer.echo("  Run `nauro sync` to reconcile.")
-        else:
-            typer.echo(f"\n  Decisions: {local_count} local (could not reach remote)")
-    else:
-        typer.echo(f"\n  Decisions: {local_count} local")
+    _warn_if_project_name_shared(project_name, project_id)
+    sync_enabled = _render_sync_status(project_id)
+    _render_wiring_status(_repo_paths(project_id), no_probe=no_probe)
+    _render_decision_status(store_path, project_id, sync_enabled=sync_enabled)

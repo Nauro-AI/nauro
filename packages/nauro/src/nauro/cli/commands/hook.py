@@ -21,6 +21,7 @@ from pathlib import Path
 import typer
 from nauro_core import MCP_INSTRUCTIONS_STATIC
 
+from nauro.cli._codex_hooks import _CODEX_HOOK_EVENTS
 from nauro.constants import DECISIONS_DIR, DEFAULT_NAURO_HOME, NAURO_HOME_ENV
 
 hook_app = typer.Typer(help="Client-side advisory hooks for AI coding agents.")
@@ -63,7 +64,6 @@ MAX_DEDUP_ENTRIES_PER_SESSION = 200
 _PREAMBLE = "Nauro: prior decisions may bear on this request — advisory only, not a block."
 _INSTRUCTION = "Review these and call get_decision before acting on anything they constrain."
 
-CODEX_HOOK_EVENTS: tuple[str, ...] = ("SessionStart", "SubagentStart")
 _CODEX_L0_HEADING = "## Nauro project context (L0)"
 
 
@@ -98,7 +98,7 @@ def codex_bootstrap() -> None:
 def _run_codex_bootstrap() -> None:
     payload = json.loads(_read_stdin_utf8())
     event_name = payload.get("hook_event_name")
-    if not isinstance(event_name, str) or event_name not in CODEX_HOOK_EVENTS:
+    if not isinstance(event_name, str) or event_name not in _CODEX_HOOK_EVENTS:
         return
 
     cwd = payload.get("cwd")
