@@ -46,12 +46,17 @@ from nauro.store.repo_config import (
 from nauro.sync.cloud_projects import CloudProjectError, create_project
 from nauro.telemetry import capture
 from nauro.telemetry.events import project_created
+from nauro.templates.agents_md_regen import warn_then_regen
 from nauro.templates.scaffolds import scaffold_project_store
 
 
 def _echo_repo_config_warnings(repo_path: Path) -> None:
     for warning in public_surface_git_warnings(repo_path, ".nauro/config.json"):
         typer.echo(warning, err=True)
+
+
+def _echo_warning(message: str) -> None:
+    typer.echo(message, err=True)
 
 
 def _check_config_overwrite(
@@ -192,6 +197,8 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
     if existing:
         pid, _entry = existing[0]
         store_path = get_store_path_v2(pid)
+        for rp in repo_paths:
+            add_repo_v2(pid, rp)
         typer.echo(f"Demo project already exists ({pid}); reusing it.")
     else:
         # No pre-existing demo entry: refuse if any target repo is already
@@ -217,6 +224,7 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
         _echo_repo_config_warnings(rp)
 
     create_demo_project(store_path)
+    warn_then_regen(pid, store_path, warn=_echo_warning)
     cwd_is_git = (Path.cwd() / ".git").is_dir()
 
     typer.echo(f"Initialized demo project '{name}'")
@@ -356,6 +364,7 @@ def init(
                 )
                 _echo_repo_config_warnings(rp)
                 added.append(rp.resolve())
+            warn_then_regen(pid, store_path, warn=_echo_warning)
             typer.echo(f"Updated project '{name}'")
             typer.echo(f"  Store: {store_path}")
             for rp in added:
@@ -417,13 +426,17 @@ def init(
             )
             _echo_repo_config_warnings(rp)
         scaffold_project_store(name, store_path)
+        warn_then_regen(pid, store_path, warn=_echo_warning)
         typer.echo(f"Initialized cloud project '{name}'")
         typer.echo(f"  Project id: {pid}")
         typer.echo(f"  Store: {store_path}")
         for rp in repo_paths:
             typer.echo(f"  Repo:  {rp.resolve()}")
         typer.echo("  Next: run 'nauro setup claude-code' to connect your agent")
-        typer.echo("  Then: run 'nauro sync' to capture the first snapshot")
+        typer.echo(
+            "  Then: run 'nauro sync' after project changes to refresh AGENTS.md "
+            "and capture a snapshot"
+        )
         return
 
     # ── Local-only ─────────────────────────────────────────────────────────
@@ -452,6 +465,7 @@ def init(
         _echo_repo_config_warnings(rp)
 
     scaffold_project_store(name, store_path)
+    warn_then_regen(pid, store_path, warn=_echo_warning)
     typer.echo(f"Initialized project '{name}'")
     typer.echo(f"  Project id: {pid}")
     typer.echo(f"  Store: {store_path}")
@@ -459,4 +473,6 @@ def init(
         typer.echo(f"  Repo:  {rp.resolve()}")
     _warn_if_name_taken(name, pid, pre_existing_same_name)
     typer.echo("  Next: run 'nauro setup claude-code' to connect your agent")
-    typer.echo("  Then: run 'nauro sync' to capture the first snapshot")
+    typer.echo(
+        "  Then: run 'nauro sync' after project changes to refresh AGENTS.md and capture a snapshot"
+    )

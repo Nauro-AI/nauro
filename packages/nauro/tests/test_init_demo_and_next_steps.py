@@ -44,6 +44,8 @@ def test_demo_in_non_git_dir_does_not_warn(tmp_path, monkeypatch):
     result = runner.invoke(app, ["init", "--demo"])
     assert result.exit_code == 0, result.output
     assert "git repo" not in result.output
+    assert (tmp_path / "AGENTS.md").is_file()
+    assert "## Project: demo-project" in (tmp_path / "AGENTS.md").read_text()
 
 
 # ── demo entry reuse ─────────────────────────────────────────────────────────────
@@ -66,6 +68,8 @@ def test_demo_reused_across_dirs(tmp_path, monkeypatch):
     assert "reusing it" in second.output
 
     assert len(registry.find_projects_by_name_v2("demo-project")) == 1
+    assert (dir_a / "AGENTS.md").is_file()
+    assert (dir_b / "AGENTS.md").is_file()
 
 
 # ── next-step guidance ───────────────────────────────────────────────────────────
@@ -77,6 +81,10 @@ def test_plain_init_next_step_points_at_setup(tmp_path, monkeypatch):
     result = runner.invoke(app, ["init", "plainproj"])
     assert result.exit_code == 0, result.output
     assert "setup" in result.output
+    assert (
+        "Then: run 'nauro sync' after project changes to refresh AGENTS.md and capture a snapshot"
+    ) in result.output
+    assert "capture the first snapshot" not in result.output
 
 
 def test_demo_next_step_points_at_check_decision(tmp_path, monkeypatch):

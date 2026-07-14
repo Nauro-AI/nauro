@@ -1,5 +1,7 @@
 """nauro status — Show capability table for the current project."""
 
+import json
+import shlex
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -68,8 +70,6 @@ def _repo_recorded_commands(repo: Path) -> list[str | None]:
     unreadable, or malformed config contributes nothing — status must never
     crash on someone else's config file.
     """
-    import json
-
     commands: list[str | None] = []
     for rel in (".mcp.json", ".cursor/mcp.json"):
         try:
@@ -115,14 +115,25 @@ def _codex_recorded_command() -> tuple[bool, str | None]:
     return (True, cmd if isinstance(cmd, str) and cmd else None)
 
 
-def _probe_distinct_commands(commands: set[str]) -> dict[str, bool]:
+def _probe_distinct_commands(
+    commands: set[str], hook_commands: set[str] | None = None
+) -> dict[str, bool]:
     """Probe each distinct recorded command once for liveness.
 
     Sequential: N repos usually share one recorded path, so the common case is
     a single short probe. ``probe_nauro_command`` soft-fails by contract, so a
     dead command costs at most its timeout, never an exception.
     """
-    return {cmd: cli_utils.probe_nauro_command(cmd) for cmd in commands}
+    from nauro.cli.commands.setup import CODEX_HOOK_PROBE_ARGS
+
+    hook_commands = hook_commands or set()
+    return {
+        cmd: cli_utils.probe_nauro_command(
+            cmd,
+            args=CODEX_HOOK_PROBE_ARGS if cmd in hook_commands else ("--version",),
+        )
+        for cmd in commands
+    }
 
 
 def _repo_has_generated_agents_md(repo: Path) -> bool:
@@ -139,6 +150,67 @@ def _repo_has_generated_agents_md(repo: Path) -> bool:
         return False
 
 
+def _codex_hook_recorded_command(entry: object) -> str | None:
+    """Return the Nauro executable recorded in a Codex bootstrap hook."""
+    from nauro.cli.commands.setup import CODEX_HOOK_SUBCOMMAND
+
+    if not isinstance(entry, dict):
+        return None
+    command = entry.get("command")
+    if not isinstance(command, str) or CODEX_HOOK_SUBCOMMAND not in command:
+        return None
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    for index, token in enumerate(tokens):
+        if token == "hook" and tokens[index : index + 2] == ["hook", "codex-bootstrap"]:
+            if index > 0:
+                return tokens[index - 1]
+    return None
+
+
+def _repo_codex_hook_state(repo: Path) -> tuple[bool, bool, list[str | None]]:
+    """Return presence, structural completeness, and commands for Codex hooks."""
+    from nauro.cli.commands.setup import CODEX_HOOK_EVENTS, CODEX_HOOK_SUBCOMMAND
+
+    try:
+        config = json.loads((repo / ".codex" / "hooks.json").read_text())
+    except Exception:
+        return (False, False, [])
+    if not isinstance(config, dict):
+        return (False, False, [])
+    hooks = config.get("hooks")
+    if not isinstance(hooks, dict):
+        return (False, False, [])
+
+    found_events: list[bool] = []
+    commands: list[str | None] = []
+    for event in CODEX_HOOK_EVENTS:
+        found = False
+        event_matchers = hooks.get(event)
+        if isinstance(event_matchers, list):
+            for matcher in event_matchers:
+                if not isinstance(matcher, dict):
+                    continue
+                entries = matcher.get("hooks")
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    fields = (entry.get("command"), entry.get("commandWindows"))
+                    if not any(
+                        isinstance(value, str) and CODEX_HOOK_SUBCOMMAND in value
+                        for value in fields
+                    ):
+                        continue
+                    found = True
+                    commands.append(_codex_hook_recorded_command(entry))
+        found_events.append(found)
+    return (any(found_events), all(found_events), commands)
+
+
 def status(
     project: str | None = typer.Option(
         None,
@@ -148,7 +220,7 @@ def status(
     no_probe: bool = typer.Option(
         False,
         "--no-probe",
-        help="Skip the MCP liveness probe; report wiring presence only.",
+        help="Skip executable liveness probes; report wiring presence only.",
     ),
 ) -> None:
     """Show which Nauro capabilities are active or inactive."""
@@ -223,6 +295,28 @@ def status(
         codex_global, codex_command = _codex_recorded_command()
     except Exception:
         codex_global, codex_command = False, None
+    try:
+        codex_hook_states = [_repo_codex_hook_state(repo) for repo in repo_paths]
+    except Exception:
+        codex_hook_states = []
+    configured_states = [state for state in codex_hook_states if state[0]]
+
+    recorded_commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
+    if codex_command:
+        recorded_commands.add(codex_command)
+    hook_recorded_commands = {
+        command
+        for _present, _complete, commands in configured_states
+        for command in commands
+        if command
+    }
+    recorded_commands.update(hook_recorded_commands)
+    probe_results: dict[str, bool] | None = None
+    if not no_probe and recorded_commands:
+        try:
+            probe_results = _probe_distinct_commands(recorded_commands, hook_recorded_commands)
+        except Exception:
+            probe_results = None
 
     if mcp_wired or codex_global:
         details = []
@@ -237,16 +331,11 @@ def status(
         # wired-but-dead install renders BROKEN instead of a false-green active.
         healthy = True
         if not no_probe:
-            try:
-                commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
-                if codex_command:
-                    commands.add(codex_command)
-                if commands:
-                    healthy = all(_probe_distinct_commands(commands).values())
-            except Exception:
-                # A probe error must never crash status or flip a live wiring to
-                # BROKEN; fall back to presence-only reporting.
-                healthy = True
+            mcp_commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
+            if codex_command:
+                mcp_commands.add(codex_command)
+            if probe_results is not None and mcp_commands:
+                healthy = all(probe_results.get(command, True) for command in mcp_commands)
 
         if healthy:
             typer.echo(f"  MCP           active ({detail_str})")
@@ -257,6 +346,41 @@ def status(
             )
     else:
         typer.echo("  MCP           inactive — run 'nauro setup all'")
+
+    if configured_states:
+        hook_detail = f"wired in {len(configured_states)}/{len(repo_paths)} repos"
+        structurally_complete = all(
+            complete and commands and all(command for command in commands)
+            for _present, complete, commands in configured_states
+        )
+        if not structurally_complete:
+            typer.echo(
+                f"  Codex hooks   BROKEN - {hook_detail} but the lifecycle wiring "
+                "is incomplete; re-run 'nauro setup all --with-hooks'"
+            )
+        elif no_probe:
+            typer.echo(f"  Codex hooks   configured ({hook_detail}; liveness not probed)")
+        elif probe_results is None:
+            typer.echo(f"  Codex hooks   configured ({hook_detail}; liveness unknown)")
+        else:
+            hook_commands = {
+                command
+                for _present, _complete, commands in configured_states
+                for command in commands
+                if command
+            }
+            hook_command_healthy = all(
+                probe_results.get(command, True) for command in hook_commands
+            )
+            if hook_command_healthy:
+                typer.echo(f"  Codex hooks   configured ({hook_detail}; command healthy)")
+            else:
+                typer.echo(
+                    f"  Codex hooks   BROKEN - {hook_detail} but the recorded command "
+                    "won't run; re-run 'nauro setup all --with-hooks'"
+                )
+    else:
+        typer.echo("  Codex hooks   inactive - run 'nauro setup codex --with-hooks'")
 
     try:
         agents_generated = sum(1 for repo in repo_paths if _repo_has_generated_agents_md(repo))

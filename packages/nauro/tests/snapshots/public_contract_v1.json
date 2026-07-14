@@ -535,6 +535,11 @@
         "commands": [
           {
             "kind": "command",
+            "name": "codex-bootstrap",
+            "params": []
+          },
+          {
+            "kind": "command",
             "name": "user-prompt-submit",
             "params": []
           }
@@ -1248,6 +1253,17 @@
                 "is_flag": true,
                 "kind": "option",
                 "name": "remove",
+                "required": false,
+                "type": "boolean"
+              },
+              {
+                "default": false,
+                "flags": [
+                  "--with-hooks"
+                ],
+                "is_flag": true,
+                "kind": "option",
+                "name": "with_hooks",
                 "required": false,
                 "type": "boolean"
               }

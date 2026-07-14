@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -52,6 +53,15 @@ def test_generate_includes_behavioral_instructions():
     assert "explicit user approval" in result
     assert "commits immediately after validation" in result
     assert "advisory conflict checks" not in result
+
+
+def test_generate_frontloads_canonical_preflight_before_l0_payload():
+    l0_payload = "**One-liner:** Stable project scope.\n\n## Current State\n\nActive work."
+    result = generate_agents_md("myproj", l0_payload)
+
+    expected = f"{MCP_INSTRUCTIONS_STATIC}\n\n## Project: myproj\n\n{l0_payload}\n"
+    assert expected in result
+    assert result.count(MCP_INSTRUCTIONS_STATIC) == 1
 
 
 def test_generated_footer_names_human_ratified_judgment():

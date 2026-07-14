@@ -58,6 +58,8 @@ def test_init_local_no_network(tmp_path, monkeypatch):
     assert cfg["id"] == pid
     assert cfg["name"] == "localproj"
     assert (tmp_path / "projects" / pid / "project.md").exists()
+    assert (tmp_path / "AGENTS.md").is_file()
+    assert "## Project: localproj" in (tmp_path / "AGENTS.md").read_text()
 
 
 # ── cloud mode ────────────────────────────────────────────────────────────────
@@ -100,6 +102,11 @@ def test_init_cloud_uses_server_minted_id(tmp_path, monkeypatch):
     assert cfg["mode"] == "cloud"
     assert cfg["id"] == server_id
     assert (tmp_path / "projects" / server_id / "project.md").exists()
+    assert (tmp_path / "AGENTS.md").is_file()
+    assert "## Project: cloudproj" in (tmp_path / "AGENTS.md").read_text()
+    assert (
+        "Then: run 'nauro sync' after project changes to refresh AGENTS.md and capture a snapshot"
+    ) in result.output
 
 
 def test_init_cloud_renders_server_error(tmp_path, monkeypatch):
@@ -211,3 +218,5 @@ def test_add_repo_to_local_project_appends(tmp_path, monkeypatch):
     paths = entry["repo_paths"]
     assert str(repo1.resolve()) in paths
     assert str(repo2.resolve()) in paths
+    assert (repo1 / "AGENTS.md").is_file()
+    assert (repo2 / "AGENTS.md").is_file()

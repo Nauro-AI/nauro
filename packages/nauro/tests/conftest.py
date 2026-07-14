@@ -294,7 +294,9 @@ def _neutralize_nauro_command_probe(monkeypatch):
     monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda cmd, **kwargs: True)
     monkeypatch.setattr(cli_utils, "_is_durable_install_path", lambda path: True)
     setup_mod._find_nauro_command.cache_clear()
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
     yield
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
     setup_mod._find_nauro_command.cache_clear()
 
 

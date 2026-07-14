@@ -1,23 +1,27 @@
-"""Tests for ``--with-hooks`` — wiring the advisory hook into .claude/settings.json.
+"""Tests for project-scoped Claude Code and Codex hook wiring.
 
-The hook is wired into project-scope ``<repo>/.claude/settings.json`` under
-``hooks.UserPromptSubmit``. Adds are idempotent; removes strip only the
-nauro-authored entry and preserve user hooks. The wiring is Claude-Code-only and
-never aborts the rest of setup.
+Adds are idempotent, removes strip only Nauro entries, and wiring failures never
+abort the rest of setup.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.commands.setup import (
+    CODEX_HOOK_EVENTS,
+    CODEX_HOOK_SUBCOMMAND,
     HOOK_EVENT_NAME,
     HOOK_SUBCOMMAND,
     HOOK_TIMEOUT_SECONDS,
     materialize_hooks_claude_code,
+    materialize_hooks_codex,
     setup_all_surfaces,
 )
 from nauro.cli.main import app
@@ -30,11 +34,25 @@ def _settings(repo: Path) -> Path:
     return repo / ".claude" / "settings.json"
 
 
+def _codex_hooks(repo: Path) -> Path:
+    return repo / ".codex" / "hooks.json"
+
+
 def _nauro_entries(settings: dict) -> list[dict]:
     out = []
     for matcher in settings.get("hooks", {}).get(HOOK_EVENT_NAME, []):
         for entry in matcher.get("hooks", []):
             if isinstance(entry, dict) and HOOK_SUBCOMMAND in entry.get("command", ""):
+                out.append(entry)
+    return out
+
+
+def _codex_nauro_entries(config: dict, event: str) -> list[dict]:
+    out = []
+    for matcher in config.get("hooks", {}).get(event, []):
+        for entry in matcher.get("hooks", []):
+            fields = (entry.get("command", ""), entry.get("commandWindows", ""))
+            if any(CODEX_HOOK_SUBCOMMAND in value for value in fields):
                 out.append(entry)
     return out
 
@@ -135,6 +153,244 @@ def test_remove_deletes_empty_settings_file(tmp_path: Path):
     assert not _settings(repo).is_file()
 
 
+def test_materialize_codex_writes_both_lifecycle_events(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    command = "/opt/Nauro Tool/bin/nauro"
+
+    import nauro.cli.commands.setup as setup_mod
+
+    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: command)
+    setup_mod._find_nauro_command.cache_clear()
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert "wrote nauro hooks" in line
+    config = json.loads(_codex_hooks(repo).read_text())
+    for event in CODEX_HOOK_EVENTS:
+        entries = _codex_nauro_entries(config, event)
+        assert len(entries) == 1
+        assert entries[0]["command"] == (
+            "test -x '/opt/Nauro Tool/bin/nauro' || exit 0; "
+            "exec '/opt/Nauro Tool/bin/nauro' hook codex-bootstrap"
+        )
+        assert entries[0]["commandWindows"] == (
+            "powershell.exe -NoLogo -NoProfile -NonInteractive -Command "
+            "\"if (Test-Path -LiteralPath '/opt/Nauro Tool/bin/nauro' -PathType Leaf) "
+            "{ & '/opt/Nauro Tool/bin/nauro' hook codex-bootstrap }; exit 0\""
+        )
+        assert entries[0]["timeout"] == 10
+        assert entries[0]["statusMessage"] == "Loading Nauro project context"
+
+
+def test_materialize_codex_warns_for_untracked_hooks_file(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert ".codex/hooks.json is untracked and not git-ignored" in line
+    assert "local Nauro wiring" in line
+
+
+def test_materialize_codex_uses_current_install_when_durable_command_is_too_old(
+    tmp_path: Path, monkeypatch, capsys
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    import nauro.cli.commands.setup as setup_mod
+
+    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "/opt/old/nauro")
+    monkeypatch.setattr(
+        setup_mod, "_interpreter_sibling_candidate", lambda: "/repo/.venv/bin/nauro"
+    )
+    monkeypatch.setattr(
+        setup_mod.cli_utils,
+        "probe_nauro_command",
+        lambda command, **kwargs: command == "/repo/.venv/bin/nauro",
+    )
+    setup_mod._find_nauro_command.cache_clear()
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
+
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert "wrote nauro hooks" in line
+    config = json.loads(_codex_hooks(repo).read_text())
+    entry = _codex_nauro_entries(config, "SessionStart")[0]
+    assert "/repo/.venv/bin/nauro" in entry["command"]
+    assert "/opt/old/nauro" not in entry["command"]
+    assert "does not support Codex bootstrap hooks" in capsys.readouterr().err
+
+
+def test_materialize_codex_skips_when_no_compatible_command(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    import nauro.cli.commands.setup as setup_mod
+
+    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "/opt/old/nauro")
+    monkeypatch.setattr(setup_mod, "_interpreter_sibling_candidate", lambda: None)
+    monkeypatch.setattr(setup_mod.cli_utils, "probe_nauro_command", lambda command, **kwargs: False)
+    setup_mod._find_nauro_command.cache_clear()
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
+
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert line == f"  {repo}: Codex hook wiring skipped; no compatible Nauro command"
+    assert not _codex_hooks(repo).exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX command guard")
+def test_codex_hook_missing_binary_guard_exits_zero(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    missing = tmp_path / "missing nauro"
+
+    import nauro.cli.commands.setup as setup_mod
+
+    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: str(missing))
+    setup_mod._find_nauro_command.cache_clear()
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    materialize_hooks_codex(repo, remove=False)
+    config = json.loads(_codex_hooks(repo).read_text())
+    entry = _codex_nauro_entries(config, "SessionStart")[0]
+
+    result = subprocess.run(["sh", "-c", entry["command"]], capture_output=True, text=True)
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX command guard")
+def test_codex_hook_bare_command_guard_checks_path(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    import nauro.cli.commands.setup as setup_mod
+
+    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "nauro")
+    setup_mod._find_nauro_command.cache_clear()
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    materialize_hooks_codex(repo, remove=False)
+    config = json.loads(_codex_hooks(repo).read_text())
+    entry = _codex_nauro_entries(config, "SessionStart")[0]
+
+    result = subprocess.run(
+        ["/bin/sh", "-c", entry["command"]],
+        capture_output=True,
+        text=True,
+        env={"PATH": ""},
+    )
+
+    assert "command -v nauro" in entry["command"]
+    assert entry["commandWindows"] == (
+        "powershell.exe -NoLogo -NoProfile -NonInteractive -Command "
+        "\"if (Get-Command 'nauro' -ErrorAction SilentlyContinue) "
+        "{ & 'nauro' hook codex-bootstrap }; exit 0\""
+    )
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_materialize_codex_is_idempotent_and_preserves_user_hooks(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    hooks_path = _codex_hooks(repo)
+    hooks_path.parent.mkdir(parents=True)
+    hooks_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "startup",
+                            "hooks": [{"type": "command", "command": "load-notes"}],
+                        }
+                    ],
+                    "Stop": [{"hooks": [{"type": "command", "command": "cleanup"}]}],
+                },
+                "theme": "dark",
+            }
+        )
+    )
+
+    materialize_hooks_codex(repo, remove=False)
+    writes = 0
+    write_text = Path.write_text
+
+    def count_hook_writes(path: Path, *args, **kwargs):
+        nonlocal writes
+        if path == hooks_path:
+            writes += 1
+        return write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", count_hook_writes)
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert "already present" in line
+    assert writes == 0
+    config = json.loads(hooks_path.read_text())
+    for event in CODEX_HOOK_EVENTS:
+        assert len(_codex_nauro_entries(config, event)) == 1
+    assert config["hooks"]["SessionStart"][0]["hooks"][0]["command"] == "load-notes"
+    assert config["hooks"]["Stop"][0]["hooks"][0]["command"] == "cleanup"
+    assert config["theme"] == "dark"
+
+
+def test_materialize_codex_refreshes_recorded_command(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    import nauro.cli.commands.setup as setup_mod
+
+    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "/old/nauro")
+    setup_mod._find_nauro_command.cache_clear()
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    materialize_hooks_codex(repo, remove=False)
+    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "/new/nauro")
+    setup_mod._find_nauro_command.cache_clear()
+    setup_mod._find_nauro_codex_hook_command.cache_clear()
+
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert "wrote nauro hooks" in line
+    config = json.loads(_codex_hooks(repo).read_text())
+    for event in CODEX_HOOK_EVENTS:
+        entries = _codex_nauro_entries(config, event)
+        assert len(entries) == 1
+        assert "/new/nauro" in entries[0]["command"]
+        assert "/old/nauro" not in entries[0]["command"]
+
+
+def test_remove_codex_strips_only_nauro_entries(tmp_path: Path):
+    repo = tmp_path / "repo"
+    hooks_path = _codex_hooks(repo)
+    hooks_path.parent.mkdir(parents=True)
+    hooks_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [{"hooks": [{"type": "command", "command": "load-notes"}]}]
+                },
+                "theme": "dark",
+            }
+        )
+    )
+    materialize_hooks_codex(repo, remove=False)
+
+    line = materialize_hooks_codex(repo, remove=True)
+
+    assert "removed nauro hooks" in line
+    config = json.loads(hooks_path.read_text())
+    assert config["hooks"] == {
+        "SessionStart": [{"hooks": [{"type": "command", "command": "load-notes"}]}]
+    }
+    assert config["theme"] == "dark"
+
+
 # ── CLI integration via `setup claude-code --with-hooks` ───────────────────────
 
 
@@ -160,19 +416,66 @@ def test_setup_claude_code_without_hooks_writes_no_settings(tmp_path: Path, monk
     assert not _settings(repo).is_file()
 
 
+def test_setup_codex_with_hooks_wires_project_repos_and_prints_trust_guidance(
+    tmp_path: Path, monkeypatch
+):
+    repo, _store = _make_project(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "codex", "--with-hooks"])
+
+    assert result.exit_code == 0, result.output
+    config = json.loads(_codex_hooks(repo).read_text())
+    for event in CODEX_HOOK_EVENTS:
+        assert len(_codex_nauro_entries(config, event)) == 1
+    assert "/hooks" in result.output
+    assert "review and trust" in result.output
+
+
+def test_setup_codex_remove_with_hooks_preserves_user_entries(tmp_path: Path, monkeypatch):
+    repo, _store = _make_project(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(repo)
+    runner.invoke(app, ["setup", "codex", "--with-hooks"])
+    hooks_path = _codex_hooks(repo)
+    config = json.loads(hooks_path.read_text())
+    config["hooks"]["Stop"] = [{"hooks": [{"type": "command", "command": "cleanup"}]}]
+    hooks_path.write_text(json.dumps(config))
+
+    result = runner.invoke(app, ["setup", "codex", "--remove", "--with-hooks"])
+
+    assert result.exit_code == 0, result.output
+    config = json.loads(hooks_path.read_text())
+    assert config["hooks"] == {"Stop": [{"hooks": [{"type": "command", "command": "cleanup"}]}]}
+
+
 # ── setup all integration ──────────────────────────────────────────────────────
 
 
-def test_setup_all_with_hooks_claude_code_only(tmp_path: Path):
-    """setup_all_surfaces with hooks wires Claude Code only — no Cursor/Codex hook."""
+def test_setup_all_with_hooks_wires_claude_code_and_codex(tmp_path: Path):
     repo, _store = _make_project(tmp_path)
     lines = setup_all_surfaces([repo], with_hooks=True)
     assert any("nauro hook" in line for line in lines)
 
     settings = json.loads(_settings(repo).read_text())
     assert len(_nauro_entries(settings)) == 1
-    # No hook file is written under Cursor's surface.
+    codex_config = json.loads(_codex_hooks(repo).read_text())
+    for event in CODEX_HOOK_EVENTS:
+        assert len(_codex_nauro_entries(codex_config, event)) == 1
     assert not (repo / ".cursor" / "settings.json").exists()
+
+
+def test_setup_all_with_hooks_prints_codex_trust_guidance(tmp_path: Path, monkeypatch):
+    repo, _store = _make_project(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["setup", "all", "--with-hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "/hooks" in result.output
+    assert "review and trust" in result.output
 
 
 def test_setup_all_hook_failure_does_not_abort(tmp_path: Path, monkeypatch):
@@ -198,6 +501,7 @@ def test_setup_all_without_hooks_writes_nothing(tmp_path: Path):
     repo, _store = _make_project(tmp_path)
     setup_all_surfaces([repo])
     assert not _settings(repo).is_file()
+    assert not _codex_hooks(repo).is_file()
 
 
 def test_is_nauro_hook_matches_regardless_of_entrypoint_name():

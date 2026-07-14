@@ -11,6 +11,7 @@ KNOWN_PUBLIC_SURFACE_PATHS = frozenset(
         ".mcp.json",
         ".cursor/mcp.json",
         ".claude/settings.json",
+        ".codex/hooks.json",
         ".nauro/config.json",
     }
 )

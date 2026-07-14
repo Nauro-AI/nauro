@@ -1,16 +1,12 @@
-"""nauro hook — client-side advisory hooks for AI coding agents.
+"""Client-side context hooks for AI coding agents.
 
-Currently implements the Claude Code ``UserPromptSubmit`` hook. On each turn
-Claude Code invokes ``nauro hook user-prompt-submit`` with the hook payload on
-stdin; this command runs the ``check_decision`` kernel against the local store
-and, when a relevant decision clears the relevance floor, emits a compact
-advisory block via ``hookSpecificOutput.additionalContext``.
+``user-prompt-submit`` surfaces related decisions to Claude Code on each turn.
+``codex-bootstrap`` injects the canonical Nauro protocol and current L0 project
+context when Codex starts a session or subagent.
 
-The hook is advisory by construction: it never blocks a turn, never writes to
-the store, and never exits non-zero. Any failure — malformed stdin, no project
-for the cwd, a missing store, a missing optional embeddings extra — is swallowed
-and the command prints nothing and exits 0. A turn must never be blocked by
-Nauro.
+The hooks never block a turn or write to the project store. Any failure,
+including malformed stdin, an unresolved cwd, or an unreadable store, produces
+no output and exits 0.
 """
 
 from __future__ import annotations
@@ -23,6 +19,7 @@ import time
 from pathlib import Path
 
 import typer
+from nauro_core import MCP_INSTRUCTIONS_STATIC
 
 from nauro.constants import DECISIONS_DIR, DEFAULT_NAURO_HOME, NAURO_HOME_ENV
 
@@ -66,6 +63,9 @@ MAX_DEDUP_ENTRIES_PER_SESSION = 200
 _PREAMBLE = "Nauro: prior decisions may bear on this request — advisory only, not a block."
 _INSTRUCTION = "Review these and call get_decision before acting on anything they constrain."
 
+_CODEX_BOOTSTRAP_EVENTS = frozenset({"SessionStart", "SubagentStart"})
+_CODEX_L0_HEADING = "## Nauro project context (L0)"
+
 
 @hook_app.command(name="user-prompt-submit")
 def user_prompt_submit() -> None:
@@ -83,6 +83,46 @@ def user_prompt_submit() -> None:
         # Fail-open by construction: any failure leaves the turn unblocked.
         pass
     raise typer.Exit(code=0)
+
+
+@hook_app.command(name="codex-bootstrap")
+def codex_bootstrap() -> None:
+    """Inject Nauro protocol and L0 context into a Codex lifecycle event."""
+    try:
+        _run_codex_bootstrap()
+    except Exception:
+        pass
+    raise typer.Exit(code=0)
+
+
+def _run_codex_bootstrap() -> None:
+    payload = json.loads(sys.stdin.read())
+    event_name = payload.get("hook_event_name")
+    if not isinstance(event_name, str) or event_name not in _CODEX_BOOTSTRAP_EVENTS:
+        return
+
+    cwd = payload.get("cwd")
+    if not isinstance(cwd, str) or not cwd:
+        return
+
+    store_path = _resolve_store_path(Path(cwd))
+    if store_path is None or not store_path.is_dir():
+        return
+
+    from nauro.mcp.payloads import build_l0_payload
+
+    l0_payload = build_l0_payload(store_path)
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": event_name,
+            "additionalContext": _format_codex_bootstrap_context(l0_payload),
+        }
+    }
+    sys.stdout.write(json.dumps(output))
+
+
+def _format_codex_bootstrap_context(l0_payload: str) -> str:
+    return f"{MCP_INSTRUCTIONS_STATIC}\n\n{_CODEX_L0_HEADING}\n\n{l0_payload}"
 
 
 def _run_user_prompt_submit() -> None:

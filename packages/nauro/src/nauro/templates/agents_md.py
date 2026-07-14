@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEADER
@@ -94,6 +95,7 @@ def generate_agents_md(
         " changes will be overwritten on next `nauro sync`. -->\n",
     ]
 
+    parts.append(MCP_INSTRUCTIONS_STATIC + "\n")
     parts.append(f"## Project: {project_name}\n\n{l0_payload}\n")
 
     # Store-routing block. This file lives in the working copy, so any agent

@@ -198,13 +198,16 @@ def test_init_warns_for_unignored_repo_config_in_git_repo(tmp_path, monkeypatch)
     assert result.exit_code == 0, result.output
     assert ".nauro/config.json is untracked and not git-ignored" in result.output
     assert "repo-local Nauro project config" in result.output
+    assert "AGENTS.md is untracked and not git-ignored" in result.output
+    assert "It contains generated Nauro context" in result.output
 
 
 def test_init_suppresses_repo_config_warning_when_ignored(tmp_path, monkeypatch):
     _git_init(tmp_path)
-    (tmp_path / ".gitignore").write_text(".nauro/config.json\n")
+    (tmp_path / ".gitignore").write_text(".nauro/config.json\nAGENTS.md\n")
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["init", "gitproj"])
     assert result.exit_code == 0, result.output
     assert ".nauro/config.json is untracked and not git-ignored" not in result.output
+    assert "AGENTS.md is untracked and not git-ignored" not in result.output
