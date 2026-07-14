@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -175,6 +177,32 @@ def test_remove_multi_repo_drops_only_this_repo_and_keeps_shared_scope(tmp_path,
     # Shared user-scope (Codex entry) preserved because repo_b still depends on it.
     assert codex_cfg.is_file()
     assert "nauro" in codex_cfg.read_text()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_remove_aborts_when_teardown_target_is_symlinked(tmp_path, monkeypatch):
+    """A symlink planted at any teardown target aborts un-adopt before removal.
+
+    Nothing is removed and nothing is deregistered: the wiring, the per-repo
+    config, and the registry entry all survive intact.
+    """
+    repo = _adopt_env(monkeypatch, tmp_path)
+    assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
+    # Swap the wired .mcp.json for a symlink, as a hostile checkout would plant.
+    outside = tmp_path / "outside.json"
+    (repo / ".mcp.json").rename(outside)
+    (repo / ".mcp.json").symlink_to(outside)
+    agents_before = (repo / "AGENTS.md").read_bytes()
+
+    result = runner.invoke(app, ["adopt", "--remove", "--yes"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert "aborted before any removal" in result.output
+    assert (repo / ".nauro" / "config.json").is_file()
+    assert find_projects_by_name_v2("alpha") != []
+    assert (repo / ".mcp.json").is_symlink()
+    assert (repo / "AGENTS.md").read_bytes() == agents_before
 
 
 def test_remove_rejects_add_path_flags(tmp_path, monkeypatch):

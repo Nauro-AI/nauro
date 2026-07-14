@@ -38,6 +38,7 @@ from nauro.store.registry import (
     load_registry_v2,
 )
 from nauro.store.resolution import resolve_from_cwd
+from nauro.store.write_safety import find_symlink
 from nauro.templates.agents_md import (
     regenerate_agents_md_for_project,
     remove_generated_agents_md,
@@ -68,6 +69,9 @@ def _remove_claude_md(repo_path: Path) -> str | None:
 
     Returns a status string if a block was removed, or None if no block found.
     """
+    refusal = find_symlink(repo_path, CLAUDE_MD)
+    if refusal is not None:
+        return f"  {repo_path}: {refusal.message}"
     claude_md = repo_path / CLAUDE_MD
     if not claude_md.exists():
         return None
@@ -223,6 +227,9 @@ def _configure_json_mcp(
 
     Returns a one-line status string (indented for ``setup_all_surfaces``).
     """
+    refusal = find_symlink(repo_path, config_rel_path)
+    if refusal is not None:
+        return f"  {repo_path}: {refusal.message}"
     config_path = repo_path / config_rel_path
     nauro_cmd = _find_nauro_command()
     nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
@@ -756,6 +763,10 @@ def materialize_skills_cursor_for_repo(
     base = repo / ".cursor" / "rules"
     results: list[str] = []
     for name in _resolved_skill_names(with_skills):
+        refusal = find_symlink(repo, f".cursor/rules/{name}.mdc")
+        if refusal is not None:
+            results.append(f"  {repo}: {refusal.message}")
+            continue
         target = base / f"{name}.mdc"
         if remove:
             results.append(_remove_skill_file(target, stop_above=base))
@@ -902,6 +913,9 @@ def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> str:
 
     Returns a one-line status string (indented for ``setup_all_surfaces``).
     """
+    refusal = find_symlink(repo, ".claude/settings.json")
+    if refusal is not None:
+        return f"  {repo}: {refusal.message}"
     settings_path = _claude_settings_path(repo)
 
     if settings_path.exists():
@@ -1038,6 +1052,9 @@ def _find_nauro_codex_hook_command() -> str | None:
 
 def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
     """Add or remove project-scoped Codex lifecycle hooks for ``repo``."""
+    refusal = find_symlink(repo, ".codex/hooks.json")
+    if refusal is not None:
+        return f"  {repo}: {refusal.message}"
     hooks_path = _codex_hooks_path(repo)
     existing_text: str | None = None
     if hooks_path.exists():

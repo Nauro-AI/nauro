@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 import pytest
 
@@ -15,6 +16,7 @@ from nauro.constants import (
 from nauro.store.repo_config import (
     RepoConfigLocationError,
     RepoConfigSchemaError,
+    RepoConfigSymlinkError,
     collides_with_global_config,
     find_repo_config,
     generate_ulid,
@@ -300,6 +302,25 @@ def test_save_refuses_global_config_path(tmp_path, monkeypatch):
         )
 
     assert global_config.read_text() == sentinel
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_save_refuses_symlinked_nauro_dir(tmp_path):
+    """A symlinked ``.nauro`` directory in the checkout is never written through."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (repo / REPO_CONFIG_DIR).symlink_to(elsewhere)
+
+    with pytest.raises(RepoConfigSymlinkError):
+        save_repo_config(
+            repo,
+            {"mode": "local", "id": generate_ulid(), "name": "demo-project"},
+        )
+
+    assert list(elsewhere.iterdir()) == []
+    assert (repo / REPO_CONFIG_DIR).is_symlink()
 
 
 def test_collision_respects_nauro_home_override(tmp_path):

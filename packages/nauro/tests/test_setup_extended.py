@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.commands.setup import (
@@ -14,6 +16,7 @@ from nauro.cli.commands.setup import (
     _configure_codex,
     _configure_cursor_for_repo,
     _prune_redundant_user_scope_mcp,
+    materialize_skills_cursor_for_repo,
 )
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
@@ -125,6 +128,25 @@ def test_configure_cursor_remove_surfaces_parse_error(tmp_path: Path):
     msg = _configure_cursor_for_repo(repo, remove=True)
 
     assert "could not parse .cursor/mcp.json" in msg
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_cursor_surfaces_refuse_symlinked_cursor_dir(tmp_path: Path):
+    """A symlinked `.cursor` directory blocks both the MCP and rules writes."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (repo / ".cursor").symlink_to(elsewhere)
+
+    mcp_line = _configure_cursor_for_repo(repo, remove=False)
+    skill_lines = materialize_skills_cursor_for_repo(repo, remove=False, with_skills=True)
+
+    assert "refused to modify" in mcp_line
+    assert skill_lines and all("refused to modify" in line for line in skill_lines)
+    # Nothing written through the link; the link itself untouched.
+    assert list(elsewhere.iterdir()) == []
+    assert (repo / ".cursor").is_symlink()
 
 
 # ─── nauro setup codex ──────────────────────────────────────────────────────

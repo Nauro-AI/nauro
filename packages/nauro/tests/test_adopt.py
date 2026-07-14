@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.agents import AGENT_NAMES, render_agent
@@ -92,6 +94,26 @@ def test_adopt_from_home_is_refused(tmp_path: Path, monkeypatch):
     assert data["auth"] == {"access_token": "keep-me"}
     assert "mode" not in data
     assert find_projects_by_name_v2("alpha") == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_adopt_refuses_symlinked_repo_config_before_registering(tmp_path: Path, monkeypatch):
+    """A pre-planted symlink at .nauro/config.json aborts adoption cleanly.
+
+    The refusal fires before ``register_project_v2``, so the registry gains
+    no entry that would then need manual cleanup.
+    """
+    repo = _adopt_env(monkeypatch, tmp_path)
+    (repo / ".nauro").mkdir()
+    (repo / ".nauro" / "config.json").symlink_to(tmp_path / "attacker-target.json")
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert find_projects_by_name_v2("alpha") == []
+    assert (repo / ".nauro" / "config.json").is_symlink()
+    assert not (tmp_path / "attacker-target.json").exists()
 
 
 def test_adopt_aborts_when_repo_already_adopted(tmp_path: Path, monkeypatch):

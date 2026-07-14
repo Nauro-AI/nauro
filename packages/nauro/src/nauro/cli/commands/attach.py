@@ -17,7 +17,7 @@ import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.cli.git_hygiene import public_surface_git_warnings
-from nauro.cli.utils import refuse_global_config_collision
+from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.registry import (
     add_repo_v2,
@@ -85,6 +85,7 @@ def attach(
     # config, not a repo config slot.
     refuse_global_config_collision(repo_path)
     _refuse_attach_collision(repo_path, project_id)
+    refuse_repo_config_symlink(repo_path)
     try:
         projects = list_projects()
     except CloudProjectError as exc:

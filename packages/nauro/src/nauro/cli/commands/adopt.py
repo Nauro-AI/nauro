@@ -31,13 +31,15 @@ from pathlib import Path
 import typer
 
 from nauro.cli.commands.setup import (
+    OPT_IN_SKILL_NAMES,
     SHIP_TASK_NEEDS_SUBAGENTS_NOTICE,
+    SKILL_NAMES,
     SUBAGENTS_CONNECTOR_NAME_NOTICE,
     _find_nauro_command,
     setup_all_surfaces,
 )
 from nauro.cli.git_hygiene import public_surface_git_warnings
-from nauro.cli.utils import refuse_global_config_collision
+from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
 from nauro.store.registry import (
@@ -50,6 +52,7 @@ from nauro.store.registry import (
     remove_repo_v2,
 )
 from nauro.store.repo_config import RepoConfigSchemaError, load_repo_config, save_repo_config
+from nauro.store.write_safety import SymlinkRefusal, find_symlink
 from nauro.telemetry import capture
 from nauro.telemetry.events import project_created
 from nauro.templates.scaffolds import scaffold_project_store
@@ -188,6 +191,26 @@ def _install_into_adopted_repo(
     typer.echo("\nNext: restart your agent so it picks up the newly installed files.")
 
 
+def _unadopt_symlink_refusals(repo_root: Path) -> list[SymlinkRefusal]:
+    """Preflight every repo-scoped teardown target for symlink components.
+
+    Un-adopt rewrites, unlinks, or prunes these paths. A symlink pre-planted
+    in the checkout would redirect the removal outside the repo, so the whole
+    teardown is refused before anything is mutated or deregistered.
+    """
+    targets = [
+        ".nauro/config.json",
+        ".mcp.json",
+        ".cursor/mcp.json",
+        ".claude/settings.json",
+        ".codex/hooks.json",
+        "AGENTS.md",
+        "CLAUDE.md",
+        *(f".cursor/rules/{name}.mdc" for name in SKILL_NAMES + OPT_IN_SKILL_NAMES),
+    ]
+    return [refusal for rel in targets if (refusal := find_symlink(repo_root, rel)) is not None]
+
+
 def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) -> None:
     """Inverse of adoption for one repo.
 
@@ -238,6 +261,21 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
             "Error: --purge-store refused: this project has other associated "
             f"repos ({len(other_repos)}) that still use the store. Un-adopt "
             "those first, or drop this repo without --purge-store.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    # ── symlink preflight ────────────────────────────────────────────────
+    # Refused before the confirmation prompt: nothing may be removed or
+    # deregistered when any teardown target traverses a pre-planted symlink.
+    refusals = _unadopt_symlink_refusals(repo_root)
+    if refusals:
+        for refusal in refusals:
+            typer.echo(f"Error: {refusal.message}", err=True)
+        typer.echo(
+            "Un-adopt aborted before any removal, so the wiring and registry "
+            "entry are intact. Replace the offending symlinks with real files "
+            "and re-run.",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -492,6 +530,10 @@ def adopt(
     if collision is not None:
         typer.echo(collision, err=True)
         raise typer.Exit(code=1)
+
+    # Refused before registration so a pre-planted symlink at the config
+    # path leaves no registry entry behind.
+    refuse_repo_config_symlink(repo_root)
 
     # ── mint project + write per-repo config + scaffold store ──────────────
     try:

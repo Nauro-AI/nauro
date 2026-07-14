@@ -170,6 +170,41 @@ def test_claude_hook_round_trip_preserves_empty_user_matcher(tmp_path: Path):
     assert settings == {"hooks": {HOOK_EVENT_NAME: [user_matcher]}}
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_claude_hook_add_and_remove_refuse_symlinked_settings(tmp_path: Path):
+    """Both hook paths refuse a symlinked .claude/settings.json untouched."""
+    repo = tmp_path / "repo"
+    (repo / ".claude").mkdir(parents=True)
+    outside = tmp_path / "outside-settings.json"
+    outside.write_text("{}")
+    (repo / ".claude" / "settings.json").symlink_to(outside)
+
+    add_line = materialize_hooks_claude_code(repo, remove=False)
+    remove_line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert "refused to modify" in add_line
+    assert "refused to modify" in remove_line
+    assert outside.read_text() == "{}"
+    assert (repo / ".claude" / "settings.json").is_symlink()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_codex_hooks_refuse_symlinked_hooks_json(tmp_path: Path):
+    repo = tmp_path / "repo"
+    (repo / ".codex").mkdir(parents=True)
+    outside = tmp_path / "outside-hooks.json"
+    outside.write_text("{}")
+    (repo / ".codex" / "hooks.json").symlink_to(outside)
+
+    add_line = materialize_hooks_codex(repo, remove=False)
+    remove_line = materialize_hooks_codex(repo, remove=True)
+
+    assert "refused to modify" in add_line
+    assert "refused to modify" in remove_line
+    assert outside.read_text() == "{}"
+    assert (repo / ".codex" / "hooks.json").is_symlink()
+
+
 def test_claude_hook_remove_preserves_matcher_metadata(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()

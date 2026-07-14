@@ -1,8 +1,10 @@
 """Tests for nauro setup claude-code command."""
 
 import json
+import os
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.commands.setup import (
@@ -280,6 +282,40 @@ class TestProjectResolution:
         # No CLAUDE.md created
         assert not (repo1 / "CLAUDE.md").exists()
         assert not (repo2 / "CLAUDE.md").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+class TestSymlinkRefusal:
+    """Repo-scoped setup writers refuse pre-planted symlinks in the checkout."""
+
+    def test_setup_claude_code_refuses_symlinked_mcp_json(self, tmp_path: Path, monkeypatch):
+        repos = _setup_project(tmp_path, monkeypatch)
+        outside = tmp_path / "outside.json"
+        outside.write_text("{}")
+        (repos[0] / ".mcp.json").symlink_to(outside)
+
+        result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
+
+        assert result.exit_code == 0
+        assert "refused to modify" in result.output
+        assert "it is a symlink" in result.output
+        # Never written through, never replaced.
+        assert (repos[0] / ".mcp.json").is_symlink()
+        assert outside.read_text() == "{}"
+
+    def test_legacy_cleanup_refuses_symlinked_claude_md(self, tmp_path: Path, monkeypatch):
+        repos = _setup_project(tmp_path, monkeypatch)
+        content = f"{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n"
+        outside = tmp_path / "outside.md"
+        outside.write_text(content)
+        (repos[0] / "CLAUDE.md").symlink_to(outside)
+
+        result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
+
+        assert result.exit_code == 0
+        assert "refused to modify" in result.output
+        assert (repos[0] / "CLAUDE.md").is_symlink()
+        assert outside.read_text() == content
 
 
 class TestMalformedConfigGuards:

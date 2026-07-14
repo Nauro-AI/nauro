@@ -8,9 +8,11 @@ side effects to keep the failure mode safe.
 from __future__ import annotations
 
 import json
+import os
 from unittest.mock import patch
 
 import httpx
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -165,6 +167,22 @@ def test_attach_from_home_is_refused_before_any_network_call(tmp_path, monkeypat
     assert data["auth"] == {"access_token": "keep-me"}
     assert "mode" not in data
     assert registry.get_project_v2(EXAMPLE_PID) is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_attach_refuses_symlinked_repo_config_before_any_network_call(tmp_path, monkeypatch):
+    """A pre-planted symlink at .nauro/config.json is refused before the
+    membership lookup, so no token and no mocked transport are needed."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".nauro").mkdir()
+    (tmp_path / ".nauro" / "config.json").symlink_to(tmp_path / "attacker.json")
+
+    result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert registry.get_project_v2(EXAMPLE_PID) is None
+    assert not (tmp_path / "attacker.json").exists()
 
 
 def test_attach_non_member_writes_nothing(tmp_path, monkeypatch):

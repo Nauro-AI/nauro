@@ -24,7 +24,7 @@ import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.cli.git_hygiene import public_surface_git_warnings
-from nauro.cli.utils import refuse_global_config_collision
+from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import (
     REGISTRY_SCHEMA_VERSION_V2,
     REPO_CONFIG_MODE_CLOUD,
@@ -199,6 +199,7 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
     # generic --add-repo recovery line. Only the cwd (first/only path) gets the
     # demo-config; --demo does not take --add-repo, so repo_paths is [cwd].
     for rp in repo_paths:
+        refuse_repo_config_symlink(rp)
         config_file = repo_config_path(rp)
         if config_file.is_file() and not force:
             typer.echo(
@@ -365,6 +366,7 @@ def init(
             store_path = get_store_path_v2(pid)
             # Pre-check every target repo before any state changes.
             for rp in repo_paths:
+                refuse_repo_config_symlink(rp)
                 _check_config_overwrite(rp, pid, name, force)
                 _refuse_if_repo_already_claimed(rp, allowed_project_id=pid)
             added = []
@@ -407,6 +409,7 @@ def init(
     # a cwd already linked to a different projA would lose the user's
     # existing project association.
     for rp in repo_paths:
+        refuse_repo_config_symlink(rp)
         _check_config_overwrite(rp, None, name, force)
 
     # Refuse to mint a second entry for a repo a project already claims. A
