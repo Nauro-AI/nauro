@@ -117,6 +117,17 @@ uv run ruff check packages/
 uv run ruff format --check packages/
 ```
 
+## Code bar
+
+Nauro holds a high code bar. These apply to every change and are enforced in review:
+
+- Parse untrusted or semi-structured input (hook configs, registry JSON, MCP payloads, tool configs) into validated models at the boundary — Pydantic is already a nauro-core dependency. Downstream logic operates on typed objects, never raw dicts.
+- `isinstance`/`.get()` chains, regex extraction of structure, and nested conditional loops are tripwires: model the data instead. Python is the wrong place for heavy looping over loosely-shaped data.
+- Functions have limited scope: one job, named for it. Reach for classes and inheritance when the domain calls for them, not by default.
+- Modules organize code accurately: shared pure logic lives in its own module (see `store/resolution.py`, `cli/_codex_hooks.py`), never as private helpers imported across command modules.
+- Errors are typed; no sentinel strings for control flow.
+- A multi-round fix cycle owes a design-coherent end state before merge: the result must read as designed, not patched.
+
 ## Conventions
 
 - No Jinja2 — f-strings and string templates only
