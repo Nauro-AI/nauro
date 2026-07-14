@@ -130,7 +130,7 @@ nauro init my-project
 nauro setup claude-code   # or: nauro setup all
 ```
 
-`nauro init` writes `.nauro/config.json` into the repo; commit it. For cloud sync from the start, run `nauro auth login` first, then `nauro init --cloud my-project`.
+`nauro init` and `nauro attach` write `.nauro/config.json` and generate `AGENTS.md` immediately, including for `--demo` and `--add-repo`. If the repo already has a hand-authored `AGENTS.md`, Nauro warns and leaves it unchanged. Commit `.nauro/config.json`; review generated project context before deciding whether `AGENTS.md` belongs in the repository. For cloud sync from the start, run `nauro auth login` first, then `nauro init --cloud my-project`.
 
 **One project across several repos:** the store lives outside any repo, so multiple repos can share it. Associate another repo with an existing project from inside that repo:
 
@@ -149,6 +149,14 @@ Re-running plain `nauro init my-project` in a second repo creates a *separate* p
 - `@nauro-executor` after a plan is agreed. Implements it, runs tests, commits locally, and drafts the PR body. It does not push or open a PR.
 - `@nauro-reviewer` before merging. Audits the diff for real bugs and for missing decision references.
 - `@nauro-tech-lead` to set or correct direction. Reads the decision log, audits PRs against doctrine, and drafts any needed doctrine change for your approval.
+
+**Optional: Codex lifecycle bootstrap.** Install project-scoped Codex hooks when you want Nauro's preflight and L0 context injected at session and subagent start:
+
+```bash
+nauro setup codex --with-hooks   # or: nauro setup all --with-hooks
+```
+
+Start a fresh Codex session, open `/hooks`, and trust the Nauro definitions once. The hooks live in `<repo>/.codex/hooks.json`, no-op outside adopted projects, and fail open when Nauro cannot be resolved. `nauro status` reports their on-disk wiring and executable health.
 
 ## Cross-surface sync (optional)
 

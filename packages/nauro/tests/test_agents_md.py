@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
+from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -43,15 +45,25 @@ def test_generate_includes_behavioral_instructions():
         "citing raw decision or question ids. Internal planning and review may cite ids."
     )
     assert "When to use these tools" in result
-    assert "Propose a decision" in result
+    assert "When to propose decisions" in result
     assert "Flag a question" in result
     assert "Update state" in result
     assert result.count(public_artifacts_rule) == 1
     assert "surface related decisions without writing" in result
     assert "complete add, update, or supersede draft" in result
     assert "explicit user approval" in result
+    assert result.count(_APPROVAL_BEFORE_PROPOSE) == 1
     assert "commits immediately after validation" in result
     assert "advisory conflict checks" not in result
+
+
+def test_generate_frontloads_canonical_preflight_before_l0_payload():
+    l0_payload = "**One-liner:** Stable project scope.\n\n## Current State\n\nActive work."
+    result = generate_agents_md("myproj", l0_payload)
+
+    expected = f"{MCP_INSTRUCTIONS_STATIC}\n\n## Project: myproj\n\n{l0_payload}\n"
+    assert expected in result
+    assert result.count(MCP_INSTRUCTIONS_STATIC) == 1
 
 
 def test_generated_footer_names_human_ratified_judgment():

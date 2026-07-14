@@ -19,15 +19,25 @@ from pathlib import Path
 import typer
 
 from nauro.cli import utils as cli_utils
+from nauro.cli._codex_hooks import (
+    _CODEX_HOOK_PROBE_ARGS,
+    _CodexHookConfigError,
+    _format_codex_hooks,
+    _parse_codex_hooks,
+    _transform_codex_hooks,
+    _validate_codex_hooks,
+)
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
 from nauro.store.reader import read_text_lenient
 from nauro.store.registry import (
     RegistrySchemaError,
+    get_repo_paths,
     load_registry,
     load_registry_v2,
 )
+from nauro.store.resolution import resolve_from_cwd
 from nauro.templates.agents_md import (
     regenerate_agents_md_for_project,
     remove_generated_agents_md,
@@ -216,7 +226,7 @@ def _configure_json_mcp(
         try:
             config = json.loads(config_path.read_text())
         except json.JSONDecodeError as exc:
-            return f"  {repo_path}: could not parse {label} — {exc}"
+            return f"  {repo_path}: could not parse {label} - {exc}"
     else:
         config = {}
 
@@ -351,7 +361,7 @@ def claude_code(
             try:
                 hook_results.append(materialize_hooks_claude_code(repo_path, remove=remove))
             except Exception as exc:
-                hook_results.append(f"  {repo_path}: hook wiring error — {exc}")
+                hook_results.append(f"  {repo_path}: hook wiring error - {exc}")
 
     if not remove:
         pruned = _prune_redundant_user_scope_mcp()
@@ -478,7 +488,7 @@ def _configure_codex(
             with config_path.open("rb") as f:
                 config = tomllib.load(f)
         except tomllib.TOMLDecodeError as exc:
-            return f"Codex: could not parse {config_path} — {exc}"
+            return f"Codex: could not parse {config_path} - {exc}"
     else:
         config = {}
 
@@ -505,20 +515,82 @@ def _configure_codex(
     return f"Codex: wrote nauro to {config_path}"
 
 
+def _nearest_codex_hooks_repo(start: Path) -> Path | None:
+    resolved = start.resolve()
+    home = Path.home().resolve()
+    for candidate in (resolved, *resolved.parents):
+        if candidate == home:
+            break
+        if (candidate / ".codex" / "hooks.json").is_file():
+            return candidate
+    return None
+
+
 @setup_app.command(name="codex")
 def codex(
     remove: bool = typer.Option(
         False, "--remove", help="Remove Nauro integration instead of adding it."
     ),
+    with_hooks: bool = typer.Option(
+        False,
+        "--with-hooks",
+        help=(
+            "Wire Nauro's SessionStart and SubagentStart hooks into each repo's "
+            "project-scope .codex/hooks.json. Codex requires review through /hooks. "
+            "Removal cleans up existing hooks without this flag."
+        ),
+    ),
 ) -> None:
     """Configure Codex CLI to use Nauro (writes '~/.codex/config.toml')."""
+    hook_repos: list[Path] = []
+    if with_hooks and not remove:
+        project_name, store_path = resolve_target_project(None)
+        entry = _resolve_project_entry(project_name, store_path.name)
+        hook_repos = [Path(repo_path) for repo_path in entry["repo_paths"]]
+
     # Standalone codex wiring is user-global, so removing it without first
     # tearing down the other projects would leave them pointed at a missing
     # MCP entry. Gate on the registry: only the last project's teardown clears.
     clear_user_scope = _user_scope_safe_to_clear(None) if remove else True
     typer.echo(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
+
+    hook_cleanup_unresolved = False
+    if remove:
+        try:
+            resolution = resolve_from_cwd(Path.cwd())
+            hook_repos = (
+                [Path(repo_path) for repo_path in get_repo_paths(resolution.project_id)]
+                if resolution is not None
+                else []
+            )
+            nearest_hooks_repo = _nearest_codex_hooks_repo(Path.cwd())
+            if nearest_hooks_repo is not None and nearest_hooks_repo not in hook_repos:
+                hook_repos.append(nearest_hooks_repo)
+            hook_cleanup_unresolved = not hook_repos
+        except Exception:
+            hook_cleanup_unresolved = True
+
+    if with_hooks or remove:
+        typer.echo("\nHooks:")
+        if hook_cleanup_unresolved:
+            typer.echo(
+                "  Project-scoped Codex hooks were not removed because no Nauro "
+                "project resolves from this directory. Run this command from each "
+                "wired repo to remove them."
+            )
+        for repo_path in hook_repos:
+            if not repo_path.is_dir():
+                typer.echo(f"  {repo_path}: repo path missing, skipped")
+                continue
+            try:
+                typer.echo(materialize_hooks_codex(repo_path, remove=remove))
+            except Exception as exc:
+                typer.echo(f"  {repo_path}: Codex hook wiring error - {exc}")
+
     if not remove:
         typer.echo("\nNext: run a Codex session — it reads ~/.codex/config.toml on start.")
+        if with_hooks:
+            typer.echo(f"\n{CODEX_HOOKS_NOTICE}")
         typer.echo(f"\n{CHECK_HINT_LINE}")
 
 
@@ -786,9 +858,6 @@ def materialize_agents(
 # flag internally, so the follow-up that re-admits cosine-gated embedding hits
 # can flip the backend on without changing the installed command.
 #
-# The hook is Claude-Code-only: Cursor and Codex have no comparable per-turn
-# client event to bind to.
-
 HOOK_EVENT_NAME = "UserPromptSubmit"
 # The subcommand the hook entry runs; the full command is built at install time
 # by prefixing the resolved absolute nauro path (see _nauro_hook_entry), so the
@@ -824,7 +893,7 @@ def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> str:
         try:
             settings = json.loads(settings_path.read_text())
         except json.JSONDecodeError as exc:
-            return f"  {repo}: could not parse .claude/settings.json — {exc}"
+            return f"  {repo}: could not parse .claude/settings.json - {exc}"
         if not isinstance(settings, dict):
             return f"  {repo}: .claude/settings.json is not a JSON object, skipped"
     else:
@@ -890,14 +959,17 @@ def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
             continue
         entries = matcher.get("hooks", [])
         kept = [e for e in entries if not _is_nauro_hook(e)]
-        if len(kept) != len(entries):
+        removed_here = len(entries) - len(kept)
+        if removed_here:
             removed = True
-        if kept:
+        if removed_here == 0:
+            surviving_matchers.append(matcher)
+        elif kept:
             matcher = {**matcher, "hooks": kept}
             surviving_matchers.append(matcher)
-        elif "hooks" not in matcher:
-            surviving_matchers.append(matcher)
-        # A matcher whose only hooks were nauro-authored is dropped entirely.
+        elif set(matcher) - {"hooks"}:
+            surviving_matchers.append({**matcher, "hooks": []})
+        # Drop only the installer-owned matcher shell with no user metadata.
 
     if not removed:
         return f"  {repo}: no nauro hook to remove"
@@ -914,6 +986,87 @@ def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
     else:
         settings_path.unlink()
     return f"  {repo}: removed nauro hook from .claude/settings.json"
+
+
+def _codex_hooks_path(repo: Path) -> Path:
+    return repo / ".codex" / "hooks.json"
+
+
+@functools.cache
+def _find_nauro_codex_hook_command() -> str | None:
+    command = _find_nauro_command()
+    if cli_utils.probe_nauro_command(command, args=_CODEX_HOOK_PROBE_ARGS):
+        return command
+
+    sibling = _interpreter_sibling_candidate()
+    if (
+        sibling is not None
+        and sibling != command
+        and cli_utils.probe_nauro_command(sibling, args=_CODEX_HOOK_PROBE_ARGS)
+    ):
+        typer.echo(
+            f"WARNING: '{command}' does not support Codex bootstrap hooks. "
+            f"Recording the current Nauro install at '{sibling}' instead. "
+            "Update the durable Nauro install and re-run 'nauro setup all --with-hooks'.",
+            err=True,
+        )
+        return sibling
+
+    typer.echo(
+        "WARNING: no installed Nauro command supports Codex bootstrap hooks. "
+        "Codex hook wiring was skipped; update Nauro and re-run "
+        "'nauro setup all --with-hooks'.",
+        err=True,
+    )
+    return None
+
+
+def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
+    """Add or remove project-scoped Codex lifecycle hooks for ``repo``."""
+    hooks_path = _codex_hooks_path(repo)
+    existing_text: str | None = None
+    if hooks_path.exists():
+        try:
+            existing_text = hooks_path.read_text(encoding="utf-8")
+            config = _parse_codex_hooks(existing_text)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            return f"  {repo}: could not parse .codex/hooks.json - {exc}"
+        except _CodexHookConfigError as exc:
+            return f"  {repo}: {exc}"
+    else:
+        config = {}
+
+    try:
+        _validate_codex_hooks(config)
+    except _CodexHookConfigError as exc:
+        return f"  {repo}: {exc}"
+
+    command = None if remove else _find_nauro_codex_hook_command()
+    if not remove and command is None:
+        return f"  {repo}: Codex hook wiring skipped; no compatible Nauro command"
+
+    try:
+        transformed = _transform_codex_hooks(config, command=command)
+    except _CodexHookConfigError as exc:
+        return f"  {repo}: {exc}"
+
+    if remove:
+        if transformed.removed == 0:
+            return f"  {repo}: no nauro Codex hooks to remove"
+        if transformed.config:
+            hooks_path.write_text(_format_codex_hooks(transformed.config), encoding="utf-8")
+        else:
+            hooks_path.unlink()
+        return f"  {repo}: removed nauro hooks from .codex/hooks.json"
+
+    rendered = _format_codex_hooks(transformed.config)
+    if existing_text == rendered:
+        return f"  {repo}: nauro hooks already present in .codex/hooks.json"
+    hooks_path.parent.mkdir(parents=True, exist_ok=True)
+    hooks_path.write_text(rendered, encoding="utf-8")
+    lines = [f"  {repo}: wrote nauro hooks to .codex/hooks.json"]
+    lines.extend(public_surface_git_warnings(repo, ".codex/hooks.json"))
+    return "\n".join(lines)
 
 
 # ─── nauro setup all ────────────────────────────────────────────────────────
@@ -963,10 +1116,11 @@ def setup_all_surfaces(
     its body — and ``nauro-loop`` dispatches that chain — so a caller that
     surfaces ``with_skills`` without ``with_subagents`` should warn the user.
 
-    ``with_hooks`` opts into wiring the advisory ``UserPromptSubmit`` hook into
-    each repo's project-scope ``.claude/settings.json`` (Claude-Code-only).
-    Off by default. A hook-wiring failure is caught and reported as a status
-    line so it never aborts the rest of setup.
+    ``with_hooks`` opts into wiring the advisory Claude Code
+    ``UserPromptSubmit`` hook and the Codex ``SessionStart`` and
+    ``SubagentStart`` hooks into each repo's project-scope configuration. Off
+    by default. A hook-wiring failure is caught and reported as a status line
+    so it never aborts the rest of setup.
 
     ``clear_user_scope_override`` forces the shared-user-scope decision instead
     of deriving it from the registry. ``nauro adopt --remove`` passes ``False``
@@ -990,14 +1144,14 @@ def setup_all_surfaces(
         try:
             lines.append(_configure_mcp(repo, remove=remove))
         except Exception as exc:
-            lines.append(f"Claude Code MCP ({repo}): error — {exc}")
+            lines.append(f"Claude Code MCP ({repo}): error - {exc}")
     if not remove:
         try:
             pruned = _prune_redundant_user_scope_mcp()
             if pruned:
                 lines.append(pruned)
         except Exception as exc:  # never let cleanup break wiring
-            lines.append(f"Claude Code MCP (user-scope cleanup): error — {exc}")
+            lines.append(f"Claude Code MCP (user-scope cleanup): error - {exc}")
     try:
         lines.extend(
             materialize_skills_claude_code(
@@ -1007,7 +1161,7 @@ def setup_all_surfaces(
             )
         )
     except Exception as exc:
-        lines.append(f"Claude Code skills: error — {exc}")
+        lines.append(f"Claude Code skills: error - {exc}")
 
     if with_subagents:
         try:
@@ -1020,16 +1174,16 @@ def setup_all_surfaces(
                 )
             )
         except Exception as exc:
-            lines.append(f"Claude Code agents: error — {exc}")
+            lines.append(f"Claude Code agents: error - {exc}")
 
-    if with_hooks:
+    if with_hooks or remove:
         for repo in project_repos:
             if not repo.is_dir():
                 continue
             try:
                 lines.append(materialize_hooks_claude_code(repo, remove=remove))
             except Exception as exc:
-                lines.append(f"Claude Code hook ({repo}): error — {exc}")
+                lines.append(f"Claude Code hook ({repo}): error - {exc}")
 
     # Cursor (MCP per-repo + skills per-repo)
     for repo in project_repos:
@@ -1038,19 +1192,19 @@ def setup_all_surfaces(
         try:
             lines.append(_configure_cursor_for_repo(repo, remove=remove))
         except Exception as exc:
-            lines.append(f"Cursor MCP ({repo}): error — {exc}")
+            lines.append(f"Cursor MCP ({repo}): error - {exc}")
         try:
             lines.extend(
                 materialize_skills_cursor_for_repo(repo, remove=remove, with_skills=with_skills)
             )
         except Exception as exc:
-            lines.append(f"Cursor skills ({repo}): error — {exc}")
+            lines.append(f"Cursor skills ({repo}): error - {exc}")
 
     # Codex (MCP global + skills global)
     try:
         lines.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
     except Exception as exc:
-        lines.append(f"Codex MCP: error — {exc}")
+        lines.append(f"Codex MCP: error - {exc}")
     try:
         lines.extend(
             materialize_skills_codex(
@@ -1060,7 +1214,16 @@ def setup_all_surfaces(
             )
         )
     except Exception as exc:
-        lines.append(f"Codex skills: error — {exc}")
+        lines.append(f"Codex skills: error - {exc}")
+
+    if with_hooks or remove:
+        for repo in project_repos:
+            if not repo.is_dir():
+                continue
+            try:
+                lines.append(materialize_hooks_codex(repo, remove=remove))
+            except Exception as exc:
+                lines.append(f"Codex hooks ({repo}): error - {exc}")
 
     # Regenerate AGENTS.md once so context is fresh from the start on every
     # entry point that wires surfaces. Guarded on the add path and on having a
@@ -1072,7 +1235,7 @@ def setup_all_surfaces(
                 lines.append(f"  {repo_path}: regenerated AGENTS.md")
                 lines.extend(public_surface_git_warnings(repo_path, "AGENTS.md"))
         except Exception as exc:
-            lines.append(f"AGENTS.md regeneration: error — {exc}")
+            lines.append(f"AGENTS.md regeneration: error - {exc}")
 
     # Mirror of the regen above: strip the generated AGENTS.md on teardown so a
     # removed integration leaves no orphaned context file. User content in a
@@ -1109,6 +1272,11 @@ HOOKS_NOTICE = (
     "The advisory hook surfaces related decisions as context on each turn "
     "(BM25 retrieval) and never blocks. Start a new Claude Code session in a "
     "wired repo for it to take effect."
+)
+
+CODEX_HOOKS_NOTICE = (
+    "Codex skips new or changed hooks until you review and trust them. Start "
+    "Codex in a wired repo, then open `/hooks` to review the project hooks."
 )
 
 # Multi-surface restart handoff. MCP config is read at session start, so an
@@ -1160,9 +1328,9 @@ def all_(
         False,
         "--with-hooks",
         help=(
-            "Wire Nauro's advisory UserPromptSubmit hook into each repo's "
-            "project-scope .claude/settings.json (Claude Code only). The hook "
-            "surfaces related decisions as context each turn and never blocks."
+            "Wire Nauro's advisory Claude Code UserPromptSubmit hook and Codex "
+            "SessionStart/SubagentStart hooks into each repo's project-scope "
+            "configuration. Hooks surface decision context and never block."
         ),
     ),
 ) -> None:
@@ -1193,6 +1361,7 @@ def all_(
 
     if not remove and with_hooks:
         typer.echo(f"\n{HOOKS_NOTICE}")
+        typer.echo(f"\n{CODEX_HOOKS_NOTICE}")
 
     if not remove:
         typer.echo(f"\n{ALL_RESTART_NOTICE}")

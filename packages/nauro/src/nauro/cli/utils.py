@@ -36,20 +36,25 @@ from nauro.store.repo_config import collides_with_global_config
 from nauro.store.resolution import resolve_from_cwd
 
 
-def probe_nauro_command(cmd: str, *, timeout: float = 1.5) -> bool:
-    """Return True iff ``[cmd, "--version"]`` launches and exits 0.
+def probe_nauro_command(
+    cmd: str,
+    *,
+    args: tuple[str, ...] = ("--version",),
+    timeout: float = 1.5,
+) -> bool:
+    """Return True iff ``[cmd, *args]`` launches and exits 0.
 
     The single subprocess seam for validating a recorded MCP/hook command: the
     setup resolver calls it before recording a command, and ``nauro status``
     calls it to probe wired commands for liveness. A launch failure (missing
     binary or permission error), a hang past ``timeout``, or a non-zero exit
-    all count as "won't run". Soft-fails — never raises — so callers can treat
+    all count as "won't run". Soft-fails and never raises, so callers can treat
     the boolean as authoritative. Centralized here so tests mock exactly one
     function and no test ever spawns a real binary.
     """
     try:
         proc = subprocess.run(
-            [cmd, "--version"],
+            [cmd, *args],
             timeout=timeout,
             capture_output=True,
             check=False,

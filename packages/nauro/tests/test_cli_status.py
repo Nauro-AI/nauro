@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 import nauro.cli.commands.status as status_mod
 from nauro.cli import utils as cli_utils
+from nauro.cli._codex_hooks import _CODEX_HOOK_PROBE_ARGS
 from nauro.cli.main import app
 from nauro.store.registry import register_project
 from nauro.templates.agents_md import FOOTER_MARKER
@@ -35,14 +36,28 @@ def _wire_repo_mcp(repo):
     (repo / ".mcp.json").write_text(json.dumps({"mcpServers": {"nauro": {"command": "nauro"}}}))
 
 
+def _wire_codex_hooks(repo, *, command="nauro", events=("SessionStart", "SubagentStart")):
+    hooks = {}
+    entry = {
+        "type": "command",
+        "command": f"test -x {command} || exit 0; exec {command} hook codex-bootstrap",
+    }
+    for event in events:
+        hooks[event] = [{"hooks": [entry]}]
+    path = repo / ".codex" / "hooks.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"hooks": hooks}))
+
+
 def test_status_mcp_and_agents_inactive_when_nothing_wired(tmp_path, monkeypatch):
     """No MCP config anywhere and no generated AGENTS.md → both rows inactive."""
     _setup_project(tmp_path, monkeypatch)
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "MCP           inactive — run 'nauro setup all'" in result.output
-    assert "AGENTS.md     inactive — run 'nauro sync'" in result.output
+    assert "MCP           inactive - run 'nauro setup all'" in result.output
+    assert "Codex hooks   inactive - run 'nauro setup codex --with-hooks'" in result.output
+    assert "AGENTS.md     inactive - run 'nauro sync'" in result.output
     assert "Decisions:" in result.output
 
 
@@ -103,7 +118,7 @@ def test_status_agents_md_without_footer_counts_not_generated(tmp_path, monkeypa
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "AGENTS.md     inactive — run 'nauro sync'" in result.output
+    assert "AGENTS.md     inactive - run 'nauro sync'" in result.output
 
 
 def test_status_corrupt_mcp_config_soft_fails(tmp_path, monkeypatch):
@@ -116,7 +131,7 @@ def test_status_corrupt_mcp_config_soft_fails(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "MCP           inactive — run 'nauro setup all'" in result.output
+    assert "MCP           inactive - run 'nauro setup all'" in result.output
 
 
 def test_status_shows_store_path(tmp_path, monkeypatch):
@@ -171,6 +186,196 @@ def test_status_no_probe_skips_liveness(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert calls == []
     assert "MCP           active (wired in 1/1 repos)" in result.output
+
+
+def test_status_codex_hooks_configured_when_both_events_are_wired(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _wire_codex_hooks(tmp_path)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Codex hooks   configured (wired in 1/1 repos; command healthy)" in result.output
+
+
+def test_status_codex_hooks_no_probe_reports_configured(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _wire_codex_hooks(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        cli_utils, "probe_nauro_command", lambda command, **kwargs: calls.append(command) or True
+    )
+
+    result = runner.invoke(app, ["status", "--no-probe"])
+
+    assert result.exit_code == 0
+    assert calls == []
+    assert "Codex hooks   configured (wired in 1/1 repos; liveness not probed)" in result.output
+
+
+def test_status_codex_hooks_broken_when_command_is_dead(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _wire_codex_hooks(tmp_path, command="/gone/nauro")
+    monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda command, **kwargs: False)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Codex hooks   BROKEN" in result.output
+    assert "recorded command won't run" in result.output
+
+
+def test_status_codex_hooks_does_not_claim_health_when_probe_fails(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _wire_codex_hooks(tmp_path)
+
+    def fail_probe(_commands, _hook_commands):
+        raise OSError("probe unavailable")
+
+    monkeypatch.setattr(status_mod, "_probe_distinct_commands", fail_probe)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Codex hooks   configured (wired in 1/1 repos; liveness unknown)" in result.output
+    assert "command healthy" not in result.output
+
+
+def test_status_codex_hooks_broken_when_event_is_missing(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _wire_codex_hooks(tmp_path, events=("SessionStart",))
+    calls: list[str] = []
+    monkeypatch.setattr(
+        cli_utils, "probe_nauro_command", lambda command, **kwargs: calls.append(command) or True
+    )
+
+    result = runner.invoke(app, ["status", "--no-probe"])
+
+    assert result.exit_code == 0
+    assert calls == []
+    assert "Codex hooks   BROKEN" in result.output
+    assert "lifecycle wiring is incomplete" in result.output
+
+
+def test_status_probes_shared_mcp_and_hook_command_for_each_purpose(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _wire_repo_mcp(tmp_path)
+    _wire_codex_hooks(tmp_path)
+    calls: list[tuple[str, tuple[str, ...]]] = []
+    monkeypatch.setattr(
+        cli_utils,
+        "probe_nauro_command",
+        lambda command, **kwargs: calls.append((command, kwargs["args"])) or True,
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert calls == [("nauro", ("--version",)), ("nauro", _CODEX_HOOK_PROBE_ARGS)]
+    assert "MCP           active" in result.output
+    assert "Codex hooks   configured" in result.output
+
+
+def test_status_shared_command_can_have_healthy_mcp_and_broken_hooks(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _wire_repo_mcp(tmp_path)
+    _wire_codex_hooks(tmp_path)
+    monkeypatch.setattr(
+        cli_utils,
+        "probe_nauro_command",
+        lambda _command, **kwargs: kwargs["args"] == ("--version",),
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "MCP           active" in result.output
+    assert "Codex hooks   BROKEN" in result.output
+
+
+def test_status_shared_command_can_have_broken_mcp_and_healthy_hooks(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _wire_repo_mcp(tmp_path)
+    _wire_codex_hooks(tmp_path)
+    monkeypatch.setattr(
+        cli_utils,
+        "probe_nauro_command",
+        lambda _command, **kwargs: kwargs["args"] == _CODEX_HOOK_PROBE_ARGS,
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "MCP           BROKEN" in result.output
+    assert "Codex hooks   configured" in result.output
+
+
+def test_status_uses_windows_hook_override_on_windows(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    hooks = {}
+    entry = {
+        "type": "command",
+        "command": "load-posix-context",
+        "commandWindows": (
+            'powershell.exe -NoLogo -NoProfile -NonInteractive -Command "'
+            "if (Get-Command 'C:/Program Files/Nauro/nauro.exe' "
+            "-ErrorAction SilentlyContinue) { & 'C:/Program Files/Nauro/nauro.exe' "
+            'hook codex-bootstrap }; exit 0"'
+        ),
+    }
+    for event in ("SessionStart", "SubagentStart"):
+        hooks[event] = [{"hooks": [entry]}]
+    path = tmp_path / ".codex" / "hooks.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
+    monkeypatch.setattr(status_mod, "_is_windows", lambda: True)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Codex hooks   configured" in result.output
+
+
+def test_status_ignores_windows_only_nauro_override_on_posix(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    hooks = {}
+    entry = {
+        "type": "command",
+        "command": "load-posix-context",
+        "commandWindows": "powershell.exe -Command \"& 'nauro' hook codex-bootstrap\"",
+    }
+    for event in ("SessionStart", "SubagentStart"):
+        hooks[event] = [{"hooks": [entry]}]
+    path = tmp_path / ".codex" / "hooks.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
+    monkeypatch.setattr(status_mod, "_is_windows", lambda: False)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Codex hooks   inactive" in result.output
+
+
+def test_status_treats_empty_windows_override_as_inactive(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    hooks = {}
+    entry = {
+        "type": "command",
+        "command": "nauro hook codex-bootstrap",
+        "commandWindows": "",
+    }
+    for event in ("SessionStart", "SubagentStart"):
+        hooks[event] = [{"hooks": [entry]}]
+    path = tmp_path / ".codex" / "hooks.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"hooks": hooks}), encoding="utf-8")
+    monkeypatch.setattr(status_mod, "_is_windows", lambda: True)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Codex hooks   inactive" in result.output
 
 
 def test_status_dedupes_shared_command_to_one_probe(tmp_path, monkeypatch):

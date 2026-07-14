@@ -35,6 +35,8 @@ nauro init --demo
 nauro check-decision "Store dollar amounts as decimal numbers"
 ```
 
+`nauro init --demo` also generates `AGENTS.md` in the current directory so a coding agent can load the Nauro preflight and demo context before its first task. If the repo already has a hand-authored `AGENTS.md`, Nauro warns and leaves it unchanged.
+
 You'll see a JSON envelope with the related decisions and a deterministic assessment, e.g.:
 
 ```json

@@ -75,6 +75,20 @@ def test_probe_invokes_version_subcommand(monkeypatch):
     assert seen["cmd"] == ["/opt/nauro", "--version"]
 
 
+def test_probe_accepts_a_specific_subcommand(monkeypatch):
+    seen: dict = {}
+
+    def capture(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return _FakeProc(0)
+
+    monkeypatch.setattr(cli_utils.subprocess, "run", capture)
+    result = _REAL_PROBE("/opt/nauro", args=("hook", "codex-bootstrap", "--help"))
+
+    assert result is True
+    assert seen["cmd"] == ["/opt/nauro", "hook", "codex-bootstrap", "--help"]
+
+
 # ── _is_durable_install_path ───────────────────────────────────────────────────
 
 

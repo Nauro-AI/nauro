@@ -9,14 +9,17 @@ isolated ``NAURO_HOME`` store seeded with real-shaped decision files.
 from __future__ import annotations
 
 import datetime as dt
+import io
 import json
 from pathlib import Path
 
+from nauro_core import MCP_INSTRUCTIONS_STATIC
 from nauro_core.decision_model import Decision, format_decision
 from typer.testing import CliRunner
 
 from nauro.cli.commands import hook
 from nauro.cli.main import app
+from nauro.mcp.payloads import build_l0_payload
 from nauro.store.registry import register_project, register_project_v2
 from tests.conftest import register_v2_repo
 
@@ -107,6 +110,122 @@ def _invoke(payload: dict):
         ["hook", "user-prompt-submit"],
         input=json.dumps(payload),
     )
+
+
+def _invoke_codex_bootstrap(payload: dict):
+    return runner.invoke(
+        app,
+        ["hook", "codex-bootstrap"],
+        input=json.dumps(payload),
+    )
+
+
+# ── Codex lifecycle bootstrap ─────────────────────────────────────────────────
+
+
+def test_codex_bootstrap_emits_event_matching_protocol_and_l0(tmp_path: Path):
+    repo, store_path = _make_project(tmp_path)
+    nested = repo / "nested"
+    nested.mkdir()
+    (store_path / "project.md").write_text(
+        "# Hook project\n\nCodex bootstrap project marker.\n",
+        encoding="utf-8",
+    )
+    expected_context = (
+        f"{MCP_INSTRUCTIONS_STATIC}\n\n{hook._CODEX_L0_HEADING}\n\n{build_l0_payload(store_path)}"
+    )
+
+    for event_name in ("SessionStart", "SubagentStart"):
+        result = _invoke_codex_bootstrap(
+            {
+                "hook_event_name": event_name,
+                "cwd": str(nested),
+                "session_id": f"{event_name}-session",
+            }
+        )
+
+        assert result.exit_code == 0
+        assert json.loads(result.output) == {
+            "hookSpecificOutput": {
+                "hookEventName": event_name,
+                "additionalContext": expected_context,
+            }
+        }
+
+
+def test_codex_bootstrap_preserves_l0_payload_intact(tmp_path: Path):
+    repo, store_path = _make_project(tmp_path)
+    tail_marker = "L0_TAIL_MARKER"
+    (store_path / "project.md").write_text(
+        f"# Hook project\n\n{'x' * 20_000}{tail_marker}\n",
+        encoding="utf-8",
+    )
+    expected_l0 = build_l0_payload(store_path)
+
+    result = _invoke_codex_bootstrap(
+        {"hook_event_name": "SessionStart", "cwd": str(repo), "session_id": "full-l0"}
+    )
+
+    assert result.exit_code == 0
+    context = json.loads(result.output)["hookSpecificOutput"]["additionalContext"]
+    assert context == f"{MCP_INSTRUCTIONS_STATIC}\n\n{hook._CODEX_L0_HEADING}\n\n{expected_l0}"
+    assert tail_marker in context
+
+
+def test_codex_bootstrap_unsupported_event_exits_zero_empty(tmp_path: Path):
+    repo, _store_path = _make_project(tmp_path)
+    result = _invoke_codex_bootstrap(
+        {"hook_event_name": "UserPromptSubmit", "cwd": str(repo), "session_id": "unsupported"}
+    )
+    assert result.exit_code == 0
+    assert result.output == ""
+
+
+def test_codex_bootstrap_outside_project_exits_zero_empty(tmp_path: Path):
+    unregistered = tmp_path / "elsewhere"
+    unregistered.mkdir()
+    result = _invoke_codex_bootstrap(
+        {"hook_event_name": "SessionStart", "cwd": str(unregistered), "session_id": "outside"}
+    )
+    assert result.exit_code == 0
+    assert result.output == ""
+
+
+def test_codex_bootstrap_malformed_input_exits_zero_empty():
+    for stdin in ("{not json", "[]", "{}"):
+        result = runner.invoke(app, ["hook", "codex-bootstrap"], input=stdin)
+        assert result.exit_code == 0
+        assert result.output == ""
+
+
+def test_codex_bootstrap_context_failure_exits_zero_empty(tmp_path: Path, monkeypatch):
+    from nauro.mcp import payloads
+
+    repo, _store_path = _make_project(tmp_path)
+
+    def fail_context(_store_path: Path) -> str:
+        raise OSError("unreadable store")
+
+    monkeypatch.setattr(payloads, "build_l0_payload", fail_context)
+    result = _invoke_codex_bootstrap(
+        {"hook_event_name": "SubagentStart", "cwd": str(repo), "session_id": "failure"}
+    )
+    assert result.exit_code == 0
+    assert result.output == ""
+
+
+def test_hook_stdin_is_decoded_as_utf8_from_binary_stream(monkeypatch):
+    expected = '{"cwd":"C:/équipe/référentiel"}'
+
+    class LocaleBoundStdin:
+        buffer = io.BytesIO(expected.encode("utf-8"))
+
+        def read(self):
+            raise AssertionError("locale-bound text input must not be used")
+
+    monkeypatch.setattr(hook.sys, "stdin", LocaleBoundStdin())
+
+    assert hook._read_stdin_utf8() == expected
 
 
 # ── stdin parsing ─────────────────────────────────────────────────────────────
