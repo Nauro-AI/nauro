@@ -61,6 +61,56 @@ def test_init_force_refuses_already_claimed_repo(tmp_path, monkeypatch):
     assert sorted((tmp_path / "projects" / pid / "decisions").glob("*.md")) == seeded
 
 
+def test_demo_reuse_refuses_repo_claimed_by_another_project(tmp_path, monkeypatch):
+    real_repo = tmp_path / "real"
+    demo_repo = tmp_path / "demo"
+    real_repo.mkdir()
+    demo_repo.mkdir()
+
+    monkeypatch.chdir(real_repo)
+    real = runner.invoke(app, ["init", "real-project"])
+    assert real.exit_code == 0, real.output
+    real_pid, _entry = find_projects_by_name_v2("real-project")[0]
+    (real_repo / ".nauro" / "config.json").unlink()
+    sentinel = b"# Hand-authored agent rules\n\nKeep this file.\n"
+    (real_repo / "AGENTS.md").write_bytes(sentinel)
+
+    monkeypatch.chdir(demo_repo)
+    demo = runner.invoke(app, ["init", "--demo"])
+    assert demo.exit_code == 0, demo.output
+    demo_pid, _entry = find_projects_by_name_v2("demo-project")[0]
+
+    monkeypatch.chdir(real_repo)
+    reused = runner.invoke(app, ["init", "--demo"])
+
+    assert reused.exit_code == 1, reused.output
+    assert "already part of project 'real-project'" in reused.output
+    assert registry.get_project_v2(real_pid)["repo_paths"] == [str(real_repo.resolve())]
+    assert str(real_repo.resolve()) not in registry.get_project_v2(demo_pid)["repo_paths"]
+    assert (real_repo / "AGENTS.md").read_bytes() == sentinel
+
+
+def test_add_repo_refuses_repo_claimed_by_another_project(tmp_path, monkeypatch):
+    repo_a = tmp_path / "a"
+    repo_b = tmp_path / "b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+
+    monkeypatch.chdir(repo_a)
+    assert runner.invoke(app, ["init", "project-a"]).exit_code == 0
+    (repo_a / ".nauro" / "config.json").unlink()
+
+    monkeypatch.chdir(repo_b)
+    assert runner.invoke(app, ["init", "project-b"]).exit_code == 0
+    result = runner.invoke(app, ["init", "project-b", "--add-repo", str(repo_a)])
+
+    assert result.exit_code == 1, result.output
+    assert "already part of project 'project-a'" in result.output
+    project_b_id, project_b = find_projects_by_name_v2("project-b")[0]
+    assert project_b["repo_paths"] == [str(repo_b.resolve())]
+    assert registry.get_project_v2(project_b_id) == project_b
+
+
 # ── project-name validation ────────────────────────────────────────────────────
 
 # Names the locked validation rules reject: empty / whitespace-only,

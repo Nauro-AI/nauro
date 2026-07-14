@@ -153,6 +153,44 @@ def test_remove_deletes_empty_settings_file(tmp_path: Path):
     assert not _settings(repo).is_file()
 
 
+def test_claude_hook_round_trip_preserves_empty_user_matcher(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    user_matcher = {"matcher": "startup", "hooks": []}
+    settings_path.write_text(
+        json.dumps({"hooks": {HOOK_EVENT_NAME: [user_matcher]}}),
+        encoding="utf-8",
+    )
+
+    materialize_hooks_claude_code(repo, remove=False)
+    materialize_hooks_claude_code(repo, remove=True)
+
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert settings == {"hooks": {HOOK_EVENT_NAME: [user_matcher]}}
+
+
+def test_claude_hook_remove_preserves_matcher_metadata(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    materialize_hooks_claude_code(repo, remove=False)
+    settings_path = _settings(repo)
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    nauro_entry = _nauro_entries(settings)[0]
+    settings["hooks"][HOOK_EVENT_NAME] = [
+        {"matcher": "startup", "custom": "keep", "hooks": [nauro_entry]}
+    ]
+    settings_path.write_text(json.dumps(settings), encoding="utf-8")
+
+    materialize_hooks_claude_code(repo, remove=True)
+
+    after = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert after["hooks"][HOOK_EVENT_NAME] == [
+        {"matcher": "startup", "custom": "keep", "hooks": []}
+    ]
+
+
 def test_materialize_codex_writes_both_lifecycle_events(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -340,6 +378,25 @@ def test_materialize_codex_is_idempotent_and_preserves_user_hooks(tmp_path: Path
     assert config["theme"] == "dark"
 
 
+def test_materialize_codex_preserves_empty_non_ascii_user_matcher(tmp_path: Path):
+    repo = tmp_path / "repo"
+    hooks_path = _codex_hooks(repo)
+    hooks_path.parent.mkdir(parents=True)
+    user_matcher = {"matcher": "démarrage", "hooks": []}
+    hooks_path.write_text(
+        json.dumps({"hooks": {"SessionStart": [user_matcher]}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    materialize_hooks_codex(repo, remove=False)
+    after_add = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert after_add["hooks"]["SessionStart"][0] == user_matcher
+
+    materialize_hooks_codex(repo, remove=True)
+    after_remove = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert after_remove == {"hooks": {"SessionStart": [user_matcher]}}
+
+
 def test_materialize_codex_refreshes_recorded_command(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -389,6 +446,24 @@ def test_remove_codex_strips_only_nauro_entries(tmp_path: Path):
         "SessionStart": [{"hooks": [{"type": "command", "command": "load-notes"}]}]
     }
     assert config["theme"] == "dark"
+
+
+def test_remove_codex_preserves_matcher_metadata_when_nauro_is_only_hook(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    materialize_hooks_codex(repo, remove=False)
+    hooks_path = _codex_hooks(repo)
+    config = json.loads(hooks_path.read_text(encoding="utf-8"))
+    nauro_entry = _codex_nauro_entries(config, "SessionStart")[0]
+    config["hooks"]["SessionStart"] = [
+        {"matcher": "startup", "custom": "keep", "hooks": [nauro_entry]}
+    ]
+    hooks_path.write_text(json.dumps(config), encoding="utf-8")
+
+    materialize_hooks_codex(repo, remove=True)
+
+    after = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert after["hooks"]["SessionStart"] == [{"matcher": "startup", "custom": "keep", "hooks": []}]
 
 
 # ── CLI integration via `setup claude-code --with-hooks` ───────────────────────
@@ -450,6 +525,57 @@ def test_setup_codex_remove_with_hooks_preserves_user_entries(tmp_path: Path, mo
     assert config["hooks"] == {"Stop": [{"hooks": [{"type": "command", "command": "cleanup"}]}]}
 
 
+def test_setup_codex_remove_cleans_hooks_without_with_hooks(tmp_path: Path, monkeypatch):
+    repo, _store = _make_project(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(repo)
+    added = runner.invoke(app, ["setup", "codex", "--with-hooks"])
+    assert added.exit_code == 0, added.output
+
+    result = runner.invoke(app, ["setup", "codex", "--remove"])
+
+    assert result.exit_code == 0, result.output
+    assert not _codex_hooks(repo).exists()
+    assert "removed nauro hooks" in result.output
+
+
+def test_setup_codex_remove_outside_project_still_removes_global_config(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    config_path = tmp_path / ".codex" / "config.toml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        '[mcp_servers.nauro]\ncommand = "nauro"\nargs = ["serve", "--stdio"]\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["setup", "codex", "--remove", "--with-hooks"])
+
+    assert result.exit_code == 0, result.output
+    assert "Codex: removed nauro" in result.output
+    assert "Project-scoped Codex hooks were not removed" in result.output
+    assert "nauro" not in config_path.read_text(encoding="utf-8")
+
+
+def test_setup_codex_remove_cleans_orphaned_repo_hooks(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "orphaned-repo"
+    nested = repo / "nested"
+    nested.mkdir(parents=True)
+    materialize_hooks_codex(repo, remove=False)
+    monkeypatch.chdir(nested)
+
+    result = runner.invoke(app, ["setup", "codex", "--remove"])
+
+    assert result.exit_code == 0, result.output
+    assert "removed nauro hooks" in result.output
+    assert not _codex_hooks(repo).exists()
+
+
 # ── setup all integration ──────────────────────────────────────────────────────
 
 
@@ -502,6 +628,16 @@ def test_setup_all_without_hooks_writes_nothing(tmp_path: Path):
     setup_all_surfaces([repo])
     assert not _settings(repo).is_file()
     assert not _codex_hooks(repo).is_file()
+
+
+def test_setup_all_remove_cleans_existing_hooks_without_with_hooks(tmp_path: Path):
+    repo, _store = _make_project(tmp_path)
+    setup_all_surfaces([repo], with_hooks=True)
+
+    setup_all_surfaces([repo], remove=True)
+
+    assert not _settings(repo).exists()
+    assert not _codex_hooks(repo).exists()
 
 
 def test_is_nauro_hook_matches_regardless_of_entrypoint_name():

@@ -69,6 +69,75 @@ def test_attach_happy_path(tmp_path, monkeypatch):
 
     store_path = tmp_path / "projects" / EXAMPLE_PID
     assert store_path.is_dir()
+    assert (tmp_path / "AGENTS.md").is_file()
+    assert "## Project: team-proj" in (tmp_path / "AGENTS.md").read_text()
+
+
+def test_attach_preserves_hand_authored_agents_md(tmp_path, monkeypatch):
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+    sentinel = b"# Team agent rules\n\nKeep these instructions.\n"
+    (tmp_path / "AGENTS.md").write_bytes(sentinel)
+    handler = _list_response(
+        [
+            {
+                "project_id": EXAMPLE_PID,
+                "name": "team-proj",
+                "role": "viewer",
+                "created_at": "2026-04-27T00:00:00Z",
+            }
+        ]
+    )
+
+    with patch.object(cloud_projects.httpx, "request", side_effect=handler):
+        result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "AGENTS.md").read_bytes() == sentinel
+    assert "existing AGENTS.md is not Nauro-generated" in result.output
+
+
+def test_attach_refuses_existing_project_config_before_network(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    initialized = runner.invoke(app, ["init", "existing-project"])
+    assert initialized.exit_code == 0, initialized.output
+    config_before = (tmp_path / ".nauro" / "config.json").read_bytes()
+    agents_before = (tmp_path / "AGENTS.md").read_bytes()
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("collision must be rejected before membership lookup")
+
+    with patch.object(cloud_projects.httpx, "request", side_effect=explode):
+        result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 1, result.output
+    assert "Refusing to overwrite existing .nauro/config.json" in result.output
+    assert (tmp_path / ".nauro" / "config.json").read_bytes() == config_before
+    assert (tmp_path / "AGENTS.md").read_bytes() == agents_before
+    assert registry.get_project_v2(EXAMPLE_PID) is None
+
+
+def test_attach_refuses_registry_claim_when_repo_config_is_absent(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    initialized = runner.invoke(app, ["init", "existing-project"])
+    assert initialized.exit_code == 0, initialized.output
+    existing_id, existing_entry = registry.find_projects_by_name_v2("existing-project")[0]
+    (tmp_path / ".nauro" / "config.json").unlink()
+    agents_before = (tmp_path / "AGENTS.md").read_bytes()
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("collision must be rejected before membership lookup")
+
+    with patch.object(cloud_projects.httpx, "request", side_effect=explode):
+        result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 1, result.output
+    assert "already part of project 'existing-project'" in result.output
+    assert registry.get_project_v2(existing_id) == existing_entry
+    assert registry.get_project_v2(EXAMPLE_PID) is None
+    assert not (tmp_path / ".nauro" / "config.json").exists()
+    assert (tmp_path / "AGENTS.md").read_bytes() == agents_before
 
 
 def test_attach_from_home_is_refused_before_any_network_call(tmp_path, monkeypatch):

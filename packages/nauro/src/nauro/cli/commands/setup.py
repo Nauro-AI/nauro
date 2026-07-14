@@ -20,15 +20,18 @@ from pathlib import Path
 import typer
 
 from nauro.cli import utils as cli_utils
+from nauro.cli.commands.hook import CODEX_HOOK_EVENTS
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
 from nauro.store.reader import read_text_lenient
 from nauro.store.registry import (
     RegistrySchemaError,
+    get_repo_paths,
     load_registry,
     load_registry_v2,
 )
+from nauro.store.resolution import resolve_from_cwd
 from nauro.templates.agents_md import (
     regenerate_agents_md_for_project,
     remove_generated_agents_md,
@@ -217,7 +220,7 @@ def _configure_json_mcp(
         try:
             config = json.loads(config_path.read_text())
         except json.JSONDecodeError as exc:
-            return f"  {repo_path}: could not parse {label} — {exc}"
+            return f"  {repo_path}: could not parse {label} - {exc}"
     else:
         config = {}
 
@@ -352,7 +355,7 @@ def claude_code(
             try:
                 hook_results.append(materialize_hooks_claude_code(repo_path, remove=remove))
             except Exception as exc:
-                hook_results.append(f"  {repo_path}: hook wiring error — {exc}")
+                hook_results.append(f"  {repo_path}: hook wiring error - {exc}")
 
     if not remove:
         pruned = _prune_redundant_user_scope_mcp()
@@ -479,7 +482,7 @@ def _configure_codex(
             with config_path.open("rb") as f:
                 config = tomllib.load(f)
         except tomllib.TOMLDecodeError as exc:
-            return f"Codex: could not parse {config_path} — {exc}"
+            return f"Codex: could not parse {config_path} - {exc}"
     else:
         config = {}
 
@@ -506,6 +509,17 @@ def _configure_codex(
     return f"Codex: wrote nauro to {config_path}"
 
 
+def _nearest_codex_hooks_repo(start: Path) -> Path | None:
+    resolved = start.resolve()
+    home = Path.home().resolve()
+    for candidate in (resolved, *resolved.parents):
+        if candidate == home:
+            break
+        if (candidate / ".codex" / "hooks.json").is_file():
+            return candidate
+    return None
+
+
 @setup_app.command(name="codex")
 def codex(
     remove: bool = typer.Option(
@@ -516,13 +530,14 @@ def codex(
         "--with-hooks",
         help=(
             "Wire Nauro's SessionStart and SubagentStart hooks into each repo's "
-            "project-scope .codex/hooks.json. Codex requires review through /hooks."
+            "project-scope .codex/hooks.json. Codex requires review through /hooks. "
+            "Removal cleans up existing hooks without this flag."
         ),
     ),
 ) -> None:
     """Configure Codex CLI to use Nauro (writes '~/.codex/config.toml')."""
     hook_repos: list[Path] = []
-    if with_hooks:
+    if with_hooks and not remove:
         project_name, store_path = resolve_target_project(None)
         entry = _resolve_project_entry(project_name, store_path.name)
         hook_repos = [Path(repo_path) for repo_path in entry["repo_paths"]]
@@ -533,8 +548,30 @@ def codex(
     clear_user_scope = _user_scope_safe_to_clear(None) if remove else True
     typer.echo(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
 
-    if with_hooks:
+    hook_cleanup_unresolved = False
+    if remove:
+        try:
+            resolution = resolve_from_cwd(Path.cwd())
+            hook_repos = (
+                [Path(repo_path) for repo_path in get_repo_paths(resolution.project_id)]
+                if resolution is not None
+                else []
+            )
+            nearest_hooks_repo = _nearest_codex_hooks_repo(Path.cwd())
+            if nearest_hooks_repo is not None and nearest_hooks_repo not in hook_repos:
+                hook_repos.append(nearest_hooks_repo)
+            hook_cleanup_unresolved = not hook_repos
+        except Exception:
+            hook_cleanup_unresolved = True
+
+    if with_hooks or remove:
         typer.echo("\nHooks:")
+        if hook_cleanup_unresolved:
+            typer.echo(
+                "  Project-scoped Codex hooks were not removed because no Nauro "
+                "project resolves from this directory. Run this command from each "
+                "wired repo to remove them."
+            )
         for repo_path in hook_repos:
             if not repo_path.is_dir():
                 typer.echo(f"  {repo_path}: repo path missing, skipped")
@@ -850,7 +887,7 @@ def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> str:
         try:
             settings = json.loads(settings_path.read_text())
         except json.JSONDecodeError as exc:
-            return f"  {repo}: could not parse .claude/settings.json — {exc}"
+            return f"  {repo}: could not parse .claude/settings.json - {exc}"
         if not isinstance(settings, dict):
             return f"  {repo}: .claude/settings.json is not a JSON object, skipped"
     else:
@@ -916,14 +953,17 @@ def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
             continue
         entries = matcher.get("hooks", [])
         kept = [e for e in entries if not _is_nauro_hook(e)]
-        if len(kept) != len(entries):
+        removed_here = len(entries) - len(kept)
+        if removed_here:
             removed = True
-        if kept:
+        if removed_here == 0:
+            surviving_matchers.append(matcher)
+        elif kept:
             matcher = {**matcher, "hooks": kept}
             surviving_matchers.append(matcher)
-        elif "hooks" not in matcher:
-            surviving_matchers.append(matcher)
-        # A matcher whose only hooks were nauro-authored is dropped entirely.
+        elif set(matcher) - {"hooks"}:
+            surviving_matchers.append({**matcher, "hooks": []})
+        # Drop only the installer-owned matcher shell with no user metadata.
 
     if not removed:
         return f"  {repo}: no nauro hook to remove"
@@ -942,7 +982,6 @@ def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
     return f"  {repo}: removed nauro hook from .claude/settings.json"
 
 
-CODEX_HOOK_EVENTS: tuple[str, ...] = ("SessionStart", "SubagentStart")
 CODEX_HOOK_SUBCOMMAND = "hook codex-bootstrap"
 CODEX_HOOK_PROBE_ARGS: tuple[str, ...] = ("hook", "codex-bootstrap", "--help")
 CODEX_HOOK_TIMEOUT_SECONDS = 10
@@ -1015,7 +1054,21 @@ def _nauro_codex_hook_entry(command: str) -> dict:
     }
 
 
-def _is_nauro_codex_hook(entry: object) -> bool:
+def _codex_hook_command_for_platform(entry: object, *, windows: bool) -> str | None:
+    if not isinstance(entry, dict):
+        return None
+    if windows:
+        windows_command = entry.get("commandWindows")
+        if isinstance(windows_command, str):
+            return windows_command
+    command = entry.get("command")
+    return command if isinstance(command, str) and command else None
+
+
+def _is_nauro_codex_hook(entry: object, *, windows: bool | None = None) -> bool:
+    if windows is not None:
+        command = _codex_hook_command_for_platform(entry, windows=windows)
+        return command is not None and _CODEX_HOOK_COMMAND_MARKER in command
     if not isinstance(entry, dict):
         return False
     return any(
@@ -1036,9 +1089,14 @@ def _strip_nauro_codex_hooks(event_matchers: list) -> tuple[list, int]:
             surviving_matchers.append(matcher)
             continue
         kept = [entry for entry in entries if not _is_nauro_codex_hook(entry)]
-        removed += len(entries) - len(kept)
-        if kept:
+        removed_here = len(entries) - len(kept)
+        removed += removed_here
+        if removed_here == 0:
+            surviving_matchers.append(matcher)
+        elif kept:
             surviving_matchers.append({**matcher, "hooks": kept})
+        elif set(matcher) - {"hooks"}:
+            surviving_matchers.append({**matcher, "hooks": []})
     return surviving_matchers, removed
 
 
@@ -1047,8 +1105,8 @@ def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
     hooks_path = _codex_hooks_path(repo)
     if hooks_path.exists():
         try:
-            config = json.loads(hooks_path.read_text())
-        except json.JSONDecodeError as exc:
+            config = json.loads(hooks_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             return f"  {repo}: could not parse .codex/hooks.json - {exc}"
         if not isinstance(config, dict):
             return f"  {repo}: .codex/hooks.json is not a JSON object, skipped"
@@ -1086,7 +1144,7 @@ def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
         if not hooks:
             config.pop("hooks", None)
         if config:
-            hooks_path.write_text(json.dumps(config, indent=2) + "\n")
+            hooks_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
         else:
             hooks_path.unlink()
         return f"  {repo}: removed nauro hooks from .codex/hooks.json"
@@ -1098,10 +1156,10 @@ def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
     rendered = json.dumps(config, indent=2) + "\n"
     unchanged = removed == len(CODEX_HOOK_EVENTS) and hooks_path.exists()
     if unchanged:
-        unchanged = hooks_path.read_text() == rendered
+        unchanged = hooks_path.read_text(encoding="utf-8") == rendered
     if unchanged:
         return f"  {repo}: nauro hooks already present in .codex/hooks.json"
-    hooks_path.write_text(rendered)
+    hooks_path.write_text(rendered, encoding="utf-8")
     lines = [f"  {repo}: wrote nauro hooks to .codex/hooks.json"]
     lines.extend(public_surface_git_warnings(repo, ".codex/hooks.json"))
     return "\n".join(lines)
@@ -1182,14 +1240,14 @@ def setup_all_surfaces(
         try:
             lines.append(_configure_mcp(repo, remove=remove))
         except Exception as exc:
-            lines.append(f"Claude Code MCP ({repo}): error — {exc}")
+            lines.append(f"Claude Code MCP ({repo}): error - {exc}")
     if not remove:
         try:
             pruned = _prune_redundant_user_scope_mcp()
             if pruned:
                 lines.append(pruned)
         except Exception as exc:  # never let cleanup break wiring
-            lines.append(f"Claude Code MCP (user-scope cleanup): error — {exc}")
+            lines.append(f"Claude Code MCP (user-scope cleanup): error - {exc}")
     try:
         lines.extend(
             materialize_skills_claude_code(
@@ -1199,7 +1257,7 @@ def setup_all_surfaces(
             )
         )
     except Exception as exc:
-        lines.append(f"Claude Code skills: error — {exc}")
+        lines.append(f"Claude Code skills: error - {exc}")
 
     if with_subagents:
         try:
@@ -1212,16 +1270,16 @@ def setup_all_surfaces(
                 )
             )
         except Exception as exc:
-            lines.append(f"Claude Code agents: error — {exc}")
+            lines.append(f"Claude Code agents: error - {exc}")
 
-    if with_hooks:
+    if with_hooks or remove:
         for repo in project_repos:
             if not repo.is_dir():
                 continue
             try:
                 lines.append(materialize_hooks_claude_code(repo, remove=remove))
             except Exception as exc:
-                lines.append(f"Claude Code hook ({repo}): error — {exc}")
+                lines.append(f"Claude Code hook ({repo}): error - {exc}")
 
     # Cursor (MCP per-repo + skills per-repo)
     for repo in project_repos:
@@ -1230,19 +1288,19 @@ def setup_all_surfaces(
         try:
             lines.append(_configure_cursor_for_repo(repo, remove=remove))
         except Exception as exc:
-            lines.append(f"Cursor MCP ({repo}): error — {exc}")
+            lines.append(f"Cursor MCP ({repo}): error - {exc}")
         try:
             lines.extend(
                 materialize_skills_cursor_for_repo(repo, remove=remove, with_skills=with_skills)
             )
         except Exception as exc:
-            lines.append(f"Cursor skills ({repo}): error — {exc}")
+            lines.append(f"Cursor skills ({repo}): error - {exc}")
 
     # Codex (MCP global + skills global)
     try:
         lines.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
     except Exception as exc:
-        lines.append(f"Codex MCP: error — {exc}")
+        lines.append(f"Codex MCP: error - {exc}")
     try:
         lines.extend(
             materialize_skills_codex(
@@ -1252,9 +1310,9 @@ def setup_all_surfaces(
             )
         )
     except Exception as exc:
-        lines.append(f"Codex skills: error — {exc}")
+        lines.append(f"Codex skills: error - {exc}")
 
-    if with_hooks:
+    if with_hooks or remove:
         for repo in project_repos:
             if not repo.is_dir():
                 continue
@@ -1273,7 +1331,7 @@ def setup_all_surfaces(
                 lines.append(f"  {repo_path}: regenerated AGENTS.md")
                 lines.extend(public_surface_git_warnings(repo_path, "AGENTS.md"))
         except Exception as exc:
-            lines.append(f"AGENTS.md regeneration: error — {exc}")
+            lines.append(f"AGENTS.md regeneration: error - {exc}")
 
     # Mirror of the regen above: strip the generated AGENTS.md on teardown so a
     # removed integration leaves no orphaned context file. User content in a

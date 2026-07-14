@@ -9,6 +9,7 @@ isolated ``NAURO_HOME`` store seeded with real-shaped decision files.
 from __future__ import annotations
 
 import datetime as dt
+import io
 import json
 from pathlib import Path
 
@@ -211,6 +212,20 @@ def test_codex_bootstrap_context_failure_exits_zero_empty(tmp_path: Path, monkey
     )
     assert result.exit_code == 0
     assert result.output == ""
+
+
+def test_hook_stdin_is_decoded_as_utf8_from_binary_stream(monkeypatch):
+    expected = '{"cwd":"C:/équipe/référentiel"}'
+
+    class LocaleBoundStdin:
+        buffer = io.BytesIO(expected.encode("utf-8"))
+
+        def read(self):
+            raise AssertionError("locale-bound text input must not be used")
+
+    monkeypatch.setattr(hook.sys, "stdin", LocaleBoundStdin())
+
+    assert hook._read_stdin_utf8() == expected
 
 
 # ── stdin parsing ─────────────────────────────────────────────────────────────

@@ -130,7 +130,7 @@ nauro init my-project
 nauro setup claude-code   # or: nauro setup all
 ```
 
-`nauro init` writes `.nauro/config.json` and generates `AGENTS.md` immediately, including for `--demo` and `--add-repo`. Commit `.nauro/config.json`; review the generated project context before deciding whether `AGENTS.md` belongs in the repository. For cloud sync from the start, run `nauro auth login` first, then `nauro init --cloud my-project`.
+`nauro init` and `nauro attach` write `.nauro/config.json` and generate `AGENTS.md` immediately, including for `--demo` and `--add-repo`. If the repo already has a hand-authored `AGENTS.md`, Nauro warns and leaves it unchanged. Commit `.nauro/config.json`; review generated project context before deciding whether `AGENTS.md` belongs in the repository. For cloud sync from the start, run `nauro auth login` first, then `nauro init --cloud my-project`.
 
 **One project across several repos:** the store lives outside any repo, so multiple repos can share it. Associate another repo with an existing project from inside that repo:
 

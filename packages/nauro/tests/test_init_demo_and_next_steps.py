@@ -48,6 +48,18 @@ def test_demo_in_non_git_dir_does_not_warn(tmp_path, monkeypatch):
     assert "## Project: demo-project" in (tmp_path / "AGENTS.md").read_text()
 
 
+def test_demo_preserves_hand_authored_agents_md(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    sentinel = b"# Demo repo agent rules\n\nKeep these instructions.\n"
+    (tmp_path / "AGENTS.md").write_bytes(sentinel)
+
+    result = runner.invoke(app, ["init", "--demo"])
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "AGENTS.md").read_bytes() == sentinel
+    assert "existing AGENTS.md is not Nauro-generated" in result.output
+
+
 # ── demo entry reuse ─────────────────────────────────────────────────────────────
 
 

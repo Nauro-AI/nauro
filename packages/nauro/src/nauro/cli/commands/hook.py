@@ -63,7 +63,7 @@ MAX_DEDUP_ENTRIES_PER_SESSION = 200
 _PREAMBLE = "Nauro: prior decisions may bear on this request — advisory only, not a block."
 _INSTRUCTION = "Review these and call get_decision before acting on anything they constrain."
 
-_CODEX_BOOTSTRAP_EVENTS = frozenset({"SessionStart", "SubagentStart"})
+CODEX_HOOK_EVENTS: tuple[str, ...] = ("SessionStart", "SubagentStart")
 _CODEX_L0_HEADING = "## Nauro project context (L0)"
 
 
@@ -96,9 +96,9 @@ def codex_bootstrap() -> None:
 
 
 def _run_codex_bootstrap() -> None:
-    payload = json.loads(sys.stdin.read())
+    payload = json.loads(_read_stdin_utf8())
     event_name = payload.get("hook_event_name")
-    if not isinstance(event_name, str) or event_name not in _CODEX_BOOTSTRAP_EVENTS:
+    if not isinstance(event_name, str) or event_name not in CODEX_HOOK_EVENTS:
         return
 
     cwd = payload.get("cwd")
@@ -126,7 +126,7 @@ def _format_codex_bootstrap_context(l0_payload: str) -> str:
 
 
 def _run_user_prompt_submit() -> None:
-    payload = json.loads(sys.stdin.read())
+    payload = json.loads(_read_stdin_utf8())
     prompt = payload.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return
@@ -165,6 +165,14 @@ def _run_user_prompt_submit() -> None:
         }
     }
     sys.stdout.write(json.dumps(output))
+
+
+def _read_stdin_utf8() -> str:
+    buffer = getattr(sys.stdin, "buffer", None)
+    if buffer is None:
+        return sys.stdin.read()
+    raw = buffer.read()
+    return raw.decode("utf-8") if isinstance(raw, bytes) else raw
 
 
 def _resolve_store_path(cwd: Path) -> Path | None:

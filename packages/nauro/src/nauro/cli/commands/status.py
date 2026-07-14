@@ -1,6 +1,8 @@
 """nauro status — Show capability table for the current project."""
 
 import json
+import os
+import re
 import shlex
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +11,10 @@ import typer
 
 from nauro.cli import utils as cli_utils
 from nauro.cli.utils import resolve_target_project
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
 
 
 def _format_time_ago(iso_timestamp: str) -> str:
@@ -73,7 +79,7 @@ def _repo_recorded_commands(repo: Path) -> list[str | None]:
     commands: list[str | None] = []
     for rel in (".mcp.json", ".cursor/mcp.json"):
         try:
-            config = json.loads((repo / rel).read_text())
+            config = json.loads((repo / rel).read_text(encoding="utf-8"))
         except Exception:
             continue
         if not isinstance(config, dict):
@@ -116,7 +122,7 @@ def _codex_recorded_command() -> tuple[bool, str | None]:
 
 
 def _probe_distinct_commands(
-    commands: set[str], hook_commands: set[str] | None = None
+    commands: set[str], *, args: tuple[str, ...] = ("--version",)
 ) -> dict[str, bool]:
     """Probe each distinct recorded command once for liveness.
 
@@ -124,16 +130,7 @@ def _probe_distinct_commands(
     a single short probe. ``probe_nauro_command`` soft-fails by contract, so a
     dead command costs at most its timeout, never an exception.
     """
-    from nauro.cli.commands.setup import CODEX_HOOK_PROBE_ARGS
-
-    hook_commands = hook_commands or set()
-    return {
-        cmd: cli_utils.probe_nauro_command(
-            cmd,
-            args=CODEX_HOOK_PROBE_ARGS if cmd in hook_commands else ("--version",),
-        )
-        for cmd in commands
-    }
+    return {cmd: cli_utils.probe_nauro_command(cmd, args=args) for cmd in commands}
 
 
 def _repo_has_generated_agents_md(repo: Path) -> bool:
@@ -145,20 +142,55 @@ def _repo_has_generated_agents_md(repo: Path) -> bool:
     from nauro.templates.agents_md import FOOTER_MARKER
 
     try:
-        return FOOTER_MARKER in (repo / "AGENTS.md").read_text()
+        return FOOTER_MARKER in (repo / "AGENTS.md").read_text(encoding="utf-8")
     except Exception:
         return False
 
 
-def _codex_hook_recorded_command(entry: object) -> str | None:
+def _codex_hook_recorded_command(
+    entry: object,
+    *,
+    windows: bool | None = None,
+) -> str | None:
     """Return the Nauro executable recorded in a Codex bootstrap hook."""
-    from nauro.cli.commands.setup import CODEX_HOOK_SUBCOMMAND
+    from nauro.cli.commands.setup import (
+        _codex_hook_command_for_platform,
+        _is_nauro_codex_hook,
+    )
 
-    if not isinstance(entry, dict):
+    windows = _is_windows() if windows is None else windows
+    if not _is_nauro_codex_hook(entry, windows=windows):
         return None
-    command = entry.get("command")
-    if not isinstance(command, str) or CODEX_HOOK_SUBCOMMAND not in command:
+    command = _codex_hook_command_for_platform(entry, windows=windows)
+    if command is None:
         return None
+    uses_windows_override = (
+        windows
+        and isinstance(entry, dict)
+        and isinstance(entry.get("commandWindows"), str)
+        and bool(entry["commandWindows"])
+    )
+    if uses_windows_override:
+        quoted = re.search(
+            r"&\s+'((?:[^']|'')+)'\s+hook\s+codex-bootstrap(?:\s|[;}])",
+            command,
+        )
+        if quoted is not None:
+            return quoted.group(1).replace("''", "'")
+        bare = re.search(r"&\s+([^\s;{}]+)\s+hook\s+codex-bootstrap(?:\s|[;}])", command)
+        if bare is not None:
+            return bare.group(1)
+        direct_quoted = re.search(
+            r'^\s*"([^"]+)"\s+hook\s+codex-bootstrap(?:\s|$)',
+            command,
+        )
+        if direct_quoted is not None:
+            return direct_quoted.group(1)
+        direct_bare = re.search(
+            r"^\s*([^\s\"]+)\s+hook\s+codex-bootstrap(?:\s|$)",
+            command,
+        )
+        return direct_bare.group(1) if direct_bare is not None else None
     try:
         tokens = shlex.split(command)
     except ValueError:
@@ -172,10 +204,10 @@ def _codex_hook_recorded_command(entry: object) -> str | None:
 
 def _repo_codex_hook_state(repo: Path) -> tuple[bool, bool, list[str | None]]:
     """Return presence, structural completeness, and commands for Codex hooks."""
-    from nauro.cli.commands.setup import CODEX_HOOK_EVENTS, CODEX_HOOK_SUBCOMMAND
+    from nauro.cli.commands.setup import CODEX_HOOK_EVENTS, _is_nauro_codex_hook
 
     try:
-        config = json.loads((repo / ".codex" / "hooks.json").read_text())
+        config = json.loads((repo / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     except Exception:
         return (False, False, [])
     if not isinstance(config, dict):
@@ -197,13 +229,7 @@ def _repo_codex_hook_state(repo: Path) -> tuple[bool, bool, list[str | None]]:
                 if not isinstance(entries, list):
                     continue
                 for entry in entries:
-                    if not isinstance(entry, dict):
-                        continue
-                    fields = (entry.get("command"), entry.get("commandWindows"))
-                    if not any(
-                        isinstance(value, str) and CODEX_HOOK_SUBCOMMAND in value
-                        for value in fields
-                    ):
+                    if not _is_nauro_codex_hook(entry, windows=_is_windows()):
                         continue
                     found = True
                     commands.append(_codex_hook_recorded_command(entry))
@@ -250,7 +276,7 @@ def status(
     if shared:
         typer.echo(
             f"  Warning: {len(shared)} other local project(s) share the name "
-            f"'{project_name}'. They are separate stores — run `nauro projects` to inspect.\n",
+            f"'{project_name}'. They are separate stores - run `nauro projects` to inspect.\n",
             err=True,
         )
 
@@ -268,11 +294,11 @@ def status(
         typer.echo("  Sync          active (event-driven, presign)")
     elif not is_cloud:
         typer.echo(
-            "  Sync          inactive — local-only project."
+            "  Sync          inactive - local-only project."
             " Enable with 'nauro auth login', then 'nauro link --cloud'."
         )
     else:
-        typer.echo("  Sync          inactive — run 'nauro auth login' to enable")
+        typer.echo("  Sync          inactive - run 'nauro auth login' to enable")
 
     # MCP + AGENTS.md — computed from on-disk wiring, never assumed. Every
     # probe is guarded (same rationale as the shared-name check above): a
@@ -301,22 +327,32 @@ def status(
         codex_hook_states = []
     configured_states = [state for state in codex_hook_states if state[0]]
 
-    recorded_commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
+    mcp_recorded_commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
     if codex_command:
-        recorded_commands.add(codex_command)
+        mcp_recorded_commands.add(codex_command)
     hook_recorded_commands = {
         command
         for _present, _complete, commands in configured_states
         for command in commands
         if command
     }
-    recorded_commands.update(hook_recorded_commands)
-    probe_results: dict[str, bool] | None = None
-    if not no_probe and recorded_commands:
+    mcp_probe_results: dict[str, bool] | None = None
+    hook_probe_results: dict[str, bool] | None = None
+    if not no_probe and mcp_recorded_commands:
         try:
-            probe_results = _probe_distinct_commands(recorded_commands, hook_recorded_commands)
+            mcp_probe_results = _probe_distinct_commands(mcp_recorded_commands)
         except Exception:
-            probe_results = None
+            pass
+    if not no_probe and hook_recorded_commands:
+        from nauro.cli.commands.setup import CODEX_HOOK_PROBE_ARGS
+
+        try:
+            hook_probe_results = _probe_distinct_commands(
+                hook_recorded_commands,
+                args=CODEX_HOOK_PROBE_ARGS,
+            )
+        except Exception:
+            pass
 
     if mcp_wired or codex_global:
         details = []
@@ -331,21 +367,20 @@ def status(
         # wired-but-dead install renders BROKEN instead of a false-green active.
         healthy = True
         if not no_probe:
-            mcp_commands = {cmd for cmds in repo_commands for cmd in cmds if cmd}
-            if codex_command:
-                mcp_commands.add(codex_command)
-            if probe_results is not None and mcp_commands:
-                healthy = all(probe_results.get(command, True) for command in mcp_commands)
+            if mcp_probe_results is not None and mcp_recorded_commands:
+                healthy = all(
+                    mcp_probe_results.get(command, True) for command in mcp_recorded_commands
+                )
 
         if healthy:
             typer.echo(f"  MCP           active ({detail_str})")
         else:
             typer.echo(
-                f"  MCP           BROKEN — {detail_str} but the recorded command "
+                f"  MCP           BROKEN - {detail_str} but the recorded command "
                 "won't run; re-run 'nauro setup all'"
             )
     else:
-        typer.echo("  MCP           inactive — run 'nauro setup all'")
+        typer.echo("  MCP           inactive - run 'nauro setup all'")
 
     if configured_states:
         hook_detail = f"wired in {len(configured_states)}/{len(repo_paths)} repos"
@@ -360,17 +395,11 @@ def status(
             )
         elif no_probe:
             typer.echo(f"  Codex hooks   configured ({hook_detail}; liveness not probed)")
-        elif probe_results is None:
+        elif hook_probe_results is None:
             typer.echo(f"  Codex hooks   configured ({hook_detail}; liveness unknown)")
         else:
-            hook_commands = {
-                command
-                for _present, _complete, commands in configured_states
-                for command in commands
-                if command
-            }
             hook_command_healthy = all(
-                probe_results.get(command, True) for command in hook_commands
+                hook_probe_results.get(command, True) for command in hook_recorded_commands
             )
             if hook_command_healthy:
                 typer.echo(f"  Codex hooks   configured ({hook_detail}; command healthy)")
@@ -390,7 +419,7 @@ def status(
     if agents_generated:
         typer.echo(f"  AGENTS.md     active ({agents_generated}/{len(repo_paths)} repos)")
     else:
-        typer.echo("  AGENTS.md     inactive — run 'nauro sync'")
+        typer.echo("  AGENTS.md     inactive - run 'nauro sync'")
 
     # Decision counts and sync divergence
     from nauro.store.reader import _list_decisions
