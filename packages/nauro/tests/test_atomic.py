@@ -1,6 +1,7 @@
 """Tests for the atomic text-write primitive in ``nauro.store._atomic``."""
 
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -37,6 +38,27 @@ def test_mode_none_does_not_force_0o600(tmp_path):
     p = tmp_path / "open.json"
     atomic_write_text(p, "{}\n")
     assert (p.stat().st_mode & 0o777) == (control.stat().st_mode & 0o777)
+
+
+def test_modeless_stat_error_other_than_missing_propagates(tmp_path, monkeypatch):
+    """A stat failure that is not "file missing" must propagate, not be read as
+    a new file: silently treating it as new would drop an existing target's
+    permission bits."""
+    p = tmp_path / "out.json"
+    p.write_text("old\n")
+    p.chmod(0o640)
+    real_stat = Path.stat
+
+    def fake_stat(self, *args, **kwargs):
+        if self == p:
+            raise PermissionError("stat blocked")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(_atomic.Path, "stat", fake_stat)
+    with pytest.raises(PermissionError):
+        atomic_write_text(p, "new\n")
+    assert p.read_text() == "old\n"  # target untouched
+    assert list(tmp_path.iterdir()) == [p]  # no tmp sibling left behind
 
 
 def test_creates_missing_parent_dirs(tmp_path):

@@ -82,9 +82,11 @@ def atomic_write_text(
         try:
             final_mode = stat.S_IMODE(path.stat().st_mode)
             creation_mode = 0o600
-        except OSError:
-            # New non-sensitive file: the umask-applied creation mode is
-            # already the final mode, no chmod needed.
+        except FileNotFoundError:
+            # No existing file: the umask-applied creation mode is already the
+            # final mode, no chmod needed. Any other stat error (permissions,
+            # not-a-directory) propagates rather than silently dropping an
+            # existing target's bits.
             final_mode = None
             creation_mode = 0o666
     fd, tmp = _open_random_tmp(path, creation_mode)
