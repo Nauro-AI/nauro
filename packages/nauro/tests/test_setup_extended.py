@@ -749,6 +749,21 @@ def test_prune_soft_fails_on_malformed_json(tmp_path: Path, monkeypatch):
     assert _prune_redundant_user_scope_mcp() is None
 
 
+def test_prune_reports_invalid_utf8_claude_json(tmp_path: Path, monkeypatch):
+    """A non-UTF-8 ~/.claude.json must not raise; the skip names the file so
+    the user knows the prune did not run."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    raw = b'\xff\xfe{"mcpServers": {}}'
+    (tmp_path / ".claude.json").write_bytes(raw)
+
+    msg = _prune_redundant_user_scope_mcp()
+
+    assert msg is not None
+    assert "~/.claude.json" in msg
+    assert "UTF-8" in msg
+    assert (tmp_path / ".claude.json").read_bytes() == raw
+
+
 def test_setup_all_prunes_redundant_http_entry(tmp_path: Path, monkeypatch):
     """``setup all`` removes the colliding user-scope HTTP nauro entry on the add path."""
     monkeypatch.setenv("HOME", str(tmp_path))

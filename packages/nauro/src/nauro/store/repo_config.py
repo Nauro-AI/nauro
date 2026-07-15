@@ -151,12 +151,16 @@ def load_repo_config(repo_root: Path) -> dict:
         FileNotFoundError: When the config file does not exist.
         RepoConfigSchemaError: When the file is missing required fields,
             advertises an unknown schema_version, or is corrupt/unparseable
-            JSON. Corrupt JSON is remapped here so a single typed error family
-            covers both schema-mismatch and corruption, letting callers
-            degrade gracefully on either.
+            JSON or not valid UTF-8. Corruption is remapped here so a single
+            typed error family covers both schema-mismatch and corruption,
+            letting callers degrade gracefully on either.
     """
     path = repo_config_path(repo_root)
-    text = path.read_text()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        logger.warning("Corrupt repo config at %s: %s", path, exc)
+        raise RepoConfigSchemaError(f"Repo config at {path} is not valid UTF-8.") from exc
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:

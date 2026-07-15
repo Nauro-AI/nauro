@@ -92,6 +92,37 @@ class TestMCPConfigDirectWrite:
         assert "could not parse .mcp.json" in result
         assert (repo / ".mcp.json").read_text() == "{not json"
 
+    def test_add_surfaces_invalid_utf8_without_clobbering(self, tmp_path: Path):
+        """A non-UTF-8 `.mcp.json` surfaces the parse-error status instead of
+        raising, and the existing bytes are left untouched."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        raw = b'\xff\xfe{"mcpServers": {}}'
+        (repo / ".mcp.json").write_bytes(raw)
+
+        result = _configure_mcp(repo, remove=False)
+
+        assert "could not parse .mcp.json" in result
+        assert (repo / ".mcp.json").read_bytes() == raw
+
+    def test_add_round_trips_non_ascii_content_as_utf8(self, tmp_path: Path):
+        """Existing non-ASCII server config survives the add as UTF-8 bytes,
+        independent of the platform's locale encoding."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        seeded = json.dumps(
+            {"mcpServers": {"other": {"command": "café", "args": []}}},
+            ensure_ascii=False,
+        )
+        (repo / ".mcp.json").write_bytes(seeded.encode("utf-8"))
+
+        result = _configure_mcp(repo, remove=False)
+
+        assert "wrote nauro to .mcp.json" in result
+        data = json.loads((repo / ".mcp.json").read_bytes().decode("utf-8"))
+        assert data["mcpServers"]["other"]["command"] == "café"
+        assert "nauro" in data["mcpServers"]
+
     def test_remove_deletes_nauro_entry_and_unlinks_empty_file(self, tmp_path: Path):
         """Remove the nauro entry; if mcpServers becomes empty, drop the file."""
         repo = tmp_path / "repo"

@@ -98,6 +98,22 @@ def test_materialize_is_idempotent(tmp_path: Path):
     assert len(_nauro_entries(settings)) == 1
 
 
+def test_materialize_surfaces_invalid_utf8_settings(tmp_path: Path):
+    """A non-UTF-8 settings file surfaces the parse-error status instead of
+    raising, and the existing bytes are left untouched."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    raw = b'\xff\xfe{"hooks": {}}'
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_bytes(raw)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert "could not parse .claude/settings.json" in line
+    assert settings_path.read_bytes() == raw
+
+
 # ── direct helper: remove path ─────────────────────────────────────────────────
 
 

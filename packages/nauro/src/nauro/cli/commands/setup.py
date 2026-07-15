@@ -236,8 +236,8 @@ def _configure_json_mcp(
 
     if config_path.exists():
         try:
-            config = json.loads(config_path.read_text())
-        except json.JSONDecodeError as exc:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             return f"  {repo_path}: could not parse {label} - {exc}"
     else:
         config = {}
@@ -256,7 +256,7 @@ def _configure_json_mcp(
         if not servers:
             config.pop("mcpServers", None)
         if config:
-            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
         else:
             config_path.unlink()
         return f"  {repo_path}: removed nauro from {label}"
@@ -266,7 +266,7 @@ def _configure_json_mcp(
         return f"  {repo_path}: mcpServers in {label} is not a JSON object, skipped"
     servers["nauro"] = nauro_entry
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     lines = [f"  {repo_path}: wrote nauro to {label}"]
     lines.extend(public_surface_git_warnings(repo_path, config_rel_path))
     return "\n".join(lines)
@@ -303,13 +303,16 @@ def _prune_redundant_user_scope_mcp() -> str | None:
     Only the HTTP-transport entry is pruned — a user-scope ``nauro`` defined as
     a stdio command is the user's own choice and is left alone. Soft-fails
     (never raises) so a malformed or absent file cannot break wiring. Returns a
-    status line when something was removed, otherwise ``None``.
+    status line when something was removed or when the file is not valid
+    UTF-8, otherwise ``None``.
     """
     config_path = Path.home() / ".claude.json"
     if not config_path.exists():
         return None
     try:
-        config = json.loads(config_path.read_text())
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        return "  skipped user-scope prune: ~/.claude.json is not valid UTF-8"
     except (json.JSONDecodeError, OSError):
         return None
     servers = config.get("mcpServers")
@@ -324,7 +327,7 @@ def _prune_redundant_user_scope_mcp() -> str | None:
     if not servers:
         config.pop("mcpServers", None)
     try:
-        config_path.write_text(json.dumps(config, indent=2) + "\n")
+        config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     except OSError:
         return None
     return (
@@ -920,8 +923,8 @@ def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> str:
 
     if settings_path.exists():
         try:
-            settings = json.loads(settings_path.read_text())
-        except json.JSONDecodeError as exc:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             return f"  {repo}: could not parse .claude/settings.json - {exc}"
         if not isinstance(settings, dict):
             return f"  {repo}: .claude/settings.json is not a JSON object, skipped"
@@ -966,7 +969,7 @@ def _add_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
 
     event_matchers.append({"hooks": [_nauro_hook_entry()]})
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     lines = [f"  {repo}: wrote nauro hook to .claude/settings.json"]
     lines.extend(public_surface_git_warnings(repo, ".claude/settings.json"))
     return "\n".join(lines)
@@ -1011,7 +1014,7 @@ def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
         settings.pop("hooks", None)
 
     if settings:
-        settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     else:
         settings_path.unlink()
     return f"  {repo}: removed nauro hook from .claude/settings.json"

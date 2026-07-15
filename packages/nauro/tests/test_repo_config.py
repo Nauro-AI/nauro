@@ -127,6 +127,27 @@ def test_loader_remaps_corrupt_json_to_schema_error(tmp_path, caplog):
     assert str(config_file) in caplog.text
 
 
+def test_loader_remaps_invalid_utf8_to_schema_error(tmp_path, caplog):
+    """A non-UTF-8 config raises RepoConfigSchemaError, not a bare
+    UnicodeDecodeError, preserving the single typed error family the loader
+    docstring promises. The warning breadcrumb names the path.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg_dir = repo / REPO_CONFIG_DIR
+    cfg_dir.mkdir()
+    config_file = cfg_dir / REPO_CONFIG_FILENAME
+    config_file.write_bytes(b'\xff\xfe{"mode": "local"}')
+
+    with caplog.at_level(logging.WARNING, logger="nauro.repo_config"):
+        with pytest.raises(RepoConfigSchemaError) as exc:
+            load_repo_config(repo)
+
+    assert "not valid UTF-8" in str(exc.value)
+    assert isinstance(exc.value.__cause__, UnicodeDecodeError)
+    assert str(config_file) in caplog.text
+
+
 def test_save_rejects_invalid_mode(tmp_path):
     """Writing an unknown mode is refused before disk is touched."""
     repo = tmp_path / "repo"
