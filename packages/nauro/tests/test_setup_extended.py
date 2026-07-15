@@ -16,8 +16,8 @@ from nauro.cli.commands.setup import (
     _configure_codex,
     _configure_cursor_for_repo,
     _prune_redundant_user_scope_mcp,
-    materialize_skills_cursor_for_repo,
 )
+from nauro.cli.integrations.skills import materialize_skills_cursor_for_repo
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
@@ -374,7 +374,7 @@ def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
 
 def test_remove_skill_file_does_not_walk_above_base(tmp_path: Path):
     """``_remove_skill_file`` must stop at ``stop_above`` — never delete the surface root."""
-    from nauro.cli.commands.setup import _remove_skill_file
+    from nauro.cli.integrations.skills import _remove_skill_file
 
     base = tmp_path / ".claude" / "skills"
     skill_dir = base / "nauro-adopt"
@@ -393,7 +393,7 @@ def test_remove_skill_file_does_not_walk_above_base(tmp_path: Path):
 
 def test_remove_skill_file_preserves_sibling_skills(tmp_path: Path):
     """If `~/.claude/skills/` has other skills, removing nauro must not touch them."""
-    from nauro.cli.commands.setup import _remove_skill_file
+    from nauro.cli.integrations.skills import _remove_skill_file
 
     base = tmp_path / ".claude" / "skills"
     nauro_skill = base / "nauro-adopt" / "SKILL.md"
