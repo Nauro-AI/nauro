@@ -15,14 +15,14 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli._codex_hooks import _CODEX_HOOK_EVENTS, _CODEX_HOOK_SUBCOMMAND
-from nauro.cli.commands.setup import (
+from nauro.cli.commands.setup import setup_all_surfaces
+from nauro.cli.integrations.claude_hooks import (
     HOOK_EVENT_NAME,
     HOOK_SUBCOMMAND,
     HOOK_TIMEOUT_SECONDS,
     materialize_hooks_claude_code,
-    materialize_hooks_codex,
-    setup_all_surfaces,
 )
+from nauro.cli.integrations.codex_hooks import materialize_hooks_codex
 from nauro.cli.main import app
 from tests.conftest import register_v2_repo
 
@@ -743,7 +743,7 @@ def test_is_nauro_hook_matches_regardless_of_entrypoint_name():
     """The remove/idempotency marker must recognise the nauro hook however the
     entrypoint resolved — bare name, absolute POSIX path, or Windows .exe —
     otherwise --remove orphans the entry and re-running setup duplicates it."""
-    from nauro.cli.commands.setup import _is_nauro_hook
+    from nauro.cli.integrations.claude_hooks import _is_nauro_hook
 
     for cmd in (
         "nauro hook user-prompt-submit",

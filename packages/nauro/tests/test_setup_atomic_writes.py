@@ -27,14 +27,14 @@ from nauro.cli._codex_hooks import (
     _format_codex_hooks,
     _render_nauro_hook,
 )
-from nauro.cli.commands.setup import (
+from nauro.cli.integrations.claude_hooks import (
     HOOK_EVENT_NAME,
     HOOK_SUBCOMMAND,
     HOOK_TIMEOUT_SECONDS,
     materialize_hooks_claude_code,
-    materialize_hooks_codex,
 )
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
+from nauro.cli.integrations.codex_hooks import materialize_hooks_codex
 from nauro.cli.integrations.json_mcp import _configure_mcp
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.store import _atomic
