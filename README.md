@@ -16,9 +16,9 @@ The record belongs to the project and is available from Claude, Cursor, Codex, P
 
 ## Pareto example
 
-[![Pareto proof showing that Codex retrieved the project's planner boundary before answering.](docs/images/pareto-planner-write-proof.png)](https://nauro.ai/#proof)
+https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
 
-*Pareto is a reproducible project fixture. In this real Nauro-backed capture, Codex retrieves the rule that planners stay read-only before answering whether the planner may write files. The capture shows retrieval in one controlled example. Recurring value in other projects remains unproven.*
+*A real Codex session in Pareto, a reproducible mock project. Nauro retrieves the existing concurrency cap before the agent recommends a top-tier override. After approval, the agent records the decision and changes the code. This is one controlled example; recurring value in other projects remains unproven.*
 
 ## Install
 
