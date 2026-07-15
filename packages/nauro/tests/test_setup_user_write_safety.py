@@ -25,8 +25,8 @@ from nauro.cli.commands.setup import (
     _configure_codex,
     _find_nauro_command,
     _prune_redundant_user_scope_mcp,
-    materialize_agents,
 )
+from nauro.cli.integrations.agents import materialize_agents
 from nauro.cli.integrations.skills import _materialize_skill_file, _remove_skill_file
 
 if sys.version_info >= (3, 11):
