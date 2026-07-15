@@ -86,7 +86,7 @@ Nauro is intended for longer-lived work where context can be lost between sessio
 
 Current limits:
 
-- Nauro can surface only what the project has recorded.
+- The project record is necessarily partial. Nauro can surface only what has been recorded. Retrieval does not establish that an agent understands the project or that a decision still applies unchanged.
 - Keyword retrieval can miss a relevant decision phrased in different language. An optional embeddings index adds synonym matching.
 - Each connected-agent check adds an MCP read and remains advisory. Nauro does not force an agent to honor a result.
 - Nauro is not a backlog, task orchestrator, code indexer, or replacement for Git history.
@@ -139,4 +139,4 @@ Report bugs and request features in [GitHub Issues](https://github.com/Nauro-AI/
 
 Apache 2.0.
 
-Named for Peter Naur, whose 1985 paper *Programming as Theory Building* argued that a program includes the theory in the programmer's mind, not only the code.
+Named for Peter Naur's *Programming as Theory Building* (1985).
