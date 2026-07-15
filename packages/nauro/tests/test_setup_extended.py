@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.commands.setup import (
@@ -14,6 +16,7 @@ from nauro.cli.commands.setup import (
     _configure_codex,
     _configure_cursor_for_repo,
     _prune_redundant_user_scope_mcp,
+    materialize_skills_cursor_for_repo,
 )
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
@@ -125,6 +128,25 @@ def test_configure_cursor_remove_surfaces_parse_error(tmp_path: Path):
     msg = _configure_cursor_for_repo(repo, remove=True)
 
     assert "could not parse .cursor/mcp.json" in msg
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_cursor_surfaces_refuse_symlinked_cursor_dir(tmp_path: Path):
+    """A symlinked `.cursor` directory blocks both the MCP and rules writes."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (repo / ".cursor").symlink_to(elsewhere)
+
+    mcp_line = _configure_cursor_for_repo(repo, remove=False)
+    skill_lines = materialize_skills_cursor_for_repo(repo, remove=False, with_skills=True)
+
+    assert "refused to modify" in mcp_line
+    assert skill_lines and all("refused to modify" in line for line in skill_lines)
+    # Nothing written through the link; the link itself untouched.
+    assert list(elsewhere.iterdir()) == []
+    assert (repo / ".cursor").is_symlink()
 
 
 # ─── nauro setup codex ──────────────────────────────────────────────────────
@@ -725,6 +747,21 @@ def test_prune_soft_fails_on_malformed_json(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / ".claude.json").write_text("{not valid json")
     assert _prune_redundant_user_scope_mcp() is None
+
+
+def test_prune_reports_invalid_utf8_claude_json(tmp_path: Path, monkeypatch):
+    """A non-UTF-8 ~/.claude.json must not raise; the skip names the file so
+    the user knows the prune did not run."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    raw = b'\xff\xfe{"mcpServers": {}}'
+    (tmp_path / ".claude.json").write_bytes(raw)
+
+    msg = _prune_redundant_user_scope_mcp()
+
+    assert msg is not None
+    assert "~/.claude.json" in msg
+    assert "UTF-8" in msg
+    assert (tmp_path / ".claude.json").read_bytes() == raw
 
 
 def test_setup_all_prunes_redundant_http_entry(tmp_path: Path, monkeypatch):

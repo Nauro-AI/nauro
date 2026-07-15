@@ -1,8 +1,10 @@
 """Tests for nauro setup claude-code command."""
 
 import json
+import os
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.commands.setup import (
@@ -12,7 +14,8 @@ from nauro.cli.commands.setup import (
     _configure_mcp,
 )
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project, register_project_v2
+from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -89,6 +92,37 @@ class TestMCPConfigDirectWrite:
 
         assert "could not parse .mcp.json" in result
         assert (repo / ".mcp.json").read_text() == "{not json"
+
+    def test_add_surfaces_invalid_utf8_without_clobbering(self, tmp_path: Path):
+        """A non-UTF-8 `.mcp.json` surfaces the parse-error status instead of
+        raising, and the existing bytes are left untouched."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        raw = b'\xff\xfe{"mcpServers": {}}'
+        (repo / ".mcp.json").write_bytes(raw)
+
+        result = _configure_mcp(repo, remove=False)
+
+        assert "could not parse .mcp.json" in result
+        assert (repo / ".mcp.json").read_bytes() == raw
+
+    def test_add_round_trips_non_ascii_content_as_utf8(self, tmp_path: Path):
+        """Existing non-ASCII server config survives the add as UTF-8 bytes,
+        independent of the platform's locale encoding."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        seeded = json.dumps(
+            {"mcpServers": {"other": {"command": "café", "args": []}}},
+            ensure_ascii=False,
+        )
+        (repo / ".mcp.json").write_bytes(seeded.encode("utf-8"))
+
+        result = _configure_mcp(repo, remove=False)
+
+        assert "wrote nauro to .mcp.json" in result
+        data = json.loads((repo / ".mcp.json").read_bytes().decode("utf-8"))
+        assert data["mcpServers"]["other"]["command"] == "café"
+        assert "nauro" in data["mcpServers"]
 
     def test_remove_deletes_nauro_entry_and_unlinks_empty_file(self, tmp_path: Path):
         """Remove the nauro entry; if mcpServers becomes empty, drop the file."""
@@ -280,6 +314,63 @@ class TestProjectResolution:
         # No CLAUDE.md created
         assert not (repo1 / "CLAUDE.md").exists()
         assert not (repo2 / "CLAUDE.md").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+class TestSymlinkRefusal:
+    """Repo-scoped setup writers refuse pre-planted symlinks in the checkout."""
+
+    def test_setup_claude_code_refuses_symlinked_mcp_json(self, tmp_path: Path, monkeypatch):
+        repos = _setup_project(tmp_path, monkeypatch)
+        outside = tmp_path / "outside.json"
+        outside.write_text("{}")
+        (repos[0] / ".mcp.json").symlink_to(outside)
+
+        result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
+
+        assert result.exit_code == 0
+        assert "refused to modify" in result.output
+        assert "it is a symlink" in result.output
+        # Never written through, never replaced.
+        assert (repos[0] / ".mcp.json").is_symlink()
+        assert outside.read_text() == "{}"
+
+    def test_legacy_cleanup_refuses_symlinked_claude_md(self, tmp_path: Path, monkeypatch):
+        repos = _setup_project(tmp_path, monkeypatch)
+        content = f"{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n"
+        outside = tmp_path / "outside.md"
+        outside.write_text(content)
+        (repos[0] / "CLAUDE.md").symlink_to(outside)
+
+        result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
+
+        assert result.exit_code == 0
+        assert "refused to modify" in result.output
+        assert (repos[0] / "CLAUDE.md").is_symlink()
+        assert outside.read_text() == content
+
+    def test_setup_all_declines_symlinked_repo_config(self, tmp_path: Path, monkeypatch):
+        """A planted config symlink must not select the project whose surfaces
+        get wired: cwd resolution declines the link, and setup falls through
+        to the no-project error without writing anything."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        victim = tmp_path / "victim"
+        victim.mkdir()
+        pid, _store = register_project_v2("victim", [victim])
+        save_repo_config(victim, {"mode": "local", "id": pid, "name": "victim"})
+
+        attack = tmp_path / "attack"
+        (attack / ".nauro").mkdir(parents=True)
+        (attack / ".nauro" / "config.json").symlink_to(victim / ".nauro" / "config.json")
+        monkeypatch.chdir(attack)
+
+        result = runner.invoke(app, ["setup", "all"])
+
+        assert result.exit_code == 1
+        assert "No project found" in result.output
+        assert not (attack / ".mcp.json").exists()
+        assert not (attack / ".cursor").exists()
+        assert not (attack / "AGENTS.md").exists()
 
 
 class TestMalformedConfigGuards:

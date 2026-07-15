@@ -34,6 +34,7 @@ from nauro.store.registry import (
 )
 from nauro.store.repo_config import collides_with_global_config
 from nauro.store.resolution import resolve_from_cwd
+from nauro.store.write_safety import find_symlink
 
 
 def probe_nauro_command(
@@ -115,6 +116,25 @@ def refuse_global_config_collision(repo_root: Path) -> None:
         "  mkdir my-project && cd my-project",
         err=True,
     )
+    raise typer.Exit(code=1)
+
+
+def refuse_repo_config_symlink(repo_root: Path) -> None:
+    """Abort when ``repo_root``'s ``.nauro/config.json`` path traverses a symlink.
+
+    A cloned repo is untrusted content: a pre-planted symlink at ``.nauro`` or
+    ``.nauro/config.json`` would redirect the registration write outside the
+    checkout. Commands that register a repo call this before any registry,
+    cloud, or store mutation so a refusal leaves no partial state.
+    ``save_repo_config`` enforces the same rule as the last line of defense.
+
+    Raises:
+        typer.Exit: code 1 when a symlink component is found.
+    """
+    refusal = find_symlink(repo_root, ".nauro/config.json")
+    if refusal is None:
+        return
+    typer.echo(f"Error: {refusal.message}", err=True)
     raise typer.Exit(code=1)
 
 
@@ -250,6 +270,7 @@ __all__ = [
     "add_repo_v2",
     "probe_nauro_command",
     "refuse_global_config_collision",
+    "refuse_repo_config_symlink",
     "register_project_v2",
     "resolve_target_project",
 ]

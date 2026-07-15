@@ -11,6 +11,7 @@ fixtures; tests that need a specific cwd override on the same monkeypatch.
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -261,3 +262,64 @@ def test_init_suppresses_repo_config_warning_when_ignored(tmp_path, monkeypatch)
     assert result.exit_code == 0, result.output
     assert ".nauro/config.json is untracked and not git-ignored" not in result.output
     assert "AGENTS.md is untracked and not git-ignored" not in result.output
+
+
+# ── symlinked .nauro/config.json refusal ──────────────────────────────────────
+
+
+_symlink_supported = pytest.mark.skipif(
+    os.name == "nt", reason="symlink creation requires extra Windows privileges"
+)
+
+
+@_symlink_supported
+def test_init_refuses_symlinked_repo_config_before_registering(tmp_path, monkeypatch):
+    """A pre-planted symlink at the config path aborts init before any registry write."""
+    project_dir = tmp_path / "proj"
+    (project_dir / ".nauro").mkdir(parents=True)
+    (project_dir / ".nauro" / "config.json").symlink_to(tmp_path / "attacker.json")
+    monkeypatch.chdir(project_dir)
+
+    result = runner.invoke(app, ["init", "someproj"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert find_projects_by_name_v2("someproj") == []
+    assert not (tmp_path / "attacker.json").exists()
+
+
+@_symlink_supported
+def test_init_add_repo_refuses_symlinked_repo_config(tmp_path, monkeypatch):
+    """--add-repo refuses a symlinked config path before extending the entry."""
+    first = tmp_path / "first"
+    first.mkdir()
+    monkeypatch.chdir(first)
+    assert runner.invoke(app, ["init", "projS"]).exit_code == 0
+
+    second = tmp_path / "second"
+    (second / ".nauro").mkdir(parents=True)
+    (second / ".nauro" / "config.json").symlink_to(tmp_path / "attacker.json")
+
+    result = runner.invoke(app, ["init", "projS", "--add-repo", str(second)])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    _pid, entry = find_projects_by_name_v2("projS")[0]
+    assert str(second.resolve()) not in entry["repo_paths"]
+    assert not (tmp_path / "attacker.json").exists()
+
+
+@_symlink_supported
+def test_init_demo_refuses_symlinked_repo_config(tmp_path, monkeypatch):
+    """--demo refuses a symlinked config path before registering the demo project."""
+    project_dir = tmp_path / "demo-dir"
+    (project_dir / ".nauro").mkdir(parents=True)
+    (project_dir / ".nauro" / "config.json").symlink_to(tmp_path / "attacker.json")
+    monkeypatch.chdir(project_dir)
+
+    result = runner.invoke(app, ["init", "--demo"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert find_projects_by_name_v2("demo-project") == []
+    assert not (tmp_path / "attacker.json").exists()

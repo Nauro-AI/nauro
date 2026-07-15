@@ -33,6 +33,7 @@ from nauro.constants import (
     REPO_CONFIG_SCHEMA_VERSION,
 )
 from nauro.store._atomic import atomic_write_text
+from nauro.store.write_safety import find_symlink
 
 logger = logging.getLogger("nauro.repo_config")
 
@@ -60,6 +61,10 @@ class RepoConfigSchemaError(Exception):
 
 class RepoConfigLocationError(Exception):
     """Raised when a repo config write targets Nauro's own global config file."""
+
+
+class RepoConfigSymlinkError(Exception):
+    """Raised when a repo config write would traverse a symlink in the checkout."""
 
 
 def _global_config_file() -> Path:
@@ -146,12 +151,16 @@ def load_repo_config(repo_root: Path) -> dict:
         FileNotFoundError: When the config file does not exist.
         RepoConfigSchemaError: When the file is missing required fields,
             advertises an unknown schema_version, or is corrupt/unparseable
-            JSON. Corrupt JSON is remapped here so a single typed error family
-            covers both schema-mismatch and corruption, letting callers
-            degrade gracefully on either.
+            JSON or not valid UTF-8. Corruption is remapped here so a single
+            typed error family covers both schema-mismatch and corruption,
+            letting callers degrade gracefully on either.
     """
     path = repo_config_path(repo_root)
-    text = path.read_text()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        logger.warning("Corrupt repo config at %s: %s", path, exc)
+        raise RepoConfigSchemaError(f"Repo config at {path} is not valid UTF-8.") from exc
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -167,11 +176,19 @@ def save_repo_config(repo_root: Path, data: dict) -> Path:
     """Write the repo config atomically. Returns the path written.
 
     The data dict is validated before write; an invalid shape raises
-    RepoConfigSchemaError without touching disk. A ``repo_root`` whose config
-    path collides with the global config raises RepoConfigLocationError —
-    the last line of defense for every writer; CLI commands additionally
-    refuse such paths up front with friendlier guidance.
+    RepoConfigSchemaError without touching disk. A config path that traverses
+    a symlink inside the checkout (a symlinked ``.nauro`` directory or
+    ``config.json``) raises RepoConfigSymlinkError, and is checked first: a
+    pre-planted link in a cloned repo would redirect the write outside the
+    checkout, and it must be diagnosed as a planted link rather than by
+    whatever the link resolves to. A ``repo_root`` whose config path collides
+    with the global config raises RepoConfigLocationError. Both are the last
+    line of defense for every writer; CLI commands additionally refuse such
+    paths up front with friendlier guidance.
     """
+    refusal = find_symlink(repo_root, f"{REPO_CONFIG_DIR}/{REPO_CONFIG_FILENAME}")
+    if refusal is not None:
+        raise RepoConfigSymlinkError(refusal.message)
     if collides_with_global_config(repo_root):
         raise RepoConfigLocationError(
             f"Refusing to write a repo config at {repo_config_path(repo_root)}: "

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 import pytest
 
@@ -15,6 +16,7 @@ from nauro.constants import (
 from nauro.store.repo_config import (
     RepoConfigLocationError,
     RepoConfigSchemaError,
+    RepoConfigSymlinkError,
     collides_with_global_config,
     find_repo_config,
     generate_ulid,
@@ -122,6 +124,27 @@ def test_loader_remaps_corrupt_json_to_schema_error(tmp_path, caplog):
             load_repo_config(repo)
 
     assert isinstance(exc.value.__cause__, json.JSONDecodeError)
+    assert str(config_file) in caplog.text
+
+
+def test_loader_remaps_invalid_utf8_to_schema_error(tmp_path, caplog):
+    """A non-UTF-8 config raises RepoConfigSchemaError, not a bare
+    UnicodeDecodeError, preserving the single typed error family the loader
+    docstring promises. The warning breadcrumb names the path.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    cfg_dir = repo / REPO_CONFIG_DIR
+    cfg_dir.mkdir()
+    config_file = cfg_dir / REPO_CONFIG_FILENAME
+    config_file.write_bytes(b'\xff\xfe{"mode": "local"}')
+
+    with caplog.at_level(logging.WARNING, logger="nauro.repo_config"):
+        with pytest.raises(RepoConfigSchemaError) as exc:
+            load_repo_config(repo)
+
+    assert "not valid UTF-8" in str(exc.value)
+    assert isinstance(exc.value.__cause__, UnicodeDecodeError)
     assert str(config_file) in caplog.text
 
 
@@ -296,6 +319,52 @@ def test_save_refuses_global_config_path(tmp_path, monkeypatch):
     with pytest.raises(RepoConfigLocationError):
         save_repo_config(
             home,
+            {"mode": "local", "id": generate_ulid(), "name": "demo-project"},
+        )
+
+    assert global_config.read_text() == sentinel
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_save_refuses_symlinked_nauro_dir(tmp_path):
+    """A symlinked ``.nauro`` directory in the checkout is never written through."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (repo / REPO_CONFIG_DIR).symlink_to(elsewhere)
+
+    with pytest.raises(RepoConfigSymlinkError):
+        save_repo_config(
+            repo,
+            {"mode": "local", "id": generate_ulid(), "name": "demo-project"},
+        )
+
+    assert list(elsewhere.iterdir()) == []
+    assert (repo / REPO_CONFIG_DIR).is_symlink()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_save_symlink_to_global_config_raises_symlink_error(tmp_path, monkeypatch):
+    """A planted link that resolves to the global config is diagnosed as a
+    symlink, not as the location collision: the collision error's guidance
+    (run from a project directory) is wrong for an attack artifact, and the
+    classification must not resolve through the link."""
+    home = tmp_path / "home"
+    nauro_home = home / ".nauro"
+    nauro_home.mkdir(parents=True)
+    monkeypatch.setenv("NAURO_HOME", str(nauro_home))
+    global_config = nauro_home / "config.json"
+    sentinel = '{"auth": {"access_token": "keep-me"}}\n'
+    global_config.write_text(sentinel)
+
+    repo = tmp_path / "repo"
+    (repo / REPO_CONFIG_DIR).mkdir(parents=True)
+    (repo / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME).symlink_to(global_config)
+
+    with pytest.raises(RepoConfigSymlinkError):
+        save_repo_config(
+            repo,
             {"mode": "local", "id": generate_ulid(), "name": "demo-project"},
         )
 

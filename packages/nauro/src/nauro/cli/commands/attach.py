@@ -17,7 +17,7 @@ import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.cli.git_hygiene import public_surface_git_warnings
-from nauro.cli.utils import refuse_global_config_collision
+from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.registry import (
     add_repo_v2,
@@ -82,8 +82,11 @@ def attach(
     repo_path = repo_path if repo_path is not None else Path.cwd()
     # Refused before the membership call so the failure is local and
     # immediate; the home directory's .nauro/config.json is the global
-    # config, not a repo config slot.
+    # config, not a repo config slot. The symlink refusal precedes the
+    # collision check because the collision check reads the repo config,
+    # and a planted link must never be read through.
     refuse_global_config_collision(repo_path)
+    refuse_repo_config_symlink(repo_path)
     _refuse_attach_collision(repo_path, project_id)
     try:
         projects = list_projects()

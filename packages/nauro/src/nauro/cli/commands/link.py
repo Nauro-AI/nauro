@@ -16,6 +16,7 @@ import typer
 
 from nauro.cli.commands.auth import DEFAULT_API_URL, load_access_token
 from nauro.cli.git_hygiene import public_surface_git_warnings
+from nauro.cli.utils import refuse_repo_config_symlink
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
     REPO_CONFIG_MODE_LOCAL,
@@ -59,6 +60,10 @@ def link(
         raise typer.Exit(code=1)
 
     repo_root = config_path.parent.parent
+    # A cloned repo is untrusted content: refused before the config read so
+    # planted content can neither pick the project to promote nor reach the
+    # remote create/rename steps.
+    refuse_repo_config_symlink(repo_root)
     try:
         cfg = load_repo_config(repo_root)
     except RepoConfigSchemaError as exc:

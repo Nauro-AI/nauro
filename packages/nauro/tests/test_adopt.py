@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from nauro.agents import AGENT_NAMES, render_agent
@@ -92,6 +94,75 @@ def test_adopt_from_home_is_refused(tmp_path: Path, monkeypatch):
     assert data["auth"] == {"access_token": "keep-me"}
     assert "mode" not in data
     assert find_projects_by_name_v2("alpha") == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_adopt_refuses_symlinked_repo_config_before_registering(tmp_path: Path, monkeypatch):
+    """A pre-planted symlink at .nauro/config.json aborts adoption cleanly.
+
+    The refusal fires before ``register_project_v2``, so the registry gains
+    no entry that would then need manual cleanup.
+    """
+    repo = _adopt_env(monkeypatch, tmp_path)
+    (repo / ".nauro").mkdir()
+    (repo / ".nauro" / "config.json").symlink_to(tmp_path / "attacker-target.json")
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert find_projects_by_name_v2("alpha") == []
+    assert (repo / ".nauro" / "config.json").is_symlink()
+    assert not (tmp_path / "attacker-target.json").exists()
+
+
+def _planted_adoption(tmp_path: Path, monkeypatch) -> Path:
+    """An un-adopted git repo whose config.json is a symlink to another
+    repo's valid adoption config."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    _git_init(victim)
+    monkeypatch.chdir(victim)
+    assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
+
+    attack = tmp_path / "attack"
+    (attack / ".nauro").mkdir(parents=True)
+    _git_init(attack)
+    (attack / ".nauro" / "config.json").symlink_to(victim / ".nauro" / "config.json")
+    monkeypatch.chdir(attack)
+    return attack
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_adopt_with_skills_refuses_planted_config_link(tmp_path: Path, monkeypatch):
+    """A link to another repo's valid config must not route into the
+    already-adopted branch: the planted link is refused and no skill files
+    are materialized."""
+    attack = _planted_adoption(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["adopt", "--with-skills"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert "already adopted" not in result.output.lower()
+    assert not (tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md").exists()
+    assert not (attack / ".cursor").exists()
+    assert (attack / ".nauro" / "config.json").is_symlink()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_adopt_plain_refuses_planted_config_link(tmp_path: Path, monkeypatch):
+    """Plain adopt on the same planted link gets the symlink refusal, not the
+    already-adopted hint that a real prior adoption would earn."""
+    attack = _planted_adoption(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["adopt"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert "already adopted" not in result.output.lower()
+    assert (attack / ".nauro" / "config.json").is_symlink()
 
 
 def test_adopt_aborts_when_repo_already_adopted(tmp_path: Path, monkeypatch):
