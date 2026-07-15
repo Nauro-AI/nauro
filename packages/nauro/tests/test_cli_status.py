@@ -5,7 +5,7 @@ import json
 from typer.testing import CliRunner
 
 import nauro.cli.commands.status as status_mod
-from nauro.cli import utils as cli_utils
+from nauro.cli import nauro_command
 from nauro.cli._codex_hooks import _CODEX_HOOK_PROBE_ARGS
 from nauro.cli.main import app
 from nauro.store.registry import register_project
@@ -164,7 +164,7 @@ def test_status_mcp_broken_when_recorded_command_dead(tmp_path, monkeypatch):
     """Wired but the recorded command fails the liveness probe → BROKEN, exit 0."""
     _setup_project(tmp_path, monkeypatch)
     _wire_repo_mcp(tmp_path)
-    monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda cmd, **kwargs: False)
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda cmd, **kwargs: False)
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
@@ -179,7 +179,7 @@ def test_status_no_probe_skips_liveness(tmp_path, monkeypatch):
     _wire_repo_mcp(tmp_path)
     calls: list[str] = []
     monkeypatch.setattr(
-        cli_utils, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
+        nauro_command, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
     )
 
     result = runner.invoke(app, ["status", "--no-probe"])
@@ -203,7 +203,9 @@ def test_status_codex_hooks_no_probe_reports_configured(tmp_path, monkeypatch):
     _wire_codex_hooks(tmp_path)
     calls: list[str] = []
     monkeypatch.setattr(
-        cli_utils, "probe_nauro_command", lambda command, **kwargs: calls.append(command) or True
+        nauro_command,
+        "probe_nauro_command",
+        lambda command, **kwargs: calls.append(command) or True,
     )
 
     result = runner.invoke(app, ["status", "--no-probe"])
@@ -216,7 +218,7 @@ def test_status_codex_hooks_no_probe_reports_configured(tmp_path, monkeypatch):
 def test_status_codex_hooks_broken_when_command_is_dead(tmp_path, monkeypatch):
     _setup_project(tmp_path, monkeypatch)
     _wire_codex_hooks(tmp_path, command="/gone/nauro")
-    monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda command, **kwargs: False)
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda command, **kwargs: False)
 
     result = runner.invoke(app, ["status"])
 
@@ -246,7 +248,9 @@ def test_status_codex_hooks_broken_when_event_is_missing(tmp_path, monkeypatch):
     _wire_codex_hooks(tmp_path, events=("SessionStart",))
     calls: list[str] = []
     monkeypatch.setattr(
-        cli_utils, "probe_nauro_command", lambda command, **kwargs: calls.append(command) or True
+        nauro_command,
+        "probe_nauro_command",
+        lambda command, **kwargs: calls.append(command) or True,
     )
 
     result = runner.invoke(app, ["status", "--no-probe"])
@@ -263,7 +267,7 @@ def test_status_probes_shared_mcp_and_hook_command_for_each_purpose(tmp_path, mo
     _wire_codex_hooks(tmp_path)
     calls: list[tuple[str, tuple[str, ...]]] = []
     monkeypatch.setattr(
-        cli_utils,
+        nauro_command,
         "probe_nauro_command",
         lambda command, **kwargs: calls.append((command, kwargs["args"])) or True,
     )
@@ -281,7 +285,7 @@ def test_status_shared_command_can_have_healthy_mcp_and_broken_hooks(tmp_path, m
     _wire_repo_mcp(tmp_path)
     _wire_codex_hooks(tmp_path)
     monkeypatch.setattr(
-        cli_utils,
+        nauro_command,
         "probe_nauro_command",
         lambda _command, **kwargs: kwargs["args"] == ("--version",),
     )
@@ -298,7 +302,7 @@ def test_status_shared_command_can_have_broken_mcp_and_healthy_hooks(tmp_path, m
     _wire_repo_mcp(tmp_path)
     _wire_codex_hooks(tmp_path)
     monkeypatch.setattr(
-        cli_utils,
+        nauro_command,
         "probe_nauro_command",
         lambda _command, **kwargs: kwargs["args"] == _CODEX_HOOK_PROBE_ARGS,
     )
@@ -389,7 +393,7 @@ def test_status_dedupes_shared_command_to_one_probe(tmp_path, monkeypatch):
     _wire_repo_mcp(repo2)
     calls: list[str] = []
     monkeypatch.setattr(
-        cli_utils, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
+        nauro_command, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
     )
 
     result = runner.invoke(app, ["status"])

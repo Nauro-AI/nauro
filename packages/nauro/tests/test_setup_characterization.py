@@ -21,7 +21,7 @@ Rules for this module:
   dir as ``{TMP}`` and the resolved nauro entrypoint as ``{NAURO_CMD}``.
 
 Seam note: the resolver-warning tests override the conftest probe seam
-(``cli_utils.probe_nauro_command`` / ``cli_utils._is_durable_install_path``)
+(``nauro_command.probe_nauro_command`` / ``nauro_command._is_durable_install_path``)
 patched by the autouse ``_neutralize_nauro_command_probe`` fixture. They ride
 that fixture's existing retarget obligation: if the seam moves, retarget
 these overrides together with the fixture.
@@ -949,10 +949,10 @@ def _interpreter_sibling() -> str:
 class TestResolverWarningShape:
     def test_fragile_path_warning_once_on_stderr(self, tmp_path: Path, monkeypatch):
         """Nothing durable but the sibling runs: one fragile warning per invocation."""
-        from nauro.cli import utils as cli_utils
+        from nauro.cli import nauro_command
 
         sibling = _interpreter_sibling()
-        monkeypatch.setattr(cli_utils, "_is_durable_install_path", lambda path: False)
+        monkeypatch.setattr(nauro_command, "_is_durable_install_path", lambda path: False)
         _register_project(tmp_path, monkeypatch)
 
         result = runner.invoke(app, ["setup", "all"])
@@ -970,10 +970,10 @@ class TestResolverWarningShape:
 
     def test_unresolved_warning_once_on_stderr(self, tmp_path: Path, monkeypatch):
         """No candidate runs at all: one unresolved warning per invocation."""
-        from nauro.cli import utils as cli_utils
+        from nauro.cli import nauro_command
 
         sibling = _interpreter_sibling()
-        monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda cmd, **kwargs: False)
+        monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda cmd, **kwargs: False)
         _register_project(tmp_path, monkeypatch)
 
         result = runner.invoke(app, ["setup", "all"])

@@ -202,7 +202,7 @@ def test_configure_codex_remove_does_not_resolve_command(tmp_path: Path, monkeyp
     """The remove path never resolves the nauro entrypoint. Resolution can
     probe subprocesses and print install warnings, none of which belong in
     a teardown that only deletes an entry."""
-    import nauro.cli.commands.setup as setup_mod
+    from nauro.cli import nauro_command
 
     config_path = tmp_path / ".codex" / "config.toml"
     config_path.parent.mkdir()
@@ -211,8 +211,8 @@ def test_configure_codex_remove_does_not_resolve_command(tmp_path: Path, monkeyp
     def _fail() -> str:
         raise AssertionError("command resolution must not run on remove")
 
-    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", _fail)
-    setup_mod._find_nauro_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", _fail)
+    nauro_command._find_nauro_command.cache_clear()
 
     msg = _configure_codex(remove=True, config_path=config_path)
 

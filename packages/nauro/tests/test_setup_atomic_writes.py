@@ -32,11 +32,11 @@ from nauro.cli.commands.setup import (
     HOOK_SUBCOMMAND,
     HOOK_TIMEOUT_SECONDS,
     _configure_mcp,
-    _find_nauro_command,
     materialize_hooks_claude_code,
     materialize_hooks_codex,
 )
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
+from nauro.cli.nauro_command import _find_nauro_command
 from nauro.store import _atomic
 
 pytestmark = pytest.mark.skipif(
