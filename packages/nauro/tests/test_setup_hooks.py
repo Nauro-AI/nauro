@@ -510,6 +510,35 @@ def test_setup_claude_code_without_hooks_writes_no_settings(tmp_path: Path, monk
     assert not _settings(repo).is_file()
 
 
+def test_setup_claude_code_remove_cleans_hooks_without_with_hooks(tmp_path: Path, monkeypatch):
+    """`setup claude-code --remove` strips the nauro hook even without
+    --with-hooks, matching `setup codex --remove` and `setup all --remove`,
+    while a plugin-authored hook on the same event survives untouched."""
+    repo, _store = _make_project(tmp_path)
+    monkeypatch.chdir(repo)
+
+    added = runner.invoke(app, ["setup", "claude-code", "--with-hooks"])
+    assert added.exit_code == 0, added.output
+
+    settings_path = _settings(repo)
+    settings = json.loads(settings_path.read_text())
+    plugin_entry = {
+        "type": "command",
+        "command": "${CLAUDE_PLUGIN_ROOT}/scripts/prompt-hook-nauro.sh",
+    }
+    settings["hooks"][HOOK_EVENT_NAME].append({"hooks": [plugin_entry]})
+    settings_path.write_text(json.dumps(settings))
+
+    result = runner.invoke(app, ["setup", "claude-code", "--remove"])
+
+    assert result.exit_code == 0, result.output
+    assert "removed nauro hook" in result.output
+    after = json.loads(settings_path.read_text())
+    assert _nauro_entries(after) == []
+    remaining = [e for m in after["hooks"][HOOK_EVENT_NAME] for e in m["hooks"]]
+    assert remaining == [plugin_entry]
+
+
 def test_setup_codex_with_hooks_wires_project_repos_and_prints_trust_guidance(
     tmp_path: Path, monkeypatch
 ):

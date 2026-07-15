@@ -182,6 +182,15 @@ def _resolve_nauro_command() -> str:
     return fallback
 
 
+def _registered_project_keys() -> set[str]:
+    """Return the keys of every project in the registry (v2, v1 fallback)."""
+    try:
+        registry = load_registry_v2()
+    except RegistrySchemaError:
+        registry = load_registry()
+    return set(registry.get("projects", {}).keys())
+
+
 def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
     """Return True iff no other nauro projects remain in the registry.
 
@@ -191,11 +200,7 @@ def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
     machine, so a per-project teardown must not strip them while other
     projects still depend on them.
     """
-    try:
-        registry = load_registry_v2()
-    except RegistrySchemaError:
-        registry = load_registry()
-    keys = set(registry.get("projects", {}).keys())
+    keys = _registered_project_keys()
     if current_project_key is not None:
         keys.discard(current_project_key)
     return not keys
@@ -357,7 +362,7 @@ def claude_code(
         if legacy:
             legacy_results.append(legacy)
         mcp_results.append(_configure_mcp(repo_path, remove=remove))
-        if with_hooks:
+        if with_hooks or remove:
             try:
                 hook_results.append(materialize_hooks_claude_code(repo_path, remove=remove))
             except Exception as exc:
@@ -475,8 +480,6 @@ def _configure_codex(
     their previous behavior.
     """
     config_path = config_path or _default_codex_config_path()
-    nauro_cmd = _find_nauro_command()
-    nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
 
     if remove and not clear_user_scope:
         return (
@@ -509,7 +512,7 @@ def _configure_codex(
             return f"Codex: removed nauro from {config_path}"
         return f"Codex: no nauro entry to remove in {config_path}"
 
-    servers["nauro"] = nauro_entry
+    servers["nauro"] = {"command": _find_nauro_command(), "args": ["serve", "--stdio"]}
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_bytes(tomli_w.dumps(config).encode("utf-8"))
     return f"Codex: wrote nauro to {config_path}"
@@ -548,11 +551,23 @@ def codex(
         entry = _resolve_project_entry(project_name, store_path.name)
         hook_repos = [Path(repo_path) for repo_path in entry["repo_paths"]]
 
-    # Standalone codex wiring is user-global, so removing it without first
-    # tearing down the other projects would leave them pointed at a missing
-    # MCP entry. Gate on the registry: only the last project's teardown clears.
-    clear_user_scope = _user_scope_safe_to_clear(None) if remove else True
-    typer.echo(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
+    # Standalone codex wiring is user-global and shared by every registered
+    # project, so this teardown preserves the entry while any project remains
+    # in the registry (it clears only on an empty registry). Clearing on the
+    # last project goes through 'nauro setup all --remove'.
+    registered_count = len(_registered_project_keys()) if remove else 0
+    if registered_count:
+        config_path = _default_codex_config_path()
+        count_phrase = (
+            "1 nauro project" if registered_count == 1 else f"{registered_count} nauro projects"
+        )
+        typer.echo(
+            f"Codex: preserved nauro entry in {config_path} ({count_phrase} registered; "
+            "run 'nauro setup all --remove' on the last project to clear this "
+            "user-global entry)"
+        )
+    else:
+        typer.echo(_configure_codex(remove=remove))
 
     hook_cleanup_unresolved = False
     if remove:
