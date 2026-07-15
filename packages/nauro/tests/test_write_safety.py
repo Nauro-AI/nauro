@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from nauro.store.write_safety import SymlinkRefusal, find_symlink
+from nauro.store.write_safety import SymlinkRefusal, find_file_symlink, find_symlink
 
 pytestmark = pytest.mark.skipif(
     os.name == "nt", reason="symlink creation requires extra Windows privileges"
@@ -120,3 +120,47 @@ def test_message_when_a_component_is_the_link(tmp_path: Path):
         f"refused to modify {target}: {link} is a symlink; "
         "Nauro does not write through symlinks in a repo checkout"
     )
+
+
+# ─── find_file_symlink (user-global final-target rule) ──────────────────────
+
+
+def test_file_symlink_regular_file_is_safe(tmp_path: Path):
+    target = tmp_path / "config.toml"
+    target.write_text("x")
+
+    assert find_file_symlink(target) is None
+
+
+def test_file_symlink_final_target_is_refused(tmp_path: Path):
+    real = tmp_path / "real.toml"
+    real.write_text("x")
+    link = tmp_path / "config.toml"
+    link.symlink_to(real)
+
+    refusal = find_file_symlink(link)
+
+    assert refusal is not None
+    assert refusal.target == link
+    assert refusal.message == (
+        f"refused to modify {link}: it is a symlink; "
+        "Nauro does not replace symlinked user files "
+        "(a dotfile manager may own the real file)"
+    )
+
+
+def test_file_symlink_missing_path_is_safe(tmp_path: Path):
+    assert find_file_symlink(tmp_path / "absent.toml") is None
+
+
+def test_file_symlink_symlinked_parent_is_safe(tmp_path: Path):
+    """Only the final component is checked: a dotfile-managed parent directory
+    (a symlinked ~/.codex, ~/.claude, ...) stays writable."""
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    link_dir = tmp_path / ".codex"
+    link_dir.symlink_to(real_dir, target_is_directory=True)
+    target = link_dir / "config.toml"
+    target.write_text("x")
+
+    assert find_file_symlink(target) is None
