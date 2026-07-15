@@ -176,6 +176,27 @@ def test_setup_codex_no_op_when_remove_and_no_entry(tmp_path: Path):
     assert "no nauro entry to remove" in msg
 
 
+def test_configure_codex_remove_does_not_resolve_command(tmp_path: Path, monkeypatch):
+    """The remove path never resolves the nauro entrypoint. Resolution can
+    probe subprocesses and print install warnings, none of which belong in
+    a teardown that only deletes an entry."""
+    import nauro.cli.commands.setup as setup_mod
+
+    config_path = tmp_path / ".codex" / "config.toml"
+    config_path.parent.mkdir()
+    config_path.write_text('[mcp_servers.nauro]\ncommand = "nauro"\nargs = ["serve", "--stdio"]\n')
+
+    def _fail() -> str:
+        raise AssertionError("command resolution must not run on remove")
+
+    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", _fail)
+    setup_mod._find_nauro_command.cache_clear()
+
+    msg = _configure_codex(remove=True, config_path=config_path)
+
+    assert "removed nauro from" in msg
+
+
 def test_configure_codex_add_surfaces_parse_error(tmp_path: Path):
     """Hand-edited / corrupt `~/.codex/config.toml` surfaces a parse error
     rather than crashing — same contract as the JSON handlers."""
@@ -456,6 +477,42 @@ def test_standalone_codex_remove_preserves_when_projects_remain(tmp_path: Path, 
     with codex_config.open("rb") as f:
         data = tomllib.load(f)
     assert data["mcp_servers"]["nauro"]["args"] == ["serve", "--stdio"]
+
+
+def test_standalone_codex_remove_message_counts_single_project(tmp_path: Path, monkeypatch):
+    """With one project registered, the preserved message states the count and
+    points at ``setup all --remove`` instead of claiming *other* projects."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    register_project_v2("only-project", [repo])
+
+    runner.invoke(app, ["setup", "codex"])
+    result = runner.invoke(app, ["setup", "codex", "--remove"])
+
+    assert result.exit_code == 0, result.output
+    assert "preserved nauro entry" in result.output
+    assert "1 nauro project" in result.output
+    assert "setup all --remove" in result.output
+    assert "other nauro projects" not in result.output
+
+
+def test_standalone_codex_remove_message_counts_two_projects(tmp_path: Path, monkeypatch):
+    """With two projects registered, the preserved message pluralizes the count."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_a = tmp_path / "repo_a"
+    repo_b = tmp_path / "repo_b"
+    repo_a.mkdir()
+    repo_b.mkdir()
+    register_project_v2("proj-a", [repo_a])
+    register_project_v2("proj-b", [repo_b])
+
+    runner.invoke(app, ["setup", "codex"])
+    result = runner.invoke(app, ["setup", "codex", "--remove"])
+
+    assert result.exit_code == 0, result.output
+    assert "preserved nauro entry" in result.output
+    assert "2 nauro projects" in result.output
 
 
 # ─── nauro check-decision discoverability hint ──────────────────────────────
