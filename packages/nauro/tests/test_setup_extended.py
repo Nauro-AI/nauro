@@ -14,9 +14,9 @@ from typer.testing import CliRunner
 from nauro.cli.commands.setup import (
     CHECK_HINT_LINE,
     _configure_codex,
-    _configure_cursor_for_repo,
 )
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
+from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo
 from nauro.cli.integrations.skills import materialize_skills_cursor_for_repo
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
