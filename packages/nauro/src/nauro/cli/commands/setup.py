@@ -33,21 +33,17 @@ from nauro.cli._codex_hooks import (
 )
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.integrations.agents import materialize_agents
+from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
+from nauro.cli.integrations.legacy import _remove_claude_md
 from nauro.cli.integrations.skills import (
     materialize_skills_claude_code,
     materialize_skills_codex,
     materialize_skills_cursor_for_repo,
 )
+from nauro.cli.integrations.user_scope import _registered_project_keys, _user_scope_safe_to_clear
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
-from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
 from nauro.store._atomic import atomic_write_text
-from nauro.store.reader import read_text_lenient
-from nauro.store.registry import (
-    RegistrySchemaError,
-    get_repo_paths,
-    load_registry,
-    load_registry_v2,
-)
+from nauro.store.registry import get_repo_paths
 from nauro.store.resolution import resolve_from_cwd
 from nauro.store.write_safety import find_file_symlink, find_symlink
 from nauro.templates.agents_md import remove_generated_agents_md
@@ -55,43 +51,11 @@ from nauro.templates.agents_md_regen import warn_then_regen
 
 setup_app = typer.Typer(help="Configure tool integrations.")
 
-# Legacy markers — kept for removal of old CLAUDE.md blocks during --remove.
-CLAUDE_MD_START = NAURO_BLOCK_START
-CLAUDE_MD_END = NAURO_BLOCK_END
-
 # Discoverability hint appended to every setup-add success path.
 # `nauro check-decision` (the L1 surface) works from the current shell
 # against the local store, so users don't have to wait for an agent
 # restart to see Nauro do something useful.
 CHECK_HINT_LINE = 'Try it now from this shell: nauro check-decision "<approach>"'
-
-
-def _remove_claude_md(repo_path: Path) -> str | None:
-    """Remove a legacy Nauro block from CLAUDE.md if present.
-
-    Returns a status string if a block was removed, or None if no block found.
-    """
-    refusal = find_symlink(repo_path, CLAUDE_MD)
-    if refusal is not None:
-        return f"  {repo_path}: {refusal.message}"
-    claude_md = repo_path / CLAUDE_MD
-    if not claude_md.exists():
-        return None
-
-    content = read_text_lenient(claude_md)
-    if CLAUDE_MD_START not in content:
-        return None
-
-    before = content[: content.index(CLAUDE_MD_START)]
-    after = content[content.index(CLAUDE_MD_END) + len(CLAUDE_MD_END) :]
-    remaining = (before + after).strip()
-
-    if not remaining:
-        claude_md.unlink()
-        return f"  {repo_path}: removed legacy Nauro block (deleted empty {CLAUDE_MD})"
-    else:
-        claude_md.write_text(remaining + "\n", encoding="utf-8")
-        return f"  {repo_path}: removed legacy Nauro block from {CLAUDE_MD}"
 
 
 def _interpreter_sibling_candidate() -> str | None:
@@ -188,30 +152,6 @@ def _resolve_nauro_command() -> str:
     return fallback
 
 
-def _registered_project_keys() -> set[str]:
-    """Return the keys of every project in the registry (v2, v1 fallback)."""
-    try:
-        registry = load_registry_v2()
-    except RegistrySchemaError:
-        registry = load_registry()
-    return set(registry.get("projects", {}).keys())
-
-
-def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
-    """Return True iff no other nauro projects remain in the registry.
-
-    User-scope artifacts (``~/.claude/skills/nauro-adopt``,
-    ``~/.agents/skills/nauro-adopt``, and the ``nauro`` entry in
-    ``~/.codex/config.toml``) are shared by every registered project on the
-    machine, so a per-project teardown must not strip them while other
-    projects still depend on them.
-    """
-    keys = _registered_project_keys()
-    if current_project_key is not None:
-        keys.discard(current_project_key)
-    return not keys
-
-
 def _configure_json_mcp(
     repo_path: Path,
     *,
@@ -288,56 +228,6 @@ def _configure_mcp(repo_path: Path, *, remove: bool = False) -> str:
         config_rel_path=".mcp.json",
         label=".mcp.json",
         remove=remove,
-    )
-
-
-def _prune_redundant_user_scope_mcp() -> str | None:
-    """Remove a redundant user-scope HTTP ``nauro`` entry from ``~/.claude.json``.
-
-    On a machine with a local working copy, the stdio server is the canonical
-    Claude Code transport: ``nauro serve --stdio`` resolves the store from the
-    repo's ``.nauro/config.json`` and pulls remote changes on startup. An HTTP
-    ``nauro`` entry in user-scope ``~/.claude.json`` collides with the
-    project-scope stdio entry under the same name, so a session can resolve to
-    the wrong store. When the project stdio entry is written, drop the
-    redundant user-scope HTTP one.
-
-    Only the HTTP-transport entry is pruned — a user-scope ``nauro`` defined as
-    a stdio command is the user's own choice and is left alone. Soft-fails
-    (never raises) so a malformed or absent file cannot break wiring. Returns a
-    status line when something was removed or when the file is not valid
-    UTF-8, otherwise ``None``.
-    """
-    config_path = Path.home() / ".claude.json"
-    if not config_path.exists():
-        return None
-    refusal = find_file_symlink(config_path)
-    if refusal is not None:
-        return f"  skipped user-scope prune: {refusal.message}"
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except UnicodeDecodeError:
-        return "  skipped user-scope prune: ~/.claude.json is not valid UTF-8"
-    except (json.JSONDecodeError, OSError):
-        return None
-    servers = config.get("mcpServers")
-    if not isinstance(servers, dict):
-        return None
-    entry = servers.get("nauro")
-    if not isinstance(entry, dict):
-        return None
-    if entry.get("type") != "http" and "url" not in entry:
-        return None
-    del servers["nauro"]
-    if not servers:
-        config.pop("mcpServers", None)
-    try:
-        atomic_write_text(config_path, json.dumps(config, indent=2) + "\n")
-    except OSError:
-        return None
-    return (
-        "  removed redundant user-scope HTTP nauro entry from ~/.claude.json "
-        "(project-scope stdio is canonical)"
     )
 
 

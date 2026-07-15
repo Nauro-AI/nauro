@@ -8,11 +8,10 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.commands.setup import (
-    CLAUDE_MD_END,
-    CLAUDE_MD_START,
     _configure_codex,
     _configure_mcp,
 )
+from nauro.cli.integrations.legacy import CLAUDE_MD_END, CLAUDE_MD_START
 from nauro.cli.main import app
 from nauro.store.registry import register_project, register_project_v2
 from nauro.store.repo_config import save_repo_config
