@@ -252,7 +252,7 @@ def _configure_json_mcp(
         if not servers:
             config.pop("mcpServers", None)
         if config:
-            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            atomic_write_text(config_path, json.dumps(config, indent=2) + "\n")
         else:
             config_path.unlink()
         return f"  {repo_path}: removed nauro from {label}"
@@ -262,7 +262,7 @@ def _configure_json_mcp(
         return f"  {repo_path}: mcpServers in {label} is not a JSON object, skipped"
     servers["nauro"] = nauro_entry
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(config_path, json.dumps(config, indent=2) + "\n")
     lines = [f"  {repo_path}: wrote nauro to {label}"]
     lines.extend(public_surface_git_warnings(repo_path, config_rel_path))
     return "\n".join(lines)
@@ -326,7 +326,7 @@ def _prune_redundant_user_scope_mcp() -> str | None:
     if not servers:
         config.pop("mcpServers", None)
     try:
-        config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(config_path, json.dumps(config, indent=2) + "\n")
     except OSError:
         return None
     return (
@@ -1068,7 +1068,7 @@ def _add_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
 
     event_matchers.append({"hooks": [_nauro_hook_entry()]})
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    atomic_write_text(settings_path, json.dumps(settings, indent=2) + "\n")
     lines = [f"  {repo}: wrote nauro hook to .claude/settings.json"]
     lines.extend(public_surface_git_warnings(repo, ".claude/settings.json"))
     return "\n".join(lines)
@@ -1113,7 +1113,7 @@ def _remove_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
         settings.pop("hooks", None)
 
     if settings:
-        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(settings_path, json.dumps(settings, indent=2) + "\n")
     else:
         settings_path.unlink()
     return f"  {repo}: removed nauro hook from .claude/settings.json"
@@ -1188,7 +1188,7 @@ def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
         if transformed.removed == 0:
             return f"  {repo}: no nauro Codex hooks to remove"
         if transformed.config:
-            hooks_path.write_text(_format_codex_hooks(transformed.config), encoding="utf-8")
+            atomic_write_text(hooks_path, _format_codex_hooks(transformed.config))
         else:
             hooks_path.unlink()
         return f"  {repo}: removed nauro hooks from .codex/hooks.json"
@@ -1197,7 +1197,7 @@ def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
     if existing_text == rendered:
         return f"  {repo}: nauro hooks already present in .codex/hooks.json"
     hooks_path.parent.mkdir(parents=True, exist_ok=True)
-    hooks_path.write_text(rendered, encoding="utf-8")
+    atomic_write_text(hooks_path, rendered)
     lines = [f"  {repo}: wrote nauro hooks to .codex/hooks.json"]
     lines.extend(public_surface_git_warnings(repo, ".codex/hooks.json"))
     return "\n".join(lines)
