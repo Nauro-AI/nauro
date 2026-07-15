@@ -176,24 +176,25 @@ def save_repo_config(repo_root: Path, data: dict) -> Path:
     """Write the repo config atomically. Returns the path written.
 
     The data dict is validated before write; an invalid shape raises
-    RepoConfigSchemaError without touching disk. A ``repo_root`` whose config
-    path collides with the global config raises RepoConfigLocationError —
-    the last line of defense for every writer; CLI commands additionally
-    refuse such paths up front with friendlier guidance. A config path that
-    traverses a symlink inside the checkout (a symlinked ``.nauro`` directory
-    or ``config.json``) raises RepoConfigSymlinkError under the same
-    last-line-of-defense contract: a pre-planted link in a cloned repo would
-    redirect the write outside the checkout.
+    RepoConfigSchemaError without touching disk. A config path that traverses
+    a symlink inside the checkout (a symlinked ``.nauro`` directory or
+    ``config.json``) raises RepoConfigSymlinkError, and is checked first: a
+    pre-planted link in a cloned repo would redirect the write outside the
+    checkout, and it must be diagnosed as a planted link rather than by
+    whatever the link resolves to. A ``repo_root`` whose config path collides
+    with the global config raises RepoConfigLocationError. Both are the last
+    line of defense for every writer; CLI commands additionally refuse such
+    paths up front with friendlier guidance.
     """
+    refusal = find_symlink(repo_root, f"{REPO_CONFIG_DIR}/{REPO_CONFIG_FILENAME}")
+    if refusal is not None:
+        raise RepoConfigSymlinkError(refusal.message)
     if collides_with_global_config(repo_root):
         raise RepoConfigLocationError(
             f"Refusing to write a repo config at {repo_config_path(repo_root)}: "
             "that path is Nauro's global config file, which holds auth and "
             "telemetry settings. Run from a project directory instead."
         )
-    refusal = find_symlink(repo_root, f"{REPO_CONFIG_DIR}/{REPO_CONFIG_FILENAME}")
-    if refusal is not None:
-        raise RepoConfigSymlinkError(refusal.message)
     data.setdefault("schema_version", REPO_CONFIG_SCHEMA_VERSION)
     _validate(data)
 

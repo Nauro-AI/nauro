@@ -14,7 +14,8 @@ from nauro.cli.commands.setup import (
     _configure_mcp,
 )
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project, register_project_v2
+from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -347,6 +348,29 @@ class TestSymlinkRefusal:
         assert "refused to modify" in result.output
         assert (repos[0] / "CLAUDE.md").is_symlink()
         assert outside.read_text() == content
+
+    def test_setup_all_declines_symlinked_repo_config(self, tmp_path: Path, monkeypatch):
+        """A planted config symlink must not select the project whose surfaces
+        get wired: cwd resolution declines the link, and setup falls through
+        to the no-project error without writing anything."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        victim = tmp_path / "victim"
+        victim.mkdir()
+        pid, _store = register_project_v2("victim", [victim])
+        save_repo_config(victim, {"mode": "local", "id": pid, "name": "victim"})
+
+        attack = tmp_path / "attack"
+        (attack / ".nauro").mkdir(parents=True)
+        (attack / ".nauro" / "config.json").symlink_to(victim / ".nauro" / "config.json")
+        monkeypatch.chdir(attack)
+
+        result = runner.invoke(app, ["setup", "all"])
+
+        assert result.exit_code == 1
+        assert "No project found" in result.output
+        assert not (attack / ".mcp.json").exists()
+        assert not (attack / ".cursor").exists()
+        assert not (attack / "AGENTS.md").exists()
 
 
 class TestMalformedConfigGuards:

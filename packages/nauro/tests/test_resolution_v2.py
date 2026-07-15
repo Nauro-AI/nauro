@@ -14,6 +14,7 @@ each cwd resolves to its own store.
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 import typer
@@ -345,6 +346,46 @@ def test_resolve_from_cwd_repo_config_precedes_v2_registry(tmp_path, monkeypatch
     assert resolution.project_id == pid_config
     assert resolution.store_path == tmp_path / "projects" / pid_config
     assert pid_config != pid_by_path
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_resolve_from_cwd_declines_symlinked_repo_config(tmp_path, monkeypatch):
+    """Tier 1 declines when config.json is a symlink, even one that points at
+    a fully valid config: a cloned repo is untrusted content, and a planted
+    link must not let attacker-chosen content select which project a command
+    operates on."""
+    from nauro.store.resolution import resolve_from_cwd
+
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    pid, _store = registry.register_project_v2("victim", [victim])
+    save_repo_config(victim, {"mode": "local", "id": pid, "name": "victim"})
+
+    attack = tmp_path / "attack"
+    (attack / REPO_CONFIG_DIR).mkdir(parents=True)
+    (attack / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME).symlink_to(
+        victim / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME
+    )
+
+    assert resolve_from_cwd(attack) is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_resolve_from_cwd_declines_symlinked_nauro_dir(tmp_path, monkeypatch):
+    """A symlinked ``.nauro`` directory declines tier-1 resolution the same way
+    as a symlinked config file: the walk covers directory components too."""
+    from nauro.store.resolution import resolve_from_cwd
+
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    pid, _store = registry.register_project_v2("victim", [victim])
+    save_repo_config(victim, {"mode": "local", "id": pid, "name": "victim"})
+
+    attack = tmp_path / "attack"
+    attack.mkdir()
+    (attack / REPO_CONFIG_DIR).symlink_to(victim / REPO_CONFIG_DIR)
+
+    assert resolve_from_cwd(attack) is None
 
 
 def test_resolve_from_cwd_none_when_nothing_matches(tmp_path, monkeypatch):

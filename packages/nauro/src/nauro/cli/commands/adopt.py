@@ -230,6 +230,22 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
         )
         raise typer.Exit(code=1)
 
+    # ── symlink preflight ────────────────────────────────────────────────
+    # Refused before the config read and the confirmation prompt: the config
+    # must not be read through a planted link, and nothing may be removed or
+    # deregistered when any teardown target traverses a pre-planted symlink.
+    refusals = _unadopt_symlink_refusals(repo_root)
+    if refusals:
+        for refusal in refusals:
+            typer.echo(f"Error: {refusal.message}", err=True)
+        typer.echo(
+            "Un-adopt aborted before any removal, so the wiring and registry "
+            "entry are intact. Replace the offending symlinks with real files "
+            "and re-run.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
     pid: str | None = None
     name: str | None = None
     try:
@@ -261,21 +277,6 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
             "Error: --purge-store refused: this project has other associated "
             f"repos ({len(other_repos)}) that still use the store. Un-adopt "
             "those first, or drop this repo without --purge-store.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    # ── symlink preflight ────────────────────────────────────────────────
-    # Refused before the confirmation prompt: nothing may be removed or
-    # deregistered when any teardown target traverses a pre-planted symlink.
-    refusals = _unadopt_symlink_refusals(repo_root)
-    if refusals:
-        for refusal in refusals:
-            typer.echo(f"Error: {refusal.message}", err=True)
-        typer.echo(
-            "Un-adopt aborted before any removal, so the wiring and registry "
-            "entry are intact. Replace the offending symlinks with real files "
-            "and re-run.",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -497,6 +498,11 @@ def adopt(
         )
         raise typer.Exit(code=1)
 
+    # Refused before the already-adopted routing and before registration, so
+    # a planted link can neither impersonate an adoption nor leave a registry
+    # entry behind.
+    refuse_repo_config_symlink(repo_root)
+
     # ── already-adopted guard ──────────────────────────────────────────────
     config_path = repo_root / ".nauro" / "config.json"
     if config_path.exists():
@@ -530,10 +536,6 @@ def adopt(
     if collision is not None:
         typer.echo(collision, err=True)
         raise typer.Exit(code=1)
-
-    # Refused before registration so a pre-planted symlink at the config
-    # path leaves no registry entry behind.
-    refuse_repo_config_symlink(repo_root)
 
     # ── mint project + write per-repo config + scaffold store ──────────────
     try:

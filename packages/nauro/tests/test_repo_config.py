@@ -344,6 +344,33 @@ def test_save_refuses_symlinked_nauro_dir(tmp_path):
     assert (repo / REPO_CONFIG_DIR).is_symlink()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_save_symlink_to_global_config_raises_symlink_error(tmp_path, monkeypatch):
+    """A planted link that resolves to the global config is diagnosed as a
+    symlink, not as the location collision: the collision error's guidance
+    (run from a project directory) is wrong for an attack artifact, and the
+    classification must not resolve through the link."""
+    home = tmp_path / "home"
+    nauro_home = home / ".nauro"
+    nauro_home.mkdir(parents=True)
+    monkeypatch.setenv("NAURO_HOME", str(nauro_home))
+    global_config = nauro_home / "config.json"
+    sentinel = '{"auth": {"access_token": "keep-me"}}\n'
+    global_config.write_text(sentinel)
+
+    repo = tmp_path / "repo"
+    (repo / REPO_CONFIG_DIR).mkdir(parents=True)
+    (repo / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME).symlink_to(global_config)
+
+    with pytest.raises(RepoConfigSymlinkError):
+        save_repo_config(
+            repo,
+            {"mode": "local", "id": generate_ulid(), "name": "demo-project"},
+        )
+
+    assert global_config.read_text() == sentinel
+
+
 def test_collision_respects_nauro_home_override(tmp_path):
     """A ``<dir>/.nauro`` that is not the configured home is a valid repo root.
 

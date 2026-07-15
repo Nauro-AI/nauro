@@ -205,6 +205,28 @@ def test_remove_aborts_when_teardown_target_is_symlinked(tmp_path, monkeypatch):
     assert (repo / "AGENTS.md").read_bytes() == agents_before
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_remove_symlinked_config_refused_before_read(tmp_path, monkeypatch):
+    """The preflight fires before the config is read: a planted link to
+    invalid JSON aborts with the refusal, and the unreadable-config warning
+    never appears because the load never ran."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "repo"
+    (repo / ".nauro").mkdir(parents=True)
+    bogus = tmp_path / "bogus.json"
+    bogus.write_text("{not json")
+    (repo / ".nauro" / "config.json").symlink_to(bogus)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["adopt", "--remove", "--yes"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert "unreadable" not in result.output
+    assert (repo / ".nauro" / "config.json").is_symlink()
+    assert bogus.read_text() == "{not json"
+
+
 def test_remove_rejects_add_path_flags(tmp_path, monkeypatch):
     repo = _adopt_env(monkeypatch, tmp_path)
     runner.invoke(app, ["adopt", "--name", "alpha"])

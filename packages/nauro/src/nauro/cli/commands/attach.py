@@ -82,10 +82,12 @@ def attach(
     repo_path = repo_path if repo_path is not None else Path.cwd()
     # Refused before the membership call so the failure is local and
     # immediate; the home directory's .nauro/config.json is the global
-    # config, not a repo config slot.
+    # config, not a repo config slot. The symlink refusal precedes the
+    # collision check because the collision check reads the repo config,
+    # and a planted link must never be read through.
     refuse_global_config_collision(repo_path)
-    _refuse_attach_collision(repo_path, project_id)
     refuse_repo_config_symlink(repo_path)
+    _refuse_attach_collision(repo_path, project_id)
     try:
         projects = list_projects()
     except CloudProjectError as exc:

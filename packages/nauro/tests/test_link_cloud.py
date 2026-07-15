@@ -12,10 +12,12 @@ Paths covered:
    0 with the re-key intact — the irreversible promotion is never rolled back.
 3. Already-cloud repo: nothing to link → clear error, no-op.
 4. No-config repo: not a nauro repo → clear error.
+5. Planted config symlink: refused before the config read; no remote call.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +25,7 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
+from nauro.cli.commands import link as link_module
 from nauro.cli.main import app
 from nauro.store import registry
 from nauro.store.repo_config import load_repo_config, save_repo_config
@@ -242,6 +245,39 @@ def test_link_cloud_warns_for_repo_config_git_hygiene(
     assert result.exit_code == 0, result.output
     assert expected in result.output
     assert "repo-local Nauro project config" in result.output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_link_cloud_refuses_symlinked_repo_config(tmp_path, monkeypatch):
+    """A planted config symlink is refused before the config read, so
+    attacker-chosen content can neither pick the project to promote nor
+    reach the remote create/rename steps."""
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    monkeypatch.chdir(victim)
+    init_result = runner.invoke(app, ["init", "linkproj"])
+    assert init_result.exit_code == 0, init_result.output
+
+    attack = tmp_path / "attack"
+    (attack / ".nauro").mkdir(parents=True)
+    (attack / ".nauro" / "config.json").symlink_to(victim / ".nauro" / "config.json")
+    monkeypatch.chdir(attack)
+
+    registry_before = (tmp_path / "registry.json").read_bytes()
+
+    with patch.object(
+        link_module, "create_project", side_effect=AssertionError("must not be called")
+    ) as mock_create:
+        result = runner.invoke(app, ["link", "--cloud"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert mock_create.call_count == 0
+    assert (tmp_path / "registry.json").read_bytes() == registry_before
+    assert (attack / ".nauro" / "config.json").is_symlink()
 
 
 def test_link_cloud_with_no_repo_config_errors(tmp_path, monkeypatch):

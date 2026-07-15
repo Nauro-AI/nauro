@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store import registry
-from nauro.store.repo_config import load_repo_config
+from nauro.store.repo_config import load_repo_config, save_repo_config
 from nauro.sync import cloud_projects
 from tests.conftest import seed_auth_config
 
@@ -183,6 +183,29 @@ def test_attach_refuses_symlinked_repo_config_before_any_network_call(tmp_path, 
     assert "refused to modify" in result.output
     assert registry.get_project_v2(EXAMPLE_PID) is None
     assert not (tmp_path / "attacker.json").exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_attach_symlink_refusal_precedes_collision_check(tmp_path, monkeypatch):
+    """The symlink refusal fires before the collision check, which reads the
+    repo config: a link to another project's valid config is reported as a
+    planted link, never read through and attributed to that project."""
+    other = tmp_path / "other"
+    other.mkdir()
+    other_pid, _store = registry.register_project_v2("other", [other])
+    save_repo_config(other, {"mode": "local", "id": other_pid, "name": "other"})
+
+    repo = tmp_path / "repo"
+    (repo / ".nauro").mkdir(parents=True)
+    (repo / ".nauro" / "config.json").symlink_to(other / ".nauro" / "config.json")
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert "already part of project" not in result.output
+    assert "Refusing to overwrite" not in result.output
 
 
 def test_attach_non_member_writes_nothing(tmp_path, monkeypatch):

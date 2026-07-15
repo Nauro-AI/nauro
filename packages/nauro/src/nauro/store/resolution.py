@@ -19,6 +19,7 @@ and surface specific diagnostics for the other failure modes.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import NamedTuple
 
@@ -34,6 +35,9 @@ from nauro.store.repo_config import (
     find_repo_config,
     load_repo_config,
 )
+from nauro.store.write_safety import find_symlink
+
+logger = logging.getLogger("nauro.resolution")
 
 
 class StoreResolutionError(ValueError):
@@ -102,12 +106,20 @@ def _resolve_repo_config_from_cwd(start: Path | None) -> tuple[dict, Path] | Non
     config is unreadable. Both ``RepoConfigSchemaError`` (schema mismatch, or a
     corrupt-JSON error the reader remaps to it) and ``OSError`` (an unreadable
     file) degrade to ``None`` so a resolution failure surfaces the no-project
-    fallback rather than crashing the transport.
+    fallback rather than crashing the transport. A config path that traverses
+    a symlink (a symlinked ``.nauro`` directory or ``config.json``) degrades
+    to ``None`` the same way: a cloned repo is untrusted content, and a
+    pre-planted link must not let attacker-chosen content select which
+    project a command operates on.
     """
     config_path = find_repo_config(start=start)
     if config_path is None:
         return None
     repo_root = config_path.parent.parent
+    refusal = find_symlink(repo_root, ".nauro/config.json")
+    if refusal is not None:
+        logger.warning("Declining repo config at %s: %s", config_path, refusal.message)
+        return None
     try:
         cfg = load_repo_config(repo_root)
     except (RepoConfigSchemaError, OSError):
