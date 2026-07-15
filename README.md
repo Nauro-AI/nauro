@@ -65,6 +65,8 @@ The skill reads project documentation for rationale and inspects the repository 
 
 Review `.nauro/config.json` and commit it with the repo. Setup variants and optional tooling are covered in the [quickstart](https://nauro.ai/docs/quickstart) and [agents and skills guide](https://nauro.ai/docs/agents-and-skills).
 
+If the repo already has a hand-written AGENTS.md, adoption and setup leave it in place and warn. Running `nauro sync` is the one action that overwrites it; a `# Manual` section survives the rewrite.
+
 ## How the loop works
 
 1. Nauro orients the agent with project scope, current state, open questions, and relevant prior judgment.

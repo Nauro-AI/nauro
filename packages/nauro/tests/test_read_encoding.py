@@ -111,6 +111,8 @@ def test_parse_preserved_sections_survives_non_utf8_manual(tmp_path: Path):
 def test_regenerate_survives_poisoned_existing_agents_md(tmp_path: Path):
     # Full sync path: a poisoned # Manual section in an existing AGENTS.md must
     # not crash regeneration, and the manual text must survive the round-trip.
+    # The seed carries no generation markers, so the sync-only overwrite grant
+    # is required to exercise the rewrite.
     repo = tmp_path / "repo"
     repo.mkdir()
     store = register_project("myproj", [repo])
@@ -119,7 +121,7 @@ def test_regenerate_survives_poisoned_existing_agents_md(tmp_path: Path):
     agents_md = repo / "AGENTS.md"
     agents_md.write_bytes(b"# AGENTS.md\n\nOld auto content\n\n# Manual\n\nKeep caf\xe9 note\n")
 
-    updated = regenerate_agents_md_for_project("myproj", store)
+    updated = regenerate_agents_md_for_project("myproj", store, overwrite_unmanaged=True)
 
     assert repo in updated
     regenerated = read_text_lenient(agents_md)

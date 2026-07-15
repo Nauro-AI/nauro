@@ -390,7 +390,10 @@ def test_confirmed_regen_surfaces_tracked_agents_warning(seeded_repo, monkeypatc
     _pid, store_path = seeded_repo
     repo = Path.cwd()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-    (repo / "AGENTS.md").write_text("stale\n", encoding="utf-8")
+    # Seed a Nauro-generated AGENTS.md: only managed files are rewritten on
+    # the confirmed path, and only rewritten repos get git-hygiene checks.
+    warn_then_regen(store_path.name, store_path)
+    assert (repo / "AGENTS.md").is_file()
     subprocess.run(["git", "add", "AGENTS.md"], cwd=repo, check=True)
     monkeypatch.setattr(mcp_tools, "warn_then_regen", warn_then_regen)
 
@@ -403,3 +406,23 @@ def test_confirmed_regen_surfaces_tracked_agents_warning(seeded_repo, monkeypatc
 
     assert envelope["status"] == "confirmed"
     assert "AGENTS.md is tracked by git" in envelope["assessment"]
+
+
+def test_confirmed_regen_preserves_unmanaged_agents_md(seeded_repo, monkeypatch):
+    """A hand-written AGENTS.md survives a confirmed write; the envelope warns."""
+    _pid, store_path = seeded_repo
+    repo = Path.cwd()
+    sentinel = b"# Hand-written agent rules\n\nKeep these instructions.\n"
+    (repo / "AGENTS.md").write_bytes(sentinel)
+    monkeypatch.setattr(mcp_tools, "warn_then_regen", warn_then_regen)
+
+    envelope = tool_propose_decision(
+        store_path,
+        title="Record a decision without touching agent rules",
+        rationale="Hand-written AGENTS.md files must survive decision writes.",
+        confidence="high",
+    )
+
+    assert envelope["status"] == "confirmed"
+    assert (repo / "AGENTS.md").read_bytes() == sentinel
+    assert "existing AGENTS.md is not Nauro-generated" in envelope["assessment"]

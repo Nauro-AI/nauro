@@ -1,7 +1,9 @@
 """Tests for AGENTS.md generation and sync integration."""
 
+import os
 from pathlib import Path
 
+import pytest
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
 from typer.testing import CliRunner
@@ -282,3 +284,47 @@ def test_sync_preserves_manual_section(tmp_path: Path, monkeypatch):
     content = (repo / "AGENTS.md").read_text()
     assert "Keep this note." in content
     assert "Old content" not in content  # auto section was regenerated
+
+
+# --- Symlink refusal ---
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_warn_then_regen_warns_and_skips_symlinked_agents_md(tmp_path: Path):
+    """A symlinked AGENTS.md is warned about and never written through."""
+    from nauro.templates.agents_md_regen import warn_then_regen
+    from tests.conftest import register_v2_repo
+
+    v2 = register_v2_repo(tmp_path, "linkproj", chdir=False)
+    outside = tmp_path / "outside-agents.md"
+    outside.write_text("untouchable")
+    (v2.repo / "AGENTS.md").symlink_to(outside)
+
+    warnings: list[str] = []
+    updated = warn_then_regen(v2.pid, v2.store_path, warn=warnings.append)
+
+    assert updated == []
+    assert any("refused to modify" in w for w in warnings)
+    assert outside.read_text() == "untouchable"
+    assert (v2.repo / "AGENTS.md").is_symlink()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_remove_generated_agents_md_refuses_symlink(tmp_path: Path):
+    """Teardown neither unlinks nor rewrites a symlinked AGENTS.md."""
+    from nauro.templates.agents_md import FOOTER_MARKER, remove_generated_agents_md
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = tmp_path / "outside-agents.md"
+    # Looks Nauro-generated, so it would be unlinked were it not behind a link.
+    outside.write_text(f"# AGENTS.md\n\n---\n{FOOTER_MARKER}https://nauro.ai)*\n")
+    before = outside.read_bytes()
+    (repo / "AGENTS.md").symlink_to(outside)
+
+    line = remove_generated_agents_md(repo)
+
+    assert line is not None
+    assert "refused to modify" in line
+    assert (repo / "AGENTS.md").is_symlink()
+    assert outside.read_bytes() == before

@@ -985,13 +985,13 @@ def test_setup_all_regenerates_agents_md_exactly_once(tmp_path: Path, monkeypatc
     monkeypatch.chdir(repo)
 
     calls: list[tuple] = []
-    real = setup_mod.regenerate_agents_md_for_project
+    real = setup_mod.warn_then_regen
 
-    def _counting(project_key, store):
+    def _counting(project_key, store, **kwargs):
         calls.append((project_key, store))
-        return real(project_key, store)
+        return real(project_key, store, **kwargs)
 
-    monkeypatch.setattr(setup_mod, "regenerate_agents_md_for_project", _counting)
+    monkeypatch.setattr(setup_mod, "warn_then_regen", _counting)
 
     result = runner.invoke(app, ["setup", "all"])
     assert result.exit_code == 0, result.output
@@ -1012,8 +1012,8 @@ def test_setup_all_remove_does_not_write_agents_md(tmp_path: Path, monkeypatch):
     calls: list[tuple] = []
     monkeypatch.setattr(
         setup_mod,
-        "regenerate_agents_md_for_project",
-        lambda *a: calls.append(a) or [],
+        "warn_then_regen",
+        lambda *a, **k: calls.append(a) or [],
     )
 
     runner.invoke(app, ["setup", "all"])

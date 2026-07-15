@@ -15,6 +15,7 @@ from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEADER
 from nauro.store.reader import read_text_lenient
+from nauro.store.write_safety import find_symlink
 
 # Prefix shared by every auto-generated attribution footer. Match by prefix
 # (not by full canonical URL) so a stale footer from an earlier tagline cycle
@@ -196,7 +197,7 @@ def regenerate_agents_md_for_project(
     project_key: str,
     store_path: Path,
     *,
-    preserve_unmanaged: bool = False,
+    overwrite_unmanaged: bool = False,
 ) -> list[Path]:
     """Regenerate AGENTS.md in all repos associated with a project.
 
@@ -204,7 +205,9 @@ def regenerate_agents_md_for_project(
         project_key: Either a v2 project_id (ULID) or a v1 project name.
             v2 takes priority — the v1 name lookup is the legacy fallback.
         store_path: Path to the project store directory.
-        preserve_unmanaged: Skip existing files that Nauro did not generate.
+        overwrite_unmanaged: Replace an existing AGENTS.md even when Nauro
+            did not generate it. Off by default: only ``nauro sync`` passes
+            True, every other caller preserves hand-written files.
 
     Returns:
         List of repo paths where AGENTS.md was updated.
@@ -235,8 +238,12 @@ def regenerate_agents_md_for_project(
         repo_path = Path(repo_str)
         if not repo_path.is_dir():
             continue
+        # Never write through a pre-planted symlink, regardless of
+        # overwrite_unmanaged; warn_then_regen surfaces the refusal.
+        if find_symlink(repo_path, AGENTS_MD) is not None:
+            continue
         agents_md_path = repo_path / AGENTS_MD
-        if preserve_unmanaged and not agents_md_is_safe_to_replace(agents_md_path):
+        if not overwrite_unmanaged and not agents_md_is_safe_to_replace(agents_md_path):
             continue
         preserved = parse_preserved_sections(agents_md_path)
         content = generate_agents_md(
@@ -271,6 +278,9 @@ def remove_generated_agents_md(repo_path: Path) -> str | None:
     Returns a one-line status string (indented for ``setup_all_surfaces``) when
     it acted, else ``None``.
     """
+    refusal = find_symlink(repo_path, AGENTS_MD)
+    if refusal is not None:
+        return f"  {repo_path}: {refusal.message}"
     agents_md_path = repo_path / AGENTS_MD
     if not agents_md_path.exists():
         return None
