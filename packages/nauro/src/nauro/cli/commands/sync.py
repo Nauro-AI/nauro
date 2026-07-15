@@ -37,6 +37,11 @@ def sync(
 ) -> None:
     """Capture a snapshot and regenerate AGENTS.md in each associated repo.
 
+    This is the one command that overwrites an existing AGENTS.md even when
+    Nauro did not generate it; a # Manual section survives the rewrite. Every
+    other command (setup, adopt, init, attach, note, propose_decision)
+    preserves a non-Nauro AGENTS.md and warns instead.
+
     With cloud sync configured, pulls from the server first (git-style
     pull-then-push), then pushes the updated store back. Project state in
     state_current.md is not touched — use the MCP 'update_state' tool to
@@ -62,6 +67,7 @@ def sync(
         project_key,
         store_path,
         warn=lambda msg: typer.echo(msg, err=True),
+        overwrite_unmanaged=True,
     )
 
     pushed = _push_to_cloud(project_key, store_path)

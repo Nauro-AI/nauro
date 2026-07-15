@@ -136,7 +136,6 @@ def attach(
         project_id,
         store_path,
         warn=lambda message: typer.echo(message, err=True),
-        preserve_unmanaged=True,
         fail_soft=True,
     )
 

@@ -107,7 +107,7 @@ def test_init_does_not_write_through_agents_md_symlink(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert (tmp_path / "AGENTS.md").is_symlink()
     assert target.read_bytes() == before
-    assert "existing AGENTS.md is not Nauro-generated" in result.output
+    assert "refused to modify" in result.output
 
 
 def test_init_agents_write_failure_is_nonfatal_after_registration(tmp_path, monkeypatch):
@@ -128,6 +128,34 @@ def test_init_agents_write_failure_is_nonfatal_after_registration(tmp_path, monk
     assert f"Project id: {matches[0][0]}" in result.output
     assert "project registration succeeded" in result.output
     assert "Traceback" not in result.output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="chmod 000 does not block reads on Windows")
+def test_init_agents_read_failure_is_nonfatal_after_registration(tmp_path, monkeypatch):
+    """An unreadable AGENTS.md must not crash init after registration.
+
+    The ownership probe reads the existing file to decide whether it is
+    Nauro-generated; a permission error on that read is covered by the same
+    fail-soft contract as a failed write.
+    """
+    if os.geteuid() == 0:
+        pytest.skip("root ignores file permission bits")
+    monkeypatch.chdir(tmp_path)
+    agents_md = tmp_path / "AGENTS.md"
+    agents_md.write_bytes(b"# Hand-written rules\n")
+    agents_md.chmod(0)
+
+    try:
+        result = runner.invoke(app, ["init", "localproj"])
+    finally:
+        agents_md.chmod(0o644)
+
+    assert result.exit_code == 0, result.output
+    matches = registry.find_projects_by_name_v2("localproj")
+    assert len(matches) == 1
+    assert "project registration succeeded" in result.output
+    assert "Traceback" not in result.output
+    assert agents_md.read_bytes() == b"# Hand-written rules\n"
 
 
 # ── cloud mode ────────────────────────────────────────────────────────────────
@@ -203,6 +231,41 @@ def test_init_cloud_preserves_hand_authored_agents_md(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert (tmp_path / "AGENTS.md").read_bytes() == sentinel
     assert "existing AGENTS.md is not Nauro-generated" in result.output
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_init_cloud_refuses_config_symlink_before_remote_create(tmp_path, monkeypatch):
+    """A planted .nauro/config.json symlink aborts before any remote call.
+
+    The refusal must precede project creation on the server: otherwise a
+    refused init leaves an orphaned cloud project behind. Pins exit 1, the
+    refusal message, zero create_project calls, and no registry entry.
+    """
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+    outside = tmp_path / "outside-config.json"
+    outside.write_text("{}")
+    (tmp_path / ".nauro").mkdir()
+    (tmp_path / ".nauro" / "config.json").symlink_to(outside)
+
+    create_calls: list[str] = []
+
+    def _record_create(name):
+        create_calls.append(name)
+        raise AssertionError("create_project must not run after a symlink refusal")
+
+    monkeypatch.setattr("nauro.cli.commands.init.create_project", _record_create)
+
+    result = runner.invoke(app, ["init", "--cloud", "cloudproj"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert create_calls == []
+    assert registry.find_projects_by_name_v2("cloudproj") == []
+    assert (tmp_path / ".nauro" / "config.json").is_symlink()
+    assert outside.read_text() == "{}"
 
 
 def test_init_cloud_renders_server_error(tmp_path, monkeypatch):

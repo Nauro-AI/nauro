@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store.registry import register_project
+from nauro.templates.agents_md import generate_agents_md
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -77,18 +78,41 @@ def test_note_decision_refreshes_all_associated_repos(tmp_path: Path, monkeypatc
         assert "Pick GraphQL over REST" in agents_md.read_text()
 
 
-def test_note_preserves_manual_section_across_regen(tmp_path: Path, monkeypatch):
-    """A `# Manual` section already in AGENTS.md survives the auto-regen."""
+def test_note_preserves_unmanaged_agents_md(tmp_path: Path, monkeypatch):
+    """An AGENTS.md without Nauro's markers stays byte-identical across note."""
     repo = tmp_path / "repo"
     repo.mkdir()
     store = register_project("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 
-    # Seed AGENTS.md with a manual block, then trigger a regen via note.
-    (repo / "AGENTS.md").write_text(
-        "# AGENTS.md\n\n# Manual\n\nHand-written guidance the user wrote.\n"
+    # Marker-less seed: Nauro did not generate this file, so note must not
+    # rewrite it. Only `nauro sync` overwrites an unmanaged AGENTS.md.
+    sentinel = b"# AGENTS.md\n\n# Manual\n\nHand-written guidance the user wrote.\n"
+    (repo / "AGENTS.md").write_bytes(sentinel)
+
+    result = runner.invoke(app, ["note", "Adopt strict TypeScript"])
+    assert result.exit_code == 0, result.output
+
+    assert (repo / "AGENTS.md").read_bytes() == sentinel
+    assert "existing AGENTS.md is not Nauro-generated" in result.output
+    assert "left unchanged" in result.output
+
+
+def test_note_refreshes_nauro_generated_agents_md(tmp_path: Path, monkeypatch):
+    """A Nauro-generated AGENTS.md is still refreshed; `# Manual` survives."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store = register_project("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(repo)
+
+    seeded = generate_agents_md(
+        "myproj",
+        "seed payload",
+        manual_section="Hand-written guidance the user wrote.",
     )
+    (repo / "AGENTS.md").write_text(seeded, encoding="utf-8")
 
     result = runner.invoke(app, ["note", "Adopt strict TypeScript"])
     assert result.exit_code == 0, result.output
@@ -96,6 +120,8 @@ def test_note_preserves_manual_section_across_regen(tmp_path: Path, monkeypatch)
     content = (repo / "AGENTS.md").read_text()
     assert "Adopt strict TypeScript" in content
     assert "Hand-written guidance the user wrote." in content
+    assert "seed payload" not in content
+    assert "Updated AGENTS.md" in result.output
 
 
 def test_note_warns_about_missing_repo_paths(tmp_path: Path, monkeypatch):

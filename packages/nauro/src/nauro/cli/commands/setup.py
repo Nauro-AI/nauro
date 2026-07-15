@@ -39,10 +39,8 @@ from nauro.store.registry import (
 )
 from nauro.store.resolution import resolve_from_cwd
 from nauro.store.write_safety import find_symlink
-from nauro.templates.agents_md import (
-    regenerate_agents_md_for_project,
-    remove_generated_agents_md,
-)
+from nauro.templates.agents_md import remove_generated_agents_md
+from nauro.templates.agents_md_regen import warn_then_regen
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -401,13 +399,17 @@ def claude_code(
     if not remove:
         # Regenerate AGENTS.md so context is fresh from the start. The store
         # dir name is the v2 id (or v1 name) used by the registry-aware lookup.
-        updated_repos = regenerate_agents_md_for_project(_store_path.name, _store_path)
+        # warn_then_regen surfaces missing-repo, symlink-refusal, and
+        # git-hygiene warnings through the warn callback.
+        updated_repos = warn_then_regen(
+            _store_path.name,
+            _store_path,
+            warn=lambda msg: typer.echo(msg, err=True),
+        )
         if updated_repos:
             typer.echo("\nAGENTS.md:")
             for repo_path in updated_repos:
                 typer.echo(f"  {repo_path}: regenerated AGENTS.md")
-                for warning in public_surface_git_warnings(repo_path, "AGENTS.md"):
-                    typer.echo(warning, err=True)
 
         typer.echo(
             "\nNext: start a Claude Code session in one of the repos."
@@ -1262,13 +1264,13 @@ def setup_all_surfaces(
 
     # Regenerate AGENTS.md once so context is fresh from the start on every
     # entry point that wires surfaces. Guarded on the add path and on having a
-    # store to read from.
+    # store to read from. warn_then_regen routes missing-repo, symlink-refusal,
+    # and git-hygiene warnings into the status lines.
     if not remove and current_project_key is not None and store_path is not None:
         try:
-            updated = regenerate_agents_md_for_project(current_project_key, store_path)
+            updated = warn_then_regen(current_project_key, store_path, warn=lines.append)
             for repo_path in updated:
                 lines.append(f"  {repo_path}: regenerated AGENTS.md")
-                lines.extend(public_surface_git_warnings(repo_path, "AGENTS.md"))
         except Exception as exc:
             lines.append(f"AGENTS.md regeneration: error - {exc}")
 

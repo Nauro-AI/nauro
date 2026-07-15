@@ -64,7 +64,6 @@ def _regenerate_after_init(project_id: str, store_path: Path) -> None:
         project_id,
         store_path,
         warn=_echo_warning,
-        preserve_unmanaged=True,
         fail_soft=True,
     )
 
