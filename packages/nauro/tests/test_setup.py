@@ -7,9 +7,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from nauro.cli.commands.setup import (
-    _configure_codex,
-)
+from nauro.cli.integrations.codex_config import _configure_codex
 from nauro.cli.integrations.json_mcp import _configure_mcp
 from nauro.cli.integrations.legacy import CLAUDE_MD_END, CLAUDE_MD_START
 from nauro.cli.main import app
