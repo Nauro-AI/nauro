@@ -308,7 +308,7 @@ def _neutralize_nauro_command_probe(monkeypatch):
     """Never spawn a real nauro binary, and reset the resolver cache per test.
 
     ``_find_nauro_command`` (setup) and ``nauro status`` liveness both go through
-    ``nauro.cli.utils.probe_nauro_command`` — the single subprocess seam. Default
+    ``nauro.cli.nauro_command.probe_nauro_command`` — the single subprocess seam. Default
     it to "runs fine" and mark every path durable so surface-wiring tests take
     the historical fast path (record the interpreter-sibling, no warning) and get
     a valid absolute command without a subprocess. Tests that exercise
@@ -319,16 +319,15 @@ def _neutralize_nauro_command_probe(monkeypatch):
     Probe/durability unit tests capture the real functions at import time (before
     this fixture patches) and call them directly, so they are unaffected.
     """
-    from nauro.cli import utils as cli_utils
-    from nauro.cli.commands import setup as setup_mod
+    from nauro.cli import nauro_command
 
-    monkeypatch.setattr(cli_utils, "probe_nauro_command", lambda cmd, **kwargs: True)
-    monkeypatch.setattr(cli_utils, "_is_durable_install_path", lambda path: True)
-    setup_mod._find_nauro_command.cache_clear()
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda cmd, **kwargs: True)
+    monkeypatch.setattr(nauro_command, "_is_durable_install_path", lambda path: True)
+    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
     yield
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
-    setup_mod._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
+    nauro_command._find_nauro_command.cache_clear()
 
 
 @pytest.fixture(autouse=True)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import typer
 
-from nauro.cli import utils as cli_utils
+from nauro.cli import nauro_command
 from nauro.cli._codex_hooks import (
     _CODEX_HOOK_PROBE_ARGS,
     _CodexHookState,
@@ -135,7 +135,7 @@ def _probe_distinct_commands(
     a single short probe. ``probe_nauro_command`` soft-fails by contract, so a
     dead command costs at most its timeout, never an exception.
     """
-    return {cmd: cli_utils.probe_nauro_command(cmd, args=args) for cmd in commands}
+    return {cmd: nauro_command.probe_nauro_command(cmd, args=args) for cmd in commands}
 
 
 def _repo_has_generated_agents_md(repo: Path) -> bool:

@@ -33,11 +33,11 @@ import typer
 from nauro.cli.commands.setup import (
     SHIP_TASK_NEEDS_SUBAGENTS_NOTICE,
     SUBAGENTS_CONNECTOR_NAME_NOTICE,
-    _find_nauro_command,
     setup_all_surfaces,
 )
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
+from nauro.cli.nauro_command import _find_nauro_command
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body

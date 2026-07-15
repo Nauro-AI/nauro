@@ -14,7 +14,6 @@ Resolution priority for any command that needs a project context:
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import typer
@@ -35,61 +34,6 @@ from nauro.store.registry import (
 from nauro.store.repo_config import collides_with_global_config
 from nauro.store.resolution import resolve_from_cwd
 from nauro.store.write_safety import find_symlink
-
-
-def probe_nauro_command(
-    cmd: str,
-    *,
-    args: tuple[str, ...] = ("--version",),
-    timeout: float = 1.5,
-) -> bool:
-    """Return True iff ``[cmd, *args]`` launches and exits 0.
-
-    The single subprocess seam for validating a recorded MCP/hook command: the
-    setup resolver calls it before recording a command, and ``nauro status``
-    calls it to probe wired commands for liveness. A launch failure (missing
-    binary or permission error), a hang past ``timeout``, or a non-zero exit
-    all count as "won't run". Soft-fails and never raises, so callers can treat
-    the boolean as authoritative. Centralized here so tests mock exactly one
-    function and no test ever spawns a real binary.
-    """
-    try:
-        proc = subprocess.run(
-            [cmd, *args],
-            timeout=timeout,
-            capture_output=True,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return proc.returncode == 0
-
-
-_DURABLE_PATH_MARKERS: tuple[tuple[str, str], ...] = (("pipx", "venvs"), ("uv", "tools"))
-_FRAGILE_VENV_DIRS = frozenset({".venv", "venv", "env"})
-
-
-def _is_durable_install_path(path: str) -> bool:
-    """Heuristic: does ``path`` look like a durable, tool-managed install?
-
-    Separator-agnostic via ``Path.parts`` so Windows ``Scripts\\nauro.exe``
-    layouts read the same as POSIX ``bin/nauro``. pipx (``.../pipx/venvs/...``)
-    and uv-tool (``.../uv/tools/...``) installs live outside any single repo and
-    survive that repo's virtualenv being rebuilt or corrupted, so they count as
-    durable. A path whose grandparent directory is a bare ``.venv``/``venv``/
-    ``env`` is a project-local virtualenv that dies with the checkout, so it
-    counts as fragile. Any other shape (system, Homebrew, conda) is treated as
-    durable. This is only a resolver tiebreaker — a fragile path that still runs
-    is recorded with a warning, never dropped.
-    """
-    parts = [p.lower() for p in Path(path).parts]
-    for first, second in _DURABLE_PATH_MARKERS:
-        for i in range(len(parts) - 1):
-            if parts[i] == first and parts[i + 1] == second:
-                return True
-    if len(parts) >= 3 and parts[-3] in _FRAGILE_VENV_DIRS:
-        return False
-    return True
 
 
 def refuse_global_config_collision(repo_root: Path) -> None:
@@ -268,7 +212,6 @@ def _resolve_project_entry(project_name: str, project_key: str) -> dict:
 # Re-exported for callers that need to write or extend v2 entries directly
 __all__ = [
     "add_repo_v2",
-    "probe_nauro_command",
     "refuse_global_config_collision",
     "refuse_repo_config_symlink",
     "register_project_v2",

@@ -21,13 +21,11 @@ from pathlib import Path
 import pytest
 import tomlkit
 
-from nauro.cli.commands.setup import (
-    _configure_codex,
-    _find_nauro_command,
-)
+from nauro.cli.commands.setup import _configure_codex
 from nauro.cli.integrations.agents import materialize_agents
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.skills import _materialize_skill_file, _remove_skill_file
+from nauro.cli.nauro_command import _find_nauro_command
 
 if sys.version_info >= (3, 11):
     import tomllib

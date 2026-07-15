@@ -246,11 +246,11 @@ def test_materialize_codex_writes_both_lifecycle_events(tmp_path: Path, monkeypa
     repo.mkdir()
     command = "/opt/Nauro Tool/bin/nauro"
 
-    import nauro.cli.commands.setup as setup_mod
+    from nauro.cli import nauro_command
 
-    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: command)
-    setup_mod._find_nauro_command.cache_clear()
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", lambda: command)
+    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
     line = materialize_hooks_codex(repo, remove=False)
 
     assert "wrote nauro hooks" in line
@@ -288,19 +288,19 @@ def test_materialize_codex_uses_current_install_when_durable_command_is_too_old(
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    import nauro.cli.commands.setup as setup_mod
+    from nauro.cli import nauro_command
 
-    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "/opt/old/nauro")
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", lambda: "/opt/old/nauro")
     monkeypatch.setattr(
-        setup_mod, "_interpreter_sibling_candidate", lambda: "/repo/.venv/bin/nauro"
+        nauro_command, "_interpreter_sibling_candidate", lambda: "/repo/.venv/bin/nauro"
     )
     monkeypatch.setattr(
-        setup_mod.cli_utils,
+        nauro_command,
         "probe_nauro_command",
         lambda command, **kwargs: command == "/repo/.venv/bin/nauro",
     )
-    setup_mod._find_nauro_command.cache_clear()
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
 
     line = materialize_hooks_codex(repo, remove=False)
 
@@ -316,13 +316,13 @@ def test_materialize_codex_skips_when_no_compatible_command(tmp_path: Path, monk
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    import nauro.cli.commands.setup as setup_mod
+    from nauro.cli import nauro_command
 
-    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "/opt/old/nauro")
-    monkeypatch.setattr(setup_mod, "_interpreter_sibling_candidate", lambda: None)
-    monkeypatch.setattr(setup_mod.cli_utils, "probe_nauro_command", lambda command, **kwargs: False)
-    setup_mod._find_nauro_command.cache_clear()
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", lambda: "/opt/old/nauro")
+    monkeypatch.setattr(nauro_command, "_interpreter_sibling_candidate", lambda: None)
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda command, **kwargs: False)
+    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
 
     line = materialize_hooks_codex(repo, remove=False)
 
@@ -336,11 +336,11 @@ def test_materialize_codex_validates_config_before_resolving_command(tmp_path: P
     hooks_path.parent.mkdir(parents=True)
     hooks_path.write_text('{"hooks": []}', encoding="utf-8")
 
-    import nauro.cli.commands.setup as setup_mod
+    from nauro.cli import nauro_command
 
-    monkeypatch.setattr(setup_mod, "_interpreter_sibling_candidate", lambda: "/opt/nauro")
+    monkeypatch.setattr(nauro_command, "_interpreter_sibling_candidate", lambda: "/opt/nauro")
     monkeypatch.setattr(
-        setup_mod.cli_utils,
+        nauro_command,
         "probe_nauro_command",
         lambda *args, **kwargs: pytest.fail("command resolution should not run"),
     )
@@ -356,11 +356,11 @@ def test_codex_hook_missing_binary_guard_exits_zero(tmp_path: Path, monkeypatch)
     repo.mkdir()
     missing = tmp_path / "missing nauro"
 
-    import nauro.cli.commands.setup as setup_mod
+    from nauro.cli import nauro_command
 
-    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: str(missing))
-    setup_mod._find_nauro_command.cache_clear()
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", lambda: str(missing))
+    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
     materialize_hooks_codex(repo, remove=False)
     config = json.loads(_codex_hooks(repo).read_text())
     entry = _codex_nauro_entries(config, "SessionStart")[0]
@@ -377,11 +377,11 @@ def test_codex_hook_bare_command_guard_checks_path(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    import nauro.cli.commands.setup as setup_mod
+    from nauro.cli import nauro_command
 
-    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "nauro")
-    setup_mod._find_nauro_command.cache_clear()
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", lambda: "nauro")
+    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
     materialize_hooks_codex(repo, remove=False)
     config = json.loads(_codex_hooks(repo).read_text())
     entry = _codex_nauro_entries(config, "SessionStart")[0]
@@ -471,15 +471,15 @@ def test_materialize_codex_refreshes_recorded_command(tmp_path: Path, monkeypatc
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    import nauro.cli.commands.setup as setup_mod
+    from nauro.cli import nauro_command
 
-    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "/old/nauro")
-    setup_mod._find_nauro_command.cache_clear()
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", lambda: "/old/nauro")
+    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
     materialize_hooks_codex(repo, remove=False)
-    monkeypatch.setattr(setup_mod, "_resolve_nauro_command", lambda: "/new/nauro")
-    setup_mod._find_nauro_command.cache_clear()
-    setup_mod._find_nauro_codex_hook_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", lambda: "/new/nauro")
+    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_codex_hook_command.cache_clear()
 
     line = materialize_hooks_codex(repo, remove=False)
 
