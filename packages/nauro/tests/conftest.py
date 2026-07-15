@@ -38,6 +38,37 @@ def cloud_prefix(user_id: str, project_id: str) -> str:
     return f"users/{user_id}/projects/{project_id}"
 
 
+def normalize_transcript(text: str, replacements: dict[str, str]) -> str:
+    """Replace each volatile substring in ``text`` with its placeholder.
+
+    Pure helper for transcript pins: callers pass a mapping of volatile
+    values (temp dirs, resolved command paths) to stable placeholders such
+    as ``{TMP}`` or ``{NAURO_CMD}``. Replacements are applied in mapping
+    order, so callers with nested volatile values list the longer needle
+    first.
+    """
+    for needle, placeholder in replacements.items():
+        text = text.replace(needle, placeholder)
+    return text
+
+
+def snapshot_tree(root: Path) -> list[str]:
+    """Sorted relative POSIX paths of all files under ``root``.
+
+    ``.git`` subtrees are excluded so inventory assertions stay independent
+    of the git version's on-disk layout.
+    """
+    paths = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        if ".git" in rel.parts:
+            continue
+        paths.append(rel.as_posix())
+    return sorted(paths)
+
+
 def read_project_context(store_path: Path, level: int = 0) -> str:
     """Extract the ``content`` string from the ``tool_get_context`` envelope.
 
