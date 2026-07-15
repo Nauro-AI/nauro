@@ -14,9 +14,13 @@ import functools
 import json
 import shutil
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
+import tomlkit
 import typer
+from tomlkit.exceptions import ParseError as TOMLParseError
+from tomlkit.items import InlineTable
 
 from nauro.cli import utils as cli_utils
 from nauro.cli._codex_hooks import (
@@ -30,6 +34,7 @@ from nauro.cli._codex_hooks import (
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
+from nauro.store._atomic import atomic_write_text
 from nauro.store.reader import read_text_lenient
 from nauro.store.registry import (
     RegistrySchemaError,
@@ -38,16 +43,9 @@ from nauro.store.registry import (
     load_registry_v2,
 )
 from nauro.store.resolution import resolve_from_cwd
-from nauro.store.write_safety import find_symlink
+from nauro.store.write_safety import find_file_symlink, find_symlink
 from nauro.templates.agents_md import remove_generated_agents_md
 from nauro.templates.agents_md_regen import warn_then_regen
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
-
-import tomli_w
 
 setup_app = typer.Typer(help="Configure tool integrations.")
 
@@ -307,6 +305,9 @@ def _prune_redundant_user_scope_mcp() -> str | None:
     config_path = Path.home() / ".claude.json"
     if not config_path.exists():
         return None
+    refusal = find_file_symlink(config_path)
+    if refusal is not None:
+        return f"  skipped user-scope prune: {refusal.message}"
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
     except UnicodeDecodeError:
@@ -478,6 +479,36 @@ def _default_codex_config_path() -> Path:
     return Path.home() / ".codex" / "config.toml"
 
 
+@dataclass(frozen=True)
+class _CodexNauroEntry:
+    """Typed view of the ``[mcp_servers.nauro]`` keys Nauro owns.
+
+    Only ``command`` and ``args`` belong to Nauro; any other keys the user
+    added to the entry (timeouts, env, ...) are never touched. A field is
+    None when the underlying key is missing or off-shape, so each owned key
+    is compared and rewritten independently: a key whose value already
+    matches stays untouched, preserving its formatting and comments.
+    """
+
+    command: str | None
+    args: list[str] | None
+
+
+def _parse_codex_nauro_entry(entry: object) -> _CodexNauroEntry:
+    """Parse an existing ``mcp_servers.nauro`` value into the typed view."""
+    if not isinstance(entry, dict):
+        return _CodexNauroEntry(command=None, args=None)
+    command = entry.get("command")
+    args = entry.get("args")
+    parsed_args: list[str] | None = None
+    if isinstance(args, list) and all(isinstance(item, str) for item in args):
+        parsed_args = [str(item) for item in args]
+    return _CodexNauroEntry(
+        command=str(command) if isinstance(command, str) else None,
+        args=parsed_args,
+    )
+
+
 def _configure_codex(
     *,
     remove: bool,
@@ -485,6 +516,13 @@ def _configure_codex(
     clear_user_scope: bool = True,
 ) -> str:
     """Add or remove the Nauro MCP entry in ``~/.codex/config.toml``.
+
+    The file is hand-maintained user config, so edits go through tomlkit:
+    comments, formatting, and user-added keys inside the nauro entry survive,
+    and only the ``command``/``args`` keys Nauro owns are rewritten. A
+    config.toml that is itself a symlink is refused (a dotfile manager may
+    own the real file); a symlinked parent directory works. Writes are
+    atomic, preserve permission bits, and are skipped when nothing changes.
 
     ``clear_user_scope`` gates the remove path: when False, the codex MCP
     entry is preserved because other registered nauro projects still depend
@@ -498,36 +536,81 @@ def _configure_codex(
             f"Codex: preserved nauro entry in {config_path} (other nauro projects still registered)"
         )
 
-    if config_path.exists():
-        try:
-            with config_path.open("rb") as f:
-                config = tomllib.load(f)
-        except tomllib.TOMLDecodeError as exc:
-            return f"Codex: could not parse {config_path} - {exc}"
-    else:
-        config = {}
+    refusal = find_file_symlink(config_path)
+    if refusal is not None:
+        return f"Codex: {refusal.message}"
 
-    servers = config.setdefault("mcp_servers", {})
+    original: bytes | None
+    if config_path.exists():
+        original = config_path.read_bytes()
+        try:
+            document = tomlkit.parse(original.decode("utf-8"))
+        except UnicodeDecodeError:
+            return f"Codex: could not parse {config_path} - not valid UTF-8"
+        except TOMLParseError as exc:
+            return f"Codex: could not parse {config_path} - {exc}"
+    elif remove:
+        return f"Codex: no nauro entry to remove in {config_path}"
+    else:
+        original = None
+        document = tomlkit.document()
+
+    servers = document.get("mcp_servers")
     # A hand-edited config.toml could define mcp_servers as a non-table (e.g. a
     # string); mutating it would raise. Skip with a clear message, not a crash.
-    if not isinstance(servers, dict):
+    if servers is not None and not isinstance(servers, dict):
         if remove:
             return f"Codex: no nauro entry to remove in {config_path}"
         return f"Codex: mcp_servers in {config_path} is not a table, skipped"
 
     if remove:
-        if "nauro" in servers:
-            del servers["nauro"]
-            if not servers:
-                config.pop("mcp_servers", None)
-            config_path.write_bytes(tomli_w.dumps(config).encode("utf-8"))
-            return f"Codex: removed nauro from {config_path}"
-        return f"Codex: no nauro entry to remove in {config_path}"
+        if servers is None or "nauro" not in servers:
+            return f"Codex: no nauro entry to remove in {config_path}"
+        # The emptied parent table is deliberately left in place: popping it
+        # would rewrite user formatting beyond the entry being removed.
+        del servers["nauro"]
+        status = f"Codex: removed nauro from {config_path}"
+    else:
+        desired = _CodexNauroEntry(command=_find_nauro_command(), args=["serve", "--stdio"])
+        if servers is None:
+            servers = tomlkit.table(is_super_table=False)
+            document["mcp_servers"] = servers
+        entry = servers.get("nauro")
+        current = _parse_codex_nauro_entry(entry)
+        if current == desired:
+            return f"Codex: nauro already configured in {config_path}"
+        if isinstance(entry, dict):
+            # Per-key update: a key whose value already matches keeps its
+            # formatting and comments (e.g. a multiline args array).
+            if current.command != desired.command:
+                entry["command"] = desired.command
+            if current.args != desired.args:
+                entry["args"] = desired.args
+        elif isinstance(servers, InlineTable):
+            # A block table nested inside an inline parent renders invalid
+            # TOML; match the user's inline style instead.
+            inline = tomlkit.inline_table()
+            inline["command"] = desired.command
+            inline["args"] = desired.args
+            servers["nauro"] = inline
+        else:
+            table = tomlkit.table()
+            table["command"] = desired.command
+            table["args"] = desired.args
+            servers["nauro"] = table
+            # Appended without a leading blank line: a reparse attributes the
+            # separator to the preceding entry, which would strand a stray
+            # blank line once a later remove deletes the block.
+            table.trivia.indent = ""
+        status = f"Codex: wrote nauro to {config_path}"
 
-    servers["nauro"] = {"command": _find_nauro_command(), "args": ["serve", "--stdio"]}
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_bytes(tomli_w.dumps(config).encode("utf-8"))
-    return f"Codex: wrote nauro to {config_path}"
+    rendered = tomlkit.dumps(document)
+    if original is not None and rendered.encode("utf-8") == original:
+        return status
+    # newline="\n" is load-bearing: tomlkit output carries the file's original
+    # line endings as literal characters, so translation would corrupt CRLF.
+    atomic_write_text(config_path, rendered, newline="\n")
+    return status
 
 
 def _nearest_codex_hooks_repo(start: Path) -> Path | None:
@@ -655,6 +738,9 @@ def _claude_agent_dir() -> Path:
 
 
 def _materialize_skill_file(target: Path, content: str) -> str:
+    refusal = find_file_symlink(target)
+    if refusal is not None:
+        return f"  {refusal.message}"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return f"  wrote {target}"
@@ -667,6 +753,9 @@ def _remove_skill_file(target: Path, *, stop_above: Path) -> str:
     (``~/.claude/skills/``, ``<repo>/.cursor/rules/``, etc.) or — worse —
     keep going if those happen to be empty after MCP config also got removed.
     """
+    refusal = find_file_symlink(target)
+    if refusal is not None:
+        return f"  {refusal.message}"
     if not target.is_file():
         return f"  no skill at {target}"
     target.unlink()
@@ -846,6 +935,10 @@ def materialize_agents(
     results: list[str] = []
     for name in AGENT_NAMES:
         target = base / f"{name}.md"
+        refusal = find_file_symlink(target)
+        if refusal is not None:
+            results.append(f"  {refusal.message}")
+            continue
         bundled = render_agent("claude_code", name)
         if remove:
             if not target.is_file():
@@ -868,6 +961,10 @@ def materialize_agents(
                 results.append(f"  overwrote {target}")
             else:
                 backup = target.parent / (target.name + ".bak")
+                backup_refusal = find_file_symlink(backup)
+                if backup_refusal is not None:
+                    results.append(f"  {backup_refusal.message}")
+                    continue
                 backup.write_text(current, encoding="utf-8")
                 target.write_text(bundled, encoding="utf-8")
                 results.append(f"  updated {target} (previous saved to {backup.name})")
