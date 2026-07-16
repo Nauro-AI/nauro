@@ -36,6 +36,7 @@ from nauro.cli.integrations.orchestrator import (
     SUBAGENTS_CONNECTOR_NAME_NOTICE,
     setup_all_surfaces,
 )
+from nauro.cli.integrations.render import render
 from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
@@ -175,14 +176,15 @@ def _install_into_adopted_repo(
     bundled artifacts to an existing adoption instead of aborting.
     """
     typer.echo("Repo already adopted. Installing requested artifacts across surfaces:\n")
-    for line in setup_all_surfaces(
+    for outcome in setup_all_surfaces(
         [repo_root],
         remove=False,
         with_subagents=with_subagents,
         force_overwrite=force_overwrite,
         with_skills=with_skills,
     ):
-        typer.echo(line)
+        for line in render(outcome):
+            typer.echo(line)
     if with_skills and not with_subagents:
         typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
     if with_subagents:
@@ -308,7 +310,7 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
     # (absent artifacts are a no-op) and the shared-user-scope guard still
     # protects subagents/skills/codex when other projects remain.
     typer.echo("\nRemoving Nauro integration across surfaces:")
-    for line in setup_all_surfaces(
+    for outcome in setup_all_surfaces(
         [repo_root],
         remove=True,
         current_project_key=pid,
@@ -317,7 +319,8 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
         with_hooks=True,
         clear_user_scope_override=None if is_last_repo else False,
     ):
-        typer.echo(line)
+        for line in render(outcome):
+            typer.echo(line)
 
     # ── delete the per-repo config (and the .nauro dir if it is now empty) ──
     try:
@@ -570,7 +573,7 @@ def adopt(
     # ── wire MCP + materialize skills ──────────────────────────────────────
     if not no_setup_and_skills:
         typer.echo("\nWiring MCP and installing skills across surfaces:")
-        for line in setup_all_surfaces(
+        for outcome in setup_all_surfaces(
             [repo_root],
             remove=False,
             current_project_key=pid,
@@ -579,7 +582,8 @@ def adopt(
             force_overwrite=force_overwrite,
             with_skills=with_skills,
         ):
-            typer.echo(line)
+            for line in render(outcome):
+                typer.echo(line)
 
         if with_skills and not with_subagents:
             typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")

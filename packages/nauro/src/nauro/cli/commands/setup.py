@@ -22,6 +22,7 @@ from nauro.cli.integrations.orchestrator import (
     cursor_surfaces,
     setup_all_surfaces,
 )
+from nauro.cli.integrations.render import render
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 
 setup_app = typer.Typer(help="Configure tool integrations.")
@@ -58,7 +59,7 @@ def claude_code(
 
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro for project '{project_name}':\n")
-    for line in claude_code_surfaces(
+    for outcome in claude_code_surfaces(
         project_repos,
         remove=remove,
         with_hooks=with_hooks,
@@ -66,7 +67,8 @@ def claude_code(
         store_path=_store_path,
         warn=lambda msg: typer.echo(msg, err=True),
     ):
-        typer.echo(line)
+        for line in render(outcome):
+            typer.echo(line)
 
     if not remove:
         typer.echo(
@@ -103,8 +105,9 @@ def cursor(
 
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro (Cursor) for project '{project_name}':\n")
-    for line in cursor_surfaces(project_repos, remove=remove):
-        typer.echo(line)
+    for outcome in cursor_surfaces(project_repos, remove=remove):
+        for line in render(outcome):
+            typer.echo(line)
 
     if not remove:
         typer.echo("\nNext: open this repo in Cursor and start a chat — Nauro MCP will connect.")
@@ -135,8 +138,9 @@ def codex(
     ),
 ) -> None:
     """Configure Codex CLI to use Nauro (writes '~/.codex/config.toml')."""
-    for line in codex_surfaces(remove=remove, with_hooks=with_hooks):
-        typer.echo(line)
+    for outcome in codex_surfaces(remove=remove, with_hooks=with_hooks):
+        for line in render(outcome):
+            typer.echo(line)
 
     if not remove:
         typer.echo("\nNext: run a Codex session — it reads ~/.codex/config.toml on start.")
@@ -221,7 +225,7 @@ def all_(
     project_repos = [Path(rp) for rp in entry["repo_paths"]]
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro for project '{project_name}' across all surfaces:\n")
-    for line in setup_all_surfaces(
+    for outcome in setup_all_surfaces(
         project_repos,
         remove=remove,
         current_project_key=_store_path.name,
@@ -231,7 +235,8 @@ def all_(
         with_skills=with_skills,
         with_hooks=with_hooks,
     ):
-        typer.echo(line)
+        for line in render(outcome):
+            typer.echo(line)
 
     if not remove and with_skills and not with_subagents:
         typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
