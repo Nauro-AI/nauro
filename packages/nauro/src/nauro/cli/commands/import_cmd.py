@@ -607,7 +607,7 @@ def import_cmd(
         if counts.get("decisionlog_unparsed"):
             typer.echo(
                 "  Warning: decisionLog.md had content but no entries matched the "
-                "expected '## Decision: <title>' heading — 0 decisions imported. "
+                "expected '## Decision: <title>' heading - 0 decisions imported. "
                 "Re-check the heading format (see 'nauro import --help').",
                 err=True,
             )

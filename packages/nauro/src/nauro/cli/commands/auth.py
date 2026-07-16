@@ -592,7 +592,7 @@ def logout() -> None:
     """Clear stored authentication credentials."""
     config = load_config()
     if "auth" not in config:
-        typer.echo("Not authenticated — nothing to clear.")
+        typer.echo("Not authenticated - nothing to clear.")
         return
 
     # Two sequential standalone transactions, never nested: the config lock is

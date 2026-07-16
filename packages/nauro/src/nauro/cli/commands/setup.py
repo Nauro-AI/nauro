@@ -110,7 +110,7 @@ def cursor(
             typer.echo(line)
 
     if not remove:
-        typer.echo("\nNext: open this repo in Cursor and start a chat — Nauro MCP will connect.")
+        typer.echo("\nNext: open this repo in Cursor and start a chat - Nauro MCP will connect.")
         typer.echo(f"\n{CHECK_HINT_LINE}")
 
 
@@ -143,7 +143,7 @@ def codex(
             typer.echo(line)
 
     if not remove:
-        typer.echo("\nNext: run a Codex session — it reads ~/.codex/config.toml on start.")
+        typer.echo("\nNext: run a Codex session - it reads ~/.codex/config.toml on start.")
         if with_hooks:
             typer.echo(f"\n{CODEX_HOOKS_NOTICE}")
         typer.echo(f"\n{CHECK_HINT_LINE}")
@@ -167,7 +167,7 @@ CODEX_HOOKS_NOTICE = (
 # already-open session won't see the new wiring until it restarts. The
 # single-tool `setup claude-code` prints its own equivalent line.
 ALL_RESTART_NOTICE = (
-    "Next: start a fresh agent session (Claude Code/Cursor) — MCP config is read at session start."
+    "Next: start a fresh agent session (Claude Code/Cursor) - MCP config is read at session start."
 )
 
 

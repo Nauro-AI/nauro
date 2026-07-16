@@ -74,7 +74,7 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "project's existing Nauro store state read-only (get_context, "
         "open-questions RESUME/BRIEF pointers, diff_since_last_session, "
         "list_decisions) and originates 1-3 ranked candidate tasks, then "
-        "surfaces them via AskUserQuestion for the human to pick — a mandatory "
+        "surfaces them via AskUserQuestion for the human to pick - a mandatory "
         "ratify-gate with no auto-pick path. On the human's pick it dispatches "
         "/nauro-ship-task <chosen task> byte-for-byte with all six inner gates "
         "intact, then loops back. Originates the candidate set only; the human "

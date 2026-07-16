@@ -116,7 +116,7 @@ def resolve_conflict(
         return _union_merge(local_content, remote_content, relative_path, state)
 
     if _is_append_only(relative_path) and not _git_available():
-        logger.warning("git not available — falling back to last-write-wins for %s", relative_path)
+        logger.warning("git not available - falling back to last-write-wins for %s", relative_path)
 
     # Last-write-wins: keep local, back up remote
     _save_conflict_backup(project_path, relative_path, remote_content)

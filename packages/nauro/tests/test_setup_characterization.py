@@ -59,14 +59,12 @@ CLAUDE_NEXT_LINE = (
     " The MCP server will start automatically.\n"
 )
 
-CURSOR_NEXT_LINE = (
-    "Next: open this repo in Cursor and start a chat \u2014 Nauro MCP will connect.\n"
-)
+CURSOR_NEXT_LINE = "Next: open this repo in Cursor and start a chat - Nauro MCP will connect.\n"
 
-CODEX_NEXT_LINE = "Next: run a Codex session \u2014 it reads ~/.codex/config.toml on start.\n"
+CODEX_NEXT_LINE = "Next: run a Codex session - it reads ~/.codex/config.toml on start.\n"
 
 ALL_RESTART_LINE = (
-    "Next: start a fresh agent session (Claude Code/Cursor) \u2014 MCP config is read at"
+    "Next: start a fresh agent session (Claude Code/Cursor) - MCP config is read at"
     " session start.\n"
 )
 

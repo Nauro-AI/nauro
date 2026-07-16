@@ -95,7 +95,7 @@ def _quarantine_corrupt_config(cf: Path) -> None:
         # still be at risk rather than implying a clean recovery.
         logger.warning(
             "config.json is corrupt and could not be preserved (check directory "
-            "permissions) — returning empty config; back it up manually if it held "
+            "permissions) - returning empty config; back it up manually if it held "
             "credentials"
         )
 

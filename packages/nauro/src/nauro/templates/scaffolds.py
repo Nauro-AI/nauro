@@ -40,19 +40,19 @@ _(No state recorded yet.)_
 STACK_MD = """\
 # Stack
 ## Language & Framework
-**Python + Typer** *(example — replace with your choice)* \
-— Chosen for: fast CLI prototyping, strong ecosystem for LLM tooling. \
+**Python + Typer** *(example - replace with your choice)* \
+- Chosen for: fast CLI prototyping, strong ecosystem for LLM tooling. \
 Rejected: Go (faster binary, but slower iteration for a solo developer), \
 Node/oclif (weaker subprocess and file handling).
 [Replace the example above and add your core choices \
-using the same format: **Choice** — Chosen for: reasons. \
+using the same format: **Choice** - Chosen for: reasons. \
 Rejected: alternatives (why not).]
 ## Infrastructure
-[e.g. "**SQLite** — Chosen for: zero-config, single-file, \
+[e.g. "**SQLite** - Chosen for: zero-config, single-file, \
 good enough for local-first v1. \
 Rejected: Postgres (operational overhead for a CLI tool)."]
 ## Key Libraries
-[e.g. "**FastAPI** for MCP server — async, auto-generated OpenAPI docs, familiar."]
+[e.g. "**FastAPI** for MCP server - async, auto-generated OpenAPI docs, familiar."]
 """
 
 OPEN_QUESTIONS_MD = """\
@@ -62,7 +62,7 @@ OPEN_QUESTIONS_MD = """\
 """
 
 _FIRST_DECISION_RATIONALE = (
-    "Initial project setup — scaffold the Nauro project store and begin "
+    "Initial project setup - scaffold the Nauro project store and begin "
     "tracking architectural decisions.\n\n"
     "Explicit decision tracking from day one prevents context loss when "
     "onboarding contributors or switching between projects."
@@ -71,7 +71,7 @@ _FIRST_DECISION_RATIONALE = (
 _FIRST_DECISION_REJECTED = (
     RejectedAlternative(
         name="Ad-hoc notes in README",
-        reason="Hard to find, no structure — does not scale past a few entries.",
+        reason="Hard to find, no structure - does not scale past a few entries.",
     ),
     RejectedAlternative(
         name="No tracking until later",

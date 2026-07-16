@@ -67,7 +67,7 @@ def validate_store(store_path: Path) -> list[str]:
             unfilled.append(p)
         if unfilled:
             warnings.append(
-                f"{filename}: {len(unfilled)} unfilled prompt(s) remaining — e.g. [{unfilled[0]}]"
+                f"{filename}: {len(unfilled)} unfilled prompt(s) remaining - e.g. [{unfilled[0]}]"
             )
 
     # Check Last synced staleness — prefer state_current.md, fall back to legacy state.md.
@@ -97,7 +97,7 @@ def validate_store(store_path: Path) -> list[str]:
                 age = datetime.now(timezone.utc) - synced_date
                 if age.days > STALE_SYNC_DAYS:
                     warnings.append(
-                        f"{state_path.name}: Last synced {age.days} days ago — "
+                        f"{state_path.name}: Last synced {age.days} days ago - "
                         "consider running nauro sync"
                     )
             except ValueError:
@@ -110,7 +110,7 @@ def validate_store(store_path: Path) -> list[str]:
     token_estimate = len(l0_payload) // CHARS_PER_TOKEN
     if token_estimate > L0_TOKEN_LIMIT:
         warnings.append(
-            f"L0 token count ~{token_estimate} exceeds {L0_TOKEN_LIMIT:,} — consider trimming"
+            f"L0 token count ~{token_estimate} exceeds {L0_TOKEN_LIMIT:,} - consider trimming"
         )
 
     # Check project.md size — it leads every L0 payload as the scope preamble.
@@ -120,7 +120,7 @@ def validate_store(store_path: Path) -> list[str]:
         if project_estimate > PROJECT_MD_TOKEN_WARN:
             warnings.append(
                 f"{PROJECT_MD}: ~{project_estimate} estimated tokens exceeds "
-                f"{PROJECT_MD_TOKEN_WARN:,} — move detail to stack.md or decisions"
+                f"{PROJECT_MD_TOKEN_WARN:,} - move detail to stack.md or decisions"
             )
 
     # Check decision numbering is sequential with no gaps

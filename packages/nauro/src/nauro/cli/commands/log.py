@@ -87,7 +87,7 @@ def _show_summary(store_path: Path, snapshots: list[dict]) -> None:
     for snap in snapshots:
         version = f"v{snap['version']:03d}"
         ts = snap["timestamp"][:19].replace("T", " ")
-        trigger = snap.get("trigger", "") or "—"
+        trigger = snap.get("trigger", "") or "-"
 
         if len(trigger) > 30:
             trigger = trigger[:27] + "..."
@@ -104,7 +104,7 @@ def _show_full(store_path: Path, snapshots: list[dict]) -> None:
         snap = load_snapshot(store_path, snap_meta["version"])
         version = f"v{snap['version']:03d}"
         ts = snap["timestamp"][:19].replace("T", " ")
-        trigger = snap.get("trigger", "") or "—"
+        trigger = snap.get("trigger", "") or "-"
 
         typer.echo(f"Snapshot {version}  |  {ts}  |  {trigger}")
         typer.echo("─" * 60)

@@ -677,7 +677,7 @@ def test_supersedes_nonexistent_target_fails_open(tmp_path: Path):
     assert "D062" in ctx
     # Fail-open: the shipped line renders, with no relation wording.
     assert (
-        'D062 "adopt redis for the cache tier layer" (active, 2026-05-01) — '
+        'D062 "adopt redis for the cache tier layer" (active, 2026-05-01) - '
         "redis chosen for the cache tier layer" in ctx
     )
     assert "supersedes" not in ctx
@@ -768,7 +768,7 @@ def test_format_block_line_byte_identical_without_ref():
     expected = "\n".join(
         [
             hook._PREAMBLE,
-            'D007 "adopt postgres" (active, 2026-05-01) — postgres chosen for relational integrity',
+            'D007 "adopt postgres" (active, 2026-05-01) - postgres chosen for relational integrity',
             hook._INSTRUCTION,
         ]
     )
@@ -787,7 +787,7 @@ def test_format_block_explicit_line_for_enriched_hit():
         "supersedes_ref": {"number": 60, "title": "use dynamodb as the primary datastore"},
     }
     expected_line = (
-        'D061 "adopt postgres as the primary datastore" (active, 2026-05-01) — '
+        'D061 "adopt postgres as the primary datastore" (active, 2026-05-01) - '
         'supersedes D060 "use dynamodb as the primary datastore": this decision '
         'rejected "use dynamodb as the primary datastore" in favor of '
         '"adopt postgres as the primary datastore". '
