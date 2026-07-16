@@ -99,7 +99,6 @@ def _add_hook_entry(settings_path: Path, settings: dict, repo: Path) -> str:
                     return f"  {repo}: nauro hook already present in .claude/settings.json"
 
     event_matchers.append({"hooks": [_nauro_hook_entry()]})
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(settings_path, json.dumps(settings, indent=2) + "\n")
     lines = [f"  {repo}: wrote nauro hook to .claude/settings.json"]
     lines.extend(public_surface_git_warnings(repo, ".claude/settings.json"))

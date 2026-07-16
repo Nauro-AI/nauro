@@ -66,7 +66,6 @@ def _configure_json_mcp(
     if not isinstance(servers, dict):
         return f"  {repo_path}: mcpServers in {label} is not a JSON object, skipped"
     servers["nauro"] = nauro_entry
-    config_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(config_path, json.dumps(config, indent=2) + "\n")
     lines = [f"  {repo_path}: wrote nauro to {label}"]
     lines.extend(public_surface_git_warnings(repo_path, config_rel_path))

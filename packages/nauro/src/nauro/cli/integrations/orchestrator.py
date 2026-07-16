@@ -170,6 +170,170 @@ def codex_surfaces(*, remove: bool, with_hooks: bool) -> list[str]:
     return lines
 
 
+def _all_claude_code_lines(
+    project_repos: list[Path],
+    *,
+    remove: bool,
+    clear_user_scope: bool,
+    with_subagents: bool,
+    force_overwrite: bool,
+    with_skills: bool,
+    with_hooks: bool,
+) -> list[str]:
+    """Claude Code surface lines for ``setup_all_surfaces``.
+
+    MCP per-repo (direct ``.mcp.json`` write), user-scope prune on add, skills
+    global, optional subagents, then the per-repo advisory hook.
+    """
+    lines: list[str] = []
+    for repo in project_repos:
+        if not repo.is_dir():
+            lines.append(f"  {repo}: repo path missing, skipped")
+            continue
+        try:
+            lines.append(_configure_mcp(repo, remove=remove))
+        except Exception as exc:
+            lines.append(f"Claude Code MCP ({repo}): error - {exc}")
+    if not remove:
+        try:
+            pruned = _prune_redundant_user_scope_mcp()
+            if pruned:
+                lines.append(pruned)
+        except Exception as exc:  # never let cleanup break wiring
+            lines.append(f"Claude Code MCP (user-scope cleanup): error - {exc}")
+    try:
+        lines.extend(
+            materialize_skills_claude_code(
+                remove=remove,
+                clear_user_scope=clear_user_scope,
+                with_skills=with_skills,
+            )
+        )
+    except Exception as exc:
+        lines.append(f"Claude Code skills: error - {exc}")
+
+    if with_subagents:
+        try:
+            lines.extend(
+                materialize_agents(
+                    "claude_code",
+                    remove=remove,
+                    force_overwrite=force_overwrite,
+                    clear_user_scope=clear_user_scope,
+                )
+            )
+        except Exception as exc:
+            lines.append(f"Claude Code agents: error - {exc}")
+
+    if with_hooks or remove:
+        for repo in project_repos:
+            if not repo.is_dir():
+                continue
+            try:
+                lines.append(materialize_hooks_claude_code(repo, remove=remove))
+            except Exception as exc:
+                lines.append(f"Claude Code hook ({repo}): error - {exc}")
+    return lines
+
+
+def _all_cursor_lines(project_repos: list[Path], *, remove: bool, with_skills: bool) -> list[str]:
+    """Cursor surface lines for ``setup_all_surfaces``: MCP per repo + skills per repo."""
+    lines: list[str] = []
+    for repo in project_repos:
+        if not repo.is_dir():
+            continue
+        try:
+            lines.append(_configure_cursor_for_repo(repo, remove=remove))
+        except Exception as exc:
+            lines.append(f"Cursor MCP ({repo}): error - {exc}")
+        try:
+            lines.extend(
+                materialize_skills_cursor_for_repo(repo, remove=remove, with_skills=with_skills)
+            )
+        except Exception as exc:
+            lines.append(f"Cursor skills ({repo}): error - {exc}")
+    return lines
+
+
+def _all_codex_lines(
+    project_repos: list[Path],
+    *,
+    remove: bool,
+    clear_user_scope: bool,
+    with_skills: bool,
+    with_hooks: bool,
+) -> list[str]:
+    """Codex surface lines for ``setup_all_surfaces``: MCP global, skills global, optional hooks."""
+    lines: list[str] = []
+    try:
+        lines.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
+    except Exception as exc:
+        lines.append(f"Codex MCP: error - {exc}")
+    try:
+        lines.extend(
+            materialize_skills_codex(
+                remove=remove,
+                clear_user_scope=clear_user_scope,
+                with_skills=with_skills,
+            )
+        )
+    except Exception as exc:
+        lines.append(f"Codex skills: error - {exc}")
+
+    if with_hooks or remove:
+        for repo in project_repos:
+            if not repo.is_dir():
+                continue
+            try:
+                lines.append(materialize_hooks_codex(repo, remove=remove))
+            except Exception as exc:
+                lines.append(f"Codex hooks ({repo}): error - {exc}")
+    return lines
+
+
+def _all_agents_md_lines(
+    project_repos: list[Path],
+    *,
+    remove: bool,
+    current_project_key: str | None,
+    store_path: Path | None,
+) -> list[str]:
+    """AGENTS.md regen (add) and teardown (remove) lines for ``setup_all_surfaces``.
+
+    On the add path ``warn_then_regen`` routes missing-repo, symlink-refusal,
+    and git-hygiene warnings into ``warn``; the callback appends into this
+    helper's own returned list so those warnings surface on stdout in the same
+    position the inline code produced them.
+    """
+    lines: list[str] = []
+    # Regenerate AGENTS.md once so context is fresh from the start on every
+    # entry point that wires surfaces. Guarded on the add path and on having a
+    # store to read from. warn_then_regen routes missing-repo, symlink-refusal,
+    # and git-hygiene warnings into the status lines.
+    if not remove and current_project_key is not None and store_path is not None:
+        try:
+            updated = warn_then_regen(current_project_key, store_path, warn=lines.append)
+            for repo_path in updated:
+                lines.append(f"  {repo_path}: regenerated AGENTS.md")
+        except Exception as exc:
+            lines.append(f"AGENTS.md regeneration: error - {exc}")
+
+    # Mirror of the regen above: strip the generated AGENTS.md on teardown so a
+    # removed integration leaves no orphaned context file. User content in a
+    # ``# Manual`` section is preserved (the file is kept) by the helper.
+    if remove:
+        for repo in project_repos:
+            if not repo.is_dir():
+                continue
+            try:
+                removed_line = remove_generated_agents_md(repo)
+                if removed_line:
+                    lines.append(removed_line)
+            except Exception as exc:
+                lines.append(f"AGENTS.md removal ({repo}) failed: {exc}")
+    return lines
+
+
 def setup_all_surfaces(
     project_repos: list[Path],
     *,
@@ -233,122 +397,35 @@ def setup_all_surfaces(
         clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True
 
     lines: list[str] = []
-
-    # Claude Code (MCP per-repo via direct `.mcp.json` write + skills global)
-    for repo in project_repos:
-        if not repo.is_dir():
-            lines.append(f"  {repo}: repo path missing, skipped")
-            continue
-        try:
-            lines.append(_configure_mcp(repo, remove=remove))
-        except Exception as exc:
-            lines.append(f"Claude Code MCP ({repo}): error - {exc}")
-    if not remove:
-        try:
-            pruned = _prune_redundant_user_scope_mcp()
-            if pruned:
-                lines.append(pruned)
-        except Exception as exc:  # never let cleanup break wiring
-            lines.append(f"Claude Code MCP (user-scope cleanup): error - {exc}")
-    try:
-        lines.extend(
-            materialize_skills_claude_code(
-                remove=remove,
-                clear_user_scope=clear_user_scope,
-                with_skills=with_skills,
-            )
+    lines.extend(
+        _all_claude_code_lines(
+            project_repos,
+            remove=remove,
+            clear_user_scope=clear_user_scope,
+            with_subagents=with_subagents,
+            force_overwrite=force_overwrite,
+            with_skills=with_skills,
+            with_hooks=with_hooks,
         )
-    except Exception as exc:
-        lines.append(f"Claude Code skills: error - {exc}")
-
-    if with_subagents:
-        try:
-            lines.extend(
-                materialize_agents(
-                    "claude_code",
-                    remove=remove,
-                    force_overwrite=force_overwrite,
-                    clear_user_scope=clear_user_scope,
-                )
-            )
-        except Exception as exc:
-            lines.append(f"Claude Code agents: error - {exc}")
-
-    if with_hooks or remove:
-        for repo in project_repos:
-            if not repo.is_dir():
-                continue
-            try:
-                lines.append(materialize_hooks_claude_code(repo, remove=remove))
-            except Exception as exc:
-                lines.append(f"Claude Code hook ({repo}): error - {exc}")
-
-    # Cursor (MCP per-repo + skills per-repo)
-    for repo in project_repos:
-        if not repo.is_dir():
-            continue
-        try:
-            lines.append(_configure_cursor_for_repo(repo, remove=remove))
-        except Exception as exc:
-            lines.append(f"Cursor MCP ({repo}): error - {exc}")
-        try:
-            lines.extend(
-                materialize_skills_cursor_for_repo(repo, remove=remove, with_skills=with_skills)
-            )
-        except Exception as exc:
-            lines.append(f"Cursor skills ({repo}): error - {exc}")
-
-    # Codex (MCP global + skills global)
-    try:
-        lines.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
-    except Exception as exc:
-        lines.append(f"Codex MCP: error - {exc}")
-    try:
-        lines.extend(
-            materialize_skills_codex(
-                remove=remove,
-                clear_user_scope=clear_user_scope,
-                with_skills=with_skills,
-            )
+    )
+    lines.extend(_all_cursor_lines(project_repos, remove=remove, with_skills=with_skills))
+    lines.extend(
+        _all_codex_lines(
+            project_repos,
+            remove=remove,
+            clear_user_scope=clear_user_scope,
+            with_skills=with_skills,
+            with_hooks=with_hooks,
         )
-    except Exception as exc:
-        lines.append(f"Codex skills: error - {exc}")
-
-    if with_hooks or remove:
-        for repo in project_repos:
-            if not repo.is_dir():
-                continue
-            try:
-                lines.append(materialize_hooks_codex(repo, remove=remove))
-            except Exception as exc:
-                lines.append(f"Codex hooks ({repo}): error - {exc}")
-
-    # Regenerate AGENTS.md once so context is fresh from the start on every
-    # entry point that wires surfaces. Guarded on the add path and on having a
-    # store to read from. warn_then_regen routes missing-repo, symlink-refusal,
-    # and git-hygiene warnings into the status lines.
-    if not remove and current_project_key is not None and store_path is not None:
-        try:
-            updated = warn_then_regen(current_project_key, store_path, warn=lines.append)
-            for repo_path in updated:
-                lines.append(f"  {repo_path}: regenerated AGENTS.md")
-        except Exception as exc:
-            lines.append(f"AGENTS.md regeneration: error - {exc}")
-
-    # Mirror of the regen above: strip the generated AGENTS.md on teardown so a
-    # removed integration leaves no orphaned context file. User content in a
-    # ``# Manual`` section is preserved (the file is kept) by the helper.
-    if remove:
-        for repo in project_repos:
-            if not repo.is_dir():
-                continue
-            try:
-                removed_line = remove_generated_agents_md(repo)
-                if removed_line:
-                    lines.append(removed_line)
-            except Exception as exc:
-                lines.append(f"AGENTS.md removal ({repo}) failed: {exc}")
-
+    )
+    lines.extend(
+        _all_agents_md_lines(
+            project_repos,
+            remove=remove,
+            current_project_key=current_project_key,
+            store_path=store_path,
+        )
+    )
     return lines
 
 
