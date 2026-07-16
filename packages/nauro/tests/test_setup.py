@@ -190,7 +190,7 @@ class TestMCPConfigDirectWrite:
 
     def test_setup_all_iterates_per_repo(self, tmp_path: Path, monkeypatch):
         """Multi-repo project: `setup all` writes `.mcp.json` once per repo."""
-        from nauro.cli.commands.setup import setup_all_surfaces
+        from nauro.cli.integrations.orchestrator import setup_all_surfaces
 
         repo1 = tmp_path / "repo1"
         repo2 = tmp_path / "repo2"

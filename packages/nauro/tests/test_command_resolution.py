@@ -250,7 +250,7 @@ def test_find_nauro_command_memoizes_resolution(monkeypatch):
 
 def test_setup_all_resolves_command_once(tmp_path, monkeypatch):
     """`setup all` validates the entrypoint once across all five sinks."""
-    from nauro.cli.commands.setup import setup_all_surfaces
+    from nauro.cli.integrations.orchestrator import setup_all_surfaces
 
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"

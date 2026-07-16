@@ -973,7 +973,7 @@ def test_setup_all_writes_agents_md(tmp_path: Path, monkeypatch):
 
 def test_setup_all_regenerates_agents_md_exactly_once(tmp_path: Path, monkeypatch):
     """A single `setup all` invocation writes AGENTS.md once — no double-regen."""
-    import nauro.cli.commands.setup as setup_mod
+    import nauro.cli.integrations.orchestrator as orchestrator_mod
 
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
@@ -983,13 +983,13 @@ def test_setup_all_regenerates_agents_md_exactly_once(tmp_path: Path, monkeypatc
     monkeypatch.chdir(repo)
 
     calls: list[tuple] = []
-    real = setup_mod.warn_then_regen
+    real = orchestrator_mod.warn_then_regen
 
     def _counting(project_key, store, **kwargs):
         calls.append((project_key, store))
         return real(project_key, store, **kwargs)
 
-    monkeypatch.setattr(setup_mod, "warn_then_regen", _counting)
+    monkeypatch.setattr(orchestrator_mod, "warn_then_regen", _counting)
 
     result = runner.invoke(app, ["setup", "all"])
     assert result.exit_code == 0, result.output
@@ -998,7 +998,7 @@ def test_setup_all_regenerates_agents_md_exactly_once(tmp_path: Path, monkeypatc
 
 def test_setup_all_remove_does_not_write_agents_md(tmp_path: Path, monkeypatch):
     """The remove path must not regenerate AGENTS.md."""
-    import nauro.cli.commands.setup as setup_mod
+    import nauro.cli.integrations.orchestrator as orchestrator_mod
 
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
@@ -1009,7 +1009,7 @@ def test_setup_all_remove_does_not_write_agents_md(tmp_path: Path, monkeypatch):
 
     calls: list[tuple] = []
     monkeypatch.setattr(
-        setup_mod,
+        orchestrator_mod,
         "warn_then_regen",
         lambda *a, **k: calls.append(a) or [],
     )
