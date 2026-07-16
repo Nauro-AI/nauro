@@ -24,8 +24,8 @@ def _prune_redundant_user_scope_mcp() -> ClaudeUserConfigOutcome | None:
     Only the HTTP-transport entry is pruned — a user-scope ``nauro`` defined as
     a stdio command is the user's own choice and is left alone. Soft-fails
     (never raises) so a malformed or absent file cannot break wiring. Returns a
-    status line when something was removed or when the file is not valid
-    UTF-8, otherwise ``None``.
+    status line when something was removed, when the file is not valid UTF-8, or
+    when its top level is not a JSON object, otherwise ``None``.
     """
     config_path = Path.home() / ".claude.json"
     if not config_path.exists():
@@ -39,6 +39,11 @@ def _prune_redundant_user_scope_mcp() -> ClaudeUserConfigOutcome | None:
         return ClaudeUserConfigOutcome(ClaudeUserConfigKind.INVALID_UTF8)
     except (json.JSONDecodeError, OSError):
         return None
+    # A hand-mangled ~/.claude.json can parse to a non-object top level (an
+    # explicit null, an array, or a scalar); ``.get`` would raise on it. Skip
+    # gracefully, mirroring the shape guard the write codecs apply.
+    if not isinstance(config, dict):
+        return ClaudeUserConfigOutcome(ClaudeUserConfigKind.NOT_JSON_OBJECT)
     servers = config.get("mcpServers")
     if not isinstance(servers, dict):
         return None

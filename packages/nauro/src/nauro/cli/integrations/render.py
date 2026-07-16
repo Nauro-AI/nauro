@@ -73,6 +73,8 @@ def _render_json_mcp(o: JsonMcpOutcome) -> list[str]:
             return [f"  {o.repo_path}: removed nauro from {o.label}"]
         case JsonMcpKind.WROTE:
             return [f"  {o.repo_path}: wrote nauro to {o.label}", *o.git_warnings]
+        case _:
+            raise TypeError(f"unrenderable JsonMcpOutcome kind: {o.kind!r}")
 
 
 def _render_claude_hook(o: ClaudeHookOutcome) -> list[str]:
@@ -95,6 +97,8 @@ def _render_claude_hook(o: ClaudeHookOutcome) -> list[str]:
             return [f"  {o.repo}: no nauro hook to remove"]
         case ClaudeHookKind.REMOVED:
             return [f"  {o.repo}: removed nauro hook from .claude/settings.json"]
+        case _:
+            raise TypeError(f"unrenderable ClaudeHookOutcome kind: {o.kind!r}")
 
 
 def _render_claude_user_config(o: ClaudeUserConfigOutcome) -> list[str]:
@@ -103,11 +107,15 @@ def _render_claude_user_config(o: ClaudeUserConfigOutcome) -> list[str]:
             return [f"  skipped user-scope prune: {o.refusal.message}"]
         case ClaudeUserConfigKind.INVALID_UTF8:
             return ["  skipped user-scope prune: ~/.claude.json is not valid UTF-8"]
+        case ClaudeUserConfigKind.NOT_JSON_OBJECT:
+            return ["  skipped user-scope prune: ~/.claude.json is not a JSON object"]
         case ClaudeUserConfigKind.PRUNED:
             return [
                 "  removed redundant user-scope HTTP nauro entry from ~/.claude.json "
                 "(project-scope stdio is canonical)"
             ]
+        case _:
+            raise TypeError(f"unrenderable ClaudeUserConfigOutcome kind: {o.kind!r}")
 
 
 def _render_legacy(o: LegacyOutcome) -> list[str]:
@@ -118,6 +126,8 @@ def _render_legacy(o: LegacyOutcome) -> list[str]:
             return [f"  {o.repo_path}: removed legacy Nauro block (deleted empty CLAUDE.md)"]
         case LegacyKind.REMOVED_BLOCK:
             return [f"  {o.repo_path}: removed legacy Nauro block from CLAUDE.md"]
+        case _:
+            raise TypeError(f"unrenderable LegacyOutcome kind: {o.kind!r}")
 
 
 def _render_codex_config(o: CodexConfigOutcome) -> list[str]:
@@ -143,6 +153,8 @@ def _render_codex_config(o: CodexConfigOutcome) -> list[str]:
             return [f"Codex: nauro already configured in {o.config_path}"]
         case CodexConfigKind.WROTE:
             return [f"Codex: wrote nauro to {o.config_path}"]
+        case _:
+            raise TypeError(f"unrenderable CodexConfigOutcome kind: {o.kind!r}")
 
 
 def _render_codex_hook(o: CodexHookOutcome) -> list[str]:
@@ -163,6 +175,8 @@ def _render_codex_hook(o: CodexHookOutcome) -> list[str]:
             return [f"  {o.repo}: nauro hooks already present in .codex/hooks.json"]
         case CodexHookKind.WROTE:
             return [f"  {o.repo}: wrote nauro hooks to .codex/hooks.json", *o.git_warnings]
+        case _:
+            raise TypeError(f"unrenderable CodexHookOutcome kind: {o.kind!r}")
 
 
 def _render_skill(o: SkillOutcome) -> list[str]:
@@ -179,6 +193,8 @@ def _render_skill(o: SkillOutcome) -> list[str]:
             return [f"  removed {o.target}"]
         case SkillKind.ABSENT:
             return [f"  no skill at {o.target}"]
+        case _:
+            raise TypeError(f"unrenderable SkillOutcome kind: {o.kind!r}")
 
 
 def _render_agent(o: AgentOutcome) -> list[str]:
@@ -205,3 +221,5 @@ def _render_agent(o: AgentOutcome) -> list[str]:
             return [f"  removed {o.target}"]
         case AgentKind.PRESERVED_MODIFIED:
             return [f"  preserved {o.target} (locally modified)"]
+        case _:
+            raise TypeError(f"unrenderable AgentOutcome kind: {o.kind!r}")

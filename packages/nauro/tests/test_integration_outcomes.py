@@ -1,13 +1,46 @@
-"""Typed-outcome pipeline scaffolding: RawLine carrier and render dispatch."""
+"""Typed-outcome pipeline: RawLine carrier, render dispatch, and a wording table.
+
+The table below pins ``render()``'s exact string output for every outcome kind
+across every codec — the happy-path WROTE/REMOVED lines and each error/skip
+branch. It is the guard that makes a future wording edit fail a test rather than
+silently changing what ``nauro setup`` prints.
+"""
 
 from __future__ import annotations
 
 import dataclasses
+from pathlib import Path
 
 import pytest
 
-from nauro.cli.integrations.outcomes import RawLine
+from nauro.cli.integrations.outcomes import (
+    AgentKind,
+    AgentOutcome,
+    ClaudeHookKind,
+    ClaudeHookOutcome,
+    ClaudeUserConfigKind,
+    ClaudeUserConfigOutcome,
+    CodexConfigKind,
+    CodexConfigOutcome,
+    CodexHookKind,
+    CodexHookOutcome,
+    HandlerErrorOutcome,
+    JsonMcpKind,
+    JsonMcpOutcome,
+    LegacyKind,
+    LegacyOutcome,
+    RawLine,
+    SkillKind,
+    SkillOutcome,
+)
 from nauro.cli.integrations.render import render
+from nauro.store.write_safety import SymlinkRefusal, UserSymlinkRefusal
+
+REPO = Path("/repo")
+CFG = Path("/home/.codex/config.toml")
+TARGET = Path("/t/nauro-adopt/SKILL.md")
+REPO_REFUSAL = SymlinkRefusal(REPO / ".mcp.json", REPO / ".mcp.json")
+USER_REFUSAL = UserSymlinkRefusal(Path("/home/.claude.json"))
 
 
 def test_render_rawline_returns_verbatim_text():
@@ -18,3 +51,278 @@ def test_rawline_is_frozen():
     line = RawLine("x")
     with pytest.raises(dataclasses.FrozenInstanceError):
         line.text = "y"
+
+
+# One entry per (outcome, exact rendered lines). Covers every Kind member of
+# every codec, so a wording change to any branch fails here.
+RENDER_CASES = [
+    (RawLine("verbatim"), ["verbatim"]),
+    (HandlerErrorOutcome("handler blew up"), ["handler blew up"]),
+    # ── JsonMcp ──
+    (
+        JsonMcpOutcome(JsonMcpKind.REFUSED_SYMLINK, REPO, ".mcp.json", refusal=REPO_REFUSAL),
+        [f"  {REPO}: {REPO_REFUSAL.message}"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.PARSE_ERROR, REPO, ".mcp.json", detail="boom"),
+        [f"  {REPO}: could not parse .mcp.json - boom"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.NOT_JSON_OBJECT, REPO, ".mcp.json"),
+        [f"  {REPO}: .mcp.json is not a JSON object, skipped"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.MCPSERVERS_NOT_OBJECT, REPO, ".mcp.json"),
+        [f"  {REPO}: mcpServers in .mcp.json is not a JSON object, skipped"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.NOTHING_TO_REMOVE, REPO, ".mcp.json"),
+        [f"  {REPO}: no nauro entry to remove"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.REMOVED, REPO, ".mcp.json"),
+        [f"  {REPO}: removed nauro from .mcp.json"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.WROTE, REPO, ".mcp.json"),
+        [f"  {REPO}: wrote nauro to .mcp.json"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.WROTE, REPO, ".mcp.json", git_warnings=("  a git note",)),
+        [f"  {REPO}: wrote nauro to .mcp.json", "  a git note"],
+    ),
+    # ── ClaudeHook ──
+    (
+        ClaudeHookOutcome(ClaudeHookKind.REFUSED_SYMLINK, REPO, refusal=REPO_REFUSAL),
+        [f"  {REPO}: {REPO_REFUSAL.message}"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.PARSE_ERROR, REPO, detail="boom"),
+        [f"  {REPO}: could not parse .claude/settings.json - boom"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.NOT_JSON_OBJECT, REPO),
+        [f"  {REPO}: .claude/settings.json is not a JSON object, skipped"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.HOOKS_NOT_OBJECT, REPO),
+        [f"  {REPO}: hooks key is not a JSON object, skipped"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.EVENT_NOT_ARRAY, REPO),
+        [f"  {REPO}: hooks.UserPromptSubmit is not a JSON array, skipped"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.ALREADY_PRESENT, REPO),
+        [f"  {REPO}: nauro hook already present in .claude/settings.json"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.WROTE, REPO),
+        [f"  {REPO}: wrote nauro hook to .claude/settings.json"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.NOTHING_TO_REMOVE, REPO),
+        [f"  {REPO}: no nauro hook to remove"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.REMOVED, REPO),
+        [f"  {REPO}: removed nauro hook from .claude/settings.json"],
+    ),
+    # ── ClaudeUserConfig ──
+    (
+        ClaudeUserConfigOutcome(ClaudeUserConfigKind.REFUSED_SYMLINK, refusal=USER_REFUSAL),
+        [f"  skipped user-scope prune: {USER_REFUSAL.message}"],
+    ),
+    (
+        ClaudeUserConfigOutcome(ClaudeUserConfigKind.INVALID_UTF8),
+        ["  skipped user-scope prune: ~/.claude.json is not valid UTF-8"],
+    ),
+    (
+        ClaudeUserConfigOutcome(ClaudeUserConfigKind.NOT_JSON_OBJECT),
+        ["  skipped user-scope prune: ~/.claude.json is not a JSON object"],
+    ),
+    (
+        ClaudeUserConfigOutcome(ClaudeUserConfigKind.PRUNED),
+        [
+            "  removed redundant user-scope HTTP nauro entry from ~/.claude.json "
+            "(project-scope stdio is canonical)"
+        ],
+    ),
+    # ── Legacy ──
+    (
+        LegacyOutcome(LegacyKind.REFUSED_SYMLINK, REPO, refusal=REPO_REFUSAL),
+        [f"  {REPO}: {REPO_REFUSAL.message}"],
+    ),
+    (
+        LegacyOutcome(LegacyKind.REMOVED_DELETED_FILE, REPO),
+        [f"  {REPO}: removed legacy Nauro block (deleted empty CLAUDE.md)"],
+    ),
+    (
+        LegacyOutcome(LegacyKind.REMOVED_BLOCK, REPO),
+        [f"  {REPO}: removed legacy Nauro block from CLAUDE.md"],
+    ),
+    # ── CodexConfig ──
+    (
+        CodexConfigOutcome(CodexConfigKind.PRESERVED_OTHER_PROJECTS, CFG),
+        [f"Codex: preserved nauro entry in {CFG} (other nauro projects still registered)"],
+    ),
+    (
+        CodexConfigOutcome(CodexConfigKind.REFUSED_SYMLINK, CFG, refusal=USER_REFUSAL),
+        [f"Codex: {USER_REFUSAL.message}"],
+    ),
+    (
+        CodexConfigOutcome(CodexConfigKind.PARSE_ERROR_UTF8, CFG),
+        [f"Codex: could not parse {CFG} - not valid UTF-8"],
+    ),
+    (
+        CodexConfigOutcome(CodexConfigKind.PARSE_ERROR_TOML, CFG, detail="boom"),
+        [f"Codex: could not parse {CFG} - boom"],
+    ),
+    (
+        CodexConfigOutcome(CodexConfigKind.NOTHING_TO_REMOVE, CFG),
+        [f"Codex: no nauro entry to remove in {CFG}"],
+    ),
+    (
+        CodexConfigOutcome(CodexConfigKind.MCPSERVERS_NOT_TABLE, CFG),
+        [f"Codex: mcp_servers in {CFG} is not a table, skipped"],
+    ),
+    (
+        CodexConfigOutcome(CodexConfigKind.REMOVED, CFG),
+        [f"Codex: removed nauro from {CFG}"],
+    ),
+    (
+        CodexConfigOutcome(CodexConfigKind.ALREADY_CONFIGURED, CFG),
+        [f"Codex: nauro already configured in {CFG}"],
+    ),
+    (
+        CodexConfigOutcome(CodexConfigKind.WROTE, CFG),
+        [f"Codex: wrote nauro to {CFG}"],
+    ),
+    # ── CodexHook ──
+    (
+        CodexHookOutcome(CodexHookKind.REFUSED_SYMLINK, REPO, refusal=REPO_REFUSAL),
+        [f"  {REPO}: {REPO_REFUSAL.message}"],
+    ),
+    (
+        CodexHookOutcome(CodexHookKind.PARSE_ERROR, REPO, detail="boom"),
+        [f"  {REPO}: could not parse .codex/hooks.json - boom"],
+    ),
+    (
+        CodexHookOutcome(CodexHookKind.CONFIG_ERROR, REPO, detail="bad config"),
+        [f"  {REPO}: bad config"],
+    ),
+    (
+        CodexHookOutcome(CodexHookKind.NO_COMMAND, REPO),
+        [f"  {REPO}: Codex hook wiring skipped; no compatible Nauro command"],
+    ),
+    (
+        CodexHookOutcome(CodexHookKind.NOTHING_TO_REMOVE, REPO),
+        [f"  {REPO}: no nauro Codex hooks to remove"],
+    ),
+    (
+        CodexHookOutcome(CodexHookKind.REMOVED, REPO),
+        [f"  {REPO}: removed nauro hooks from .codex/hooks.json"],
+    ),
+    (
+        CodexHookOutcome(CodexHookKind.ALREADY_PRESENT, REPO),
+        [f"  {REPO}: nauro hooks already present in .codex/hooks.json"],
+    ),
+    (
+        CodexHookOutcome(CodexHookKind.WROTE, REPO),
+        [f"  {REPO}: wrote nauro hooks to .codex/hooks.json"],
+    ),
+    # ── Skill ──
+    (
+        SkillOutcome(SkillKind.REFUSED_SYMLINK, repo=REPO, refusal=REPO_REFUSAL),
+        [f"  {REPO}: {REPO_REFUSAL.message}"],
+    ),
+    (
+        SkillOutcome(SkillKind.REFUSED_SYMLINK, refusal=REPO_REFUSAL),
+        [f"  {REPO_REFUSAL.message}"],
+    ),
+    (
+        SkillOutcome(SkillKind.PRESERVED, base_label="~/.claude/skills"),
+        ["  preserved ~/.claude/skills/nauro-* (other nauro projects still registered)"],
+    ),
+    (SkillOutcome(SkillKind.WROTE, target=TARGET), [f"  wrote {TARGET}"]),
+    (SkillOutcome(SkillKind.REMOVED, target=TARGET), [f"  removed {TARGET}"]),
+    (SkillOutcome(SkillKind.ABSENT, target=TARGET), [f"  no skill at {TARGET}"]),
+    # ── Agent ──
+    (
+        AgentOutcome(AgentKind.SURFACE_NOT_IMPLEMENTED, surface="cursor"),
+        ["  skipped ~/.cursor agents (not yet implemented)"],
+    ),
+    (
+        AgentOutcome(AgentKind.SURFACE_INVALID, surface="x", detail="bad"),
+        [f"  skipped agents on surface {'x'!r}: bad"],
+    ),
+    (
+        AgentOutcome(AgentKind.PRESERVED),
+        ["  preserved ~/.claude/agents/nauro-* (other nauro projects still registered)"],
+    ),
+    (
+        AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=USER_REFUSAL),
+        [f"  {USER_REFUSAL.message}"],
+    ),
+    (AgentOutcome(AgentKind.UNCHANGED, target=TARGET), [f"  unchanged {TARGET}"]),
+    (AgentOutcome(AgentKind.OVERWROTE, target=TARGET), [f"  overwrote {TARGET}"]),
+    (
+        AgentOutcome(AgentKind.UPDATED, target=TARGET, backup_name="SKILL.md.bak"),
+        [f"  updated {TARGET} (previous saved to SKILL.md.bak)"],
+    ),
+    (AgentOutcome(AgentKind.INSTALLED, target=TARGET), [f"  installed {TARGET}"]),
+    (AgentOutcome(AgentKind.ABSENT, target=TARGET), [f"  no agent at {TARGET}"]),
+    (AgentOutcome(AgentKind.REMOVED, target=TARGET), [f"  removed {TARGET}"]),
+    (
+        AgentOutcome(AgentKind.PRESERVED_MODIFIED, target=TARGET),
+        [f"  preserved {TARGET} (locally modified)"],
+    ),
+]
+
+
+@pytest.mark.parametrize("outcome, expected", RENDER_CASES)
+def test_render_exact_lines(outcome, expected):
+    assert render(outcome) == expected
+
+
+def test_render_covers_every_kind_member():
+    """The table must exercise every Kind member so no branch goes unpinned."""
+    kind_enums = [
+        JsonMcpKind,
+        ClaudeHookKind,
+        ClaudeUserConfigKind,
+        LegacyKind,
+        CodexConfigKind,
+        CodexHookKind,
+        SkillKind,
+        AgentKind,
+    ]
+    covered = {outcome.kind for outcome, _ in RENDER_CASES if hasattr(outcome, "kind")}
+    for enum in kind_enums:
+        for member in enum:
+            assert member in covered, f"{enum.__name__}.{member.name} is not pinned"
+
+
+def test_render_rejects_unknown_outcome_type():
+    with pytest.raises(TypeError):
+        render(object())  # type: ignore[arg-type]
+
+
+# One malformed outcome per codec dispatch: a kind outside its enum must raise
+# from the inner match's ``case _`` arm, never fall through to a None echo.
+UNRENDERABLE = [
+    JsonMcpOutcome(object(), REPO, ".mcp.json"),  # type: ignore[arg-type]
+    ClaudeHookOutcome(object(), REPO),  # type: ignore[arg-type]
+    ClaudeUserConfigOutcome(object()),  # type: ignore[arg-type]
+    LegacyOutcome(object(), REPO),  # type: ignore[arg-type]
+    CodexConfigOutcome(object(), CFG),  # type: ignore[arg-type]
+    CodexHookOutcome(object(), REPO),  # type: ignore[arg-type]
+    SkillOutcome(object()),  # type: ignore[arg-type]
+    AgentOutcome(object()),  # type: ignore[arg-type]
+]
+
+
+@pytest.mark.parametrize("outcome", UNRENDERABLE)
+def test_render_unknown_kind_raises(outcome):
+    with pytest.raises(TypeError):
+        render(outcome)

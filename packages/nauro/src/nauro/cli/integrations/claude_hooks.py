@@ -36,33 +36,43 @@ HOOK_TIMEOUT_SECONDS = 10
 _HOOK_COMMAND_MARKER = HOOK_SUBCOMMAND
 
 
-class HookEntry(BaseModel):
-    """One hook command entry. Only Nauro-owned keys are typed; user keys survive."""
+class HooksMap(BaseModel):
+    """The event-keyed hook map inside ``.claude/settings.json``.
+
+    Only ``UserPromptSubmit`` — the single event Nauro installs into — is
+    validated, and only far enough to confirm it is a JSON array when present.
+    Its entries stay opaque (``list[object]``) and are scanned leniently at use.
+    Every sibling event is opaque extra content: Nauro does not own it, so it is
+    neither validated nor rewritten. Bound to the exact ``UserPromptSubmit``
+    alias only (no populate_by_name), so an unrelated snake_case key is never
+    mistaken for the event.
+
+    The field carries a default list rather than allowing ``None``: an absent
+    key falls back to the default (nothing to scan), while a *present* key —
+    including an explicit JSON ``null`` — is validated against ``list[object]``
+    and a non-array value raises, routing to the EVENT_NOT_ARRAY skip. That
+    distinction is why the type is not ``| None``: ``None`` would swallow an
+    explicit null and let the add path append to it and crash.
+    """
 
     model_config = ConfigDict(extra="allow")
 
-    type: str | None = None
-    command: str | None = None
-    timeout: int | None = None
-
-
-class HookMatcher(BaseModel):
-    """One matcher block: an optional ``hooks`` list plus any user metadata."""
-
-    model_config = ConfigDict(extra="allow")
-
-    hooks: list[HookEntry] | None = None
+    user_prompt_submit: list[object] = Field(default_factory=list, alias=HOOK_EVENT_NAME)
 
 
 class ClaudeHookSettings(BaseModel):
-    """Boundary view of ``.claude/settings.json`` — an event-keyed hook map."""
+    """Boundary view of ``.claude/settings.json``.
+
+    Only what Nauro touches is validated: the ``hooks`` container is a JSON
+    object (an explicit null or scalar is routed to the HOOKS_NOT_OBJECT skip by
+    :func:`_parse_hook_settings` before this model runs), and its
+    ``UserPromptSubmit`` value is a JSON array when present. See
+    :class:`HooksMap`.
+    """
 
     model_config = ConfigDict(extra="allow")
 
-    # Non-optional: a missing key defaults to an empty map, while an explicit
-    # JSON null or a scalar is a shape violation the boundary parser routes to
-    # the HOOKS_NOT_OBJECT skip rather than letting it crash a raw mutation.
-    hooks: dict[str, list[HookMatcher]] = Field(default_factory=dict)
+    hooks: HooksMap = Field(default_factory=HooksMap)
 
 
 class HookShape(Enum):
@@ -147,12 +157,19 @@ def _is_nauro_hook(entry: object) -> bool:
 
 
 def _has_nauro_hook(settings: ClaudeHookSettings) -> bool:
-    event_matchers = settings.hooks.get(HOOK_EVENT_NAME) or []
-    return any(
-        entry.command is not None and _HOOK_COMMAND_MARKER in entry.command
-        for matcher in event_matchers
-        for entry in (matcher.hooks or [])
-    )
+    """True iff a nauro-authored entry already sits in UserPromptSubmit.
+
+    Non-dict matchers and non-nauro entries are skipped, matching main's lenient
+    scan; the same :func:`_is_nauro_hook` predicate identifies the entry on the
+    remove path, so add and remove agree on what a nauro hook is.
+    """
+    for matcher in settings.hooks.user_prompt_submit:
+        if not isinstance(matcher, dict):
+            continue
+        for entry in matcher.get("hooks") or []:
+            if _is_nauro_hook(entry):
+                return True
+    return False
 
 
 def _add_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHookOutcome:
@@ -167,11 +184,8 @@ def _add_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHookOut
     if _has_nauro_hook(settings):
         return ClaudeHookOutcome(ClaudeHookKind.ALREADY_PRESENT, repo)
 
-    # Defense in depth: the parse above already rejects a non-object hooks
-    # container, but never mutate a present-but-non-dict one (an explicit null
-    # makes setdefault return it, so ``None.setdefault(...)`` would raise).
-    if "hooks" in raw and not isinstance(raw["hooks"], dict):
-        return ClaudeHookOutcome(ClaudeHookKind.HOOKS_NOT_OBJECT, repo)
+    # The parse guarantees hooks is absent or an object and UserPromptSubmit is
+    # absent or an array, so both setdefaults land on the right container type.
     raw.setdefault("hooks", {}).setdefault(HOOK_EVENT_NAME, []).append(
         {"hooks": [_nauro_hook_entry()]}
     )

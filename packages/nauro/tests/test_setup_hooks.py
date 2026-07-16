@@ -146,6 +146,105 @@ def test_materialize_null_hooks_remove_is_noop(tmp_path: Path):
     assert line.kind is ClaudeHookKind.NOTHING_TO_REMOVE
 
 
+def test_materialize_scalar_hooks_container_is_skipped(tmp_path: Path):
+    """A scalar hooks container is HOOKS_NOT_OBJECT, not a crash or a clobber."""
+    repo = tmp_path / "repo"
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    original = '{"hooks": 5}'
+    settings_path.write_text(original, encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.HOOKS_NOT_OBJECT
+    assert settings_path.read_text(encoding="utf-8") == original
+
+
+def test_materialize_add_ignores_malformed_unrelated_event(tmp_path: Path):
+    """A malformed hook event Nauro does not own (e.g. PostToolUse) must not
+    block the add: nauro is written under UserPromptSubmit and the unrelated
+    event is left byte-identical."""
+    repo = tmp_path / "repo"
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(json.dumps({"hooks": {"PostToolUse": "oops"}}), encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    settings = json.loads(settings_path.read_text())
+    assert settings["hooks"]["PostToolUse"] == "oops"
+    assert len(_nauro_entries(settings)) == 1
+
+
+def test_materialize_add_skips_non_dict_matcher_in_event_array(tmp_path: Path):
+    """A non-dict matcher already in UserPromptSubmit is skipped during the
+    idempotency scan, and the nauro matcher is appended, exactly as main did."""
+    repo = tmp_path / "repo"
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(
+        json.dumps({"hooks": {HOOK_EVENT_NAME: ["garbage-string"]}}), encoding="utf-8"
+    )
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    settings = json.loads(settings_path.read_text())
+    matchers = settings["hooks"][HOOK_EVENT_NAME]
+    # The non-dict matcher is preserved and the nauro matcher is appended once.
+    assert "garbage-string" in matchers
+    nauro_matchers = [
+        m
+        for m in matchers
+        if isinstance(m, dict)
+        and any(HOOK_SUBCOMMAND in e.get("command", "") for e in m.get("hooks", []))
+    ]
+    assert len(nauro_matchers) == 1
+
+
+def test_materialize_non_array_user_prompt_submit_is_skipped(tmp_path: Path):
+    """A non-array UserPromptSubmit value is EVENT_NOT_ARRAY; after re-scoping,
+    that skip fires only for the event Nauro installs into."""
+    repo = tmp_path / "repo"
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    original = json.dumps({"hooks": {HOOK_EVENT_NAME: "oops"}})
+    settings_path.write_text(original, encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.EVENT_NOT_ARRAY
+    assert settings_path.read_text(encoding="utf-8") == original
+
+
+def test_materialize_null_user_prompt_submit_add_is_skipped(tmp_path: Path):
+    """An explicit JSON null UserPromptSubmit is a present-but-non-array value:
+    it must route to EVENT_NOT_ARRAY, never append to None and crash."""
+    repo = tmp_path / "repo"
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    original = json.dumps({"hooks": {HOOK_EVENT_NAME: None}})
+    settings_path.write_text(original, encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.EVENT_NOT_ARRAY
+    # The present-but-null event must not be mutated or clobbered.
+    assert settings_path.read_text(encoding="utf-8") == original
+
+
+def test_materialize_null_user_prompt_submit_remove_is_noop(tmp_path: Path):
+    repo = tmp_path / "repo"
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text(json.dumps({"hooks": {HOOK_EVENT_NAME: None}}), encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert line.kind is ClaudeHookKind.NOTHING_TO_REMOVE
+
+
 # ── direct helper: remove path ─────────────────────────────────────────────────
 
 

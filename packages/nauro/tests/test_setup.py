@@ -413,6 +413,94 @@ class TestMalformedConfigGuards:
         (tmp_path / ".mcp.json").write_text('{"mcpServers": null}')
         assert recorded_mcp_commands(tmp_path) == []
 
+    def test_add_wires_nauro_alongside_malformed_sibling_entry(self, tmp_path: Path):
+        """A malformed sibling server (not Nauro's) must not block wiring; the
+        container is a valid object, so add wires nauro and preserves the
+        sibling byte-for-byte."""
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"other": "not-a-dict"}}))
+        line = _configure_mcp(tmp_path, remove=False)
+        assert line.kind is JsonMcpKind.WROTE
+        config = json.loads((tmp_path / ".mcp.json").read_text())
+        assert config["mcpServers"]["other"] == "not-a-dict"
+        assert "nauro" in config["mcpServers"]
+
+    def test_remove_deletes_nauro_beside_malformed_sibling_entry(self, tmp_path: Path):
+        """Remove strips nauro and leaves the malformed sibling in place — the
+        message must match the file state, never claim nauro survived."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"other": "not-a-dict", "nauro": {"command": "/x"}}})
+        )
+        line = _configure_mcp(tmp_path, remove=True)
+        assert line.kind is JsonMcpKind.REMOVED
+        config = json.loads((tmp_path / ".mcp.json").read_text())
+        assert "nauro" not in config["mcpServers"]
+        assert config["mcpServers"]["other"] == "not-a-dict"
+
+    def test_recorded_mcp_commands_counts_nauro_beside_malformed_sibling(self, tmp_path: Path):
+        """The status inspector still reports a wired repo when an unrelated
+        sibling entry is off-shape."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"other": "not-a-dict", "nauro": {"command": "/bin/nauro"}}})
+        )
+        assert recorded_mcp_commands(tmp_path) == ["/bin/nauro"]
+
+    def test_recorded_mcp_commands_malformed_nauro_entry_counts_as_wired(self, tmp_path: Path):
+        """A non-object nauro entry counts as wired with nothing to probe."""
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"nauro": "not-a-dict"}}))
+        assert recorded_mcp_commands(tmp_path) == [None]
+
+    def test_recorded_mcp_commands_reads_command_despite_malformed_args(self, tmp_path: Path):
+        """The inspector reads only the command; a malformed ``args`` on the
+        nauro entry must not suppress a usable command (status still probes it)."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps(
+                {"mcpServers": {"nauro": {"command": "/usr/local/bin/nauro", "args": "serve"}}}
+            )
+        )
+        assert recorded_mcp_commands(tmp_path) == ["/usr/local/bin/nauro"]
+
+    def test_add_overwrites_nauro_entry_with_malformed_args(self, tmp_path: Path):
+        """The add path never reads the existing entry's args, so a malformed
+        ``args`` cannot block the write; nauro's entry is overwritten with the
+        canonical command and args."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"nauro": {"command": "/old", "args": "serve"}}})
+        )
+        line = _configure_mcp(tmp_path, remove=False)
+        assert line.kind is JsonMcpKind.WROTE
+        config = json.loads((tmp_path / ".mcp.json").read_text())
+        assert config["mcpServers"]["nauro"]["args"] == ["serve", "--stdio"]
+
+    def test_unrelated_snake_case_mcp_servers_key_is_ignored(self, tmp_path: Path):
+        """A top-level ``mcp_servers`` (snake_case) is unrelated to the
+        camelCase ``mcpServers`` this format uses. Add ignores it, wires nauro
+        under the real key, and never mutates the user's key."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcp_servers": {"nauro": {"command": "USER"}}})
+        )
+        line = _configure_mcp(tmp_path, remove=False)
+        assert line.kind is JsonMcpKind.WROTE
+        config = json.loads((tmp_path / ".mcp.json").read_text())
+        assert config["mcp_servers"] == {"nauro": {"command": "USER"}}
+        assert "nauro" in config["mcpServers"]
+
+    def test_unrelated_snake_case_mcp_servers_key_remove_is_noop(self, tmp_path: Path):
+        """Remove must not read the snake_case key as Nauro's map (a KeyError
+        trap): with no real ``mcpServers``, there is nothing to remove."""
+        original = json.dumps({"mcp_servers": {"nauro": {"command": "USER"}}})
+        (tmp_path / ".mcp.json").write_text(original)
+        line = _configure_mcp(tmp_path, remove=True)
+        assert line.kind is JsonMcpKind.NOTHING_TO_REMOVE
+        assert (tmp_path / ".mcp.json").read_text() == original
+
+    def test_unrelated_snake_case_mcp_servers_key_reports_unwired(self, tmp_path: Path):
+        """The inspector must not report false wiring from an unrelated
+        snake_case key."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcp_servers": {"nauro": {"command": "USER"}}})
+        )
+        assert recorded_mcp_commands(tmp_path) == []
+
     def test_codex_non_table_mcp_servers_is_skipped(self, tmp_path: Path):
         cfg = tmp_path / "config.toml"
         cfg.write_text('mcp_servers = "oops"\n')

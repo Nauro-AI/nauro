@@ -352,6 +352,21 @@ def test_prune_skips_symlinked_claude_json(tmp_path: Path, monkeypatch):
     assert real.read_text(encoding="utf-8") == raw
 
 
+@pytest.mark.parametrize("body", ["null", "[1, 2, 3]", "42"])
+def test_prune_skips_non_object_claude_json_without_crash(tmp_path: Path, monkeypatch, body: str):
+    """A ~/.claude.json whose top level is a JSON null, array, or scalar must
+    degrade to a graceful skip, never a traceback, and never a write."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_path = tmp_path / ".claude.json"
+    config_path.write_text(body, encoding="utf-8")
+
+    msg = _prune_redundant_user_scope_mcp()
+
+    assert msg is not None
+    assert msg.kind is ClaudeUserConfigKind.NOT_JSON_OBJECT
+    assert config_path.read_text(encoding="utf-8") == body
+
+
 @symlinks_required
 def test_skill_add_refuses_symlinked_target(tmp_path: Path):
     real = tmp_path / "real-skill.md"

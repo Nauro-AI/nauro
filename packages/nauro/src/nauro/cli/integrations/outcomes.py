@@ -77,6 +77,7 @@ class ClaudeHookOutcome:
 class ClaudeUserConfigKind(Enum):
     REFUSED_SYMLINK = auto()
     INVALID_UTF8 = auto()
+    NOT_JSON_OBJECT = auto()
     PRUNED = auto()
 
 
