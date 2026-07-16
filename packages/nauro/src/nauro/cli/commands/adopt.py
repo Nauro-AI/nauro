@@ -119,7 +119,7 @@ def _smoke_test_wired_binary(nauro_cmd: str, timeout: float = 1.5) -> str | None
         return None
     except FileNotFoundError:
         return (
-            f"WARNING: could not run `{nauro_cmd} serve --stdio` — binary not found.\n"
+            f"WARNING: could not run `{nauro_cmd} serve --stdio` - binary not found.\n"
             f"  /nauro-adopt and other MCP-driven flows will not work until this is fixed."
         )
 

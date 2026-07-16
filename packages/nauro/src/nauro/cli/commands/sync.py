@@ -74,7 +74,7 @@ def sync(
 
     if pushed:
         if is_cloud_project(project_key):
-            typer.echo(f"Synced {project_name} — snapshot v{version:03d}")
+            typer.echo(f"Synced {project_name} - snapshot v{version:03d}")
         else:
             typer.echo(
                 f"Captured snapshot v{version:03d} for {project_name}"
@@ -149,7 +149,7 @@ class _EchoReporter:
     def on_merge_failure(self, relative_path: str, exc: Exception) -> bool:
         logger.exception("Union merge failed for %s", relative_path)
         typer.echo(
-            f"  Error: merge failed for {relative_path} ({exc}) — left unchanged",
+            f"  Error: merge failed for {relative_path} ({exc}) - left unchanged",
             err=True,
         )
         return True

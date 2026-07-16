@@ -103,10 +103,10 @@ def load_registry() -> dict:
         try:
             data = json.loads(rf.read_text())
         except json.JSONDecodeError:
-            logger.warning("registry.json is corrupt — starting with empty registry")
+            logger.warning("registry.json is corrupt - starting with empty registry")
             return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
         if not isinstance(data, dict):
-            logger.warning("registry.json is corrupt — starting with empty registry")
+            logger.warning("registry.json is corrupt - starting with empty registry")
             return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
         data.setdefault("schema_version", REGISTRY_SCHEMA_VERSION_V1)
         data.setdefault("projects", {})
@@ -158,10 +158,10 @@ def load_registry_v2() -> dict:
     try:
         data = json.loads(rf.read_text())
     except json.JSONDecodeError:
-        logger.warning("registry.json is corrupt — starting with empty v2 registry")
+        logger.warning("registry.json is corrupt - starting with empty v2 registry")
         return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V2}
     if not isinstance(data, dict):
-        logger.warning("registry.json is corrupt — starting with empty v2 registry")
+        logger.warning("registry.json is corrupt - starting with empty v2 registry")
         return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V2}
 
     version = data.get("schema_version", REGISTRY_SCHEMA_VERSION_V1)

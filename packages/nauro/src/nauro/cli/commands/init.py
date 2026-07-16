@@ -314,7 +314,7 @@ def init(
     # inside the --cloud branch.
     if demo and cloud:
         raise typer.BadParameter(
-            "Cannot combine --demo with --cloud — the demo fixture seeds "
+            "Cannot combine --demo with --cloud - the demo fixture seeds "
             "locally only. Use `nauro init <name> --demo` for a local demo, "
             "or `nauro init <name> --cloud` for an empty cloud project.",
             param_hint="--demo / --cloud",

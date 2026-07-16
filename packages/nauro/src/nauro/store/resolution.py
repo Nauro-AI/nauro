@@ -197,7 +197,7 @@ def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
             raise StoreMissingError(
                 f"Project store not found for id {config_id!r}. "
                 "The cwd .nauro/config.json resolves but the store is "
-                "missing from NAURO_HOME — was the home changed since init?"
+                "missing from NAURO_HOME - was the home changed since init?"
             )
         return store_path
 
@@ -207,7 +207,7 @@ def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
             raise StoreMissingError(
                 f"Project store not found at {store_path}. The cwd "
                 ".nauro/config.json resolves but the store is missing "
-                "from NAURO_HOME — was the home changed since init?"
+                "from NAURO_HOME - was the home changed since init?"
             )
         return store_path
 

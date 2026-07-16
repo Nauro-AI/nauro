@@ -61,7 +61,7 @@ MAX_DEDUP_ENTRIES_PER_SESSION = 200
 
 # Injection copy. One advisory preamble line and one review instruction; the
 # agent adjudicates the decision body itself.
-_PREAMBLE = "Nauro: prior decisions may bear on this request — advisory only, not a block."
+_PREAMBLE = "Nauro: prior decisions may bear on this request - advisory only, not a block."
 _INSTRUCTION = "Review these and call get_decision before acting on anything they constrain."
 
 _CODEX_L0_HEADING = "## Nauro project context (L0)"
@@ -379,7 +379,7 @@ def _shipped_line(h: dict) -> str:
     line = f'D{h["number"]:03d} "{h["title"]}" ({_hit_meta(h)})'
     preview = _trimmed_preview(h)
     if preview:
-        line = f"{line} — {preview}"
+        line = f"{line} - {preview}"
     return line
 
 
@@ -396,7 +396,7 @@ def _explicit_line(h: dict, ref: dict) -> str:
         f'supersedes D{ref["number"]:03d} "{old_title}": '
         f'this decision rejected "{old_title}" in favor of "{new_title}".'
     )
-    line = f'D{h["number"]:03d} "{new_title}" ({_hit_meta(h)}) — {clause}'
+    line = f'D{h["number"]:03d} "{new_title}" ({_hit_meta(h)}) - {clause}'
     preview = _trimmed_preview(h)
     if preview:
         line = f"{line} {preview}"
