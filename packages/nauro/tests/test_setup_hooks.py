@@ -15,7 +15,6 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli._codex_hooks import _CODEX_HOOK_EVENTS, _CODEX_HOOK_SUBCOMMAND
-from nauro.cli.commands.setup import setup_all_surfaces
 from nauro.cli.integrations.claude_hooks import (
     HOOK_EVENT_NAME,
     HOOK_SUBCOMMAND,
@@ -23,6 +22,7 @@ from nauro.cli.integrations.claude_hooks import (
     materialize_hooks_claude_code,
 )
 from nauro.cli.integrations.codex_hooks import materialize_hooks_codex
+from nauro.cli.integrations.orchestrator import setup_all_surfaces
 from nauro.cli.main import app
 from tests.conftest import register_v2_repo
 
@@ -707,12 +707,12 @@ def test_setup_all_hook_failure_does_not_abort(tmp_path: Path, monkeypatch):
     """A hook-wiring failure is caught and reported, not propagated."""
     repo, _store = _make_project(tmp_path)
 
-    import nauro.cli.commands.setup as setup_mod
+    import nauro.cli.integrations.orchestrator as orchestrator_mod
 
     def boom(repo, *, remove):
         raise RuntimeError("simulated wiring failure")
 
-    monkeypatch.setattr(setup_mod, "materialize_hooks_claude_code", boom)
+    monkeypatch.setattr(orchestrator_mod, "materialize_hooks_claude_code", boom)
 
     # Must not raise; the rest of setup still produces its lines.
     lines = setup_all_surfaces([repo], with_hooks=True)

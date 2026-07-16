@@ -203,6 +203,37 @@ class TestClaudeCodeTranscripts:
         )
         assert result.stderr == ""
 
+    def test_add_preserves_handwritten_agents_md_warns_on_stderr(self, tmp_path: Path, monkeypatch):
+        """A marker-less AGENTS.md is preserved and warned about on stderr.
+
+        The only claude_code path that emits stderr routes warn_then_regen's
+        warn callback (``typer.echo(msg, err=True)``). A hand-written AGENTS.md
+        without Nauro's generation markers is left unchanged, no ``AGENTS.md:``
+        stdout section is printed, and the preserve warning lands on stderr.
+        Both streams are pinned separately so the warn routing is verified, not
+        assumed.
+        """
+        _pid, _store, paths = _register_project(tmp_path, monkeypatch)
+        (paths[0] / "AGENTS.md").write_text("# My AGENTS\n\nhand-written\n", encoding="utf-8")
+
+        result = runner.invoke(app, ["setup", "claude-code"])
+
+        assert result.exit_code == 0
+        assert _norm(result.stdout, tmp_path) == (
+            "Configured Nauro for project 'proj':\n"
+            "\n"
+            "  {TMP}/repo: wrote nauro to .mcp.json\n"
+            "\n" + CLAUDE_NEXT_LINE + "\n" + TRY_IT_LINE
+        )
+        assert _norm(result.stderr, tmp_path) == (
+            "  Warning: existing AGENTS.md is not Nauro-generated; "
+            "left unchanged: {TMP}/repo/AGENTS.md\n"
+        )
+        # The hand-written file is preserved byte-for-byte.
+        assert (paths[0] / "AGENTS.md").read_text(
+            encoding="utf-8"
+        ) == "# My AGENTS\n\nhand-written\n"
+
 
 class TestCursorTranscripts:
     def test_add(self, tmp_path: Path, monkeypatch):
