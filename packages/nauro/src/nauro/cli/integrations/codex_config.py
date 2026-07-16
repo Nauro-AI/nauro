@@ -48,6 +48,44 @@ def _parse_codex_nauro_entry(entry: object) -> _CodexNauroEntry:
     )
 
 
+def _apply_nauro_entry(
+    servers: dict,
+    entry: object,
+    current: _CodexNauroEntry,
+    desired: _CodexNauroEntry,
+) -> None:
+    """Write ``desired`` into the ``mcp_servers.nauro`` value, in place.
+
+    Three shapes, matching the existing entry: a present table gets a per-key
+    update so a key whose value already matches keeps its formatting and
+    comments; an inline parent gets an inline child; otherwise a fresh block
+    table appended without a leading blank line.
+    """
+    if isinstance(entry, dict):
+        # Per-key update: a key whose value already matches keeps its
+        # formatting and comments (e.g. a multiline args array).
+        if current.command != desired.command:
+            entry["command"] = desired.command
+        if current.args != desired.args:
+            entry["args"] = desired.args
+    elif isinstance(servers, InlineTable):
+        # A block table nested inside an inline parent renders invalid
+        # TOML; match the user's inline style instead.
+        inline = tomlkit.inline_table()
+        inline["command"] = desired.command
+        inline["args"] = desired.args
+        servers["nauro"] = inline
+    else:
+        table = tomlkit.table()
+        table["command"] = desired.command
+        table["args"] = desired.args
+        servers["nauro"] = table
+        # Appended without a leading blank line: a reparse attributes the
+        # separator to the preceding entry, which would strand a stray
+        # blank line once a later remove deletes the block.
+        table.trivia.indent = ""
+
+
 def _configure_codex(
     *,
     remove: bool,
@@ -118,29 +156,7 @@ def _configure_codex(
         current = _parse_codex_nauro_entry(entry)
         if current == desired:
             return f"Codex: nauro already configured in {config_path}"
-        if isinstance(entry, dict):
-            # Per-key update: a key whose value already matches keeps its
-            # formatting and comments (e.g. a multiline args array).
-            if current.command != desired.command:
-                entry["command"] = desired.command
-            if current.args != desired.args:
-                entry["args"] = desired.args
-        elif isinstance(servers, InlineTable):
-            # A block table nested inside an inline parent renders invalid
-            # TOML; match the user's inline style instead.
-            inline = tomlkit.inline_table()
-            inline["command"] = desired.command
-            inline["args"] = desired.args
-            servers["nauro"] = inline
-        else:
-            table = tomlkit.table()
-            table["command"] = desired.command
-            table["args"] = desired.args
-            servers["nauro"] = table
-            # Appended without a leading blank line: a reparse attributes the
-            # separator to the preceding entry, which would strand a stray
-            # blank line once a later remove deletes the block.
-            table.trivia.indent = ""
+        _apply_nauro_entry(servers, entry, current, desired)
         status = f"Codex: wrote nauro to {config_path}"
 
     rendered = tomlkit.dumps(document)

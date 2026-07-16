@@ -77,7 +77,6 @@ def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
     rendered = _format_codex_hooks(transformed.config)
     if existing_text == rendered:
         return f"  {repo}: nauro hooks already present in .codex/hooks.json"
-    hooks_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(hooks_path, rendered)
     lines = [f"  {repo}: wrote nauro hooks to .codex/hooks.json"]
     lines.extend(public_surface_git_warnings(repo, ".codex/hooks.json"))

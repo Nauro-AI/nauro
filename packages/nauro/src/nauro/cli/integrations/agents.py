@@ -80,35 +80,49 @@ def materialize_agents(
             continue
         bundled = render_agent("claude_code", name)
         if remove:
-            if not target.is_file():
-                results.append(f"  no agent at {target}")
-                continue
-            current = target.read_text(encoding="utf-8")
-            if current == bundled:
-                target.unlink()
-                results.append(f"  removed {target}")
-            else:
-                results.append(f"  preserved {target} (locally modified)")
-            continue
-
-        if target.is_file():
-            current = target.read_text(encoding="utf-8")
-            if current == bundled:
-                results.append(f"  unchanged {target}")
-            elif force_overwrite:
-                target.write_text(bundled, encoding="utf-8")
-                results.append(f"  overwrote {target}")
-            else:
-                backup = target.parent / (target.name + ".bak")
-                backup_refusal = find_file_symlink(backup)
-                if backup_refusal is not None:
-                    results.append(f"  {backup_refusal.message}")
-                    continue
-                backup.write_text(current, encoding="utf-8")
-                target.write_text(bundled, encoding="utf-8")
-                results.append(f"  updated {target} (previous saved to {backup.name})")
+            results.append(_remove_bundled_agent(target, bundled))
         else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(bundled, encoding="utf-8")
-            results.append(f"  installed {target}")
+            results.append(_install_bundled_agent(target, bundled, force_overwrite=force_overwrite))
     return results
+
+
+def _install_bundled_agent(target: Path, bundled: str, *, force_overwrite: bool) -> str:
+    """Install or refresh one bundled agent file, returning its status line.
+
+    Absent → write the bundled body. Byte-equal → no-op. ``force_overwrite`` →
+    overwrite in place. Otherwise the differing file is refreshed and its prior
+    content stashed to ``<name>.md.bak`` (unless that backup path is a refused
+    symlink).
+    """
+    if target.is_file():
+        current = target.read_text(encoding="utf-8")
+        if current == bundled:
+            return f"  unchanged {target}"
+        if force_overwrite:
+            target.write_text(bundled, encoding="utf-8")
+            return f"  overwrote {target}"
+        backup = target.parent / (target.name + ".bak")
+        backup_refusal = find_file_symlink(backup)
+        if backup_refusal is not None:
+            return f"  {backup_refusal.message}"
+        backup.write_text(current, encoding="utf-8")
+        target.write_text(bundled, encoding="utf-8")
+        return f"  updated {target} (previous saved to {backup.name})"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(bundled, encoding="utf-8")
+    return f"  installed {target}"
+
+
+def _remove_bundled_agent(target: Path, bundled: str) -> str:
+    """Remove one bundled agent file, returning its status line.
+
+    Absent → skip note. Byte-equal to the bundle → unlink. Differs → preserve
+    (locally modified).
+    """
+    if not target.is_file():
+        return f"  no agent at {target}"
+    current = target.read_text(encoding="utf-8")
+    if current == bundled:
+        target.unlink()
+        return f"  removed {target}"
+    return f"  preserved {target} (locally modified)"
