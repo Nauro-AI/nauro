@@ -15,6 +15,12 @@ from nauro.cli.commands.setup import CHECK_HINT_LINE
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import _configure_codex
 from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo
+from nauro.cli.integrations.outcomes import (
+    ClaudeUserConfigKind,
+    CodexConfigKind,
+    JsonMcpKind,
+    SkillKind,
+)
 from nauro.cli.integrations.skills import materialize_skills_cursor_for_repo
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
@@ -113,7 +119,7 @@ def test_configure_cursor_add_surfaces_parse_error_without_clobbering(tmp_path: 
 
     msg = _configure_cursor_for_repo(repo, remove=False)
 
-    assert "could not parse .cursor/mcp.json" in msg
+    assert msg.kind is JsonMcpKind.PARSE_ERROR
     assert (repo / ".cursor" / "mcp.json").read_text() == "{not json"
 
 
@@ -125,7 +131,7 @@ def test_configure_cursor_remove_surfaces_parse_error(tmp_path: Path):
 
     msg = _configure_cursor_for_repo(repo, remove=True)
 
-    assert "could not parse .cursor/mcp.json" in msg
+    assert msg.kind is JsonMcpKind.PARSE_ERROR
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
@@ -140,8 +146,8 @@ def test_cursor_surfaces_refuse_symlinked_cursor_dir(tmp_path: Path):
     mcp_line = _configure_cursor_for_repo(repo, remove=False)
     skill_lines = materialize_skills_cursor_for_repo(repo, remove=False, with_skills=True)
 
-    assert "refused to modify" in mcp_line
-    assert skill_lines and all("refused to modify" in line for line in skill_lines)
+    assert mcp_line.kind is JsonMcpKind.REFUSED_SYMLINK
+    assert skill_lines and all(line.kind is SkillKind.REFUSED_SYMLINK for line in skill_lines)
     # Nothing written through the link; the link itself untouched.
     assert list(elsewhere.iterdir()) == []
     assert (repo / ".cursor").is_symlink()
@@ -156,7 +162,7 @@ def test_setup_codex_writes_config_toml(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     assert config_path.is_file()
     with config_path.open("rb") as f:
         data = tomllib.load(f)
@@ -169,7 +175,7 @@ def test_setup_codex_remove_clears_entry(tmp_path: Path):
 
     msg = _configure_codex(remove=True, config_path=config_path)
 
-    assert "removed nauro" in msg
+    assert msg.kind is CodexConfigKind.REMOVED
     with config_path.open("rb") as f:
         data = tomllib.load(f)
     assert "mcp_servers" not in data or "nauro" not in data.get("mcp_servers", {})
@@ -193,7 +199,7 @@ def test_setup_codex_no_op_when_remove_and_no_entry(tmp_path: Path):
     """`--remove` when no entry exists is idempotent and reports clearly."""
     config_path = tmp_path / ".codex" / "config.toml"
     msg = _configure_codex(remove=True, config_path=config_path)
-    assert "no nauro entry to remove" in msg
+    assert msg.kind is CodexConfigKind.NOTHING_TO_REMOVE
 
 
 def test_configure_codex_remove_does_not_resolve_command(tmp_path: Path, monkeypatch):
@@ -214,7 +220,7 @@ def test_configure_codex_remove_does_not_resolve_command(tmp_path: Path, monkeyp
 
     msg = _configure_codex(remove=True, config_path=config_path)
 
-    assert "removed nauro from" in msg
+    assert msg.kind is CodexConfigKind.REMOVED
 
 
 def test_configure_codex_add_surfaces_parse_error(tmp_path: Path):
@@ -226,8 +232,8 @@ def test_configure_codex_add_surfaces_parse_error(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "Codex: could not parse" in msg
-    assert str(config_path) in msg
+    assert msg.kind is CodexConfigKind.PARSE_ERROR_TOML
+    assert msg.config_path == config_path
     # File left untouched.
     assert config_path.read_text() == "this is not = valid [toml"
 
@@ -240,8 +246,8 @@ def test_configure_codex_remove_surfaces_parse_error(tmp_path: Path):
 
     msg = _configure_codex(remove=True, config_path=config_path)
 
-    assert "Codex: could not parse" in msg
-    assert str(config_path) in msg
+    assert msg.kind is CodexConfigKind.PARSE_ERROR_TOML
+    assert msg.config_path == config_path
 
 
 # ─── claude-code regression ──────────────────────────────────────────────────
@@ -380,8 +386,9 @@ def test_remove_skill_file_does_not_walk_above_base(tmp_path: Path):
     target = skill_dir / "SKILL.md"
     target.write_text("body")
 
-    _remove_skill_file(target, stop_above=base)
+    outcome = _remove_skill_file(target, stop_above=base)
 
+    assert outcome.kind is SkillKind.REMOVED
     assert not target.exists()
     assert not skill_dir.exists()  # subdir was empty → pruned
     assert base.is_dir()  # base preserved
@@ -401,8 +408,9 @@ def test_remove_skill_file_preserves_sibling_skills(tmp_path: Path):
     other_skill.parent.mkdir(parents=True)
     other_skill.write_text("user-other")
 
-    _remove_skill_file(nauro_skill, stop_above=base)
+    outcome = _remove_skill_file(nauro_skill, stop_above=base)
 
+    assert outcome.kind is SkillKind.REMOVED
     assert not nauro_skill.exists()
     assert not nauro_skill.parent.exists()  # nauro subdir pruned
     assert other_skill.exists()  # other skill untouched
@@ -711,7 +719,7 @@ def test_prune_removes_http_nauro_entry(tmp_path: Path, monkeypatch):
     )
 
     msg = _prune_redundant_user_scope_mcp()
-    assert msg is not None and "~/.claude.json" in msg
+    assert msg is not None and msg.kind is ClaudeUserConfigKind.PRUNED
 
     config = json.loads(path.read_text())
     assert "nauro" not in config["mcpServers"]
@@ -757,8 +765,7 @@ def test_prune_reports_invalid_utf8_claude_json(tmp_path: Path, monkeypatch):
     msg = _prune_redundant_user_scope_mcp()
 
     assert msg is not None
-    assert "~/.claude.json" in msg
-    assert "UTF-8" in msg
+    assert msg.kind is ClaudeUserConfigKind.INVALID_UTF8
     assert (tmp_path / ".claude.json").read_bytes() == raw
 
 

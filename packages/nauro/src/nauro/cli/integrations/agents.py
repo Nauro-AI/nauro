@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from nauro.cli.integrations.outcomes import AgentKind, AgentOutcome
 from nauro.store.write_safety import find_file_symlink
 
 
@@ -30,7 +31,7 @@ def materialize_agents(
     remove: bool,
     force_overwrite: bool = False,
     clear_user_scope: bool = True,
-) -> list[str]:
+) -> list[AgentOutcome]:
     """Install or remove the bundled ``nauro-*`` subagent files.
 
     Currently only the Claude Code surface is implemented. Cursor and Codex
@@ -63,20 +64,20 @@ def materialize_agents(
             # stops raising, the stub message goes away naturally.
             render_agent(surface, AGENT_NAMES[0])
         except NotImplementedError:
-            return [f"  skipped ~/.{surface} agents (not yet implemented)"]
+            return [AgentOutcome(AgentKind.SURFACE_NOT_IMPLEMENTED, surface=surface)]
         except ValueError as exc:
-            return [f"  skipped agents on surface {surface!r}: {exc}"]
+            return [AgentOutcome(AgentKind.SURFACE_INVALID, surface=surface, detail=str(exc))]
 
     base = _claude_agent_dir()
     if remove and not clear_user_scope:
-        return ["  preserved ~/.claude/agents/nauro-* (other nauro projects still registered)"]
+        return [AgentOutcome(AgentKind.PRESERVED)]
 
-    results: list[str] = []
+    results: list[AgentOutcome] = []
     for name in AGENT_NAMES:
         target = base / f"{name}.md"
         refusal = find_file_symlink(target)
         if refusal is not None:
-            results.append(f"  {refusal.message}")
+            results.append(AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=refusal))
             continue
         bundled = render_agent("claude_code", name)
         if remove:
@@ -86,8 +87,8 @@ def materialize_agents(
     return results
 
 
-def _install_bundled_agent(target: Path, bundled: str, *, force_overwrite: bool) -> str:
-    """Install or refresh one bundled agent file, returning its status line.
+def _install_bundled_agent(target: Path, bundled: str, *, force_overwrite: bool) -> AgentOutcome:
+    """Install or refresh one bundled agent file, returning its outcome.
 
     Absent → write the bundled body. Byte-equal → no-op. ``force_overwrite`` →
     overwrite in place. Otherwise the differing file is refreshed and its prior
@@ -97,32 +98,32 @@ def _install_bundled_agent(target: Path, bundled: str, *, force_overwrite: bool)
     if target.is_file():
         current = target.read_text(encoding="utf-8")
         if current == bundled:
-            return f"  unchanged {target}"
+            return AgentOutcome(AgentKind.UNCHANGED, target=target)
         if force_overwrite:
             target.write_text(bundled, encoding="utf-8")
-            return f"  overwrote {target}"
+            return AgentOutcome(AgentKind.OVERWROTE, target=target)
         backup = target.parent / (target.name + ".bak")
         backup_refusal = find_file_symlink(backup)
         if backup_refusal is not None:
-            return f"  {backup_refusal.message}"
+            return AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=backup_refusal)
         backup.write_text(current, encoding="utf-8")
         target.write_text(bundled, encoding="utf-8")
-        return f"  updated {target} (previous saved to {backup.name})"
+        return AgentOutcome(AgentKind.UPDATED, target=target, backup_name=backup.name)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(bundled, encoding="utf-8")
-    return f"  installed {target}"
+    return AgentOutcome(AgentKind.INSTALLED, target=target)
 
 
-def _remove_bundled_agent(target: Path, bundled: str) -> str:
-    """Remove one bundled agent file, returning its status line.
+def _remove_bundled_agent(target: Path, bundled: str) -> AgentOutcome:
+    """Remove one bundled agent file, returning its outcome.
 
     Absent → skip note. Byte-equal to the bundle → unlink. Differs → preserve
     (locally modified).
     """
     if not target.is_file():
-        return f"  no agent at {target}"
+        return AgentOutcome(AgentKind.ABSENT, target=target)
     current = target.read_text(encoding="utf-8")
     if current == bundled:
         target.unlink()
-        return f"  removed {target}"
-    return f"  preserved {target} (locally modified)"
+        return AgentOutcome(AgentKind.REMOVED, target=target)
+    return AgentOutcome(AgentKind.PRESERVED_MODIFIED, target=target)

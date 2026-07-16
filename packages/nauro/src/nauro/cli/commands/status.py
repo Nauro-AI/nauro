@@ -1,6 +1,5 @@
 """nauro status — Show capability table for the current project."""
 
-import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,6 +14,7 @@ from nauro.cli._codex_hooks import (
     _inspect_codex_hooks,
     _parse_codex_hooks,
 )
+from nauro.cli.integrations import codex_config, json_mcp
 from nauro.cli.utils import resolve_target_project
 
 
@@ -63,67 +63,6 @@ def _count_remote_decisions(project_id: str) -> int | None:
         and entry.get("path", "").startswith("decisions/")
         and entry.get("path", "").endswith(".md")
     )
-
-
-def _codex_config_path() -> Path:
-    """User-global Codex config path (same location setup.py writes)."""
-    return Path.home() / ".codex" / "config.toml"
-
-
-def _repo_recorded_commands(repo: Path) -> list[str | None]:
-    """Recorded nauro MCP commands in this repo's configs, one entry per wired config.
-
-    Single read of ``.mcp.json`` and ``.cursor/mcp.json`` each — presence
-    ("the repo is wired" iff the list is non-empty) and the recorded command
-    both derive from the same parse. A wired config whose nauro entry carries a
-    missing or empty command contributes ``None``: it still counts as wired,
-    but there is nothing to probe. Read-only and soft-failing: a missing,
-    unreadable, or malformed config contributes nothing — status must never
-    crash on someone else's config file.
-    """
-    commands: list[str | None] = []
-    for rel in (".mcp.json", ".cursor/mcp.json"):
-        try:
-            config = json.loads((repo / rel).read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        if not isinstance(config, dict):
-            continue
-        servers = config.get("mcpServers")
-        if not isinstance(servers, dict) or "nauro" not in servers:
-            continue
-        entry = servers["nauro"]
-        cmd = entry.get("command") if isinstance(entry, dict) else None
-        commands.append(cmd if isinstance(cmd, str) and cmd else None)
-    return commands
-
-
-def _codex_recorded_command() -> tuple[bool, str | None]:
-    """Return ``(wired, recorded command)`` for the user-global Codex config.
-
-    Single read of ``~/.codex/config.toml``, same parse approach as setup.py.
-    ``(True, None)`` means a nauro entry exists but records no usable command —
-    wired for presence, nothing to probe. Any read or parse failure counts as
-    not wired.
-    """
-    import sys
-
-    if sys.version_info >= (3, 11):
-        import tomllib
-    else:
-        import tomli as tomllib
-
-    try:
-        with _codex_config_path().open("rb") as f:
-            config = tomllib.load(f)
-    except Exception:
-        return (False, None)
-    servers = config.get("mcp_servers")
-    if not isinstance(servers, dict) or "nauro" not in servers:
-        return (False, None)
-    entry = servers["nauro"]
-    cmd = entry.get("command") if isinstance(entry, dict) else None
-    return (True, cmd if isinstance(cmd, str) and cmd else None)
 
 
 def _probe_distinct_commands(
@@ -194,11 +133,11 @@ class _WiringProbeResults:
 
 def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
     try:
-        repo_commands = [_repo_recorded_commands(repo) for repo in repo_paths]
+        repo_commands = [json_mcp.recorded_mcp_commands(repo) for repo in repo_paths]
     except Exception:
         repo_commands = []
     try:
-        codex_global, codex_command = _codex_recorded_command()
+        codex_global, codex_command = codex_config.recorded_codex_command()
     except Exception:
         codex_global, codex_command = False, None
     try:

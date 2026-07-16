@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from nauro.store._atomic import atomic_write_text
+from nauro.cli.integrations._json_config import write_json_config
+from nauro.cli.integrations.outcomes import ClaudeUserConfigKind, ClaudeUserConfigOutcome
 from nauro.store.write_safety import find_file_symlink
 
 
-def _prune_redundant_user_scope_mcp() -> str | None:
+def _prune_redundant_user_scope_mcp() -> ClaudeUserConfigOutcome | None:
     """Remove a redundant user-scope HTTP ``nauro`` entry from ``~/.claude.json``.
 
     On a machine with a local working copy, the stdio server is the canonical
@@ -31,11 +32,11 @@ def _prune_redundant_user_scope_mcp() -> str | None:
         return None
     refusal = find_file_symlink(config_path)
     if refusal is not None:
-        return f"  skipped user-scope prune: {refusal.message}"
+        return ClaudeUserConfigOutcome(ClaudeUserConfigKind.REFUSED_SYMLINK, refusal=refusal)
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
     except UnicodeDecodeError:
-        return "  skipped user-scope prune: ~/.claude.json is not valid UTF-8"
+        return ClaudeUserConfigOutcome(ClaudeUserConfigKind.INVALID_UTF8)
     except (json.JSONDecodeError, OSError):
         return None
     servers = config.get("mcpServers")
@@ -50,10 +51,7 @@ def _prune_redundant_user_scope_mcp() -> str | None:
     if not servers:
         config.pop("mcpServers", None)
     try:
-        atomic_write_text(config_path, json.dumps(config, indent=2) + "\n")
+        write_json_config(config_path, config)
     except OSError:
         return None
-    return (
-        "  removed redundant user-scope HTTP nauro entry from ~/.claude.json "
-        "(project-scope stdio is canonical)"
-    )
+    return ClaudeUserConfigOutcome(ClaudeUserConfigKind.PRUNED)

@@ -23,6 +23,12 @@ from nauro.cli.integrations.claude_hooks import (
 )
 from nauro.cli.integrations.codex_hooks import materialize_hooks_codex
 from nauro.cli.integrations.orchestrator import setup_all_surfaces
+from nauro.cli.integrations.outcomes import (
+    ClaudeHookKind,
+    ClaudeHookOutcome,
+    CodexHookKind,
+    HandlerErrorOutcome,
+)
 from nauro.cli.main import app
 from tests.conftest import register_v2_repo
 
@@ -69,7 +75,7 @@ def test_materialize_writes_correct_structure(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
     line = materialize_hooks_claude_code(repo, remove=False)
-    assert "wrote nauro hook" in line
+    assert line.kind is ClaudeHookKind.WROTE
 
     settings = json.loads(_settings(repo).read_text())
     entries = _nauro_entries(settings)
@@ -92,7 +98,7 @@ def test_materialize_is_idempotent(tmp_path: Path):
     repo.mkdir()
     materialize_hooks_claude_code(repo, remove=False)
     line = materialize_hooks_claude_code(repo, remove=False)
-    assert "already present" in line
+    assert line.kind is ClaudeHookKind.ALREADY_PRESENT
 
     settings = json.loads(_settings(repo).read_text())
     assert len(_nauro_entries(settings)) == 1
@@ -110,8 +116,34 @@ def test_materialize_surfaces_invalid_utf8_settings(tmp_path: Path):
 
     line = materialize_hooks_claude_code(repo, remove=False)
 
-    assert "could not parse .claude/settings.json" in line
+    assert line.kind is ClaudeHookKind.PARSE_ERROR
     assert settings_path.read_bytes() == raw
+
+
+def test_materialize_null_hooks_add_is_skipped(tmp_path: Path):
+    """An explicit JSON null hooks container is a graceful shape-skip, not a crash."""
+    repo = tmp_path / "repo"
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    original = '{"hooks": null}'
+    settings_path.write_text(original, encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.HOOKS_NOT_OBJECT
+    # The present-but-null container must not be mutated or clobbered.
+    assert settings_path.read_text(encoding="utf-8") == original
+
+
+def test_materialize_null_hooks_remove_is_noop(tmp_path: Path):
+    repo = tmp_path / "repo"
+    settings_path = _settings(repo)
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text('{"hooks": null}', encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert line.kind is ClaudeHookKind.NOTHING_TO_REMOVE
 
 
 # ── direct helper: remove path ─────────────────────────────────────────────────
@@ -140,7 +172,7 @@ def test_remove_strips_only_nauro_entry(tmp_path: Path):
     assert len(_nauro_entries(after_add)) == 1
 
     line = materialize_hooks_claude_code(repo, remove=True)
-    assert "removed nauro hook" in line
+    assert line.kind is ClaudeHookKind.REMOVED
 
     after_remove = json.loads(settings_path.read_text())
     assert _nauro_entries(after_remove) == []
@@ -155,7 +187,7 @@ def test_remove_when_absent_is_noop(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
     line = materialize_hooks_claude_code(repo, remove=True)
-    assert "no nauro hook to remove" in line
+    assert line.kind is ClaudeHookKind.NOTHING_TO_REMOVE
 
 
 def test_remove_deletes_empty_settings_file(tmp_path: Path):
@@ -198,8 +230,8 @@ def test_claude_hook_add_and_remove_refuse_symlinked_settings(tmp_path: Path):
     add_line = materialize_hooks_claude_code(repo, remove=False)
     remove_line = materialize_hooks_claude_code(repo, remove=True)
 
-    assert "refused to modify" in add_line
-    assert "refused to modify" in remove_line
+    assert add_line.kind is ClaudeHookKind.REFUSED_SYMLINK
+    assert remove_line.kind is ClaudeHookKind.REFUSED_SYMLINK
     assert outside.read_text() == "{}"
     assert (repo / ".claude" / "settings.json").is_symlink()
 
@@ -215,8 +247,8 @@ def test_codex_hooks_refuse_symlinked_hooks_json(tmp_path: Path):
     add_line = materialize_hooks_codex(repo, remove=False)
     remove_line = materialize_hooks_codex(repo, remove=True)
 
-    assert "refused to modify" in add_line
-    assert "refused to modify" in remove_line
+    assert add_line.kind is CodexHookKind.REFUSED_SYMLINK
+    assert remove_line.kind is CodexHookKind.REFUSED_SYMLINK
     assert outside.read_text() == "{}"
     assert (repo / ".codex" / "hooks.json").is_symlink()
 
@@ -253,7 +285,7 @@ def test_materialize_codex_writes_both_lifecycle_events(tmp_path: Path, monkeypa
     nauro_command._find_nauro_codex_hook_command.cache_clear()
     line = materialize_hooks_codex(repo, remove=False)
 
-    assert "wrote nauro hooks" in line
+    assert line.kind is CodexHookKind.WROTE
     config = json.loads(_codex_hooks(repo).read_text())
     for event in _CODEX_HOOK_EVENTS:
         entries = _codex_nauro_entries(config, event)
@@ -278,8 +310,10 @@ def test_materialize_codex_warns_for_untracked_hooks_file(tmp_path: Path):
 
     line = materialize_hooks_codex(repo, remove=False)
 
-    assert ".codex/hooks.json is untracked and not git-ignored" in line
-    assert "local Nauro wiring" in line
+    assert line.kind is CodexHookKind.WROTE
+    warnings = "\n".join(line.git_warnings)
+    assert ".codex/hooks.json is untracked and not git-ignored" in warnings
+    assert "local Nauro wiring" in warnings
 
 
 def test_materialize_codex_uses_current_install_when_durable_command_is_too_old(
@@ -304,7 +338,7 @@ def test_materialize_codex_uses_current_install_when_durable_command_is_too_old(
 
     line = materialize_hooks_codex(repo, remove=False)
 
-    assert "wrote nauro hooks" in line
+    assert line.kind is CodexHookKind.WROTE
     config = json.loads(_codex_hooks(repo).read_text())
     entry = _codex_nauro_entries(config, "SessionStart")[0]
     assert "/repo/.venv/bin/nauro" in entry["command"]
@@ -326,7 +360,7 @@ def test_materialize_codex_skips_when_no_compatible_command(tmp_path: Path, monk
 
     line = materialize_hooks_codex(repo, remove=False)
 
-    assert line == f"  {repo}: Codex hook wiring skipped; no compatible Nauro command"
+    assert line.kind is CodexHookKind.NO_COMMAND
     assert not _codex_hooks(repo).exists()
 
 
@@ -347,7 +381,8 @@ def test_materialize_codex_validates_config_before_resolving_command(tmp_path: P
 
     line = materialize_hooks_codex(repo, remove=False)
 
-    assert line == (f"  {repo}: hooks key in .codex/hooks.json is not a JSON object, skipped")
+    assert line.kind is CodexHookKind.CONFIG_ERROR
+    assert line.detail == "hooks key in .codex/hooks.json is not a JSON object, skipped"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX command guard")
@@ -438,7 +473,7 @@ def test_materialize_codex_is_idempotent_and_preserves_user_hooks(tmp_path: Path
     monkeypatch.setattr(Path, "write_text", count_hook_writes)
     line = materialize_hooks_codex(repo, remove=False)
 
-    assert "already present" in line
+    assert line.kind is CodexHookKind.ALREADY_PRESENT
     assert writes == 0
     config = json.loads(hooks_path.read_text())
     for event in _CODEX_HOOK_EVENTS:
@@ -483,7 +518,7 @@ def test_materialize_codex_refreshes_recorded_command(tmp_path: Path, monkeypatc
 
     line = materialize_hooks_codex(repo, remove=False)
 
-    assert "wrote nauro hooks" in line
+    assert line.kind is CodexHookKind.WROTE
     config = json.loads(_codex_hooks(repo).read_text())
     for event in _CODEX_HOOK_EVENTS:
         entries = _codex_nauro_entries(config, event)
@@ -510,7 +545,7 @@ def test_remove_codex_strips_only_nauro_entries(tmp_path: Path):
 
     line = materialize_hooks_codex(repo, remove=True)
 
-    assert "removed nauro hooks" in line
+    assert line.kind is CodexHookKind.REMOVED
     config = json.loads(hooks_path.read_text())
     assert config["hooks"] == {
         "SessionStart": [{"hooks": [{"type": "command", "command": "load-notes"}]}]
@@ -681,7 +716,9 @@ def test_setup_codex_remove_cleans_orphaned_repo_hooks(tmp_path: Path, monkeypat
 def test_setup_all_with_hooks_wires_claude_code_and_codex(tmp_path: Path):
     repo, _store = _make_project(tmp_path)
     lines = setup_all_surfaces([repo], with_hooks=True)
-    assert any("nauro hook" in line.text for line in lines)
+    assert any(
+        isinstance(line, ClaudeHookOutcome) and line.kind is ClaudeHookKind.WROTE for line in lines
+    )
 
     settings = json.loads(_settings(repo).read_text())
     assert len(_nauro_entries(settings)) == 1
@@ -716,7 +753,10 @@ def test_setup_all_hook_failure_does_not_abort(tmp_path: Path, monkeypatch):
 
     # Must not raise; the rest of setup still produces its lines.
     lines = setup_all_surfaces([repo], with_hooks=True)
-    assert any("hook" in line.text and "error" in line.text for line in lines)
+    assert any(
+        isinstance(line, HandlerErrorOutcome) and "hook" in line.message and "error" in line.message
+        for line in lines
+    )
     # MCP wiring still happened despite the hook failure.
     assert (repo / ".mcp.json").is_file()
 

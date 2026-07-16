@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 import nauro.cli.commands.status as status_mod
 from nauro.cli import nauro_command
 from nauro.cli._codex_hooks import _CODEX_HOOK_PROBE_ARGS
+from nauro.cli.integrations import codex_config
 from nauro.cli.main import app
 from nauro.store.registry import register_project
 from nauro.templates.agents_md import FOOTER_MARKER
@@ -27,7 +28,7 @@ def _setup_project(tmp_path, monkeypatch, repos=None):
     scaffold_project_store("testproj", store)
     monkeypatch.chdir(repos[0])
     monkeypatch.setattr(
-        status_mod, "_codex_config_path", lambda: tmp_path / "codex-home" / "config.toml"
+        codex_config, "codex_config_path", lambda: tmp_path / "codex-home" / "config.toml"
     )
     return store
 

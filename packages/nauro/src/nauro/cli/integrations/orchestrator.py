@@ -8,11 +8,11 @@ from pathlib import Path
 from nauro.cli.integrations.agents import materialize_agents
 from nauro.cli.integrations.claude_hooks import materialize_hooks_claude_code
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
-from nauro.cli.integrations.codex_config import _configure_codex, _default_codex_config_path
+from nauro.cli.integrations.codex_config import _configure_codex, codex_config_path
 from nauro.cli.integrations.codex_hooks import _nearest_codex_hooks_repo, materialize_hooks_codex
 from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo, _configure_mcp
 from nauro.cli.integrations.legacy import _remove_claude_md
-from nauro.cli.integrations.outcomes import ArtifactOutcome, RawLine
+from nauro.cli.integrations.outcomes import ArtifactOutcome, HandlerErrorOutcome, RawLine
 from nauro.cli.integrations.skills import (
     materialize_skills_claude_code,
     materialize_skills_codex,
@@ -44,12 +44,12 @@ def claude_code_surfaces(
     ``warn_then_regen`` route through ``warn`` (stderr), never the returned
     list.
     """
-    legacy_results: list[str] = []
-    mcp_results: list[str] = []
-    hook_results: list[str] = []
+    legacy_results: list[ArtifactOutcome] = []
+    mcp_results: list[ArtifactOutcome] = []
+    hook_results: list[ArtifactOutcome] = []
     for repo_path in project_repos:
         if not repo_path.is_dir():
-            mcp_results.append(f"  {repo_path}: repo path missing, skipped")
+            mcp_results.append(RawLine(f"  {repo_path}: repo path missing, skipped"))
             continue
         legacy = _remove_claude_md(repo_path)
         if legacy:
@@ -59,22 +59,24 @@ def claude_code_surfaces(
             try:
                 hook_results.append(materialize_hooks_claude_code(repo_path, remove=remove))
             except Exception as exc:
-                hook_results.append(f"  {repo_path}: hook wiring error - {exc}")
+                hook_results.append(
+                    HandlerErrorOutcome(f"  {repo_path}: hook wiring error - {exc}")
+                )
 
     if not remove:
         pruned = _prune_redundant_user_scope_mcp()
         if pruned:
             mcp_results.append(pruned)
 
-    outcomes: list[ArtifactOutcome] = [RawLine(result) for result in mcp_results]
+    outcomes: list[ArtifactOutcome] = list(mcp_results)
 
     if hook_results:
         outcomes.append(RawLine("\nHooks:"))
-        outcomes.extend(RawLine(result) for result in hook_results)
+        outcomes.extend(hook_results)
 
     if legacy_results:
         outcomes.append(RawLine("\nLegacy cleanup:"))
-        outcomes.extend(RawLine(result) for result in legacy_results)
+        outcomes.extend(legacy_results)
 
     if not remove:
         # Regenerate AGENTS.md so context is fresh from the start. The store
@@ -98,7 +100,7 @@ def cursor_surfaces(project_repos: list[Path], *, remove: bool) -> list[Artifact
         if not repo_path.is_dir():
             outcomes.append(RawLine(f"  {repo_path}: repo path missing, skipped"))
             continue
-        outcomes.append(RawLine(_configure_cursor_for_repo(repo_path, remove=remove)))
+        outcomes.append(_configure_cursor_for_repo(repo_path, remove=remove))
     return outcomes
 
 
@@ -124,7 +126,7 @@ def codex_surfaces(*, remove: bool, with_hooks: bool) -> list[ArtifactOutcome]:
     # last project goes through 'nauro setup all --remove'.
     registered_count = len(_registered_project_keys()) if remove else 0
     if registered_count:
-        config_path = _default_codex_config_path()
+        config_path = codex_config_path()
         count_phrase = (
             "1 nauro project" if registered_count == 1 else f"{registered_count} nauro projects"
         )
@@ -136,7 +138,7 @@ def codex_surfaces(*, remove: bool, with_hooks: bool) -> list[ArtifactOutcome]:
             )
         )
     else:
-        outcomes.append(RawLine(_configure_codex(remove=remove)))
+        outcomes.append(_configure_codex(remove=remove))
 
     hook_cleanup_unresolved = False
     if remove:
@@ -169,9 +171,11 @@ def codex_surfaces(*, remove: bool, with_hooks: bool) -> list[ArtifactOutcome]:
                 outcomes.append(RawLine(f"  {repo_path}: repo path missing, skipped"))
                 continue
             try:
-                outcomes.append(RawLine(materialize_hooks_codex(repo_path, remove=remove)))
+                outcomes.append(materialize_hooks_codex(repo_path, remove=remove))
             except Exception as exc:
-                outcomes.append(RawLine(f"  {repo_path}: Codex hook wiring error - {exc}"))
+                outcomes.append(
+                    HandlerErrorOutcome(f"  {repo_path}: Codex hook wiring error - {exc}")
+                )
 
     return outcomes
 
@@ -197,33 +201,33 @@ def _all_claude_code_lines(
             outcomes.append(RawLine(f"  {repo}: repo path missing, skipped"))
             continue
         try:
-            outcomes.append(RawLine(_configure_mcp(repo, remove=remove)))
+            outcomes.append(_configure_mcp(repo, remove=remove))
         except Exception as exc:
-            outcomes.append(RawLine(f"Claude Code MCP ({repo}): error - {exc}"))
+            outcomes.append(HandlerErrorOutcome(f"Claude Code MCP ({repo}): error - {exc}"))
     if not remove:
         try:
             pruned = _prune_redundant_user_scope_mcp()
             if pruned:
-                outcomes.append(RawLine(pruned))
+                outcomes.append(pruned)
         except Exception as exc:  # never let cleanup break wiring
-            outcomes.append(RawLine(f"Claude Code MCP (user-scope cleanup): error - {exc}"))
+            outcomes.append(
+                HandlerErrorOutcome(f"Claude Code MCP (user-scope cleanup): error - {exc}")
+            )
     try:
         outcomes.extend(
-            RawLine(line)
-            for line in materialize_skills_claude_code(
+            materialize_skills_claude_code(
                 remove=remove,
                 clear_user_scope=clear_user_scope,
                 with_skills=with_skills,
             )
         )
     except Exception as exc:
-        outcomes.append(RawLine(f"Claude Code skills: error - {exc}"))
+        outcomes.append(HandlerErrorOutcome(f"Claude Code skills: error - {exc}"))
 
     if with_subagents:
         try:
             outcomes.extend(
-                RawLine(line)
-                for line in materialize_agents(
+                materialize_agents(
                     "claude_code",
                     remove=remove,
                     force_overwrite=force_overwrite,
@@ -231,16 +235,16 @@ def _all_claude_code_lines(
                 )
             )
         except Exception as exc:
-            outcomes.append(RawLine(f"Claude Code agents: error - {exc}"))
+            outcomes.append(HandlerErrorOutcome(f"Claude Code agents: error - {exc}"))
 
     if with_hooks or remove:
         for repo in project_repos:
             if not repo.is_dir():
                 continue
             try:
-                outcomes.append(RawLine(materialize_hooks_claude_code(repo, remove=remove)))
+                outcomes.append(materialize_hooks_claude_code(repo, remove=remove))
             except Exception as exc:
-                outcomes.append(RawLine(f"Claude Code hook ({repo}): error - {exc}"))
+                outcomes.append(HandlerErrorOutcome(f"Claude Code hook ({repo}): error - {exc}"))
     return outcomes
 
 
@@ -253,18 +257,15 @@ def _all_cursor_lines(
         if not repo.is_dir():
             continue
         try:
-            outcomes.append(RawLine(_configure_cursor_for_repo(repo, remove=remove)))
+            outcomes.append(_configure_cursor_for_repo(repo, remove=remove))
         except Exception as exc:
-            outcomes.append(RawLine(f"Cursor MCP ({repo}): error - {exc}"))
+            outcomes.append(HandlerErrorOutcome(f"Cursor MCP ({repo}): error - {exc}"))
         try:
             outcomes.extend(
-                RawLine(line)
-                for line in materialize_skills_cursor_for_repo(
-                    repo, remove=remove, with_skills=with_skills
-                )
+                materialize_skills_cursor_for_repo(repo, remove=remove, with_skills=with_skills)
             )
         except Exception as exc:
-            outcomes.append(RawLine(f"Cursor skills ({repo}): error - {exc}"))
+            outcomes.append(HandlerErrorOutcome(f"Cursor skills ({repo}): error - {exc}"))
     return outcomes
 
 
@@ -279,29 +280,28 @@ def _all_codex_lines(
     """Codex surface lines for ``setup_all_surfaces``: MCP global, skills global, optional hooks."""
     outcomes: list[ArtifactOutcome] = []
     try:
-        outcomes.append(RawLine(_configure_codex(remove=remove, clear_user_scope=clear_user_scope)))
+        outcomes.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
     except Exception as exc:
-        outcomes.append(RawLine(f"Codex MCP: error - {exc}"))
+        outcomes.append(HandlerErrorOutcome(f"Codex MCP: error - {exc}"))
     try:
         outcomes.extend(
-            RawLine(line)
-            for line in materialize_skills_codex(
+            materialize_skills_codex(
                 remove=remove,
                 clear_user_scope=clear_user_scope,
                 with_skills=with_skills,
             )
         )
     except Exception as exc:
-        outcomes.append(RawLine(f"Codex skills: error - {exc}"))
+        outcomes.append(HandlerErrorOutcome(f"Codex skills: error - {exc}"))
 
     if with_hooks or remove:
         for repo in project_repos:
             if not repo.is_dir():
                 continue
             try:
-                outcomes.append(RawLine(materialize_hooks_codex(repo, remove=remove)))
+                outcomes.append(materialize_hooks_codex(repo, remove=remove))
             except Exception as exc:
-                outcomes.append(RawLine(f"Codex hooks ({repo}): error - {exc}"))
+                outcomes.append(HandlerErrorOutcome(f"Codex hooks ({repo}): error - {exc}"))
     return outcomes
 
 
@@ -334,7 +334,7 @@ def _all_agents_md_lines(
             for repo_path in updated:
                 outcomes.append(RawLine(f"  {repo_path}: regenerated AGENTS.md"))
         except Exception as exc:
-            outcomes.append(RawLine(f"AGENTS.md regeneration: error - {exc}"))
+            outcomes.append(HandlerErrorOutcome(f"AGENTS.md regeneration: error - {exc}"))
 
     # Mirror of the regen above: strip the generated AGENTS.md on teardown so a
     # removed integration leaves no orphaned context file. User content in a
@@ -348,7 +348,7 @@ def _all_agents_md_lines(
                 if removed_line:
                     outcomes.append(RawLine(removed_line))
             except Exception as exc:
-                outcomes.append(RawLine(f"AGENTS.md removal ({repo}) failed: {exc}"))
+                outcomes.append(HandlerErrorOutcome(f"AGENTS.md removal ({repo}) failed: {exc}"))
     return outcomes
 
 
