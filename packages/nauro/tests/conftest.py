@@ -340,3 +340,22 @@ def _isolate_nauro_home(tmp_path, monkeypatch):
     later setenv wins.
     """
     monkeypatch.setenv("NAURO_HOME", str(tmp_path))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_home(tmp_path, monkeypatch):
+    """Point HOME at a per-test sandbox so user-global writers never touch it.
+
+    NAURO_HOME only covers the store; the user-global artifact writers
+    (``~/.codex/config.toml``, ``~/.claude.json``, ``~/.claude/skills``,
+    ``~/.agents/skills``) resolve through ``Path.home()``. A test that
+    exercises them without its own HOME patch rewrites the developer's real
+    config — a full suite run did exactly that to ``~/.codex/config.toml``
+    before this guard existed. CI never catches the escape because runner
+    homes are throwaway. The sandbox is a subdirectory so tests that pin
+    filesystem inventories over ``tmp_path`` and set ``HOME`` themselves
+    (later setenv wins) keep their own layout. The sandbox is not
+    pre-created: several tests assert exact ``tmp_path`` contents, and the
+    user-global writers create their own parents.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
