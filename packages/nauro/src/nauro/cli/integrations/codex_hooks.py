@@ -13,6 +13,7 @@ from nauro.cli._codex_hooks import (
     _validate_codex_hooks,
 )
 from nauro.cli.git_hygiene import public_surface_git_warnings
+from nauro.cli.integrations.outcomes import CodexHookKind, CodexHookOutcome
 from nauro.cli.nauro_command import _find_nauro_codex_hook_command
 from nauro.store._atomic import atomic_write_text
 from nauro.store.write_safety import find_symlink
@@ -33,11 +34,11 @@ def _codex_hooks_path(repo: Path) -> Path:
     return repo / ".codex" / "hooks.json"
 
 
-def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
+def materialize_hooks_codex(repo: Path, *, remove: bool) -> CodexHookOutcome:
     """Add or remove project-scoped Codex lifecycle hooks for ``repo``."""
     refusal = find_symlink(repo, ".codex/hooks.json")
     if refusal is not None:
-        return f"  {repo}: {refusal.message}"
+        return CodexHookOutcome(CodexHookKind.REFUSED_SYMLINK, repo, refusal=refusal)
     hooks_path = _codex_hooks_path(repo)
     existing_text: str | None = None
     if hooks_path.exists():
@@ -45,39 +46,38 @@ def materialize_hooks_codex(repo: Path, *, remove: bool) -> str:
             existing_text = hooks_path.read_text(encoding="utf-8")
             config = _parse_codex_hooks(existing_text)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            return f"  {repo}: could not parse .codex/hooks.json - {exc}"
+            return CodexHookOutcome(CodexHookKind.PARSE_ERROR, repo, detail=str(exc))
         except _CodexHookConfigError as exc:
-            return f"  {repo}: {exc}"
+            return CodexHookOutcome(CodexHookKind.CONFIG_ERROR, repo, detail=str(exc))
     else:
         config = {}
 
     try:
         _validate_codex_hooks(config)
     except _CodexHookConfigError as exc:
-        return f"  {repo}: {exc}"
+        return CodexHookOutcome(CodexHookKind.CONFIG_ERROR, repo, detail=str(exc))
 
     command = None if remove else _find_nauro_codex_hook_command()
     if not remove and command is None:
-        return f"  {repo}: Codex hook wiring skipped; no compatible Nauro command"
+        return CodexHookOutcome(CodexHookKind.NO_COMMAND, repo)
 
     try:
         transformed = _transform_codex_hooks(config, command=command)
     except _CodexHookConfigError as exc:
-        return f"  {repo}: {exc}"
+        return CodexHookOutcome(CodexHookKind.CONFIG_ERROR, repo, detail=str(exc))
 
     if remove:
         if transformed.removed == 0:
-            return f"  {repo}: no nauro Codex hooks to remove"
+            return CodexHookOutcome(CodexHookKind.NOTHING_TO_REMOVE, repo)
         if transformed.config:
             atomic_write_text(hooks_path, _format_codex_hooks(transformed.config))
         else:
             hooks_path.unlink()
-        return f"  {repo}: removed nauro hooks from .codex/hooks.json"
+        return CodexHookOutcome(CodexHookKind.REMOVED, repo)
 
     rendered = _format_codex_hooks(transformed.config)
     if existing_text == rendered:
-        return f"  {repo}: nauro hooks already present in .codex/hooks.json"
+        return CodexHookOutcome(CodexHookKind.ALREADY_PRESENT, repo)
     atomic_write_text(hooks_path, rendered)
-    lines = [f"  {repo}: wrote nauro hooks to .codex/hooks.json"]
-    lines.extend(public_surface_git_warnings(repo, ".codex/hooks.json"))
-    return "\n".join(lines)
+    git_warnings = tuple(public_surface_git_warnings(repo, ".codex/hooks.json"))
+    return CodexHookOutcome(CodexHookKind.WROTE, repo, git_warnings=git_warnings)

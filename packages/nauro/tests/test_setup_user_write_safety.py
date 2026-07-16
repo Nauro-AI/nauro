@@ -24,6 +24,12 @@ import tomlkit
 from nauro.cli.integrations.agents import materialize_agents
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import _configure_codex
+from nauro.cli.integrations.outcomes import (
+    AgentKind,
+    ClaudeUserConfigKind,
+    CodexConfigKind,
+    SkillKind,
+)
 from nauro.cli.integrations.skills import _materialize_skill_file, _remove_skill_file
 from nauro.cli.nauro_command import _find_nauro_command
 
@@ -68,7 +74,7 @@ def test_codex_add_preserves_commented_config_outside_nauro_entry(tmp_path: Path
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     text = config_path.read_text(encoding="utf-8")
     # Everything before the appended entry is byte-identical to the seed.
     assert text.startswith(COMMENTED_SEED)
@@ -84,7 +90,7 @@ def test_codex_add_then_remove_is_byte_identical_with_existing_table(tmp_path: P
     _configure_codex(remove=False, config_path=config_path)
     msg = _configure_codex(remove=True, config_path=config_path)
 
-    assert "removed nauro" in msg
+    assert msg.kind is CodexConfigKind.REMOVED
     assert config_path.read_bytes() == COMMENTED_SEED.encode("utf-8")
 
 
@@ -108,7 +114,8 @@ def test_codex_second_identical_add_skips_render_and_write(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert msg == f"Codex: nauro already configured in {config_path}"
+    assert msg.kind is CodexConfigKind.ALREADY_CONFIGURED
+    assert msg.config_path == config_path
     assert config_path.read_bytes() == before
     assert config_path.stat().st_mtime == MTIME_SENTINEL
 
@@ -119,7 +126,7 @@ def test_codex_remove_without_entry_leaves_commented_file_untouched(tmp_path: Pa
 
     msg = _configure_codex(remove=True, config_path=config_path)
 
-    assert "no nauro entry to remove" in msg
+    assert msg.kind is CodexConfigKind.NOTHING_TO_REMOVE
     assert config_path.read_bytes() == COMMENTED_SEED.encode("utf-8")
     assert config_path.stat().st_mtime == MTIME_SENTINEL
 
@@ -132,7 +139,8 @@ def test_codex_add_refuses_invalid_utf8_without_writing(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert msg == f"Codex: could not parse {config_path} - not valid UTF-8"
+    assert msg.kind is CodexConfigKind.PARSE_ERROR_UTF8
+    assert msg.config_path == config_path
     assert config_path.read_bytes() == raw
 
 
@@ -144,7 +152,8 @@ def test_codex_remove_refuses_invalid_utf8_without_writing(tmp_path: Path):
 
     msg = _configure_codex(remove=True, config_path=config_path)
 
-    assert msg == f"Codex: could not parse {config_path} - not valid UTF-8"
+    assert msg.kind is CodexConfigKind.PARSE_ERROR_UTF8
+    assert msg.config_path == config_path
     assert config_path.read_bytes() == raw
 
 
@@ -153,7 +162,7 @@ def test_codex_new_entry_renders_as_standard_table_not_inline(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     text = config_path.read_text(encoding="utf-8")
     assert "[mcp_servers.nauro]" in text
     assert "nauro = {" not in text
@@ -175,7 +184,7 @@ def test_codex_command_drift_rewrite_preserves_user_keys_and_comments(tmp_path: 
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     text = config_path.read_text(encoding="utf-8")
     assert "# tuned for my machine" in text
     entry = tomllib.loads(text)["mcp_servers"]["nauro"]
@@ -195,7 +204,7 @@ def test_codex_command_only_drift_leaves_matching_args_bytes_untouched(tmp_path:
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     text = config_path.read_text(encoding="utf-8")
     assert args_block in text
     entry = tomlkit.parse(text)["mcp_servers"]["nauro"]
@@ -217,7 +226,7 @@ def test_codex_add_into_empty_inline_mcp_servers(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     text = config_path.read_text(encoding="utf-8")
     reparsed = tomlkit.parse(text)
     assert reparsed["mcp_servers"]["nauro"]["command"] == _find_nauro_command()
@@ -233,7 +242,7 @@ def test_codex_add_into_inline_mcp_servers_preserves_sibling(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     text = config_path.read_text(encoding="utf-8")
     assert '{ command = "c", args = [] }' in text
     reparsed = tomlkit.parse(text)
@@ -248,7 +257,7 @@ def test_codex_add_replaces_non_table_nauro_inside_inline_parent(tmp_path: Path)
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     text = config_path.read_text(encoding="utf-8")
     reparsed = tomlkit.parse(text)
     assert reparsed["mcp_servers"]["nauro"]["command"] == _find_nauro_command()
@@ -263,7 +272,7 @@ def test_codex_add_then_remove_on_inline_mcp_servers_round_trips(tmp_path: Path)
     _configure_codex(remove=False, config_path=config_path)
     msg = _configure_codex(remove=True, config_path=config_path)
 
-    assert "removed nauro" in msg
+    assert msg.kind is CodexConfigKind.REMOVED
     text = config_path.read_text(encoding="utf-8")
     reparsed = tomlkit.parse(text)
     assert "nauro" not in reparsed["mcp_servers"]
@@ -285,8 +294,8 @@ def test_codex_add_refuses_symlinked_config(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=link)
 
-    assert msg.startswith(f"Codex: refused to modify {link}")
-    assert "symlink" in msg
+    assert msg.kind is CodexConfigKind.REFUSED_SYMLINK
+    assert msg.refusal.target == link
     assert link.is_symlink()
     assert real.read_text(encoding="utf-8") == seed
 
@@ -302,7 +311,8 @@ def test_codex_remove_refuses_symlinked_config(tmp_path: Path):
 
     msg = _configure_codex(remove=True, config_path=link)
 
-    assert msg.startswith(f"Codex: refused to modify {link}")
+    assert msg.kind is CodexConfigKind.REFUSED_SYMLINK
+    assert msg.refusal.target == link
     assert link.is_symlink()
     assert real.read_text(encoding="utf-8") == seed
 
@@ -319,7 +329,7 @@ def test_codex_writes_through_symlinked_parent_dir(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     assert codex_dir.is_symlink()
     with (real_dir / "config.toml").open("rb") as f:
         data = tomllib.load(f)
@@ -337,9 +347,24 @@ def test_prune_skips_symlinked_claude_json(tmp_path: Path, monkeypatch):
     msg = _prune_redundant_user_scope_mcp()
 
     assert msg is not None
-    assert msg.startswith("  skipped user-scope prune: refused to modify")
+    assert msg.kind is ClaudeUserConfigKind.REFUSED_SYMLINK
     assert (tmp_path / ".claude.json").is_symlink()
     assert real.read_text(encoding="utf-8") == raw
+
+
+@pytest.mark.parametrize("body", ["null", "[1, 2, 3]", "42"])
+def test_prune_skips_non_object_claude_json_without_crash(tmp_path: Path, monkeypatch, body: str):
+    """A ~/.claude.json whose top level is a JSON null, array, or scalar must
+    degrade to a graceful skip, never a traceback, and never a write."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    config_path = tmp_path / ".claude.json"
+    config_path.write_text(body, encoding="utf-8")
+
+    msg = _prune_redundant_user_scope_mcp()
+
+    assert msg is not None
+    assert msg.kind is ClaudeUserConfigKind.NOT_JSON_OBJECT
+    assert config_path.read_text(encoding="utf-8") == body
 
 
 @symlinks_required
@@ -352,7 +377,7 @@ def test_skill_add_refuses_symlinked_target(tmp_path: Path):
 
     line = _materialize_skill_file(target, "new body")
 
-    assert "refused to modify" in line
+    assert line.kind is SkillKind.REFUSED_SYMLINK
     assert target.is_symlink()
     assert real.read_text(encoding="utf-8") == "original"
 
@@ -368,7 +393,7 @@ def test_skill_remove_refuses_symlinked_target(tmp_path: Path):
 
     line = _remove_skill_file(target, stop_above=base)
 
-    assert "refused to modify" in line
+    assert line.kind is SkillKind.REFUSED_SYMLINK
     assert target.is_symlink()
     assert real.read_text(encoding="utf-8") == "original"
 
@@ -383,7 +408,8 @@ def test_skill_writes_through_symlinked_parent_dir(tmp_path: Path):
 
     line = _materialize_skill_file(target, "body")
 
-    assert line == f"  wrote {target}"
+    assert line.kind is SkillKind.WROTE
+    assert line.target == target
     assert base.is_symlink()
     assert (real_dir / "nauro-adopt" / "SKILL.md").read_text(encoding="utf-8") == "body"
 
@@ -402,9 +428,9 @@ def test_agent_materialization_refuses_symlinked_target(tmp_path: Path, monkeypa
 
     add_lines = materialize_agents("claude_code", remove=False)
 
-    add_refusals = [line for line in add_lines if "refused to modify" in line]
+    add_refusals = [line for line in add_lines if line.kind is AgentKind.REFUSED_SYMLINK]
     assert len(add_refusals) == 1
-    assert str(linked) in add_refusals[0]
+    assert add_refusals[0].refusal.target == linked
     assert linked.is_symlink()
     assert real.read_text(encoding="utf-8") == "mine"
     for name in AGENT_NAMES[1:]:
@@ -412,7 +438,7 @@ def test_agent_materialization_refuses_symlinked_target(tmp_path: Path, monkeypa
 
     remove_lines = materialize_agents("claude_code", remove=True)
 
-    remove_refusals = [line for line in remove_lines if "refused to modify" in line]
+    remove_refusals = [line for line in remove_lines if line.kind is AgentKind.REFUSED_SYMLINK]
     assert len(remove_refusals) == 1
     assert linked.is_symlink()
     assert real.read_text(encoding="utf-8") == "mine"
@@ -429,5 +455,5 @@ def test_codex_write_preserves_permission_bits(tmp_path: Path):
 
     msg = _configure_codex(remove=False, config_path=config_path)
 
-    assert "wrote nauro" in msg
+    assert msg.kind is CodexConfigKind.WROTE
     assert oct(config_path.stat().st_mode & 0o777) == "0o640"

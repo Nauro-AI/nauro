@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from nauro.cli.integrations.outcomes import SkillKind, SkillOutcome
 from nauro.store.write_safety import find_file_symlink, find_symlink
 
 # Skills are rendered from canonical bodies in nauro.skills and written into
@@ -32,16 +33,16 @@ def _codex_skill_dir() -> Path:
     return Path.home() / ".agents" / "skills"
 
 
-def _materialize_skill_file(target: Path, content: str) -> str:
+def _materialize_skill_file(target: Path, content: str) -> SkillOutcome:
     refusal = find_file_symlink(target)
     if refusal is not None:
-        return f"  {refusal.message}"
+        return SkillOutcome(SkillKind.REFUSED_SYMLINK, target=target, refusal=refusal)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
-    return f"  wrote {target}"
+    return SkillOutcome(SkillKind.WROTE, target=target)
 
 
-def _remove_skill_file(target: Path, *, stop_above: Path) -> str:
+def _remove_skill_file(target: Path, *, stop_above: Path) -> SkillOutcome:
     """Unlink ``target`` and prune empty parents, but never above ``stop_above``.
 
     Without the bound the parent walk could rmdir the surface base
@@ -50,9 +51,9 @@ def _remove_skill_file(target: Path, *, stop_above: Path) -> str:
     """
     refusal = find_file_symlink(target)
     if refusal is not None:
-        return f"  {refusal.message}"
+        return SkillOutcome(SkillKind.REFUSED_SYMLINK, target=target, refusal=refusal)
     if not target.is_file():
-        return f"  no skill at {target}"
+        return SkillOutcome(SkillKind.ABSENT, target=target)
     target.unlink()
     stop_resolved = stop_above.resolve()
     parent = target.parent
@@ -61,7 +62,7 @@ def _remove_skill_file(target: Path, *, stop_above: Path) -> str:
             break
         parent.rmdir()
         parent = parent.parent
-    return f"  removed {target}"
+    return SkillOutcome(SkillKind.REMOVED, target=target)
 
 
 def _resolved_skill_names(with_skills: bool) -> tuple[str, ...]:
@@ -80,7 +81,7 @@ def materialize_skills_claude_code(
     remove: bool,
     clear_user_scope: bool = True,
     with_skills: bool = False,
-) -> list[str]:
+) -> list[SkillOutcome]:
     """Install or remove the Nauro skill(s) under ``~/.claude/skills/``.
 
     ``clear_user_scope`` gates the remove path: when False, the skill files
@@ -94,9 +95,9 @@ def materialize_skills_claude_code(
 
     base = _claude_skill_dir()
     if remove and not clear_user_scope:
-        return ["  preserved ~/.claude/skills/nauro-* (other nauro projects still registered)"]
+        return [SkillOutcome(SkillKind.PRESERVED, base_label="~/.claude/skills")]
 
-    results: list[str] = []
+    results: list[SkillOutcome] = []
     for name in _resolved_skill_names(with_skills):
         target = base / name / "SKILL.md"
         if remove:
@@ -111,7 +112,7 @@ def materialize_skills_codex(
     remove: bool,
     clear_user_scope: bool = True,
     with_skills: bool = False,
-) -> list[str]:
+) -> list[SkillOutcome]:
     """Install or remove the Nauro skill(s) under ``~/.agents/skills/``.
 
     ``clear_user_scope`` gates the remove path: when False, the skill files
@@ -125,9 +126,9 @@ def materialize_skills_codex(
 
     base = _codex_skill_dir()
     if remove and not clear_user_scope:
-        return ["  preserved ~/.agents/skills/nauro-* (other nauro projects still registered)"]
+        return [SkillOutcome(SkillKind.PRESERVED, base_label="~/.agents/skills")]
 
-    results: list[str] = []
+    results: list[SkillOutcome] = []
     for name in _resolved_skill_names(with_skills):
         target = base / name / "SKILL.md"
         if remove:
@@ -142,7 +143,7 @@ def materialize_skills_cursor_for_repo(
     *,
     remove: bool,
     with_skills: bool = False,
-) -> list[str]:
+) -> list[SkillOutcome]:
     """Install or remove Cursor rules under ``<repo>/.cursor/rules/``.
 
     ``with_skills`` extends the install/remove set with ``OPT_IN_SKILL_NAMES``.
@@ -150,11 +151,11 @@ def materialize_skills_cursor_for_repo(
     from nauro.skills import render_skill
 
     base = repo / ".cursor" / "rules"
-    results: list[str] = []
+    results: list[SkillOutcome] = []
     for name in _resolved_skill_names(with_skills):
         refusal = find_symlink(repo, f".cursor/rules/{name}.mdc")
         if refusal is not None:
-            results.append(f"  {repo}: {refusal.message}")
+            results.append(SkillOutcome(SkillKind.REFUSED_SYMLINK, refusal=refusal, repo=repo))
             continue
         target = base / f"{name}.mdc"
         if remove:

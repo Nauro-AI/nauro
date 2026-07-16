@@ -8,8 +8,9 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.integrations.codex_config import _configure_codex
-from nauro.cli.integrations.json_mcp import _configure_mcp
+from nauro.cli.integrations.json_mcp import _configure_mcp, recorded_mcp_commands
 from nauro.cli.integrations.legacy import CLAUDE_MD_END, CLAUDE_MD_START
+from nauro.cli.integrations.outcomes import CodexConfigKind, JsonMcpKind
 from nauro.cli.main import app
 from nauro.store.registry import register_project, register_project_v2
 from nauro.store.repo_config import save_repo_config
@@ -49,7 +50,7 @@ class TestMCPConfigDirectWrite:
         entry = config["mcpServers"]["nauro"]
         assert entry["args"] == ["serve", "--stdio"]
         assert isinstance(entry["command"], str) and entry["command"]
-        assert "wrote nauro to .mcp.json" in result
+        assert result.kind is JsonMcpKind.WROTE
 
     def test_add_preserves_existing_servers(self, tmp_path: Path):
         """Existing servers in `.mcp.json` are preserved when we add nauro."""
@@ -63,7 +64,7 @@ class TestMCPConfigDirectWrite:
         config = json.loads((repo / ".mcp.json").read_text())
         assert config["mcpServers"]["other"] == existing["mcpServers"]["other"]
         assert "nauro" in config["mcpServers"]
-        assert "wrote nauro to .mcp.json" in result
+        assert result.kind is JsonMcpKind.WROTE
 
     def test_add_overwrites_stale_nauro_entry(self, tmp_path: Path):
         """A pre-existing `nauro` entry is overwritten with the current command path."""
@@ -87,7 +88,7 @@ class TestMCPConfigDirectWrite:
 
         result = _configure_mcp(repo, remove=False)
 
-        assert "could not parse .mcp.json" in result
+        assert result.kind is JsonMcpKind.PARSE_ERROR
         assert (repo / ".mcp.json").read_text() == "{not json"
 
     def test_add_surfaces_invalid_utf8_without_clobbering(self, tmp_path: Path):
@@ -100,7 +101,7 @@ class TestMCPConfigDirectWrite:
 
         result = _configure_mcp(repo, remove=False)
 
-        assert "could not parse .mcp.json" in result
+        assert result.kind is JsonMcpKind.PARSE_ERROR
         assert (repo / ".mcp.json").read_bytes() == raw
 
     def test_add_round_trips_non_ascii_content_as_utf8(self, tmp_path: Path):
@@ -116,7 +117,7 @@ class TestMCPConfigDirectWrite:
 
         result = _configure_mcp(repo, remove=False)
 
-        assert "wrote nauro to .mcp.json" in result
+        assert result.kind is JsonMcpKind.WROTE
         data = json.loads((repo / ".mcp.json").read_bytes().decode("utf-8"))
         assert data["mcpServers"]["other"]["command"] == "café"
         assert "nauro" in data["mcpServers"]
@@ -131,7 +132,7 @@ class TestMCPConfigDirectWrite:
 
         result = _configure_mcp(repo, remove=True)
 
-        assert "removed nauro from .mcp.json" in result
+        assert result.kind is JsonMcpKind.REMOVED
         assert not (repo / ".mcp.json").exists()
 
     def test_remove_preserves_other_servers(self, tmp_path: Path):
@@ -151,7 +152,7 @@ class TestMCPConfigDirectWrite:
 
         result = _configure_mcp(repo, remove=True)
 
-        assert "removed nauro from .mcp.json" in result
+        assert result.kind is JsonMcpKind.REMOVED
         config = json.loads((repo / ".mcp.json").read_text())
         assert "nauro" not in config["mcpServers"]
         assert "other" in config["mcpServers"]
@@ -163,7 +164,7 @@ class TestMCPConfigDirectWrite:
 
         result = _configure_mcp(repo, remove=True)
 
-        assert "no nauro entry to remove" in result
+        assert result.kind is JsonMcpKind.NOTHING_TO_REMOVE
         assert not (repo / ".mcp.json").exists()
 
     def test_remove_skips_when_nauro_absent_from_mcp_json(self, tmp_path: Path):
@@ -175,7 +176,7 @@ class TestMCPConfigDirectWrite:
 
         result = _configure_mcp(repo, remove=True)
 
-        assert "no nauro entry to remove" in result
+        assert result.kind is JsonMcpKind.NOTHING_TO_REMOVE
         assert (repo / ".mcp.json").read_text() == original
 
     def test_remove_handles_malformed_mcp_json(self, tmp_path: Path):
@@ -186,7 +187,7 @@ class TestMCPConfigDirectWrite:
 
         result = _configure_mcp(repo, remove=True)
 
-        assert "could not parse .mcp.json" in result
+        assert result.kind is JsonMcpKind.PARSE_ERROR
 
     def test_setup_all_iterates_per_repo(self, tmp_path: Path, monkeypatch):
         """Multi-repo project: `setup all` writes `.mcp.json` once per repo."""
@@ -376,7 +377,7 @@ class TestMalformedConfigGuards:
     def test_json_top_level_array_is_skipped(self, tmp_path: Path):
         (tmp_path / ".mcp.json").write_text("[]")
         line = _configure_mcp(tmp_path, remove=False)
-        assert "not a JSON object" in line
+        assert line.kind is JsonMcpKind.NOT_JSON_OBJECT
         # Left untouched, not crashed or clobbered.
         assert (tmp_path / ".mcp.json").read_text().strip() == "[]"
 
@@ -384,20 +385,127 @@ class TestMalformedConfigGuards:
         original = '{"mcpServers": "oops"}'
         (tmp_path / ".mcp.json").write_text(original)
         line = _configure_mcp(tmp_path, remove=False)
-        assert "mcpServers" in line and "not a JSON object" in line
+        assert line.kind is JsonMcpKind.MCPSERVERS_NOT_OBJECT
         # The off-shape add path must not clobber the file.
         assert (tmp_path / ".mcp.json").read_text() == original
 
     def test_mcpservers_non_object_remove_is_noop(self, tmp_path: Path):
         (tmp_path / ".mcp.json").write_text('{"mcpServers": "oops"}')
         line = _configure_mcp(tmp_path, remove=True)
-        assert "no nauro entry to remove" in line
+        assert line.kind is JsonMcpKind.NOTHING_TO_REMOVE
+
+    def test_mcpservers_null_add_is_skipped(self, tmp_path: Path):
+        """An explicit JSON null mcpServers is a graceful shape-skip, not a crash."""
+        original = '{"mcpServers": null}'
+        (tmp_path / ".mcp.json").write_text(original)
+        line = _configure_mcp(tmp_path, remove=False)
+        assert line.kind is JsonMcpKind.MCPSERVERS_NOT_OBJECT
+        # The present-but-null container must not be mutated or clobbered.
+        assert (tmp_path / ".mcp.json").read_text() == original
+
+    def test_mcpservers_null_remove_is_noop(self, tmp_path: Path):
+        (tmp_path / ".mcp.json").write_text('{"mcpServers": null}')
+        line = _configure_mcp(tmp_path, remove=True)
+        assert line.kind is JsonMcpKind.NOTHING_TO_REMOVE
+
+    def test_recorded_mcp_commands_null_mcpservers_is_empty(self, tmp_path: Path):
+        """The status inspector treats a null mcpServers as unwired, never crashes."""
+        (tmp_path / ".mcp.json").write_text('{"mcpServers": null}')
+        assert recorded_mcp_commands(tmp_path) == []
+
+    def test_add_wires_nauro_alongside_malformed_sibling_entry(self, tmp_path: Path):
+        """A malformed sibling server (not Nauro's) must not block wiring; the
+        container is a valid object, so add wires nauro and preserves the
+        sibling byte-for-byte."""
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"other": "not-a-dict"}}))
+        line = _configure_mcp(tmp_path, remove=False)
+        assert line.kind is JsonMcpKind.WROTE
+        config = json.loads((tmp_path / ".mcp.json").read_text())
+        assert config["mcpServers"]["other"] == "not-a-dict"
+        assert "nauro" in config["mcpServers"]
+
+    def test_remove_deletes_nauro_beside_malformed_sibling_entry(self, tmp_path: Path):
+        """Remove strips nauro and leaves the malformed sibling in place — the
+        message must match the file state, never claim nauro survived."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"other": "not-a-dict", "nauro": {"command": "/x"}}})
+        )
+        line = _configure_mcp(tmp_path, remove=True)
+        assert line.kind is JsonMcpKind.REMOVED
+        config = json.loads((tmp_path / ".mcp.json").read_text())
+        assert "nauro" not in config["mcpServers"]
+        assert config["mcpServers"]["other"] == "not-a-dict"
+
+    def test_recorded_mcp_commands_counts_nauro_beside_malformed_sibling(self, tmp_path: Path):
+        """The status inspector still reports a wired repo when an unrelated
+        sibling entry is off-shape."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"other": "not-a-dict", "nauro": {"command": "/bin/nauro"}}})
+        )
+        assert recorded_mcp_commands(tmp_path) == ["/bin/nauro"]
+
+    def test_recorded_mcp_commands_malformed_nauro_entry_counts_as_wired(self, tmp_path: Path):
+        """A non-object nauro entry counts as wired with nothing to probe."""
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"nauro": "not-a-dict"}}))
+        assert recorded_mcp_commands(tmp_path) == [None]
+
+    def test_recorded_mcp_commands_reads_command_despite_malformed_args(self, tmp_path: Path):
+        """The inspector reads only the command; a malformed ``args`` on the
+        nauro entry must not suppress a usable command (status still probes it)."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps(
+                {"mcpServers": {"nauro": {"command": "/usr/local/bin/nauro", "args": "serve"}}}
+            )
+        )
+        assert recorded_mcp_commands(tmp_path) == ["/usr/local/bin/nauro"]
+
+    def test_add_overwrites_nauro_entry_with_malformed_args(self, tmp_path: Path):
+        """The add path never reads the existing entry's args, so a malformed
+        ``args`` cannot block the write; nauro's entry is overwritten with the
+        canonical command and args."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcpServers": {"nauro": {"command": "/old", "args": "serve"}}})
+        )
+        line = _configure_mcp(tmp_path, remove=False)
+        assert line.kind is JsonMcpKind.WROTE
+        config = json.loads((tmp_path / ".mcp.json").read_text())
+        assert config["mcpServers"]["nauro"]["args"] == ["serve", "--stdio"]
+
+    def test_unrelated_snake_case_mcp_servers_key_is_ignored(self, tmp_path: Path):
+        """A top-level ``mcp_servers`` (snake_case) is unrelated to the
+        camelCase ``mcpServers`` this format uses. Add ignores it, wires nauro
+        under the real key, and never mutates the user's key."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcp_servers": {"nauro": {"command": "USER"}}})
+        )
+        line = _configure_mcp(tmp_path, remove=False)
+        assert line.kind is JsonMcpKind.WROTE
+        config = json.loads((tmp_path / ".mcp.json").read_text())
+        assert config["mcp_servers"] == {"nauro": {"command": "USER"}}
+        assert "nauro" in config["mcpServers"]
+
+    def test_unrelated_snake_case_mcp_servers_key_remove_is_noop(self, tmp_path: Path):
+        """Remove must not read the snake_case key as Nauro's map (a KeyError
+        trap): with no real ``mcpServers``, there is nothing to remove."""
+        original = json.dumps({"mcp_servers": {"nauro": {"command": "USER"}}})
+        (tmp_path / ".mcp.json").write_text(original)
+        line = _configure_mcp(tmp_path, remove=True)
+        assert line.kind is JsonMcpKind.NOTHING_TO_REMOVE
+        assert (tmp_path / ".mcp.json").read_text() == original
+
+    def test_unrelated_snake_case_mcp_servers_key_reports_unwired(self, tmp_path: Path):
+        """The inspector must not report false wiring from an unrelated
+        snake_case key."""
+        (tmp_path / ".mcp.json").write_text(
+            json.dumps({"mcp_servers": {"nauro": {"command": "USER"}}})
+        )
+        assert recorded_mcp_commands(tmp_path) == []
 
     def test_codex_non_table_mcp_servers_is_skipped(self, tmp_path: Path):
         cfg = tmp_path / "config.toml"
         cfg.write_text('mcp_servers = "oops"\n')
         line = _configure_codex(remove=False, config_path=cfg)
-        assert "not a table" in line
+        assert line.kind is CodexConfigKind.MCPSERVERS_NOT_TABLE
         # Original content preserved.
         assert 'mcp_servers = "oops"' in cfg.read_text()
 
@@ -405,5 +513,5 @@ class TestMalformedConfigGuards:
         cfg = tmp_path / "config.toml"
         cfg.write_text('mcp_servers = "oops"\n')
         line = _configure_codex(remove=True, config_path=cfg)
-        assert "no nauro entry to remove" in line
+        assert line.kind is CodexConfigKind.NOTHING_TO_REMOVE
         assert 'mcp_servers = "oops"' in cfg.read_text()
