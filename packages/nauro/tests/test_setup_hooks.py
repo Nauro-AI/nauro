@@ -681,7 +681,7 @@ def test_setup_codex_remove_cleans_orphaned_repo_hooks(tmp_path: Path, monkeypat
 def test_setup_all_with_hooks_wires_claude_code_and_codex(tmp_path: Path):
     repo, _store = _make_project(tmp_path)
     lines = setup_all_surfaces([repo], with_hooks=True)
-    assert any("nauro hook" in line for line in lines)
+    assert any("nauro hook" in line.text for line in lines)
 
     settings = json.loads(_settings(repo).read_text())
     assert len(_nauro_entries(settings)) == 1
@@ -716,7 +716,7 @@ def test_setup_all_hook_failure_does_not_abort(tmp_path: Path, monkeypatch):
 
     # Must not raise; the rest of setup still produces its lines.
     lines = setup_all_surfaces([repo], with_hooks=True)
-    assert any("hook" in line and "error" in line for line in lines)
+    assert any("hook" in line.text and "error" in line.text for line in lines)
     # MCP wiring still happened despite the hook failure.
     assert (repo / ".mcp.json").is_file()
 
