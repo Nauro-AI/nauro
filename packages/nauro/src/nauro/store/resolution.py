@@ -191,6 +191,13 @@ def _disconnected(
     )
 
 
+def _store_path_hint(entry: dict, project_id: str) -> Path:
+    raw_path = entry.get("store_path")
+    if isinstance(raw_path, str) and raw_path.strip():
+        return Path(raw_path)
+    return get_store_path_v2(project_id)
+
+
 def _connection_for_config(cfg: dict) -> RepoResolution | DisconnectedProject:
     project_id = cfg["id"]
     entry = get_project_v2(project_id)
@@ -206,15 +213,15 @@ def _connection_for_config(cfg: dict) -> RepoResolution | DisconnectedProject:
         or entry.get("mode") != cfg.get("mode")
         or (cfg.get("mode") == "cloud" and entry.get("server_url") != configured_server)
     ):
-        raw_path = entry.get("store_path")
-        store_path = Path(raw_path) if raw_path else get_store_path_v2(project_id)
-        return _disconnected(cfg, "connected_binding_conflict", store_path)
+        return _disconnected(
+            cfg,
+            "connected_binding_conflict",
+            _store_path_hint(entry, project_id),
+        )
     try:
         store_path = resolve_registered_store_path_v2(project_id)
     except StoreBindingError as exc:
-        return _disconnected(
-            cfg, exc.reason_code, Path(entry.get("store_path") or get_store_path_v2(project_id))
-        )
+        return _disconnected(cfg, exc.reason_code, _store_path_hint(entry, project_id))
     return RepoResolution(store_path, project_id, cfg.get("name") or project_id)
 
 
@@ -232,9 +239,7 @@ def _connection_for_registry_entry(
     try:
         store_path = resolve_registered_store_path_v2(project_id)
     except StoreBindingError as exc:
-        return _disconnected(
-            cfg, exc.reason_code, Path(entry.get("store_path") or get_store_path_v2(project_id))
-        )
+        return _disconnected(cfg, exc.reason_code, _store_path_hint(entry, project_id))
     return RepoResolution(store_path, project_id, cfg["name"])
 
 

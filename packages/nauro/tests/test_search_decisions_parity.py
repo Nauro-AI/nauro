@@ -73,6 +73,8 @@ def empty_repo(tmp_path, monkeypatch):
     pid, store_path = register_project_v2("empty-search", [repo], mode=REPO_CONFIG_MODE_LOCAL)
     save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "empty-search"})
     store_path.mkdir(parents=True, exist_ok=True)
+    (store_path / "project.md").touch()
+    (store_path / "decisions").mkdir()
     monkeypatch.chdir(repo)
     return pid, store_path
 

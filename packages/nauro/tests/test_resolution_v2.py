@@ -61,7 +61,7 @@ def _post_migration_state(tmp_path, monkeypatch):
     cloud_pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
     repo_root = tmp_path / "cloud_repo"
     repo_root.mkdir()
-    (tmp_path / "projects" / cloud_pid).mkdir(parents=True)
+    scaffold_project_store("nauro", tmp_path / "projects" / cloud_pid)
     (tmp_path / REGISTRY_FILENAME).write_text(
         json.dumps(
             {
@@ -121,6 +121,7 @@ def test_explicit_project_flag_overrides_repo_config(tmp_path, monkeypatch):
         [tmp_path / "beta_repo"],
         mode="local",
     )
+    scaffold_project_store("beta", _store)
     (tmp_path / "beta_repo").mkdir()
     monkeypatch.chdir(repo_root)
     name, store = resolve_target_project("beta")
@@ -393,6 +394,95 @@ def test_registered_invalid_external_store_is_typed_invalid(tmp_path, monkeypatc
     assert result.reason_code == "connected_record_invalid"
     assert "Run `nauro reconnect`" in result.guidance
     assert "doctor" not in result.guidance
+
+
+def test_registered_invalid_default_store_is_typed_invalid(tmp_path, monkeypatch):
+    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    registry.get_store_path_v2(pid).mkdir(parents=True)
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {
+                pid: {
+                    "name": "Pareto",
+                    "mode": "local",
+                    "repo_paths": [str(repo)],
+                }
+            },
+        }
+    )
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, DisconnectedProject)
+    assert result.reason_code == "connected_record_invalid"
+
+
+@pytest.mark.parametrize("raw_store_path", [42, "", None])
+def test_malformed_registered_store_path_is_typed_invalid(tmp_path, monkeypatch, raw_store_path):
+    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {
+                pid: {
+                    "name": "Pareto",
+                    "mode": "local",
+                    "repo_paths": [str(repo)],
+                    "store_path": raw_store_path,
+                }
+            },
+        }
+    )
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, DisconnectedProject)
+    assert result.reason_code == "connected_record_invalid"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_default_store_preserves_symlinked_nauro_home(tmp_path, monkeypatch):
+    from nauro.store.resolution import RepoResolution, resolve_from_cwd
+
+    real_home = tmp_path / "real-home"
+    real_home.mkdir()
+    linked_home = tmp_path / "linked-home"
+    linked_home.symlink_to(real_home, target_is_directory=True)
+    monkeypatch.setenv("NAURO_HOME", str(linked_home))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    store_path = registry.get_store_path_v2(pid)
+    scaffold_project_store("Pareto", store_path)
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {
+                pid: {
+                    "name": "Pareto",
+                    "mode": "local",
+                    "repo_paths": [str(repo)],
+                }
+            },
+        }
+    )
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, RepoResolution)
+    assert result.store_path == store_path
 
 
 def test_conflicting_default_and_external_stores_is_typed_conflict(tmp_path, monkeypatch):

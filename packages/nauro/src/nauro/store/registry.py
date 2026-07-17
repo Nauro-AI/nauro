@@ -413,6 +413,21 @@ def _validate_registered_store_path(
             f"Both the registered external store and default store exist for {project_id!r}.",
         )
 
+    return _validate_store_structure(
+        project_id,
+        store_path,
+        require_store=require_store,
+        strict_store=strict_store,
+    )
+
+
+def _validate_store_structure(
+    project_id: str,
+    store_path: Path,
+    *,
+    require_store: bool,
+    strict_store: bool,
+) -> Path:
     if not store_path.exists():
         if require_store:
             raise StoreBindingError(
@@ -447,13 +462,26 @@ def resolve_registered_store_path_v2(
     entry = get_project_v2(project_id)
     if entry is None:
         raise KeyError(f"Project id {project_id!r} not found in v2 registry.")
-    raw_store_path = entry.get("store_path")
-    store_path = Path(raw_store_path) if raw_store_path else get_store_path_v2(project_id)
+
+    if "store_path" not in entry:
+        return _validate_store_structure(
+            project_id,
+            get_store_path_v2(project_id),
+            require_store=require_store,
+            strict_store=True,
+        )
+
+    raw_store_path = entry["store_path"]
+    if not isinstance(raw_store_path, str) or not raw_store_path.strip():
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Registered store path for {project_id!r} must be a nonempty string.",
+        )
     return _validate_registered_store_path(
         project_id,
-        store_path,
+        Path(raw_store_path),
         require_store=require_store,
-        strict_store=raw_store_path is not None,
+        strict_store=True,
     )
 
 
@@ -472,12 +500,20 @@ def bind_project_store_v2(
         raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
     if mode == REPO_CONFIG_MODE_CLOUD and not server_url:
         raise ValueError("Cloud-mode v2 binding requires a server_url.")
-    store_path = _validate_registered_store_path(
-        project_id,
-        store_path,
-        require_store=True,
-        strict_store=True,
-    )
+    if store_path == get_store_path_v2(project_id):
+        store_path = _validate_store_structure(
+            project_id,
+            store_path,
+            require_store=True,
+            strict_store=True,
+        )
+    else:
+        store_path = _validate_registered_store_path(
+            project_id,
+            store_path,
+            require_store=True,
+            strict_store=True,
+        )
 
     with _registry_lock():
         registry = load_registry_v2()
@@ -759,14 +795,27 @@ def rename_project_id_v2(
             raise ValueError(f"Project id {new_id!r} is already registered.")
 
         entry = dict(registry["projects"].pop(old_id))
-        raw_store_path = entry.get("store_path")
-        old_store = Path(raw_store_path) if raw_store_path else get_store_path_v2(old_id)
-        _validate_registered_store_path(
-            old_id,
-            old_store,
-            require_store=rename_store,
-            strict_store=raw_store_path is not None,
-        )
+        if "store_path" not in entry:
+            raw_store_path = None
+            old_store = _validate_store_structure(
+                old_id,
+                get_store_path_v2(old_id),
+                require_store=rename_store,
+                strict_store=True,
+            )
+        else:
+            raw_store_path = entry["store_path"]
+            if not isinstance(raw_store_path, str) or not raw_store_path.strip():
+                raise StoreBindingError(
+                    "connected_record_invalid",
+                    f"Registered store path for {old_id!r} must be a nonempty string.",
+                )
+            old_store = _validate_registered_store_path(
+                old_id,
+                Path(raw_store_path),
+                require_store=rename_store,
+                strict_store=True,
+            )
         if mode is not None:
             if mode not in _VALID_MODES_V2:
                 raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
