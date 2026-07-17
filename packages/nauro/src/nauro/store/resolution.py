@@ -31,6 +31,7 @@ from nauro.store.registry import (
     get_project_v2,
     get_store_path,
     get_store_path_v2,
+    registered_store_path_hint_v2,
     resolve_project,
     resolve_registered_store_path_v2,
     resolve_v2_from_path,
@@ -192,10 +193,7 @@ def _disconnected(
 
 
 def _store_path_hint(entry: dict, project_id: str) -> Path:
-    raw_path = entry.get("store_path")
-    if isinstance(raw_path, str) and raw_path.strip():
-        return Path(raw_path)
-    return get_store_path_v2(project_id)
+    return registered_store_path_hint_v2(project_id, entry) or get_store_path_v2(project_id)
 
 
 def _connection_for_config(cfg: dict) -> RepoResolution | DisconnectedProject:

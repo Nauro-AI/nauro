@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
+from nauro.store import registry
 from nauro.store.registry import (
     add_repo_v2,
     find_projects_by_name_v2,
@@ -97,6 +98,44 @@ def test_remove_purge_store_deletes_external_bound_store(tmp_path, monkeypatch):
     assert not external_store.exists()
     assert not default_store.exists()
     assert "deleted store" in result.output
+
+
+def test_remove_with_malformed_store_path_leaves_store_untouched(tmp_path, monkeypatch):
+    repo = _adopt_env(monkeypatch, tmp_path)
+    assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
+    pid = _pid_of(repo)
+    default_store = get_store_path_v2(pid)
+    data = registry.load_registry_v2()
+    data["projects"][pid]["store_path"] = 42
+    registry.save_registry_v2(data)
+
+    result = runner.invoke(app, ["adopt", "--remove", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "registered store path is invalid" in result.output
+    assert default_store.is_dir()
+    assert registry.get_project_v2(pid) is None
+
+
+def test_remove_purge_refuses_malformed_store_path(tmp_path, monkeypatch):
+    repo = _adopt_env(monkeypatch, tmp_path)
+    assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
+    pid = _pid_of(repo)
+    default_store = get_store_path_v2(pid)
+    data = registry.load_registry_v2()
+    data["projects"][pid]["store_path"] = 42
+    registry.save_registry_v2(data)
+
+    result = runner.invoke(
+        app,
+        ["adopt", "--remove", "--purge-store", "--yes"],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "purge-store refused" in result.output
+    assert default_store.is_dir()
+    assert registry.get_project_v2(pid) is not None
+    assert (repo / ".nauro" / "config.json").is_file()
 
 
 def test_remove_on_unadopted_repo_errors(tmp_path, monkeypatch):

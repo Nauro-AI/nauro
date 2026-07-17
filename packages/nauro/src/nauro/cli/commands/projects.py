@@ -13,13 +13,12 @@ second entry for a repo that is already claimed.
 from __future__ import annotations
 
 from collections import Counter
-from pathlib import Path
 
 import typer
 
 from nauro.store.registry import (
-    get_store_path_v2,
     load_registry_v2,
+    registered_store_path_hint_v2,
     remove_project_v2,
 )
 
@@ -88,9 +87,8 @@ def remove_project(
     """Remove a project's registry entry, leaving its on-disk store intact."""
     registry = load_registry_v2()
     entry = registry["projects"].get(project_id) or {}
-    raw_store_path = entry.get("store_path")
     try:
-        store_path = Path(raw_store_path) if raw_store_path else get_store_path_v2(project_id)
+        store_path = registered_store_path_hint_v2(project_id, entry)
     except ValueError as exc:
         # A project_id that escapes the projects root (e.g. ``..`` or an
         # absolute path) trips the containment guard; reject it cleanly
@@ -98,9 +96,14 @@ def remove_project(
         typer.echo(f"Invalid project id {project_id!r}: {exc}", err=True)
         raise typer.Exit(code=1) from None
     if not yes:
+        store_description = (
+            str(store_path)
+            if store_path is not None
+            else "the invalid path recorded in the registry"
+        )
         typer.confirm(
             f"Remove registry entry for {project_id}? "
-            f"The store at {store_path} will be left intact.",
+            f"The store at {store_description} will be left intact.",
             abort=True,
         )
     removed = remove_project_v2(project_id)
@@ -108,4 +111,7 @@ def remove_project(
         typer.echo(f"No project registered with id {project_id!r}.", err=True)
         raise typer.Exit(code=1)
     typer.echo(f"Removed registry entry for {project_id}.")
-    typer.echo(f"  Store left intact: {store_path}")
+    if store_path is None:
+        typer.echo("  Store left untouched: the registered path was invalid.")
+    else:
+        typer.echo(f"  Store left intact: {store_path}")

@@ -485,6 +485,16 @@ def resolve_registered_store_path_v2(
     )
 
 
+def registered_store_path_hint_v2(project_id: str, entry: dict) -> Path | None:
+    """Return a display-only store hint without trusting malformed registry data."""
+    if "store_path" not in entry:
+        return get_store_path_v2(project_id)
+    raw_store_path = entry["store_path"]
+    if not isinstance(raw_store_path, str) or not raw_store_path.strip():
+        return None
+    return Path(raw_store_path)
+
+
 def bind_project_store_v2(
     *,
     project_id: str,

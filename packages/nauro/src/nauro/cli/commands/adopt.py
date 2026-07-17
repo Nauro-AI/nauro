@@ -48,8 +48,8 @@ from nauro.store.registry import (
     find_projects_by_name_v2,
     get_project_v2,
     get_repo_paths,
-    get_store_path_v2,
     register_project_v2,
+    registered_store_path_hint_v2,
     remove_project_v2,
     remove_repo_v2,
     resolve_registered_store_path_v2,
@@ -272,11 +272,16 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
             store_path = resolve_registered_store_path_v2(pid)
         except StoreBindingError as exc:
             entry = get_project_v2(pid) or {}
-            raw_store_path = entry.get("store_path")
-            store_path = Path(raw_store_path) if raw_store_path else get_store_path_v2(pid)
+            store_path = registered_store_path_hint_v2(pid, entry)
             if purge_store and exc.reason_code != "connected_record_missing":
                 typer.echo(f"Error: --purge-store refused: {exc}", err=True)
                 raise typer.Exit(code=1) from exc
+            if store_path is None:
+                typer.echo(
+                    "Warning: the registered store path is invalid; any store data "
+                    "will be left untouched.",
+                    err=True,
+                )
         except (KeyError, ValueError):
             store_path = None
     is_last_repo = not other_repos
