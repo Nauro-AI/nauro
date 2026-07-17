@@ -133,6 +133,40 @@ def test_link_cloud_promotes_and_pushes_in_one_command(tmp_path, monkeypatch):
     assert cfg["id"] == CLOUD_PID
 
 
+def test_link_cloud_rekeys_external_store_binding(tmp_path, monkeypatch):
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+    result = runner.invoke(app, ["init", "linkproj"])
+    assert result.exit_code == 0, result.output
+    local_id, _entry = registry.find_projects_by_name_v2("linkproj")[0]
+    default_store = registry.get_store_path_v2(local_id)
+    external_store = tmp_path / "external" / local_id
+    external_store.parent.mkdir()
+    default_store.rename(external_store)
+    registry.bind_project_store_v2(
+        project_id=local_id,
+        name="linkproj",
+        mode="local",
+        repo_path=tmp_path,
+        store_path=external_store,
+    )
+
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=_create_response()),
+        patch.object(remote.httpx, "post", side_effect=_presign_post),
+        patch.object(remote.httpx, "put", return_value=_ok_put()),
+    ):
+        result = runner.invoke(app, ["link", "--cloud"])
+
+    assert result.exit_code == 0, result.output
+    new_store = external_store.parent / CLOUD_PID
+    assert new_store.is_dir()
+    assert not external_store.exists()
+    entry = registry.get_project_v2(CLOUD_PID)
+    assert entry["store_path"] == str(new_store)
+
+
 def test_link_cloud_push_failure_keeps_rekey(tmp_path, monkeypatch):
     """A transient push failure warns + exits 0; the promotion persists."""
     _seed_token(monkeypatch, tmp_path)

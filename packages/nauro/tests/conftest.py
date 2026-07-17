@@ -10,7 +10,7 @@ from typing import Any, NamedTuple
 import pytest
 from nauro_core.decision_model import Decision, format_decision
 
-from nauro.constants import DECISIONS_DIR, REPO_CONFIG_MODE_LOCAL
+from nauro.constants import DECISIONS_DIR, PROJECT_MD, REPO_CONFIG_MODE_LOCAL
 from nauro.mcp.tools import tool_get_context
 from nauro.store.config import save_config
 from nauro.store.registry import register_project_v2
@@ -96,9 +96,10 @@ def register_v2_repo(
     Creates ``tmp_path/"repo"``, registers a v2 project, optionally writes the
     per-repo config, seeds the store, and chdirs into the repo. ``seed`` selects
     the store body: ``"scaffold"`` runs ``scaffold_project_store``, ``"mkdir"``
-    just creates the store directory, and ``"none"`` leaves it to the caller
-    (which then writes its own content, e.g. via ``seed_decisions_into`` or a
-    demo project). ``monkeypatch`` is required only when ``chdir`` is True.
+    creates the minimal valid empty-store structure, and ``"none"`` leaves it
+    to the caller (which then writes its own content, e.g. via
+    ``seed_decisions_into`` or a demo project). ``monkeypatch`` is required
+    only when ``chdir`` is True.
 
     This body is v2-only by design: v1 ``register_project`` seeders are left
     untouched and must never be routed through here.
@@ -112,6 +113,8 @@ def register_v2_repo(
         scaffold_project_store(name, store_path)
     elif seed == "mkdir":
         store_path.mkdir(parents=True, exist_ok=True)
+        (store_path / PROJECT_MD).touch()
+        (store_path / DECISIONS_DIR).mkdir()
     if chdir:
         monkeypatch.chdir(repo)
     return V2Repo(pid, store_path, repo)
@@ -123,6 +126,8 @@ def seed_decisions_into(store_path: Path, *decisions: Decision) -> None:
     Filenames follow the ``NNN-slugified-title.md`` rule the context and search
     parity fixtures both relied on.
     """
+    store_path.mkdir(parents=True, exist_ok=True)
+    (store_path / PROJECT_MD).touch(exist_ok=True)
     decisions_dir = store_path / "decisions"
     decisions_dir.mkdir(parents=True, exist_ok=True)
     for d in decisions:

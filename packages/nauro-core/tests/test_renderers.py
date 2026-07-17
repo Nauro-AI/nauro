@@ -680,3 +680,24 @@ class TestNoProjectGuidance:
             "guidance": "No decisions recorded yet for this project.",
         }
         assert "No decisions recorded yet" in render_list_decisions(result)
+
+
+class TestDisconnectedProjectGuidance:
+    def test_renderers_prefer_exact_connection_guidance(self):
+        result = {
+            "store": "local",
+            "status": "error",
+            "error": {"kind": "error", "reason": "internal structured reason"},
+            "guidance": "Run `nauro reconnect` to restore this project.",
+            "project_id": "01KQ6AZGNA0B3QBF67NBXP3S45",
+            "project_name": "Pareto",
+            "project_mode": "local",
+            "reason_code": "connected_record_missing",
+            "recovery_actions": ["locate", "continue"],
+        }
+
+        assert render_get_context(result) == result["guidance"]
+        assert render_get_decision(result) == result["guidance"]
+        assert render_check_decision(result) == result["guidance"]
+        assert render_search_decisions(result) == result["guidance"]
+        assert render_list_decisions(result) == result["guidance"]

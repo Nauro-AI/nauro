@@ -258,7 +258,8 @@ def test_setup_claude_code_subcommand_unchanged(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))  # divert ~/.claude search
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    register_project_v2("myproj", [repo])
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
 
     result = runner.invoke(app, ["setup", "claude-code"])
@@ -551,7 +552,8 @@ def test_setup_claude_code_advertises_check_decision(tmp_path: Path, monkeypatch
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    register_project_v2("myproj", [repo])
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
 
     result = runner.invoke(app, ["setup", "claude-code"])
@@ -564,7 +566,8 @@ def test_setup_claude_code_remove_does_not_advertise_check_decision(tmp_path: Pa
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    register_project_v2("myproj", [repo])
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
 
     result = runner.invoke(app, ["setup", "claude-code", "--remove"])
@@ -1050,7 +1053,8 @@ def test_setup_claude_code_still_prints_restart_line(tmp_path: Path, monkeypatch
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    register_project_v2("myproj", [repo])
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
 
     result = runner.invoke(app, ["setup", "claude-code"])

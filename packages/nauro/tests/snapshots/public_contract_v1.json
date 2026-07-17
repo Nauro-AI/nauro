@@ -1037,6 +1037,11 @@
         "params": []
       },
       {
+        "kind": "command",
+        "name": "reconnect",
+        "params": []
+      },
+      {
         "hidden": true,
         "kind": "command",
         "name": "render-plugin",

@@ -241,6 +241,30 @@ class TestWelcomeDisambiguation:
         assert result["status"] == "error"
         assert "Welcome to Nauro" in result["guidance"]
 
+    def test_disconnected_project_returns_structured_recovery_envelope(self, tmp_path, monkeypatch):
+        from nauro.store.repo_config import save_repo_config
+
+        repo = tmp_path / "disconnected"
+        repo.mkdir()
+        pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+        save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+        result = get_raw_file(path="project.md", cwd=str(repo))
+
+        assert result["status"] == "error"
+        assert result["error"]["kind"] == "error"
+        assert result["error"]["reason"] == result["guidance"]
+        assert result["project_id"] == pid
+        assert result["project_name"] == "Pareto"
+        assert result["project_mode"] == "local"
+        assert result["reason_code"] == "not_connected_on_this_machine"
+        assert result["recovery_actions"] == ["locate", "continue"]
+        assert "Welcome to Nauro" not in result["guidance"]
+
+        write_result = update_state(delta="anything", cwd=str(repo))
+        assert isinstance(write_result, dict)
+        assert write_result["reason_code"] == "not_connected_on_this_machine"
+
 
 class TestCheckDecision:
     def test_check_no_conflicts(self, store: Path):

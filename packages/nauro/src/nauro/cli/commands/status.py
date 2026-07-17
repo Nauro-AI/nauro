@@ -15,7 +15,7 @@ from nauro.cli._codex_hooks import (
     _parse_codex_hooks,
 )
 from nauro.cli.integrations import codex_config, json_mcp
-from nauro.cli.utils import resolve_target_project
+from nauro.cli.utils import DisconnectedProjectExit, resolve_target_project
 
 
 def _is_windows() -> bool:
@@ -336,7 +336,8 @@ def status(
     try:
         project_name, store_path = resolve_target_project(project)
     except typer.Exit as exc:
-        typer.echo("No project found. Run 'nauro init <name>' to get started.", err=True)
+        if not isinstance(exc, DisconnectedProjectExit):
+            typer.echo("No project found. Run 'nauro init <name>' to get started.", err=True)
         raise typer.Exit(exc.exit_code) from exc
 
     typer.echo(f"Project: {project_name}")

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -14,13 +16,19 @@ from nauro.constants import (
 )
 from nauro.store import registry
 from nauro.store.registry import (
+    RegistryEntryV2,
     RegistrySchemaError,
+    StoreBindingError,
+    bind_project_store_v2,
     is_cloud_project,
     load_registry_v2,
     register_project,
     register_project_v2,
+    resolve_registered_store_path_v2,
     save_registry_v2,
+    validate_registry_entry_v2,
 )
+from nauro.templates.scaffolds import scaffold_project_store
 
 
 def test_load_v2_empty_when_missing(tmp_path, monkeypatch):
@@ -50,6 +58,233 @@ def test_v2_round_trip(tmp_path, monkeypatch):
     save_registry_v2(data)
     loaded = load_registry_v2()
     assert loaded == data
+
+
+def test_v2_round_trip_preserves_optional_external_store_path(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    store_path = tmp_path / "external" / pid
+    data = {
+        "projects": {
+            pid: {
+                "name": "nauro",
+                "mode": "local",
+                "repo_paths": [str(tmp_path / "repo")],
+                "store_path": str(store_path),
+            }
+        },
+        "schema_version": REGISTRY_SCHEMA_VERSION_V2,
+    }
+
+    save_registry_v2(data)
+
+    assert load_registry_v2() == data
+
+
+def test_registry_entry_boundary_normalizes_lists_without_changing_json_shape():
+    raw = {
+        "name": "nauro",
+        "mode": "local",
+        "repo_paths": ["/work/nauro"],
+        "future_field": {"enabled": True},
+    }
+
+    entry = validate_registry_entry_v2("01KQ6AZGNA0B3QBF67NBXP3S45", raw)
+
+    assert isinstance(entry, RegistryEntryV2)
+    assert entry.repo_paths == ("/work/nauro",)
+    assert entry.model_dump(mode="json", exclude_unset=True) == raw
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("mode", "remote"),
+        ("repo_paths", [42]),
+        ("store_path", 42),
+    ],
+)
+def test_registry_entry_boundary_rejects_malformed_typed_fields(field, value):
+    raw = {
+        "name": "nauro",
+        "mode": "local",
+        "repo_paths": ["/work/nauro"],
+        field: value,
+    }
+
+    with pytest.raises(StoreBindingError) as exc:
+        validate_registry_entry_v2("01KQ6AZGNA0B3QBF67NBXP3S45", raw)
+
+    assert exc.value.reason_code == "connected_record_invalid"
+
+
+def test_bind_external_store_records_validated_absolute_path(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = tmp_path / "external" / pid
+    scaffold_project_store("nauro", store_path)
+
+    bound = bind_project_store_v2(
+        project_id=pid,
+        name="nauro",
+        mode="local",
+        repo_path=repo,
+        store_path=store_path,
+    )
+
+    assert bound == store_path
+    entry = load_registry_v2()["projects"][pid]
+    assert entry["store_path"] == str(store_path)
+    assert entry["repo_paths"] == [str(repo.resolve())]
+    assert resolve_registered_store_path_v2(pid) == store_path
+
+
+def test_bind_default_store_omits_optional_store_path(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = registry.get_store_path_v2(pid)
+    scaffold_project_store("nauro", store_path)
+
+    bind_project_store_v2(
+        project_id=pid,
+        name="nauro",
+        mode="local",
+        repo_path=repo,
+        store_path=store_path,
+    )
+
+    assert "store_path" not in load_registry_v2()["projects"][pid]
+
+
+def test_bind_update_name_reconciles_rename(tmp_path, monkeypatch):
+    """A caller holding the authoritative current name (cloud membership)
+    reconciles a rename into the registry instead of conflicting."""
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = registry.get_store_path_v2(pid)
+    scaffold_project_store("old-name", store_path)
+    bind_project_store_v2(
+        project_id=pid, name="old-name", mode="local", repo_path=repo, store_path=store_path
+    )
+
+    bind_project_store_v2(
+        project_id=pid,
+        name="new-name",
+        mode="local",
+        repo_path=repo,
+        store_path=store_path,
+        update_name=True,
+    )
+
+    assert load_registry_v2()["projects"][pid]["name"] == "new-name"
+
+
+def test_bind_without_update_name_conflicts_on_rename(tmp_path, monkeypatch):
+    """A name that only comes from repository config never overwrites
+    registry identity — the mismatch stays a typed binding conflict."""
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = registry.get_store_path_v2(pid)
+    scaffold_project_store("old-name", store_path)
+    bind_project_store_v2(
+        project_id=pid, name="old-name", mode="local", repo_path=repo, store_path=store_path
+    )
+
+    with pytest.raises(StoreBindingError) as excinfo:
+        bind_project_store_v2(
+            project_id=pid,
+            name="new-name",
+            mode="local",
+            repo_path=repo,
+            store_path=store_path,
+        )
+    assert excinfo.value.reason_code == "connected_binding_conflict"
+    assert load_registry_v2()["projects"][pid]["name"] == "old-name"
+
+
+def test_bind_default_store_tolerates_incomplete_structure(tmp_path, monkeypatch):
+    """Binding the Nauro-managed default path requires existence, not full
+    structure, so first connection to an empty cloud record can bind the
+    empty mirror directory that sync will populate. External paths keep the
+    strict rule (covered by the external-store tests)."""
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = registry.get_store_path_v2(pid)
+    store_path.mkdir(parents=True)
+
+    bound = bind_project_store_v2(
+        project_id=pid, name="nauro", mode="local", repo_path=repo, store_path=store_path
+    )
+
+    assert bound == store_path
+    assert load_registry_v2()["projects"][pid]["name"] == "nauro"
+
+
+def test_bind_external_store_refuses_conflicting_default_store(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    scaffold_project_store("default", registry.get_store_path_v2(pid))
+    external = tmp_path / "external" / pid
+    scaffold_project_store("external", external)
+
+    with pytest.raises(StoreBindingError) as exc:
+        bind_project_store_v2(
+            project_id=pid,
+            name="nauro",
+            mode="local",
+            repo_path=repo,
+            store_path=external,
+        )
+
+    assert exc.value.reason_code == "connected_binding_conflict"
+    assert load_registry_v2()["projects"] == {}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_bind_external_store_refuses_symlink_component(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    real_parent = tmp_path / "real"
+    store_path = real_parent / pid
+    scaffold_project_store("nauro", store_path)
+    linked_parent = tmp_path / "linked"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+
+    with pytest.raises(StoreBindingError) as exc:
+        bind_project_store_v2(
+            project_id=pid,
+            name="nauro",
+            mode="local",
+            repo_path=repo,
+            store_path=Path(linked_parent / pid),
+        )
+
+    assert exc.value.reason_code == "connected_record_invalid"
+
+
+def test_bind_external_store_refuses_wrong_identity_basename(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = tmp_path / "external" / "different-id"
+    scaffold_project_store("nauro", store_path)
+
+    with pytest.raises(StoreBindingError) as exc:
+        bind_project_store_v2(
+            project_id=pid,
+            name="nauro",
+            mode="local",
+            repo_path=repo,
+            store_path=store_path,
+        )
+
+    assert exc.value.reason_code == "connected_record_invalid"
 
 
 def test_v2_save_stamps_schema_version(tmp_path, monkeypatch):

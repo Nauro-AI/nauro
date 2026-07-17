@@ -20,15 +20,24 @@ and surface specific diagnostics for the other failure modes.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
+from nauro.onboarding import disconnected_project_guidance
 from nauro.store.registry import (
+    RegistryEntryV2,
+    StoreBindingError,
     find_projects_by_name_v2,
+    get_project_entry_v2,
+    get_project_v2,
     get_store_path,
     get_store_path_v2,
+    registered_store_path_hint_v2,
     resolve_project,
+    resolve_registered_store_path_v2,
     resolve_v2_from_path,
+    validate_registry_entry_v2,
 )
 from nauro.store.repo_config import (
     RepoConfigSchemaError,
@@ -71,6 +80,14 @@ class StoreMissingError(StoreResolutionError):
     """
 
 
+class DisconnectedProjectError(StoreResolutionError):
+    """A repository identifies a project whose record is unavailable."""
+
+    def __init__(self, state: DisconnectedProject) -> None:
+        super().__init__(state.guidance)
+        self.state = state
+
+
 class ProjectIdMismatchError(StoreResolutionError):
     """Caller's ``project_id`` does not match the cwd config id. Surface
     the mismatch so the caller can decide whether the cwd or the handle
@@ -99,10 +116,32 @@ class RepoResolution(NamedTuple):
     display_name: str
 
 
+DisconnectedReason = Literal[
+    "not_connected_on_this_machine",
+    "connected_record_missing",
+    "connected_record_invalid",
+    "connected_binding_conflict",
+]
+RecoveryAction = Literal["locate", "restore", "continue"]
+
+
+@dataclass(frozen=True)
+class DisconnectedProject:
+    """Typed negative result for a repository with valid project identity."""
+
+    store_path: Path
+    project_id: str
+    display_name: str
+    mode: str
+    reason_code: DisconnectedReason
+    recovery_actions: tuple[RecoveryAction, ...]
+    guidance: str
+
+
 def _resolve_repo_config_from_cwd(start: Path | None) -> tuple[dict, Path] | None:
     """Walk up from ``start`` for ``.nauro/config.json`` and load it.
 
-    Returns ``(config, store_path)`` or ``None`` when no config is found or the
+    Returns ``(config, repo_root)`` or ``None`` when no config is found or the
     config is unreadable. Both ``RepoConfigSchemaError`` (schema mismatch, or a
     corrupt-JSON error the reader remaps to it) and ``OSError`` (an unreadable
     file) degrade to ``None`` so a resolution failure surfaces the no-project
@@ -124,7 +163,116 @@ def _resolve_repo_config_from_cwd(start: Path | None) -> tuple[dict, Path] | Non
         cfg = load_repo_config(repo_root)
     except (RepoConfigSchemaError, OSError):
         return None
-    return cfg, get_store_path_v2(cfg["id"])
+    return cfg, repo_root
+
+
+def _recovery_actions(
+    mode: str,
+    reason_code: DisconnectedReason,
+) -> tuple[RecoveryAction, ...]:
+    if mode == "cloud" and reason_code in {
+        "not_connected_on_this_machine",
+        "connected_record_missing",
+    }:
+        return ("locate", "restore", "continue")
+    return ("locate", "continue")
+
+
+def _disconnected(
+    cfg: dict,
+    reason_code: DisconnectedReason,
+    store_path: Path,
+) -> DisconnectedProject:
+    mode = cfg["mode"]
+    return DisconnectedProject(
+        store_path=store_path,
+        project_id=cfg["id"],
+        display_name=cfg.get("name") or cfg["id"],
+        mode=mode,
+        reason_code=reason_code,
+        recovery_actions=_recovery_actions(mode, reason_code),
+        guidance=disconnected_project_guidance(reason_code, mode),
+    )
+
+
+def _store_path_hint(entry: RegistryEntryV2, project_id: str) -> Path:
+    return registered_store_path_hint_v2(project_id, entry) or get_store_path_v2(project_id)
+
+
+def _resolve_validated_entry(
+    cfg: dict,
+    project_id: str,
+    entry: RegistryEntryV2,
+) -> RepoResolution | DisconnectedProject:
+    """Shared tail of both connection classifiers: resolve or map to disconnected."""
+    try:
+        store_path = resolve_registered_store_path_v2(project_id, registry_entry=entry)
+    except StoreBindingError as exc:
+        return _disconnected(cfg, exc.reason_code, _store_path_hint(entry, project_id))
+    return RepoResolution(store_path, project_id, cfg.get("name") or project_id)
+
+
+def _connection_for_config(cfg: dict) -> RepoResolution | DisconnectedProject:
+    project_id = cfg["id"]
+    try:
+        entry = get_project_entry_v2(project_id)
+    except StoreBindingError:
+        return _disconnected(
+            cfg,
+            "connected_record_invalid",
+            get_store_path_v2(project_id),
+        )
+    if entry is None:
+        return _disconnected(
+            cfg,
+            "not_connected_on_this_machine",
+            get_store_path_v2(project_id),
+        )
+    configured_server = cfg.get("server_url")
+    if (
+        entry.name != cfg.get("name")
+        or entry.mode != cfg.get("mode")
+        or (cfg.get("mode") == "cloud" and entry.server_url != configured_server)
+    ):
+        return _disconnected(
+            cfg,
+            "connected_binding_conflict",
+            _store_path_hint(entry, project_id),
+        )
+    return _resolve_validated_entry(cfg, project_id, entry)
+
+
+def _connection_for_registry_entry(
+    project_id: str,
+    raw_entry: object,
+) -> RepoResolution | DisconnectedProject:
+    try:
+        entry = validate_registry_entry_v2(project_id, raw_entry)
+    except StoreBindingError:
+        cfg = {"id": project_id, "name": project_id, "mode": "local"}
+        return _disconnected(
+            cfg,
+            "connected_record_invalid",
+            get_store_path_v2(project_id),
+        )
+    cfg = {
+        "id": project_id,
+        "name": entry.name,
+        "mode": entry.mode,
+    }
+    if entry.server_url:
+        cfg["server_url"] = entry.server_url
+    return _resolve_validated_entry(cfg, project_id, entry)
+
+
+def resolve_registered_project(
+    project_id: str,
+) -> RepoResolution | DisconnectedProject | None:
+    """Resolve one v2 registry entry through the shared connection boundary."""
+    entry = get_project_v2(project_id)
+    if entry is None:
+        return None
+    return _connection_for_registry_entry(project_id, entry)
 
 
 def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
@@ -136,11 +284,12 @@ def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
     resolved = _resolve_repo_config_from_cwd(start)
     if resolved is None:
         return None
-    cfg, store_path = resolved
-    return cfg["id"], store_path
+    cfg, _repo_root = resolved
+    connection = _connection_for_config(cfg)
+    return cfg["id"], connection.store_path
 
 
-def resolve_from_cwd(cwd: str | Path | None) -> RepoResolution | None:
+def resolve_from_cwd(cwd: str | Path | None) -> RepoResolution | DisconnectedProject | None:
     """Resolve a cwd to a project store via the canonical waterfall.
 
     Applies the three cwd-based tiers in order and returns the first match:
@@ -149,28 +298,39 @@ def resolve_from_cwd(cwd: str | Path | None) -> RepoResolution | None:
       2. v2 registry matched by repo path.
       3. v1 ``resolve_project`` (legacy, name-keyed).
 
-    Returns a :class:`RepoResolution`, or ``None`` when no tier matches. Does
-    NOT check that ``store_path`` exists — each caller decides how to treat a
-    resolved-but-missing store.
+    Returns a :class:`RepoResolution`, or ``None`` when no tier matches. The
+    v2 tiers surface missing or invalid stores as typed
+    :class:`DisconnectedProject` states; the v1 tier has no typed states, so
+    a v1 name whose store directory is gone falls through to ``None`` (the
+    no-project outcome) rather than resolving to a path that read tools would
+    treat as empty and write tools would silently recreate.
     """
     start = Path(cwd) if cwd else Path.cwd()
 
     resolved = _resolve_repo_config_from_cwd(start)
     if resolved is not None:
-        cfg, store_path = resolved
-        pid = cfg["id"]
-        return RepoResolution(store_path, pid, cfg.get("name") or pid)
+        cfg, _repo_root = resolved
+        return _connection_for_config(cfg)
 
     v2_match = resolve_v2_from_path(start)
     if v2_match is not None:
         pid, entry = v2_match
-        return RepoResolution(get_store_path_v2(pid), pid, entry.get("name", pid))
+        return _connection_for_registry_entry(pid, entry)
 
     name = resolve_project(start)
     if name:
-        return RepoResolution(get_store_path(name), name, name)
+        store_path = get_store_path(name)
+        if store_path.exists():
+            return RepoResolution(store_path, name, name)
 
     return None
+
+
+def _store_path_or_raise(connection: RepoResolution | DisconnectedProject) -> Path:
+    """Unwrap a connection result, raising the typed error for disconnected states."""
+    if isinstance(connection, DisconnectedProject):
+        raise DisconnectedProjectError(connection)
+    return connection.store_path
 
 
 def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
@@ -182,46 +342,28 @@ def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
     catch the base class (or :class:`ValueError`) and ignore the subtype.
     """
     cwd_path = Path(cwd) if cwd else Path.cwd()
-    via_config = resolve_via_repo_config(cwd_path)
+    config_resolution = _resolve_repo_config_from_cwd(cwd_path)
 
-    if project_id and via_config is not None:
-        config_id, store_path = via_config
-        if project_id != config_id:
+    if config_resolution is not None:
+        cfg, _repo_root = config_resolution
+        config_id = cfg["id"]
+        if project_id and project_id != config_id:
             matches = find_projects_by_name_v2(project_id)
             if not any(pid == config_id for pid, _ in matches):
                 raise ProjectIdMismatchError(
                     f"Supplied project_id {project_id!r} does not match the "
                     f"repo config id {config_id!r} in {cwd_path}."
                 )
-        if not store_path.exists():
-            raise StoreMissingError(
-                f"Project store not found for id {config_id!r}. "
-                "The cwd .nauro/config.json resolves but the store is "
-                "missing from NAURO_HOME - was the home changed since init?"
-            )
-        return store_path
-
-    if via_config is not None:
-        _pid, store_path = via_config
-        if not store_path.exists():
-            raise StoreMissingError(
-                f"Project store not found at {store_path}. The cwd "
-                ".nauro/config.json resolves but the store is missing "
-                "from NAURO_HOME - was the home changed since init?"
-            )
-        return store_path
+        return _store_path_or_raise(_connection_for_config(cfg))
 
     if project_id:
+        connection = resolve_registered_project(project_id)
+        if connection is not None:
+            return _store_path_or_raise(connection)
         matches = find_projects_by_name_v2(project_id)
         if len(matches) == 1:
-            pid, _entry = matches[0]
-            store_path = get_store_path_v2(pid)
-            if not store_path.exists():
-                raise StoreMissingError(
-                    f"Project store not found for {project_id!r} (id {pid!r}). "
-                    "The registry resolves but the store is missing from NAURO_HOME."
-                )
-            return store_path
+            pid, entry = matches[0]
+            return _store_path_or_raise(_connection_for_registry_entry(pid, entry))
         if len(matches) > 1:
             raise MultipleProjectsError(
                 f"Multiple v2 projects named {project_id!r}; pass an "
@@ -238,17 +380,9 @@ def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
         return store_path
 
     if cwd:
-        name = resolve_project(cwd_path)
-        if name:
-            store_path = get_store_path(name)
-            if store_path.exists():
-                return store_path
-        v2_match = resolve_v2_from_path(cwd_path)
-        if v2_match is not None:
-            pid, _entry = v2_match
-            store_path = get_store_path_v2(pid)
-            if store_path.exists():
-                return store_path
+        cwd_connection = resolve_from_cwd(cwd_path)
+        if cwd_connection is not None:
+            return _store_path_or_raise(cwd_connection)
 
     raise NoProjectError(
         "No Nauro project found. Run 'nauro init <name>' in the current "
@@ -258,6 +392,9 @@ def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
 
 
 __all__ = [
+    "DisconnectedProject",
+    "DisconnectedProjectError",
+    "DisconnectedReason",
     "MultipleProjectsError",
     "NoProjectError",
     "ProjectIdMismatchError",
@@ -266,6 +403,7 @@ __all__ = [
     "StoreMissingError",
     "StoreResolutionError",
     "resolve_from_cwd",
+    "resolve_registered_project",
     "resolve_store",
     "resolve_via_repo_config",
 ]
