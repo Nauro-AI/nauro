@@ -1,14 +1,13 @@
 """Serialization guarantees for config.json read-modify-write.
 
-config.json holds the auth token and the telemetry identity. Concurrent
-token refresh racing a manual auth/logout, or the single-threaded
-logout -> telemetry-rotation path, could previously lose a write. These
-tests pin the contract of ``config_transaction``: it holds an exclusive
-file lock, reloads fresh inside the lock, and persists only on clean exit.
-All assertions are deterministic — no sleep-racing.
+These tests pin the contract of ``config_transaction``: it holds an exclusive
+file lock, reloads fresh inside the lock, preserves unrelated and legacy data,
+and persists only on clean exit. All assertions are deterministic.
 """
 
 from __future__ import annotations
+
+import json
 
 import pytest
 from filelock import FileLock, Timeout
@@ -18,6 +17,7 @@ from nauro.store.config import (
     config_transaction,
     load_config,
     save_config,
+    set_config,
 )
 
 
@@ -52,44 +52,55 @@ def test_sequential_transactions_each_reload_fresh(tmp_path):
         data["auth"] = {"access_token": "tok"}
 
     with config_transaction() as data:
-        section = data.get("telemetry") or {}
-        section["enabled"] = True
-        data["telemetry"] = section
+        data["search.embeddings"] = True
 
     final = load_config()
     assert final["auth"] == {"access_token": "tok"}
-    assert final["telemetry"]["enabled"] is True
+    assert final["search.embeddings"] is True
 
 
-def test_logout_sequence_preserves_rotation_and_removes_auth(tmp_path):
-    """Regression pin for the logout clobber.
-
-    logout runs two sequential standalone transactions: rotate
-    ``telemetry.anonymous_id`` first, then remove ``auth``. Because each reloads
-    fresh inside the lock, the auth-removal transaction does not re-persist a
-    pre-rotation snapshot — the rotated id survives and auth is gone.
-    """
+def test_auth_removal_preserves_legacy_telemetry_section(tmp_path):
+    legacy_telemetry = {
+        "anonymous_id": "legacy-id",
+        "enabled": True,
+        "unknown": {"preserve": [1, "two", None]},
+    }
     save_config(
         {
             "auth": {"access_token": "tok"},
-            "telemetry": {"anonymous_id": "old-id", "enabled": True},
+            "telemetry": legacy_telemetry,
         }
     )
 
-    # Transaction 1: rotate the anonymous_id.
-    with config_transaction() as data:
-        section = data.get("telemetry") or {}
-        section["anonymous_id"] = "new-id"
-        data["telemetry"] = section
-
-    # Transaction 2: remove auth (reloads fresh, so it sees the rotated id).
     with config_transaction() as data:
         data.pop("auth", None)
 
     final = load_config()
-    assert "auth" not in final, "auth survived the removal transaction"
-    assert final["telemetry"]["anonymous_id"] == "new-id", "rotated id was clobbered"
-    assert final["telemetry"]["enabled"] is True
+    assert "auth" not in final
+    assert final["telemetry"] == legacy_telemetry
+
+
+def test_ordinary_config_write_preserves_serialized_legacy_telemetry_data(tmp_path):
+    legacy_telemetry = {
+        "anonymous_id": "legacy-id",
+        "enabled": True,
+        "unknown": {"preserve": [1, "two", None]},
+    }
+    before = json.dumps(
+        legacy_telemetry,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    save_config({"telemetry": legacy_telemetry})
+
+    set_config("search.embeddings", "true")
+
+    after = json.dumps(
+        load_config()["telemetry"],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    assert after == before
 
 
 def test_second_acquirer_blocks_until_release(tmp_path):

@@ -21,6 +21,10 @@ from nauro.store.config import load_config, save_config
 runner = CliRunner()
 
 
+def _json_bytes(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
 def _make_jwt(payload: dict) -> str:
     """Build a fake JWT (header.payload.signature) with the given payload."""
     header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=").decode()
@@ -112,6 +116,13 @@ def test_callback_page_escapes_reflected_message():
 class TestAuthLogin:
     def test_login_success(self, tmp_path, monkeypatch):
         monkeypatch.setenv("NAURO_API_URL", "https://test.api.example.com")
+        legacy_telemetry = {
+            "anonymous_id": "legacy-id",
+            "enabled": True,
+            "future_field": {"nested": [1, "two", None]},
+        }
+        legacy_telemetry_bytes = _json_bytes(legacy_telemetry)
+        save_config({"telemetry": legacy_telemetry})
 
         fake_token = _make_jwt({"sub": "auth0|user123"})
 
@@ -167,6 +178,7 @@ class TestAuthLogin:
         assert config["auth"]["sanitized_sub"] == "auth0-user123"
         assert config["auth"]["access_token"] == fake_token
         assert config["auth"]["refresh_token"] == "refresh_xyz"
+        assert _json_bytes(config["telemetry"]) == legacy_telemetry_bytes
 
     def test_login_callback_error(self, tmp_path, monkeypatch):
 
@@ -474,9 +486,16 @@ class TestAuthStatus:
 
 class TestAuthLogout:
     def test_logout(self, tmp_path, monkeypatch):
+        legacy_telemetry = {
+            "anonymous_id": "legacy-id",
+            "enabled": True,
+            "future_field": {"nested": [1, "two", None]},
+        }
+        legacy_telemetry_bytes = _json_bytes(legacy_telemetry)
         save_config(
             {
                 "api_key": "sk-keep-this",
+                "telemetry": legacy_telemetry,
                 "auth": {
                     "sub": "auth0|abc123",
                     "sanitized_sub": "auth0-abc123",
@@ -492,6 +511,7 @@ class TestAuthLogout:
         config = load_config()
         assert "auth" not in config
         assert config["api_key"] == "sk-keep-this"
+        assert _json_bytes(config["telemetry"]) == legacy_telemetry_bytes
 
     def test_logout_not_authenticated(self, tmp_path, monkeypatch):
         result = runner.invoke(app, ["auth", "logout"])

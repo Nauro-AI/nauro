@@ -4,9 +4,7 @@ Covers:
 - The demo prompt retrieves the canonical integer-cents decision.
 - The auto-gen command emits a parseable JSON envelope on stdout.
 - Project-resolution and rejection error paths exit non-zero with guidance.
-- The CLI surface routes through the ``@mcp_tool`` adapter — both
-  ``cli.command_invoked`` and ``mcp.tool_called`` (with ``transport=cli``)
-  fire on a single invocation.
+- The CLI surface routes through the same adapter as local MCP.
 """
 
 from __future__ import annotations
@@ -21,7 +19,6 @@ from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.demo import create_demo_project
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
-from tests.conftest import seed_consented_config
 
 runner = CliRunner()
 
@@ -97,42 +94,3 @@ def test_rejected_status_exits_nonzero(demo_repo):
     # Rejection envelope: structured error block.
     assert payload["error"]["kind"] == "rejected"
     assert "reason" in payload["error"]
-
-
-# --- telemetry: both cli.command_invoked and mcp.tool_called fire -----------
-
-
-@pytest.fixture
-def telemetry_enabled(tmp_path, monkeypatch):
-    """Seed NAURO_HOME with a consented config so capture() actually fires."""
-    monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-    return seed_consented_config(tmp_path, enabled=True)
-
-
-def test_cli_check_emits_mcp_tool_called_with_cli_transport(
-    tmp_path, monkeypatch, telemetry_enabled, fake_posthog
-):
-    """The auto-gen CLI surface routes through the ``@mcp_tool`` adapter,
-    so ``mcp.tool_called`` fires with ``transport=cli`` alongside the
-    auto-instrumented ``cli.command_invoked`` event.
-    """
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    pid, store_path = register_project_v2("telem-project", [repo], mode=REPO_CONFIG_MODE_LOCAL)
-    save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "telem-project"})
-    create_demo_project(store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["check-decision", DEMO_PROMPT])
-    assert result.exit_code == 0, result.output
-
-    event_names = [e["event"] for e in fake_posthog.events]
-    assert "cli.command_invoked" in event_names
-    assert "mcp.tool_called" in event_names
-
-    cli_event = next(e for e in fake_posthog.events if e["event"] == "cli.command_invoked")
-    assert cli_event["properties"]["command"] == "check-decision"
-
-    mcp_event = next(e for e in fake_posthog.events if e["event"] == "mcp.tool_called")
-    assert mcp_event["properties"]["tool_name"] == "check_decision"
-    assert mcp_event["properties"]["transport"] == "cli"

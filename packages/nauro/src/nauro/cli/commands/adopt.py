@@ -40,21 +40,22 @@ from nauro.cli.integrations.render import render
 from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
-from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
+from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
 from nauro.store.registry import (
     RegistrySchemaError,
+    StoreBindingError,
     find_projects_by_name_v2,
+    get_project_v2,
     get_repo_paths,
-    get_store_path_v2,
     register_project_v2,
+    registered_store_path_hint_v2,
     remove_project_v2,
     remove_repo_v2,
+    resolve_registered_store_path_v2,
 )
 from nauro.store.repo_config import RepoConfigSchemaError, load_repo_config, save_repo_config
 from nauro.store.write_safety import SymlinkRefusal, find_symlink
-from nauro.telemetry import capture
-from nauro.telemetry.events import project_created
 from nauro.templates.scaffolds import scaffold_project_store
 
 
@@ -268,8 +269,20 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
     if pid:
         other_repos = [p for p in get_repo_paths(pid) if str(Path(p).resolve()) != repo_resolved]
         try:
-            store_path = get_store_path_v2(pid)
-        except ValueError:
+            store_path = resolve_registered_store_path_v2(pid)
+        except StoreBindingError as exc:
+            entry = get_project_v2(pid) or {}
+            store_path = registered_store_path_hint_v2(pid, entry)
+            if purge_store and exc.reason_code != "connected_record_missing":
+                typer.echo(f"Error: --purge-store refused: {exc}", err=True)
+                raise typer.Exit(code=1) from exc
+            if store_path is None:
+                typer.echo(
+                    "Warning: the registered store path is invalid; any store data "
+                    "will be left untouched.",
+                    err=True,
+                )
+        except (KeyError, ValueError):
             store_path = None
     is_last_repo = not other_repos
 
@@ -461,7 +474,7 @@ def adopt(
     # Refused before the git and already-adopted checks: from the home
     # directory the global config would otherwise read as an existing
     # adoption, and the recovery hint there ("remove .nauro/config.json")
-    # would point at the user's auth and telemetry settings.
+    # would point at the user's credentials and other user-level settings.
     refuse_global_config_collision(repo_root)
 
     # ── teardown path ──────────────────────────────────────────────────────
@@ -552,8 +565,6 @@ def adopt(
         # pre-check swallows it and returns empty, so it only fires here).
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from None
-
-    capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
 
     save_repo_config(
         repo_root,

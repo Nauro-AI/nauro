@@ -1,5 +1,9 @@
 """Tests for the Nauro MCP stdio server tools."""
 
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Literal, get_args, get_origin, get_type_hints
 from unittest.mock import patch
@@ -237,6 +241,30 @@ class TestWelcomeDisambiguation:
         assert result["status"] == "error"
         assert "Welcome to Nauro" in result["guidance"]
 
+    def test_disconnected_project_returns_structured_recovery_envelope(self, tmp_path, monkeypatch):
+        from nauro.store.repo_config import save_repo_config
+
+        repo = tmp_path / "disconnected"
+        repo.mkdir()
+        pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+        save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+        result = get_raw_file(path="project.md", cwd=str(repo))
+
+        assert result["status"] == "error"
+        assert result["error"]["kind"] == "error"
+        assert result["error"]["reason"] == result["guidance"]
+        assert result["project_id"] == pid
+        assert result["project_name"] == "Pareto"
+        assert result["project_mode"] == "local"
+        assert result["reason_code"] == "not_connected_on_this_machine"
+        assert result["recovery_actions"] == ["locate", "continue"]
+        assert "Welcome to Nauro" not in result["guidance"]
+
+        write_result = update_state(delta="anything", cwd=str(repo))
+        assert isinstance(write_result, dict)
+        assert write_result["reason_code"] == "not_connected_on_this_machine"
+
 
 class TestCheckDecision:
     def test_check_no_conflicts(self, store: Path):
@@ -349,6 +377,65 @@ class TestServerInfo:
         assert mcp._mcp_server.version == __version__
         opts = mcp._mcp_server.create_initialization_options()
         assert opts.server_version == __version__
+
+
+def test_stdio_handshake_and_tool_call_emit_no_product_analytics_output(tmp_path):
+    nauro_home = tmp_path / "home"
+    nauro_home.mkdir()
+    (nauro_home / "config.json").write_text(
+        json.dumps(
+            {
+                "telemetry": {
+                    "anonymous_id": "legacy-id",
+                    "enabled": True,
+                    "consent_version": 1,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    messages = [
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "pytest", "version": "1"},
+            },
+        },
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "get_context", "arguments": {}},
+        },
+    ]
+    env = os.environ.copy()
+    env["NAURO_HOME"] = str(nauro_home)
+    payload = "".join(json.dumps(message) + "\n" for message in messages)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from nauro.mcp.stdio_server import run_stdio; run_stdio()",
+        ],
+        cwd=tmp_path,
+        env=env,
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
+    responses = [json.loads(line) for line in result.stdout.splitlines()]
+    assert [response["id"] for response in responses] == [1, 2]
+    assert "posthog" not in result.stderr.lower()
+    assert "us.i.posthog.com" not in result.stderr.lower()
 
 
 class TestToolSpecDescriptionsReachAgent:

@@ -1,22 +1,16 @@
 """nauro sync — Capture a snapshot and regenerate AGENTS.md in associated repos."""
 
-import contextlib
 import logging
-import time
 from pathlib import Path
 
 import typer
 
 from nauro.cli.commands.auth import load_access_token
 from nauro.cli.utils import resolve_target_project
-from nauro.constants import SNAPSHOTS_DIR
 from nauro.store.registry import is_cloud_project
-from nauro.store.snapshot import capture_snapshot, list_snapshots
+from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
 from nauro.sync.push import push_store_to_cloud
-from nauro.telemetry import capture
-from nauro.telemetry._buckets import bucket, byte_bucket
-from nauro.telemetry.events import sync_completed
 from nauro.templates.agents_md_regen import warn_then_regen
 
 logger = logging.getLogger("nauro.sync")
@@ -59,9 +53,7 @@ def sync(
 
     _pull_from_cloud(project_key, store_path)
 
-    _capture_start = time.perf_counter()
     version = capture_snapshot(store_path, trigger=trigger)
-    _emit_sync_completed(store_path, version, time.perf_counter() - _capture_start)
 
     updated_repos = warn_then_regen(
         project_key,
@@ -93,29 +85,6 @@ def sync(
     warnings = validate_store(store_path)
     if warnings:
         print_warnings(warnings)
-
-
-def _emit_sync_completed(store_path: Path, version: int, elapsed: float) -> None:
-    """Emit one `sync.completed` telemetry event for a just-captured snapshot.
-
-    Properties are coarsened to magnitude buckets (PRIVACY.md taxonomy):
-    snapshot_count is the post-capture snapshot total, duration_bucket times the
-    capture, and bytes_bucket coarsens the written snapshot's on-disk size.
-    Emission is gated inside capture() by _should_emit(); the surrounding
-    suppress keeps a metric-computation failure from ever breaking `nauro sync`.
-    """
-    with contextlib.suppress(Exception):
-        snapshot_count = len(list_snapshots(store_path))
-        snapshot_path = store_path / SNAPSHOTS_DIR / f"v{version:03d}.json"
-        size = snapshot_path.stat().st_size
-        capture(
-            "sync.completed",
-            sync_completed(
-                snapshot_count=snapshot_count,
-                duration_bucket=bucket(elapsed),
-                bytes_bucket=byte_bucket(size),
-            ),
-        )
 
 
 def _pull_from_cloud(project_id: str, store_path: Path) -> int:

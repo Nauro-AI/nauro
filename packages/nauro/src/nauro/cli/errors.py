@@ -7,9 +7,8 @@ permission-denied path. Left unhandled, the ``OSError`` reaches Typer as a raw
 traceback with absolute paths. ``apply_fs_error_handling`` wraps every command
 so such an error renders as a clean one-line message and exits 1.
 
-This is layered OUTSIDE the telemetry instrumentation (applied after it in
-``cli/main.py``), so a command's ``cli.command_invoked`` event is still recorded
-with ``success=False`` before the error is rendered.
+This is applied after command registration so every command receives the same
+filesystem error handling.
 """
 
 from __future__ import annotations

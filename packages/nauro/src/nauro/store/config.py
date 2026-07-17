@@ -1,15 +1,13 @@
 """User configuration — manages ~/.nauro/config.json.
 
-Stores user-level settings (telemetry consent, anonymous_id, etc.).
+Stores user-level settings such as authentication and retrieval preferences.
 Respects NAURO_HOME env var override (defaults to ~/.nauro/).
 """
 
 import json
 import logging
 import os
-import uuid
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,7 +18,6 @@ from nauro.constants import (
     DEFAULT_NAURO_HOME,
     NAURO_EMBEDDINGS_ENV,
     NAURO_HOME_ENV,
-    NAURO_TELEMETRY_ENV,
 )
 from nauro.store._atomic import atomic_write_text
 from nauro.store.registry import _ensure_nauro_home
@@ -175,54 +172,3 @@ def _is_truthy(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
     return False
-
-
-_TELEMETRY_KEY = "telemetry"
-
-
-@dataclass(frozen=True)
-class TelemetryConfig:
-    anonymous_id: str
-    enabled: bool | None
-    consent_version: int | None
-    consented_at: str | None
-
-
-def get_telemetry_config() -> TelemetryConfig:
-    """Read telemetry section, generating anonymous_id on first call.
-
-    Applies NAURO_TELEMETRY=0 env override at read time without mutating disk.
-    """
-    data = load_config()
-    section = data.get(_TELEMETRY_KEY) or {}
-
-    anonymous_id = section.get("anonymous_id")
-    if not anonymous_id:
-        # anonymous_id is generated and persisted before consent so the
-        # consent record can attach to a stable identity that already exists.
-        # The write goes through config_transaction so the persisted dict is
-        # reloaded fresh under the lock rather than the snapshot read above.
-        anonymous_id = str(uuid.uuid4())
-        with config_transaction() as fresh:
-            fresh_section = fresh.get(_TELEMETRY_KEY) or {}
-            if fresh_section.get("anonymous_id"):
-                # A concurrent caller already minted one; adopt it.
-                anonymous_id = fresh_section["anonymous_id"]
-            else:
-                fresh_section["anonymous_id"] = anonymous_id
-                fresh_section.setdefault("enabled", None)
-                fresh_section.setdefault("consent_version", None)
-                fresh_section.setdefault("consented_at", None)
-                fresh[_TELEMETRY_KEY] = fresh_section
-            section = fresh_section
-
-    enabled = section.get("enabled")
-    if os.environ.get(NAURO_TELEMETRY_ENV) == "0":
-        enabled = False
-
-    return TelemetryConfig(
-        anonymous_id=anonymous_id,
-        enabled=enabled,
-        consent_version=section.get("consent_version"),
-        consented_at=section.get("consented_at"),
-    )

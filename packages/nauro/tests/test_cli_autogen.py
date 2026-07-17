@@ -305,4 +305,6 @@ class TestAutogenInvariants:
         shutil.rmtree(store_path)
         result = runner.invoke(app, ["list-decisions"])
         assert result.exit_code == 1
-        assert "Welcome to Nauro" in result.output
+        assert "was connected on this machine" in result.output
+        assert "nauro reconnect" in result.output
+        assert "Welcome to Nauro" not in result.output

@@ -28,7 +28,7 @@ uv tool install nauro
 
 `uv` fetches its own Python, so Python does not need to be pre-installed. Install `uv` with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS or Linux, or follow the [PowerShell instructions](https://docs.astral.sh/uv/getting-started/installation/) on Windows. If Python 3.10 or newer is already installed, `pipx install nauro` and `pip install nauro` also work.
 
-The first interactive run asks once about anonymous telemetry and defaults to no. `nauro telemetry status` shows the setting, and `NAURO_TELEMETRY=0` disables telemetry and the prompt.
+Nauro does not send product analytics. The `nauro telemetry` commands remain as inert compatibility shims during 1.x and will be removed in 2.0. Existing `telemetry` sections in `~/.nauro/config.json` are ignored and left untouched.
 
 ## Try it in 30 seconds
 

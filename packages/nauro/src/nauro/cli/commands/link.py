@@ -31,6 +31,7 @@ from nauro.store.repo_config import (
     load_repo_config,
     save_repo_config,
 )
+from nauro.store.resolution import DisconnectedProject, resolve_registered_project
 from nauro.sync.cloud_projects import CloudProjectError, create_project
 from nauro.sync.push import push_changed_files
 
@@ -87,6 +88,10 @@ def link(
             "Did you migrate ~/.nauro/registry.json?",
             err=True,
         )
+        raise typer.Exit(code=1)
+    connection = resolve_registered_project(local_id)
+    if isinstance(connection, DisconnectedProject):
+        typer.echo(connection.guidance, err=True)
         raise typer.Exit(code=1)
 
     if not load_access_token():

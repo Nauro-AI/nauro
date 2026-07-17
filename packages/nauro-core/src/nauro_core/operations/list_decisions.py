@@ -3,7 +3,7 @@
 Cross-transport implementation: every transport adapter calls this
 function with the same arguments and receives the same
 :class:`ListDecisionsResult`. Each adapter wraps the call to add
-transport-specific framing (``store`` field, telemetry emission); the
+transport-specific framing such as the ``store`` field; the
 listing, filtering, and projection live here.
 
 Status filtering belongs to this operation, not to ``get_decision``:

@@ -3,8 +3,8 @@
 Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
 all call this function with the same arguments and receive the same
 :class:`GetContextResult`. Each transport's adapter wraps the call to add
-transport-specific framing (``store`` field, telemetry emission, onboarding
-sentinels, snapshot-diff trailers); the level dispatch and markdown
+transport-specific framing (``store`` field, onboarding sentinels, and
+snapshot-diff trailers); the level dispatch and markdown
 assembly are shared by construction.
 
 Only the locked Store primitives are used: the snapshot/diff layer

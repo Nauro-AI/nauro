@@ -2,7 +2,7 @@
 
 With the default home layout that is the home directory itself:
 ``repo_config_path($HOME)`` and the global config are the same file, and that
-file holds auth tokens and telemetry consent. Before this guard, ``nauro init
+file holds user-level credentials and settings. Before this guard, ``nauro init
 --demo`` run from $HOME exited with a misleading "Re-run with --force" hint,
 and obeying it replaced the global config with a demo project pointer. The
 refusal fires before any registry or store mutation and is force-proof.
@@ -38,17 +38,8 @@ def _home_layout(tmp_path, monkeypatch):
 
 
 def _assert_global_config_intact(global_config):
-    """The global config kept its auth block and did not become a repo config.
-
-    Telemetry consent bookkeeping (``anonymous_id``) is merged into the global
-    config by the app callback on any CLI run; that merge is fine. What must
-    not happen is the repo-config replacement: auth gone, ``mode``/``id`` keys
-    present.
-    """
-    data = json.loads(global_config.read_text())
-    assert data["auth"] == {"access_token": "keep-me"}
-    assert "mode" not in data
-    assert "id" not in data
+    """The global config stays byte-identical on the rejected command."""
+    assert global_config.read_text() == SENTINEL
 
 
 def test_init_demo_from_home_is_refused(tmp_path, monkeypatch):

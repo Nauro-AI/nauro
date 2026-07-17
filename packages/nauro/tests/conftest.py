@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,16 +10,12 @@ from typing import Any, NamedTuple
 import pytest
 from nauro_core.decision_model import Decision, format_decision
 
-from nauro.constants import DECISIONS_DIR, REPO_CONFIG_MODE_LOCAL
+from nauro.constants import DECISIONS_DIR, PROJECT_MD, REPO_CONFIG_MODE_LOCAL
 from nauro.mcp.tools import tool_get_context
 from nauro.store.config import save_config
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
-
-# Magic UUID4 used by every telemetry test that seeds a consented config.
-# Centralized so a rotation in one file can't drift away from the rest.
-TEST_ANONYMOUS_ID = "11111111-1111-4111-8111-111111111111"
 
 # Fixed identity used by every cross-surface parity test to seed both the
 # FilesystemStore and the CloudStore. Centralized so a change in one file
@@ -101,9 +96,10 @@ def register_v2_repo(
     Creates ``tmp_path/"repo"``, registers a v2 project, optionally writes the
     per-repo config, seeds the store, and chdirs into the repo. ``seed`` selects
     the store body: ``"scaffold"`` runs ``scaffold_project_store``, ``"mkdir"``
-    just creates the store directory, and ``"none"`` leaves it to the caller
-    (which then writes its own content, e.g. via ``seed_decisions_into`` or a
-    demo project). ``monkeypatch`` is required only when ``chdir`` is True.
+    creates the minimal valid empty-store structure, and ``"none"`` leaves it
+    to the caller (which then writes its own content, e.g. via
+    ``seed_decisions_into`` or a demo project). ``monkeypatch`` is required
+    only when ``chdir`` is True.
 
     This body is v2-only by design: v1 ``register_project`` seeders are left
     untouched and must never be routed through here.
@@ -117,6 +113,8 @@ def register_v2_repo(
         scaffold_project_store(name, store_path)
     elif seed == "mkdir":
         store_path.mkdir(parents=True, exist_ok=True)
+        (store_path / PROJECT_MD).touch()
+        (store_path / DECISIONS_DIR).mkdir()
     if chdir:
         monkeypatch.chdir(repo)
     return V2Repo(pid, store_path, repo)
@@ -128,6 +126,8 @@ def seed_decisions_into(store_path: Path, *decisions: Decision) -> None:
     Filenames follow the ``NNN-slugified-title.md`` rule the context and search
     parity fixtures both relied on.
     """
+    store_path.mkdir(parents=True, exist_ok=True)
+    (store_path / PROJECT_MD).touch(exist_ok=True)
     decisions_dir = store_path / "decisions"
     decisions_dir.mkdir(parents=True, exist_ok=True)
     for d in decisions:
@@ -164,57 +164,6 @@ def moto_s3_bucket(monkeypatch, *, bucket: str = CROSS_SURFACE_BUCKET) -> Iterat
         yield s3_client
 
 
-class FakeClient:
-    """Capture-only stand-in for ``nauro.telemetry.client._client``.
-
-    Records every ``capture(event, distinct_id, properties)`` call into
-    ``events`` so tests can assert on the emitted payload shape. Tests that
-    need to assert call ordering (alias-then-set semantics) use the
-    ordered-tuple variant in test_identity_lifecycle.py instead.
-    """
-
-    def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
-
-    def capture(
-        self,
-        event: str,
-        distinct_id: str,
-        properties: dict[str, Any],
-    ) -> None:
-        self.events.append({"event": event, "distinct_id": distinct_id, "properties": properties})
-
-
-def seed_consented_config(
-    home: Path,
-    *,
-    enabled: bool,
-    consent_version: int = 1,
-    consented_at: str = "2026-04-30T00:00:00Z",
-    anonymous_id: str = TEST_ANONYMOUS_ID,
-) -> str:
-    """Write a fully consented telemetry config under ``home/config.json``.
-
-    Returns the seeded anonymous_id so tests that need to compare against the
-    persisted value have a single source of truth. The consent fields default
-    to the shared fixture values; callers override them to exercise stale or
-    custom-identity configs.
-    """
-    (home / "config.json").write_text(
-        json.dumps(
-            {
-                "telemetry": {
-                    "anonymous_id": anonymous_id,
-                    "enabled": enabled,
-                    "consent_version": consent_version,
-                    "consented_at": consented_at,
-                }
-            }
-        )
-    )
-    return anonymous_id
-
-
 def seed_auth_config(
     *,
     variant: str = "local",
@@ -245,20 +194,16 @@ def make_nauro_home(
     monkeypatch: pytest.MonkeyPatch,
     *,
     dirname: str = ".nauro",
-    delenv_telemetry: bool = False,
     chdir_repo: bool = False,
 ) -> Path:
     """Create a temp NAURO_HOME under ``tmp_path`` and point the env var at it.
 
-    ``delenv_telemetry`` clears a stray ``NAURO_TELEMETRY`` override; ``chdir_repo``
-    additionally creates a sibling ``repo`` dir and chdirs into it. Both mirror
-    the per-file extras the telemetry and event suites layered on the shared body.
+    ``chdir_repo`` additionally creates a sibling ``repo`` directory and
+    changes into it.
     """
     home = tmp_path / dirname
     home.mkdir()
     monkeypatch.setenv("NAURO_HOME", str(home))
-    if delenv_telemetry:
-        monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
     if chdir_repo:
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -268,25 +213,8 @@ def make_nauro_home(
 
 @pytest.fixture
 def nauro_home(tmp_path, monkeypatch):
-    """Canonical temp NAURO_HOME at ``tmp_path/".nauro"`` for telemetry tests."""
+    """Canonical temp NAURO_HOME at ``tmp_path/".nauro"``."""
     return make_nauro_home(tmp_path, monkeypatch)
-
-
-@pytest.fixture
-def telemetry_key(monkeypatch):
-    """Set the PostHog key env var so ``_should_emit`` returns True for enabled tests."""
-    monkeypatch.setenv("NAURO_POSTHOG_KEY", "phc_test_key_for_unit_tests")
-
-
-@pytest.fixture
-def fake_posthog(monkeypatch):
-    """Swap ``nauro.telemetry.client._client`` for a ``FakeClient`` and reset after."""
-    import nauro.telemetry.client as client_mod
-
-    fake = FakeClient()
-    client_mod._client = fake
-    yield fake
-    client_mod._client = None
 
 
 @pytest.fixture(autouse=True)

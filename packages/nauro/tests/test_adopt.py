@@ -71,7 +71,7 @@ def test_adopt_from_home_is_refused(tmp_path: Path, monkeypatch):
     The guard outranks the git and already-adopted checks: even as a git
     repo, the home directory must not read as an adoption, because the
     recovery hint there ("remove .nauro/config.json") would point at the
-    file holding auth tokens and telemetry consent.
+    file holding credentials and user-level settings.
     """
     monkeypatch.setenv("HOME", str(tmp_path))
     home = tmp_path / "home"
@@ -88,11 +88,7 @@ def test_adopt_from_home_is_refused(tmp_path: Path, monkeypatch):
     assert result.exit_code == 1
     assert "global config" in result.output
     assert "already adopted" not in result.output.lower()
-    # Telemetry bookkeeping may merge into the file on any CLI run; the auth
-    # block must survive and no repo-config keys may appear.
-    data = json.loads((nauro_home / "config.json").read_text())
-    assert data["auth"] == {"access_token": "keep-me"}
-    assert "mode" not in data
+    assert (nauro_home / "config.json").read_text() == sentinel
     assert find_projects_by_name_v2("alpha") == []
 
 

@@ -81,8 +81,8 @@ def collides_with_global_config(repo_root: Path) -> bool:
     """True when ``repo_root``'s config path is Nauro's global config file.
 
     With the default home layout, ``repo_config_path(Path.home())`` resolves to
-    ``~/.nauro/config.json`` — the same file that holds auth tokens and
-    telemetry consent for the whole machine. Writing a repo config there would
+    ``~/.nauro/config.json``, the same file that holds user-level credentials
+    and settings. Writing a repo config there would
     replace those settings, so writers must refuse the path.
     """
     return repo_config_path(repo_root).resolve() == _global_config_file().resolve()
@@ -192,8 +192,8 @@ def save_repo_config(repo_root: Path, data: dict) -> Path:
     if collides_with_global_config(repo_root):
         raise RepoConfigLocationError(
             f"Refusing to write a repo config at {repo_config_path(repo_root)}: "
-            "that path is Nauro's global config file, which holds auth and "
-            "telemetry settings. Run from a project directory instead."
+            "that path is Nauro's global config file, which holds user-level "
+            "credentials and settings. Run from a project directory instead."
         )
     data.setdefault("schema_version", REPO_CONFIG_SCHEMA_VERSION)
     _validate(data)

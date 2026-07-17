@@ -356,13 +356,11 @@ class TestDiffCommand:
         assert "Not enough snapshots" in envelope["diff"]
 
     def test_diff_registered_but_missing_store(self, tmp_path: Path, monkeypatch):
-        """A registered project whose store directory was deleted must
-        surface the WELCOME_NO_PROJECT guidance on stderr and exit
-        nonzero. The auto-gen command routes through
-        ``tool_diff_since_last_session`` which short-circuits with an
-        error envelope when ``store_path.exists()`` is False; the CLI
-        respects that envelope rather than swallowing it as an empty
-        diff string.
+        """A v1 project whose store directory was deleted must exit nonzero
+        with actionable guidance, never an empty diff. Resolution no longer
+        yields a path for a missing legacy store — the cwd falls through to
+        the no-project outcome, so the CLI names the available projects
+        instead of operating on a directory that does not exist.
         """
         import shutil
 
@@ -373,13 +371,13 @@ class TestDiffCommand:
         monkeypatch.chdir(tmp_path)
 
         # Delete the project store directory; the registry still points
-        # at it, so resolve_target_project succeeds but the store is gone.
+        # at it, but cwd resolution treats the missing store as no project.
         shutil.rmtree(store)
 
         result = runner.invoke(app, ["diff-since-last-session"])
         assert result.exit_code == 1
-        assert "Welcome to Nauro" in result.output
-        assert "nauro init" in result.output
+        assert "No project found for current directory" in result.output
+        assert "myproj" in result.output
 
 
 # --- Helpers for time-based snapshot fixtures ---

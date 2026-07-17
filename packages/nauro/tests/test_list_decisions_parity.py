@@ -138,6 +138,7 @@ def test_exclude_none_strips_unset_type_across_surfaces(tmp_path, monkeypatch):
     save_repo_config(repo, {"mode": REPO_CONFIG_MODE_LOCAL, "id": pid, "name": "no-type-project"})
     decisions_dir = store_path / "decisions"
     decisions_dir.mkdir(parents=True, exist_ok=True)
+    (store_path / "project.md").touch()
     body = format_decision(
         Decision(
             date=date(2026, 1, 1),

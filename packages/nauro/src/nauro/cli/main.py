@@ -9,8 +9,6 @@ import typer
 
 from nauro.cli.autogen import register_autogen_commands
 from nauro.cli.errors import apply_fs_error_handling
-from nauro.telemetry import consent
-from nauro.telemetry.cli_wrapper import instrument_app
 
 
 def _version_callback(value: bool) -> None:
@@ -26,7 +24,6 @@ app = typer.Typer(
     help=(
         "Human-approved project judgment and current state for connected AI agents, "
         "surfaced before work."
-        "\n\nRun 'nauro telemetry --help' to manage anonymous usage telemetry."
     ),
     no_args_is_help=True,
 )
@@ -46,7 +43,6 @@ def main(
     """Human-approved project judgment and current state for connected AI agents,
     surfaced before work.
     """
-    consent.maybe_prompt()
 
 
 def _register_commands() -> None:
@@ -66,6 +62,7 @@ def _register_commands() -> None:
         note,
         projects,
         questions,
+        reconnect,
         render_plugin,
         serve,
         setup,
@@ -78,6 +75,7 @@ def _register_commands() -> None:
     app.command(name="init")(init.init)
     app.command(name="adopt")(adopt.adopt)
     app.command(name="attach")(attach.attach)
+    app.command(name="reconnect")(reconnect.reconnect)
     app.command(name="link")(link.link)
     app.command(name="note")(note.note)
     app.add_typer(projects.projects_app, name="projects")
@@ -100,10 +98,6 @@ def _register_commands() -> None:
 
 _register_commands()
 register_autogen_commands(app)
-instrument_app(app)
-# Applied after instrument_app so the friendly-error layer sits OUTSIDE the
-# telemetry shim: a failed command is still recorded before its OSError is
-# rendered as a clean message.
 apply_fs_error_handling(app)
 
 if __name__ == "__main__":

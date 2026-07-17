@@ -3,8 +3,8 @@
 Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
 all call this function with the same arguments and receive the same
 :class:`CheckDecisionResult`. Each transport's adapter wraps the call to
-add transport-specific framing (``store`` field, telemetry emission,
-exit-code handling), but the retrieval, ranking, and assessment text are
+add transport-specific framing (``store`` field and exit-code handling),
+but the retrieval, ranking, and assessment text are
 shared by construction.
 """
 

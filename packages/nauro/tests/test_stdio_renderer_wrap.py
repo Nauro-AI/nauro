@@ -33,6 +33,7 @@ from nauro.mcp.stdio_server import (
 )
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import register_project
+from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
 
@@ -111,8 +112,7 @@ class TestSingleBlockReadTools:
 
 
 class TestNoStructuredContent:
-    """Renderer-scoped read tools must not emit ``structuredContent`` —
-    the wire shape is a single text block carrying the renderer output."""
+    """Healthy renderer-scoped reads stay single-block text responses."""
 
     def test_get_context_has_no_structured_content(self, seeded_store: Path):
         result = get_context(project_id="blockshape", level=0)
@@ -136,6 +136,53 @@ class TestNoStructuredContent:
             project_id="blockshape",
         )
         assert result.structuredContent is None
+
+
+@pytest.mark.parametrize(
+    ("tool", "kwargs"),
+    [
+        (get_context, {"level": 0}),
+        (list_decisions, {}),
+        (get_decision, {"number": 1}),
+        (search_decisions, {"query": "typed recovery"}),
+        (check_decision, {"proposed_approach": "Use typed recovery"}),
+    ],
+)
+def test_disconnected_renderer_reads_preserve_full_structured_envelope(
+    tool, kwargs, tmp_path, monkeypatch
+):
+    repo = tmp_path / "disconnected"
+    repo.mkdir()
+    project_id = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    save_repo_config(repo, {"mode": "local", "id": project_id, "name": "Pareto"})
+
+    result = tool(cwd=str(repo), **kwargs)
+
+    assert isinstance(result, CallToolResult)
+    assert result.structuredContent is not None
+    assert set(result.structuredContent) == {
+        "store",
+        "status",
+        "error",
+        "guidance",
+        "project_id",
+        "project_name",
+        "project_mode",
+        "reason_code",
+        "recovery_actions",
+    }
+    assert result.structuredContent["store"] == "local"
+    assert result.structuredContent["status"] == "error"
+    assert result.structuredContent["error"] == {
+        "kind": "error",
+        "reason": result.structuredContent["guidance"],
+    }
+    assert result.structuredContent["project_id"] == project_id
+    assert result.structuredContent["project_name"] == "Pareto"
+    assert result.structuredContent["project_mode"] == "local"
+    assert result.structuredContent["reason_code"] == "not_connected_on_this_machine"
+    assert result.structuredContent["recovery_actions"] == ["locate", "continue"]
+    assert result.content[0].text == result.structuredContent["guidance"]
 
 
 class TestSingleBlockReads:

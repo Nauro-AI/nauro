@@ -26,14 +26,12 @@ from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import (
-    REGISTRY_SCHEMA_VERSION_V2,
     REPO_CONFIG_MODE_CLOUD,
     REPO_CONFIG_MODE_LOCAL,
 )
 from nauro.store.registry import (
     add_repo_v2,
     find_projects_by_name_v2,
-    get_store_path_v2,
     register_project_v2,
     resolve_v2_from_path,
 )
@@ -43,9 +41,8 @@ from nauro.store.repo_config import (
     repo_config_path,
     save_repo_config,
 )
+from nauro.store.resolution import DisconnectedProject, resolve_registered_project
 from nauro.sync.cloud_projects import CloudProjectError, create_project
-from nauro.telemetry import capture
-from nauro.telemetry.events import project_created
 from nauro.templates.agents_md_regen import warn_then_regen
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -212,7 +209,14 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
     existing = find_projects_by_name_v2(name)
     if existing:
         pid, _entry = existing[0]
-        store_path = get_store_path_v2(pid)
+        connection = resolve_registered_project(pid)
+        if isinstance(connection, DisconnectedProject):
+            typer.echo(connection.guidance, err=True)
+            raise typer.Exit(code=1)
+        if connection is None:
+            typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
+            raise typer.Exit(code=1)
+        store_path = connection.store_path
         for rp in repo_paths:
             _refuse_if_repo_already_claimed(rp, allowed_project_id=pid)
         for rp in repo_paths:
@@ -228,7 +232,6 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
             repo_paths,
             mode=REPO_CONFIG_MODE_LOCAL,
         )
-        capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
 
     for rp in repo_paths:
         save_repo_config(
@@ -336,7 +339,7 @@ def init(
     repo_paths = add_repo_paths if add_repo_paths else [Path.cwd()]
 
     # The home directory is never a valid repo root: its .nauro/config.json
-    # is the global config (auth tokens, telemetry consent). Refused for every
+    # is the global config (credentials and user-level settings). Refused for every
     # target path before any registry or store mutation, and deliberately
     # before the --force-aware overwrite checks below, which must not be able
     # to bypass it.
@@ -362,7 +365,14 @@ def init(
                     err=True,
                 )
                 raise typer.Exit(code=1)
-            store_path = get_store_path_v2(pid)
+            connection = resolve_registered_project(pid)
+            if isinstance(connection, DisconnectedProject):
+                typer.echo(connection.guidance, err=True)
+                raise typer.Exit(code=1)
+            if connection is None:
+                typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
+                raise typer.Exit(code=1)
+            store_path = connection.store_path
             # Pre-check every target repo before any state changes.
             for rp in repo_paths:
                 refuse_repo_config_symlink(rp)
@@ -434,7 +444,6 @@ def init(
         except ValueError as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
-        capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
         for rp in repo_paths:
             save_repo_config(
                 rp,
@@ -473,7 +482,6 @@ def init(
     except ValueError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
     for rp in repo_paths:
         save_repo_config(
             rp,

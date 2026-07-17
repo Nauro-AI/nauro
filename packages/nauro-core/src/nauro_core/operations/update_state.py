@@ -4,7 +4,7 @@ Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
 all call this function with the same arguments and receive the same
 :class:`UpdateStateResult`. The kernel handles the read/migrate/write
 plumbing through the :class:`~nauro_core.operations.store.Store`
-protocol; snapshot capture, cloud-sync push, telemetry, and length
+protocol; snapshot capture, cloud-sync push, and length
 validation stay on the adapter side.
 
 The kernel uses the pure-function helpers in :mod:`nauro_core.state`

@@ -1,52 +1,27 @@
 # Nauro Privacy & Data Paths
 
-Last updated: 2026-06-28
+Last updated: 2026-07-17
 
 ## Cloud sync
 
-Project context (decisions, state, open questions — not source code) is stored encrypted in AWS S3 (us-east-1, SSE-S3). Each user's data is isolated under a unique prefix derived from their authentication identity. There is no self-service deletion command at this time; contact support to request removal of your cloud data.
+Project context (decisions, state, and open questions, but not source code) is stored encrypted in AWS S3 (us-east-1, SSE-S3). Each user's data is isolated under a unique prefix derived from their authentication identity. There is no self-service deletion command at this time; contact support to request removal of your cloud data.
 
 ## Remote MCP
 
 When connected to Claude AI, Perplexity, or another MCP client, your project context is read from S3 and delivered to the AI tool. The AI tool's own data handling policies apply to how it processes the response. Nauro does not control or monitor what the AI tool does with the context after delivery.
 
-## Telemetry
+## Product analytics
 
-Nauro collects anonymous product-usage telemetry to understand which commands are used, where users get stuck, and whether the tool is healthy. Telemetry is **opt-in and off by default**: a one-line first-run prompt (which defaults to *no*) points back to this document, and nothing is sent unless you explicitly turn it on.
+Current Nauro releases do not send product analytics and do not include the PostHog SDK. No replacement product analytics provider is configured.
 
-### Events
+During Nauro 1.x, `nauro telemetry status`, `enable`, `disable`, and `reset` remain as deprecated compatibility commands. They make no network requests and do not read, create, or modify telemetry config. The command group and all four shims will be removed in Nauro 2.0.
 
-Only the following events fire, with only the listed properties. No content, no identifiers beyond an anonymous per-machine UUID:
+Existing `telemetry` sections in `~/.nauro/config.json` are ignored and left untouched. Nauro does not migrate or automatically delete them.
 
-```
-cli.command_invoked   { command, success, duration_bucket, nauro_version, os }
-mcp.tool_called       { tool_name, transport, success, duration_bucket }
-sync.completed        { snapshot_count, duration_bucket, bytes_bucket }
-project.created       { schema_version }
-```
+### Historical PostHog data
 
-### Never sent
+Earlier local releases could send opt-in command, MCP tool, sync, and project-created events to PostHog. When a user was authenticated, analytics identity handling could associate events with the Auth0 user id and a hash of the normalized email address. Earlier hosted MCP deployments could also send tool-use events.
 
-- Decision titles
-- Decision rationale
-- Decision content
-- File paths
-- Repo names
-- Project names
-- MCP tool arguments
-- MCP tool return values
-- Stack traces
-- Command-line arguments
-- IP address
-- Geolocation (country / region / city)
+Historical events may remain in PostHog under the retention settings that applied when they were collected. Removing current event emission does not delete those events, revoke the ingestion key used by older releases, or delete the PostHog project.
 
-### Opting out
-
-- `NAURO_TELEMETRY=0` environment variable — suppresses all telemetry and the first-run prompt.
-- `nauro telemetry disable` — persists the opt-out in `~/.nauro/config.json`.
-
-### Vendor
-
-Product analytics events go to [PostHog](https://posthog.com) (cloud). PostHog is dual-licensed and self-hostable, which we mention as a credibility signal — Nauro itself does not currently support pointing at a self-hosted PostHog instance.
-
-Operational metrics on the Lambda backend (request latency, error counts, throttles) go to AWS CloudWatch and never include user content.
+Operational metrics on the Lambda backend (request latency, error counts, and throttles) go to AWS CloudWatch and never include user content.

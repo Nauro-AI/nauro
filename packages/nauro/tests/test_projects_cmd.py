@@ -57,6 +57,21 @@ def test_projects_rm_removes_entry_leaves_store(tmp_path, monkeypatch):
     assert registry.get_project_v2(pid_b) is not None
 
 
+def test_projects_rm_handles_malformed_store_path_without_touching_store(tmp_path, monkeypatch):
+    pid, _other_pid = _seed_two_projects(tmp_path)
+    default_store = get_store_path_v2(pid)
+    data = registry.load_registry_v2()
+    data["projects"][pid]["store_path"] = 42
+    registry.save_registry_v2(data)
+
+    result = runner.invoke(app, ["projects", "rm", pid, "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert "registered path was invalid" in result.output
+    assert registry.get_project_v2(pid) is None
+    assert default_store.is_dir()
+
+
 def test_projects_rm_missing_id_exits_1(tmp_path, monkeypatch):
     """`rm <missing-id>` exits 1 with a clear message."""
     _seed_two_projects(tmp_path)

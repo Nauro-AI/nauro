@@ -25,22 +25,29 @@ from nauro.store.registry import (
     get_project,
     get_project_v2,
     get_store_path,
-    get_store_path_v2,
     load_registry,
     load_registry_v2,
     register_project_v2,
     suggest_project_for_path,
 )
 from nauro.store.repo_config import collides_with_global_config
-from nauro.store.resolution import resolve_from_cwd
+from nauro.store.resolution import (
+    DisconnectedProject,
+    resolve_from_cwd,
+    resolve_registered_project,
+)
 from nauro.store.write_safety import find_symlink
+
+
+class DisconnectedProjectExit(typer.Exit):
+    """CLI resolution already rendered typed reconnect guidance."""
 
 
 def refuse_global_config_collision(repo_root: Path) -> None:
     """Abort when ``repo_root``'s ``.nauro/config.json`` is the global config.
 
     With the default home layout that is exactly the home directory:
-    ``~/.nauro/config.json`` holds auth tokens and telemetry consent, and a
+    ``~/.nauro/config.json`` holds credentials and user-level settings, and a
     repo config written there replaces them. Commands that take a repo root
     call this before any registry or store mutation. The refusal is
     deliberately independent of ``--force`` — there is no situation where
@@ -55,7 +62,7 @@ def refuse_global_config_collision(repo_root: Path) -> None:
     typer.echo(
         f"Cannot use {repo_root.resolve()} as a project directory: its "
         ".nauro/config.json is Nauro's own global config file, which holds "
-        "auth and telemetry settings.\n"
+        "credentials and user-level settings.\n"
         "Run this command from a project directory instead, e.g.:\n"
         "  mkdir my-project && cd my-project",
         err=True,
@@ -139,7 +146,12 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
             raise typer.Exit(code=1)
         if len(matches) == 1:
             pid, _entry = matches[0]
-            return project_flag, get_store_path_v2(pid)
+            connection = resolve_registered_project(pid)
+            if isinstance(connection, DisconnectedProject):
+                typer.echo(connection.guidance, err=True)
+                raise DisconnectedProjectExit(code=1)
+            if connection is not None:
+                return project_flag, connection.store_path
 
         # 1b — v1 fallback (legacy tests and unconverted callers)
         entry = get_project(project_flag)
@@ -157,6 +169,9 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
     # 2 — cwd waterfall: repo config walk-up → v2 registry by path → v1 legacy
     cwd = Path.cwd()
     resolution = resolve_from_cwd(cwd)
+    if isinstance(resolution, DisconnectedProject):
+        typer.echo(resolution.guidance, err=True)
+        raise DisconnectedProjectExit(code=1)
     if resolution is not None:
         return resolution.display_name, resolution.store_path
 
@@ -212,6 +227,7 @@ def _resolve_project_entry(project_name: str, project_key: str) -> dict:
 # Re-exported for callers that need to write or extend v2 entries directly
 __all__ = [
     "add_repo_v2",
+    "DisconnectedProjectExit",
     "refuse_global_config_collision",
     "refuse_repo_config_symlink",
     "register_project_v2",
