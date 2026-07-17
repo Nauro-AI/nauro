@@ -3,7 +3,7 @@
 Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
 all call this function with the same arguments and receive the same
 :class:`GetDecisionResult`. Each transport's adapter wraps the call to
-add transport-specific framing (``store`` field, telemetry emission);
+add transport-specific framing such as the ``store`` field;
 the lookup itself is shared by construction.
 
 ``mode`` selects how much of the decision the ``content`` field carries:

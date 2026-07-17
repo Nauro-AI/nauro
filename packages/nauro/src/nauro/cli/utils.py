@@ -40,7 +40,7 @@ def refuse_global_config_collision(repo_root: Path) -> None:
     """Abort when ``repo_root``'s ``.nauro/config.json`` is the global config.
 
     With the default home layout that is exactly the home directory:
-    ``~/.nauro/config.json`` holds auth tokens and telemetry consent, and a
+    ``~/.nauro/config.json`` holds credentials and user-level settings, and a
     repo config written there replaces them. Commands that take a repo root
     call this before any registry or store mutation. The refusal is
     deliberately independent of ``--force`` — there is no situation where
@@ -55,7 +55,7 @@ def refuse_global_config_collision(repo_root: Path) -> None:
     typer.echo(
         f"Cannot use {repo_root.resolve()} as a project directory: its "
         ".nauro/config.json is Nauro's own global config file, which holds "
-        "auth and telemetry settings.\n"
+        "credentials and user-level settings.\n"
         "Run this command from a project directory instead, e.g.:\n"
         "  mkdir my-project && cd my-project",
         err=True,

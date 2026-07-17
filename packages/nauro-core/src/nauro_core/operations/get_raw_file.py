@@ -3,8 +3,8 @@
 Cross-transport implementation: every transport adapter calls this
 function with the same arguments and receives the same
 :class:`GetRawFileResult`. Each adapter wraps the call to add transport-
-specific framing (``store`` field, telemetry emission, path-traversal
-guards on the adapter side, ``available_files`` hints); the file lookup
+specific framing (``store`` field, adapter-side path-traversal guards,
+and ``available_files`` hints); the file lookup
 itself is shared by construction.
 
 The kernel stays storage-agnostic: it does not inspect ``path`` for

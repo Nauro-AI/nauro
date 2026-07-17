@@ -7,7 +7,6 @@ side effects to keep the failure mode safe.
 
 from __future__ import annotations
 
-import json
 import os
 from unittest.mock import patch
 
@@ -161,11 +160,7 @@ def test_attach_from_home_is_refused_before_any_network_call(tmp_path, monkeypat
 
     assert result.exit_code == 1
     assert "global config" in result.output
-    # Telemetry bookkeeping may merge into the file on any CLI run; the auth
-    # block must survive and no repo-config keys may appear.
-    data = json.loads((nauro_home / "config.json").read_text())
-    assert data["auth"] == {"access_token": "keep-me"}
-    assert "mode" not in data
+    assert (nauro_home / "config.json").read_text() == sentinel
     assert registry.get_project_v2(EXAMPLE_PID) is None
 
 

@@ -36,7 +36,6 @@ from nauro_core.constants import VALID_CONFIDENCES as VALID_CONFIDENCES
 
 # ── Environment variables (CLI-specific) ──
 NAURO_HOME_ENV = "NAURO_HOME"
-NAURO_TELEMETRY_ENV = "NAURO_TELEMETRY"
 NAURO_EMBEDDINGS_ENV = "NAURO_EMBEDDINGS"
 
 # ── Paths (CLI-specific) ──
@@ -79,9 +78,6 @@ FLAG_QUESTION_HINT_TITLE_LENGTH = 100
 PRUNE_KEEP_ALL_DAYS = 7
 PRUNE_DAILY_DAYS = 30
 PRUNE_WEEKLY_DAYS = 180
-
-# ── Telemetry ──
-TELEMETRY_CONSENT_VERSION = 1
 
 # ── Repo-local config (.nauro/config.json inside each repo) ──
 REPO_CONFIG_DIR = ".nauro"

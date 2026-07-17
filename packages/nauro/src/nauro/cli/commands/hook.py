@@ -33,7 +33,7 @@ hook_app = typer.Typer(help="Client-side advisory hooks for AI coding agents.")
 # with corpus size and query length; against a few-hundred-decision corpus a
 # strong terse-prompt match scores in the mid-teens, while weak near-neighbours
 # sit in the low single digits. A floor here clears the weak tail and keeps
-# genuine conflicts. Final tuning against field telemetry is deferred.
+# genuine conflicts. Final tuning against field evidence is deferred.
 RELEVANCE_FLOOR = 8.0
 
 # Corpus size the absolute RELEVANCE_FLOOR is calibrated for. Because BM25 IDF

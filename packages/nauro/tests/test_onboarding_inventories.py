@@ -7,10 +7,8 @@ with set equality over ``snapshot_tree`` plus ordered section-marker checks
 on the output; full transcripts are not pinned here because ``adopt``
 requires a real git repo, whose hygiene notes vary with the environment.
 
-The telemetry bookkeeping files (``config.json`` + ``config.lock`` under
-NAURO_HOME) appear because the first CLI run persists an anonymous id; the
-autouse fixture clears ``NAURO_TELEMETRY`` so that default behavior is what
-gets pinned regardless of the developer's shell.
+The registry and its lock are the only user-home bookkeeping files created by
+local onboarding when no authentication config already exists.
 """
 
 from __future__ import annotations
@@ -33,17 +31,16 @@ runner = CliRunner()
 
 EXAMPLE_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 
-# Written by every flow below: the telemetry anonymous-id bookkeeping and the
-# registry plus its filelock sibling, all under NAURO_HOME (tmp_path here).
-BOOKKEEPING = {"config.json", "config.lock", "registry.json", "registry.lock"}
+# Written by every flow below: the registry and its filelock sibling, both
+# under NAURO_HOME (tmp_path here).
+BOOKKEEPING = {"registry.json", "registry.lock"}
 
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path: Path, monkeypatch):
-    """Home + telemetry-env isolation so inventories are environment-independent."""
+    """Keep user-scoped artifact writes inside the test directory."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    monkeypatch.delenv("NAURO_TELEMETRY", raising=False)
 
 
 def _git_init(repo: Path) -> None:
@@ -187,9 +184,9 @@ def test_adopt_no_setup_and_skills_inventory(tmp_path: Path, monkeypatch):
 def test_adopt_remove_round_trip_inventory(tmp_path: Path, monkeypatch):
     """Un-adopt inverts adoption up to the pinned residue.
 
-    The residue: the store (left intact by design), the registry and
-    telemetry bookkeeping, and ``~/.codex/config.toml``, whose nauro entry
-    is removed while the emptied file survives teardown.
+    The residue: the store (left intact by design), the registry, and
+    ``~/.codex/config.toml``, whose nauro entry is removed while the emptied
+    file survives teardown.
     """
     repo = _make_git_repo(tmp_path, monkeypatch)
     pre = snapshot_tree(tmp_path)
@@ -276,7 +273,7 @@ def test_attach_happy_path_inventory(tmp_path: Path, monkeypatch):
 
     assert result.exit_code == 0
     assert snapshot_tree(tmp_path) == sorted(
-        BOOKKEEPING | {"repo/.nauro/config.json", "repo/AGENTS.md"}
+        BOOKKEEPING | {"config.json", "repo/.nauro/config.json", "repo/AGENTS.md"}
     )
     _assert_markers_in_order(
         result.stdout,

@@ -3,7 +3,7 @@
 Pure callables that implement the user-facing operations exposed by every
 Nauro transport (CLI, local stdio MCP, remote HTTP MCP). Each operation
 takes a ``Store`` and returns a typed Pydantic ``Result`` model. Operations
-emit no telemetry; transports own event emission.
+perform no product analytics or transport-specific presentation.
 """
 
 from nauro_core.operations._in_memory_store import InMemoryStore as InMemoryStore

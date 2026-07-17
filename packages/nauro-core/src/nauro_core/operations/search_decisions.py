@@ -1,8 +1,8 @@
 """``search_decisions`` — BM25-rank decisions by query relevance.
 
 All transports call this with the same arguments; each one wraps the
-call to add transport-specific framing (``store`` field, telemetry
-emission). The listing, BM25 ranking, and projection live here.
+call to add transport-specific framing such as the ``store`` field. The
+listing, BM25 ranking, and projection live here.
 
 Status filtering happens here: by default only active decisions are
 ranked. Pass ``include_superseded=True`` to also surface superseded

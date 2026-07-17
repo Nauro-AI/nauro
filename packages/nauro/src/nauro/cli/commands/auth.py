@@ -500,7 +500,6 @@ def login() -> None:
 
     # Fetch canonical user_id from server
     user_id = None
-    me_body: dict[str, object] = {}
     try:
         me_resp = httpx.get(
             f"{api_url}/me",
@@ -508,8 +507,7 @@ def login() -> None:
             timeout=10,
         )
         me_resp.raise_for_status()
-        me_body = me_resp.json()
-        user_id = me_body.get("user_id")
+        user_id = me_resp.json().get("user_id")
     except Exception as e:
         logger.warning("Failed to fetch user_id from /me: %s", e)
         typer.echo(
@@ -527,25 +525,6 @@ def login() -> None:
             "access_token": access_token,
             "refresh_token": refresh_token,
         }
-
-    # Telemetry identity merge: auth state is already persisted above —
-    # this block only handles the PostHog alias+set. Raw email never leaves
-    # auth.py; identify_login receives only the SHA-256 hex digest.
-    try:
-        email_raw = (
-            payload.get("email")
-            or payload.get("https://mcp.nauro.ai/email")
-            or me_body.get("email")
-            or ""
-        )
-        email = email_raw.strip().lower() if isinstance(email_raw, str) else ""
-        if user_id and email:
-            from nauro.telemetry import identify_login as _telemetry_identify_login
-
-            email_hash = hashlib.sha256(email.encode("utf-8")).hexdigest()
-            _telemetry_identify_login(user_id=user_id, email_hash=email_hash)
-    except Exception:
-        logger.debug("telemetry identify_login failed", exc_info=True)
 
     typer.echo(f"Authenticated as {sub}")
 
@@ -594,19 +573,6 @@ def logout() -> None:
     if "auth" not in config:
         typer.echo("Not authenticated - nothing to clear.")
         return
-
-    # Two sequential standalone transactions, never nested: the config lock is
-    # not re-entrant, so identify_logout (which opens its own rotation
-    # transaction) must run outside the auth-removal transaction. The two writes
-    # touch disjoint keys (telemetry.anonymous_id vs auth), so ordering is
-    # correctness-neutral; rotate first to preserve the documented
-    # "auth cleared after rotation" sequence.
-    try:
-        from nauro.telemetry import identify_logout as _telemetry_identify_logout
-
-        _telemetry_identify_logout()
-    except Exception:
-        logger.debug("telemetry identify_logout failed", exc_info=True)
 
     with config_transaction() as config:
         config.pop("auth", None)

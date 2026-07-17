@@ -72,7 +72,6 @@ from nauro.store.snapshot import (
     resolve_diff_snapshots,
 )
 from nauro.store.store_lock import store_write_lock
-from nauro.telemetry.decorators import mcp_tool
 from nauro.templates.agents_md_regen import warn_then_regen
 
 logger = logging.getLogger("nauro.mcp.tools")
@@ -105,8 +104,8 @@ def _project_identity(store_path: Path) -> dict:
 def _stamp_identity(func: Callable[..., Any]) -> Callable[..., Any]:
     """Add ``project`` identity to a tool's ``store='local'`` response envelope.
 
-    Stacks under ``@mcp_tool`` so every return path — success, rejection, and
-    store-missing error — carries the resolved project name + id alongside the
+    Every return path, including success, rejection, and store-missing errors,
+    carries the resolved project name + id alongside the
     ``store`` field (the local-store indicator, extended to also carry project identity).
     Local surface only; the remote mcp-server envelope is unchanged.
     """
@@ -246,7 +245,6 @@ def _snapshot_diff_section(store_path: Path) -> str:
     return header + "\n\n" + "\n".join(lines)
 
 
-@mcp_tool("get_context")
 @_stamp_identity
 def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
     """Return project context at the requested detail level."""
@@ -282,7 +280,6 @@ def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
     return envelope
 
 
-@mcp_tool("propose_decision")
 @_stamp_identity
 def tool_propose_decision(
     store_path: Path,
@@ -434,7 +431,6 @@ Args:
 """
 
 
-@mcp_tool("check_decision")
 @_stamp_identity
 def tool_check_decision(
     store_path: Path,
@@ -468,7 +464,6 @@ Surface related existing decisions without writing anything.
 """
 
 
-@mcp_tool("flag_question")
 @_stamp_identity
 def tool_flag_question(
     store_path: Path,
@@ -641,7 +636,6 @@ def _available_files_hint(store_path: Path, cap: int = 20) -> list[str]:
     return entries[:cap]
 
 
-@mcp_tool("get_raw_file")
 @_stamp_identity
 def tool_get_raw_file(store_path: Path, path: str) -> dict:
     """Return raw content of any file in the project store."""
@@ -676,7 +670,6 @@ def tool_get_raw_file(store_path: Path, path: str) -> dict:
     return envelope
 
 
-@mcp_tool("list_decisions")
 @_stamp_identity
 def tool_list_decisions(
     store_path: Path,
@@ -691,7 +684,6 @@ def tool_list_decisions(
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
-@mcp_tool("get_decision")
 @_stamp_identity
 def tool_get_decision(store_path: Path, number: int, mode: str = "full") -> dict:
     """Return a specific decision by number (full body, or header projection)."""
@@ -702,7 +694,6 @@ def tool_get_decision(store_path: Path, number: int, mode: str = "full") -> dict
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
-@mcp_tool("diff_since_last_session")
 @_stamp_identity
 def tool_diff_since_last_session(
     store_path: Path,
@@ -749,7 +740,6 @@ def tool_diff_since_last_session(
     return {"store": "local", **envelope}
 
 
-@mcp_tool("search_decisions")
 @_stamp_identity
 def tool_search_decisions(
     store_path: Path,
@@ -771,7 +761,6 @@ def tool_search_decisions(
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
-@mcp_tool("update_state")
 @_stamp_identity
 def tool_update_state(store_path: Path, delta: str) -> dict:
     """Update current project state. Returns a warning on keyword overlap."""

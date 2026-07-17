@@ -40,7 +40,7 @@ from nauro.cli.integrations.render import render
 from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
-from nauro.constants import REGISTRY_SCHEMA_VERSION_V2, REPO_CONFIG_MODE_LOCAL
+from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
 from nauro.store.registry import (
     RegistrySchemaError,
@@ -53,8 +53,6 @@ from nauro.store.registry import (
 )
 from nauro.store.repo_config import RepoConfigSchemaError, load_repo_config, save_repo_config
 from nauro.store.write_safety import SymlinkRefusal, find_symlink
-from nauro.telemetry import capture
-from nauro.telemetry.events import project_created
 from nauro.templates.scaffolds import scaffold_project_store
 
 
@@ -461,7 +459,7 @@ def adopt(
     # Refused before the git and already-adopted checks: from the home
     # directory the global config would otherwise read as an existing
     # adoption, and the recovery hint there ("remove .nauro/config.json")
-    # would point at the user's auth and telemetry settings.
+    # would point at the user's credentials and other user-level settings.
     refuse_global_config_collision(repo_root)
 
     # ── teardown path ──────────────────────────────────────────────────────
@@ -552,8 +550,6 @@ def adopt(
         # pre-check swallows it and returns empty, so it only fires here).
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from None
-
-    capture("project.created", project_created(REGISTRY_SCHEMA_VERSION_V2))
 
     save_repo_config(
         repo_root,

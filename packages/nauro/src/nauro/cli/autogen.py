@@ -31,7 +31,6 @@ from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 from nauro.cli._json_input import parse_json_list_of_dicts
 from nauro.cli.utils import resolve_target_project
 from nauro.mcp import tools as mcp_tools
-from nauro.telemetry.transport import set_transport
 
 # Tools that should auto-generate a CLI command. list_projects is
 # excluded — local installs auto-resolve to a single project and do not
@@ -328,8 +327,6 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         kwargs.pop("json_output", None)
 
         _project_name, store_path = resolve_target_project(project)
-
-        set_transport("cli")
 
         for name in json_array_names:
             raw = kwargs.get(name)

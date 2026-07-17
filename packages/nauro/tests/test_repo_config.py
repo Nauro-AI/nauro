@@ -304,8 +304,8 @@ def test_save_refuses_global_config_path(tmp_path, monkeypatch):
 
     Replicates the production default layout, where the global config lives
     at ``<home>/.nauro/config.json``: a repo config for ``<home>`` resolves to
-    the same file, and writing it would replace auth tokens and telemetry
-    consent.
+    the same file, and writing it would replace credentials and user-level
+    settings.
     """
     home = tmp_path / "home"
     nauro_home = home / ".nauro"
