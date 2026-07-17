@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 
@@ -15,12 +17,16 @@ from nauro.constants import (
 from nauro.store import registry
 from nauro.store.registry import (
     RegistrySchemaError,
+    StoreBindingError,
+    bind_project_store_v2,
     is_cloud_project,
     load_registry_v2,
     register_project,
     register_project_v2,
+    resolve_registered_store_path_v2,
     save_registry_v2,
 )
+from nauro.templates.scaffolds import scaffold_project_store
 
 
 def test_load_v2_empty_when_missing(tmp_path, monkeypatch):
@@ -50,6 +56,129 @@ def test_v2_round_trip(tmp_path, monkeypatch):
     save_registry_v2(data)
     loaded = load_registry_v2()
     assert loaded == data
+
+
+def test_v2_round_trip_preserves_optional_external_store_path(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    store_path = tmp_path / "external" / pid
+    data = {
+        "projects": {
+            pid: {
+                "name": "nauro",
+                "mode": "local",
+                "repo_paths": [str(tmp_path / "repo")],
+                "store_path": str(store_path),
+            }
+        },
+        "schema_version": REGISTRY_SCHEMA_VERSION_V2,
+    }
+
+    save_registry_v2(data)
+
+    assert load_registry_v2() == data
+
+
+def test_bind_external_store_records_validated_absolute_path(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = tmp_path / "external" / pid
+    scaffold_project_store("nauro", store_path)
+
+    bound = bind_project_store_v2(
+        project_id=pid,
+        name="nauro",
+        mode="local",
+        repo_path=repo,
+        store_path=store_path,
+    )
+
+    assert bound == store_path
+    entry = load_registry_v2()["projects"][pid]
+    assert entry["store_path"] == str(store_path)
+    assert entry["repo_paths"] == [str(repo.resolve())]
+    assert resolve_registered_store_path_v2(pid) == store_path
+
+
+def test_bind_default_store_omits_optional_store_path(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = registry.get_store_path_v2(pid)
+    scaffold_project_store("nauro", store_path)
+
+    bind_project_store_v2(
+        project_id=pid,
+        name="nauro",
+        mode="local",
+        repo_path=repo,
+        store_path=store_path,
+    )
+
+    assert "store_path" not in load_registry_v2()["projects"][pid]
+
+
+def test_bind_external_store_refuses_conflicting_default_store(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    scaffold_project_store("default", registry.get_store_path_v2(pid))
+    external = tmp_path / "external" / pid
+    scaffold_project_store("external", external)
+
+    with pytest.raises(StoreBindingError) as exc:
+        bind_project_store_v2(
+            project_id=pid,
+            name="nauro",
+            mode="local",
+            repo_path=repo,
+            store_path=external,
+        )
+
+    assert exc.value.reason_code == "connected_binding_conflict"
+    assert load_registry_v2()["projects"] == {}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_bind_external_store_refuses_symlink_component(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    real_parent = tmp_path / "real"
+    store_path = real_parent / pid
+    scaffold_project_store("nauro", store_path)
+    linked_parent = tmp_path / "linked"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+
+    with pytest.raises(StoreBindingError) as exc:
+        bind_project_store_v2(
+            project_id=pid,
+            name="nauro",
+            mode="local",
+            repo_path=repo,
+            store_path=Path(linked_parent / pid),
+        )
+
+    assert exc.value.reason_code == "connected_record_invalid"
+
+
+def test_bind_external_store_refuses_wrong_identity_basename(tmp_path, monkeypatch):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = tmp_path / "external" / "different-id"
+    scaffold_project_store("nauro", store_path)
+
+    with pytest.raises(StoreBindingError) as exc:
+        bind_project_store_v2(
+            project_id=pid,
+            name="nauro",
+            mode="local",
+            repo_path=repo,
+            store_path=store_path,
+        )
+
+    assert exc.value.reason_code == "connected_record_invalid"
 
 
 def test_v2_save_stamps_schema_version(tmp_path, monkeypatch):

@@ -32,6 +32,7 @@ from nauro.constants import (
 from nauro.mcp.stdio_server import _resolve_store
 from nauro.store import registry
 from nauro.store.repo_config import load_repo_config, save_repo_config
+from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
 
@@ -293,6 +294,168 @@ def test_resolve_from_cwd_repo_config_tier(tmp_path, monkeypatch):
     assert resolution.store_path == tmp_path / "projects" / cloud_pid
     assert resolution.project_id == cloud_pid
     assert resolution.display_name == "nauro"
+
+
+def test_valid_repo_config_without_registry_is_typed_first_connection(tmp_path, monkeypatch):
+    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, DisconnectedProject)
+    assert result.project_id == pid
+    assert result.reason_code == "not_connected_on_this_machine"
+    assert result.recovery_actions == ("locate", "continue")
+    assert "has not been connected on this machine" in result.guidance
+    assert "nauro link --cloud" in result.guidance
+    assert "Welcome to Nauro" not in result.guidance
+
+
+def test_cloud_first_connection_offers_eligible_restore(tmp_path, monkeypatch):
+    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    save_repo_config(
+        repo,
+        {
+            "mode": "cloud",
+            "id": pid,
+            "name": "Pareto",
+            "server_url": "https://mcp.nauro.ai",
+        },
+    )
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, DisconnectedProject)
+    assert result.reason_code == "not_connected_on_this_machine"
+    assert result.recovery_actions == ("locate", "restore", "continue")
+    assert result.guidance == (
+        "This cloud project has not been connected on this machine. "
+        "Run `nauro reconnect` to verify access and restore its latest synced record."
+    )
+
+
+def test_registered_missing_store_is_typed_prior_connection_loss(tmp_path, monkeypatch):
+    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {pid: {"name": "Pareto", "mode": "local", "repo_paths": [str(repo)]}},
+        }
+    )
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, DisconnectedProject)
+    assert result.reason_code == "connected_record_missing"
+    assert "was connected on this machine" in result.guidance
+    assert "Welcome to Nauro" not in result.guidance
+
+
+def test_registered_invalid_external_store_is_typed_invalid(tmp_path, monkeypatch):
+    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    invalid = tmp_path / "external" / pid
+    invalid.mkdir(parents=True)
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {
+                pid: {
+                    "name": "Pareto",
+                    "mode": "local",
+                    "repo_paths": [str(repo)],
+                    "store_path": str(invalid),
+                }
+            },
+        }
+    )
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, DisconnectedProject)
+    assert result.reason_code == "connected_record_invalid"
+    assert "Run `nauro reconnect`" in result.guidance
+    assert "doctor" not in result.guidance
+
+
+def test_conflicting_default_and_external_stores_is_typed_conflict(tmp_path, monkeypatch):
+    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    external = tmp_path / "external" / pid
+    scaffold_project_store("Pareto", external)
+    scaffold_project_store("Pareto", registry.get_store_path_v2(pid))
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {
+                pid: {
+                    "name": "Pareto",
+                    "mode": "local",
+                    "repo_paths": [str(repo)],
+                    "store_path": str(external),
+                }
+            },
+        }
+    )
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, DisconnectedProject)
+    assert result.reason_code == "connected_binding_conflict"
+    assert "will not choose or overwrite either" in result.guidance
+
+
+def test_valid_external_store_resolves_through_registry_binding(tmp_path, monkeypatch):
+    from nauro.store.recovery import bind_local_store
+    from nauro.store.resolution import RepoResolution, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    external = tmp_path / "external" / pid
+    scaffold_project_store("Pareto", external)
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+    bind_local_store(repo, external)
+
+    result = resolve_from_cwd(repo)
+
+    assert isinstance(result, RepoResolution)
+    assert result.store_path == external
+
+
+def test_resolve_store_raises_typed_disconnected_error(tmp_path, monkeypatch):
+    from nauro.store.resolution import DisconnectedProjectError
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    with pytest.raises(DisconnectedProjectError) as exc:
+        _resolve_store(None, repo)
+
+    assert exc.value.state.reason_code == "not_connected_on_this_machine"
 
 
 def test_resolve_from_cwd_v2_registry_by_path_tier(tmp_path, monkeypatch):

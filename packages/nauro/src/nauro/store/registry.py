@@ -26,12 +26,15 @@ import re
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 
 from filelock import FileLock
 
 from nauro.constants import (
+    DECISIONS_DIR,
     DEFAULT_NAURO_HOME,
     NAURO_HOME_ENV,
+    PROJECT_MD,
     PROJECTS_DIR,
     REGISTRY_FILENAME,
     REGISTRY_SCHEMA_VERSION_V1,
@@ -47,6 +50,21 @@ logger = logging.getLogger("nauro.registry")
 
 class RegistrySchemaError(Exception):
     """Raised when registry.json advertises a schema_version this build cannot read."""
+
+
+StoreBindingReason = Literal[
+    "connected_record_missing",
+    "connected_record_invalid",
+    "connected_binding_conflict",
+]
+
+
+class StoreBindingError(ValueError):
+    """A registry store binding cannot be used safely."""
+
+    def __init__(self, reason_code: StoreBindingReason, message: str) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
 
 
 @contextmanager
@@ -349,6 +367,165 @@ def get_store_path_v2(project_id: str) -> Path:
     return store_path
 
 
+def _first_symlink_component(path: Path) -> Path | None:
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            return current
+    return None
+
+
+def _validate_registered_store_path(
+    project_id: str,
+    store_path: Path,
+    *,
+    require_store: bool,
+    strict_store: bool,
+) -> Path:
+    if not store_path.is_absolute():
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Registered store path for {project_id!r} must be absolute.",
+        )
+    resolved = store_path.resolve(strict=False)
+    if resolved != store_path:
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Registered store path for {project_id!r} is not canonical: {store_path}.",
+        )
+    symlink = _first_symlink_component(store_path)
+    if symlink is not None:
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Registered store path for {project_id!r} traverses symlink {symlink}.",
+        )
+    if store_path.name != project_id:
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Registered store path must end in project id {project_id!r}.",
+        )
+
+    default_store = get_store_path_v2(project_id)
+    if store_path != default_store and default_store.exists():
+        raise StoreBindingError(
+            "connected_binding_conflict",
+            f"Both the registered external store and default store exist for {project_id!r}.",
+        )
+
+    if not store_path.exists():
+        if require_store:
+            raise StoreBindingError(
+                "connected_record_missing",
+                f"Registered store path does not exist: {store_path}.",
+            )
+        return store_path
+    if not store_path.is_dir():
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Registered store path is not a directory: {store_path}.",
+        )
+    if strict_store and (
+        not (store_path / PROJECT_MD).is_file()
+        or (store_path / PROJECT_MD).is_symlink()
+        or not (store_path / DECISIONS_DIR).is_dir()
+        or (store_path / DECISIONS_DIR).is_symlink()
+    ):
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Registered path does not contain a valid Nauro store: {store_path}.",
+        )
+    return store_path
+
+
+def resolve_registered_store_path_v2(
+    project_id: str,
+    *,
+    require_store: bool = True,
+) -> Path:
+    """Resolve a v2 entry through the registry-aware store boundary."""
+    entry = get_project_v2(project_id)
+    if entry is None:
+        raise KeyError(f"Project id {project_id!r} not found in v2 registry.")
+    raw_store_path = entry.get("store_path")
+    store_path = Path(raw_store_path) if raw_store_path else get_store_path_v2(project_id)
+    return _validate_registered_store_path(
+        project_id,
+        store_path,
+        require_store=require_store,
+        strict_store=raw_store_path is not None,
+    )
+
+
+def bind_project_store_v2(
+    *,
+    project_id: str,
+    name: str,
+    mode: str,
+    repo_path: Path,
+    store_path: Path,
+    server_url: str | None = None,
+) -> Path:
+    """Bind a validated local store to a v2 project without creating a store."""
+    name = _validate_project_name(name)
+    if mode not in _VALID_MODES_V2:
+        raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
+    if mode == REPO_CONFIG_MODE_CLOUD and not server_url:
+        raise ValueError("Cloud-mode v2 binding requires a server_url.")
+    store_path = _validate_registered_store_path(
+        project_id,
+        store_path,
+        require_store=True,
+        strict_store=True,
+    )
+
+    with _registry_lock():
+        registry = load_registry_v2()
+        existing = registry["projects"].get(project_id)
+        if existing is not None:
+            if existing.get("name") != name or existing.get("mode") != mode:
+                raise StoreBindingError(
+                    "connected_binding_conflict",
+                    f"Registry identity for {project_id!r} conflicts with the repository config.",
+                )
+            if mode == REPO_CONFIG_MODE_CLOUD and existing.get("server_url") != server_url:
+                raise StoreBindingError(
+                    "connected_binding_conflict",
+                    f"Registry server for {project_id!r} conflicts with the repository config.",
+                )
+            try:
+                current = resolve_registered_store_path_v2(project_id, require_store=False)
+            except StoreBindingError as exc:
+                if exc.reason_code == "connected_binding_conflict":
+                    raise
+                current = None
+            if current is not None and current != store_path and current.exists():
+                raise StoreBindingError(
+                    "connected_binding_conflict",
+                    f"Project {project_id!r} is already bound to {current}.",
+                )
+            entry = dict(existing)
+        else:
+            entry = {"name": name, "mode": mode, "repo_paths": []}
+
+        resolved_repo = str(repo_path.resolve())
+        repo_paths = list(entry.get("repo_paths", []))
+        if resolved_repo not in repo_paths:
+            repo_paths.append(resolved_repo)
+        entry["repo_paths"] = repo_paths
+        if mode == REPO_CONFIG_MODE_CLOUD:
+            entry["server_url"] = server_url
+        else:
+            entry.pop("server_url", None)
+        if store_path == get_store_path_v2(project_id):
+            entry.pop("store_path", None)
+        else:
+            entry["store_path"] = str(store_path)
+        registry["projects"][project_id] = entry
+        save_registry_v2(registry)
+    return store_path
+
+
 def _load_registry_v2_or_empty() -> dict:
     """Read v2 registry; treat a v1-on-disk as 'no v2 entries'.
 
@@ -582,6 +759,14 @@ def rename_project_id_v2(
             raise ValueError(f"Project id {new_id!r} is already registered.")
 
         entry = dict(registry["projects"].pop(old_id))
+        raw_store_path = entry.get("store_path")
+        old_store = Path(raw_store_path) if raw_store_path else get_store_path_v2(old_id)
+        _validate_registered_store_path(
+            old_id,
+            old_store,
+            require_store=rename_store,
+            strict_store=raw_store_path is not None,
+        )
         if mode is not None:
             if mode not in _VALID_MODES_V2:
                 raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
@@ -592,14 +777,21 @@ def rename_project_id_v2(
             raise ValueError("Cloud-mode entry requires a server_url.")
         if entry.get("mode") == REPO_CONFIG_MODE_LOCAL:
             entry.pop("server_url", None)
-        registry["projects"][new_id] = entry
 
-        old_store = get_store_path_v2(old_id)
-        new_store = get_store_path_v2(new_id)
+        new_store = old_store.with_name(new_id) if raw_store_path else get_store_path_v2(new_id)
+        if raw_store_path and get_store_path_v2(new_id).exists():
+            raise StoreBindingError(
+                "connected_binding_conflict",
+                f"Default store already exists for new project id {new_id!r}.",
+            )
         if rename_store and old_id != new_id and old_store.exists():
             if new_store.exists():
                 raise ValueError(f"Cannot rename store: destination already exists at {new_store}.")
             shutil.move(str(old_store), str(new_store))
-        new_store.mkdir(parents=True, exist_ok=True)
+        if raw_store_path:
+            entry["store_path"] = str(new_store)
+        else:
+            entry.pop("store_path", None)
+        registry["projects"][new_id] = entry
         save_registry_v2(registry)
     return new_store

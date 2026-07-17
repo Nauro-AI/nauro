@@ -87,6 +87,12 @@ def _guidance(result: dict) -> str:
     return (result.get("guidance") or "").strip()
 
 
+def _connection_guidance(result: dict) -> str:
+    if result.get("status") == "error" and result.get("reason_code"):
+        return _guidance(result)
+    return ""
+
+
 def render_check_decision(result: dict) -> str:
     """Render a related-decision result for chat-UI consumption.
 
@@ -95,6 +101,8 @@ def render_check_decision(result: dict) -> str:
     top-match marker and rationale preview render even when an upstream
     assessment-string edit drifts.
     """
+    if guidance := _connection_guidance(result):
+        return guidance
     if "error" in result:
         return _error_block(result["error"])
 
@@ -167,6 +175,8 @@ def render_get_decision(result: dict, mode: str = "full") -> str:
     projection (triage frontmatter + title + lede), so emit it as-is — a
     second title header would duplicate the projection's own title line.
     """
+    if guidance := _connection_guidance(result):
+        return guidance
     if "error" in result:
         return _error_block(result["error"])
 
@@ -211,6 +221,8 @@ def render_search_decisions(result: dict, query: str | None = None) -> str:
     it takes precedence; the remote transport, whose wire envelope still
     carries ``query``, keeps rendering via the dict fallback.
     """
+    if guidance := _connection_guidance(result):
+        return guidance
     if "error" in result:
         return _error_block(result["error"])
 
@@ -251,6 +263,8 @@ def render_search_decisions(result: dict, query: str | None = None) -> str:
 
 def render_list_decisions(result: dict) -> str:
     """Render the project's decision list."""
+    if guidance := _connection_guidance(result):
+        return guidance
     if "error" in result:
         return _error_block(result["error"])
 
@@ -288,6 +302,8 @@ def render_get_context(result: dict) -> str:
     server uses ``content`` (the kernel ``GetContextResult`` field name).
     Accept either so a single renderer covers both transports.
     """
+    if guidance := _connection_guidance(result):
+        return guidance
     if "error" in result:
         return _error_block(result["error"])
     body = result.get("context") or result.get("content") or ""

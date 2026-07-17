@@ -36,3 +36,40 @@ NO_CONTEXT_YET = (
     "\n"
     f"{_APPROVAL_BEFORE_PROPOSE}"
 )
+
+
+def disconnected_project_guidance(reason_code: str, mode: str) -> str:
+    """Return the approved user copy for a disconnected project state."""
+    if reason_code == "not_connected_on_this_machine" and mode == "cloud":
+        return (
+            "This cloud project has not been connected on this machine. "
+            "Run `nauro reconnect` to verify access and restore its latest synced record."
+        )
+    if reason_code == "not_connected_on_this_machine":
+        return (
+            "This repository names a local Nauro project that has not been connected on this "
+            "machine. If you have the project record, run `nauro reconnect` and locate it. "
+            "Otherwise, the record remains on the machine where the project was adopted.\n\n"
+            "The project owner can run `nauro link --cloud`, commit the updated project config, "
+            "and push it. After pulling that change, other machines can attach and restore the "
+            "cloud record."
+        )
+    if reason_code == "connected_record_missing":
+        return (
+            "Nauro was connected on this machine, but the local project record is no longer at "
+            "its registered location. Run `nauro reconnect` to locate it or restore an eligible "
+            "cloud copy."
+        )
+    if reason_code == "connected_record_invalid":
+        return (
+            "Nauro found the registered project record, but it could not validate it. Nauro will "
+            "not replace or repair it automatically. Run `nauro reconnect` to inspect the record "
+            "and available recovery options."
+        )
+    if reason_code == "connected_binding_conflict":
+        return (
+            "Nauro found conflicting local records for this project. It will not choose or "
+            "overwrite either. Run `nauro reconnect` to inspect the conflict and available "
+            "recovery options."
+        )
+    raise ValueError(f"Unknown disconnected-project reason: {reason_code!r}.")

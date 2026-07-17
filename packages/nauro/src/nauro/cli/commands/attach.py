@@ -19,10 +19,12 @@ from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
+from nauro.store.recovery import RecoveryError, require_cloud_membership, restore_cloud_store
 from nauro.store.registry import (
-    add_repo_v2,
+    StoreBindingError,
+    bind_project_store_v2,
     get_project_v2,
-    register_project_v2,
+    get_store_path_v2,
     resolve_v2_from_path,
 )
 from nauro.store.repo_config import (
@@ -31,7 +33,7 @@ from nauro.store.repo_config import (
     repo_config_path,
     save_repo_config,
 )
-from nauro.sync.cloud_projects import CloudProjectError, list_projects
+from nauro.store.resolution import DisconnectedProject, resolve_registered_project
 from nauro.templates.agents_md_regen import warn_then_regen
 
 _Opt_repo_path = typer.Option(
@@ -89,36 +91,29 @@ def attach(
     refuse_repo_config_symlink(repo_path)
     _refuse_attach_collision(repo_path, project_id)
     try:
-        projects = list_projects()
-    except CloudProjectError as exc:
+        name = require_cloud_membership(project_id)
+        existing = get_project_v2(project_id)
+        server_url = existing.get("server_url", DEFAULT_API_URL) if existing else DEFAULT_API_URL
+        connection = resolve_registered_project(project_id)
+        if isinstance(connection, DisconnectedProject):
+            if connection.reason_code != "connected_record_missing":
+                raise RecoveryError(connection.guidance)
+            store_path = restore_cloud_store(project_id, connection.store_path)
+        elif connection is None:
+            store_path = restore_cloud_store(project_id, get_store_path_v2(project_id))
+        else:
+            store_path = connection.store_path
+        bind_project_store_v2(
+            project_id=project_id,
+            name=name,
+            mode=REPO_CONFIG_MODE_CLOUD,
+            repo_path=repo_path,
+            store_path=store_path,
+            server_url=server_url,
+        )
+    except (RecoveryError, StoreBindingError, OSError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-
-    match = next((p for p in projects if p["project_id"] == project_id), None)
-    if match is None:
-        typer.echo(
-            f"Project id {project_id!r} not found among your cloud projects.\n"
-            "  Check the id, or run 'nauro auth login' to refresh credentials.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    name = match["name"]
-
-    existing = get_project_v2(project_id)
-    if existing is None:
-        _pid, store_path = register_project_v2(
-            name,
-            [repo_path],
-            mode=REPO_CONFIG_MODE_CLOUD,
-            project_id=project_id,
-            server_url=DEFAULT_API_URL,
-        )
-    else:
-        add_repo_v2(project_id, repo_path)
-        from nauro.store.registry import get_store_path_v2
-
-        store_path = get_store_path_v2(project_id)
 
     save_repo_config(
         repo_path,
@@ -126,7 +121,7 @@ def attach(
             "mode": REPO_CONFIG_MODE_CLOUD,
             "id": project_id,
             "name": name,
-            "server_url": DEFAULT_API_URL,
+            "server_url": server_url,
         },
     )
     for warning in public_surface_git_warnings(repo_path, ".nauro/config.json"):

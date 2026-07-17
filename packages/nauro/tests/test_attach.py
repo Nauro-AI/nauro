@@ -16,8 +16,10 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store import registry
+from nauro.store.recovery import RecoveryError
 from nauro.store.repo_config import load_repo_config, save_repo_config
 from nauro.sync import cloud_projects
+from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config
 
 runner = CliRunner()
@@ -34,6 +36,11 @@ def _list_response(projects):
         return httpx.Response(200, json=projects, request=httpx.Request(method, url))
 
     return handler
+
+
+def _restore_project(_project_id, destination):
+    scaffold_project_store("team-proj", destination)
+    return destination
 
 
 def test_attach_happy_path(tmp_path, monkeypatch):
@@ -53,7 +60,10 @@ def test_attach_happy_path(tmp_path, monkeypatch):
         ]
     )
 
-    with patch.object(cloud_projects.httpx, "request", side_effect=handler):
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=handler),
+        patch("nauro.cli.commands.attach.restore_cloud_store", side_effect=_restore_project),
+    ):
         result = runner.invoke(app, ["attach", EXAMPLE_PID])
 
     assert result.exit_code == 0, result.output
@@ -70,6 +80,7 @@ def test_attach_happy_path(tmp_path, monkeypatch):
 
     store_path = tmp_path / "projects" / EXAMPLE_PID
     assert store_path.is_dir()
+    assert (store_path / "project.md").is_file()
     assert (tmp_path / "AGENTS.md").is_file()
     assert "## Project: team-proj" in (tmp_path / "AGENTS.md").read_text()
 
@@ -91,7 +102,10 @@ def test_attach_preserves_hand_authored_agents_md(tmp_path, monkeypatch):
         ]
     )
 
-    with patch.object(cloud_projects.httpx, "request", side_effect=handler):
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=handler),
+        patch("nauro.cli.commands.attach.restore_cloud_store", side_effect=_restore_project),
+    ):
         result = runner.invoke(app, ["attach", EXAMPLE_PID])
 
     assert result.exit_code == 0, result.output
@@ -219,3 +233,34 @@ def test_attach_non_member_writes_nothing(tmp_path, monkeypatch):
     assert registry.get_project_v2(EXAMPLE_PID) is None
     assert not (tmp_path / ".nauro" / "config.json").exists()
     assert not (tmp_path / "projects" / EXAMPLE_PID).exists()
+
+
+def test_attach_restore_failure_writes_no_registry_or_repo_config(tmp_path, monkeypatch):
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    handler = _list_response(
+        [
+            {
+                "project_id": EXAMPLE_PID,
+                "name": "team-proj",
+                "role": "viewer",
+                "created_at": "2026-04-27T00:00:00Z",
+            }
+        ]
+    )
+
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=handler),
+        patch(
+            "nauro.cli.commands.attach.restore_cloud_store",
+            side_effect=RecoveryError("download failed"),
+        ),
+    ):
+        result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 1
+    assert "download failed" in result.output
+    assert registry.get_project_v2(EXAMPLE_PID) is None
+    assert not (tmp_path / ".nauro" / "config.json").exists()
+    assert not (tmp_path / "projects" / EXAMPLE_PID).exists()
+    assert not (tmp_path / "AGENTS.md").exists()

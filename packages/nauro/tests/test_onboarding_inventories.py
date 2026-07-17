@@ -25,6 +25,7 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
 from nauro.sync import cloud_projects
+from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config, snapshot_tree
 
 runner = CliRunner()
@@ -242,12 +243,7 @@ def test_init_with_repo_association_inventory(tmp_path: Path, monkeypatch):
 
 
 def test_attach_happy_path_inventory(tmp_path: Path, monkeypatch):
-    """Cloud attach writes repo config + AGENTS.md; the store stays empty.
-
-    Unlike init/adopt, attach does not scaffold the store: the directory is
-    created empty (files arrive via sync), so nothing under ``projects/``
-    shows up in the inventory.
-    """
+    """Cloud attach installs a complete record before local registration."""
     seed_auth_config()
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -268,12 +264,21 @@ def test_attach_happy_path_inventory(tmp_path: Path, monkeypatch):
             request=httpx.Request(method, url),
         )
 
-    with patch.object(cloud_projects.httpx, "request", side_effect=handler):
+    def restore(_project_id, destination):
+        scaffold_project_store("team-proj", destination)
+        return destination
+
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=handler),
+        patch("nauro.cli.commands.attach.restore_cloud_store", side_effect=restore),
+    ):
         result = runner.invoke(app, ["attach", EXAMPLE_PID])
 
     assert result.exit_code == 0
     assert snapshot_tree(tmp_path) == sorted(
-        BOOKKEEPING | {"config.json", "repo/.nauro/config.json", "repo/AGENTS.md"}
+        BOOKKEEPING
+        | {"config.json", "repo/.nauro/config.json", "repo/AGENTS.md"}
+        | _store_files(EXAMPLE_PID)
     )
     _assert_markers_in_order(
         result.stdout,

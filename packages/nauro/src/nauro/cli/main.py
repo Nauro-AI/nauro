@@ -62,6 +62,7 @@ def _register_commands() -> None:
         note,
         projects,
         questions,
+        reconnect,
         render_plugin,
         serve,
         setup,
@@ -74,6 +75,7 @@ def _register_commands() -> None:
     app.command(name="init")(init.init)
     app.command(name="adopt")(adopt.adopt)
     app.command(name="attach")(attach.attach)
+    app.command(name="reconnect")(reconnect.reconnect)
     app.command(name="link")(link.link)
     app.command(name="note")(note.note)
     app.add_typer(projects.projects_app, name="projects")

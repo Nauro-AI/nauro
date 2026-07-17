@@ -183,10 +183,10 @@ def _resolve_store_path(cwd: Path) -> Path | None:
     cwd rather than the process cwd and returns None instead of raising — the
     hook never errors a turn over an unresolvable directory.
     """
-    from nauro.store.resolution import resolve_from_cwd
+    from nauro.store.resolution import RepoResolution, resolve_from_cwd
 
     resolution = resolve_from_cwd(cwd)
-    return resolution.store_path if resolution is not None else None
+    return resolution.store_path if isinstance(resolution, RepoResolution) else None
 
 
 def _check(store_path: Path, prompt: str) -> list[dict]:

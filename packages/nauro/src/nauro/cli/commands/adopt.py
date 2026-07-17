@@ -44,12 +44,15 @@ from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.skills import load_adopt_body
 from nauro.store.registry import (
     RegistrySchemaError,
+    StoreBindingError,
     find_projects_by_name_v2,
+    get_project_v2,
     get_repo_paths,
     get_store_path_v2,
     register_project_v2,
     remove_project_v2,
     remove_repo_v2,
+    resolve_registered_store_path_v2,
 )
 from nauro.store.repo_config import RepoConfigSchemaError, load_repo_config, save_repo_config
 from nauro.store.write_safety import SymlinkRefusal, find_symlink
@@ -266,8 +269,15 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
     if pid:
         other_repos = [p for p in get_repo_paths(pid) if str(Path(p).resolve()) != repo_resolved]
         try:
-            store_path = get_store_path_v2(pid)
-        except ValueError:
+            store_path = resolve_registered_store_path_v2(pid)
+        except StoreBindingError as exc:
+            entry = get_project_v2(pid) or {}
+            raw_store_path = entry.get("store_path")
+            store_path = Path(raw_store_path) if raw_store_path else get_store_path_v2(pid)
+            if purge_store and exc.reason_code != "connected_record_missing":
+                typer.echo(f"Error: --purge-store refused: {exc}", err=True)
+                raise typer.Exit(code=1) from exc
+        except (KeyError, ValueError):
             store_path = None
     is_last_repo = not other_repos
 

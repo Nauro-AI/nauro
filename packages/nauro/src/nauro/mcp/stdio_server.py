@@ -35,6 +35,7 @@ from mcp.server import FastMCP
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from nauro_core.constants import MCP_INSTRUCTIONS
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
+from nauro_core.operations import ErrorPayload
 from nauro_core.renderers import RENDERERS as _RENDERERS
 from pydantic import Field
 
@@ -53,7 +54,10 @@ from nauro.mcp.tools import (
 )
 from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.resolution import (
+    DisconnectedProject,
+    DisconnectedProjectError,
     NoProjectError,
+    RepoResolution,
     StoreResolutionError,
     resolve_from_cwd,
     resolve_store,
@@ -145,6 +149,21 @@ def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
         return _resolve_store(project_id, cwd), None
     except NoProjectError:
         return None, {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+    except DisconnectedProjectError as exc:
+        state = exc.state
+        return None, {
+            "store": "local",
+            "status": "error",
+            "error": ErrorPayload(kind="error", reason=state.guidance).model_dump(
+                exclude_none=True
+            ),
+            "guidance": state.guidance,
+            "project_id": state.project_id,
+            "project_name": state.display_name,
+            "project_mode": state.mode,
+            "reason_code": state.reason_code,
+            "recovery_actions": list(state.recovery_actions),
+        }
     except StoreResolutionError as exc:
         return None, {"store": "local", "status": "error", "guidance": str(exc)}
 
@@ -374,16 +393,16 @@ def flag_question(
         str | None, Field(description=_param_desc("flag_question", "project_id"))
     ] = None,
     cwd: _CWD_PARAM = None,
-) -> str:
+) -> str | dict:
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
-        return err["guidance"]
+        return err if err.get("reason_code") else err["guidance"]
     result = tool_flag_question(
         store_path, question, context, targets=targets, resolved_by=resolved_by
     )
     if result.get("status") == "rejected":
         error = result.get("error") or {}
-        reason = error.get("reason", "Flag rejected.")
+        reason = str(error.get("reason", "Flag rejected."))
         return reason
     if resolved_by is not None:
         return "Question(s) resolved."
@@ -399,10 +418,10 @@ def update_state(
         str | None, Field(description=_param_desc("update_state", "project_id"))
     ] = None,
     cwd: _CWD_PARAM = None,
-) -> str:
+) -> str | dict:
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
-        return err["guidance"]
+        return err if err.get("reason_code") else err["guidance"]
     result = tool_update_state(store_path, delta)
     if result.get("warning"):
         return f"State updated. {result['warning']}"
@@ -419,9 +438,10 @@ def _pull_on_startup() -> None:
     """
     try:
         resolution = resolve_from_cwd(Path(os.getcwd()))
-        if resolution is None:
+        if resolution is None or isinstance(resolution, DisconnectedProject):
             logger.debug("session-start pull: no project found in cwd, skipping")
             return
+        assert isinstance(resolution, RepoResolution)
         project_key, store_path = resolution.project_id, resolution.store_path
         if not store_path.exists():
             logger.debug("session-start pull: store not found for %s, skipping", project_key)

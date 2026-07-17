@@ -32,7 +32,6 @@ from nauro.constants import (
 from nauro.store.registry import (
     add_repo_v2,
     find_projects_by_name_v2,
-    get_store_path_v2,
     register_project_v2,
     resolve_v2_from_path,
 )
@@ -42,6 +41,7 @@ from nauro.store.repo_config import (
     repo_config_path,
     save_repo_config,
 )
+from nauro.store.resolution import DisconnectedProject, resolve_registered_project
 from nauro.sync.cloud_projects import CloudProjectError, create_project
 from nauro.templates.agents_md_regen import warn_then_regen
 from nauro.templates.scaffolds import scaffold_project_store
@@ -209,7 +209,14 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
     existing = find_projects_by_name_v2(name)
     if existing:
         pid, _entry = existing[0]
-        store_path = get_store_path_v2(pid)
+        connection = resolve_registered_project(pid)
+        if isinstance(connection, DisconnectedProject):
+            typer.echo(connection.guidance, err=True)
+            raise typer.Exit(code=1)
+        if connection is None:
+            typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
+            raise typer.Exit(code=1)
+        store_path = connection.store_path
         for rp in repo_paths:
             _refuse_if_repo_already_claimed(rp, allowed_project_id=pid)
         for rp in repo_paths:
@@ -358,7 +365,14 @@ def init(
                     err=True,
                 )
                 raise typer.Exit(code=1)
-            store_path = get_store_path_v2(pid)
+            connection = resolve_registered_project(pid)
+            if isinstance(connection, DisconnectedProject):
+                typer.echo(connection.guidance, err=True)
+                raise typer.Exit(code=1)
+            if connection is None:
+                typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
+                raise typer.Exit(code=1)
+            store_path = connection.store_path
             # Pre-check every target repo before any state changes.
             for rp in repo_paths:
                 refuse_repo_config_symlink(rp)

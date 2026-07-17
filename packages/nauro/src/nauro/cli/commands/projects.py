@@ -13,6 +13,7 @@ second entry for a repo that is already claimed.
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 
 import typer
 
@@ -85,8 +86,11 @@ def remove_project(
     ),
 ) -> None:
     """Remove a project's registry entry, leaving its on-disk store intact."""
+    registry = load_registry_v2()
+    entry = registry["projects"].get(project_id) or {}
+    raw_store_path = entry.get("store_path")
     try:
-        store_path = get_store_path_v2(project_id)
+        store_path = Path(raw_store_path) if raw_store_path else get_store_path_v2(project_id)
     except ValueError as exc:
         # A project_id that escapes the projects root (e.g. ``..`` or an
         # absolute path) trips the containment guard; reject it cleanly

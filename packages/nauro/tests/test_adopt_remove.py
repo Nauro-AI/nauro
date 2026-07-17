@@ -70,6 +70,32 @@ def test_remove_purge_store_deletes_store(tmp_path, monkeypatch):
     result = runner.invoke(app, ["adopt", "--remove", "--purge-store", "--yes"])
     assert result.exit_code == 0, result.output
     assert not store_path.exists()
+
+
+def test_remove_purge_store_deletes_external_bound_store(tmp_path, monkeypatch):
+    repo = _adopt_env(monkeypatch, tmp_path)
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 0, result.output
+    pid = _pid_of(repo)
+    default_store = get_store_path_v2(pid)
+    external_store = tmp_path / "external" / pid
+    external_store.parent.mkdir()
+    default_store.rename(external_store)
+    from nauro.store.registry import bind_project_store_v2
+
+    bind_project_store_v2(
+        project_id=pid,
+        name="alpha",
+        mode="local",
+        repo_path=repo,
+        store_path=external_store,
+    )
+
+    result = runner.invoke(app, ["adopt", "--remove", "--purge-store", "--yes"])
+
+    assert result.exit_code == 0, result.output
+    assert not external_store.exists()
+    assert not default_store.exists()
     assert "deleted store" in result.output
 
 
