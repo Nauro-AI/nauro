@@ -85,18 +85,32 @@ def _wrap_with_renderer(
 
     ``renderer_kwargs`` threads renderer-specific options (e.g.
     ``get_decision``'s requested ``mode``) without storing them on the
-    result envelope.
+    result envelope. Disconnected-project errors also retain their existing
+    structured envelope so clients can act on stable recovery metadata while
+    humans still receive the rendered guidance.
     """
     json_text = json.dumps(result, indent=2, default=str)
+    structured_content = (
+        result if result.get("status") == "error" and result.get("reason_code") else None
+    )
     renderer = _RENDERERS.get(tool_name)
     if renderer is None:
-        return CallToolResult(content=[TextContent(type="text", text=json_text)])
+        return CallToolResult(
+            content=[TextContent(type="text", text=json_text)],
+            structuredContent=structured_content,
+        )
     try:
         rendered = renderer(result, **(renderer_kwargs or {}))
     except Exception:
         logger.exception("renderer failed for tool=%s; falling back to JSON-only", tool_name)
-        return CallToolResult(content=[TextContent(type="text", text=json_text)])
-    return CallToolResult(content=[TextContent(type="text", text=rendered)])
+        return CallToolResult(
+            content=[TextContent(type="text", text=json_text)],
+            structuredContent=structured_content,
+        )
+    return CallToolResult(
+        content=[TextContent(type="text", text=rendered)],
+        structuredContent=structured_content,
+    )
 
 
 def _spec_kwargs(name: str) -> dict[str, Any]:

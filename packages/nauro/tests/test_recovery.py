@@ -142,6 +142,43 @@ def test_restore_cloud_store_refuses_unsafe_manifest_without_partial_record(
     assert not destination.exists()
 
 
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"path": "project.md", "etag": "0" * 32, "size": "1"},
+        {"path": "project.md", "etag": 42, "size": 1},
+        {"path": 42, "etag": "0" * 32, "size": 1},
+    ],
+)
+def test_restore_cloud_store_rejects_malformed_manifest_types(entry, tmp_path, monkeypatch):
+    monkeypatch.setattr(recovery, "fetch_manifest", lambda _pid: [entry])
+    destination = tmp_path / "projects" / PID
+
+    with pytest.raises(RecoveryError, match="manifest"):
+        restore_cloud_store(PID, destination)
+
+    assert not destination.exists()
+    assert not list(destination.parent.glob(f".{PID}.restore-*"))
+
+
+def test_restore_cloud_store_rejects_malformed_presign_result(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    files = _store_files(source)
+    _mock_remote(monkeypatch, files)
+    monkeypatch.setattr(
+        recovery,
+        "request_presigned_urls",
+        lambda _pid, operations: [{"verb": "GET", "path": operations[0]["path"], "url": 42}],
+    )
+    destination = tmp_path / "projects" / PID
+
+    with pytest.raises(RecoveryError, match="presign"):
+        restore_cloud_store(PID, destination)
+
+    assert not destination.exists()
+    assert not list(destination.parent.glob(f".{PID}.restore-*"))
+
+
 def test_restore_cloud_store_rejects_damaged_decision_graph(tmp_path, monkeypatch):
     source = tmp_path / "source"
     files = _store_files(source)

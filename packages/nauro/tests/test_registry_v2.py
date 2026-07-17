@@ -16,6 +16,7 @@ from nauro.constants import (
 )
 from nauro.store import registry
 from nauro.store.registry import (
+    RegistryEntryV2,
     RegistrySchemaError,
     StoreBindingError,
     bind_project_store_v2,
@@ -25,6 +26,7 @@ from nauro.store.registry import (
     register_project_v2,
     resolve_registered_store_path_v2,
     save_registry_v2,
+    validate_registry_entry_v2,
 )
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -76,6 +78,43 @@ def test_v2_round_trip_preserves_optional_external_store_path(tmp_path, monkeypa
     save_registry_v2(data)
 
     assert load_registry_v2() == data
+
+
+def test_registry_entry_boundary_normalizes_lists_without_changing_json_shape():
+    raw = {
+        "name": "nauro",
+        "mode": "local",
+        "repo_paths": ["/work/nauro"],
+        "future_field": {"enabled": True},
+    }
+
+    entry = validate_registry_entry_v2("01KQ6AZGNA0B3QBF67NBXP3S45", raw)
+
+    assert isinstance(entry, RegistryEntryV2)
+    assert entry.repo_paths == ("/work/nauro",)
+    assert entry.model_dump(mode="json", exclude_unset=True) == raw
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("mode", "remote"),
+        ("repo_paths", [42]),
+        ("store_path", 42),
+    ],
+)
+def test_registry_entry_boundary_rejects_malformed_typed_fields(field, value):
+    raw = {
+        "name": "nauro",
+        "mode": "local",
+        "repo_paths": ["/work/nauro"],
+        field: value,
+    }
+
+    with pytest.raises(StoreBindingError) as exc:
+        validate_registry_entry_v2("01KQ6AZGNA0B3QBF67NBXP3S45", raw)
+
+    assert exc.value.reason_code == "connected_record_invalid"
 
 
 def test_bind_external_store_records_validated_absolute_path(tmp_path, monkeypatch):

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Literal
 
 from filelock import FileLock
+from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError, model_validator
 
 from nauro.constants import (
     DECISIONS_DIR,
@@ -65,6 +66,39 @@ class StoreBindingError(ValueError):
     def __init__(self, reason_code: StoreBindingReason, message: str) -> None:
         super().__init__(message)
         self.reason_code = reason_code
+
+
+class RegistryEntryV2(BaseModel):
+    """Validated in-memory view of one schema-v2 registry entry."""
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    name: StrictStr
+    mode: Literal["local", "cloud"]
+    repo_paths: tuple[StrictStr, ...] = ()
+    server_url: StrictStr | None = None
+    store_path: StrictStr | None = None
+
+    @model_validator(mode="after")
+    def validate_cloud_server(self) -> "RegistryEntryV2":
+        if self.mode == REPO_CONFIG_MODE_CLOUD and not (self.server_url or "").strip():
+            raise ValueError("cloud registry entries require a nonempty server_url")
+        return self
+
+    @property
+    def has_store_path(self) -> bool:
+        return "store_path" in self.model_fields_set
+
+
+def validate_registry_entry_v2(project_id: str, raw_entry: object) -> RegistryEntryV2:
+    """Parse an untrusted registry entry into its typed in-memory form."""
+    try:
+        return RegistryEntryV2.model_validate(raw_entry)
+    except ValidationError as exc:
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Registry entry for {project_id!r} has an invalid schema.",
+        ) from exc
 
 
 @contextmanager
@@ -457,13 +491,14 @@ def resolve_registered_store_path_v2(
     project_id: str,
     *,
     require_store: bool = True,
+    registry_entry: RegistryEntryV2 | None = None,
 ) -> Path:
     """Resolve a v2 entry through the registry-aware store boundary."""
-    entry = get_project_v2(project_id)
+    entry = registry_entry or get_project_entry_v2(project_id)
     if entry is None:
         raise KeyError(f"Project id {project_id!r} not found in v2 registry.")
 
-    if "store_path" not in entry:
+    if not entry.has_store_path:
         return _validate_store_structure(
             project_id,
             get_store_path_v2(project_id),
@@ -471,8 +506,8 @@ def resolve_registered_store_path_v2(
             strict_store=True,
         )
 
-    raw_store_path = entry["store_path"]
-    if not isinstance(raw_store_path, str) or not raw_store_path.strip():
+    raw_store_path = entry.store_path
+    if raw_store_path is None or not raw_store_path.strip():
         raise StoreBindingError(
             "connected_record_invalid",
             f"Registered store path for {project_id!r} must be a nonempty string.",
@@ -485,12 +520,16 @@ def resolve_registered_store_path_v2(
     )
 
 
-def registered_store_path_hint_v2(project_id: str, entry: dict) -> Path | None:
+def registered_store_path_hint_v2(project_id: str, entry: object) -> Path | None:
     """Return a display-only store hint without trusting malformed registry data."""
-    if "store_path" not in entry:
+    try:
+        typed_entry = validate_registry_entry_v2(project_id, entry)
+    except StoreBindingError:
+        return None
+    if not typed_entry.has_store_path:
         return get_store_path_v2(project_id)
-    raw_store_path = entry["store_path"]
-    if not isinstance(raw_store_path, str) or not raw_store_path.strip():
+    raw_store_path = typed_entry.store_path
+    if raw_store_path is None or not raw_store_path.strip():
         return None
     return Path(raw_store_path)
 
@@ -527,20 +566,25 @@ def bind_project_store_v2(
 
     with _registry_lock():
         registry = load_registry_v2()
-        existing = registry["projects"].get(project_id)
-        if existing is not None:
-            if existing.get("name") != name or existing.get("mode") != mode:
+        raw_existing = registry["projects"].get(project_id)
+        if raw_existing is not None:
+            existing = validate_registry_entry_v2(project_id, raw_existing)
+            if existing.name != name or existing.mode != mode:
                 raise StoreBindingError(
                     "connected_binding_conflict",
                     f"Registry identity for {project_id!r} conflicts with the repository config.",
                 )
-            if mode == REPO_CONFIG_MODE_CLOUD and existing.get("server_url") != server_url:
+            if mode == REPO_CONFIG_MODE_CLOUD and existing.server_url != server_url:
                 raise StoreBindingError(
                     "connected_binding_conflict",
                     f"Registry server for {project_id!r} conflicts with the repository config.",
                 )
             try:
-                current = resolve_registered_store_path_v2(project_id, require_store=False)
+                current = resolve_registered_store_path_v2(
+                    project_id,
+                    require_store=False,
+                    registry_entry=existing,
+                )
             except StoreBindingError as exc:
                 if exc.reason_code == "connected_binding_conflict":
                     raise
@@ -550,12 +594,13 @@ def bind_project_store_v2(
                     "connected_binding_conflict",
                     f"Project {project_id!r} is already bound to {current}.",
                 )
-            entry = dict(existing)
+            entry = existing.model_dump(mode="json", exclude_unset=True)
+            repo_paths = list(existing.repo_paths)
         else:
             entry = {"name": name, "mode": mode, "repo_paths": []}
+            repo_paths = []
 
         resolved_repo = str(repo_path.resolve())
-        repo_paths = list(entry.get("repo_paths", []))
         if resolved_repo not in repo_paths:
             repo_paths.append(resolved_repo)
         entry["repo_paths"] = repo_paths
@@ -590,6 +635,14 @@ def get_project_v2(project_id: str) -> dict | None:
     """Look up a v2 project entry by its project_id (ULID)."""
     registry = _load_registry_v2_or_empty()
     return registry["projects"].get(project_id)  # type: ignore[no-any-return]
+
+
+def get_project_entry_v2(project_id: str) -> RegistryEntryV2 | None:
+    """Return one v2 registry entry after validating its boundary shape."""
+    entry = get_project_v2(project_id)
+    if entry is None:
+        return None
+    return validate_registry_entry_v2(project_id, entry)
 
 
 def is_cloud_project(project_id: str) -> bool:
@@ -804,8 +857,9 @@ def rename_project_id_v2(
         if new_id != old_id and new_id in registry["projects"]:
             raise ValueError(f"Project id {new_id!r} is already registered.")
 
-        entry = dict(registry["projects"].pop(old_id))
-        if "store_path" not in entry:
+        existing = validate_registry_entry_v2(old_id, registry["projects"].pop(old_id))
+        entry = existing.model_dump(mode="json", exclude_unset=True)
+        if not existing.has_store_path:
             raw_store_path = None
             old_store = _validate_store_structure(
                 old_id,
@@ -814,8 +868,8 @@ def rename_project_id_v2(
                 strict_store=True,
             )
         else:
-            raw_store_path = entry["store_path"]
-            if not isinstance(raw_store_path, str) or not raw_store_path.strip():
+            raw_store_path = existing.store_path
+            if raw_store_path is None or not raw_store_path.strip():
                 raise StoreBindingError(
                     "connected_record_invalid",
                     f"Registered store path for {old_id!r} must be a nonempty string.",
@@ -830,12 +884,17 @@ def rename_project_id_v2(
             if mode not in _VALID_MODES_V2:
                 raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
             entry["mode"] = mode
+        updated_mode = mode or existing.mode
+        updated_server_url = server_url if server_url is not None else existing.server_url
+        if updated_mode == REPO_CONFIG_MODE_CLOUD and not updated_server_url:
+            raise ValueError("Cloud-mode entry requires a server_url.")
         if server_url is not None:
             entry["server_url"] = server_url
-        if entry.get("mode") == REPO_CONFIG_MODE_CLOUD and not entry.get("server_url"):
-            raise ValueError("Cloud-mode entry requires a server_url.")
-        if entry.get("mode") == REPO_CONFIG_MODE_LOCAL:
+        if updated_mode == REPO_CONFIG_MODE_LOCAL:
             entry.pop("server_url", None)
+        entry = validate_registry_entry_v2(old_id, entry).model_dump(
+            mode="json", exclude_unset=True
+        )
 
         new_store = old_store.with_name(new_id) if raw_store_path else get_store_path_v2(new_id)
         if raw_store_path and get_store_path_v2(new_id).exists():

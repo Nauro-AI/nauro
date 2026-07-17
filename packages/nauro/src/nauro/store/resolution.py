@@ -26,8 +26,10 @@ from typing import Literal, NamedTuple
 
 from nauro.onboarding import disconnected_project_guidance
 from nauro.store.registry import (
+    RegistryEntryV2,
     StoreBindingError,
     find_projects_by_name_v2,
+    get_project_entry_v2,
     get_project_v2,
     get_store_path,
     get_store_path_v2,
@@ -35,6 +37,7 @@ from nauro.store.registry import (
     resolve_project,
     resolve_registered_store_path_v2,
     resolve_v2_from_path,
+    validate_registry_entry_v2,
 )
 from nauro.store.repo_config import (
     RepoConfigSchemaError,
@@ -192,13 +195,20 @@ def _disconnected(
     )
 
 
-def _store_path_hint(entry: dict, project_id: str) -> Path:
+def _store_path_hint(entry: RegistryEntryV2, project_id: str) -> Path:
     return registered_store_path_hint_v2(project_id, entry) or get_store_path_v2(project_id)
 
 
 def _connection_for_config(cfg: dict) -> RepoResolution | DisconnectedProject:
     project_id = cfg["id"]
-    entry = get_project_v2(project_id)
+    try:
+        entry = get_project_entry_v2(project_id)
+    except StoreBindingError:
+        return _disconnected(
+            cfg,
+            "connected_record_invalid",
+            get_store_path_v2(project_id),
+        )
     if entry is None:
         return _disconnected(
             cfg,
@@ -207,9 +217,9 @@ def _connection_for_config(cfg: dict) -> RepoResolution | DisconnectedProject:
         )
     configured_server = cfg.get("server_url")
     if (
-        entry.get("name") != cfg.get("name")
-        or entry.get("mode") != cfg.get("mode")
-        or (cfg.get("mode") == "cloud" and entry.get("server_url") != configured_server)
+        entry.name != cfg.get("name")
+        or entry.mode != cfg.get("mode")
+        or (cfg.get("mode") == "cloud" and entry.server_url != configured_server)
     ):
         return _disconnected(
             cfg,
@@ -217,7 +227,7 @@ def _connection_for_config(cfg: dict) -> RepoResolution | DisconnectedProject:
             _store_path_hint(entry, project_id),
         )
     try:
-        store_path = resolve_registered_store_path_v2(project_id)
+        store_path = resolve_registered_store_path_v2(project_id, registry_entry=entry)
     except StoreBindingError as exc:
         return _disconnected(cfg, exc.reason_code, _store_path_hint(entry, project_id))
     return RepoResolution(store_path, project_id, cfg.get("name") or project_id)
@@ -225,17 +235,26 @@ def _connection_for_config(cfg: dict) -> RepoResolution | DisconnectedProject:
 
 def _connection_for_registry_entry(
     project_id: str,
-    entry: dict,
+    raw_entry: object,
 ) -> RepoResolution | DisconnectedProject:
+    try:
+        entry = validate_registry_entry_v2(project_id, raw_entry)
+    except StoreBindingError:
+        cfg = {"id": project_id, "name": project_id, "mode": "local"}
+        return _disconnected(
+            cfg,
+            "connected_record_invalid",
+            get_store_path_v2(project_id),
+        )
     cfg = {
         "id": project_id,
-        "name": entry.get("name") or project_id,
-        "mode": entry.get("mode") or "local",
+        "name": entry.name,
+        "mode": entry.mode,
     }
-    if entry.get("server_url"):
-        cfg["server_url"] = entry["server_url"]
+    if entry.server_url:
+        cfg["server_url"] = entry.server_url
     try:
-        store_path = resolve_registered_store_path_v2(project_id)
+        store_path = resolve_registered_store_path_v2(project_id, registry_entry=entry)
     except StoreBindingError as exc:
         return _disconnected(cfg, exc.reason_code, _store_path_hint(entry, project_id))
     return RepoResolution(store_path, project_id, cfg["name"])
