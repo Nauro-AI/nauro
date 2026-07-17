@@ -474,11 +474,16 @@ def _validate_store_structure(
             "connected_record_invalid",
             f"Registered store path is not a directory: {store_path}.",
         )
+    # Symlinked store components are refused in BOTH modes: tolerance for
+    # the managed default path means components may be absent, never that a
+    # pre-planted link may redirect store reads or sync writes elsewhere.
+    if (store_path / PROJECT_MD).is_symlink() or (store_path / DECISIONS_DIR).is_symlink():
+        raise StoreBindingError(
+            "connected_record_invalid",
+            f"Store components must not be symlinks: {store_path}.",
+        )
     if strict_store and (
-        not (store_path / PROJECT_MD).is_file()
-        or (store_path / PROJECT_MD).is_symlink()
-        or not (store_path / DECISIONS_DIR).is_dir()
-        or (store_path / DECISIONS_DIR).is_symlink()
+        not (store_path / PROJECT_MD).is_file() or not (store_path / DECISIONS_DIR).is_dir()
     ):
         raise StoreBindingError(
             "connected_record_invalid",
@@ -498,12 +503,18 @@ def resolve_registered_store_path_v2(
     if entry is None:
         raise KeyError(f"Project id {project_id!r} not found in v2 registry.")
 
+    # Strict structural validation is an external-binding rule: a
+    # mapped path must contain a valid Nauro store. The default home path is
+    # Nauro-managed and keeps its pre-recovery tolerance — an existing but
+    # structurally incomplete default store resolves, and downstream tools
+    # degrade gracefully, instead of dead-ending every command in a
+    # connected_record_invalid state that reconnect cannot restore.
     if not entry.has_store_path:
         return _validate_store_structure(
             project_id,
             get_store_path_v2(project_id),
             require_store=require_store,
-            strict_store=True,
+            strict_store=False,
         )
 
     raw_store_path = entry.store_path
@@ -542,19 +553,31 @@ def bind_project_store_v2(
     repo_path: Path,
     store_path: Path,
     server_url: str | None = None,
+    update_name: bool = False,
 ) -> Path:
-    """Bind a validated local store to a v2 project without creating a store."""
+    """Bind a validated local store to a v2 project without creating a store.
+
+    ``update_name`` lets a caller holding the authoritative current name (the
+    cloud, via membership verification) reconcile a server-side rename instead
+    of conflicting. Callers whose name comes from repository config must leave
+    it False — repo content never overwrites registry identity.
+    """
     name = _validate_project_name(name)
     if mode not in _VALID_MODES_V2:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
     if mode == REPO_CONFIG_MODE_CLOUD and not server_url:
         raise ValueError("Cloud-mode v2 binding requires a server_url.")
-    if store_path == get_store_path_v2(project_id):
+    default_store = get_store_path_v2(project_id)
+    if store_path == default_store:
+        # The default home path keeps its pre-recovery tolerance (see
+        # resolve_registered_store_path_v2): binding it requires existence,
+        # not full structure, so first connection to an empty cloud record
+        # can bind the empty mirror directory that sync will populate.
         store_path = _validate_store_structure(
             project_id,
             store_path,
             require_store=True,
-            strict_store=True,
+            strict_store=False,
         )
     else:
         store_path = _validate_registered_store_path(
@@ -569,7 +592,7 @@ def bind_project_store_v2(
         raw_existing = registry["projects"].get(project_id)
         if raw_existing is not None:
             existing = validate_registry_entry_v2(project_id, raw_existing)
-            if existing.name != name or existing.mode != mode:
+            if existing.mode != mode or (existing.name != name and not update_name):
                 raise StoreBindingError(
                     "connected_binding_conflict",
                     f"Registry identity for {project_id!r} conflicts with the repository config.",
@@ -595,6 +618,8 @@ def bind_project_store_v2(
                     f"Project {project_id!r} is already bound to {current}.",
                 )
             entry = existing.model_dump(mode="json", exclude_unset=True)
+            if update_name:
+                entry["name"] = name
             repo_paths = list(existing.repo_paths)
         else:
             entry = {"name": name, "mode": mode, "repo_paths": []}
@@ -608,7 +633,7 @@ def bind_project_store_v2(
             entry["server_url"] = server_url
         else:
             entry.pop("server_url", None)
-        if store_path == get_store_path_v2(project_id):
+        if store_path == default_store:
             entry.pop("store_path", None)
         else:
             entry["store_path"] = str(store_path)

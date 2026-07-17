@@ -112,7 +112,12 @@ def test_restore_cloud_store_cleans_staging_on_hash_mismatch(tmp_path, monkeypat
     assert not list(destination.parent.glob(f".{PID}.restore-*"))
 
 
-def test_restore_cloud_store_rejects_multipart_etag(tmp_path, monkeypatch):
+def test_restore_cloud_store_skips_hash_check_for_opaque_etag(tmp_path, monkeypatch):
+    """Multipart and SSE-KMS ETags are not content MD5s.
+
+    Restore must fall back to the size and sha256 checks for such entries
+    instead of failing a record the sync pull path would have accepted.
+    """
     source = tmp_path / "source"
     files = _store_files(source)
     _mock_remote(monkeypatch, files)
@@ -121,11 +126,83 @@ def test_restore_cloud_store_rejects_multipart_etag(tmp_path, monkeypatch):
     monkeypatch.setattr(recovery, "fetch_manifest", lambda _pid: manifest)
     destination = tmp_path / "projects" / PID
 
-    with pytest.raises(RecoveryError, match="unusable content hash"):
+    result = restore_cloud_store(PID, destination)
+
+    assert result == destination
+    restored = {
+        path.relative_to(destination).as_posix(): path.read_bytes()
+        for path in destination.rglob("*")
+        if path.is_file()
+    }
+    assert restored == files
+
+
+def test_restore_cloud_store_still_catches_corruption_behind_opaque_etag(tmp_path, monkeypatch):
+    """An opaque ETag skips only the MD5 comparison — the sha256 check still
+    rejects corrupted content for that entry."""
+    source = tmp_path / "source"
+    files = _store_files(source)
+    _mock_remote(monkeypatch, files)
+    manifest = recovery.fetch_manifest(PID)
+    manifest[0]["etag"] = '"0123456789abcdef0123456789abcdef-2"'
+    manifest[0]["sha256"] = "0" * 64
+    monkeypatch.setattr(recovery, "fetch_manifest", lambda _pid: manifest)
+    destination = tmp_path / "projects" / PID
+
+    with pytest.raises(RecoveryError, match="hash"):
         restore_cloud_store(PID, destination)
 
     assert not destination.exists()
     assert not list(destination.parent.glob(f".{PID}.restore-*"))
+
+
+def test_restore_accepts_default_store_path_under_symlinked_home(tmp_path, monkeypatch):
+    """The default home path is exempt from the canonical-destination rule.
+
+    NAURO_HOME legitimately traverses a symlink on macOS ($TMPDIR) and
+    similar hosts; first connection and restore must not refuse the derived
+    default path there. Reaching the empty-manifest error proves the
+    destination guard passed.
+    """
+    real_home = tmp_path / "real-home"
+    real_home.mkdir()
+    linked_home = tmp_path / "linked-home"
+    linked_home.symlink_to(real_home, target_is_directory=True)
+    monkeypatch.setenv("NAURO_HOME", str(linked_home))
+    destination = get_store_path_v2(PID)
+    assert destination.resolve(strict=False) != destination
+    monkeypatch.setattr(recovery, "fetch_manifest", lambda _pid: [])
+
+    with pytest.raises(recovery.EmptyCloudRecordError):
+        restore_cloud_store(PID, destination)
+
+
+def test_restore_rejects_non_canonical_external_destination(tmp_path, monkeypatch):
+    """External destinations keep the canonical rule so the registry never
+    records a symlink-relative location."""
+    real_dir = tmp_path / "real-dir"
+    real_dir.mkdir()
+    linked_dir = tmp_path / "linked-dir"
+    linked_dir.symlink_to(real_dir, target_is_directory=True)
+    destination = linked_dir / "elsewhere" / PID
+
+    with pytest.raises(RecoveryError, match="canonical"):
+        restore_cloud_store(PID, destination)
+
+
+def test_restore_installs_into_preexisting_empty_destination(tmp_path, monkeypatch):
+    """A leftover empty destination directory (e.g. from an aborted attach)
+    must not fail the final install step."""
+    source = tmp_path / "source"
+    files = _store_files(source)
+    _mock_remote(monkeypatch, files)
+    destination = tmp_path / "projects" / PID
+    destination.mkdir(parents=True)
+
+    result = restore_cloud_store(PID, destination)
+
+    assert result == destination
+    assert (destination / "project.md").is_file()
 
 
 @pytest.mark.parametrize("path", ["../escape", "/absolute"])

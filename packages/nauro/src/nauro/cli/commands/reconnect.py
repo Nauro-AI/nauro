@@ -12,8 +12,8 @@ from nauro.store.recovery import (
     require_cloud_membership,
     restore_cloud_store,
 )
-from nauro.store.registry import StoreBindingError
-from nauro.store.repo_config import find_repo_config
+from nauro.store.registry import StoreBindingError, bind_project_store_v2
+from nauro.store.repo_config import find_repo_config, load_repo_config, save_repo_config
 from nauro.store.resolution import DisconnectedProject, RepoResolution, resolve_from_cwd
 from nauro.templates.agents_md_regen import warn_then_regen
 
@@ -80,16 +80,26 @@ def reconnect() -> None:
             return
 
         remote_name = require_cloud_membership(connection.project_id)
-        if remote_name != connection.display_name:
-            raise RecoveryError(
-                f"Cloud project name {remote_name!r} conflicts with repository name "
-                f"{connection.display_name!r}."
-            )
         store_path = restore_cloud_store(connection.project_id, connection.store_path)
-        resolved = bind_local_store(repo_root, store_path)
-        _finish_connection(repo_root, resolved.store_path, resolved.project_id)
-        typer.echo(f"Restored and connected '{resolved.display_name}'.")
-        typer.echo(f"  Store: {resolved.store_path}")
+        config = load_repo_config(repo_root)
+        # Membership was just verified, so the cloud name is authoritative:
+        # a server-side rename reconciles the registry and repo config here
+        # rather than leaving every later resolution in a binding conflict.
+        bound = bind_project_store_v2(
+            project_id=connection.project_id,
+            name=remote_name,
+            mode=config["mode"],
+            repo_path=repo_root,
+            store_path=store_path,
+            server_url=config.get("server_url"),
+            update_name=True,
+        )
+        if remote_name != config.get("name"):
+            typer.echo(f"Cloud project is now named {remote_name!r}; updating the local records.")
+            save_repo_config(repo_root, {**config, "name": remote_name})
+        _finish_connection(repo_root, bound, connection.project_id)
+        typer.echo(f"Restored and connected '{remote_name}'.")
+        typer.echo(f"  Store: {bound}")
     except (RecoveryError, StoreBindingError, OSError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc

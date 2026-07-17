@@ -25,7 +25,7 @@ from pydantic import (
 from nauro.cli.commands.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR, PROJECT_MD
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.registry import bind_project_store_v2
+from nauro.store.registry import bind_project_store_v2, get_store_path_v2
 from nauro.store.repo_config import load_repo_config
 from nauro.store.resolution import RepoResolution
 from nauro.sync.cloud_projects import CloudProjectError, list_projects
@@ -39,6 +39,17 @@ from nauro.sync.remote import (
 
 class RecoveryError(RuntimeError):
     """A recovery action cannot complete without risking local state."""
+
+
+class EmptyCloudRecordError(RecoveryError):
+    """The cloud project exists but has no stored record to restore.
+
+    Distinct from :class:`RecoveryError` so first-connection flows (attach)
+    can fall back to the pre-existing empty-store-then-sync contract, while
+    recovery flows (reconnect) keep treating an empty remote as a hard stop —
+    a machine recovering a lost record must not mistake "nothing was ever
+    pushed" for a successful restore.
+    """
 
 
 class CloudManifestEntry(BaseModel):
@@ -126,6 +137,18 @@ def bind_local_store(repo_path: Path, store_path: Path) -> RepoResolution:
     return RepoResolution(bound, config["id"], config["name"])
 
 
+def scaffold_empty_store(destination: Path) -> Path:
+    """Create the empty store directory for a cloud project with no record yet.
+
+    Preserves attach's pre-recovery contract: the directory is created empty
+    and files arrive via sync. Only first-connection flows call this, and only
+    after the cloud has confirmed the remote record is empty — it is a mirror
+    of the remote state, never a replacement for a lost local record.
+    """
+    destination.mkdir(parents=True, exist_ok=True)
+    return destination
+
+
 def _validate_restored_store(store_path: Path) -> None:
     project_file = store_path / PROJECT_MD
     decisions_dir = store_path / DECISIONS_DIR
@@ -149,16 +172,34 @@ def _destination_is_available(destination: Path) -> bool:
     return next(destination.iterdir(), None) is None
 
 
-def _etag_md5(raw_etag: str, relative: str) -> str:
+def _etag_md5(raw_etag: str) -> str | None:
+    """Return the ETag as a content MD5, or None when it cannot be one.
+
+    An S3 ETag equals the object's MD5 only for single-part, non-KMS-encrypted
+    uploads. Multipart ETags (``<md5>-<parts>``) and SSE-KMS/SSE-C ETags are
+    opaque, so they yield None and the caller skips the MD5 comparison rather
+    than failing a restore the sync pull path would have accepted. Size and
+    optional sha256 checks still apply to every file.
+    """
     value = raw_etag.strip('"').lower()
     if len(value) != 32 or any(ch not in "0123456789abcdef" for ch in value):
-        raise RecoveryError(f"Cloud manifest has an unusable content hash for {relative}.")
+        return None
     return value
 
 
 def restore_cloud_store(project_id: str, destination: Path) -> Path:
     """Restore a complete remote record into an absent or empty destination."""
-    if not destination.is_absolute() or destination.resolve(strict=False) != destination:
+    if not destination.is_absolute():
+        raise RecoveryError(f"Restore destination must be absolute: {destination}.")
+    # The canonical constraint is an external-binding rule: a mapped
+    # store_path must be canonical so the registry never records a
+    # symlink-relative location. The default home path is exempt — it is
+    # derived, never recorded, and legitimately non-canonical wherever
+    # NAURO_HOME or the user's home traverses a symlink (macOS $TMPDIR).
+    if (
+        destination != get_store_path_v2(project_id)
+        and destination.resolve(strict=False) != destination
+    ):
         raise RecoveryError(f"Restore destination must be canonical and absolute: {destination}.")
     if not _destination_is_available(destination):
         raise RecoveryError(f"Refusing to overwrite nonempty destination: {destination}.")
@@ -172,7 +213,7 @@ def restore_cloud_store(project_id: str, destination: Path) -> Path:
         except (AuthRefreshError, PresignError, httpx.HTTPError) as exc:
             raise RecoveryError(f"Cloud manifest fetch failed: {exc}") from exc
         if not manifest:
-            raise RecoveryError("Cloud project has no stored record to restore.")
+            raise EmptyCloudRecordError("Cloud project has no stored record to restore.")
 
         entries: dict[str, CloudManifestEntry] = {}
         for entry in manifest:
@@ -202,11 +243,14 @@ def restore_cloud_store(project_id: str, destination: Path) -> Path:
             expected_size = entry.size
             if expected_size is not None and len(content) != expected_size:
                 raise RecoveryError(f"Cloud size validation failed for {relative}.")
-            if hashlib.md5(content).hexdigest() != _etag_md5(entry.etag, relative):
+            expected_md5 = _etag_md5(entry.etag)
+            if (
+                expected_md5 is not None
+                and hashlib.md5(content, usedforsecurity=False).hexdigest() != expected_md5
+            ):
                 raise RecoveryError(f"Cloud content-hash validation failed for {relative}.")
-            digest = hashlib.sha256(content).hexdigest()
             expected_hash = entry.sha256
-            if expected_hash is not None and digest != expected_hash:
+            if expected_hash is not None and hashlib.sha256(content).hexdigest() != expected_hash:
                 raise RecoveryError(f"Cloud hash validation failed for {relative}.")
             target = staging / relative
             try:
@@ -216,6 +260,17 @@ def restore_cloud_store(project_id: str, destination: Path) -> Path:
                 raise RecoveryError(f"Could not stage cloud file {relative}: {exc}") from exc
 
         _validate_restored_store(staging)
+        # os.replace cannot move a directory onto an existing directory on
+        # Windows (even an empty one _destination_is_available admitted).
+        # rmdir only succeeds on an empty directory, so this also re-enforces
+        # the emptiness precondition at install time.
+        if destination.exists():
+            try:
+                destination.rmdir()
+            except OSError as exc:
+                raise RecoveryError(
+                    f"Refusing to overwrite nonempty destination: {destination}."
+                ) from exc
         os.replace(staging, destination)
         installed = True
         return destination
@@ -225,8 +280,10 @@ def restore_cloud_store(project_id: str, destination: Path) -> Path:
 
 
 __all__ = [
+    "EmptyCloudRecordError",
     "RecoveryError",
     "bind_local_store",
     "require_cloud_membership",
     "restore_cloud_store",
+    "scaffold_empty_store",
 ]

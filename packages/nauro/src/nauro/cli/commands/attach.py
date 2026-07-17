@@ -19,11 +19,17 @@ from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
-from nauro.store.recovery import RecoveryError, require_cloud_membership, restore_cloud_store
+from nauro.store.recovery import (
+    EmptyCloudRecordError,
+    RecoveryError,
+    require_cloud_membership,
+    restore_cloud_store,
+    scaffold_empty_store,
+)
 from nauro.store.registry import (
     StoreBindingError,
     bind_project_store_v2,
-    get_project_v2,
+    get_project_entry_v2,
     get_store_path_v2,
     resolve_v2_from_path,
 )
@@ -92,15 +98,27 @@ def attach(
     _refuse_attach_collision(repo_path, project_id)
     try:
         name = require_cloud_membership(project_id)
-        existing = get_project_v2(project_id)
-        server_url = existing.get("server_url", DEFAULT_API_URL) if existing else DEFAULT_API_URL
+        entry = get_project_entry_v2(project_id)
+        server_url = (entry.server_url if entry else None) or DEFAULT_API_URL
+
         connection = resolve_registered_project(project_id)
         if isinstance(connection, DisconnectedProject):
             if connection.reason_code != "connected_record_missing":
                 raise RecoveryError(connection.guidance)
+            # A previously connected machine lost its record: this is
+            # recovery, so an empty remote stays a hard stop — a blank
+            # directory must never stand in for a lost record.
             store_path = restore_cloud_store(project_id, connection.store_path)
         elif connection is None:
-            store_path = restore_cloud_store(project_id, get_store_path_v2(project_id))
+            try:
+                store_path = restore_cloud_store(project_id, get_store_path_v2(project_id))
+            except EmptyCloudRecordError:
+                # First connection on this machine to a cloud project whose
+                # record was never pushed. Attach's long-standing contract
+                # applies: the store directory is created empty and files
+                # arrive via sync. Nothing is being replaced — the empty
+                # mirror matches the remote state.
+                store_path = scaffold_empty_store(get_store_path_v2(project_id))
         else:
             store_path = connection.store_path
         bind_project_store_v2(
@@ -110,6 +128,10 @@ def attach(
             repo_path=repo_path,
             store_path=store_path,
             server_url=server_url,
+            # The name was just verified against the cloud, which is
+            # authoritative for cloud-mode projects; a server-side rename
+            # reconciles the registry instead of conflicting.
+            update_name=True,
         )
     except (RecoveryError, StoreBindingError, OSError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)

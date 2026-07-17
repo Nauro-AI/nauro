@@ -87,8 +87,24 @@ def _guidance(result: dict) -> str:
     return (result.get("guidance") or "").strip()
 
 
+def disconnected_reason_code(result: dict) -> str | None:
+    """Return the reason code when ``result`` is a disconnected-error envelope.
+
+    The single definition of the envelope's discriminator (``status ==
+    "error"`` with a nonempty ``reason_code``), shared by every adapter that
+    routes disconnected states differently from plain errors — so a change to
+    the envelope shape lands in one place instead of drifting across surfaces.
+    """
+    if result.get("status") != "error":
+        return None
+    reason_code = result.get("reason_code")
+    if isinstance(reason_code, str) and reason_code:
+        return reason_code
+    return None
+
+
 def _connection_guidance(result: dict) -> str:
-    if result.get("status") == "error" and result.get("reason_code"):
+    if disconnected_reason_code(result) is not None:
         return _guidance(result)
     return ""
 
@@ -346,6 +362,7 @@ RENDERERS = {
 
 __all__ = [
     "RENDERERS",
+    "disconnected_reason_code",
     "render_check_decision",
     "render_get_context",
     "render_get_decision",

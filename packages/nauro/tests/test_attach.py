@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store import registry
-from nauro.store.recovery import RecoveryError
+from nauro.store.recovery import EmptyCloudRecordError, RecoveryError
 from nauro.store.repo_config import load_repo_config, save_repo_config
 from nauro.sync import cloud_projects
 from nauro.templates.scaffolds import scaffold_project_store
@@ -233,6 +233,139 @@ def test_attach_non_member_writes_nothing(tmp_path, monkeypatch):
     assert registry.get_project_v2(EXAMPLE_PID) is None
     assert not (tmp_path / ".nauro" / "config.json").exists()
     assert not (tmp_path / "projects" / EXAMPLE_PID).exists()
+
+
+def test_attach_scaffolds_empty_store_when_cloud_record_is_empty(tmp_path, monkeypatch):
+    """First connection to a cloud project whose record was never pushed
+    keeps attach's contract: the store directory is created empty, the repo
+    config is written, and files arrive via sync.
+    """
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+    handler = _list_response(
+        [
+            {
+                "project_id": EXAMPLE_PID,
+                "name": "team-proj",
+                "role": "viewer",
+                "created_at": "2026-04-27T00:00:00Z",
+            }
+        ]
+    )
+
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=handler),
+        patch(
+            "nauro.cli.commands.attach.restore_cloud_store",
+            side_effect=EmptyCloudRecordError("Cloud project has no stored record to restore."),
+        ),
+    ):
+        result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 0, result.output
+    store_path = tmp_path / "projects" / EXAMPLE_PID
+    assert store_path.is_dir()
+    assert next(store_path.iterdir(), None) is None
+    entry = registry.get_project_v2(EXAMPLE_PID)
+    assert entry is not None
+    assert entry["mode"] == "cloud"
+    cfg = load_repo_config(tmp_path)
+    assert cfg["id"] == EXAMPLE_PID
+
+
+def test_attach_missing_record_keeps_hard_error_on_empty_cloud(tmp_path, monkeypatch):
+    """A previously connected machine whose record is gone is in recovery:
+    an empty remote must stay a hard stop, never a silently scaffolded blank
+    directory standing in for the lost record.
+    """
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {
+                EXAMPLE_PID: {
+                    "name": "team-proj",
+                    "mode": "cloud",
+                    "repo_paths": [str(tmp_path / "elsewhere")],
+                    "server_url": "https://api.nauro.dev",
+                }
+            },
+        }
+    )
+    handler = _list_response(
+        [
+            {
+                "project_id": EXAMPLE_PID,
+                "name": "team-proj",
+                "role": "viewer",
+                "created_at": "2026-04-27T00:00:00Z",
+            }
+        ]
+    )
+
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=handler),
+        patch(
+            "nauro.cli.commands.attach.restore_cloud_store",
+            side_effect=EmptyCloudRecordError("Cloud project has no stored record to restore."),
+        ),
+    ):
+        result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 1
+    assert "no stored record" in result.output
+    assert not (tmp_path / "projects" / EXAMPLE_PID).exists()
+    assert not (tmp_path / ".nauro" / "config.json").exists()
+
+
+def test_attach_reconciles_server_side_rename(tmp_path, monkeypatch):
+    """Attaching a repo to an already-registered project adopts the current
+    cloud name instead of failing with a binding conflict after a
+    server-side rename — membership verification makes the cloud name
+    authoritative for cloud-mode projects.
+    """
+    _seed_token(monkeypatch, tmp_path)
+    repo = tmp_path / "second-repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+    store = registry.get_store_path_v2(EXAMPLE_PID)
+    scaffold_project_store("old-name", store)
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {
+                EXAMPLE_PID: {
+                    "name": "old-name",
+                    "mode": "cloud",
+                    "repo_paths": [str(tmp_path / "first-repo")],
+                    "server_url": "https://api.nauro.dev",
+                }
+            },
+        }
+    )
+    handler = _list_response(
+        [
+            {
+                "project_id": EXAMPLE_PID,
+                "name": "new-name",
+                "role": "viewer",
+                "created_at": "2026-04-27T00:00:00Z",
+            }
+        ]
+    )
+
+    with patch.object(cloud_projects.httpx, "request", side_effect=handler):
+        result = runner.invoke(app, ["attach", EXAMPLE_PID])
+
+    assert result.exit_code == 0, result.output
+    entry = registry.get_project_v2(EXAMPLE_PID)
+    assert entry["name"] == "new-name"
+    cfg = load_repo_config(repo)
+    assert cfg["name"] == "new-name"
 
 
 def test_attach_restore_failure_writes_no_registry_or_repo_config(tmp_path, monkeypatch):

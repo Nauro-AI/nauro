@@ -37,6 +37,7 @@ from nauro_core.constants import MCP_INSTRUCTIONS
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
 from nauro_core.operations import ErrorPayload
 from nauro_core.renderers import RENDERERS as _RENDERERS
+from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field
 
 from nauro import __version__
@@ -90,9 +91,7 @@ def _wrap_with_renderer(
     humans still receive the rendered guidance.
     """
     json_text = json.dumps(result, indent=2, default=str)
-    structured_content = (
-        result if result.get("status") == "error" and result.get("reason_code") else None
-    )
+    structured_content = result if disconnected_reason_code(result) is not None else None
     renderer = _RENDERERS.get(tool_name)
     if renderer is None:
         return CallToolResult(
@@ -410,7 +409,7 @@ def flag_question(
 ) -> str | dict:
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
-        return err if err.get("reason_code") else err["guidance"]
+        return err if disconnected_reason_code(err) is not None else err["guidance"]
     result = tool_flag_question(
         store_path, question, context, targets=targets, resolved_by=resolved_by
     )
@@ -435,7 +434,7 @@ def update_state(
 ) -> str | dict:
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
-        return err if err.get("reason_code") else err["guidance"]
+        return err if disconnected_reason_code(err) is not None else err["guidance"]
     result = tool_update_state(store_path, delta)
     if result.get("warning"):
         return f"State updated. {result['warning']}"

@@ -81,6 +81,50 @@ def test_reconnect_cloud_restore_uses_same_binding_service(tmp_path, monkeypatch
     assert registry.get_project_v2(PID)["mode"] == "cloud"
 
 
+def test_reconnect_restore_reconciles_server_side_rename(tmp_path, monkeypatch):
+    """A cloud rename between adoption and recovery must not dead-end the
+    restore: membership verification makes the cloud name authoritative, so
+    reconnect adopts it into the registry and the repo config instead of
+    conflicting forever.
+    """
+    from nauro.store.repo_config import load_repo_config
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    save_repo_config(
+        repo,
+        {
+            "mode": "cloud",
+            "id": PID,
+            "name": "Pareto",
+            "server_url": "https://example.test",
+        },
+    )
+    monkeypatch.chdir(repo)
+    target = registry.get_store_path_v2(PID)
+
+    def restore(_pid, destination):
+        scaffold_project_store("Pareto-Renamed", destination)
+        return destination
+
+    with (
+        patch(
+            "nauro.cli.commands.reconnect.require_cloud_membership",
+            return_value="Pareto-Renamed",
+        ),
+        patch("nauro.cli.commands.reconnect.restore_cloud_store", side_effect=restore),
+    ):
+        result = runner.invoke(app, ["reconnect"], input="restore\n")
+
+    assert result.exit_code == 0, result.output
+    assert "now named 'Pareto-Renamed'" in result.output
+    assert registry.get_project_v2(PID)["name"] == "Pareto-Renamed"
+    assert load_repo_config(repo)["name"] == "Pareto-Renamed"
+    resolved = resolve_from_cwd(repo)
+    assert isinstance(resolved, RepoResolution)
+    assert resolved.store_path == target
+
+
 def test_reconnect_healthy_project_is_silent_about_recovery(tmp_path, monkeypatch):
     repo = _local_repo(tmp_path)
     store = registry.get_store_path_v2(PID)

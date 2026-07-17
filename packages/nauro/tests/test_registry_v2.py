@@ -157,6 +157,73 @@ def test_bind_default_store_omits_optional_store_path(tmp_path, monkeypatch):
     assert "store_path" not in load_registry_v2()["projects"][pid]
 
 
+def test_bind_update_name_reconciles_rename(tmp_path, monkeypatch):
+    """A caller holding the authoritative current name (cloud membership)
+    reconciles a rename into the registry instead of conflicting."""
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = registry.get_store_path_v2(pid)
+    scaffold_project_store("old-name", store_path)
+    bind_project_store_v2(
+        project_id=pid, name="old-name", mode="local", repo_path=repo, store_path=store_path
+    )
+
+    bind_project_store_v2(
+        project_id=pid,
+        name="new-name",
+        mode="local",
+        repo_path=repo,
+        store_path=store_path,
+        update_name=True,
+    )
+
+    assert load_registry_v2()["projects"][pid]["name"] == "new-name"
+
+
+def test_bind_without_update_name_conflicts_on_rename(tmp_path, monkeypatch):
+    """A name that only comes from repository config never overwrites
+    registry identity — the mismatch stays a typed binding conflict."""
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = registry.get_store_path_v2(pid)
+    scaffold_project_store("old-name", store_path)
+    bind_project_store_v2(
+        project_id=pid, name="old-name", mode="local", repo_path=repo, store_path=store_path
+    )
+
+    with pytest.raises(StoreBindingError) as excinfo:
+        bind_project_store_v2(
+            project_id=pid,
+            name="new-name",
+            mode="local",
+            repo_path=repo,
+            store_path=store_path,
+        )
+    assert excinfo.value.reason_code == "connected_binding_conflict"
+    assert load_registry_v2()["projects"][pid]["name"] == "old-name"
+
+
+def test_bind_default_store_tolerates_incomplete_structure(tmp_path, monkeypatch):
+    """Binding the Nauro-managed default path requires existence, not full
+    structure, so first connection to an empty cloud record can bind the
+    empty mirror directory that sync will populate. External paths keep the
+    strict rule (covered by the external-store tests)."""
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    store_path = registry.get_store_path_v2(pid)
+    store_path.mkdir(parents=True)
+
+    bound = bind_project_store_v2(
+        project_id=pid, name="nauro", mode="local", repo_path=repo, store_path=store_path
+    )
+
+    assert bound == store_path
+    assert load_registry_v2()["projects"][pid]["name"] == "nauro"
+
+
 def test_bind_external_store_refuses_conflicting_default_store(tmp_path, monkeypatch):
     pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
     repo = tmp_path / "repo"

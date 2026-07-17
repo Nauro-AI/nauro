@@ -396,8 +396,16 @@ def test_registered_invalid_external_store_is_typed_invalid(tmp_path, monkeypatc
     assert "doctor" not in result.guidance
 
 
-def test_registered_invalid_default_store_is_typed_invalid(tmp_path, monkeypatch):
-    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+def test_incomplete_default_store_resolves_tolerantly(tmp_path, monkeypatch):
+    """The Nauro-managed default store keeps its pre-recovery tolerance.
+
+    An existing but structurally incomplete default-home store (e.g. created
+    empty by an older attach whose sync never completed) must resolve so
+    downstream tools can degrade gracefully — not dead-end every command in a
+    connected_record_invalid state whose recovery menu cannot restore. Strict
+    structural validation applies only to externally mapped store paths.
+    """
+    from nauro.store.resolution import RepoResolution, resolve_from_cwd
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -419,8 +427,63 @@ def test_registered_invalid_default_store_is_typed_invalid(tmp_path, monkeypatch
 
     result = resolve_from_cwd(repo)
 
+    assert isinstance(result, RepoResolution)
+    assert result.store_path == registry.get_store_path_v2(pid)
+
+
+def test_default_store_with_symlinked_component_is_typed_invalid(tmp_path, monkeypatch):
+    """Tolerance for the managed default path means components may be
+    absent — never that a pre-planted symlink may redirect store reads or
+    sync writes outside the store.
+    """
+    from nauro.store.resolution import DisconnectedProject, resolve_from_cwd
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    store = registry.get_store_path_v2(pid)
+    store.mkdir(parents=True)
+    (store / "project.md").write_text("# Pareto\n")
+    outside = tmp_path / "outside-decisions"
+    outside.mkdir()
+    (store / "decisions").symlink_to(outside, target_is_directory=True)
+    registry.save_registry_v2(
+        {
+            "schema_version": 2,
+            "projects": {
+                pid: {
+                    "name": "Pareto",
+                    "mode": "local",
+                    "repo_paths": [str(repo)],
+                }
+            },
+        }
+    )
+    save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
+
+    result = resolve_from_cwd(repo)
+
     assert isinstance(result, DisconnectedProject)
     assert result.reason_code == "connected_record_invalid"
+
+
+def test_v1_project_with_missing_store_yields_no_project(tmp_path, monkeypatch):
+    """A legacy name-keyed project whose store directory is gone falls
+    through to the no-project outcome — never a path that read tools would
+    treat as an empty store and write tools would silently recreate.
+    """
+    import shutil
+
+    from nauro.store.registry import register_project
+    from nauro.store.resolution import resolve_from_cwd
+
+    repo = tmp_path / "v1repo"
+    repo.mkdir()
+    store = register_project("legacy", [repo])
+    if store.exists():
+        shutil.rmtree(store)
+
+    assert resolve_from_cwd(repo) is None
 
 
 @pytest.mark.parametrize("raw_store_path", [42, "", None])
