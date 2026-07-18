@@ -40,15 +40,15 @@ PUBLIC_COPY_PATHS = (
 )
 
 
-def test_readme_uses_stable_context_and_setup_claims() -> None:
+def test_root_readme_stays_within_first_use_scope() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "L0 for a concise orientation" in readme
-    assert "L1 for a bounded working set" in readme
-    assert "L2 for a full dump" in readme
-    assert "hundreds of thousands of tokens" in readme
-    assert "nauro setup all --with-subagents" in readme
-    assert "tests across" not in readme
-    assert "o200k_base" not in readme
+    assert 400 <= len(readme.split()) <= 520
+    assert "uv tool install nauro" in readme
+    assert "nauro init --demo" in readme
+    assert 'nauro check-decision "Store dollar amounts as decimal numbers"' in readme
+    assert "D001" in readme
+    assert "nauro adopt" in readme
+    assert "/nauro-adopt" in readme
 
 
 def test_readmes_carry_headline_support_line_and_fit_boundary() -> None:
