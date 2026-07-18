@@ -12,7 +12,13 @@ from nauro.cli.integrations.codex_config import _configure_codex, codex_config_p
 from nauro.cli.integrations.codex_hooks import _nearest_codex_hooks_repo, materialize_hooks_codex
 from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo, _configure_mcp
 from nauro.cli.integrations.legacy import _remove_claude_md
-from nauro.cli.integrations.outcomes import ArtifactOutcome, HandlerErrorOutcome, RawLine
+from nauro.cli.integrations.outcomes import (
+    ArtifactOutcome,
+    HandlerErrorOutcome,
+    JsonMcpKind,
+    JsonMcpOutcome,
+    RawLine,
+)
 from nauro.cli.integrations.skills import (
     materialize_skills_claude_code,
     materialize_skills_codex,
@@ -24,6 +30,21 @@ from nauro.store.registry import get_repo_paths
 from nauro.store.resolution import resolve_from_cwd
 from nauro.templates.agents_md import remove_generated_agents_md
 from nauro.templates.agents_md_regen import warn_then_regen
+
+
+def _every_repo_mcp_wired(outcomes: list[ArtifactOutcome]) -> bool:
+    """True iff every per-repo ``.mcp.json`` write landed.
+
+    The user-scope HTTP prune treats the user-global entry as redundant
+    because project-scope stdio is canonical — a premise that only holds when
+    the project files were actually written. A refused or failed repo write
+    (tracked file, symlink, parse error) must keep the user-scope entry, or
+    the prune would delete the repo's only working connection.
+    """
+    if any(isinstance(o, HandlerErrorOutcome) for o in outcomes):
+        return False
+    mcp_outcomes = [o for o in outcomes if isinstance(o, JsonMcpOutcome)]
+    return bool(mcp_outcomes) and all(o.kind is JsonMcpKind.WROTE for o in mcp_outcomes)
 
 
 def claude_code_surfaces(
@@ -63,7 +84,7 @@ def claude_code_surfaces(
                     HandlerErrorOutcome(f"  {repo_path}: hook wiring error - {exc}")
                 )
 
-    if not remove:
+    if not remove and _every_repo_mcp_wired(mcp_results):
         pruned = _prune_redundant_user_scope_mcp()
         if pruned:
             mcp_results.append(pruned)
@@ -204,7 +225,7 @@ def _all_claude_code_lines(
             outcomes.append(_configure_mcp(repo, remove=remove))
         except Exception as exc:
             outcomes.append(HandlerErrorOutcome(f"Claude Code MCP ({repo}): error - {exc}"))
-    if not remove:
+    if not remove and _every_repo_mcp_wired(outcomes):
         try:
             pruned = _prune_redundant_user_scope_mcp()
             if pruned:

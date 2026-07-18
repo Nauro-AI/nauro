@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from nauro.cli.git_hygiene import GitIgnoreKind, GitIgnoreResult
 from nauro.cli.integrations.outcomes import (
     AgentKind,
     AgentOutcome,
@@ -41,6 +42,16 @@ CFG = Path("/home/.codex/config.toml")
 TARGET = Path("/t/nauro-adopt/SKILL.md")
 REPO_REFUSAL = SymlinkRefusal(REPO / ".mcp.json", REPO / ".mcp.json")
 USER_REFUSAL = UserSymlinkRefusal(Path("/home/.claude.json"))
+GITIGNORE_REFUSAL = SymlinkRefusal(REPO / ".gitignore", REPO / ".gitignore")
+
+TRACKED_MCP_LINES = [
+    f"  {REPO}: .mcp.json is tracked by git - skipped writing machine-local MCP wiring",
+    (
+        "    It records absolute paths that only work on this machine. "
+        "Run `git rm --cached .mcp.json`, commit, and re-run; nauro will "
+        "then git-ignore it so each machine keeps its own copy."
+    ),
+]
 
 
 def test_render_rawline_returns_verbatim_text():
@@ -91,6 +102,129 @@ RENDER_CASES = [
         JsonMcpOutcome(JsonMcpKind.WROTE, REPO, ".mcp.json", git_warnings=("  a git note",)),
         [f"  {REPO}: wrote nauro to .mcp.json", "  a git note"],
     ),
+    (
+        JsonMcpOutcome(JsonMcpKind.REFUSED_TRACKED, REPO, ".mcp.json"),
+        TRACKED_MCP_LINES,
+    ),
+    # ── JsonMcp with managed-gitignore results attached ──
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.WROTE,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(GitIgnoreKind.ADDED, ".mcp.json"),
+        ),
+        [
+            f"  {REPO}: wrote nauro to .mcp.json",
+            "    added .mcp.json to .gitignore (machine-local wiring; commit this change)",
+        ],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.WROTE,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(GitIgnoreKind.ALREADY_COVERED, ".mcp.json"),
+        ),
+        [f"  {REPO}: wrote nauro to .mcp.json"],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.WROTE,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(GitIgnoreKind.SKIPPED_NON_GIT, ".mcp.json"),
+        ),
+        [f"  {REPO}: wrote nauro to .mcp.json"],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.WROTE,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(
+                GitIgnoreKind.REFUSED_SYMLINK, ".mcp.json", refusal=GITIGNORE_REFUSAL
+            ),
+        ),
+        [
+            f"  {REPO}: wrote nauro to .mcp.json",
+            f"    Warning: did not update .gitignore: {GITIGNORE_REFUSAL.message}",
+        ],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.WROTE,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(GitIgnoreKind.REFUSED_UNREADABLE, ".mcp.json"),
+        ),
+        [
+            f"  {REPO}: wrote nauro to .mcp.json",
+            "    Warning: did not update .gitignore: not valid UTF-8",
+        ],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.WROTE,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(GitIgnoreKind.REFUSED_MALFORMED_BLOCK, ".mcp.json"),
+        ),
+        [
+            f"  {REPO}: wrote nauro to .mcp.json",
+            (
+                "    Warning: did not update .gitignore: its nauro-managed "
+                "block markers are malformed; repair or remove them and re-run"
+            ),
+        ],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.WROTE,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(
+                GitIgnoreKind.REFUSED_UNWRITABLE, ".mcp.json", detail="disk full"
+            ),
+        ),
+        [
+            f"  {REPO}: wrote nauro to .mcp.json",
+            "    Warning: could not write .gitignore: disk full",
+        ],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.REMOVED,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(GitIgnoreKind.REMOVED_ENTRY, ".mcp.json"),
+        ),
+        [
+            f"  {REPO}: removed nauro from .mcp.json",
+            "    removed .mcp.json from .gitignore",
+        ],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.REMOVED,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(GitIgnoreKind.REMOVED_BLOCK, ".mcp.json"),
+        ),
+        [
+            f"  {REPO}: removed nauro from .mcp.json",
+            "    removed .mcp.json from .gitignore",
+        ],
+    ),
+    (
+        JsonMcpOutcome(
+            JsonMcpKind.NOTHING_TO_REMOVE,
+            REPO,
+            ".mcp.json",
+            gitignore=GitIgnoreResult(GitIgnoreKind.NOTHING_TO_REMOVE, ".mcp.json"),
+        ),
+        [f"  {REPO}: no nauro entry to remove"],
+    ),
     # ── ClaudeHook ──
     (
         ClaudeHookOutcome(ClaudeHookKind.REFUSED_SYMLINK, REPO, refusal=REPO_REFUSAL),
@@ -98,11 +232,11 @@ RENDER_CASES = [
     ),
     (
         ClaudeHookOutcome(ClaudeHookKind.PARSE_ERROR, REPO, detail="boom"),
-        [f"  {REPO}: could not parse .claude/settings.json - boom"],
+        [f"  {REPO}: could not parse .claude/settings.local.json - boom"],
     ),
     (
         ClaudeHookOutcome(ClaudeHookKind.NOT_JSON_OBJECT, REPO),
-        [f"  {REPO}: .claude/settings.json is not a JSON object, skipped"],
+        [f"  {REPO}: .claude/settings.local.json is not a JSON object, skipped"],
     ),
     (
         ClaudeHookOutcome(ClaudeHookKind.HOOKS_NOT_OBJECT, REPO),
@@ -114,11 +248,46 @@ RENDER_CASES = [
     ),
     (
         ClaudeHookOutcome(ClaudeHookKind.ALREADY_PRESENT, REPO),
-        [f"  {REPO}: nauro hook already present in .claude/settings.json"],
+        [f"  {REPO}: nauro hook already present in .claude/settings.local.json"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.ALREADY_PRESENT, REPO, legacy_cleaned=True),
+        [
+            f"  {REPO}: nauro hook already present in .claude/settings.local.json",
+            (
+                "    moved stale nauro hook out of .claude/settings.json "
+                "(machine-local wiring lives in .claude/settings.local.json; "
+                "commit the cleanup)"
+            ),
+        ],
     ),
     (
         ClaudeHookOutcome(ClaudeHookKind.WROTE, REPO),
-        [f"  {REPO}: wrote nauro hook to .claude/settings.json"],
+        [f"  {REPO}: wrote nauro hook to .claude/settings.local.json"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.WROTE, REPO, legacy_cleaned=True),
+        [
+            f"  {REPO}: wrote nauro hook to .claude/settings.local.json",
+            (
+                "    moved stale nauro hook out of .claude/settings.json "
+                "(machine-local wiring lives in .claude/settings.local.json; "
+                "commit the cleanup)"
+            ),
+        ],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.REFUSED_TRACKED, REPO),
+        [
+            f"  {REPO}: .claude/settings.local.json is tracked by git - "
+            "skipped writing machine-local hook wiring",
+            (
+                "    It records absolute paths that only work on this machine. "
+                "Run `git rm --cached .claude/settings.local.json`, commit, and "
+                "re-run; nauro will then git-ignore it so each machine keeps its "
+                "own copy."
+            ),
+        ],
     ),
     (
         ClaudeHookOutcome(ClaudeHookKind.NOTHING_TO_REMOVE, REPO),
@@ -126,7 +295,14 @@ RENDER_CASES = [
     ),
     (
         ClaudeHookOutcome(ClaudeHookKind.REMOVED, REPO),
-        [f"  {REPO}: removed nauro hook from .claude/settings.json"],
+        [f"  {REPO}: removed nauro hook from .claude/settings.local.json"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.REMOVED, REPO, legacy_cleaned=True),
+        [
+            f"  {REPO}: removed nauro hook from .claude/settings.local.json "
+            "and .claude/settings.json"
+        ],
     ),
     # ── ClaudeUserConfig ──
     (
@@ -231,6 +407,18 @@ RENDER_CASES = [
         CodexHookOutcome(CodexHookKind.WROTE, REPO),
         [f"  {REPO}: wrote nauro hooks to .codex/hooks.json"],
     ),
+    (
+        CodexHookOutcome(CodexHookKind.REFUSED_TRACKED, REPO),
+        [
+            f"  {REPO}: .codex/hooks.json is tracked by git - "
+            "skipped writing machine-local hook wiring",
+            (
+                "    It records absolute paths that only work on this machine. "
+                "Run `git rm --cached .codex/hooks.json`, commit, and re-run; "
+                "nauro will then git-ignore it so each machine keeps its own copy."
+            ),
+        ],
+    ),
     # ── Skill ──
     (
         SkillOutcome(SkillKind.REFUSED_SYMLINK, repo=REPO, refusal=REPO_REFUSAL),
@@ -301,6 +489,16 @@ def test_render_covers_every_kind_member():
     for enum in kind_enums:
         for member in enum:
             assert member in covered, f"{enum.__name__}.{member.name} is not pinned"
+
+    # GitIgnoreResult renders as an attachment on codec outcomes, so its kinds
+    # are pinned through the `gitignore=` cases above.
+    gitignore_covered = {
+        outcome.gitignore.kind
+        for outcome, _ in RENDER_CASES
+        if getattr(outcome, "gitignore", None) is not None
+    }
+    for member in GitIgnoreKind:
+        assert member in gitignore_covered, f"GitIgnoreKind.{member.name} is not pinned"
 
 
 def test_render_rejects_unknown_outcome_type():

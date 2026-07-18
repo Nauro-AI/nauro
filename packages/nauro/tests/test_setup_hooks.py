@@ -36,6 +36,12 @@ runner = CliRunner()
 
 
 def _settings(repo: Path) -> Path:
+    # The machine-local layer is the Nauro hook's sink; the shared
+    # .claude/settings.json is only ever touched to strip stale entries.
+    return repo / ".claude" / "settings.local.json"
+
+
+def _shared_settings(repo: Path) -> Path:
     return repo / ".claude" / "settings.json"
 
 
@@ -319,7 +325,11 @@ def test_claude_hook_round_trip_preserves_empty_user_matcher(tmp_path: Path):
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
 def test_claude_hook_add_and_remove_refuse_symlinked_settings(tmp_path: Path):
-    """Both hook paths refuse a symlinked .claude/settings.json untouched."""
+    """Both hook paths refuse a symlinked shared .claude/settings.json untouched.
+
+    The shared file is only a legacy-strip target now, but a planted link there
+    must still refuse the whole operation before anything is written.
+    """
     repo = tmp_path / "repo"
     (repo / ".claude").mkdir(parents=True)
     outside = tmp_path / "outside-settings.json"
@@ -333,6 +343,25 @@ def test_claude_hook_add_and_remove_refuse_symlinked_settings(tmp_path: Path):
     assert remove_line.kind is ClaudeHookKind.REFUSED_SYMLINK
     assert outside.read_text() == "{}"
     assert (repo / ".claude" / "settings.json").is_symlink()
+    assert not _settings(repo).exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_claude_hook_add_and_remove_refuse_symlinked_local_settings(tmp_path: Path):
+    """A symlinked .claude/settings.local.json refuses both hook paths untouched."""
+    repo = tmp_path / "repo"
+    (repo / ".claude").mkdir(parents=True)
+    outside = tmp_path / "outside-settings.json"
+    outside.write_text("{}")
+    _settings(repo).symlink_to(outside)
+
+    add_line = materialize_hooks_claude_code(repo, remove=False)
+    remove_line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert add_line.kind is ClaudeHookKind.REFUSED_SYMLINK
+    assert remove_line.kind is ClaudeHookKind.REFUSED_SYMLINK
+    assert outside.read_text() == "{}"
+    assert _settings(repo).is_symlink()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
@@ -402,7 +431,11 @@ def test_materialize_codex_writes_both_lifecycle_events(tmp_path: Path, monkeypa
         assert entries[0]["statusMessage"] == "Loading Nauro project context"
 
 
-def test_materialize_codex_warns_for_untracked_hooks_file(tmp_path: Path):
+def test_materialize_codex_gitignores_hooks_file(tmp_path: Path):
+    """In a git repo the hooks file is added to the managed .gitignore block,
+    so the untracked-and-unignored advisory never fires for it."""
+    from nauro.cli.git_hygiene import GitIgnoreKind
+
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
@@ -410,9 +443,27 @@ def test_materialize_codex_warns_for_untracked_hooks_file(tmp_path: Path):
     line = materialize_hooks_codex(repo, remove=False)
 
     assert line.kind is CodexHookKind.WROTE
-    warnings = "\n".join(line.git_warnings)
-    assert ".codex/hooks.json is untracked and not git-ignored" in warnings
-    assert "local Nauro wiring" in warnings
+    assert line.gitignore is not None
+    assert line.gitignore.kind is GitIgnoreKind.ADDED
+    assert "/.codex/hooks.json" in (repo / ".gitignore").read_text(encoding="utf-8")
+    assert line.git_warnings == ()
+
+
+def test_materialize_codex_refuses_tracked_hooks_file(tmp_path: Path):
+    """A git-tracked hooks file refuses the add path untouched; remove still works."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    hooks_path = _codex_hooks(repo)
+    hooks_path.parent.mkdir(parents=True)
+    original = '{"hooks": {}}'
+    hooks_path.write_text(original, encoding="utf-8")
+    subprocess.run(["git", "add", ".codex/hooks.json"], cwd=repo, check=True)
+
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert line.kind is CodexHookKind.REFUSED_TRACKED
+    assert hooks_path.read_text(encoding="utf-8") == original
 
 
 def test_materialize_codex_uses_current_install_when_durable_command_is_too_old(
@@ -670,6 +721,225 @@ def test_remove_codex_preserves_matcher_metadata_when_nauro_is_only_hook(tmp_pat
     assert after["hooks"]["SessionStart"] == [{"matcher": "startup", "custom": "keep", "hooks": []}]
 
 
+# ── legacy shared-settings migration ───────────────────────────────────────────
+
+
+def _legacy_shared_with_nauro_hook(repo: Path, extra: dict | None = None) -> Path:
+    """Seed the shared settings file the way an older install left it."""
+    shared = _shared_settings(repo)
+    shared.parent.mkdir(parents=True, exist_ok=True)
+    content: dict = dict(extra or {})
+    content.setdefault("hooks", {})[HOOK_EVENT_NAME] = [
+        {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f"/old/install/nauro {HOOK_SUBCOMMAND}",
+                    "timeout": HOOK_TIMEOUT_SECONDS,
+                }
+            ]
+        }
+    ]
+    shared.write_text(json.dumps(content), encoding="utf-8")
+    return shared
+
+
+def test_add_migrates_stale_hook_out_of_shared_settings(tmp_path: Path):
+    """The add path strips an older install's entry from the shared layer,
+    preserving the user's other shared settings, and writes to the local layer."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared = _legacy_shared_with_nauro_hook(repo, extra={"model": "claude-opus"})
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    assert line.legacy_cleaned is True
+    assert len(_nauro_entries(json.loads(_settings(repo).read_text()))) == 1
+    after_shared = json.loads(shared.read_text())
+    assert _nauro_entries(after_shared) == []
+    assert after_shared["model"] == "claude-opus"
+
+
+def test_add_migration_unlinks_shared_settings_emptied_of_nauro_hook(tmp_path: Path):
+    """When the stale entry was the shared file's only content, migration removes the file."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared = _legacy_shared_with_nauro_hook(repo)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    assert line.legacy_cleaned is True
+    assert not shared.exists()
+
+
+def test_already_present_still_migrates_stale_shared_hook(tmp_path: Path):
+    """A re-run with the local hook already wired still cleans the shared layer."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    materialize_hooks_claude_code(repo, remove=False)
+    shared = _legacy_shared_with_nauro_hook(repo)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.ALREADY_PRESENT
+    assert line.legacy_cleaned is True
+    assert not shared.exists()
+
+
+def test_remove_strips_legacy_shared_hook_from_old_install(tmp_path: Path):
+    """Teardown on a repo wired by an older install cleans the shared layer."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared = _legacy_shared_with_nauro_hook(repo, extra={"model": "claude-opus"})
+
+    line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert line.kind is ClaudeHookKind.REMOVED
+    assert line.legacy_cleaned is True
+    after_shared = json.loads(shared.read_text())
+    assert _nauro_entries(after_shared) == []
+    assert after_shared["model"] == "claude-opus"
+
+
+def test_add_leaves_unparseable_shared_settings_untouched(tmp_path: Path):
+    """Legacy cleanup is best-effort: a corrupt shared file is never rewritten."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared = _shared_settings(repo)
+    shared.parent.mkdir(parents=True)
+    shared.write_text("{not json", encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    assert line.legacy_cleaned is False
+    assert shared.read_text(encoding="utf-8") == "{not json"
+
+
+def test_add_writes_local_before_stripping_shared(tmp_path: Path, monkeypatch):
+    """An interrupted local write must leave the legacy shared hook in place,
+    so the repo is never left with no hook at all."""
+    import nauro.cli.integrations.claude_hooks as claude_hooks_mod
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared = _legacy_shared_with_nauro_hook(repo)
+    before = shared.read_text(encoding="utf-8")
+
+    def failing_write(path: Path, raw: dict) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(claude_hooks_mod, "write_json_config", failing_write)
+
+    with pytest.raises(OSError, match="disk full"):
+        materialize_hooks_claude_code(repo, remove=False)
+
+    assert shared.read_text(encoding="utf-8") == before
+    assert not _settings(repo).exists()
+
+
+def test_add_survives_unwritable_shared_settings(tmp_path: Path, monkeypatch):
+    """An unwritable shared file must not abort the add: the local hook lands,
+    the ignore entry is still ensured, and the legacy entry is simply kept."""
+    import nauro.cli.integrations.claude_hooks as claude_hooks_mod
+    from nauro.cli.git_hygiene import GitIgnoreKind
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    # Extra shared content forces the strip's rewrite branch (not unlink),
+    # which is the write this test makes fail.
+    shared = _legacy_shared_with_nauro_hook(repo, extra={"model": "claude-opus"})
+    before = shared.read_text(encoding="utf-8")
+    real_write = claude_hooks_mod.write_json_config
+
+    def failing_shared_write(path: Path, raw: dict) -> None:
+        if path.name == "settings.json":
+            raise OSError("read-only file system")
+        real_write(path, raw)
+
+    monkeypatch.setattr(claude_hooks_mod, "write_json_config", failing_shared_write)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    assert line.legacy_cleaned is False
+    assert line.gitignore is not None
+    assert line.gitignore.kind is GitIgnoreKind.ADDED
+    assert len(_nauro_entries(json.loads(_settings(repo).read_text()))) == 1
+    assert shared.read_text(encoding="utf-8") == before
+
+
+def test_strip_leaves_null_hooks_matcher_untouched(tmp_path: Path):
+    """A matcher whose hooks value is null is user content the strip passes
+    through — never a crash, on either settings layer."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared = _shared_settings(repo)
+    shared.parent.mkdir(parents=True)
+    content = json.dumps({"hooks": {HOOK_EVENT_NAME: [{"hooks": None}]}})
+    shared.write_text(content, encoding="utf-8")
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    assert line.legacy_cleaned is False
+    assert shared.read_text(encoding="utf-8") == content
+
+
+def test_already_present_codex_hooks_still_gain_ignore_entry(tmp_path: Path):
+    """A byte-identical hooks file from a previous release still gets the
+    managed ignore entry on re-run."""
+    from nauro.cli.git_hygiene import GitIgnoreKind
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    materialize_hooks_codex(repo, remove=False)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+
+    line = materialize_hooks_codex(repo, remove=False)
+
+    assert line.kind is CodexHookKind.ALREADY_PRESENT
+    assert line.gitignore is not None
+    assert line.gitignore.kind is GitIgnoreKind.ADDED
+    assert "/.codex/hooks.json" in (repo / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_already_present_claude_hook_still_gains_ignore_entry(tmp_path: Path):
+    from nauro.cli.git_hygiene import GitIgnoreKind
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    materialize_hooks_claude_code(repo, remove=False)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.ALREADY_PRESENT
+    assert line.gitignore is not None
+    assert line.gitignore.kind is GitIgnoreKind.ADDED
+    assert "/.claude/settings.local.json" in (repo / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_add_refuses_tracked_local_settings(tmp_path: Path):
+    """A git-tracked settings.local.json refuses the add path untouched."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    local = _settings(repo)
+    local.parent.mkdir(parents=True)
+    original = "{}"
+    local.write_text(original, encoding="utf-8")
+    subprocess.run(["git", "add", ".claude/settings.local.json"], cwd=repo, check=True)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.REFUSED_TRACKED
+    assert local.read_text(encoding="utf-8") == original
+
+
 # ── CLI integration via `setup claude-code --with-hooks` ───────────────────────
 
 
@@ -686,13 +956,14 @@ def test_setup_claude_code_with_hooks(tmp_path: Path, monkeypatch):
 
 
 def test_setup_claude_code_without_hooks_writes_no_settings(tmp_path: Path, monkeypatch):
-    """Without --with-hooks, no .claude/settings.json hook is written."""
+    """Without --with-hooks, neither Claude settings layer is written."""
     repo, _store = _make_project(tmp_path)
     monkeypatch.chdir(repo)
 
     result = runner.invoke(app, ["setup", "claude-code"])
     assert result.exit_code == 0, result.output
     assert not _settings(repo).is_file()
+    assert not _shared_settings(repo).is_file()
 
 
 def test_setup_claude_code_remove_cleans_hooks_without_with_hooks(tmp_path: Path, monkeypatch):
@@ -861,10 +1132,11 @@ def test_setup_all_hook_failure_does_not_abort(tmp_path: Path, monkeypatch):
 
 
 def test_setup_all_without_hooks_writes_nothing(tmp_path: Path):
-    """Default setup_all_surfaces does not touch .claude/settings.json."""
+    """Default setup_all_surfaces touches neither Claude settings layer nor Codex hooks."""
     repo, _store = _make_project(tmp_path)
     setup_all_surfaces([repo])
     assert not _settings(repo).is_file()
+    assert not _shared_settings(repo).is_file()
     assert not _codex_hooks(repo).is_file()
 
 

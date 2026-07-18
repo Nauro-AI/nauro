@@ -47,8 +47,8 @@ def claude_code(
         "--with-hooks",
         help=(
             "Wire Nauro's advisory UserPromptSubmit hook into each repo's "
-            "project-scope .claude/settings.json. The hook surfaces related "
-            "decisions as context each turn and never blocks."
+            "machine-local .claude/settings.local.json. The hook surfaces "
+            "related decisions as context each turn and never blocks."
         ),
     ),
 ) -> None:

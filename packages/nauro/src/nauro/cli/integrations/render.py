@@ -9,6 +9,7 @@ lands byte-identically to a single echo of the joined text.
 
 from __future__ import annotations
 
+from nauro.cli.git_hygiene import GitIgnoreKind, GitIgnoreResult
 from nauro.cli.integrations.outcomes import (
     AgentKind,
     AgentOutcome,
@@ -57,10 +58,57 @@ def render(outcome: ArtifactOutcome) -> list[str]:
     raise TypeError(f"unrenderable outcome: {outcome!r}")
 
 
+def _tracked_refusal_lines(prefix: str, rel_path: str, what: str) -> list[str]:
+    """Shared wording for refusing to write machine-local wiring into a tracked file."""
+    return [
+        f"{prefix}: {rel_path} is tracked by git - skipped writing {what}",
+        (
+            f"    It records absolute paths that only work on this machine. "
+            f"Run `git rm --cached {rel_path}`, commit, and re-run; nauro will "
+            f"then git-ignore it so each machine keeps its own copy."
+        ),
+    ]
+
+
+def _render_gitignore(result: GitIgnoreResult | None) -> list[str]:
+    """Status lines for a managed .gitignore update carried by a codec outcome."""
+    if result is None:
+        return []
+    match result.kind:
+        case GitIgnoreKind.ADDED:
+            return [
+                f"    added {result.rel_path} to .gitignore "
+                "(machine-local wiring; commit this change)"
+            ]
+        case GitIgnoreKind.REMOVED_ENTRY | GitIgnoreKind.REMOVED_BLOCK:
+            return [f"    removed {result.rel_path} from .gitignore"]
+        case GitIgnoreKind.REFUSED_SYMLINK:
+            return [f"    Warning: did not update .gitignore: {result.refusal.message}"]
+        case GitIgnoreKind.REFUSED_UNREADABLE:
+            return ["    Warning: did not update .gitignore: not valid UTF-8"]
+        case GitIgnoreKind.REFUSED_MALFORMED_BLOCK:
+            return [
+                "    Warning: did not update .gitignore: its nauro-managed "
+                "block markers are malformed; repair or remove them and re-run"
+            ]
+        case GitIgnoreKind.REFUSED_UNWRITABLE:
+            return [f"    Warning: could not write .gitignore: {result.detail}"]
+        case (
+            GitIgnoreKind.ALREADY_COVERED
+            | GitIgnoreKind.SKIPPED_NON_GIT
+            | GitIgnoreKind.NOTHING_TO_REMOVE
+        ):
+            return []
+        case _:
+            raise TypeError(f"unrenderable GitIgnoreResult kind: {result.kind!r}")
+
+
 def _render_json_mcp(o: JsonMcpOutcome) -> list[str]:
     match o.kind:
         case JsonMcpKind.REFUSED_SYMLINK:
             return [f"  {o.repo_path}: {o.refusal.message}"]
+        case JsonMcpKind.REFUSED_TRACKED:
+            return _tracked_refusal_lines(f"  {o.repo_path}", o.label, "machine-local MCP wiring")
         case JsonMcpKind.PARSE_ERROR:
             return [f"  {o.repo_path}: could not parse {o.label} - {o.detail}"]
         case JsonMcpKind.NOT_JSON_OBJECT:
@@ -68,35 +116,72 @@ def _render_json_mcp(o: JsonMcpOutcome) -> list[str]:
         case JsonMcpKind.MCPSERVERS_NOT_OBJECT:
             return [f"  {o.repo_path}: mcpServers in {o.label} is not a JSON object, skipped"]
         case JsonMcpKind.NOTHING_TO_REMOVE:
-            return [f"  {o.repo_path}: no nauro entry to remove"]
+            return [f"  {o.repo_path}: no nauro entry to remove", *_render_gitignore(o.gitignore)]
         case JsonMcpKind.REMOVED:
-            return [f"  {o.repo_path}: removed nauro from {o.label}"]
+            return [
+                f"  {o.repo_path}: removed nauro from {o.label}",
+                *_render_gitignore(o.gitignore),
+            ]
         case JsonMcpKind.WROTE:
-            return [f"  {o.repo_path}: wrote nauro to {o.label}", *o.git_warnings]
+            return [
+                f"  {o.repo_path}: wrote nauro to {o.label}",
+                *_render_gitignore(o.gitignore),
+                *o.git_warnings,
+            ]
         case _:
             raise TypeError(f"unrenderable JsonMcpOutcome kind: {o.kind!r}")
 
 
 def _render_claude_hook(o: ClaudeHookOutcome) -> list[str]:
+    legacy_cleanup_add = (
+        [
+            "    moved stale nauro hook out of .claude/settings.json "
+            "(machine-local wiring lives in .claude/settings.local.json; "
+            "commit the cleanup)"
+        ]
+        if o.legacy_cleaned
+        else []
+    )
     match o.kind:
         case ClaudeHookKind.REFUSED_SYMLINK:
             return [f"  {o.repo}: {o.refusal.message}"]
+        case ClaudeHookKind.REFUSED_TRACKED:
+            return _tracked_refusal_lines(
+                f"  {o.repo}", ".claude/settings.local.json", "machine-local hook wiring"
+            )
         case ClaudeHookKind.PARSE_ERROR:
-            return [f"  {o.repo}: could not parse .claude/settings.json - {o.detail}"]
+            return [f"  {o.repo}: could not parse .claude/settings.local.json - {o.detail}"]
         case ClaudeHookKind.NOT_JSON_OBJECT:
-            return [f"  {o.repo}: .claude/settings.json is not a JSON object, skipped"]
+            return [f"  {o.repo}: .claude/settings.local.json is not a JSON object, skipped"]
         case ClaudeHookKind.HOOKS_NOT_OBJECT:
             return [f"  {o.repo}: hooks key is not a JSON object, skipped"]
         case ClaudeHookKind.EVENT_NOT_ARRAY:
             return [f"  {o.repo}: hooks.UserPromptSubmit is not a JSON array, skipped"]
         case ClaudeHookKind.ALREADY_PRESENT:
-            return [f"  {o.repo}: nauro hook already present in .claude/settings.json"]
+            return [
+                f"  {o.repo}: nauro hook already present in .claude/settings.local.json",
+                *_render_gitignore(o.gitignore),
+                *legacy_cleanup_add,
+            ]
         case ClaudeHookKind.WROTE:
-            return [f"  {o.repo}: wrote nauro hook to .claude/settings.json", *o.git_warnings]
+            return [
+                f"  {o.repo}: wrote nauro hook to .claude/settings.local.json",
+                *_render_gitignore(o.gitignore),
+                *legacy_cleanup_add,
+                *o.git_warnings,
+            ]
         case ClaudeHookKind.NOTHING_TO_REMOVE:
-            return [f"  {o.repo}: no nauro hook to remove"]
+            return [f"  {o.repo}: no nauro hook to remove", *_render_gitignore(o.gitignore)]
         case ClaudeHookKind.REMOVED:
-            return [f"  {o.repo}: removed nauro hook from .claude/settings.json"]
+            removed_from = (
+                ".claude/settings.local.json and .claude/settings.json"
+                if o.legacy_cleaned
+                else ".claude/settings.local.json"
+            )
+            return [
+                f"  {o.repo}: removed nauro hook from {removed_from}",
+                *_render_gitignore(o.gitignore),
+            ]
         case _:
             raise TypeError(f"unrenderable ClaudeHookOutcome kind: {o.kind!r}")
 
@@ -161,6 +246,10 @@ def _render_codex_hook(o: CodexHookOutcome) -> list[str]:
     match o.kind:
         case CodexHookKind.REFUSED_SYMLINK:
             return [f"  {o.repo}: {o.refusal.message}"]
+        case CodexHookKind.REFUSED_TRACKED:
+            return _tracked_refusal_lines(
+                f"  {o.repo}", ".codex/hooks.json", "machine-local hook wiring"
+            )
         case CodexHookKind.PARSE_ERROR:
             return [f"  {o.repo}: could not parse .codex/hooks.json - {o.detail}"]
         case CodexHookKind.CONFIG_ERROR:
@@ -168,13 +257,26 @@ def _render_codex_hook(o: CodexHookOutcome) -> list[str]:
         case CodexHookKind.NO_COMMAND:
             return [f"  {o.repo}: Codex hook wiring skipped; no compatible Nauro command"]
         case CodexHookKind.NOTHING_TO_REMOVE:
-            return [f"  {o.repo}: no nauro Codex hooks to remove"]
+            return [
+                f"  {o.repo}: no nauro Codex hooks to remove",
+                *_render_gitignore(o.gitignore),
+            ]
         case CodexHookKind.REMOVED:
-            return [f"  {o.repo}: removed nauro hooks from .codex/hooks.json"]
+            return [
+                f"  {o.repo}: removed nauro hooks from .codex/hooks.json",
+                *_render_gitignore(o.gitignore),
+            ]
         case CodexHookKind.ALREADY_PRESENT:
-            return [f"  {o.repo}: nauro hooks already present in .codex/hooks.json"]
+            return [
+                f"  {o.repo}: nauro hooks already present in .codex/hooks.json",
+                *_render_gitignore(o.gitignore),
+            ]
         case CodexHookKind.WROTE:
-            return [f"  {o.repo}: wrote nauro hooks to .codex/hooks.json", *o.git_warnings]
+            return [
+                f"  {o.repo}: wrote nauro hooks to .codex/hooks.json",
+                *_render_gitignore(o.gitignore),
+                *o.git_warnings,
+            ]
         case _:
             raise TypeError(f"unrenderable CodexHookOutcome kind: {o.kind!r}")
 
