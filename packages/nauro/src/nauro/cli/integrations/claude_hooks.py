@@ -1,4 +1,4 @@
-"""Claude Code UserPromptSubmit hook codec (.claude/settings.json) for the setup surface."""
+"""Claude Code UserPromptSubmit hook codec (.claude/settings.local.json) for the setup surface."""
 
 from __future__ import annotations
 
@@ -8,13 +8,24 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from nauro.cli.git_hygiene import public_surface_git_warnings
+from nauro.cli.git_hygiene import (
+    ensure_wiring_ignored,
+    public_surface_git_warnings,
+    remove_wiring_ignore_entry,
+    wiring_path_is_tracked,
+)
 from nauro.cli.integrations._json_config import write_json_config
 from nauro.cli.integrations.outcomes import ClaudeHookKind, ClaudeHookOutcome
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.store.write_safety import find_symlink
 
-# Claude Code reads hooks from project-scope ``<repo>/.claude/settings.json``.
+# Claude Code merges hooks across the project settings layers. The Nauro hook
+# entry carries a machine-local absolute binary path, so it belongs in the
+# personal machine-local layer ``.claude/settings.local.json`` — never in the
+# team-shared, conventionally committed ``.claude/settings.json``. The shared
+# file is only ever touched to strip a stale Nauro entry that an older install
+# left there (and on teardown, for the same cleanup).
+#
 # The advisory UserPromptSubmit hook runs ``nauro hook user-prompt-submit`` on
 # each turn; it surfaces related decisions as context and never blocks a turn.
 # The MVP hook is BM25-floor only — it does not set ``NAURO_EMBEDDINGS`` — so the
@@ -22,6 +33,9 @@ from nauro.store.write_safety import find_symlink
 # flag internally, so the follow-up that re-admits cosine-gated embedding hits
 # can flip the backend on without changing the installed command.
 #
+SETTINGS_LOCAL_REL = ".claude/settings.local.json"
+SETTINGS_SHARED_REL = ".claude/settings.json"
+
 HOOK_EVENT_NAME = "UserPromptSubmit"
 # The subcommand the hook entry runs; the full command is built at install time
 # by prefixing the resolved absolute nauro path (see _nauro_hook_entry), so the
@@ -37,7 +51,7 @@ _HOOK_COMMAND_MARKER = HOOK_SUBCOMMAND
 
 
 class HooksMap(BaseModel):
-    """The event-keyed hook map inside ``.claude/settings.json``.
+    """The event-keyed hook map inside a Claude settings file.
 
     Only ``UserPromptSubmit`` — the single event Nauro installs into — is
     validated, and only far enough to confirm it is a JSON array when present.
@@ -61,7 +75,7 @@ class HooksMap(BaseModel):
 
 
 class ClaudeHookSettings(BaseModel):
-    """Boundary view of ``.claude/settings.json``.
+    """Boundary view of a Claude settings file.
 
     Only what Nauro touches is validated: the ``hooks`` container is a JSON
     object (an explicit null or scalar is routed to the HOOKS_NOT_OBJECT skip by
@@ -107,23 +121,40 @@ def _parse_hook_settings(raw: object) -> ClaudeHookSettings:
         raise HookShapeError(HookShape.EVENT_NOT_ARRAY) from exc
 
 
-def _claude_settings_path(repo: Path) -> Path:
+def _settings_local_path(repo: Path) -> Path:
+    return repo / ".claude" / "settings.local.json"
+
+
+def _settings_shared_path(repo: Path) -> Path:
     return repo / ".claude" / "settings.json"
 
 
 def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> ClaudeHookOutcome:
-    """Add or remove the Nauro advisory hook in ``<repo>/.claude/settings.json``.
+    """Add or remove the Nauro advisory hook in ``<repo>/.claude/settings.local.json``.
 
     Add path: idempotently append the hook entry to
-    ``hooks.UserPromptSubmit[].hooks[]`` only when no nauro-authored entry is
-    already present. Remove path: strip only the nauro-authored entry (matched on
-    the command containing ``nauro hook``), preserving any user-authored hooks
-    and the surrounding structure.
+    ``hooks.UserPromptSubmit[].hooks[]`` in the machine-local settings file,
+    ensure that file is git-ignored, and strip a stale Nauro entry from the
+    shared ``.claude/settings.json`` when an older install left one there
+    (best-effort; the cleanup diff removes a dead path the team wants gone).
+    Remove path: strip the nauro-authored entry from both settings layers
+    (matched on the command containing ``nauro hook``), preserving any
+    user-authored hooks and the surrounding structure, and drop the managed
+    gitignore entry.
     """
-    refusal = find_symlink(repo, ".claude/settings.json")
-    if refusal is not None:
-        return ClaudeHookOutcome(ClaudeHookKind.REFUSED_SYMLINK, repo, refusal=refusal)
-    settings_path = _claude_settings_path(repo)
+    for rel in (SETTINGS_LOCAL_REL, SETTINGS_SHARED_REL):
+        refusal = find_symlink(repo, rel)
+        if refusal is not None:
+            return ClaudeHookOutcome(ClaudeHookKind.REFUSED_SYMLINK, repo, refusal=refusal)
+    settings_path = _settings_local_path(repo)
+
+    if remove:
+        return _remove_hook_entries(repo, settings_path)
+
+    # Never write a machine-local absolute path into a git-tracked file; see
+    # the JSON MCP codec for the rationale. Teardown stays allowed.
+    if wiring_path_is_tracked(repo, SETTINGS_LOCAL_REL):
+        return ClaudeHookOutcome(ClaudeHookKind.REFUSED_TRACKED, repo)
 
     if settings_path.exists():
         try:
@@ -134,9 +165,6 @@ def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> ClaudeHookOutc
             return ClaudeHookOutcome(ClaudeHookKind.NOT_JSON_OBJECT, repo)
     else:
         raw = {}
-
-    if remove:
-        return _remove_hook_entry(settings_path, raw, repo)
     return _add_hook_entry(settings_path, raw, repo)
 
 
@@ -180,9 +208,18 @@ def _add_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHookOut
             return ClaudeHookOutcome(ClaudeHookKind.HOOKS_NOT_OBJECT, repo)
         return ClaudeHookOutcome(ClaudeHookKind.EVENT_NOT_ARRAY, repo)
 
-    # Idempotent: if any matcher already carries a nauro hook, do nothing.
+    # Idempotent: if any matcher already carries a nauro hook, do nothing
+    # beyond the legacy strip and the ignore entry, both of which must not
+    # depend on a content change (a repo wired by an older run can be
+    # byte-identical yet still unignored).
     if _has_nauro_hook(settings):
-        return ClaudeHookOutcome(ClaudeHookKind.ALREADY_PRESENT, repo)
+        legacy_cleaned = _strip_hook_from_file(_settings_shared_path(repo)) is True
+        return ClaudeHookOutcome(
+            ClaudeHookKind.ALREADY_PRESENT,
+            repo,
+            gitignore=ensure_wiring_ignored(repo, SETTINGS_LOCAL_REL),
+            legacy_cleaned=legacy_cleaned,
+        )
 
     # The parse guarantees hooks is absent or an object and UserPromptSubmit is
     # absent or an array, so both setdefaults land on the right container type.
@@ -190,17 +227,95 @@ def _add_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHookOut
         {"hooks": [_nauro_hook_entry()]}
     )
     write_json_config(settings_path, raw)
-    git_warnings = tuple(public_surface_git_warnings(repo, ".claude/settings.json"))
-    return ClaudeHookOutcome(ClaudeHookKind.WROTE, repo, git_warnings=git_warnings)
+    # Strip the stale shared-layer entry only after the replacement is durably
+    # on disk, so an interrupted run can never leave the repo with no hook.
+    legacy_cleaned = _strip_hook_from_file(_settings_shared_path(repo)) is True
+    ignore_result = ensure_wiring_ignored(repo, SETTINGS_LOCAL_REL)
+    git_warnings = tuple(public_surface_git_warnings(repo, SETTINGS_LOCAL_REL))
+    return ClaudeHookOutcome(
+        ClaudeHookKind.WROTE,
+        repo,
+        git_warnings=git_warnings,
+        gitignore=ignore_result,
+        legacy_cleaned=legacy_cleaned,
+    )
 
 
-def _remove_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHookOutcome:
+def _remove_hook_entries(repo: Path, settings_path: Path) -> ClaudeHookOutcome:
+    """Strip the nauro hook from both settings layers and the managed gitignore."""
+    if settings_path.exists():
+        try:
+            raw = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            return ClaudeHookOutcome(ClaudeHookKind.PARSE_ERROR, repo, detail=str(exc))
+        if not isinstance(raw, dict):
+            return ClaudeHookOutcome(ClaudeHookKind.NOT_JSON_OBJECT, repo)
+        local_removed = _strip_hook_entries(raw)
+        if local_removed:
+            if raw:
+                write_json_config(settings_path, raw)
+            else:
+                settings_path.unlink()
+    else:
+        local_removed = False
+
+    legacy_removed = _strip_hook_from_file(_settings_shared_path(repo)) is True
+    ignore_result = remove_wiring_ignore_entry(repo, SETTINGS_LOCAL_REL)
+
+    if not local_removed and not legacy_removed:
+        return ClaudeHookOutcome(ClaudeHookKind.NOTHING_TO_REMOVE, repo, gitignore=ignore_result)
+    return ClaudeHookOutcome(
+        ClaudeHookKind.REMOVED,
+        repo,
+        gitignore=ignore_result,
+        legacy_cleaned=legacy_removed,
+    )
+
+
+def _strip_hook_from_file(settings_path: Path) -> bool | None:
+    """Best-effort strip of the nauro hook entry from one settings file.
+
+    Returns True when an entry was removed, False when none was present, and
+    None when the file was absent, unreadable, or off-shape — the file is left
+    untouched in that case, because Nauro no longer owns writes to the shared
+    layer and a legacy cleanup must never turn into a rewrite of it.
+    """
+    if not settings_path.exists():
+        return None
+    try:
+        raw = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    if not _strip_hook_entries(raw):
+        return False
+    # Best-effort covers the write side too: an unwritable shared file must
+    # not abort the surface whose own hook already landed, and the atomic
+    # write's failure leaves the original bytes intact.
+    try:
+        if raw:
+            write_json_config(settings_path, raw)
+        else:
+            settings_path.unlink()
+    except OSError:
+        return None
+    return True
+
+
+def _strip_hook_entries(raw: dict) -> bool:
+    """Remove nauro-authored UserPromptSubmit entries from ``raw`` in place.
+
+    Preserves user-authored hooks, matcher metadata, and sibling events; drops
+    only the installer-owned matcher shell when nothing else remains in it.
+    Returns True when at least one entry was removed.
+    """
     hooks = raw.get("hooks")
     if not isinstance(hooks, dict):
-        return ClaudeHookOutcome(ClaudeHookKind.NOTHING_TO_REMOVE, repo)
+        return False
     event_matchers = hooks.get(HOOK_EVENT_NAME)
     if not isinstance(event_matchers, list):
-        return ClaudeHookOutcome(ClaudeHookKind.NOTHING_TO_REMOVE, repo)
+        return False
 
     removed = False
     surviving_matchers = []
@@ -209,6 +324,12 @@ def _remove_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHook
             surviving_matchers.append(matcher)
             continue
         entries = matcher.get("hooks", [])
+        # An off-shape hooks value (null, scalar, object) is user content the
+        # strip does not own: pass the matcher through untouched rather than
+        # crashing — this path also runs best-effort against the shared file.
+        if not isinstance(entries, list):
+            surviving_matchers.append(matcher)
+            continue
         kept = [e for e in entries if not _is_nauro_hook(e)]
         removed_here = len(entries) - len(kept)
         if removed_here:
@@ -223,7 +344,7 @@ def _remove_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHook
         # Drop only the installer-owned matcher shell with no user metadata.
 
     if not removed:
-        return ClaudeHookOutcome(ClaudeHookKind.NOTHING_TO_REMOVE, repo)
+        return False
 
     if surviving_matchers:
         hooks[HOOK_EVENT_NAME] = surviving_matchers
@@ -231,9 +352,4 @@ def _remove_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHook
         hooks.pop(HOOK_EVENT_NAME, None)
     if not hooks:
         raw.pop("hooks", None)
-
-    if raw:
-        write_json_config(settings_path, raw)
-    else:
-        settings_path.unlink()
-    return ClaudeHookOutcome(ClaudeHookKind.REMOVED, repo)
+    return True

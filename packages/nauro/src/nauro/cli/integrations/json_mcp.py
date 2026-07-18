@@ -8,7 +8,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from nauro.cli.git_hygiene import public_surface_git_warnings
+from nauro.cli.git_hygiene import (
+    ensure_wiring_ignored,
+    public_surface_git_warnings,
+    remove_wiring_ignore_entry,
+    wiring_path_is_tracked,
+)
 from nauro.cli.integrations._json_config import write_json_config
 from nauro.cli.integrations.outcomes import JsonMcpKind, JsonMcpOutcome
 from nauro.cli.nauro_command import _find_nauro_command
@@ -90,6 +95,11 @@ def _configure_json_mcp(
     refusal = find_symlink(repo_path, config_rel_path)
     if refusal is not None:
         return JsonMcpOutcome(JsonMcpKind.REFUSED_SYMLINK, repo_path, label, refusal=refusal)
+    # Never write a machine-local absolute path into a git-tracked file: the
+    # next commit would ship a command that is dead on every other machine.
+    # Teardown stays allowed — removing an entry writes no machine-local path.
+    if not remove and wiring_path_is_tracked(repo_path, config_rel_path):
+        return JsonMcpOutcome(JsonMcpKind.REFUSED_TRACKED, repo_path, label)
     config_path = repo_path / config_rel_path
     nauro_cmd = _find_nauro_command()
     nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
@@ -117,7 +127,12 @@ def _configure_json_mcp(
     servers = document.mcp_servers
     if remove:
         if "nauro" not in servers:
-            return JsonMcpOutcome(JsonMcpKind.NOTHING_TO_REMOVE, repo_path, label)
+            return JsonMcpOutcome(
+                JsonMcpKind.NOTHING_TO_REMOVE,
+                repo_path,
+                label,
+                gitignore=remove_wiring_ignore_entry(repo_path, config_rel_path),
+            )
         raw_servers = raw["mcpServers"]
         del raw_servers["nauro"]
         if not raw_servers:
@@ -126,15 +141,29 @@ def _configure_json_mcp(
             write_json_config(config_path, raw)
         else:
             config_path.unlink()
-        return JsonMcpOutcome(JsonMcpKind.REMOVED, repo_path, label)
+        return JsonMcpOutcome(
+            JsonMcpKind.REMOVED,
+            repo_path,
+            label,
+            gitignore=remove_wiring_ignore_entry(repo_path, config_rel_path),
+        )
 
     # The parse guarantees mcpServers is absent or an object here, so setdefault
     # always lands on a dict. Overwrite only Nauro's own entry; every sibling
     # entry stays byte-identical because Nauro does not own it.
     raw.setdefault("mcpServers", {})["nauro"] = nauro_entry
     write_json_config(config_path, raw)
+    ignore_result = ensure_wiring_ignored(repo_path, config_rel_path)
+    # The advisory warnings degrade gracefully: once the file is ignored they
+    # are empty, and they still fire when the ignore update was refused.
     git_warnings = tuple(public_surface_git_warnings(repo_path, config_rel_path))
-    return JsonMcpOutcome(JsonMcpKind.WROTE, repo_path, label, git_warnings=git_warnings)
+    return JsonMcpOutcome(
+        JsonMcpKind.WROTE,
+        repo_path,
+        label,
+        git_warnings=git_warnings,
+        gitignore=ignore_result,
+    )
 
 
 def _configure_mcp(repo_path: Path, *, remove: bool = False) -> JsonMcpOutcome:

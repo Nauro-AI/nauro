@@ -1,8 +1,9 @@
 """Atomic-write behavior of the external config sinks in ``nauro setup``.
 
 Seven write paths route through ``atomic_write_text``: project-scope
-``.mcp.json`` add/remove, ``.claude/settings.json`` hook add/remove,
-``.codex/hooks.json`` add/remove, and the user-scope ``~/.claude.json`` prune.
+``.mcp.json`` add/remove, the ``.claude/settings.local.json`` hook add and the
+legacy ``.claude/settings.json`` strip on remove, ``.codex/hooks.json``
+add/remove, and the user-scope ``~/.claude.json`` prune.
 Each sink pins three contracts: the success path stays byte-identical to a
 plain ``write_text`` of the same payload, existing permission bits survive the
 rewrite, and an interrupted write leaves the original bytes intact with no
@@ -141,7 +142,9 @@ DRIVERS = [
     ConfigWriteDriver(
         id="settings-hook-add",
         soft_fails=False,
-        seed=lambda base: _seed_file(base, "repo/.claude/settings.json", {"model": "claude-opus"}),
+        seed=lambda base: _seed_file(
+            base, "repo/.claude/settings.local.json", {"model": "claude-opus"}
+        ),
         run=lambda base: materialize_hooks_claude_code(base / "repo", remove=False),
         expected=lambda: _dump(
             {
@@ -150,12 +153,15 @@ DRIVERS = [
             }
         ),
     ),
+    # The machine-local layer keeps the strict atomic contract; the shared
+    # layer's legacy strip is deliberately soft-failing and is pinned by
+    # test_interrupted_legacy_strip_soft_fails below.
     ConfigWriteDriver(
         id="settings-hook-remove",
         soft_fails=False,
         seed=lambda base: _seed_file(
             base,
-            "repo/.claude/settings.json",
+            "repo/.claude/settings.local.json",
             {
                 "model": "claude-opus",
                 "hooks": {HOOK_EVENT_NAME: [_USER_HOOK_MATCHER, _NAURO_SETTINGS_MATCHER]},
@@ -287,6 +293,31 @@ def test_interrupted_write_leaves_target_and_no_temps(driver, tmp_path: Path, mo
         with pytest.raises(OSError, match="replace failed"):
             driver.run(tmp_path)
 
+    assert target.read_bytes() == before
+    assert _tmp_siblings(target) == []
+
+
+def test_interrupted_legacy_strip_soft_fails(tmp_path: Path, monkeypatch):
+    """The shared-layer legacy strip is best-effort on the write side too: an
+    interrupted rewrite leaves the original bytes, no temps, and no exception —
+    the surface reports its own outcome instead of aborting."""
+    from nauro.cli.integrations.outcomes import ClaudeHookKind
+
+    target = _seed_file(
+        tmp_path,
+        "repo/.claude/settings.json",
+        {
+            "model": "claude-opus",
+            "hooks": {HOOK_EVENT_NAME: [_NAURO_SETTINGS_MATCHER]},
+        },
+    )
+    before = target.read_bytes()
+    monkeypatch.setattr(_atomic.os, "replace", _failing_replace)
+
+    outcome = materialize_hooks_claude_code(tmp_path / "repo", remove=True)
+
+    assert outcome.kind is ClaudeHookKind.NOTHING_TO_REMOVE
+    assert outcome.legacy_cleaned is False
     assert target.read_bytes() == before
     assert _tmp_siblings(target) == []
 

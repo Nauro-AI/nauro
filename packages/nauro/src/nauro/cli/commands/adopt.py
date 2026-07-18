@@ -205,11 +205,17 @@ def _unadopt_symlink_refusals(repo_root: Path) -> list[SymlinkRefusal]:
         ".mcp.json",
         ".cursor/mcp.json",
         ".claude/settings.json",
+        ".claude/settings.local.json",
         ".codex/hooks.json",
         "AGENTS.md",
         "CLAUDE.md",
         *(f".cursor/rules/{name}.mdc" for name in SKILL_NAMES + OPT_IN_SKILL_NAMES),
     ]
+    # .gitignore is a teardown target only inside a git working tree — the
+    # managed-block removal skips non-git directories entirely, so a symlinked
+    # .gitignore there must not abort an otherwise valid un-adopt.
+    if _is_git_repo(repo_root):
+        targets.append(".gitignore")
     return [refusal for rel in targets if (refusal := find_symlink(repo_root, rel)) is not None]
 
 

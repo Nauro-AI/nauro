@@ -278,12 +278,18 @@ def test_setup_claude_code_warns_for_untracked_unignored_known_paths(tmp_path: P
 
     result = runner.invoke(app, ["setup", "claude-code"])
     assert result.exit_code == 0, result.output
-    assert ".mcp.json is untracked and not git-ignored" in result.output
+    # Wiring files are git-ignored at write time, so the accidental-add
+    # advisory never fires for them; it remains for the committed-by-design
+    # AGENTS.md identity surface.
+    assert "added .mcp.json to .gitignore" in result.output
+    assert ".mcp.json is untracked and not git-ignored" not in result.output
+    assert "/.mcp.json" in (repo / ".gitignore").read_text(encoding="utf-8")
     assert "AGENTS.md is untracked and not git-ignored" in result.output
     assert "easy to add by accident" in result.output
 
 
-def test_setup_claude_code_warns_for_tracked_known_path(tmp_path: Path, monkeypatch):
+def test_setup_claude_code_refuses_tracked_wiring_file(tmp_path: Path, monkeypatch):
+    """A git-tracked .mcp.json is refused untouched, with migration guidance."""
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
@@ -296,8 +302,10 @@ def test_setup_claude_code_warns_for_tracked_known_path(tmp_path: Path, monkeypa
 
     result = runner.invoke(app, ["setup", "claude-code"])
     assert result.exit_code == 0, result.output
-    assert ".mcp.json is tracked by git" in result.output
-    assert "local Nauro wiring" in result.output
+    assert ".mcp.json is tracked by git - skipped writing" in result.output
+    assert "git rm --cached .mcp.json" in result.output
+    # The tracked file is left byte-identical: no machine-local path was written.
+    assert (repo / ".mcp.json").read_text() == "{}\n"
 
 
 def test_setup_claude_code_suppresses_warning_for_ignored_known_paths(tmp_path: Path, monkeypatch):
@@ -789,6 +797,30 @@ def test_setup_all_prunes_redundant_http_entry(tmp_path: Path, monkeypatch):
     assert "removed redundant user-scope HTTP nauro entry" in result.output
     config = json.loads(claude_json.read_text())
     assert "nauro" not in config.get("mcpServers", {})
+
+
+def test_setup_keeps_user_scope_entry_when_project_write_refused(tmp_path: Path, monkeypatch):
+    """A refused project .mcp.json write must keep the user-scope HTTP entry:
+    pruning it would delete the repo's only working Claude connection."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _git_init(repo)
+    (repo / ".mcp.json").write_text("{}\n")
+    subprocess.run(["git", "add", ".mcp.json"], cwd=repo, check=True)
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+    claude_json = _write_user_claude_json(
+        tmp_path, {"nauro": {"type": "http", "url": "https://mcp.nauro.ai"}}
+    )
+
+    result = runner.invoke(app, ["setup", "all"])
+    assert result.exit_code == 0, result.output
+    assert ".mcp.json is tracked by git - skipped writing" in result.output
+    assert "removed redundant user-scope HTTP nauro entry" not in result.output
+    config = json.loads(claude_json.read_text())
+    assert "nauro" in config["mcpServers"]
 
 
 # ─── nauro setup all --with-skills ──────────────────────────────────────────

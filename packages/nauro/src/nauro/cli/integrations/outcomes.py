@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
+from nauro.cli.git_hygiene import GitIgnoreResult
 from nauro.store.write_safety import SymlinkRefusal, UserSymlinkRefusal
 
 
@@ -31,6 +32,7 @@ class RawLine:
 
 class JsonMcpKind(Enum):
     REFUSED_SYMLINK = auto()
+    REFUSED_TRACKED = auto()
     PARSE_ERROR = auto()
     NOT_JSON_OBJECT = auto()
     MCPSERVERS_NOT_OBJECT = auto()
@@ -49,10 +51,12 @@ class JsonMcpOutcome:
     refusal: SymlinkRefusal | None = None
     detail: str | None = None
     git_warnings: tuple[str, ...] = ()
+    gitignore: GitIgnoreResult | None = None
 
 
 class ClaudeHookKind(Enum):
     REFUSED_SYMLINK = auto()
+    REFUSED_TRACKED = auto()
     PARSE_ERROR = auto()
     NOT_JSON_OBJECT = auto()
     HOOKS_NOT_OBJECT = auto()
@@ -72,6 +76,10 @@ class ClaudeHookOutcome:
     refusal: SymlinkRefusal | None = None
     detail: str | None = None
     git_warnings: tuple[str, ...] = ()
+    gitignore: GitIgnoreResult | None = None
+    # True when this run also stripped a stale Nauro entry from the shared
+    # .claude/settings.json (the hook now lives in .claude/settings.local.json).
+    legacy_cleaned: bool = False
 
 
 class ClaudeUserConfigKind(Enum):
@@ -128,6 +136,7 @@ class CodexConfigOutcome:
 
 class CodexHookKind(Enum):
     REFUSED_SYMLINK = auto()
+    REFUSED_TRACKED = auto()
     PARSE_ERROR = auto()
     CONFIG_ERROR = auto()
     NO_COMMAND = auto()
@@ -146,6 +155,7 @@ class CodexHookOutcome:
     refusal: SymlinkRefusal | None = None
     detail: str | None = None
     git_warnings: tuple[str, ...] = ()
+    gitignore: GitIgnoreResult | None = None
 
 
 class SkillKind(Enum):
