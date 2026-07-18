@@ -2,8 +2,11 @@
 
 import json
 import os
+import queue
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Literal, get_args, get_origin, get_type_hints
 from unittest.mock import patch
@@ -417,7 +420,7 @@ def test_stdio_handshake_and_tool_call_emit_no_product_analytics_output(tmp_path
     env["NAURO_HOME"] = str(nauro_home)
     payload = "".join(json.dumps(message) + "\n" for message in messages)
 
-    result = subprocess.run(
+    process = subprocess.Popen(
         [
             sys.executable,
             "-c",
@@ -425,17 +428,74 @@ def test_stdio_handshake_and_tool_call_emit_no_product_analytics_output(tmp_path
         ],
         cwd=tmp_path,
         env=env,
-        input=payload,
-        capture_output=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=30,
     )
+    stdout_lines: queue.Queue[str | None] = queue.Queue()
+    complete_stdout: list[str] = []
+    stderr_lines: list[str] = []
+    stdout_reader = None
+    stderr_reader = None
 
-    assert result.returncode == 0, result.stderr
-    responses = [json.loads(line) for line in result.stdout.splitlines()]
-    assert [response["id"] for response in responses] == [1, 2]
-    assert "posthog" not in result.stderr.lower()
-    assert "us.i.posthog.com" not in result.stderr.lower()
+    def read_stdout() -> None:
+        for line in process.stdout:
+            complete_stdout.append(line)
+            stdout_lines.put(line)
+        stdout_lines.put(None)
+
+    try:
+        assert process.stdin is not None
+        assert process.stdout is not None
+        assert process.stderr is not None
+
+        stdout_reader = threading.Thread(target=read_stdout)
+        stderr_reader = threading.Thread(target=lambda: stderr_lines.extend(process.stderr))
+        stdout_reader.start()
+        stderr_reader.start()
+
+        process.stdin.write(payload)
+        process.stdin.flush()
+        expected_ids = [1, 2]
+        response_ids = []
+        deadline = time.monotonic() + 30
+        while response_ids != expected_ids:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                pytest.fail("timed out waiting for both stdio responses")
+            try:
+                line = stdout_lines.get(timeout=remaining)
+            except queue.Empty:
+                pytest.fail("timed out waiting for both stdio responses")
+            assert line is not None, "stdio server exited before emitting both responses"
+            message = json.loads(line)
+            if "id" in message:
+                response_ids.append(message["id"])
+                assert response_ids == expected_ids[: len(response_ids)]
+    finally:
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=30)
+
+        if stdout_reader is not None:
+            stdout_reader.join()
+        if stderr_reader is not None:
+            stderr_reader.join()
+
+    stderr = "".join(stderr_lines)
+    assert process.returncode == 0, stderr
+    responses = [json.loads(line) for line in complete_stdout]
+    assert [response.get("id") for response in responses] == [1, 2]
+    assert "posthog" not in stderr.lower()
+    assert "us.i.posthog.com" not in stderr.lower()
 
 
 class TestToolSpecDescriptionsReachAgent:
