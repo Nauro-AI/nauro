@@ -73,3 +73,12 @@ def test_project_resolution_and_report_header(tmp_path: Path) -> None:
 def test_unknown_project_exits_nonzero(tmp_path: Path) -> None:
     result = runner.invoke(app, ["doctor", "--project", "nope"])
     assert result.exit_code == 1
+
+
+def test_help_states_store_only_scope_and_points_at_status() -> None:
+    """Doctor's help draws the boundary: store integrity here, everything
+    else (connection, wiring) is status's job."""
+    result = runner.invoke(app, ["doctor", "--help"])
+    assert result.exit_code == 0
+    assert "decision store" in result.stdout
+    assert "nauro status" in result.stdout

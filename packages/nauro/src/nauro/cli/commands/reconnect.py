@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from nauro.cli.integrations.json_mcp import recorded_mcp_commands
 from nauro.store.recovery import (
     RecoveryError,
     bind_local_store,
@@ -38,6 +39,18 @@ def _finish_connection(repo_root: Path, store_path: Path, project_id: str) -> No
     )
 
 
+def _echo_setup_hint_if_unwired(repo_root: Path) -> None:
+    """One next step when the connected repo has no MCP wiring on this machine.
+
+    Connection restores the project record; MCP wiring is machine-local and
+    regenerated per machine, so a fresh clone lands here connected but not
+    wired. The probe is read-only and soft-failing; wired repos stay silent.
+    """
+    if recorded_mcp_commands(repo_root):
+        return
+    typer.echo("Next: run 'nauro setup all' to wire this machine's agents.")
+
+
 def reconnect() -> None:
     """Connect or recover the project already named by this repository."""
     config_path = find_repo_config(start=Path.cwd())
@@ -53,6 +66,7 @@ def reconnect() -> None:
     if isinstance(connection, RepoResolution):
         typer.echo(f"Already connected to '{connection.display_name}'.")
         typer.echo(f"  Store: {connection.store_path}")
+        _echo_setup_hint_if_unwired(repo_root)
         return
     if not isinstance(connection, DisconnectedProject):
         typer.echo("The repository project config could not be validated.", err=True)
@@ -77,6 +91,7 @@ def reconnect() -> None:
             resolved = bind_local_store(repo_root, store_path)
             _finish_connection(repo_root, resolved.store_path, resolved.project_id)
             typer.echo(f"Connected '{resolved.display_name}' to {resolved.store_path}")
+            _echo_setup_hint_if_unwired(repo_root)
             return
 
         remote_name = require_cloud_membership(connection.project_id)
@@ -100,6 +115,7 @@ def reconnect() -> None:
         _finish_connection(repo_root, bound, connection.project_id)
         typer.echo(f"Restored and connected '{remote_name}'.")
         typer.echo(f"  Store: {bound}")
+        _echo_setup_hint_if_unwired(repo_root)
     except (RecoveryError, StoreBindingError, OSError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc

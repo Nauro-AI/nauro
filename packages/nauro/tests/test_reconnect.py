@@ -78,6 +78,8 @@ def test_reconnect_cloud_restore_uses_same_binding_service(tmp_path, monkeypatch
 
     assert result.exit_code == 0, result.output
     assert "Restored and connected 'Pareto'" in result.output
+    # Restore lands on an unwired fresh machine, so the next step is named.
+    assert "run 'nauro setup all' to wire this machine" in result.output
     assert registry.get_project_v2(PID)["mode"] == "cloud"
 
 
@@ -125,8 +127,7 @@ def test_reconnect_restore_reconciles_server_side_rename(tmp_path, monkeypatch):
     assert resolved.store_path == target
 
 
-def test_reconnect_healthy_project_is_silent_about_recovery(tmp_path, monkeypatch):
-    repo = _local_repo(tmp_path)
+def _bind_healthy(repo):
     store = registry.get_store_path_v2(PID)
     scaffold_project_store("Pareto", store)
     registry.bind_project_store_v2(
@@ -136,12 +137,53 @@ def test_reconnect_healthy_project_is_silent_about_recovery(tmp_path, monkeypatc
         repo_path=repo,
         store_path=store,
     )
+    return store
+
+
+def test_reconnect_healthy_project_is_silent_about_recovery(tmp_path, monkeypatch):
+    repo = _local_repo(tmp_path)
+    store = _bind_healthy(repo)
+    # Wired repo: the connected-but-unwired next-step hint must stay silent.
+    (repo / ".mcp.json").write_text(
+        '{"mcpServers": {"nauro": {"command": "/opt/nauro", "args": ["serve", "--stdio"]}}}\n',
+        encoding="utf-8",
+    )
     monkeypatch.chdir(repo)
 
     result = runner.invoke(app, ["reconnect"])
 
     assert result.exit_code == 0, result.output
     assert result.output == f"Already connected to 'Pareto'.\n  Store: {store}\n"
+
+
+def test_reconnect_connected_but_unwired_points_at_setup(tmp_path, monkeypatch):
+    """A connected repo with no MCP wiring on this machine gets one next step.
+
+    Connection restores the record; wiring is machine-local, so a fresh
+    machine lands here connected but unwired.
+    """
+    repo = _local_repo(tmp_path)
+    _bind_healthy(repo)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["reconnect"])
+
+    assert result.exit_code == 0, result.output
+    assert "Already connected to 'Pareto'." in result.output
+    assert "run 'nauro setup all' to wire this machine" in result.output
+
+
+def test_reconnect_locate_on_unwired_machine_points_at_setup(tmp_path, monkeypatch):
+    repo = _local_repo(tmp_path)
+    store = tmp_path / "external" / PID
+    scaffold_project_store("Pareto", store)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["reconnect"], input=f"locate\n{store}\n")
+
+    assert result.exit_code == 0, result.output
+    assert f"Connected 'Pareto' to {store}" in result.output
+    assert "run 'nauro setup all' to wire this machine" in result.output
 
 
 def test_reconnect_without_repo_config_does_not_adopt(tmp_path, monkeypatch):
