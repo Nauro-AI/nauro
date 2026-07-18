@@ -63,9 +63,39 @@ def test_generate_frontloads_canonical_preflight_before_l0_payload():
     l0_payload = "**One-liner:** Stable project scope.\n\n## Current State\n\nActive work."
     result = generate_agents_md("myproj", l0_payload)
 
-    expected = f"{MCP_INSTRUCTIONS_STATIC}\n\n## Project: myproj\n\n{l0_payload}\n"
-    assert expected in result
+    preflight_idx = result.index(MCP_INSTRUCTIONS_STATIC)
+    breadcrumb_idx = result.index("If you have no Nauro MCP tools in this session")
+    project_idx = result.index("## Project: myproj")
+    payload_idx = result.index(l0_payload)
+
+    assert preflight_idx < breadcrumb_idx < project_idx < payload_idx
     assert result.count(MCP_INSTRUCTIONS_STATIC) == 1
+
+
+def test_generate_breadcrumb_names_only_the_self_routing_entry_command():
+    """An unwired session is told the repo uses Nauro and pointed at one command.
+
+    The breadcrumb names only the single self-routing entry command (and the
+    install fallback) - never the downstream remedies that command routes to.
+    """
+    result = generate_agents_md("myproj", "payload")
+    breadcrumb = (
+        "If you have no Nauro MCP tools in this session (no `mcp__nauro__*` tools "
+        "available), tell the user this repository uses Nauro to share project decisions "
+        "across agents and suggest they run 'nauro status'. If the 'nauro' command is not "
+        "installed, install it with 'uv tool install nauro'."
+    )
+    assert result.count(breadcrumb) == 1
+    # The entry command and the install fallback both reach the generated body.
+    assert "nauro status" in result
+    assert "uv tool install nauro" in result
+    # Scoped to the rendered breadcrumb paragraph (its start through the next
+    # section header): it must not name any downstream remedy that `nauro status`
+    # routes to. Other sections may legitimately mention these commands.
+    paragraph = result[result.index(breadcrumb) : result.index("## Project:")]
+    assert "reconnect" not in paragraph
+    assert "setup all" not in paragraph
+    assert "sync" not in paragraph
 
 
 def test_generated_footer_names_human_ratified_judgment():

@@ -97,6 +97,15 @@ def generate_agents_md(
     ]
 
     parts.append(MCP_INSTRUCTIONS_STATIC + "\n")
+    # Reaches sessions the local MCP server never wired into: a fresh clone
+    # ships this committed file but no live server, so name the single command
+    # that self-routes the rest of setup.
+    parts.append(
+        "If you have no Nauro MCP tools in this session (no `mcp__nauro__*` tools "
+        "available), tell the user this repository uses Nauro to share project decisions "
+        "across agents and suggest they run 'nauro status'. If the 'nauro' command is not "
+        "installed, install it with 'uv tool install nauro'.\n"
+    )
     parts.append(f"## Project: {project_name}\n\n{l0_payload}\n")
 
     # Store-routing block. This file lives in the working copy, so any agent
