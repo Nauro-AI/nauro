@@ -14,6 +14,8 @@ from nauro.cli.integrations.outcomes import (
     AgentKind,
     AgentOutcome,
     ArtifactOutcome,
+    BridgeKind,
+    BridgeOutcome,
     ClaudeHookKind,
     ClaudeHookOutcome,
     ClaudeUserConfigKind,
@@ -47,6 +49,8 @@ def render(outcome: ArtifactOutcome) -> list[str]:
         return _render_claude_user_config(outcome)
     if isinstance(outcome, LegacyOutcome):
         return _render_legacy(outcome)
+    if isinstance(outcome, BridgeOutcome):
+        return _render_bridge(outcome)
     if isinstance(outcome, CodexConfigOutcome):
         return _render_codex_config(outcome)
     if isinstance(outcome, CodexHookOutcome):
@@ -213,6 +217,33 @@ def _render_legacy(o: LegacyOutcome) -> list[str]:
             return [f"  {o.repo_path}: removed legacy Nauro block from CLAUDE.md"]
         case _:
             raise TypeError(f"unrenderable LegacyOutcome kind: {o.kind!r}")
+
+
+def _render_bridge(o: BridgeOutcome) -> list[str]:
+    match o.kind:
+        case BridgeKind.WROTE | BridgeKind.KEPT:
+            # WROTE and KEPT share one state line: reruns stay byte-stable,
+            # matching the .mcp.json/AGENTS.md sinks that re-report identically.
+            return [f"  {o.repo_path}: CLAUDE.md imports AGENTS.md (Claude Code bridge)"]
+        case BridgeKind.FOREIGN_PRESENT:
+            return []
+        case BridgeKind.ADVISORY:
+            return [
+                f"  {o.repo_path}: CLAUDE.md exists without an @AGENTS.md import; "
+                "add '@AGENTS.md' so Claude Code loads Nauro's shared context"
+            ]
+        case BridgeKind.REFUSED_SYMLINK:
+            return [f"  {o.repo_path}: {o.refusal.message}"]
+        case BridgeKind.REMOVED:
+            return [f"  {o.repo_path}: removed CLAUDE.md bridge"]
+        case BridgeKind.STRIPPED:
+            return [f"  {o.repo_path}: removed CLAUDE.md bridge import, kept your content"]
+        case BridgeKind.NOTHING_TO_REMOVE:
+            return []
+        case BridgeKind.FAILED:
+            return [f"  {o.repo_path}: CLAUDE.md bridge error - {o.detail}"]
+        case _:
+            raise TypeError(f"unrenderable BridgeOutcome kind: {o.kind!r}")
 
 
 def _render_codex_config(o: CodexConfigOutcome) -> list[str]:

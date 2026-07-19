@@ -7,15 +7,21 @@ the project context. It is regenerated on `nauro sync`.
 Convention: no Jinja2 — use f-strings and string templates only.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEADER
 from nauro.store.reader import read_text_lenient
 from nauro.store.write_safety import find_symlink
+
+if TYPE_CHECKING:
+    from nauro.cli.integrations.outcomes import BridgeOutcome
 
 # Prefix shared by every auto-generated attribution footer. Match by prefix
 # (not by full canonical URL) so a stale footer from an earlier tagline cycle
@@ -207,6 +213,7 @@ def regenerate_agents_md_for_project(
     store_path: Path,
     *,
     overwrite_unmanaged: bool = False,
+    bridge_sink: list[BridgeOutcome] | None = None,
 ) -> list[Path]:
     """Regenerate AGENTS.md in all repos associated with a project.
 
@@ -217,10 +224,16 @@ def regenerate_agents_md_for_project(
         overwrite_unmanaged: Replace an existing AGENTS.md even when Nauro
             did not generate it. Off by default: only ``nauro sync`` passes
             True, every other caller preserves hand-written files.
+        bridge_sink: When provided, the ``BridgeOutcome`` for each repo whose
+            AGENTS.md was written is appended here, in the same order as the
+            returned repo list. The Claude Code bridge is ensured regardless of
+            this argument — it rides every AGENTS.md write so no path forgets
+            it; the sink only lets a caller surface the outcome.
 
     Returns:
         List of repo paths where AGENTS.md was updated.
     """
+    from nauro.cli.integrations.claude_bridge import ensure_claude_bridge
     from nauro.mcp.payloads import build_l0_payload
     from nauro.store.registry import (
         RegistrySchemaError,
@@ -265,6 +278,14 @@ def regenerate_agents_md_for_project(
         )
         agents_md_path.write_text(content, encoding="utf-8")
         updated.append(repo_path)
+        # The Claude Code bridge rides the AGENTS.md write: this is the single
+        # seam every regen path funnels through, so the bridge is ensured for
+        # setup, adopt, sync, init, attach, note, and the MCP write tools alike.
+        # ensure_claude_bridge never raises; a per-repo failure is a typed
+        # outcome so this loop always completes.
+        bridge_outcome = ensure_claude_bridge(repo_path)
+        if bridge_sink is not None:
+            bridge_sink.append(bridge_outcome)
 
     return updated
 

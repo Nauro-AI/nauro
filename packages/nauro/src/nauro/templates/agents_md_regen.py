@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.constants import AGENTS_MD
@@ -20,6 +21,9 @@ from nauro.templates.agents_md import (
     regenerate_agents_md_for_project,
 )
 
+if TYPE_CHECKING:
+    from nauro.cli.integrations.outcomes import BridgeOutcome
+
 
 def warn_then_regen(
     project_key: str,
@@ -28,6 +32,8 @@ def warn_then_regen(
     warn: Callable[[str], None] | None = None,
     overwrite_unmanaged: bool = False,
     fail_soft: bool = False,
+    bridge_sink: list[BridgeOutcome] | None = None,
+    surface_bridge_notices: bool = True,
 ) -> list[Path]:
     """Warn on skipped repo paths, then regenerate ``AGENTS.md`` everywhere.
 
@@ -42,12 +48,24 @@ def warn_then_regen(
             passes True, every other caller preserves hand-written files.
         fail_soft: Report filesystem errors through ``warn`` and return rather
             than raising after project registration has succeeded.
+        bridge_sink: Forwarded to :func:`regenerate_agents_md_for_project` so a
+            caller can surface the Claude Code bridge outcome per updated repo.
+            The bridge is ensured on every AGENTS.md write regardless.
+        surface_bridge_notices: When no ``bridge_sink`` is supplied, route the
+            actionable bridge outcomes (an advisory for an unbridged CLAUDE.md,
+            a symlink refusal, a per-repo failure) through ``warn`` so sink-less
+            CLI callers do not drop them. The MCP write tools set this False to
+            stay protocol-silent. Callers that pass a ``bridge_sink`` render the
+            outcomes themselves and are never double-reported here.
 
     Returns:
         The list of repo paths whose ``AGENTS.md`` was successfully
         regenerated. Mirrors :func:`regenerate_agents_md_for_project` so
         existing CLI surfaces can continue echoing the per-repo line.
     """
+    # Always collect bridge outcomes so a sink-less caller can still surface the
+    # actionable ones; a supplied sink is filled in place for the caller.
+    collected: list[BridgeOutcome] = bridge_sink if bridge_sink is not None else []
     repo_paths = [Path(repo_str) for repo_str in get_repo_paths(project_key)]
     try:
         # Warn channel only: the regeneration itself re-applies every skip
@@ -78,6 +96,7 @@ def warn_then_regen(
             project_key,
             store_path,
             overwrite_unmanaged=overwrite_unmanaged,
+            bridge_sink=collected,
         )
     except OSError as exc:
         if not fail_soft:
@@ -93,4 +112,16 @@ def warn_then_regen(
         for repo_path in updated:
             for message in public_surface_git_warnings(repo_path, "AGENTS.md"):
                 warn(message)
+    # A sink-less caller renders nothing itself, so surface the actionable
+    # bridge outcomes through the same warn channel; a sink caller already
+    # renders them and is not double-reported.
+    if bridge_sink is None and warn is not None and surface_bridge_notices:
+        from nauro.cli.integrations.outcomes import BridgeKind
+        from nauro.cli.integrations.render import render
+
+        actionable = (BridgeKind.ADVISORY, BridgeKind.FAILED, BridgeKind.REFUSED_SYMLINK)
+        for outcome in collected:
+            if outcome.kind in actionable:
+                for line in render(outcome):
+                    warn(line)
     return updated

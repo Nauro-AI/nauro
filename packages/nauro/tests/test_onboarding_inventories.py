@@ -99,6 +99,7 @@ def test_adopt_default_inventory(tmp_path: Path, monkeypatch):
             "repo/.mcp.json",
             "repo/.nauro/config.json",
             "repo/AGENTS.md",
+            "repo/CLAUDE.md",
         }
     )
     _assert_markers_in_order(
@@ -112,6 +113,7 @@ def test_adopt_default_inventory(tmp_path: Path, monkeypatch):
             "added .cursor/mcp.json to .gitignore",
             "Codex: wrote nauro to ",
             "regenerated AGENTS.md",
+            "CLAUDE.md imports AGENTS.md (Claude Code bridge)",
             "Next: restart your agent and invoke /nauro-adopt",
         ],
     )
@@ -150,6 +152,7 @@ def test_adopt_with_skills_and_subagents_inventory(tmp_path: Path, monkeypatch):
             "repo/.mcp.json",
             "repo/.nauro/config.json",
             "repo/AGENTS.md",
+            "repo/CLAUDE.md",
         }
     )
     _assert_markers_in_order(
@@ -229,10 +232,13 @@ def test_init_with_repo_association_inventory(tmp_path: Path, monkeypatch):
 
     assert result.exit_code == 0
     pid = _repo_pid(repo)
-    # init registers and scaffolds but wires no surfaces; AGENTS.md is the
-    # only repo artifact beyond the per-repo config.
+    # init registers and scaffolds but wires no surfaces; AGENTS.md and its
+    # Claude Code bridge (written at the shared regen seam) are the only repo
+    # artifacts beyond the per-repo config.
     assert snapshot_tree(tmp_path) == sorted(
-        BOOKKEEPING | _store_files(pid) | {"repo/.nauro/config.json", "repo/AGENTS.md"}
+        BOOKKEEPING
+        | _store_files(pid)
+        | {"repo/.nauro/config.json", "repo/AGENTS.md", "repo/CLAUDE.md"}
     )
     _assert_markers_in_order(
         result.stdout,
@@ -281,7 +287,7 @@ def test_attach_happy_path_inventory(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0
     assert snapshot_tree(tmp_path) == sorted(
         BOOKKEEPING
-        | {"config.json", "repo/.nauro/config.json", "repo/AGENTS.md"}
+        | {"config.json", "repo/.nauro/config.json", "repo/AGENTS.md", "repo/CLAUDE.md"}
         | _store_files(EXAMPLE_PID)
     )
     _assert_markers_in_order(

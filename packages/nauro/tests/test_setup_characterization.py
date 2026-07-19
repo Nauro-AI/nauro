@@ -90,6 +90,11 @@ SKILLS_NEEDS_SUBAGENTS_LINE = (
 )
 
 
+def _bridge_line(repo: str = "repo") -> str:
+    """The bridge status line for a freshly-wired repo, riding the AGENTS.md write."""
+    return f"  {{TMP}}/{repo}: CLAUDE.md imports AGENTS.md (Claude Code bridge)\n"
+
+
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path: Path, monkeypatch):
     """Point the home directory at ``tmp_path`` for every test.
@@ -138,7 +143,11 @@ def _all_add_plain_expected() -> str:
         "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
         "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
         "  {TMP}/repo: regenerated AGENTS.md\n"
-        "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+        + _bridge_line()
+        + "\n"
+        + ALL_RESTART_LINE
+        + "\n"
+        + TRY_IT_LINE
     )
 
 
@@ -159,7 +168,11 @@ class TestClaudeCodeTranscripts:
             "\n"
             "AGENTS.md:\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n" + CLAUDE_NEXT_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line()
+            + "\n"
+            + CLAUDE_NEXT_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
 
@@ -179,7 +192,13 @@ class TestClaudeCodeTranscripts:
             "\n"
             "AGENTS.md:\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n" + CLAUDE_NEXT_LINE + "\n" + HOOKS_NOTICE_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line()
+            + "\n"
+            + CLAUDE_NEXT_LINE
+            + "\n"
+            + HOOKS_NOTICE_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
 
@@ -371,7 +390,8 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
             "  {TMP}/repo: wrote nauro hooks to .codex/hooks.json\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n"
+            + _bridge_line()
+            + "\n"
             + CONNECTOR_NOTICE_LINE
             + "\n"
             + HOOKS_NOTICE_LINE
@@ -404,6 +424,7 @@ class TestSetupAllTranscripts:
             "  removed {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo: no nauro Codex hooks to remove\n"
             "  {TMP}/repo: removed generated AGENTS.md\n"
+            "  {TMP}/repo: removed CLAUDE.md bridge\n"
         )
         assert result.stderr == ""
 
@@ -431,6 +452,7 @@ class TestSetupAllTranscripts:
             "  preserved ~/.agents/skills/nauro-* (other nauro projects still registered)\n"
             "  {TMP}/repo: no nauro Codex hooks to remove\n"
             "  {TMP}/repo: removed generated AGENTS.md\n"
+            "  {TMP}/repo: removed CLAUDE.md bridge\n"
         )
         assert result.stderr == ""
         assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
@@ -456,8 +478,13 @@ class TestSetupAllTranscripts:
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo1: regenerated AGENTS.md\n"
-            "  {TMP}/repo2: regenerated AGENTS.md\n"
-            "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line("repo1")
+            + "  {TMP}/repo2: regenerated AGENTS.md\n"
+            + _bridge_line("repo2")
+            + "\n"
+            + ALL_RESTART_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
 
@@ -492,7 +519,13 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/.agents/skills/nauro-context/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n" + SKILLS_NEEDS_SUBAGENTS_LINE + "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line()
+            + "\n"
+            + SKILLS_NEEDS_SUBAGENTS_LINE
+            + "\n"
+            + ALL_RESTART_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
 
@@ -521,7 +554,13 @@ class TestSetupAllTranscripts:
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n" + CONNECTOR_NOTICE_LINE + "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line()
+            + "\n"
+            + CONNECTOR_NOTICE_LINE
+            + "\n"
+            + ALL_RESTART_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
 
@@ -548,7 +587,8 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo: wrote nauro hooks to .codex/hooks.json\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n"
+            + _bridge_line()
+            + "\n"
             + HOOKS_NOTICE_LINE
             + "\n"
             + CODEX_HOOKS_NOTICE_LINE
@@ -589,7 +629,13 @@ class TestSetupAllTranscripts:
             "Codex: nauro already configured in {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n" + CONNECTOR_NOTICE_LINE + "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line()
+            + "\n"
+            + CONNECTOR_NOTICE_LINE
+            + "\n"
+            + ALL_RESTART_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
         assert (tmp_path / ".claude" / "agents" / "nauro-planner.md.bak").read_text(
@@ -625,7 +671,13 @@ class TestSetupAllTranscripts:
             "Codex: nauro already configured in {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n" + CONNECTOR_NOTICE_LINE + "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line()
+            + "\n"
+            + CONNECTOR_NOTICE_LINE
+            + "\n"
+            + ALL_RESTART_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
         assert not (tmp_path / ".claude" / "agents" / "nauro-planner.md.bak").exists()
@@ -661,6 +713,7 @@ class TestSetupAllTranscripts:
             "  removed {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo: no nauro Codex hooks to remove\n"
             "  {TMP}/repo: removed generated AGENTS.md\n"
+            "  {TMP}/repo: removed CLAUDE.md bridge\n"
         )
         assert result.stderr == ""
         # The opt-in artifacts survive plain --remove (orphaned, by current design):
@@ -725,6 +778,7 @@ class TestSetupAllTranscripts:
             "  removed {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
             "  {TMP}/repo: no nauro Codex hooks to remove\n"
             "  {TMP}/repo: removed generated AGENTS.md\n"
+            "  {TMP}/repo: removed CLAUDE.md bridge\n"
         )
         assert result.stderr == ""
         # No opt-in residue: skill roots gone, cursor rules dir emptied, no agents.
@@ -860,7 +914,8 @@ class TestCommandIdempotency:
             "  wrote {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
             "  {TMP}/repo: nauro hooks already present in .codex/hooks.json\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n"
+            + _bridge_line()
+            + "\n"
             + CONNECTOR_NOTICE_LINE
             + "\n"
             + HOOKS_NOTICE_LINE
@@ -910,8 +965,13 @@ class TestPartialFailure:
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo1: regenerated AGENTS.md\n"
-            "  {TMP}/repo2: regenerated AGENTS.md\n"
-            "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line("repo1")
+            + "  {TMP}/repo2: regenerated AGENTS.md\n"
+            + _bridge_line("repo2")
+            + "\n"
+            + ALL_RESTART_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
         # Refused path untouched: nothing written through the planted link.
@@ -946,7 +1006,11 @@ class TestPartialFailure:
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
-            "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+            + _bridge_line()
+            + "\n"
+            + ALL_RESTART_LINE
+            + "\n"
+            + TRY_IT_LINE
         )
         assert result.stderr == ""
         assert (paths[0] / ".mcp.json").is_symlink()

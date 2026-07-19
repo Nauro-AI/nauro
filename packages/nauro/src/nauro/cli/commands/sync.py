@@ -6,6 +6,8 @@ from pathlib import Path
 import typer
 
 from nauro.cli.commands.auth import load_access_token
+from nauro.cli.integrations.outcomes import BridgeOutcome
+from nauro.cli.integrations.render import render
 from nauro.cli.utils import resolve_target_project
 from nauro.store.registry import is_cloud_project
 from nauro.store.snapshot import capture_snapshot
@@ -55,11 +57,16 @@ def sync(
 
     version = capture_snapshot(store_path, trigger=trigger)
 
+    # The regen seam ensures the Claude Code bridge wherever AGENTS.md is
+    # written (before push, so local artifacts stay consistent even if the push
+    # fails); the sink collects those outcomes to echo on the success path.
+    bridge_outcomes: list[BridgeOutcome] = []
     updated_repos = warn_then_regen(
         project_key,
         store_path,
         warn=lambda msg: typer.echo(msg, err=True),
         overwrite_unmanaged=True,
+        bridge_sink=bridge_outcomes,
     )
 
     pushed = _push_to_cloud(project_key, store_path)
@@ -72,8 +79,10 @@ def sync(
                 f"Captured snapshot v{version:03d} for {project_name}"
                 " (local-only project; nothing to upload)."
             )
-        for repo_path in updated_repos:
+        for repo_path, bridge_outcome in zip(updated_repos, bridge_outcomes):
             typer.echo(f"  Updated AGENTS.md: {repo_path}")
+            for line in render(bridge_outcome):
+                typer.echo(line)
     else:
         typer.echo(
             f"Error: cloud push failed for {project_name}; snapshot v{version:03d} "
