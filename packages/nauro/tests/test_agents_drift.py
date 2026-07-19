@@ -8,18 +8,25 @@ user's surface directory.
 
 Subagent markdown ships with full Claude Code frontmatter inline, so
 ``render_agent("claude_code", name)`` returns the body unchanged; there
-is no per-surface wrapping. Cursor and Codex are stub surfaces and raise
-``NotImplementedError`` until a target shape is defined.
+is no per-surface wrapping. Codex renders the canonical instructions into
+custom-agent TOML. Cursor raises ``NotImplementedError`` until a target shape
+is defined.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from nauro.agents import AGENT_NAMES, emit_plugin_agents, load_agent_body, render_agent
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 AGENTS_DIR = Path(__file__).resolve().parents[1] / "src" / "nauro" / "agents"
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -89,9 +96,25 @@ def test_render_agent_cursor_raises_not_implemented(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", list(AGENT_NAMES))
-def test_render_agent_codex_raises_not_implemented(name: str) -> None:
-    with pytest.raises(NotImplementedError):
-        render_agent("codex", name)
+def test_render_agent_codex_preserves_canonical_instructions(name: str) -> None:
+    rendered = render_agent("codex", name)
+    data = tomllib.loads(rendered)
+    canonical = load_agent_body(name)
+    end = canonical.find("\n---\n", 4)
+    frontmatter = canonical[4:end]
+    description = next(
+        line.split(":", 1)[1].strip()
+        for line in frontmatter.splitlines()
+        if line.startswith("description:")
+    )
+
+    assert data["name"] == name
+    assert data["description"] == description
+    assert data["developer_instructions"] == canonical[end + len("\n---\n") :]
+    if name == "nauro-executor":
+        assert "sandbox_mode" not in data
+    else:
+        assert data["sandbox_mode"] == "read-only"
 
 
 def test_render_agent_unknown_surface_raises_value_error() -> None:
@@ -258,7 +281,7 @@ def test_tech_lead_gates_every_decision_operation_on_explicit_user_approval() ->
     assert "every `add`, `update`, and `supersede`" in body
     assert "Standalone" in body
     assert "AskUserQuestion" in body
-    assert "Inside the `/nauro-ship-task` chain" in body
+    assert "Inside the `nauro-ship-task` chain" in body
     assert "return the complete draft to the parent and do not file in-run" in body
     assert "Mode B never files an `add` directly from the transcript." in body
     assert "related decisions and assessment from `check_decision`" in body

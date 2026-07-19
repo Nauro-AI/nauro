@@ -64,8 +64,8 @@ CURSOR_NEXT_LINE = "Next: open this repo in Cursor and start a chat - Nauro MCP 
 CODEX_NEXT_LINE = "Next: run a Codex session - it reads ~/.codex/config.toml on start.\n"
 
 ALL_RESTART_LINE = (
-    "Next: start a fresh agent session (Claude Code/Cursor) - MCP config is read at"
-    " session start.\n"
+    "Next: start a fresh agent session (Claude Code, Cursor, or Codex) - MCP config and"
+    " installed workflow files are read at session start.\n"
 )
 
 HOOKS_NOTICE_LINE = (
@@ -80,8 +80,8 @@ CODEX_HOOKS_NOTICE_LINE = (
 )
 
 CONNECTOR_NOTICE_LINE = (
-    "Cloud users: name the remote MCP connector exactly `Nauro` so the bundled @nauro-*"
-    " subagents' `mcp__claude_ai_Nauro__*` tools resolve.\n"
+    "Claude Code cloud users: name the remote MCP connector exactly `Nauro` so the bundled"
+    " @nauro-* subagents' `mcp__claude_ai_Nauro__*` tools resolve.\n"
 )
 
 SKILLS_NEEDS_SUBAGENTS_LINE = (
@@ -388,6 +388,10 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-context/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  installed {TMP}/.codex/agents/nauro-planner.toml\n"
+            "  installed {TMP}/.codex/agents/nauro-executor.toml\n"
+            "  installed {TMP}/.codex/agents/nauro-reviewer.toml\n"
+            "  installed {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: wrote nauro hooks to .codex/hooks.json\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
             + _bridge_line()
@@ -553,6 +557,10 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
+            "  installed {TMP}/.codex/agents/nauro-planner.toml\n"
+            "  installed {TMP}/.codex/agents/nauro-executor.toml\n"
+            "  installed {TMP}/.codex/agents/nauro-reviewer.toml\n"
+            "  installed {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
             + _bridge_line()
             + "\n"
@@ -618,16 +626,20 @@ class TestSetupAllTranscripts:
             "Configured Nauro for project 'proj' across all surfaces:\n"
             "\n"
             "  {TMP}/repo: wrote nauro to .mcp.json\n"
-            "  wrote {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
+            "  unchanged {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
             "  updated {TMP}/.claude/agents/nauro-planner.md"
             " (previous saved to nauro-planner.md.bak)\n"
             "  unchanged {TMP}/.claude/agents/nauro-executor.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-reviewer.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
-            "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
+            "  unchanged {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "Codex: nauro already configured in {TMP}/.codex/config.toml\n"
-            "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
+            "  unchanged {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
+            "  unchanged {TMP}/.codex/agents/nauro-planner.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-executor.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-reviewer.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
             + _bridge_line()
             + "\n"
@@ -661,15 +673,19 @@ class TestSetupAllTranscripts:
             "Configured Nauro for project 'proj' across all surfaces:\n"
             "\n"
             "  {TMP}/repo: wrote nauro to .mcp.json\n"
-            "  wrote {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
+            "  unchanged {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
             "  overwrote {TMP}/.claude/agents/nauro-planner.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-executor.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-reviewer.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
-            "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
+            "  unchanged {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "Codex: nauro already configured in {TMP}/.codex/config.toml\n"
-            "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
+            "  unchanged {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
+            "  unchanged {TMP}/.codex/agents/nauro-planner.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-executor.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-reviewer.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
             + _bridge_line()
             + "\n"
@@ -734,6 +750,13 @@ class TestSetupAllTranscripts:
             "nauro-reviewer.md",
             "nauro-tech-lead.md",
         }
+        codex_agent_names = {p.name for p in (tmp_path / ".codex" / "agents").iterdir()}
+        assert codex_agent_names == {
+            "nauro-planner.toml",
+            "nauro-executor.toml",
+            "nauro-reviewer.toml",
+            "nauro-tech-lead.toml",
+        }
 
     def test_remove_with_flags_clears_optin_artifacts(self, tmp_path: Path, monkeypatch):
         """Re-passing the opt-in flags on remove clears every opt-in artifact.
@@ -776,6 +799,10 @@ class TestSetupAllTranscripts:
             "  removed {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
             "  removed {TMP}/.agents/skills/nauro-context/SKILL.md\n"
             "  removed {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  removed {TMP}/.codex/agents/nauro-planner.toml\n"
+            "  removed {TMP}/.codex/agents/nauro-executor.toml\n"
+            "  removed {TMP}/.codex/agents/nauro-reviewer.toml\n"
+            "  removed {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: no nauro Codex hooks to remove\n"
             "  {TMP}/repo: removed generated AGENTS.md\n"
             "  {TMP}/repo: removed CLAUDE.md bridge\n"
@@ -789,6 +816,8 @@ class TestSetupAllTranscripts:
         assert not rules_dir.exists() or not any(rules_dir.iterdir())
         agents_dir = tmp_path / ".claude" / "agents"
         assert not agents_dir.exists() or not any(agents_dir.iterdir())
+        codex_agents_dir = tmp_path / ".codex" / "agents"
+        assert not codex_agents_dir.exists() or not any(codex_agents_dir.iterdir())
 
 
 # ─── command-level idempotency ───────────────────────────────────────────────
@@ -887,31 +916,35 @@ class TestCommandIdempotency:
         assert second.exit_code == 0
 
         _assert_trees_identical(tree_first, _tree_bytes(tmp_path))
-        # The current mix: .mcp.json/.cursor/skills re-report "wrote", while
-        # agents, hooks, and codex report explicit no-op statuses.
+        # MCP JSON sinks re-report "wrote". Skills, agents, hooks, and Codex
+        # report explicit no-op statuses.
         assert _norm(second.stdout, tmp_path) == (
             "Configured Nauro for project 'proj' across all surfaces:\n"
             "\n"
             "  {TMP}/repo: wrote nauro to .mcp.json\n"
-            "  wrote {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
-            "  wrote {TMP}/.claude/skills/nauro-ship-task/SKILL.md\n"
-            "  wrote {TMP}/.claude/skills/nauro-context/SKILL.md\n"
-            "  wrote {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
+            "  unchanged {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
+            "  unchanged {TMP}/.claude/skills/nauro-ship-task/SKILL.md\n"
+            "  unchanged {TMP}/.claude/skills/nauro-context/SKILL.md\n"
+            "  unchanged {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-planner.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-executor.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-reviewer.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  {TMP}/repo: nauro hook already present in .claude/settings.local.json\n"
             "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
-            "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
-            "  wrote {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
-            "  wrote {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
-            "  wrote {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
+            "  unchanged {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
+            "  unchanged {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
+            "  unchanged {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
+            "  unchanged {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
             "Codex: nauro already configured in {TMP}/.codex/config.toml\n"
-            "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
-            "  wrote {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
-            "  wrote {TMP}/.agents/skills/nauro-context/SKILL.md\n"
-            "  wrote {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  unchanged {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
+            "  unchanged {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
+            "  unchanged {TMP}/.agents/skills/nauro-context/SKILL.md\n"
+            "  unchanged {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  unchanged {TMP}/.codex/agents/nauro-planner.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-executor.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-reviewer.toml\n"
+            "  unchanged {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: nauro hooks already present in .codex/hooks.json\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
             + _bridge_line()

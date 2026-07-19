@@ -8,6 +8,11 @@ import nauro.cli.commands.status as status_mod
 from nauro.cli import nauro_command
 from nauro.cli._codex_hooks import _CODEX_HOOK_PROBE_ARGS
 from nauro.cli.integrations import codex_config
+from nauro.cli.integrations.agents import materialize_agents
+from nauro.cli.integrations.skills import (
+    materialize_skills_claude_code,
+    materialize_skills_codex,
+)
 from nauro.cli.main import app
 from nauro.store.registry import register_project
 from nauro.templates.agents_md import FOOTER_MARKER
@@ -50,6 +55,13 @@ def _wire_codex_hooks(repo, *, command="nauro", events=("SessionStart", "Subagen
     path.write_text(json.dumps({"hooks": hooks}))
 
 
+def _install_workflow_artifacts() -> None:
+    materialize_skills_claude_code(remove=False, with_skills=True)
+    materialize_skills_codex(remove=False, with_skills=True)
+    materialize_agents("claude_code", remove=False)
+    materialize_agents("codex", remove=False)
+
+
 def test_status_mcp_and_agents_inactive_when_nothing_wired(tmp_path, monkeypatch):
     """No MCP config anywhere and no generated AGENTS.md → both rows inactive."""
     _setup_project(tmp_path, monkeypatch)
@@ -58,8 +70,96 @@ def test_status_mcp_and_agents_inactive_when_nothing_wired(tmp_path, monkeypatch
     assert result.exit_code == 0
     assert "MCP           inactive - run 'nauro setup all'" in result.output
     assert "Codex hooks   inactive - run 'nauro setup codex --with-hooks'" in result.output
+    assert (
+        "Skills        inactive - run 'nauro setup all' "
+        "(--with-skills adds the opt-in skills)" in result.output
+    )
+    assert (
+        "Workflow      not installed (opt-in) - "
+        "'nauro setup all --with-subagents' adds the workflow agents" in result.output
+    )
     assert "AGENTS.md     inactive - run 'nauro sync'" in result.output
     assert "Decisions:" in result.output
+
+
+def test_status_reports_current_skills_and_agents_on_both_surfaces(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _install_workflow_artifacts()
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Skills        active (Claude 4/4; Codex 4/4)" in result.output
+    assert "Workflow      active (Claude 4/4; Codex 4/4)" in result.output
+
+
+def test_status_reports_stale_skill_and_legacy_codex_copy(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _install_workflow_artifacts()
+    home = tmp_path / "home"
+    (home / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md").write_text(
+        "stale\n", encoding="utf-8"
+    )
+    legacy = home / ".codex" / "skills" / "nauro-ship-task" / "SKILL.md"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("legacy\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Skills        BROKEN" in result.output
+    assert "1 legacy Nauro skill copy under ~/.codex/skills" in result.output
+    assert "migrate with 'nauro setup all --with-skills' or remove manually" in result.output
+
+
+def test_status_reports_stale_skill_without_legacy_copy(tmp_path, monkeypatch):
+    """A differing installed skill file alone → BROKEN with the refresh remedy."""
+    _setup_project(tmp_path, monkeypatch)
+    _install_workflow_artifacts()
+    home = tmp_path / "home"
+    (home / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md").write_text(
+        "stale\n", encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Skills        BROKEN - Claude 4/4; Codex 3/4" in result.output
+    assert "differ from this release; run 'nauro setup all --with-skills'" in result.output
+
+
+def test_status_bare_adopt_states_optin_absence_without_degrading(tmp_path, monkeypatch):
+    """Core skill installed, no opt-ins, no agents → active row + stated choice."""
+    _setup_project(tmp_path, monkeypatch)
+    materialize_skills_claude_code(remove=False, with_skills=False)
+    materialize_skills_codex(remove=False, with_skills=False)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert (
+        "Skills        active (core installed; opt-in skills not installed - "
+        "'nauro setup all --with-skills' adds them)" in result.output
+    )
+    assert (
+        "Workflow      not installed (opt-in) - "
+        "'nauro setup all --with-subagents' adds the workflow agents" in result.output
+    )
+
+
+def test_status_partial_optin_skills_prompt_completion(tmp_path, monkeypatch):
+    """Opt-in skills on one surface only → partial with the --with-skills remedy."""
+    _setup_project(tmp_path, monkeypatch)
+    materialize_skills_claude_code(remove=False, with_skills=True)
+    materialize_skills_codex(remove=False, with_skills=False)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert (
+        "Skills        partial (Claude 4/4; Codex 1/4) - "
+        "run 'nauro setup all --with-skills'" in result.output
+    )
 
 
 def test_status_mcp_partial_repo_wiring(tmp_path, monkeypatch):

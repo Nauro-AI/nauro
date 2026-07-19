@@ -399,18 +399,17 @@ def adopt(
         help=(
             "Install Nauro's bundled workflow subagents (@nauro-planner, "
             "@nauro-executor, @nauro-reviewer, @nauro-tech-lead) into "
-            "~/.claude/agents/. Off by default to avoid overwriting "
-            "customized files."
+            "~/.claude/agents/ for Claude Code and ~/.codex/agents/ for Codex. "
+            "Off by default."
         ),
     ),
     force_overwrite: bool = typer.Option(
         False,
         "--force-overwrite",
         help=(
-            "Overwrite ~/.claude/agents/nauro-*.md in place without saving a "
-            ".bak, when --with-subagents is passed. By default, install "
-            "refreshes a differing bundled file and stashes its prior content "
-            "to <name>.md.bak."
+            "Overwrite differing bundled Nauro skills and agent definitions "
+            "without saving .bak files. By default, refresh preserves the "
+            "previous content in a sibling backup."
         ),
     ),
     with_skills: bool = typer.Option(
@@ -418,8 +417,8 @@ def adopt(
         "--with-skills",
         help=(
             "Install Nauro's bundled opt-in skills "
-            "(/nauro-ship-task, /nauro-context, /nauro-loop) alongside the "
-            "always-installed /nauro-adopt skill. Independent of --with-subagents."
+            "(nauro-ship-task, nauro-context, nauro-loop) alongside the "
+            "always-installed nauro-adopt skill. Independent of --with-subagents."
         ),
     ),
     remove: bool = typer.Option(
@@ -613,8 +612,9 @@ def adopt(
             typer.echo(warning, err=True)
 
     typer.echo(
-        "\nNext: restart your agent and invoke /nauro-adopt to seed context "
-        "from this repo. Cursor users: if you `git add "
+        "\nNext: restart your agent and invoke the nauro-adopt skill to seed "
+        "context from this repo. Use /nauro-adopt in Claude Code or "
+        "$nauro-adopt in Codex. Cursor users: if you `git add "
         ".cursor/rules/nauro-adopt.mdc`, collaborators on this repo get the "
         "/nauro-adopt rule."
     )

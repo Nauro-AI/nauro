@@ -1,6 +1,6 @@
 ---
 name: nauro-ship-task
-description: Run the full planner -> executor -> reviewer -> tech-lead -> user-confirm -> push chain for a non-trivial code change against Nauro's bundled @nauro-* subagents. Gates on the user whenever the planner or tech-lead will file a Nauro decision; the executor never files. Runs @nauro-tech-lead Mode C between reviewer-APPROVE and the push gate to catch doctrine drift the reviewer missed. A prompt that carries a detailed implementation spec or a pasted handoff is still chain input, not license to implement directly. Dispatches the bundled subagents on Claude Code only. Invoke explicitly with /nauro-ship-task <description>. Requires `nauro adopt --with-subagents` to have run.
+description: Run the full planner -> executor -> reviewer -> tech-lead -> user-confirm -> push chain for a non-trivial code change against Nauro's bundled @nauro-* subagents. Gates on the user whenever the planner or tech-lead will file a Nauro decision; the executor never files. Runs @nauro-tech-lead Mode C between reviewer-APPROVE and the push gate to catch doctrine drift the reviewer missed. A prompt that carries a detailed implementation spec or a pasted handoff is still chain input, not license to implement directly. Invoke explicitly with the surface's nauro-ship-task command. Requires `nauro adopt --with-subagents` to have run.
 ---
 
 # Nauro ship task skill
@@ -11,7 +11,20 @@ Take the user's task description from the prompt that invoked this skill. If the
 
 ## Prerequisites
 
-This skill invokes the bundled `@nauro-*` subagents by name. They install via `nauro adopt --with-subagents` (or `nauro setup all --with-subagents`) and dispatch on Claude Code only. If they are missing, or the current surface cannot spawn subagents, the chain cannot run; surface that to the user and stop. Do not reproduce the chain inline in the main session: the gates depend on the subagents' restricted tool access, and an inline imitation runs without those restrictions. The personal-subagent path (`@planner` / `@executor` / `@reviewer` without the `nauro-` prefix) is not a substitute either — the bundled subagents call Nauro's MCP tools by design, which is what makes the doctrine gates load-bearing.
+This skill invokes the installed `nauro-planner`, `nauro-executor`, `nauro-reviewer`, and `nauro-tech-lead` custom agents. They install under `~/.codex/agents/` via `nauro adopt --with-subagents` (or `nauro setup all --with-subagents`).
+
+### Codex dispatch capability check
+
+Before planning or changing files:
+
+1. Verify that all four `~/.codex/agents/nauro-*.toml` files exist.
+2. Inspect the callable subagent dispatcher schema. A `task_name` field labels a generic task; it does not prove that Codex loaded a same-named TOML definition.
+3. If the dispatcher exposes `agent_type` or an equivalent custom-agent selector, invoke each installed agent by its configured `name`.
+4. If the dispatcher cannot select custom agents, explain that a generic fallback would enforce the role only through task instructions, not through the TOML `developer_instructions` and `sandbox_mode` configuration layers. Ask: `Use the instruction-level Codex fallback for this run?` Do not plan, edit, file a decision, commit, or push before the user explicitly approves.
+5. On approval, read each installed TOML, start a separate generic subagent with no inherited conversation context, and pass that agent's exact `developer_instructions` together with only the task-local handoff. Never treat a matching `task_name` as custom-agent dispatch. Keep the planner, executor, reviewer, and tech-lead in separate contexts.
+6. Record that the instruction-level fallback was used. Include that fact in the push-gate summary and final receipt. If the user declines, or any agent definition is missing, stop before mutation.
+
+Do not reproduce the four roles inline in the parent session. The independent contexts and the human-controlled gates remain mandatory in both dispatch modes.
 
 The bundled subagents follow the session's model — chain quality tracks the model the session runs.
 

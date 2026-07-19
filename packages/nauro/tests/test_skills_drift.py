@@ -359,6 +359,19 @@ def test_render_skill_cursor_ship_task_frontmatter():
     assert body == load_ship_task_body()
 
 
+def test_render_skill_codex_ship_task_requires_approved_dispatch_fallback():
+    rendered = render_skill("codex", "nauro-ship-task")
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+
+    assert body == load_ship_task_body("codex")
+    assert "Codex dispatch capability check" in body
+    assert "A `task_name` field labels a generic task" in body
+    assert "Use the instruction-level Codex fallback for this run?" in body
+    assert "Do not plan, edit, file a decision, commit, or push" in body
+    assert "Record that the instruction-level fallback was used" in body
+    assert body != load_ship_task_body("claude_code")
+
+
 def test_render_skill_claude_code_context_frontmatter():
     rendered = render_skill("claude_code", "nauro-context")
     assert rendered.startswith("---\nname: nauro-context\n")

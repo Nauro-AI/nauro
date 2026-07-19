@@ -186,12 +186,16 @@ def test_adopt_already_adopted_with_subagents_installs_instead_of_aborting(
     # Fresh adopt without the flag installs no subagents.
     for n in AGENT_NAMES:
         assert not _agent_path(tmp_path, n).exists()
+        assert not _codex_agent_path(tmp_path, n).exists()
 
     result = runner.invoke(app, ["adopt", "--with-subagents"])
     assert result.exit_code == 0, result.output
     assert "already adopted" not in result.output.lower() or "Installing" in result.output
     for n in AGENT_NAMES:
         assert _agent_path(tmp_path, n).is_file(), f"missing {n} after re-adopt --with-subagents"
+        assert _codex_agent_path(tmp_path, n).is_file(), (
+            f"missing Codex {n} after re-adopt --with-subagents"
+        )
 
 
 def test_adopt_already_adopted_with_skills_installs_and_notices(tmp_path: Path, monkeypatch):
@@ -327,6 +331,10 @@ def _agent_path(home: Path, agent: str) -> Path:
     return home / ".claude" / "agents" / f"{agent}.md"
 
 
+def _codex_agent_path(home: Path, agent: str) -> Path:
+    return home / ".codex" / "agents" / f"{agent}.toml"
+
+
 def test_adopt_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
     """``nauro adopt`` without ``--with-subagents`` must not write any nauro-* agents."""
     _adopt_env(monkeypatch, tmp_path)
@@ -336,6 +344,7 @@ def test_adopt_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
 
     for name in AGENT_NAMES:
         assert not _agent_path(tmp_path, name).exists()
+        assert not _codex_agent_path(tmp_path, name).exists()
 
 
 def test_adopt_with_subagents_installs_all_four(tmp_path: Path, monkeypatch):
@@ -346,9 +355,10 @@ def test_adopt_with_subagents_installs_all_four(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.output
 
     for name in AGENT_NAMES:
-        target = _agent_path(tmp_path, name)
-        assert target.is_file(), f"missing {target}"
-        assert target.read_text(encoding="utf-8") == render_agent("claude_code", name)
+        claude = _agent_path(tmp_path, name)
+        codex = _codex_agent_path(tmp_path, name)
+        assert claude.read_text(encoding="utf-8") == render_agent("claude_code", name)
+        assert codex.read_text(encoding="utf-8") == render_agent("codex", name)
 
 
 def test_adopt_with_subagents_refreshes_differing_file_with_backup(tmp_path: Path, monkeypatch):

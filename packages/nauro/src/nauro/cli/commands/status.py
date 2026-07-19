@@ -102,6 +102,72 @@ def _repo_codex_hook_state(repo: Path) -> _CodexHookState:
 
 
 @dataclass(frozen=True)
+class _ArtifactCounts:
+    """Tally of one bundled artifact set on one surface."""
+
+    expected: int
+    present: int
+    current: int
+
+
+_NO_COUNTS = _ArtifactCounts(expected=0, present=0, current=0)
+
+
+@dataclass(frozen=True)
+class _SurfacePair:
+    """The same artifact set tallied on the Claude Code and Codex surfaces."""
+
+    claude: _ArtifactCounts
+    codex: _ArtifactCounts
+
+    @property
+    def present(self) -> int:
+        return self.claude.present + self.codex.present
+
+    @property
+    def current(self) -> int:
+        return self.claude.current + self.codex.current
+
+    @property
+    def expected(self) -> int:
+        return self.claude.expected + self.codex.expected
+
+    @property
+    def stale(self) -> int:
+        return self.present - self.current
+
+    @property
+    def fully_current(self) -> bool:
+        return self.current == self.expected
+
+
+_NO_PAIR = _SurfacePair(claude=_NO_COUNTS, codex=_NO_COUNTS)
+
+
+@dataclass(frozen=True)
+class _WorkflowArtifacts:
+    """Nauro-owned skills and workflow agents across both user surfaces.
+
+    Core skills install on every adopt/setup-all run; opt-in skills and
+    workflow agents install only behind their flags, so their absence is a
+    chosen state, not a wiring defect.
+    """
+
+    core_skills: _SurfacePair
+    opt_in_skills: _SurfacePair
+    agents: _SurfacePair
+    legacy_codex_skills: int
+
+
+_NO_WORKFLOW_ARTIFACTS = _WorkflowArtifacts(
+    core_skills=_NO_PAIR,
+    opt_in_skills=_NO_PAIR,
+    agents=_NO_PAIR,
+    legacy_codex_skills=0,
+)
+
+
+@dataclass(frozen=True)
 class _WiringSnapshot:
     repo_count: int
     mcp_wired: int
@@ -109,6 +175,7 @@ class _WiringSnapshot:
     mcp_commands: frozenset[str]
     hook_states: tuple[_CodexHookState, ...]
     agents_generated: int
+    workflow: _WorkflowArtifacts
 
     @property
     def configured_hooks(self) -> tuple[_CodexHookState, ...]:
@@ -131,6 +198,69 @@ class _WiringProbeResults:
     hooks: dict[str, bool] | None
 
 
+def _count_artifacts(expected: dict[Path, str]) -> _ArtifactCounts:
+    """Tally how many bundled artifacts are present and byte-current on disk."""
+    present = 0
+    current = 0
+    for path, bundled in expected.items():
+        try:
+            content = path.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        present += 1
+        if content == bundled:
+            current += 1
+    return _ArtifactCounts(expected=len(expected), present=present, current=current)
+
+
+def _count_skills(surface: str, base: Path, names: tuple[str, ...]) -> _ArtifactCounts:
+    from nauro.skills import render_skill
+
+    return _count_artifacts(
+        {base / name / "SKILL.md": render_skill(surface, name) for name in names}
+    )
+
+
+def _workflow_artifacts() -> _WorkflowArtifacts:
+    """Inspect Nauro-owned skills and workflow agents on both user surfaces."""
+    from nauro.agents import AGENT_NAMES, render_agent
+    from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
+
+    claude_skill_base = Path.home() / ".claude" / "skills"
+    codex_skill_base = Path.home() / ".agents" / "skills"
+    claude_agent_base = Path.home() / ".claude" / "agents"
+    codex_agent_base = Path.home() / ".codex" / "agents"
+
+    agents = _SurfacePair(
+        claude=_count_artifacts(
+            {
+                claude_agent_base / f"{name}.md": render_agent("claude_code", name)
+                for name in AGENT_NAMES
+            }
+        ),
+        codex=_count_artifacts(
+            {codex_agent_base / f"{name}.toml": render_agent("codex", name) for name in AGENT_NAMES}
+        ),
+    )
+    legacy_codex_skills = sum(
+        1
+        for name in SKILL_NAMES + OPT_IN_SKILL_NAMES
+        if (Path.home() / ".codex" / "skills" / name / "SKILL.md").is_file()
+    )
+    return _WorkflowArtifacts(
+        core_skills=_SurfacePair(
+            claude=_count_skills("claude_code", claude_skill_base, SKILL_NAMES),
+            codex=_count_skills("codex", codex_skill_base, SKILL_NAMES),
+        ),
+        opt_in_skills=_SurfacePair(
+            claude=_count_skills("claude_code", claude_skill_base, OPT_IN_SKILL_NAMES),
+            codex=_count_skills("codex", codex_skill_base, OPT_IN_SKILL_NAMES),
+        ),
+        agents=agents,
+        legacy_codex_skills=legacy_codex_skills,
+    )
+
+
 def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
     try:
         repo_commands = [json_mcp.recorded_mcp_commands(repo) for repo in repo_paths]
@@ -148,6 +278,10 @@ def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
         agents_generated = sum(1 for repo in repo_paths if _repo_has_generated_agents_md(repo))
     except Exception:
         agents_generated = 0
+    try:
+        workflow = _workflow_artifacts()
+    except Exception:
+        workflow = _NO_WORKFLOW_ARTIFACTS
 
     mcp_commands = {command for commands in repo_commands for command in commands if command}
     if codex_command:
@@ -159,6 +293,7 @@ def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
         mcp_commands=frozenset(mcp_commands),
         hook_states=hook_states,
         agents_generated=agents_generated,
+        workflow=workflow,
     )
 
 
@@ -236,11 +371,88 @@ def _agents_status_line(snapshot: _WiringSnapshot) -> str:
     return "  AGENTS.md     inactive - run 'nauro sync'"
 
 
+def _surface_detail(*pairs: _SurfacePair) -> str:
+    """Per-surface current/expected summary across one or more artifact sets."""
+    claude_current = sum(pair.claude.current for pair in pairs)
+    claude_expected = sum(pair.claude.expected for pair in pairs)
+    codex_current = sum(pair.codex.current for pair in pairs)
+    codex_expected = sum(pair.codex.expected for pair in pairs)
+    return f"Claude {claude_current}/{claude_expected}; Codex {codex_current}/{codex_expected}"
+
+
+_SKILLS_INACTIVE_LINE = (
+    "  Skills        inactive - run 'nauro setup all' (--with-skills adds the opt-in skills)"
+)
+
+
+def _skills_status_line(snapshot: _WiringSnapshot) -> str:
+    """Render the Skills row.
+
+    Core skills install unconditionally, so a gap there is a wiring defect;
+    opt-in skills absent in full is a chosen state and stays inside an
+    "active" row. Stale files and legacy ~/.codex/skills copies are BROKEN.
+    """
+    workflow = snapshot.workflow
+    core, opt_in = workflow.core_skills, workflow.opt_in_skills
+    if workflow.legacy_codex_skills:
+        count = workflow.legacy_codex_skills
+        plural = "copy" if count == 1 else "copies"
+        return (
+            f"  Skills        BROKEN - {count} legacy Nauro skill {plural} under "
+            "~/.codex/skills; migrate with 'nauro setup all --with-skills' or remove manually"
+        )
+    if core.stale or opt_in.stale:
+        remedy = "nauro setup all --with-skills" if opt_in.stale else "nauro setup all"
+        return (
+            f"  Skills        BROKEN - {_surface_detail(core, opt_in)}; installed Nauro "
+            f"skill files differ from this release; run '{remedy}'"
+        )
+    if core.expected == 0:
+        return _SKILLS_INACTIVE_LINE
+    if not core.fully_current:
+        if core.present == 0 and opt_in.present == 0:
+            return _SKILLS_INACTIVE_LINE
+        return f"  Skills        partial ({_surface_detail(core, opt_in)}) - run 'nauro setup all'"
+    if opt_in.present == 0:
+        return (
+            "  Skills        active (core installed; opt-in skills not installed - "
+            "'nauro setup all --with-skills' adds them)"
+        )
+    if not opt_in.fully_current:
+        return (
+            f"  Skills        partial ({_surface_detail(core, opt_in)}) - "
+            "run 'nauro setup all --with-skills'"
+        )
+    return f"  Skills        active ({_surface_detail(core, opt_in)})"
+
+
+def _workflow_agents_status_line(snapshot: _WiringSnapshot) -> str:
+    """Render the Workflow row. The agents are opt-in, so full absence is a
+    stated choice; a partial or stale install is a defect."""
+    agents = snapshot.workflow.agents
+    detail = _surface_detail(agents)
+    if agents.stale:
+        return (
+            f"  Workflow      BROKEN - {detail}; installed Nauro agent files differ from "
+            "this release; run 'nauro setup all --with-subagents'"
+        )
+    if agents.present == 0:
+        return (
+            "  Workflow      not installed (opt-in) - "
+            "'nauro setup all --with-subagents' adds the workflow agents"
+        )
+    if not agents.fully_current:
+        return f"  Workflow      partial ({detail}) - run 'nauro setup all --with-subagents'"
+    return f"  Workflow      active ({detail})"
+
+
 def _render_wiring_status(repo_paths: list[Path], *, no_probe: bool) -> None:
     snapshot = _collect_wiring(repo_paths)
     probes = _probe_wiring(snapshot, no_probe=no_probe)
     typer.echo(_mcp_status_line(snapshot, probes))
     typer.echo(_codex_hooks_status_line(snapshot, probes))
+    typer.echo(_skills_status_line(snapshot))
+    typer.echo(_workflow_agents_status_line(snapshot))
     typer.echo(_agents_status_line(snapshot))
 
 

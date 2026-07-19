@@ -114,7 +114,7 @@ def test_adopt_default_inventory(tmp_path: Path, monkeypatch):
             "Codex: wrote nauro to ",
             "regenerated AGENTS.md",
             "CLAUDE.md imports AGENTS.md (Claude Code bridge)",
-            "Next: restart your agent and invoke /nauro-adopt",
+            "Next: restart your agent and invoke the nauro-adopt skill",
         ],
     )
 
@@ -142,6 +142,10 @@ def test_adopt_with_skills_and_subagents_inventory(tmp_path: Path, monkeypatch):
             ".claude/skills/nauro-context/SKILL.md",
             ".claude/skills/nauro-loop/SKILL.md",
             ".claude/skills/nauro-ship-task/SKILL.md",
+            ".codex/agents/nauro-executor.toml",
+            ".codex/agents/nauro-planner.toml",
+            ".codex/agents/nauro-reviewer.toml",
+            ".codex/agents/nauro-tech-lead.toml",
             ".codex/config.toml",
             "repo/.cursor/mcp.json",
             "repo/.cursor/rules/nauro-adopt.mdc",
@@ -162,8 +166,8 @@ def test_adopt_with_skills_and_subagents_inventory(tmp_path: Path, monkeypatch):
             "Wiring MCP and installing skills across surfaces:",
             "wrote nauro to .mcp.json",
             "installed ",
-            "Cloud users: name the remote MCP connector exactly `Nauro`",
-            "Next: restart your agent and invoke /nauro-adopt",
+            "Claude Code cloud users: name the remote MCP connector exactly `Nauro`",
+            "Next: restart your agent and invoke the nauro-adopt skill",
         ],
     )
 
@@ -183,7 +187,7 @@ def test_adopt_no_setup_and_skills_inventory(tmp_path: Path, monkeypatch):
         result.stdout,
         [
             "Adopted project 'proj' (id: ",
-            "Next: restart your agent and invoke /nauro-adopt",
+            "Next: restart your agent and invoke the nauro-adopt skill",
         ],
     )
     assert "Wiring MCP and installing skills across surfaces:" not in result.stdout

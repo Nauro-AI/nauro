@@ -24,6 +24,50 @@ from nauro_core.protocol import substitute_protocol_fragments
 Surface = Literal["claude_code", "cursor", "codex"]
 SkillName = Literal["nauro-adopt", "nauro-ship-task", "nauro-context", "nauro-loop"]
 
+_SHIP_TASK_PREREQUISITES_TOKEN = "<!-- surface:SHIP_TASK_PREREQUISITES -->"
+
+_CLAUDE_SHIP_TASK_PREREQUISITES = (
+    "This skill invokes the bundled `@nauro-*` subagents by name. They install via "
+    "`nauro adopt --with-subagents` (or `nauro setup all --with-subagents`) and "
+    "dispatch on Claude Code. If they are missing, or the current surface cannot "
+    "spawn subagents, the chain cannot run; surface that to the user and stop. Do "
+    "not reproduce the chain inline in the main session: the gates depend on the "
+    "subagents' restricted tool access, and an inline imitation runs without those "
+    "restrictions. The personal-subagent path (`@planner` / `@executor` / `@reviewer` "
+    "without the `nauro-` prefix) is not a substitute either. The bundled subagents "
+    "call Nauro's MCP tools by design, which is what makes the doctrine gates "
+    "load-bearing."
+)
+
+_CODEX_SHIP_TASK_PREREQUISITES = (
+    "This skill invokes the installed `nauro-planner`, `nauro-executor`, "
+    "`nauro-reviewer`, and `nauro-tech-lead` custom agents. They install under "
+    "`~/.codex/agents/` via `nauro adopt --with-subagents` (or `nauro setup all "
+    "--with-subagents`).\n\n"
+    "### Codex dispatch capability check\n\n"
+    "Before planning or changing files:\n\n"
+    "1. Verify that all four `~/.codex/agents/nauro-*.toml` files exist.\n"
+    "2. Inspect the callable subagent dispatcher schema. A `task_name` field labels "
+    "a generic task; it does not prove that Codex loaded a same-named TOML definition.\n"
+    "3. If the dispatcher exposes `agent_type` or an equivalent custom-agent selector, "
+    "invoke each installed agent by its configured `name`.\n"
+    "4. If the dispatcher cannot select custom agents, explain that a generic fallback "
+    "would enforce the role only through task instructions, not through the TOML "
+    "`developer_instructions` and `sandbox_mode` configuration layers. Ask: `Use the "
+    "instruction-level Codex fallback for this run?` Do not plan, edit, file a "
+    "decision, commit, or push before the user explicitly approves.\n"
+    "5. On approval, read each installed TOML, start a separate generic subagent with "
+    "no inherited conversation context, and pass that agent's exact "
+    "`developer_instructions` together with only the task-local handoff. Never treat a "
+    "matching `task_name` as custom-agent dispatch. Keep the planner, executor, "
+    "reviewer, and tech-lead in separate contexts.\n"
+    "6. Record that the instruction-level fallback was used. Include that fact in the "
+    "push-gate summary and final receipt. If the user declines, or any agent definition "
+    "is missing, stop before mutation.\n\n"
+    "Do not reproduce the four roles inline in the parent session. The independent "
+    "contexts and the human-controlled gates remain mandatory in both dispatch modes."
+)
+
 SKILL_DESCRIPTIONS: dict[str, str] = {
     "nauro-adopt": (
         "Seeds Nauro's project store from an existing repo. Use after "
@@ -42,9 +86,8 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "files. Runs @nauro-tech-lead Mode C between reviewer-APPROVE and the "
         "push gate to catch doctrine drift the reviewer missed. A prompt that "
         "carries a detailed implementation spec or a pasted handoff is still "
-        "chain input, not license to implement directly. Dispatches the "
-        "bundled subagents on Claude Code only. Invoke explicitly with "
-        "/nauro-ship-task <description>. Requires `nauro adopt "
+        "chain input, not license to implement directly. Invoke explicitly "
+        "with the surface's nauro-ship-task command. Requires `nauro adopt "
         "--with-subagents` to have run."
     ),
     "nauro-context": (
@@ -112,14 +155,21 @@ def load_adopt_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
-def load_ship_task_body() -> str:
+def load_ship_task_body(surface: str = "claude_code") -> str:
     """Return the canonical ``/nauro-ship-task`` skill body (no frontmatter).
 
     The body has no protocol-fragment tokens today, but goes through the same
     substitution pass so future canonical claims can be added at the source.
     """
     raw = resources.files(__package__).joinpath("ship_task_body.md").read_text(encoding="utf-8")
-    return substitute_protocol_fragments(_strip_template_header(raw))
+    body = substitute_protocol_fragments(_strip_template_header(raw))
+    if surface == "codex":
+        prerequisites = _CODEX_SHIP_TASK_PREREQUISITES
+    elif surface in ("claude_code", "cursor"):
+        prerequisites = _CLAUDE_SHIP_TASK_PREREQUISITES
+    else:
+        raise ValueError(f"unknown surface: {surface!r}")
+    return body.replace(_SHIP_TASK_PREREQUISITES_TOKEN, prerequisites)
 
 
 def load_context_body() -> str:
@@ -142,11 +192,11 @@ def load_loop_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
-def _load_body(skill_name: str) -> str:
+def _load_body(surface: str, skill_name: str) -> str:
     if skill_name == "nauro-adopt":
         return load_adopt_body()
     if skill_name == "nauro-ship-task":
-        return load_ship_task_body()
+        return load_ship_task_body(surface)
     if skill_name == "nauro-context":
         return load_context_body()
     if skill_name == "nauro-loop":
@@ -173,7 +223,7 @@ def render_skill(surface: str, skill_name: str) -> str:
     committed dogfood files at the repo root — drift tests assert each
     dogfood file equals ``render_skill(...)`` byte-for-byte.
     """
-    return _frontmatter(surface, skill_name) + _load_body(skill_name)
+    return _frontmatter(surface, skill_name) + _load_body(surface, skill_name)
 
 
 __all__ = [

@@ -13,7 +13,7 @@ Take the user's task description from the prompt that invoked this skill. If the
 
 ## Prerequisites
 
-This skill invokes the bundled `@nauro-*` subagents by name. They install via `nauro adopt --with-subagents` (or `nauro setup all --with-subagents`) and dispatch on Claude Code only. If they are missing, or the current surface cannot spawn subagents, the chain cannot run; surface that to the user and stop. Do not reproduce the chain inline in the main session: the gates depend on the subagents' restricted tool access, and an inline imitation runs without those restrictions. The personal-subagent path (`@planner` / `@executor` / `@reviewer` without the `nauro-` prefix) is not a substitute either — the bundled subagents call Nauro's MCP tools by design, which is what makes the doctrine gates load-bearing.
+<!-- surface:SHIP_TASK_PREREQUISITES -->
 
 The bundled subagents follow the session's model — chain quality tracks the model the session runs.
 

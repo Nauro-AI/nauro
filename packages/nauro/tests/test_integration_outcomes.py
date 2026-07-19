@@ -465,7 +465,25 @@ RENDER_CASES = [
         SkillOutcome(SkillKind.PRESERVED, base_label="~/.claude/skills"),
         ["  preserved ~/.claude/skills/nauro-* (other nauro projects still registered)"],
     ),
+    (
+        SkillOutcome(SkillKind.PRESERVED_MODIFIED, target=TARGET),
+        [f"  preserved {TARGET} (locally modified)"],
+    ),
     (SkillOutcome(SkillKind.WROTE, target=TARGET), [f"  wrote {TARGET}"]),
+    (SkillOutcome(SkillKind.UNCHANGED, target=TARGET), [f"  unchanged {TARGET}"]),
+    (SkillOutcome(SkillKind.OVERWROTE, target=TARGET), [f"  overwrote {TARGET}"]),
+    (
+        SkillOutcome(SkillKind.UPDATED, target=TARGET, backup_name="SKILL.md.bak"),
+        [f"  updated {TARGET} (previous saved to SKILL.md.bak)"],
+    ),
+    (
+        SkillOutcome(
+            SkillKind.MIGRATED_LEGACY,
+            source=REPO / "legacy-skill",
+            backup_path=REPO / "skill-backup",
+        ),
+        [f"  moved legacy skill {REPO / 'legacy-skill'} to {REPO / 'skill-backup'}"],
+    ),
     (SkillOutcome(SkillKind.REMOVED, target=TARGET), [f"  removed {TARGET}"]),
     (SkillOutcome(SkillKind.ABSENT, target=TARGET), [f"  no skill at {TARGET}"]),
     # ── Agent ──

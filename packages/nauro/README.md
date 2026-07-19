@@ -66,7 +66,7 @@ If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Na
 
 For real-project setup (`nauro init` / `nauro adopt`), cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme). Don't run `nauro setup` from `/tmp/nauro-demo`; that would wire the throwaway demo into your MCP client.
 
-`nauro adopt --with-subagents` additionally installs Nauro's bundled Claude Code workflow subagents (`@nauro-planner`, `@nauro-executor`, `@nauro-reviewer`, `@nauro-tech-lead`) into `~/.claude/agents/`. Off by default to avoid overwriting locally-customized files; pass `--force-overwrite` to replace customized files.
+For full Claude Code and Codex onboarding, run `nauro adopt --with-skills --with-subagents`. This installs the gated `nauro-ship-task` workflow and Nauro's bundled planner, executor, reviewer, and tech-lead agents into `~/.claude/agents/` and `~/.codex/agents/`. Re-running the command refreshes Nauro-owned workflow files and saves differing copies as backups. It leaves third-party skills and agents untouched. Pass `--force-overwrite` only when you do not want backups.
 
 ## Why Nauro?
 

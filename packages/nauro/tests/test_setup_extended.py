@@ -624,8 +624,7 @@ def test_setup_codex_advertises_check_decision(tmp_path: Path, monkeypatch):
 
 
 def test_setup_all_with_subagents_installs_and_removes_files(tmp_path: Path, monkeypatch):
-    """Round-trip: ``setup all --with-subagents`` writes nauro-*.md files;
-    ``setup all --remove --with-subagents`` clears them when no other projects remain."""
+    """Round-trip installs and removes Claude Markdown and Codex TOML agents."""
     from nauro.agents import AGENT_NAMES, render_agent
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -637,14 +636,16 @@ def test_setup_all_with_subagents_installs_and_removes_files(tmp_path: Path, mon
 
     runner.invoke(app, ["setup", "all", "--with-subagents"])
     for name in AGENT_NAMES:
-        target = tmp_path / ".claude" / "agents" / f"{name}.md"
-        assert target.is_file()
-        assert target.read_text(encoding="utf-8") == render_agent("claude_code", name)
+        claude = tmp_path / ".claude" / "agents" / f"{name}.md"
+        codex = tmp_path / ".codex" / "agents" / f"{name}.toml"
+        assert claude.read_text(encoding="utf-8") == render_agent("claude_code", name)
+        assert codex.read_text(encoding="utf-8") == render_agent("codex", name)
 
     result = runner.invoke(app, ["setup", "all", "--remove", "--with-subagents"])
     assert result.exit_code == 0, result.output
     for name in AGENT_NAMES:
         assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+        assert not (tmp_path / ".codex" / "agents" / f"{name}.toml").exists()
 
 
 def test_setup_all_with_subagents_remove_preserves_customized_files(tmp_path: Path, monkeypatch):
@@ -664,20 +665,25 @@ def test_setup_all_with_subagents_remove_preserves_customized_files(tmp_path: Pa
 
     runner.invoke(app, ["setup", "all", "--with-subagents"])
 
-    target = tmp_path / ".claude" / "agents" / "nauro-planner.md"
-    custom = "---\nname: nauro-planner\n---\n\nlocal tweak\n"
-    target.write_text(custom, encoding="utf-8")
+    claude_target = tmp_path / ".claude" / "agents" / "nauro-planner.md"
+    codex_target = tmp_path / ".codex" / "agents" / "nauro-planner.toml"
+    claude_custom = "---\nname: nauro-planner\n---\n\nlocal tweak\n"
+    codex_custom = 'name = "nauro-planner"\ndeveloper_instructions = "local tweak"\n'
+    claude_target.write_text(claude_custom, encoding="utf-8")
+    codex_target.write_text(codex_custom, encoding="utf-8")
 
     result = runner.invoke(app, ["setup", "all", "--remove", "--with-subagents"])
     assert result.exit_code == 0, result.output
 
     # nauro-planner was modified → preserved
-    assert target.read_text(encoding="utf-8") == custom
+    assert claude_target.read_text(encoding="utf-8") == claude_custom
+    assert codex_target.read_text(encoding="utf-8") == codex_custom
     # The other three matched the bundled content → unlinked
     for name in AGENT_NAMES:
         if name == "nauro-planner":
             continue
         assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+        assert not (tmp_path / ".codex" / "agents" / f"{name}.toml").exists()
     assert "preserved" in result.output
     assert "locally modified" in result.output
 
@@ -697,6 +703,7 @@ def test_setup_all_default_does_not_install_subagents(tmp_path: Path, monkeypatc
     assert result.exit_code == 0, result.output
     for name in AGENT_NAMES:
         assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+        assert not (tmp_path / ".codex" / "agents" / f"{name}.toml").exists()
 
 
 def test_setup_all_help_lists_with_subagents():
@@ -878,6 +885,100 @@ def test_setup_all_with_skills_installs_ship_task_everywhere(tmp_path: Path, mon
     assert not claude.exists()
     assert not codex.exists()
     assert not cursor.exists()
+
+
+def test_setup_all_with_skills_migrates_only_legacy_nauro_skill(tmp_path: Path, monkeypatch):
+    """Codex legacy cleanup moves owned Nauro skill names and leaves third-party skills."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    legacy = tmp_path / ".codex" / "skills" / "nauro-ship-task"
+    legacy.mkdir(parents=True)
+    (legacy / "SKILL.md").write_text("old bundled copy\n", encoding="utf-8")
+    (legacy / "local-note.txt").write_text("keep with backup\n", encoding="utf-8")
+    third_party = tmp_path / ".codex" / "skills" / "third-party" / "SKILL.md"
+    third_party.parent.mkdir(parents=True)
+    third_party.write_text("third party\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["setup", "all", "--with-skills"])
+
+    assert result.exit_code == 0, result.output
+    backup = tmp_path / ".codex" / "nauro-skill-backups" / "nauro-ship-task"
+    assert not legacy.exists()
+    assert (backup / "SKILL.md").read_text(encoding="utf-8") == "old bundled copy\n"
+    assert (backup / "local-note.txt").read_text(encoding="utf-8") == "keep with backup\n"
+    assert third_party.read_text(encoding="utf-8") == "third party\n"
+    assert "moved legacy skill" in result.output
+
+
+def test_setup_all_with_skills_refreshes_differing_files_with_backups(tmp_path: Path, monkeypatch):
+    from nauro.skills import render_skill
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    claude = tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md"
+    codex = tmp_path / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md"
+    claude.parent.mkdir(parents=True)
+    codex.parent.mkdir(parents=True)
+    claude.write_text("old claude\n", encoding="utf-8")
+    codex.write_text("old codex\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["setup", "all", "--with-skills"])
+
+    assert result.exit_code == 0, result.output
+    assert claude.read_text(encoding="utf-8") == render_skill("claude_code", "nauro-ship-task")
+    assert codex.read_text(encoding="utf-8") == render_skill("codex", "nauro-ship-task")
+    assert claude.with_name("SKILL.md.bak").read_text(encoding="utf-8") == "old claude\n"
+    assert codex.with_name("SKILL.md.bak").read_text(encoding="utf-8") == "old codex\n"
+
+
+def test_setup_all_with_skills_force_overwrite_skips_skill_backup(tmp_path: Path, monkeypatch):
+    from nauro.skills import render_skill
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    target = tmp_path / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("old codex\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["setup", "all", "--with-skills", "--force-overwrite"])
+
+    assert result.exit_code == 0, result.output
+    assert target.read_text(encoding="utf-8") == render_skill("codex", "nauro-ship-task")
+    assert not target.with_name("SKILL.md.bak").exists()
+
+
+def test_setup_all_remove_preserves_modified_skill(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    runner.invoke(app, ["setup", "all", "--with-skills"])
+    target = tmp_path / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md"
+    target.write_text("local customization\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["setup", "all", "--remove", "--with-skills"])
+
+    assert result.exit_code == 0, result.output
+    assert target.read_text(encoding="utf-8") == "local customization\n"
+    assert f"preserved {target} (locally modified)" in result.output
 
 
 def test_setup_all_with_skills_installs_context_everywhere(tmp_path: Path, monkeypatch):
@@ -1077,7 +1178,7 @@ def test_setup_all_prints_restart_line(tmp_path: Path, monkeypatch):
 
     result = runner.invoke(app, ["setup", "all"])
     assert result.exit_code == 0, result.output
-    assert "MCP config is read at session start" in result.output
+    assert "MCP config and installed workflow files are read at session start" in result.output
 
 
 def test_setup_claude_code_still_prints_restart_line(tmp_path: Path, monkeypatch):
