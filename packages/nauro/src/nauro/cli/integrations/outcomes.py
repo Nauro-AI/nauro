@@ -186,7 +186,12 @@ class CodexHookOutcome:
 class SkillKind(Enum):
     REFUSED_SYMLINK = auto()
     PRESERVED = auto()
+    PRESERVED_MODIFIED = auto()
     WROTE = auto()
+    UNCHANGED = auto()
+    OVERWROTE = auto()
+    UPDATED = auto()
+    MIGRATED_LEGACY = auto()
     REMOVED = auto()
     ABSENT = auto()
 
@@ -200,6 +205,9 @@ class SkillOutcome:
     refusal: SymlinkRefusal | UserSymlinkRefusal | None = None
     repo: Path | None = None
     base_label: str | None = None
+    source: Path | None = None
+    backup_path: Path | None = None
+    backup_name: str | None = None
 
 
 class AgentKind(Enum):

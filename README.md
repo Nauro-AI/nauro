@@ -40,10 +40,12 @@ The top result is `D001`, **Amounts stored in integer cents, never floating poin
 
 ```bash
 cd your-repo
-nauro adopt
+nauro adopt --with-skills --with-subagents
 ```
 
-Restart your agent, then invoke `/nauro-adopt`. The skill reads project documentation and code, asks you about missing rationale, and seeds the project record without inventing decisions.
+Restart your agent, then invoke `/nauro-adopt` in Claude Code or `$nauro-adopt` in Codex. The skill reads project documentation and code, asks you about missing rationale, and seeds the project record without inventing decisions. The same onboarding command also installs the gated `nauro-ship-task` workflow and its planner, executor, reviewer, and tech-lead agents for both surfaces.
+
+Run `nauro status` to verify MCP plus the installed skills and workflow agents. Run `nauro doctor` to check the project store itself. Re-running the onboarding command refreshes Nauro-owned workflow files and keeps recoverable backups of differing copies. It never migrates or changes third-party skills.
 
 Nauro surfaces prior judgment for the agent to assess. Retrieval is advisory and never blocks a change. New or revised judgment is written only after your explicit approval. Local use needs no account. The local record is plain Markdown that you own. Cloud sync and remote MCP access are optional. Nauro sends no product analytics.
 

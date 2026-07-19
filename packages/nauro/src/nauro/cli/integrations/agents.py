@@ -12,14 +12,27 @@ def _claude_agent_dir() -> Path:
     return Path.home() / ".claude" / "agents"
 
 
+def _codex_agent_dir() -> Path:
+    return Path.home() / ".codex" / "agents"
+
+
+def _agent_target(surface: str, name: str) -> Path:
+    if surface == "claude_code":
+        return _claude_agent_dir() / f"{name}.md"
+    if surface == "codex":
+        return _codex_agent_dir() / f"{name}.toml"
+    raise ValueError(f"unknown surface: {surface!r}")
+
+
 # Subagents are rendered from canonical bodies in nauro.agents and written into
-# the user's surface directories. On Claude Code, that's ``~/.claude/agents/``.
+# the user's surface directories: ``~/.claude/agents/`` for Claude Code and
+# ``~/.codex/agents/`` for Codex.
 # Unlike skills, agents are namespaced (``nauro-*``) and opt-in. The
 # ``nauro-`` namespace is bundle-owned: on install, the current bundle
 # wins, so a published body change (e.g. dropping a removed MCP tool) actually
 # reaches users who installed an earlier version. A pre-existing
-# ``nauro-<name>.md`` that differs from the bundle is refreshed; its prior
-# content is stashed to ``<name>.md.bak`` so the rare hand-customization is
+# A bundled agent file that differs from the current render is refreshed; its
+# prior content is stashed to a sibling ``.bak`` so the rare hand-customization is
 # recoverable. ``force_overwrite=True`` skips the ``.bak`` and overwrites in
 # place. User-authored files without the ``nauro-`` prefix (e.g. a personal
 # ``~/.claude/agents/planner.md``) are never touched.
@@ -34,17 +47,16 @@ def materialize_agents(
 ) -> list[AgentOutcome]:
     """Install or remove the bundled ``nauro-*`` subagent files.
 
-    Currently only the Claude Code surface is implemented. Cursor and Codex
-    surfaces emit a single "skipped" line rather than crashing so the
-    install path can call this unconditionally per the user's flag choice.
+    Claude Code and Codex are implemented. Cursor emits a single "skipped"
+    line rather than crashing.
 
     Add path (per agent):
       - file absent → write bundled body.
       - file present and byte-equal → no-op.
       - file present and differs → refresh from the bundle, stashing the prior
-        content to ``<name>.md.bak`` (the nauro-* namespace is bundle-owned, so
-        a differing file is almost always a stale earlier bundle). Pass
-        ``force_overwrite=True`` to overwrite in place without the ``.bak``.
+        content to a sibling ``.bak`` (the nauro-* namespace is bundle-owned,
+        so a differing file is almost always a stale earlier bundle). Pass
+        ``force_overwrite=True`` to overwrite in place without the backup.
 
     Remove path (per agent):
       - file absent → skip.
@@ -57,29 +69,33 @@ def materialize_agents(
     """
     from nauro.agents import AGENT_NAMES, render_agent
 
-    if surface != "claude_code":
+    if surface == "cursor":
         try:
-            # Exercise the stub so a future surface implementation doesn't
-            # need to remember to remove this branch — once render_agent
-            # stops raising, the stub message goes away naturally.
             render_agent(surface, AGENT_NAMES[0])
         except NotImplementedError:
             return [AgentOutcome(AgentKind.SURFACE_NOT_IMPLEMENTED, surface=surface)]
         except ValueError as exc:
             return [AgentOutcome(AgentKind.SURFACE_INVALID, surface=surface, detail=str(exc))]
+    elif surface not in ("claude_code", "codex"):
+        return [
+            AgentOutcome(
+                AgentKind.SURFACE_INVALID,
+                surface=surface,
+                detail=f"unknown surface: {surface!r}",
+            )
+        ]
 
-    base = _claude_agent_dir()
     if remove and not clear_user_scope:
-        return [AgentOutcome(AgentKind.PRESERVED)]
+        return [AgentOutcome(AgentKind.PRESERVED, surface=surface)]
 
     results: list[AgentOutcome] = []
     for name in AGENT_NAMES:
-        target = base / f"{name}.md"
+        target = _agent_target(surface, name)
         refusal = find_file_symlink(target)
         if refusal is not None:
             results.append(AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=refusal))
             continue
-        bundled = render_agent("claude_code", name)
+        bundled = render_agent(surface, name)
         if remove:
             results.append(_remove_bundled_agent(target, bundled))
         else:
@@ -92,7 +108,7 @@ def _install_bundled_agent(target: Path, bundled: str, *, force_overwrite: bool)
 
     Absent → write the bundled body. Byte-equal → no-op. ``force_overwrite`` →
     overwrite in place. Otherwise the differing file is refreshed and its prior
-    content stashed to ``<name>.md.bak`` (unless that backup path is a refused
+    content stashed to a sibling ``.bak`` (unless that backup path is a refused
     symlink).
     """
     if target.is_file():

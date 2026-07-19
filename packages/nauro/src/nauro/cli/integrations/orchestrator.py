@@ -249,6 +249,7 @@ def _all_claude_code_lines(
                 remove=remove,
                 clear_user_scope=clear_user_scope,
                 with_skills=with_skills,
+                force_overwrite=force_overwrite,
             )
         )
     except Exception as exc:
@@ -279,7 +280,7 @@ def _all_claude_code_lines(
 
 
 def _all_cursor_lines(
-    project_repos: list[Path], *, remove: bool, with_skills: bool
+    project_repos: list[Path], *, remove: bool, with_skills: bool, force_overwrite: bool
 ) -> list[ArtifactOutcome]:
     """Cursor surface lines for ``setup_all_surfaces``: MCP per repo + skills per repo."""
     outcomes: list[ArtifactOutcome] = []
@@ -292,7 +293,12 @@ def _all_cursor_lines(
             outcomes.append(HandlerErrorOutcome(f"Cursor MCP ({repo}): error - {exc}"))
         try:
             outcomes.extend(
-                materialize_skills_cursor_for_repo(repo, remove=remove, with_skills=with_skills)
+                materialize_skills_cursor_for_repo(
+                    repo,
+                    remove=remove,
+                    with_skills=with_skills,
+                    force_overwrite=force_overwrite,
+                )
             )
         except Exception as exc:
             outcomes.append(HandlerErrorOutcome(f"Cursor skills ({repo}): error - {exc}"))
@@ -304,10 +310,12 @@ def _all_codex_lines(
     *,
     remove: bool,
     clear_user_scope: bool,
+    with_subagents: bool,
+    force_overwrite: bool,
     with_skills: bool,
     with_hooks: bool,
 ) -> list[ArtifactOutcome]:
-    """Codex surface lines for ``setup_all_surfaces``: MCP global, skills global, optional hooks."""
+    """Codex surface lines: MCP, skills, optional subagents, then hooks."""
     outcomes: list[ArtifactOutcome] = []
     try:
         outcomes.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
@@ -319,10 +327,24 @@ def _all_codex_lines(
                 remove=remove,
                 clear_user_scope=clear_user_scope,
                 with_skills=with_skills,
+                force_overwrite=force_overwrite,
             )
         )
     except Exception as exc:
         outcomes.append(HandlerErrorOutcome(f"Codex skills: error - {exc}"))
+
+    if with_subagents:
+        try:
+            outcomes.extend(
+                materialize_agents(
+                    "codex",
+                    remove=remove,
+                    force_overwrite=force_overwrite,
+                    clear_user_scope=clear_user_scope,
+                )
+            )
+        except Exception as exc:
+            outcomes.append(HandlerErrorOutcome(f"Codex agents: error - {exc}"))
 
     if with_hooks or remove:
         for repo in project_repos:
@@ -420,11 +442,11 @@ def setup_all_surfaces(
     fallback layer the most, yet only ``setup claude-code`` used to write it.
 
     ``with_subagents`` opts into installing or removing the bundled
-    ``nauro-*`` workflow subagents under ``~/.claude/agents/``. Off by
-    default so existing flows that pre-date the subagent bundle keep
-    their previous behavior. ``force_overwrite`` is only meaningful when
-    ``with_subagents`` is True and ``remove`` is False — it replaces
-    locally-modified bundled files instead of preserving them.
+    ``nauro-*`` workflow subagents under ``~/.claude/agents/`` and
+    ``~/.codex/agents/``. Off by default so existing flows that pre-date the
+    subagent bundle keep their previous behavior. ``force_overwrite`` is only
+    meaningful when ``remove`` is False. It replaces locally modified bundled
+    skill and agent files instead of backing them up first.
 
     ``with_skills`` opts into installing the bundled opt-in skills
     (``nauro-ship-task``, ``nauro-context``, ``nauro-loop``). Independent of
@@ -464,12 +486,21 @@ def setup_all_surfaces(
             with_hooks=with_hooks,
         )
     )
-    outcomes.extend(_all_cursor_lines(project_repos, remove=remove, with_skills=with_skills))
+    outcomes.extend(
+        _all_cursor_lines(
+            project_repos,
+            remove=remove,
+            with_skills=with_skills,
+            force_overwrite=force_overwrite,
+        )
+    )
     outcomes.extend(
         _all_codex_lines(
             project_repos,
             remove=remove,
             clear_user_scope=clear_user_scope,
+            with_subagents=with_subagents,
+            force_overwrite=force_overwrite,
             with_skills=with_skills,
             with_hooks=with_hooks,
         )
@@ -490,11 +521,11 @@ SHIP_TASK_NEEDS_SUBAGENTS_NOTICE = (
     "dispatches that chain); pass `--with-subagents` to install them too."
 )
 
-# The bundled subagents allow the cloud tools by the fixed name
+# The bundled Claude Code subagents allow the cloud tools by the fixed name
 # `mcp__claude_ai_Nauro__*`. That prefix only resolves when the remote
 # connector is named exactly `Nauro`, so surface the requirement whenever
 # subagents are installed.
 SUBAGENTS_CONNECTOR_NAME_NOTICE = (
-    "Cloud users: name the remote MCP connector exactly `Nauro` so the bundled "
+    "Claude Code cloud users: name the remote MCP connector exactly `Nauro` so the bundled "
     "@nauro-* subagents' `mcp__claude_ai_Nauro__*` tools resolve."
 )

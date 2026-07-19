@@ -167,7 +167,8 @@ CODEX_HOOKS_NOTICE = (
 # already-open session won't see the new wiring until it restarts. The
 # single-tool `setup claude-code` prints its own equivalent line.
 ALL_RESTART_NOTICE = (
-    "Next: start a fresh agent session (Claude Code/Cursor) - MCP config is read at session start."
+    "Next: start a fresh agent session (Claude Code, Cursor, or Codex) - "
+    "MCP config and installed workflow files are read at session start."
 )
 
 
@@ -185,18 +186,17 @@ def all_(
         help=(
             "Install Nauro's bundled workflow subagents (@nauro-planner, "
             "@nauro-executor, @nauro-reviewer, @nauro-tech-lead) into "
-            "~/.claude/agents/. Off by default to avoid overwriting "
-            "customized files."
+            "~/.claude/agents/ for Claude Code and ~/.codex/agents/ for Codex. "
+            "Off by default."
         ),
     ),
     force_overwrite: bool = typer.Option(
         False,
         "--force-overwrite",
         help=(
-            "Overwrite ~/.claude/agents/nauro-*.md in place without saving a "
-            ".bak, when --with-subagents is passed. By default, install "
-            "refreshes a differing bundled file and stashes its prior content "
-            "to <name>.md.bak."
+            "Overwrite differing bundled Nauro skills and agent definitions "
+            "without saving .bak files. By default, refresh preserves the "
+            "previous content in a sibling backup."
         ),
     ),
     with_skills: bool = typer.Option(
@@ -204,8 +204,8 @@ def all_(
         "--with-skills",
         help=(
             "Install Nauro's bundled opt-in skills "
-            "(/nauro-ship-task, /nauro-context, /nauro-loop) alongside the "
-            "always-installed /nauro-adopt skill. Independent of --with-subagents."
+            "(nauro-ship-task, nauro-context, nauro-loop) alongside the "
+            "always-installed nauro-adopt skill. Independent of --with-subagents."
         ),
     ),
     with_hooks: bool = typer.Option(

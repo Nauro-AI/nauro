@@ -74,7 +74,7 @@ If the file is missing, try two fallbacks before aborting:
 1. **Worktree fallback.** Compare `git rev-parse --git-dir` and `git rev-parse --git-common-dir`. If they differ, the current checkout is a linked worktree, and `.nauro/` may only exist in the main worktree (common when a workspace tool gitignores `.nauro/` per-checkout). The main worktree path is the parent directory of `git rev-parse --path-format=absolute --git-common-dir`. Re-read `<main-worktree>/.nauro/config.json` there.
 2. **Registry fallback.** Read `~/.nauro/registry.json`. Schema v2 keys each project by its id under `projects` — the dict key **is** the project `id`; the entry stores `name`, `mode`, `repo_paths`, etc. If any entry's `repo_paths` contains the current repo root or the resolved main-worktree path, use that dict key as the `id` and the entry's `name` as the project handle.
 
-Abort only when both fallbacks miss, with: "This repo is not adopted yet. Run 'nauro adopt' from the repo root, restart this agent, then invoke /nauro-adopt again."
+Abort only when both fallbacks miss, with: "This repo is not adopted yet. Run 'nauro adopt' from the repo root, restart this agent, then invoke the nauro-adopt skill again."
 
 Pass `id` as the `project_id` argument on every subsequent MCP call (`propose_decision`, `update_state`, `flag_question`, `get_context`, `list_decisions`, `check_decision`, `get_decision`). Do not omit `project_id` even though the tool descriptions say it's optional — auto-resolve routes to the user's default project, which is **not** the project this skill is seeding when both local-mode and cloud-mode projects coexist.
 

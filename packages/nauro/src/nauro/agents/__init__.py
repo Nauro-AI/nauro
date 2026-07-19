@@ -9,14 +9,13 @@ unchanged on the Claude Code surface — no per-surface frontmatter
 wrapping is needed.
 
 ``render_agent(surface, name)`` is the single source of truth for what
-the materializer writes into ``~/.claude/agents/<name>.md``. Cursor and
-Codex stubs exist so opt-in install across surfaces is wired symmetrically;
-they raise ``NotImplementedError`` because their subagent equivalents
-(if any) are not yet shipped.
+the materializer writes into ``~/.claude/agents/<name>.md`` and
+``~/.codex/agents/<name>.toml``. Cursor remains unsupported.
 """
 
 from __future__ import annotations
 
+import json
 from importlib import resources
 from pathlib import Path
 from typing import Literal
@@ -28,6 +27,14 @@ AGENT_NAMES: tuple[str, ...] = (
     "nauro-executor",
     "nauro-reviewer",
     "nauro-tech-lead",
+)
+
+_CODEX_READ_ONLY_AGENTS: frozenset[str] = frozenset(
+    {
+        "nauro-planner",
+        "nauro-reviewer",
+        "nauro-tech-lead",
+    }
 )
 
 
@@ -47,16 +54,45 @@ def load_agent_body(name: str) -> str:
 def render_agent(surface: str, name: str) -> str:
     """Return the per-surface file content for an agent.
 
-    Claude Code returns the body verbatim. Cursor and Codex are stub
-    surfaces — the markdown shape needed there is not yet defined, so
-    callers receive ``NotImplementedError`` and the install path skips
-    that surface rather than crashing.
+    Claude Code returns the body verbatim. Codex renders the same description
+    and instruction body as a standalone custom-agent TOML file. Cursor has no
+    bundled subagent format and remains unsupported.
     """
+    body = load_agent_body(name)
     if surface == "claude_code":
-        return load_agent_body(name)
-    if surface in ("cursor", "codex"):
+        return body
+    if surface == "codex":
+        return _render_codex_agent(name, body)
+    if surface == "cursor":
         raise NotImplementedError(f"surface {surface!r} not yet implemented for subagents")
     raise ValueError(f"unknown surface: {surface!r}")
+
+
+def _render_codex_agent(name: str, claude_body: str) -> str:
+    """Translate one canonical Claude agent file into Codex TOML."""
+    end = claude_body.find("\n---\n", 4)
+    if not claude_body.startswith("---\n") or end < 0:
+        raise ValueError(f"agent {name!r} has invalid frontmatter")
+
+    frontmatter = claude_body[4:end]
+    fields = {
+        key.strip(): value.strip()
+        for line in frontmatter.splitlines()
+        if ":" in line
+        for key, value in (line.split(":", 1),)
+    }
+    if fields.get("name") != name or not fields.get("description"):
+        raise ValueError(f"agent {name!r} has incomplete frontmatter")
+
+    instructions = claude_body[end + len("\n---\n") :]
+    lines = [
+        f"name = {json.dumps(name, ensure_ascii=False)}",
+        f"description = {json.dumps(fields['description'], ensure_ascii=False)}",
+    ]
+    if name in _CODEX_READ_ONLY_AGENTS:
+        lines.append('sandbox_mode = "read-only"')
+    lines.append(f"developer_instructions = {json.dumps(instructions, ensure_ascii=False)}")
+    return "\n".join(lines) + "\n"
 
 
 def emit_plugin_agents(dest: Path) -> list[Path]:
