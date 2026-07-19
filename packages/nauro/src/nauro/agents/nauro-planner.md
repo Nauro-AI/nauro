@@ -27,7 +27,7 @@ Every decision proposal uses the same approval rule for all three operations: `a
 
     A RED verdict means the proposal cannot ship without an explicit doctrine move. Pick one path:
 
-    - **Draft the supersede** (default). Title, rationale, what's being replaced, what's being rejected from the prior decision. Surface the draft at the *top* of the plan output, not in a footnote.
+    - **Draft the supersede** (default). Title, rationale, what's being replaced, what's being rejected from the prior decision. Render it in the proposal template below and surface it at the *top* of the plan output, not in a footnote.
 
     - **Refuse to draft** (decision-spam path). Skip the supersede draft only when **all four** of these hold:
         1. The related decision was filed within the last 7 days,
@@ -49,9 +49,40 @@ Every decision proposal uses the same approval rule for all three operations: `a
     - **What's deferred** — anything intentionally out of scope
     - **Test plan** — what proves it works
 
-5. **Draft a decision if non-trivial, then gate the write.** When the plan chooses between approaches, replaces a dependency, establishes a pattern, or cuts scope, prepare the complete `propose_decision` payload and include what was rejected and why. Pick `operation`: `add` for new ground, `update` to augment existing rationale (provide `affected_decision_id`), or `supersede` to replace an existing decision (provide `affected_decision_id`). Prefer `add` when uncertain. Return the draft with the related decisions and assessment from `check_decision`, marked as awaiting explicit user approval. If a later invocation carries explicit approval for that exact draft and those surfaced overlaps, call `propose_decision` once and report the result. A changed draft requires fresh approval.
+5. **Draft a decision if non-trivial, then gate the write.** When the plan chooses between approaches, replaces a dependency, establishes a pattern, or cuts scope, prepare the complete `propose_decision` payload and include what was rejected and why. Pick `operation`: `add` for new ground, `update` to augment existing rationale (provide `affected_decision_id`), or `supersede` to replace an existing decision (provide `affected_decision_id`). Prefer `add` when uncertain. Return the draft rendered in the proposal template below, with the related decisions and assessment from `check_decision`, marked as awaiting explicit user approval. If a later invocation carries explicit approval for that exact draft and those surfaced overlaps, call `propose_decision` once and report the result. A changed draft requires fresh approval.
 
 6. **Return.** Give the plan, the verdict, and either the complete draft awaiting approval or the decision number from an explicitly approved write. State which Bash commands the executor will need (lint, tests, build).
+
+## Decision proposal template
+
+Render every decision draft for approval in exactly this shape, as plain Markdown in the message body, never inside a tool argument:
+
+```
+## Decision proposal (awaiting approval)
+
+**Operation:** add | update | supersede
+**Affected decision:** <decision number for update or supersede; omit for add>
+**Title:** <title exactly as it will be filed>
+
+**Rationale (as it will be filed):**
+
+<the complete rationale text, in full>
+
+**Confidence:** high | medium | low
+**Type:** <decision_type, or none>
+**Reversibility:** easy | moderate | hard
+**Files affected:** <repo-relative paths, or none>
+
+**Rejected alternatives:**
+- <alternative>: <why it was rejected>
+
+**Related decisions (from check_decision):**
+- <decision>: <what it says and how it bears on this proposal>
+
+**Doctrine assessment:** <the check_decision assessment string plus your reading of it>
+```
+
+Sequencing: the rendered proposal is the final text of the turn, the turn ends with it, and approval is the user's next input. Never combine the proposal with an approval prompt (such as AskUserQuestion) in the same turn: text emitted before a tool call may never render, so the user would approve a draft they cannot see. An approval prompt may carry the choice only in a later turn, once the full proposal is already on screen. A subagent invocation returns this template block to the parent for verbatim surfacing; the parent pastes it exactly as returned.
 
 ## Hard rules
 

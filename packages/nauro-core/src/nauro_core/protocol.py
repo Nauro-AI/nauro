@@ -58,8 +58,18 @@ NO_INVENT_RATIONALE = (
 
 _APPROVAL_BEFORE_PROPOSE = (
     "Before `propose_decision`, present the complete add, update, or supersede "
-    "draft with any related decisions and obtain explicit user approval. The "
-    "call commits immediately after validation."
+    "draft as readable Markdown with any related decisions, end the turn with "
+    "the draft, and collect explicit user approval from the user's next reply. "
+    "The call commits immediately after validation."
+)
+
+_PROPOSAL_VISIBILITY_DETAIL = (
+    "Never couple the draft with an approval prompt (such as AskUserQuestion) "
+    "in the same turn: text emitted before a tool call may never render, so "
+    "the user would approve a draft they cannot see. An approval prompt may "
+    "carry the choice only once the full draft is on screen from a prior turn. "
+    "Structured `propose_decision` arguments stay internal; show raw JSON only "
+    "on an explicit debugging request."
 )
 
 RESOLVES_OPEN_QUESTIONS = (
