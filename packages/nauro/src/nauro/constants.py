@@ -59,6 +59,13 @@ NAURO_BLOCK_END = "<!-- NAURO:END -->"
 MANUAL_SECTION_HEADER = "# Manual"
 SKILLS_SECTION_HEADER = "## Skills"
 
+# ── Claude Code bridge (CLAUDE.md that imports AGENTS.md) ──
+# Ownership token stamped into the auto-written bridge CLAUDE.md. Kept
+# deliberately distinct from the legacy NAURO_BLOCK_START/END markers so the
+# setup legacy cleanup and the bridge write can never touch each other, and
+# from the AGENTS.md header/footer markers so no writer confuses the two files.
+CLAUDE_BRIDGE_MARKER = "nauro-claude-bridge"
+
 # ── Validation thresholds (CLI-specific) ──
 STALE_SYNC_DAYS = 7
 L0_TOKEN_LIMIT = 3500

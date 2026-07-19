@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from nauro.cli.integrations.agents import materialize_agents
+from nauro.cli.integrations.claude_bridge import remove_claude_bridge
 from nauro.cli.integrations.claude_hooks import materialize_hooks_claude_code
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import _configure_codex, codex_config_path
@@ -14,6 +15,7 @@ from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo, _configu
 from nauro.cli.integrations.legacy import _remove_claude_md
 from nauro.cli.integrations.outcomes import (
     ArtifactOutcome,
+    BridgeOutcome,
     HandlerErrorOutcome,
     JsonMcpKind,
     JsonMcpOutcome,
@@ -105,11 +107,18 @@ def claude_code_surfaces(
         # warn_then_regen surfaces missing-repo, symlink-refusal, and
         # git-hygiene warnings through the warn callback (stderr), never the
         # returned outcomes.
-        updated_repos = warn_then_regen(store_name, store_path, warn=warn)
+        bridge_outcomes: list[BridgeOutcome] = []
+        updated_repos = warn_then_regen(
+            store_name, store_path, warn=warn, bridge_sink=bridge_outcomes
+        )
         if updated_repos:
             outcomes.append(RawLine("\nAGENTS.md:"))
-            for repo_path in updated_repos:
+            # The bridge outcomes parallel updated_repos: the shared regen seam
+            # ensures the Claude Code bridge on every AGENTS.md write and fills
+            # the sink in the same order.
+            for repo_path, bridge_outcome in zip(updated_repos, bridge_outcomes):
                 outcomes.append(RawLine(f"  {repo_path}: regenerated AGENTS.md"))
+                outcomes.append(bridge_outcome)
 
     return outcomes
 
@@ -347,13 +356,18 @@ def _all_agents_md_lines(
     # and git-hygiene warnings into the status lines.
     if not remove and current_project_key is not None and store_path is not None:
         try:
+            bridge_outcomes: list[BridgeOutcome] = []
             updated = warn_then_regen(
                 current_project_key,
                 store_path,
                 warn=lambda message: outcomes.append(RawLine(message)),
+                bridge_sink=bridge_outcomes,
             )
-            for repo_path in updated:
+            # The sink parallels updated: the shared regen seam ensures the
+            # Claude Code bridge on every AGENTS.md write, in the same order.
+            for repo_path, bridge_outcome in zip(updated, bridge_outcomes):
                 outcomes.append(RawLine(f"  {repo_path}: regenerated AGENTS.md"))
+                outcomes.append(bridge_outcome)
         except Exception as exc:
             outcomes.append(HandlerErrorOutcome(f"AGENTS.md regeneration: error - {exc}"))
 
@@ -368,6 +382,9 @@ def _all_agents_md_lines(
                 removed_line = remove_generated_agents_md(repo)
                 if removed_line:
                     outcomes.append(RawLine(removed_line))
+                # Mirror of the add-path bridge write: strip the owned bridge
+                # alongside the generated AGENTS.md it imported.
+                outcomes.append(remove_claude_bridge(repo))
             except Exception as exc:
                 outcomes.append(HandlerErrorOutcome(f"AGENTS.md removal ({repo}) failed: {exc}"))
     return outcomes

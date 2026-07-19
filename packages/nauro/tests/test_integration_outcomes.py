@@ -17,6 +17,8 @@ from nauro.cli.git_hygiene import GitIgnoreKind, GitIgnoreResult
 from nauro.cli.integrations.outcomes import (
     AgentKind,
     AgentOutcome,
+    BridgeKind,
+    BridgeOutcome,
     ClaudeHookKind,
     ClaudeHookOutcome,
     ClaudeUserConfigKind,
@@ -337,6 +339,37 @@ RENDER_CASES = [
         LegacyOutcome(LegacyKind.REMOVED_BLOCK, REPO),
         [f"  {REPO}: removed legacy Nauro block from CLAUDE.md"],
     ),
+    # ── Bridge ──
+    (
+        BridgeOutcome(BridgeKind.WROTE, REPO),
+        [f"  {REPO}: CLAUDE.md imports AGENTS.md (Claude Code bridge)"],
+    ),
+    (
+        BridgeOutcome(BridgeKind.KEPT, REPO),
+        [f"  {REPO}: CLAUDE.md imports AGENTS.md (Claude Code bridge)"],
+    ),
+    (BridgeOutcome(BridgeKind.FOREIGN_PRESENT, REPO), []),
+    (
+        BridgeOutcome(BridgeKind.ADVISORY, REPO),
+        [
+            f"  {REPO}: CLAUDE.md exists without an @AGENTS.md import; "
+            "add '@AGENTS.md' so Claude Code loads Nauro's shared context"
+        ],
+    ),
+    (
+        BridgeOutcome(BridgeKind.REFUSED_SYMLINK, REPO, refusal=REPO_REFUSAL),
+        [f"  {REPO}: {REPO_REFUSAL.message}"],
+    ),
+    (BridgeOutcome(BridgeKind.REMOVED, REPO), [f"  {REPO}: removed CLAUDE.md bridge"]),
+    (
+        BridgeOutcome(BridgeKind.STRIPPED, REPO),
+        [f"  {REPO}: removed CLAUDE.md bridge import, kept your content"],
+    ),
+    (BridgeOutcome(BridgeKind.NOTHING_TO_REMOVE, REPO), []),
+    (
+        BridgeOutcome(BridgeKind.FAILED, REPO, detail="CLAUDE.md is not a regular file"),
+        [f"  {REPO}: CLAUDE.md bridge error - CLAUDE.md is not a regular file"],
+    ),
     # ── CodexConfig ──
     (
         CodexConfigOutcome(CodexConfigKind.PRESERVED_OTHER_PROJECTS, CFG),
@@ -480,6 +513,7 @@ def test_render_covers_every_kind_member():
         ClaudeHookKind,
         ClaudeUserConfigKind,
         LegacyKind,
+        BridgeKind,
         CodexConfigKind,
         CodexHookKind,
         SkillKind,
@@ -513,6 +547,7 @@ UNRENDERABLE = [
     ClaudeHookOutcome(object(), REPO),  # type: ignore[arg-type]
     ClaudeUserConfigOutcome(object()),  # type: ignore[arg-type]
     LegacyOutcome(object(), REPO),  # type: ignore[arg-type]
+    BridgeOutcome(object(), REPO),  # type: ignore[arg-type]
     CodexConfigOutcome(object(), CFG),  # type: ignore[arg-type]
     CodexHookOutcome(object(), REPO),  # type: ignore[arg-type]
     SkillOutcome(object()),  # type: ignore[arg-type]

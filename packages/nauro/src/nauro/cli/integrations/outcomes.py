@@ -112,6 +112,31 @@ class LegacyOutcome:
     refusal: SymlinkRefusal | None = None
 
 
+class BridgeKind(Enum):
+    # Add path.
+    WROTE = auto()
+    KEPT = auto()
+    FOREIGN_PRESENT = auto()
+    ADVISORY = auto()
+    REFUSED_SYMLINK = auto()
+    # Remove path.
+    REMOVED = auto()
+    STRIPPED = auto()
+    NOTHING_TO_REMOVE = auto()
+    # Either path: a per-repo filesystem error caught so the loop continues.
+    FAILED = auto()
+
+
+@dataclass(frozen=True)
+class BridgeOutcome:
+    """Result of writing or removing the Claude Code CLAUDE.md bridge."""
+
+    kind: BridgeKind
+    repo_path: Path
+    refusal: SymlinkRefusal | None = None
+    detail: str | None = None
+
+
 class CodexConfigKind(Enum):
     PRESERVED_OTHER_PROJECTS = auto()
     REFUSED_SYMLINK = auto()
@@ -216,6 +241,7 @@ ArtifactOutcome = (
     | ClaudeHookOutcome
     | ClaudeUserConfigOutcome
     | LegacyOutcome
+    | BridgeOutcome
     | CodexConfigOutcome
     | CodexHookOutcome
     | SkillOutcome

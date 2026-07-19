@@ -393,7 +393,15 @@ def tool_propose_decision(
         capture_snapshot(store_path, trigger=f"decision: {result.decision_id}")
         if touched:
             regen_warnings: list[str] = []
-            warn_then_regen(store_path.name, store_path, warn=regen_warnings.append)
+            # Stay protocol-silent about the Claude Code bridge on this stdio
+            # path: the bridge is still ensured, just not narrated into the
+            # tool response.
+            warn_then_regen(
+                store_path.name,
+                store_path,
+                warn=regen_warnings.append,
+                surface_bridge_notices=False,
+            )
             if regen_warnings:
                 response["assessment"] = "\n\n".join([response["assessment"], *regen_warnings])
         _try_push(store_path)

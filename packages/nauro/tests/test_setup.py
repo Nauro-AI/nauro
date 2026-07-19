@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from nauro.cli.integrations.claude_bridge import BridgeState as _BridgeState
+from nauro.cli.integrations.claude_bridge import detect_bridge_state
 from nauro.cli.integrations.codex_config import _configure_codex
 from nauro.cli.integrations.json_mcp import _configure_mcp, recorded_mcp_commands
 from nauro.cli.integrations.legacy import CLAUDE_MD_END, CLAUDE_MD_START
@@ -223,18 +225,20 @@ class TestAGENTSMD:
         assert "regenerated AGENTS.md" in result.output
 
 
-class TestNoClaudeMDInjection:
-    def test_setup_does_not_create_claude_md(self, tmp_path: Path, monkeypatch):
-        """Setup no longer creates or modifies CLAUDE.md."""
+class TestClaudeMDBridge:
+    def test_setup_writes_owned_bridge_when_absent(self, tmp_path: Path, monkeypatch):
+        """Setup writes the owned CLAUDE.md bridge when none exists."""
         repos = _setup_project(tmp_path, monkeypatch)
         assert not (repos[0] / "CLAUDE.md").exists()
 
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
-        assert not (repos[0] / "CLAUDE.md").exists()
+        # Exact bridge bytes are pinned in test_claude_bridge.py; here the point
+        # is that setup left an owned bridge behind.
+        assert detect_bridge_state(repos[0]) is _BridgeState.OWNED
 
     def test_setup_does_not_modify_existing_claude_md(self, tmp_path: Path, monkeypatch):
-        """Setup leaves existing CLAUDE.md untouched (no injection)."""
+        """Setup never modifies an existing non-owned CLAUDE.md (advise-only)."""
         repos = _setup_project(tmp_path, monkeypatch)
         existing = "# My Project\n\nSome existing content.\n"
         (repos[0] / "CLAUDE.md").write_text(existing)
@@ -262,15 +266,17 @@ class TestLegacyCleanup:
         assert "Keep this." in cleaned
         assert "Legacy cleanup" in result.output
 
-    def test_deletes_claude_md_if_only_legacy_block(self, tmp_path: Path, monkeypatch):
-        """Deletes CLAUDE.md if it only contained the legacy Nauro block."""
+    def test_legacy_only_block_is_replaced_by_the_bridge(self, tmp_path: Path, monkeypatch):
+        """A CLAUDE.md that was only a legacy block is stripped, then the fresh
+        bridge is written in its place (the file is absent between the two steps)."""
         repos = _setup_project(tmp_path, monkeypatch)
         content = f"{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n"
         (repos[0] / "CLAUDE.md").write_text(content)
 
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
-        assert not (repos[0] / "CLAUDE.md").exists()
+        assert CLAUDE_MD_START not in (repos[0] / "CLAUDE.md").read_text()
+        assert detect_bridge_state(repos[0]) is _BridgeState.OWNED
 
 
 class TestProjectResolution:
@@ -309,9 +315,9 @@ class TestProjectResolution:
 
         assert (repo1 / "AGENTS.md").exists()
         assert (repo2 / "AGENTS.md").exists()
-        # No CLAUDE.md created
-        assert not (repo1 / "CLAUDE.md").exists()
-        assert not (repo2 / "CLAUDE.md").exists()
+        # Each repo gets its own owned CLAUDE.md bridge.
+        assert detect_bridge_state(repo1) is _BridgeState.OWNED
+        assert detect_bridge_state(repo2) is _BridgeState.OWNED
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
