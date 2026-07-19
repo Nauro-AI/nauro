@@ -32,6 +32,9 @@ Render every decision draft for approval in exactly this shape, as plain Markdow
 **Rejected alternatives:**
 - <alternative>: <why it was rejected>
 
+**Resolves questions (only when the call will carry resolves_questions; omit when empty):**
+- <question id>: <one-line gloss of the question it closes>
+
 **Related decisions (from check_decision):**
 - <decision>: <what it says and how it bears on this proposal>
 

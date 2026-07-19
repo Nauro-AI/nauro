@@ -313,6 +313,7 @@ PROPOSAL_TEMPLATE_ANCHORS: tuple[str, ...] = (
     "**Reversibility:** easy | moderate | hard",
     "**Files affected:**",
     "**Rejected alternatives:**",
+    "**Resolves questions (only when the call will carry resolves_questions; omit when empty):**",
     "**Related decisions (from check_decision):**",
     "**Doctrine assessment:**",
 )
