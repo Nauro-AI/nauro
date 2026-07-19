@@ -78,6 +78,11 @@ def test_render_agent_claude_code_returns_body(name: str) -> None:
 # that no longer exists.
 RETIRED_AGENT_PHRASES: tuple[tuple[str, str], ...] = (
     ("confirm_decision", "confirm_decision was removed; propose_decision is a single-call commit"),
+    (
+        "present that draft through the surface's user-question tool",
+        "the one-step draft-plus-prompt channel was retired; the proposal renders as "
+        "final turn text first, and the approval prompt follows in a later turn",
+    ),
 )
 
 
@@ -288,6 +293,84 @@ def test_tech_lead_gates_every_decision_operation_on_explicit_user_approval() ->
     assert "For each real architectural decision identified in step 3" in body
     assert "If the transcript has no `check_decision` precedent" in body
     assert "For an existing or retroactive check, call `get_decision`" in body
+
+
+# The proposal template and its end-turn sequencing rule ship byte-identically
+# in the two filing agents (planner and tech-lead). The block starts at the
+# section heading and ends with the verbatim-surfacing sentence; extracting it
+# from the planner body and asserting it verbatim in every rendered body
+# enforces byte-parity without a third maintained copy.
+PROPOSAL_TEMPLATE_START = "## Decision proposal template"
+PROPOSAL_TEMPLATE_END = "the parent pastes it exactly as returned.\n"
+
+PROPOSAL_TEMPLATE_ANCHORS: tuple[str, ...] = (
+    "## Decision proposal (awaiting approval)",
+    "**Operation:** add | update | supersede",
+    "**Affected decision:**",
+    "**Title:**",
+    "**Rationale (as it will be filed):**",
+    "**Confidence:** high | medium | low",
+    "**Reversibility:** easy | moderate | hard",
+    "**Files affected:**",
+    "**Rejected alternatives:**",
+    "**Related decisions (from check_decision):**",
+    "**Doctrine assessment:**",
+)
+
+PROPOSAL_SEQUENCING_PHRASES: tuple[str, ...] = (
+    "final text of the turn",
+    "the turn ends with it",
+    "approval is the user's next input",
+    "in the same turn",
+    "may never render",
+    "only in a later turn",
+    "already on screen",
+    "verbatim surfacing",
+)
+
+FILING_AGENTS = ("nauro-planner", "nauro-tech-lead")
+
+
+def _rendered_agent_bodies(name: str) -> dict[str, str]:
+    return {
+        "claude_code": render_agent("claude_code", name),
+        "codex": tomllib.loads(render_agent("codex", name))["developer_instructions"],
+    }
+
+
+def _proposal_template_block() -> str:
+    body = load_agent_body("nauro-planner")
+    start = body.index(PROPOSAL_TEMPLATE_START)
+    end = body.index(PROPOSAL_TEMPLATE_END) + len(PROPOSAL_TEMPLATE_END)
+    return body[start:end]
+
+
+@pytest.mark.parametrize("name", FILING_AGENTS)
+@pytest.mark.parametrize("surface", ["claude_code", "codex"])
+def test_filing_agent_carries_proposal_template_and_sequencing(name: str, surface: str) -> None:
+    body = _rendered_agent_bodies(name)[surface]
+    for anchor in PROPOSAL_TEMPLATE_ANCHORS:
+        assert anchor in body, f"missing template anchor {anchor!r} in {name} ({surface})"
+    for phrase in PROPOSAL_SEQUENCING_PHRASES:
+        assert phrase in body, f"missing sequencing phrase {phrase!r} in {name} ({surface})"
+
+
+@pytest.mark.parametrize("name", FILING_AGENTS)
+@pytest.mark.parametrize("surface", ["claude_code", "codex"])
+def test_proposal_template_block_is_byte_identical(name: str, surface: str) -> None:
+    block = _proposal_template_block()
+    assert block.startswith(PROPOSAL_TEMPLATE_START)
+    body = _rendered_agent_bodies(name)[surface]
+    assert block in body, (
+        f"{name} ({surface}) has drifted from the planner's proposal template "
+        "block; the template must stay byte-identical in both filing agents"
+    )
+
+
+def test_planner_steps_reference_the_proposal_template() -> None:
+    body = load_agent_body("nauro-planner")
+    assert body.count("Render it in the proposal template below") == 1
+    assert body.count("Return the draft rendered in the proposal template below") == 1
 
 
 def test_tech_lead_mode_c_preserves_surface_first_merge_posture() -> None:

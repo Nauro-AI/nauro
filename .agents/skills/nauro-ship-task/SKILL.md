@@ -40,13 +40,13 @@ Before invoking `@nauro-planner`, the parent session confirms the planner will r
 
 Invoke the `@nauro-planner` subagent with the task description. The planner runs `check_decision` against the proposed approach, classifies as GREEN / AMBER / RED, reads related decision bodies via `get_decision`, investigates the code, and returns a plan in the plan shape (Why / Approach / What changes / What's deferred / Test plan), plus the verdict line and any complete decision draft awaiting approval.
 
-If the planner returns RED with a supersede draft, the chain pauses here. Surface the complete draft to the user. Only on explicit user approval does the parent re-invoke the planner with that approval to file the exact draft. An explicit "override RED on the cited decision, proceed" may continue without filing, but it is not approval to call `propose_decision`.
+If the planner returns RED with a supersede draft, the chain pauses here. Surface the complete draft to the user: paste the planner's complete rendered proposal exactly as returned, no reserialization to JSON, no abbreviation, no pointer to output above, immediately before the approval ask. Only on explicit user approval does the parent re-invoke the planner with that approval to file the exact draft. An explicit "override RED on the cited decision, proceed" may continue without filing, but it is not approval to call `propose_decision`.
 
 ### 2. GATE — plan approval (always when `propose_decision` is in play)
 
 The Nauro chain gates the plan whenever the planner indicates it will file a decision via `propose_decision` for any architectural choice, or whenever the plan records an `add`, `update`, or `supersede` draft. There is no "low-stakes auto-proceed" path when doctrine writes are pending. The user's judgment is the gate on what enters the decision log.
 
-This gate covers all three operations: `add`, `update`, and `supersede`. Surface the complete proposal draft, including its operation and affected decision when applicable. After explicit approval of that exact draft, re-invoke the planner with that approval so it can file. Rejecting or modifying the draft returns it to the planner; any changed draft requires fresh approval. The parent never files a subagent's draft itself.
+This gate covers all three operations: `add`, `update`, and `supersede`. Surface the complete proposal draft, including its operation and affected decision when applicable: paste the planner's complete rendered proposal exactly as returned, no reserialization to JSON, no abbreviation, no pointer to output above, immediately before the approval ask. After explicit approval of that exact draft, re-invoke the planner with that approval so it can file. Rejecting or modifying the draft returns it to the planner; any changed draft requires fresh approval. The parent never files a subagent's draft itself.
 
 A change additionally always gates if any of the following apply:
 
@@ -78,7 +78,7 @@ If the reviewer returns BLOCK, hand the hard-rule failures back to the `@nauro-e
 
 When the reviewer returns APPROVE or APPROVE WITH NITS, invoke `@nauro-tech-lead` in Mode C on the same local diff. The invocation explicitly carries the chain context the parent already holds: the task description, the planner's verdict and any decision filed at plan time (or deliberately not filed), and the reviewer's verdict with its nits. The tech-lead does not re-infer chain state from the diff alone. It reads decisions, scans the diff for architectural choices, and returns GREEN / AMBER / RED with any complete `add`, `update`, or `supersede` draft awaiting user approval.
 
-Any decision draft pauses the chain before step 7. Surface the complete draft to the user. After explicit approval of that exact draft, re-invoke the tech-lead with that approval so it can file. Rejecting or modifying the draft returns it to the tech-lead; any changed draft requires fresh approval. The parent never files a subagent's draft itself.
+Any decision draft pauses the chain before step 7. Surface the complete draft to the user: paste the tech-lead's complete rendered proposal exactly as returned, no reserialization to JSON, no abbreviation, no pointer to output above, immediately before the approval ask. After explicit approval of that exact draft, re-invoke the tech-lead with that approval so it can file. Rejecting or modifying the draft returns it to the tech-lead; any changed draft requires fresh approval. The parent never files a subagent's draft itself.
 
 - **GREEN** — proceed to the push gate (step 7).
 - **AMBER** — surface the constraints to the user alongside the push gate; user decides whether to address before push or document as a follow-up.

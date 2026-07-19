@@ -14,6 +14,7 @@ from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.mcp_tools import get_tool_spec
 from nauro_core.protocol import (
     _APPROVAL_BEFORE_PROPOSE,
+    _PROPOSAL_VISIBILITY_DETAIL,
     CANONICAL_FRAGMENTS,
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -37,10 +38,27 @@ class TestFragmentAnchors:
         assert "related decisions" in _APPROVAL_BEFORE_PROPOSE
         assert "explicit user approval" in _APPROVAL_BEFORE_PROPOSE
         assert "commits immediately after validation" in _APPROVAL_BEFORE_PROPOSE
+        # Visibility kernel: the draft renders as readable Markdown, the turn
+        # ends with it, and approval is the user's next reply.
+        assert "readable Markdown" in _APPROVAL_BEFORE_PROPOSE
+        assert "end the turn" in _APPROVAL_BEFORE_PROPOSE
+        assert "next reply" in _APPROVAL_BEFORE_PROPOSE
 
-    def test_approval_fragment_is_not_public_protocol_api(self) -> None:
+    def test_visibility_detail_fragment_forbids_same_turn_prompt_coupling(self) -> None:
+        assert "same turn" in _PROPOSAL_VISIBILITY_DETAIL
+        assert "AskUserQuestion" in _PROPOSAL_VISIBILITY_DETAIL
+        assert "may never render" in _PROPOSAL_VISIBILITY_DETAIL
+        # The prompt may carry the choice only once the draft is on screen
+        # from a prior turn.
+        assert "on screen from a prior turn" in _PROPOSAL_VISIBILITY_DETAIL
+        assert "stay internal" in _PROPOSAL_VISIBILITY_DETAIL
+        assert "raw JSON only" in _PROPOSAL_VISIBILITY_DETAIL
+
+    def test_approval_fragments_are_not_public_protocol_api(self) -> None:
         assert "_APPROVAL_BEFORE_PROPOSE" not in protocol.__all__
         assert "APPROVAL_BEFORE_PROPOSE" not in CANONICAL_FRAGMENTS
+        assert "_PROPOSAL_VISIBILITY_DETAIL" not in protocol.__all__
+        assert "PROPOSAL_VISIBILITY_DETAIL" not in CANONICAL_FRAGMENTS
 
     def test_check_decision_returns_names_bm25_and_deterministic(self) -> None:
         assert "BM25" in CHECK_DECISION_RETURNS
@@ -237,6 +255,20 @@ class TestMcpInstructionsComposition:
         spec = get_tool_spec("propose_decision")
         op_desc = spec["input_schema"]["properties"]["operation"]["description"]
         assert UPDATE_SUPERSEDE_CARE in op_desc
+
+    def test_proposal_visibility_detail_not_in_static(self) -> None:
+        """The detail fragment lives on the propose_decision ToolSpec
+        description, not the static block, for the same truncation-budget
+        reason as the relocated operation fragments; the compact kernel in
+        the approval fragment is what the static block carries."""
+        assert _PROPOSAL_VISIBILITY_DETAIL not in MCP_INSTRUCTIONS_STATIC
+
+    def test_proposal_visibility_detail_in_propose_decision_description(self) -> None:
+        """Relocation guard: the fragment must appear verbatim on the
+        ``propose_decision`` ToolSpec description so the agent reads the
+        same-turn prompt-coupling prohibition at the moment of use."""
+        spec = get_tool_spec("propose_decision")
+        assert _PROPOSAL_VISIBILITY_DETAIL in spec["description"]
 
     def test_resolves_open_questions_in_resolves_questions_parameter(self) -> None:
         """Relocation guard: the fragment must appear verbatim on the

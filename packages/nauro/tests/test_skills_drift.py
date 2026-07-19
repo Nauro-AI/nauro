@@ -320,6 +320,22 @@ def test_ship_task_routes_all_decision_drafts_through_parent_approval():
     assert "The parent never files a subagent's draft itself." in body
 
 
+@pytest.mark.parametrize("surface", ["claude_code", "codex"])
+def test_ship_task_surfaces_decision_drafts_verbatim(surface: str):
+    """Each of the three decision gates (step 1 RED pause, step 2 plan gate,
+    step 6 doctrine pass) mandates a verbatim paste of the originating
+    agent's rendered proposal, mirroring the step 7 verbatim-PR-body rule."""
+    verbatim_rule = (
+        "complete rendered proposal exactly as returned, no reserialization "
+        "to JSON, no abbreviation, no pointer to output above, immediately "
+        "before the approval ask"
+    )
+    body = load_ship_task_body(surface)
+    assert body.count(verbatim_rule) == 3
+    assert body.count("paste the planner's " + verbatim_rule) == 2
+    assert body.count("paste the tech-lead's " + verbatim_rule) == 1
+
+
 # --- render_skill produces frontmatter + body ---
 
 

@@ -20,6 +20,7 @@ from typing import Any, TypedDict
 from nauro_core.decision_model import DECISION_TYPE_VALUES
 from nauro_core.protocol import (
     _APPROVAL_BEFORE_PROPOSE,
+    _PROPOSAL_VISIBILITY_DETAIL,
     GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
@@ -318,6 +319,8 @@ PROPOSE_DECISION: ToolSpec = {
         "never block the write.\n"
         "\n"
         f"{_APPROVAL_BEFORE_PROPOSE}\n"
+        "\n"
+        f"{_PROPOSAL_VISIBILITY_DETAIL}\n"
         "\n"
         "Call this when you choose between two or more approaches, replace "
         "or remove a dependency, establish a new pattern, or cut scope. "
