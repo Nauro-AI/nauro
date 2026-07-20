@@ -3,7 +3,7 @@
 After the cutover to presign, ``hooks.py`` gates on:
 
 * Auth0 access token (no token → silent no-op so MCP writes never nag).
-* v2 cloud-mode registry entry (v1 or local-mode → silent no-op).
+* v2 cloud-mode registry entry (unknown id or local-mode → silent no-op).
 
 The happy paths exercise the manifest/presign helpers via httpx mocks
 matching the patterns in ``test_sync_presign.py``.
@@ -19,7 +19,7 @@ import httpx
 import pytest
 
 from nauro.store.config import save_config
-from nauro.store.registry import register_project, register_project_v2
+from nauro.store.registry import register_project_v2
 from nauro.sync.hooks import (
     pull_before_session,
     push_after_write,
@@ -54,7 +54,8 @@ def _seed_token() -> None:
 class TestSilentNoOpGating:
     """The hooks must silent-no-op when not authenticated or when the
     project is not v2 cloud-mode. Nagging the user on every MCP write
-    would be hostile; v1/local projects have no presign target."""
+    would be hostile; unknown ids and local projects have no presign
+    target."""
 
     def test_pull_silent_when_not_authenticated(self, tmp_path):
         store = _scaffolded_cloud_project("noauth", tmp_path, project_id=CLOUD_PID)
@@ -76,10 +77,24 @@ class TestSilentNoOpGating:
         assert result == 0
         mock_post.assert_not_called()
 
-    def test_pull_silent_for_v1_project(self, tmp_path):
-        """v1 entries have no v2 registry record → is_cloud_project False."""
-        store = register_project("v1proj", [tmp_path])
+    def _seed_v1_shaped_registry(self, tmp_path) -> Path:
+        """Seed the retired v1 (name-keyed) registry shape plus a store dir.
+
+        The shape reads as an empty v2 registry, so ``is_cloud_project``
+        is False and the hooks keep their silent no-op.
+        """
+        (tmp_path / "registry.json").write_text(
+            json.dumps(
+                {"schema_version": 1, "projects": {"v1proj": {"repo_paths": [str(tmp_path)]}}}
+            )
+        )
+        store = tmp_path / "projects" / "v1proj"
         scaffold_project_store("v1proj", store)
+        return store
+
+    def test_pull_silent_for_v1_shaped_registry(self, tmp_path):
+        """A v1-shaped registry has no v2 record → is_cloud_project False."""
+        store = self._seed_v1_shaped_registry(tmp_path)
         _seed_token()
 
         with patch("nauro.sync.remote.httpx.get") as mock_get:
@@ -88,9 +103,8 @@ class TestSilentNoOpGating:
         assert result == 0
         mock_get.assert_not_called()
 
-    def test_push_silent_for_v1_project(self, tmp_path):
-        store = register_project("v1proj", [tmp_path])
-        scaffold_project_store("v1proj", store)
+    def test_push_silent_for_v1_shaped_registry(self, tmp_path):
+        store = self._seed_v1_shaped_registry(tmp_path)
         _seed_token()
 
         with patch("nauro.sync.remote.httpx.post") as mock_post:

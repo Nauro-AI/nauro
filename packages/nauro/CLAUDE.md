@@ -4,13 +4,13 @@ Nauro is a local CLI + MCP server that maintains versioned project context for A
 
 ## The one architectural fact that matters
 
-The project store lives at `~/.nauro/projects/<project-name>/` — **not** inside any repo. This is the core design decision. A per-repo store would break cross-repo context, which is the problem Nauro exists to solve. The registry at `~/.nauro/registry.json` maps project names to one or more associated repo paths on the machine.
+The project store lives at `~/.nauro/projects/<project-id>/` — **not** inside any repo. This is the core design decision. A per-repo store would break cross-repo context, which is the problem Nauro exists to solve. The registry at `~/.nauro/registry.json` is keyed by project id (ULID); each entry carries the project name as metadata plus one or more associated repo paths on the machine.
 
 ```
 ~/.nauro/
-  registry.json                  # maps project names → repo paths
+  registry.json                  # id-keyed entries: name, mode, repo paths
   projects/
-    <project-name>/
+    <project-id>/
       project.md                 # stable: goals, non-goals, users, constraints
       state_current.md           # volatile: current sprint, blockers, recent completions
       state_history.md           # append-only history of completed work
@@ -101,9 +101,9 @@ src/nauro/
     filesystem_store.py  # Store-protocol implementation backed by ~/.nauro/projects/
     reader.py            # read helpers
     snapshot.py          # capture, list, load snapshots
-    registry.py          # ~/.nauro/registry.json CRUD + resolve_project()
+    registry.py          # ~/.nauro/registry.json CRUD + resolve_v2_from_path()
     repo_config.py       # per-repo .nauro/config.json read/write
-    resolution.py        # project-name resolution from CWD
+    resolution.py        # project resolution from CWD
     config.py            # ~/.nauro/config.json read/write
     validator.py         # structural checks on store contents
   templates/

@@ -8,9 +8,9 @@ whether to show the welcome screen or return a specific error message.
 Resolution order:
 
   1. cwd's ``.nauro/config.json`` walk-up (id-keyed v2 store).
-  2. ``project_id`` argument matched against v2 registry by name.
-  3. ``project_id`` argument matched against v1 registry by name (legacy).
-  4. ``cwd`` argument → v1 ``resolve_project`` (legacy).
+  2. ``project_id`` argument matched against the v2 registry by id, then
+     by name.
+  3. ``cwd`` argument matched against the v2 registry by repo path.
 
 The typed subclasses below let the wrappers reserve the
 ``WELCOME_NO_PROJECT`` onboarding screen for the genuinely-no-project case
@@ -31,10 +31,8 @@ from nauro.store.registry import (
     find_projects_by_name_v2,
     get_project_entry_v2,
     get_project_v2,
-    get_store_path,
     get_store_path_v2,
     registered_store_path_hint_v2,
-    resolve_project,
     resolve_registered_store_path_v2,
     resolve_v2_from_path,
     validate_registry_entry_v2,
@@ -104,11 +102,11 @@ class MultipleProjectsError(StoreResolutionError):
 class RepoResolution(NamedTuple):
     """A cwd resolved to a project store.
 
-    ``project_id`` is the store key: a ULID for v2 projects (from the repo
-    config or the v2 registry) or the legacy name for v1 projects. It is the
-    key the sync layer pulls under. ``display_name`` is the human-facing name
-    for CLI output. ``store_path`` is not existence-checked — each caller
-    decides how to treat a resolved-but-missing store.
+    ``project_id`` is the store key: a ULID from the repo config or the v2
+    registry. It is the key the sync layer pulls under. ``display_name`` is
+    the human-facing name for CLI output. ``store_path`` is not
+    existence-checked — each caller decides how to treat a
+    resolved-but-missing store.
     """
 
     store_path: Path
@@ -292,18 +290,14 @@ def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
 def resolve_from_cwd(cwd: str | Path | None) -> RepoResolution | DisconnectedProject | None:
     """Resolve a cwd to a project store via the canonical waterfall.
 
-    Applies the three cwd-based tiers in order and returns the first match:
+    Applies the two cwd-based tiers in order and returns the first match:
 
       1. ``.nauro/config.json`` walk-up (id-keyed v2 store).
       2. v2 registry matched by repo path.
-      3. v1 ``resolve_project`` (legacy, name-keyed).
 
-    Returns a :class:`RepoResolution`, or ``None`` when no tier matches. The
-    v2 tiers surface missing or invalid stores as typed
-    :class:`DisconnectedProject` states; the v1 tier has no typed states, so
-    a v1 name whose store directory is gone falls through to ``None`` (the
-    no-project outcome) rather than resolving to a path that read tools would
-    treat as empty and write tools would silently recreate.
+    Returns a :class:`RepoResolution`, or ``None`` when no tier matches
+    (the no-project outcome). Both tiers surface missing or invalid stores
+    as typed :class:`DisconnectedProject` states.
     """
     start = Path(cwd) if cwd else Path.cwd()
 
@@ -316,12 +310,6 @@ def resolve_from_cwd(cwd: str | Path | None) -> RepoResolution | DisconnectedPro
     if v2_match is not None:
         pid, entry = v2_match
         return _connection_for_registry_entry(pid, entry)
-
-    name = resolve_project(start)
-    if name:
-        store_path = get_store_path(name)
-        if store_path.exists():
-            return RepoResolution(store_path, name, name)
 
     return None
 
@@ -369,15 +357,11 @@ def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
                 f"Multiple v2 projects named {project_id!r}; pass an "
                 "unambiguous project_id (ULID) instead of the name."
             )
-        # v1 legacy fallback.
-        store_path = get_store_path(project_id)
-        if not store_path.exists():
-            raise ProjectNotFoundError(
-                f"No project named or keyed {project_id!r} found in the "
-                "registry. Run 'nauro init <name>' to create it, or check "
-                "NAURO_HOME if you expected an existing project."
-            )
-        return store_path
+        raise ProjectNotFoundError(
+            f"No project named or keyed {project_id!r} found in the "
+            "registry. Run 'nauro init <name>' to create it, or check "
+            "NAURO_HOME if you expected an existing project."
+        )
 
     if cwd:
         cwd_connection = resolve_from_cwd(cwd_path)

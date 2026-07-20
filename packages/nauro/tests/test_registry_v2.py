@@ -22,7 +22,6 @@ from nauro.store.registry import (
     bind_project_store_v2,
     is_cloud_project,
     load_registry_v2,
-    register_project,
     register_project_v2,
     resolve_registered_store_path_v2,
     save_registry_v2,
@@ -294,12 +293,20 @@ def test_v2_save_stamps_schema_version(tmp_path, monkeypatch):
     assert raw["schema_version"] == REGISTRY_SCHEMA_VERSION_V2
 
 
+def _write_v1_registry(tmp_path, projects: dict) -> None:
+    """Write a v1-shaped (name-keyed, schema_version 1) registry.json.
+
+    The v1 writer is gone; the reject and degradation pins below seed the
+    retired shape directly.
+    """
+    (tmp_path / REGISTRY_FILENAME).write_text(
+        json.dumps({"schema_version": 1, "projects": projects}) + "\n"
+    )
+
+
 def test_v2_loader_rejects_v1_with_migration_hint(tmp_path, monkeypatch):
     """A v1 registry on disk surfaces the manual-migration message."""
-    # Write a v1 registry via the legacy writer.
-    registry.save_registry(
-        {"projects": {"oldproj": {"repo_paths": ["/tmp/old"]}}, "schema_version": 1}
-    )
+    _write_v1_registry(tmp_path, {"oldproj": {"repo_paths": ["/tmp/old"]}})
     with pytest.raises(RegistrySchemaError) as exc:
         load_registry_v2()
     msg = str(exc.value)
@@ -323,8 +330,8 @@ def test_v2_save_rejects_non_v2_schema_version(tmp_path, monkeypatch):
 
 class TestIsCloudProject:
     """Gate predicate for auto-sync and the status report. The presign
-    transport has no path for v1 entries (no server-side ULID) or v2
-    local-mode entries (not remote-backed), so both must return False."""
+    transport has no path for unknown ids or local-mode entries (not
+    remote-backed), so both must return False."""
 
     def test_returns_true_for_v2_cloud(self, tmp_path, monkeypatch):
         pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
@@ -350,6 +357,8 @@ class TestIsCloudProject:
     def test_returns_false_for_missing_entry(self, tmp_path, monkeypatch):
         assert is_cloud_project("01KMISSING00000000000000000") is False
 
-    def test_returns_false_for_v1_name(self, tmp_path, monkeypatch):
-        register_project("v1name", [tmp_path])
+    def test_returns_false_for_v1_shaped_registry(self, tmp_path, monkeypatch):
+        """A v1-shaped registry.json reads as an empty v2 registry, so the
+        gate degrades to False rather than crashing."""
+        _write_v1_registry(tmp_path, {"v1name": {"repo_paths": [str(tmp_path)]}})
         assert is_cloud_project("v1name") is False

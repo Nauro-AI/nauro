@@ -83,8 +83,8 @@ def generate_agents_md(
         project_name: Name of the Nauro project.
         l0_payload: L0 context payload from build_l0_payload.
         manual_section: Preserved manual section content, or None.
-        project_id: v2 project id (ULID). When set, the store-routing block
-            tells agents which id to pass; omitted for legacy v1 projects.
+        project_id: Project id (ULID). When set, the store-routing block
+            tells agents which id to pass.
         skills_section: Preserved ``## Skills`` content, or None to omit.
         section_order: Order in which to emit preserved sections — list of
             ``"skills"`` and/or ``"manual"``. Defaults to source-appearance
@@ -218,8 +218,8 @@ def regenerate_agents_md_for_project(
     """Regenerate AGENTS.md in all repos associated with a project.
 
     Args:
-        project_key: Either a v2 project_id (ULID) or a v1 project name.
-            v2 takes priority — the v1 name lookup is the legacy fallback.
+        project_key: The project_id (ULID) whose registry entry lists the
+            associated repos.
         store_path: Path to the project store directory.
         overwrite_unmanaged: Replace an existing AGENTS.md even when Nauro
             did not generate it. Off by default: only ``nauro sync`` passes

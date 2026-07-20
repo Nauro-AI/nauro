@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from nauro.store.registry import RegistrySchemaError, load_registry, load_registry_v2
+from nauro.store.registry import RegistrySchemaError, load_registry_v2
 
 
 def _registered_project_keys() -> set[str]:
-    """Return the keys of every project in the registry (v2, v1 fallback)."""
+    """Return the keys of every project in the registry."""
     try:
         registry = load_registry_v2()
     except RegistrySchemaError:
-        registry = load_registry()
+        return set()
     return set(registry.get("projects", {}).keys())
 
 

@@ -80,20 +80,16 @@ logger = logging.getLogger("nauro.mcp.tools")
 def _project_identity(store_path: Path) -> dict:
     """Best-effort project identity (name + id) for the response envelope.
 
-    The store directory name is the v2 project id (ULID) or, for a legacy v1
-    store, the project name itself. Resolve the human-readable name from the
-    registry when the store is v2; fall back to the directory name otherwise.
-    Never raises — identity is advisory, and a lookup failure must not break a
-    tool response.
+    The store directory name is the project id (ULID). Resolve the
+    human-readable name from the registry; fall back to the directory name
+    for a store with no registry entry. Never raises — identity is advisory,
+    and a lookup failure must not break a tool response.
     """
     key = store_path.name
     try:
-        from nauro.store.registry import RegistrySchemaError, get_project_v2
+        from nauro.store.registry import get_project_v2
 
-        try:
-            entry = get_project_v2(key)
-        except RegistrySchemaError:
-            entry = None
+        entry = get_project_v2(key)
         if entry is not None:
             return {"id": key, "name": entry.get("name") or key}
     except Exception:

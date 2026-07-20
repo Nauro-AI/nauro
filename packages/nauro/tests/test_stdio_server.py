@@ -77,8 +77,8 @@ class TestResolveStore:
         assert result == store
 
     def test_raises_on_unknown_project(self, store: Path):
-        # Unknown name in v2 falls through to v1 legacy; if also missing
-        # there, ProjectNotFoundError carries the "registry" anchor.
+        # An unknown name matches nothing in the registry;
+        # ProjectNotFoundError carries the "registry" anchor.
         from nauro.store.resolution import ProjectNotFoundError
 
         with pytest.raises(ProjectNotFoundError, match="registry"):

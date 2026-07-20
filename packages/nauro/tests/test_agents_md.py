@@ -115,7 +115,7 @@ def test_routing_block_steers_to_local_stdio_with_project_id():
 
 
 def test_routing_block_omits_project_id_line_when_unknown():
-    """Legacy v1 projects have no id — the block still steers to local, no id line."""
+    """Without a project id the block still steers to local, no id line."""
     result = generate_agents_md("myproj", "payload")
     assert "## Nauro store for this repo" in result
     assert "`mcp__nauro__*`" in result

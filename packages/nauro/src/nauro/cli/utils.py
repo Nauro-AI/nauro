@@ -2,30 +2,26 @@
 
 Resolution priority for any command that needs a project context:
 
-  1. Explicit ``--project <name>`` flag (when the command takes one).
-     Looked up against the v2 registry by name; v1 registry is consulted
-     as a legacy fallback for unconverted callers and tests.
-  2. ``find_repo_config(cwd)`` — walks up from cwd looking for
-     ``.nauro/config.json`` and resolves the v2 registry by id.
-  3. v1 ``resolve_project(cwd)`` — name-keyed cwd resolution. Legacy
-     fallback retained while v1 callers remain in tree.
-  4. Error with helpful guidance.
+  1. Explicit ``--project <name>`` flag (when the command takes one),
+     looked up against the registry by name.
+  2. The cwd waterfall: ``.nauro/config.json`` walk-up, then the registry
+     matched by repo path.
+  3. Error with helpful guidance.
 """
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import typer
 
+from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.registry import (
     RegistrySchemaError,
     add_repo_v2,
     find_projects_by_name_v2,
-    get_project,
     get_project_v2,
-    get_store_path,
-    load_registry,
     load_registry_v2,
     register_project_v2,
     suggest_project_for_path,
@@ -103,16 +99,13 @@ def _v2_registry_or_empty() -> dict:
 
 
 def _available_project_names() -> list[str]:
-    """Return the sorted union of v1 and v2 project names, blanks removed.
+    """Return the sorted project names, blanks removed.
 
-    The empty-string is subtracted from the *combined* set so a v2 entry
-    missing its ``name`` field cannot leak a blank token into the
-    "Available projects:" listing.
+    The empty string is subtracted so an entry missing its ``name`` field
+    cannot leak a blank token into the "Available projects:" listing.
     """
-    registry = load_registry()
-    v2_names = {e.get("name", "") for e in _v2_registry_or_empty()["projects"].values()}
-    v1_names = set(registry["projects"].keys())
-    return sorted((v1_names | v2_names) - {""})
+    names = {e.get("name", "") for e in _v2_registry_or_empty()["projects"].values()}
+    return sorted(names - {""})
 
 
 def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
@@ -128,7 +121,7 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
         typer.Exit: If no project can be resolved.
     """
     if project_flag is not None:
-        # 1a — v2 by name (canonical)
+        # 1 — registry lookup by name
         matches = find_projects_by_name_v2(project_flag)
         if len(matches) > 1:
             # Show the full ULID, not a prefix: ULIDs minted seconds apart share
@@ -153,11 +146,6 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
             if connection is not None:
                 return project_flag, connection.store_path
 
-        # 1b — v1 fallback (legacy tests and unconverted callers)
-        entry = get_project(project_flag)
-        if entry is not None:
-            return project_flag, get_store_path(project_flag)
-
         available = _available_project_names()
         typer.echo(f"Unknown project '{project_flag}'.", err=True)
         if available:
@@ -166,7 +154,7 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
             typer.echo("No projects registered. Run 'nauro init' first.", err=True)
         raise typer.Exit(code=1)
 
-    # 2 — cwd waterfall: repo config walk-up → v2 registry by path → v1 legacy
+    # 2 — cwd waterfall: repo config walk-up → registry by repo path
     cwd = Path.cwd()
     resolution = resolve_from_cwd(cwd)
     if isinstance(resolution, DisconnectedProject):
@@ -181,14 +169,19 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
 
     suggestion = suggest_project_for_path(cwd)
     if suggestion:
+        pid, entry = suggestion
+        name = entry.get("name", "")
         typer.echo(
-            f"Hint: project '{suggestion}' exists but this path is not registered.",
+            f"Hint: project {name!r} exists but this path is not registered.",
             err=True,
         )
-        typer.echo(
-            f"  Run: nauro init {suggestion} --add-repo .",
-            err=True,
-        )
+        # init --add-repo intentionally rejects cloud-scoped projects; the
+        # documented association path for those is nauro attach. The name is
+        # shell-quoted because the line is meant to be copy-pasted.
+        if entry.get("mode") == REPO_CONFIG_MODE_CLOUD:
+            typer.echo(f"  Run: nauro attach {pid}", err=True)
+        else:
+            typer.echo(f"  Run: nauro init {shlex.quote(name)} --add-repo .", err=True)
     elif available:
         typer.echo(f"Available projects: {', '.join(available)}", err=True)
         typer.echo("Use --project <name> to target a specific project.", err=True)
@@ -201,8 +194,8 @@ def _resolve_project_entry(project_name: str, project_key: str) -> dict:
     """Resolve a registry entry that has at least one associated repo path.
 
     Args:
-        project_name: Display name (used for the v1 lookup and error message).
-        project_key: v2 project_id (store directory name) for the v2 lookup.
+        project_name: Display name (used in the error message).
+        project_key: project_id (store directory name) for the lookup.
 
     Returns:
         The resolved registry entry dict, guaranteed to carry ``repo_paths``.
@@ -210,14 +203,7 @@ def _resolve_project_entry(project_name: str, project_key: str) -> dict:
     Raises:
         typer.Exit: code 1 when no entry resolves or the entry has no repos.
     """
-    # Try v2 first (id-keyed), then fall back to v1 (name-keyed legacy)
-    try:
-        entry = get_project_v2(project_key)
-    except RegistrySchemaError:
-        entry = None
-    if entry is None:
-        entry = get_project(project_name)
-
+    entry = get_project_v2(project_key)
     if entry is None or not entry.get("repo_paths"):
         typer.echo(f"Project '{project_name}' has no associated repos.", err=True)
         raise typer.Exit(code=1)

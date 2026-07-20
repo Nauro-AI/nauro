@@ -46,7 +46,7 @@ def sync(
         return
 
     project_name, store_path = resolve_target_project(project)
-    # store_path.name is the project_id under v2 (id-keyed) or name under v1.
+    # store_path.name is the project_id (the store directory is id-keyed).
     project_key = store_path.name
     trigger = message or "manual sync"
 
@@ -96,9 +96,8 @@ def sync(
 def _pull_from_cloud(project_id: str, store_path: Path) -> int:
     """Pull remote changes via the manifest + presign endpoints.
 
-    No-op when the project is not v2 cloud-mode (v1 entries and v2
-    local-mode have no presign target) or when no Auth0 token is
-    configured.
+    No-op when the project is not v2 cloud-mode (local-mode has no
+    presign target) or when no Auth0 token is configured.
     """
     if not is_cloud_project(project_id):
         return 0

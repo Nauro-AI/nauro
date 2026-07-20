@@ -38,7 +38,7 @@ def warn_then_regen(
     """Warn on skipped repo paths, then regenerate ``AGENTS.md`` everywhere.
 
     Args:
-        project_key: Either a v2 project_id (ULID) or a v1 project name.
+        project_key: The project_id (ULID).
         store_path: Path to the project store directory.
         warn: Optional callback for skip and git-hygiene warnings. When
             ``None``, skipped repo paths are silent and git-hygiene checks
