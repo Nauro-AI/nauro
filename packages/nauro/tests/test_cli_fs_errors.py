@@ -13,7 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -32,8 +32,7 @@ def _assert_clean_error(result):
 
 
 def test_note_on_read_only_store_reports_clean_error(tmp_path: Path, monkeypatch):
-    register_project("p", [tmp_path])
-    store_path = tmp_path / "projects" / "p"
+    _pid, store_path = register_project_v2("p", [tmp_path])
     scaffold_project_store("p", store_path)
     monkeypatch.chdir(tmp_path)
 

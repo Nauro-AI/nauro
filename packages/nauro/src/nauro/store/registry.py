@@ -1,20 +1,16 @@
 """Project registry — manages ~/.nauro/registry.json.
 
-Two on-disk shapes are supported during the project-scoped migration:
+The registry is keyed by project_id (ULID) and tracks ``name``, ``mode``,
+``repo_paths``, an optional ``server_url``, and an optional external
+``store_path`` per project (schema_version 2). Store path:
+``~/.nauro/projects/<id>/``. Helpers: ``load_registry_v2``,
+``save_registry_v2``, ``register_project_v2``, ``get_store_path_v2``,
+``get_project_v2``, ``find_projects_by_name_v2``, ``resolve_v2_from_path``,
+``add_repo_v2``, ``rename_project_id_v2``.
 
-* **v1 (legacy)** — keyed by project name; store path ``~/.nauro/projects/<name>/``.
-  Helpers: ``load_registry``, ``save_registry``, ``register_project``,
-  ``resolve_project``, ``suggest_project_for_path``, ``get_project``,
-  ``get_store_path``.
-* **v2 (canonical post-migration)** — keyed by project_id (ULID), tracks
-  ``mode`` + optional ``server_url``. Store path ``~/.nauro/projects/<id>/``.
-  Helpers: ``load_registry_v2``, ``save_registry_v2``, ``register_project_v2``,
-  ``get_store_path_v2``, ``get_project_v2``, ``find_projects_by_name_v2``,
-  ``resolve_v2_from_path``, ``add_repo_v2``, ``rename_project_id_v2``.
-
-The two shapes are mutually exclusive on disk; ``load_registry_v2`` rejects
-v1 with a one-time manual migration message. v1 helpers are retained as
-legacy for callers that have not yet been migrated.
+The retired name-keyed schema_version 1 shape is no longer readable:
+``load_registry_v2`` rejects it with a manual-migration hint, and read
+paths degrade to an empty registry.
 
 Respects NAURO_HOME env var override (defaults to ~/.nauro/).
 """
@@ -22,7 +18,6 @@ Respects NAURO_HOME env var override (defaults to ~/.nauro/).
 import json
 import logging
 import os
-import re
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
@@ -144,45 +139,10 @@ def _ensure_nauro_home() -> Path:
     return home
 
 
-def load_registry() -> dict:
-    """Read registry.json, return empty structure if it doesn't exist or is corrupt.
-
-    Returns:
-        Registry dict with a "projects" key mapping names to project entries.
-    """
-    rf = _registry_file()
-    if rf.exists():
-        try:
-            data = json.loads(rf.read_text())
-        except json.JSONDecodeError:
-            logger.warning("registry.json is corrupt - starting with empty registry")
-            return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
-        if not isinstance(data, dict):
-            logger.warning("registry.json is corrupt - starting with empty registry")
-            return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
-        data.setdefault("schema_version", REGISTRY_SCHEMA_VERSION_V1)
-        data.setdefault("projects", {})
-        return data  # type: ignore[no-any-return]
-    return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V1}
-
-
-def save_registry(data: dict) -> None:
-    """Write registry.json atomically (write-to-tmp + rename).
-
-    Args:
-        data: Full registry dict to persist.
-    """
-    data.setdefault("schema_version", REGISTRY_SCHEMA_VERSION_V1)
-    rf = _registry_file()
-    atomic_write_text(rf, json.dumps(data, indent=2) + "\n")
-
-
 # ── v2 registry (id-keyed) ───────────────────────────────────────────────────
 #
-# v2 introduces a project_id (ULID) primary key and tracks ``mode`` plus an
-# optional ``server_url`` per project. v2 is read/written by the
-# project-scoped commands; existing v1 commands continue to use
-# load_registry/save_registry above.
+# v2 uses a project_id (ULID) primary key and tracks ``mode`` plus an
+# optional ``server_url`` per project.
 #
 # v2 is a strict loader: it refuses to read a v1 registry and tells the user
 # to run the one-time manual migration documented in the release notes.
@@ -246,98 +206,6 @@ def save_registry_v2(data: dict) -> None:
         )
     rf = _registry_file()
     atomic_write_text(rf, json.dumps(data, indent=2) + "\n")
-
-
-def get_store_path(name: str) -> Path:
-    """Return the store directory path for a project name."""
-    return _projects_dir() / name
-
-
-def get_project(name: str) -> dict | None:
-    """Look up a project by name directly from the registry.
-
-    Args:
-        name: Project name to look up.
-
-    Returns:
-        Project entry dict or None if not found.
-    """
-    registry = load_registry()
-    return registry["projects"].get(name)  # type: ignore[no-any-return]
-
-
-def resolve_project(path: Path) -> str | None:
-    """Given a directory path, find which project it belongs to.
-
-    Walks up the directory tree and checks all registered repo paths for a match.
-
-    Args:
-        path: Directory path to resolve.
-
-    Returns:
-        Project name or None if no match found.
-    """
-    registry = load_registry()
-    path = path.resolve()
-    for name, entry in registry["projects"].items():
-        for repo in entry.get("repo_paths", []):
-            repo_resolved = Path(repo).resolve()
-            if path == repo_resolved or repo_resolved in path.parents:
-                return name  # type: ignore[no-any-return]
-    return None
-
-
-def register_project(name: str, repo_paths: list[Path]) -> Path:
-    """Add a project to the registry and create its store directory.
-
-    Args:
-        name: Project name.
-        repo_paths: List of associated repo paths.
-
-    Returns:
-        Path to the new project store directory.
-
-    Raises:
-        ValueError: If project already exists.
-    """
-    if not re.fullmatch(r"[a-zA-Z0-9_\-]+", name):
-        raise ValueError(
-            f"Invalid project name '{name}'. Use only letters, digits, hyphens, and underscores."
-        )
-
-    with _registry_lock():
-        registry = load_registry()
-        if name in registry["projects"]:
-            raise ValueError(f"Project '{name}' already exists in registry.")
-        registry["projects"][name] = {
-            "repo_paths": [str(p.resolve()) for p in repo_paths],
-        }
-        store_path = _projects_dir() / name
-        store_path.mkdir(parents=True, exist_ok=True)
-        save_registry(registry)
-    return store_path
-
-
-def suggest_project_for_path(path: Path) -> str | None:
-    """Suggest a project that might match a path based on directory name.
-
-    Useful when resolve_project() returns None — the repo may have moved.
-
-    Args:
-        path: Directory path to match.
-
-    Returns:
-        Project name if a plausible match is found, None otherwise.
-    """
-    registry = load_registry()
-    path = path.resolve()
-    dirname = path.name.lower()
-
-    for name in registry["projects"]:
-        if name.lower() == dirname:
-            return name  # type: ignore[no-any-return]
-
-    return None
 
 
 # ── v2 registry CRUD (id-keyed) ──────────────────────────────────────────────
@@ -643,12 +511,12 @@ def bind_project_store_v2(
 
 
 def _load_registry_v2_or_empty() -> dict:
-    """Read v2 registry; treat a v1-on-disk as 'no v2 entries'.
+    """Read v2 registry; treat a v1-shaped file on disk as 'no v2 entries'.
 
-    Read paths use this so that lookups silently fall back to v1 helpers
-    while a project is still on the v1 schema. Write paths continue to
-    call ``load_registry_v2`` directly, so v1 → v2 mutations fail loudly
-    rather than silently overwriting the v1 file.
+    Read paths use this so a leftover v1 registry degrades to the no-project
+    outcome instead of crashing. Write paths continue to call
+    ``load_registry_v2`` directly, so mutations against a v1 file fail loudly
+    rather than silently overwriting it.
     """
     try:
         return load_registry_v2()
@@ -671,17 +539,13 @@ def get_project_entry_v2(project_id: str) -> RegistryEntryV2 | None:
 
 
 def is_cloud_project(project_id: str) -> bool:
-    """True iff ``project_id`` is a v2 cloud-mode registry entry.
+    """True iff ``project_id`` is a cloud-mode registry entry.
 
-    v1 entries (no ``mode`` field) and v2 local-mode entries return False.
-    Used by the auto-sync hooks and the status command to gate presign
-    calls — v1 has no server-side ULID and v2 local-mode is not
-    remote-backed, so neither has a presign target.
+    Unknown ids and local-mode entries return False. Used by the auto-sync
+    hooks and the status command to gate presign calls; an id without a
+    cloud-mode record has no presign target.
     """
-    try:
-        entry = get_project_v2(project_id)
-    except RegistrySchemaError:
-        return False
+    entry = get_project_v2(project_id)
     if entry is None:
         return False
     return entry.get("mode") == REPO_CONFIG_MODE_CLOUD
@@ -701,27 +565,18 @@ def find_projects_by_name_v2(name: str) -> list[tuple[str, dict]]:
 
 
 def get_repo_paths(project_key: str) -> list[str]:
-    """Return repo paths for ``project_key`` from v2 (preferred) or v1 registry.
+    """Return repo paths for ``project_key`` (a project_id ULID).
 
-    ``project_key`` is a v2 project_id (ULID) or a v1 project name; v2 takes
-    priority with v1 as the legacy fallback. Returns an empty list when the
-    key is unknown in both schemas.
+    Returns an empty list when the key is unknown.
     """
-    try:
-        v2_entry = get_project_v2(project_key)
-    except RegistrySchemaError:
-        v2_entry = None
-    if v2_entry is not None:
-        return list(v2_entry.get("repo_paths", []))
-    registry = load_registry()
-    return list(registry["projects"].get(project_key, {}).get("repo_paths", []))
+    entry = get_project_v2(project_key)
+    if entry is None:
+        return []
+    return list(entry.get("repo_paths", []))
 
 
 def resolve_v2_from_path(path: Path) -> tuple[str, dict] | None:
-    """Walk up ``path`` and return (project_id, entry) for the matching v2 project.
-
-    Mirrors v1 ``resolve_project`` but on the id-keyed v2 registry.
-    """
+    """Walk up ``path`` and return (project_id, entry) for the matching project."""
     registry = _load_registry_v2_or_empty()
     path = path.resolve()
     for pid, entry in registry["projects"].items():
@@ -729,6 +584,28 @@ def resolve_v2_from_path(path: Path) -> tuple[str, dict] | None:
             repo_resolved = Path(repo).resolve()
             if path == repo_resolved or repo_resolved in path.parents:
                 return pid, entry
+    return None
+
+
+def suggest_project_for_path(path: Path) -> tuple[str, dict] | None:
+    """Suggest a project whose name matches ``path``'s directory name.
+
+    Useful when path-based resolution finds nothing (the repo may have
+    moved since it was registered). Returns ``(project_id, entry)`` only
+    when exactly one project matches, so the caller can render a
+    re-registration hint appropriate to the entry's mode; an ambiguous
+    name yields None because the hinted ``init --add-repo`` command
+    refuses duplicate names.
+    """
+    registry = _load_registry_v2_or_empty()
+    dirname = path.resolve().name.lower()
+    matches = [
+        (pid, entry)
+        for pid, entry in registry["projects"].items()
+        if entry.get("name", "") and entry["name"].lower() == dirname
+    ]
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 

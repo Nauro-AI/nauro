@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 from nauro.cli.commands import hook
 from nauro.cli.main import app
 from nauro.mcp.payloads import build_l0_payload
-from nauro.store.registry import register_project, register_project_v2
+from nauro.store.registry import register_project_v2
 from tests.conftest import register_v2_repo
 
 runner = CliRunner()
@@ -280,19 +280,19 @@ def test_missing_store_exits_zero_empty(tmp_path: Path):
     assert result.output == ""
 
 
-def test_v1_registry_project_resolves_for_hook(tmp_path: Path):
-    """A project registered only in the v1 (name-keyed) registry resolves.
+def test_v1_shaped_registry_yields_none_for_hook(tmp_path: Path):
+    """A retired v1-shaped (name-keyed) registry resolves to no project.
 
-    The hook's resolver delegates to the canonical ``resolve_from_cwd``
-    waterfall, whose third tier is the v1 legacy registry. Previously the hook
-    stopped after the repo-config and v2-by-path tiers, so a v1-only project
-    got no advisory context; now it resolves like every other surface.
+    v1 registry support was removed deliberately; the shape reads as an
+    empty registry, so the hook fails open with no advisory context.
     """
     repo = tmp_path / "v1repo"
     repo.mkdir()
-    store_path = register_project("v1only", [repo])
+    (tmp_path / "registry.json").write_text(
+        json.dumps({"schema_version": 1, "projects": {"v1only": {"repo_paths": [str(repo)]}}})
+    )
 
-    assert hook._resolve_store_path(repo) == store_path
+    assert hook._resolve_store_path(repo) is None
 
 
 def test_oversize_prompt_exits_zero_empty(tmp_path: Path):

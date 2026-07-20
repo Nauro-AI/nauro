@@ -10,7 +10,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.agents_md import generate_agents_md
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -21,7 +21,7 @@ def test_note_decision_refreshes_agents_md(tmp_path: Path, monkeypatch):
     """A decision logged via `nauro note` shows up in the repo's AGENTS.md."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 
@@ -45,7 +45,7 @@ def test_note_question_refreshes_agents_md(tmp_path: Path, monkeypatch):
     """A question logged via `nauro note` shows up under Open Questions."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 
@@ -65,7 +65,7 @@ def test_note_decision_refreshes_all_associated_repos(tmp_path: Path, monkeypatc
     repo2 = tmp_path / "repo2"
     repo1.mkdir()
     repo2.mkdir()
-    store = register_project("myproj", [repo1, repo2])
+    _pid, store = register_project_v2("myproj", [repo1, repo2])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo1)
 
@@ -82,7 +82,7 @@ def test_note_preserves_unmanaged_agents_md(tmp_path: Path, monkeypatch):
     """An AGENTS.md without Nauro's markers stays byte-identical across note."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 
@@ -103,7 +103,7 @@ def test_note_refreshes_nauro_generated_agents_md(tmp_path: Path, monkeypatch):
     """A Nauro-generated AGENTS.md is still refreshed; `# Manual` survives."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 
@@ -130,7 +130,7 @@ def test_note_warns_about_missing_repo_paths(tmp_path: Path, monkeypatch):
     live_repo = tmp_path / "live"
     stale_repo = tmp_path / "stale"  # never mkdir'd
     live_repo.mkdir()
-    store = register_project("myproj", [live_repo, stale_repo])
+    _pid, store = register_project_v2("myproj", [live_repo, stale_repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(live_repo)
 
@@ -147,7 +147,7 @@ def test_note_warns_about_missing_repo_paths(tmp_path: Path, monkeypatch):
 
 def test_note_question_with_rationale_warns(tmp_path: Path, monkeypatch):
     """--rationale on the question path is ignored, and the user is told so."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -162,7 +162,7 @@ def test_note_question_with_rationale_warns(tmp_path: Path, monkeypatch):
 
 def test_note_question_with_confidence_warns(tmp_path: Path, monkeypatch):
     """A non-default --confidence on the question path triggers the warning."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -173,7 +173,7 @@ def test_note_question_with_confidence_warns(tmp_path: Path, monkeypatch):
 
 def test_note_both_question_and_decision_warns(tmp_path: Path, monkeypatch):
     """--question and --decision together warn that --question wins."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -185,7 +185,7 @@ def test_note_both_question_and_decision_warns(tmp_path: Path, monkeypatch):
 
 def test_note_plain_decision_no_warning(tmp_path: Path, monkeypatch):
     """The decision path with --rationale emits no flag-usage warning."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -197,7 +197,7 @@ def test_note_plain_decision_no_warning(tmp_path: Path, monkeypatch):
 
 def test_note_empty_string_rejects(tmp_path: Path, monkeypatch):
     """Empty text is rejected before any store write."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -211,7 +211,7 @@ def test_note_empty_string_rejects(tmp_path: Path, monkeypatch):
 
 def test_note_whitespace_only_rejects(tmp_path: Path, monkeypatch):
     """Whitespace-only text is rejected before any store write."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -225,7 +225,7 @@ def test_note_whitespace_only_rejects(tmp_path: Path, monkeypatch):
 
 def test_note_nonempty_text_succeeds(tmp_path: Path, monkeypatch):
     """Non-empty text records a decision — the guard does not block valid input."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 

@@ -8,12 +8,12 @@ from nauro.mcp.tools import (
     tool_propose_decision,
     tool_update_state,
 )
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 
 def _setup_store(tmp_path, monkeypatch) -> Path:
-    store = register_project("testproj", [tmp_path])
+    _pid, store = register_project_v2("testproj", [tmp_path])
     scaffold_project_store("testproj", store)
     return store
 
@@ -58,10 +58,12 @@ class TestProjectIdentityPresent:
     """
 
     def test_check_decision_includes_project_identity(self, tmp_path, monkeypatch):
-        store = _setup_store(tmp_path, monkeypatch)
+        pid, store = register_project_v2("testproj", [tmp_path])
+        scaffold_project_store("testproj", store)
         result = tool_check_decision(store, proposed_approach="Use a REST API")
-        # v1 store: the directory name is the project name, no separate id.
-        assert result["project"] == {"id": None, "name": "testproj"}
+        # id-keyed store: the directory name is the project id; the registry
+        # entry supplies the display name.
+        assert result["project"] == {"id": pid, "name": "testproj"}
 
     def test_error_envelope_also_carries_project(self, tmp_path, monkeypatch):
         missing = tmp_path / "absent-store"

@@ -103,7 +103,7 @@ def claude_code_surfaces(
 
     if not remove:
         # Regenerate AGENTS.md so context is fresh from the start. The store
-        # dir name is the v2 id (or v1 name) used by the registry-aware lookup.
+        # dir name is the project id used by the registry-aware lookup.
         # warn_then_regen surfaces missing-repo, symlink-refusal, and
         # git-hygiene warnings through the warn callback (stderr), never the
         # returned outcomes.
@@ -429,7 +429,7 @@ def setup_all_surfaces(
     Continues across per-handler errors so partial coverage still reports
     progress. Returns the cumulative status lines.
 
-    ``current_project_key`` is the registry key (v2 id or v1 name) for the
+    ``current_project_key`` is the registry key (project id) for the
     project being wired or torn down. When ``remove=True``, it is excluded
     from the "are there other projects?" check so per-project teardown only
     clears user-scope artifacts (Claude/Codex skill, ``~/.codex/config.toml``)

@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.constants import REPO_CONFIG_MODE_CLOUD, REPO_CONFIG_MODE_LOCAL
 from nauro.store.config import save_config
-from nauro.store.registry import register_project, register_project_v2
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -26,9 +26,9 @@ CLOUD_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 LOCAL_PID = "01KQ6AZGNA0B3QBF67NBXP3S46"
 
 
-def _setup_v1_project(tmp_path, monkeypatch):
-    """v1 project (legacy); status falls back to local-only reporting."""
-    store = register_project("testproj", [tmp_path])
+def _setup_local_project(tmp_path, monkeypatch):
+    """v2 local-mode project; status reports local-only."""
+    _pid, store = register_project_v2("testproj", [tmp_path])
     scaffold_project_store("testproj", store)
     monkeypatch.chdir(tmp_path)
     return store
@@ -58,8 +58,8 @@ def _setup_cloud_project(tmp_path, monkeypatch):
 
 
 def test_status_shows_local_decision_count_when_unauthenticated(tmp_path, monkeypatch):
-    """Sync inactive (v1 project, no token) → local count only."""
-    _setup_v1_project(tmp_path, monkeypatch)
+    """Sync inactive (local project, no token) → local count only."""
+    _setup_local_project(tmp_path, monkeypatch)
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0

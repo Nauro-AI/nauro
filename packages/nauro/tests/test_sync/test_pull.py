@@ -16,7 +16,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.sync.pull import _renumber_decision_if_collision, run_pull
 from nauro.sync.state import (
     FileState,
@@ -210,7 +210,7 @@ class TestRunPullDecisionCollision:
 class TestRenumberDecisionIfCollision:
     @pytest.fixture()
     def project_store(self, tmp_path):
-        store = register_project("renumproj", [tmp_path])
+        _pid, store = register_project_v2("renumproj", [tmp_path])
         scaffold_project_store("renumproj", store)
         return store
 

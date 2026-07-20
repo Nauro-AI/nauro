@@ -10,9 +10,9 @@ silent-no-op when either is missing. The two no-op cases are:
 * Not authenticated. MCP writes happen on every tool call; nagging
   ``run nauro auth login`` on every write would be hostile. The user
   saw the prompt at session start (or onboarding) — here we just skip.
-* Project is not v2 cloud-mode. v1 entries have no server-side ULID
-  and v2 local-mode is not remote-backed. The presign endpoints can
-  address neither.
+* Project is not v2 cloud-mode. An id with no cloud-mode registry
+  record (unknown, or local-mode) has no presign target, so the hooks
+  no-op.
 
 The pull and push transport lives in ``nauro.sync.pull`` and
 ``nauro.sync.push`` and is shared with the ``nauro sync`` CLI command.

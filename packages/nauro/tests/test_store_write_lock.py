@@ -33,7 +33,7 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.store.store_lock import RMW_LOCK_SUFFIX, rmw_lock_path, store_write_lock
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -44,7 +44,7 @@ def _make_store(tmp_path, monkeypatch) -> Path:
     """Point NAURO_HOME/HOME into tmp_path and return a scaffolded store dir."""
     monkeypatch.setenv("NAURO_HOME", str(tmp_path / "nauro_home"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    store = register_project("proj", [tmp_path / "repo"])
+    _pid, store = register_project_v2("proj", [tmp_path / "repo"])
     scaffold_project_store("proj", store)
     return store
 
@@ -173,7 +173,7 @@ def test_note_question_branch_exits_zero_and_persists(tmp_path, monkeypatch):
     """``nauro note`` question branch exits 0 and the entry lands on disk."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 

@@ -14,7 +14,7 @@ from nauro_core.decision_model import Decision, format_decision
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import write_decision_file
 
@@ -23,7 +23,7 @@ runner = CliRunner()
 
 def _new_store(tmp_path: Path, name: str = "docproj") -> Path:
     """Register and scaffold a project, returning its store path."""
-    store = register_project(name, [tmp_path])
+    _pid, store = register_project_v2(name, [tmp_path])
     scaffold_project_store(name, store)
     return store
 

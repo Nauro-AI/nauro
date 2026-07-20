@@ -2,9 +2,9 @@
 
 The CLI's ``resolve_target_project`` and the local MCP servers'
 ``_resolve_store`` share the same priority order: explicit ``--project``
-flag → cwd ``.nauro/config.json`` walk-up → v1 legacy fallback. These
-tests pin that behavior end-to-end so a regression cannot silently flip
-the precedence.
+flag → cwd ``.nauro/config.json`` walk-up → registry matched by repo
+path. These tests pin that behavior end-to-end so a regression cannot
+silently flip the precedence.
 
 Also covers the integration scenario where two projects coexist (one
 cloud-style preconfigured, one freshly created via `nauro init`) and
@@ -467,23 +467,34 @@ def test_default_store_with_symlinked_component_is_typed_invalid(tmp_path, monke
     assert result.reason_code == "connected_record_invalid"
 
 
-def test_v1_project_with_missing_store_yields_no_project(tmp_path, monkeypatch):
-    """A legacy name-keyed project whose store directory is gone falls
-    through to the no-project outcome — never a path that read tools would
-    treat as an empty store and write tools would silently recreate.
-    """
-    import shutil
+def test_v1_shaped_registry_resolves_to_no_project(tmp_path, monkeypatch):
+    """A retired v1-shaped (name-keyed) registry.json resolves to nothing.
 
-    from nauro.store.registry import register_project
+    v1 registry support was removed deliberately: the shape reads as an
+    empty v2 registry, so a matching repo path falls through to the
+    no-project outcome instead of resolving or crashing.
+    """
     from nauro.store.resolution import resolve_from_cwd
 
     repo = tmp_path / "v1repo"
     repo.mkdir()
-    store = register_project("legacy", [repo])
-    if store.exists():
-        shutil.rmtree(store)
+    _write_registry(tmp_path, 1, {"legacy": {"repo_paths": [str(repo.resolve())]}})
 
     assert resolve_from_cwd(repo) is None
+
+
+def test_v1_shaped_registry_reaches_welcome_screen(tmp_path, monkeypatch):
+    """The stdio transport surfaces a v1-shaped registry as the welcome
+    screen (typed NoProjectError), never a crash."""
+    from nauro.store.resolution import NoProjectError
+
+    repo = tmp_path / "v1repo"
+    repo.mkdir()
+    _write_registry(tmp_path, 1, {"legacy": {"repo_paths": [str(repo.resolve())]}})
+    monkeypatch.chdir(repo)
+
+    with pytest.raises(NoProjectError, match="No Nauro project found"):
+        _resolve_store(None, None)
 
 
 @pytest.mark.parametrize("raw_store_path", [42, "", None])
@@ -627,22 +638,6 @@ def test_resolve_from_cwd_v2_registry_by_path_tier(tmp_path, monkeypatch):
     assert resolution.display_name == "byname"
 
 
-def test_resolve_from_cwd_v1_legacy_tier(tmp_path, monkeypatch):
-    """Tier 3: neither a repo config nor a v2 path match; the v1 registry wins."""
-    from nauro.store.resolution import resolve_from_cwd
-
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    store = registry.register_project("legacy", [repo])
-
-    resolution = resolve_from_cwd(repo)
-
-    assert resolution is not None
-    assert resolution.store_path == store
-    assert resolution.project_id == "legacy"
-    assert resolution.display_name == "legacy"
-
-
 def test_resolve_from_cwd_repo_config_precedes_v2_registry(tmp_path, monkeypatch):
     """Tier 1 wins over tier 2: the repo config id is honored even when the same
     cwd is also a registered v2 repo path pointing at a different project."""
@@ -705,7 +700,7 @@ def test_resolve_from_cwd_declines_symlinked_nauro_dir(tmp_path, monkeypatch):
 
 
 def test_resolve_from_cwd_none_when_nothing_matches(tmp_path, monkeypatch):
-    """No repo config, no v2 path, no v1 match: the waterfall returns None."""
+    """No repo config and no registry path match: the waterfall returns None."""
     from nauro.store.resolution import resolve_from_cwd
 
     isolated = tmp_path / "isolated"
@@ -779,13 +774,9 @@ def test_two_projects_each_resolve_to_own_store(tmp_path, monkeypatch):
 
 # ── available-project listing excludes blank tokens ──────────────────────────
 #
-# The listing unions v1 names (registry ``projects`` keys) with v2 names
-# (``name`` field of each v2 entry). A blank token can enter from either side:
-# a v2 entry missing ``name`` resolves to "", and a malformed v1 entry can have
-# a "" key. The old ``set(v1) | set(v2) - {""}`` grouping only stripped the
-# blank from the v2 operand (``-`` binds tighter than ``|``), so a blank on the
-# v1 side leaked into "Available projects:". These tests drive a blank in on
-# the v1 side so they fail against the old grouping and pass against the fix.
+# The listing collects the ``name`` field of each registry entry; an entry
+# missing ``name`` resolves to "" and must not leak an empty token into
+# "Available projects:".
 
 
 def _write_registry(tmp_path, schema_version: int, projects: dict) -> None:
@@ -795,20 +786,17 @@ def _write_registry(tmp_path, schema_version: int, projects: dict) -> None:
     )
 
 
-def test_available_project_names_excludes_blank_from_combined_set(tmp_path, monkeypatch):
-    """A blank entry on the v1 side must not leak into the available list.
-
-    Pins the operator-precedence fix: the blank is subtracted from the
-    *combined* v1 ∪ v2 set, not just the v2 operand.
-    """
+def test_available_project_names_excludes_blank(tmp_path, monkeypatch):
+    """An entry missing its ``name`` field must not leak into the listing."""
     from nauro.cli.utils import _available_project_names
 
     _write_registry(
         tmp_path,
-        1,
+        2,
         {
-            "alpha": {"repo_paths": []},
-            "": {"repo_paths": []},  # malformed blank-named v1 entry
+            "01KQ6AZGNA0B3QBF67NBXP3S45": {"name": "alpha", "mode": "local", "repo_paths": []},
+            # malformed entry with no name → blank token candidate
+            "01KQ6AZGNA0B3QBF67NBXP3S46": {"mode": "local", "repo_paths": []},
         },
     )
     monkeypatch.chdir(tmp_path)
@@ -819,17 +807,14 @@ def test_available_project_names_excludes_blank_from_combined_set(tmp_path, monk
 
 
 def test_unknown_project_listing_has_no_blank_token(tmp_path, monkeypatch, capsys):
-    """The ``--project`` error path lists only real names, never a blank.
-
-    A blank-named entry previously leaked an empty token into
-    "Available projects:" because ``-`` bound tighter than ``|``.
-    """
+    """The ``--project`` error path lists only real names, never a blank."""
     _write_registry(
         tmp_path,
-        1,
+        2,
         {
-            "alpha": {"repo_paths": []},
-            "": {"repo_paths": []},  # malformed blank-named v1 entry
+            "01KQ6AZGNA0B3QBF67NBXP3S45": {"name": "alpha", "mode": "local", "repo_paths": []},
+            # malformed entry with no name → blank token candidate
+            "01KQ6AZGNA0B3QBF67NBXP3S46": {"mode": "local", "repo_paths": []},
         },
     )
     isolated = tmp_path / "isolated"
@@ -847,11 +832,11 @@ def test_unknown_project_listing_has_no_blank_token(tmp_path, monkeypatch, capsy
     assert "" not in parsed
 
 
-# ── _resolve_project_entry: v2-first, v1-fallback, repo_paths guard ──────────
+# ── _resolve_project_entry: id-keyed lookup + repo_paths guard ────────────────
 
 
-def test_resolve_project_entry_v2_first(tmp_path, monkeypatch):
-    """A v2 entry is resolved by its id-keyed project_key."""
+def test_resolve_project_entry_by_id(tmp_path, monkeypatch):
+    """An entry is resolved by its id-keyed project_key."""
     from nauro.cli.utils import _resolve_project_entry
 
     repo = tmp_path / "repo"
@@ -864,29 +849,32 @@ def test_resolve_project_entry_v2_first(tmp_path, monkeypatch):
     assert entry["repo_paths"] == [str(repo.resolve())]
 
 
-def test_resolve_project_entry_v1_fallback(tmp_path, monkeypatch):
-    """A v1 (name-keyed legacy) entry is resolved when no v2 entry matches."""
+def test_resolve_project_entry_v1_shape_does_not_resolve(tmp_path, monkeypatch, capsys):
+    """A retired v1 name-keyed entry no longer resolves; the caller gets the
+    no-repos exit instead of a legacy fallback."""
     from nauro.cli.utils import _resolve_project_entry
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    registry.register_project("beta", [repo])
+    _write_registry(tmp_path, 1, {"beta": {"repo_paths": [str(repo.resolve())]}})
 
-    # The v2 lookup misses (no id-keyed entry); the name-keyed v1 entry wins.
-    entry = _resolve_project_entry("beta", "01MISSINGV2KEY0000000000")
+    with pytest.raises(typer.Exit) as excinfo:
+        _resolve_project_entry("beta", "01MISSINGV2KEY0000000000")
+    assert excinfo.value.exit_code == 1
 
-    assert entry == registry.get_project("beta")
-    assert entry["repo_paths"] == [str(repo.resolve())]
+    err = capsys.readouterr().err
+    assert "Project 'beta' has no associated repos." in err
 
 
 def test_resolve_project_entry_no_repos_exits(tmp_path, monkeypatch, capsys):
     """An entry with no repo_paths exits 1 with the exact message on stderr."""
     from nauro.cli.utils import _resolve_project_entry
 
-    _write_registry(tmp_path, 1, {"gamma": {"repo_paths": []}})
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    _write_registry(tmp_path, 2, {pid: {"name": "gamma", "mode": "local", "repo_paths": []}})
 
     with pytest.raises(typer.Exit) as excinfo:
-        _resolve_project_entry("gamma", "gamma")
+        _resolve_project_entry("gamma", pid)
     assert excinfo.value.exit_code == 1
 
     err = capsys.readouterr().err

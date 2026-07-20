@@ -14,7 +14,7 @@ from nauro.cli.commands.import_cmd import (
 )
 from nauro.cli.main import app
 from nauro.mcp.payloads import build_l0_payload
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.store.snapshot import list_snapshots
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -169,7 +169,7 @@ def test_import_preserves_existing_decisions(store: Path, full_memory_bank: Path
 
 
 def test_import_nonexistent_directory_cli(tmp_path: Path, monkeypatch):
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -179,7 +179,7 @@ def test_import_nonexistent_directory_cli(tmp_path: Path, monkeypatch):
 
 
 def test_import_directory_without_project_brief_cli(tmp_path: Path, monkeypatch):
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -195,7 +195,7 @@ def test_import_directory_without_project_brief_cli(tmp_path: Path, monkeypatch)
 
 
 def test_import_cli_full(tmp_path: Path, monkeypatch, full_memory_bank: Path):
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -213,7 +213,7 @@ def test_import_cli_full(tmp_path: Path, monkeypatch, full_memory_bank: Path):
 
 
 def test_import_cli_partial(tmp_path: Path, monkeypatch, partial_memory_bank: Path):
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -224,7 +224,7 @@ def test_import_cli_partial(tmp_path: Path, monkeypatch, partial_memory_bank: Pa
 
 
 def test_import_cli_no_flags(tmp_path: Path, monkeypatch):
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -234,8 +234,7 @@ def test_import_cli_no_flags(tmp_path: Path, monkeypatch):
 
 
 def test_import_cli_with_project_flag(tmp_path: Path, monkeypatch, full_memory_bank: Path):
-    register_project("proj_a", [tmp_path / "a"])
-    store_a = tmp_path / "projects" / "proj_a"
+    _pid, store_a = register_project_v2("proj_a", [tmp_path / "a"])
     scaffold_project_store("proj_a", store_a)
     monkeypatch.chdir(tmp_path)
 
@@ -708,7 +707,7 @@ def test_import_adr_empty_directory(store: Path, tmp_path: Path):
 
 def test_import_adr_cli_integration(tmp_path: Path, monkeypatch, madr_directory: Path):
     """Test ADR import via CLI."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -743,8 +742,7 @@ def test_import_adr_non_utf8_does_not_crash(store: Path, tmp_path: Path):
 def test_import_memory_bank_unparsed_decisionlog_warns(tmp_path: Path, monkeypatch):
     """A non-empty decisionLog in Cline's native (non '## Decision:') format
     imports zero decisions but must say so, not report a silent success."""
-    register_project("myproj", [tmp_path])
-    store = tmp_path / "projects" / "myproj"
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -768,8 +766,7 @@ def test_import_memory_bank_proper_heading_no_warning(
     tmp_path: Path, monkeypatch, full_memory_bank: Path
 ):
     """A decisionLog that uses the expected heading imports without the warning."""
-    register_project("myproj", [tmp_path])
-    store = tmp_path / "projects" / "myproj"
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -781,8 +778,7 @@ def test_import_memory_bank_proper_heading_no_warning(
 
 def test_import_adr_no_matching_files_warns(tmp_path: Path, monkeypatch):
     """An ADR dir with only non-'<NNN>-title.md' files imports nothing and says why."""
-    register_project("myproj", [tmp_path])
-    store = tmp_path / "projects" / "myproj"
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 

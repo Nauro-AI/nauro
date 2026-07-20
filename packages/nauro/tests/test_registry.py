@@ -10,87 +10,40 @@ from nauro.store import registry
 from nauro.store.repo_config import load_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 
-# --- Registry CRUD ---
-
-
-def test_load_registry_empty(tmp_path, monkeypatch):
-    data = registry.load_registry()
-    assert data == {"projects": {}, "schema_version": 1}
-
-
-def test_save_and_load_registry(tmp_path, monkeypatch):
-    data = {"projects": {"myproj": {"repo_paths": ["/tmp/repo"]}}}
-    registry.save_registry(data)
-    loaded = registry.load_registry()
-    assert loaded["projects"] == data["projects"]
-    assert loaded["schema_version"] == 1
-
-
-def test_register_project(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    store_path = registry.register_project("proj1", [repo])
-    assert store_path.exists()
-    assert store_path.name == "proj1"
-    data = registry.load_registry()
-    assert "proj1" in data["projects"]
-    assert str(repo.resolve()) in data["projects"]["proj1"]["repo_paths"]
-
-
-def test_register_duplicate_raises(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    registry.register_project("dup", [repo])
-    with pytest.raises(ValueError):
-        registry.register_project("dup", [repo])
-
-
-# --- resolve_project ---
-
-
-def test_resolve_project_exact(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    registry.register_project("proj", [repo])
-    assert registry.resolve_project(repo) == "proj"
-
-
-def test_resolve_project_nested(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    nested = repo / "src" / "pkg"
-    nested.mkdir(parents=True)
-    registry.register_project("proj", [repo])
-    assert registry.resolve_project(nested) == "proj"
-
-
-def test_resolve_project_no_match(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    registry.register_project("proj", [repo])
-    other = tmp_path / "other"
-    other.mkdir()
-    assert registry.resolve_project(other) is None
-
-
 # --- suggest_project_for_path ---
 
 
 def test_suggest_project_matching_dirname(tmp_path, monkeypatch):
     repo = tmp_path / "myapp"
     repo.mkdir()
-    registry.register_project("myapp", [repo])
+    pid, _store = registry.register_project_v2("myapp", [repo])
     # Different path, same directory name
     other = tmp_path / "clones" / "myapp"
     other.mkdir(parents=True)
-    assert registry.suggest_project_for_path(other) == "myapp"
+    suggested_pid, entry = registry.suggest_project_for_path(other)
+    assert suggested_pid == pid
+    assert entry["name"] == "myapp"
 
 
 def test_suggest_project_no_match(tmp_path, monkeypatch):
     repo = tmp_path / "myapp"
     repo.mkdir()
-    registry.register_project("myapp", [repo])
+    registry.register_project_v2("myapp", [repo])
     other = tmp_path / "unrelated"
     other.mkdir()
+    assert registry.suggest_project_for_path(other) is None
+
+
+def test_suggest_project_ambiguous_name_yields_none(tmp_path, monkeypatch):
+    """Duplicate v2 names produce no suggestion: the hinted command refuses them."""
+    repo_a = tmp_path / "a" / "myapp"
+    repo_a.mkdir(parents=True)
+    registry.register_project_v2("myapp", [repo_a])
+    repo_b = tmp_path / "b" / "myapp"
+    repo_b.mkdir(parents=True)
+    registry.register_project_v2("myapp", [repo_b])
+    other = tmp_path / "clones" / "myapp"
+    other.mkdir(parents=True)
     assert registry.suggest_project_for_path(other) is None
 
 
@@ -294,16 +247,9 @@ def test_init_add_repo_to_existing_writes_per_repo_config(tmp_path, monkeypatch)
 # --- Corrupt-shape tolerance ---
 
 
-def test_load_registry_non_dict_returns_empty(tmp_path, monkeypatch):
+def test_load_registry_v2_non_dict_returns_empty(tmp_path, monkeypatch):
     """A registry.json that parses to a non-dict (valid JSON, wrong shape)
     falls back to the empty-registry default rather than crashing downstream."""
-    (tmp_path / "registry.json").write_text("[]")
-    data = registry.load_registry()
-    assert data == {"projects": {}, "schema_version": 1}
-
-
-def test_load_registry_v2_non_dict_returns_empty(tmp_path, monkeypatch):
-    """The v2 loader applies the same non-dict guard as the v1 loader."""
     (tmp_path / "registry.json").write_text("[]")
     data = registry.load_registry_v2()
     assert data == {"projects": {}, "schema_version": 2}

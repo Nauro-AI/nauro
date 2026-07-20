@@ -10,12 +10,12 @@ import pytest
 
 from nauro.mcp import tools
 from nauro.mcp.tools import tool_update_state
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 
 def _setup_store(tmp_path) -> Path:
-    store = register_project("testproj", [tmp_path])
+    _pid, store = register_project_v2("testproj", [tmp_path])
     scaffold_project_store("testproj", store)
     return store
 

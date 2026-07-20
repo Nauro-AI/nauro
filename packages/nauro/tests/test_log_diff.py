@@ -246,9 +246,9 @@ class TestDiffSinceLastSession:
 
 class TestLogCommand:
     def test_log_shows_snapshots(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -263,9 +263,9 @@ class TestLogCommand:
         assert "second sync" in result.output
 
     def test_log_limit(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -279,9 +279,9 @@ class TestLogCommand:
         assert "v001" not in result.output
 
     def test_log_full(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -295,9 +295,9 @@ class TestLogCommand:
         assert "decisions/" in result.output
 
     def test_log_no_snapshots(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -319,9 +319,9 @@ class TestLogCommand:
 class TestDiffCommand:
     def test_diff_no_args(self, tmp_path: Path, monkeypatch):
         """nauro diff-since-last-session — diff since last session."""
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -344,9 +344,9 @@ class TestDiffCommand:
 
     def test_diff_not_enough_snapshots(self, tmp_path: Path, monkeypatch):
         """nauro diff-since-last-session with < 2 snapshots shows helpful message."""
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -356,28 +356,26 @@ class TestDiffCommand:
         assert "Not enough snapshots" in envelope["diff"]
 
     def test_diff_registered_but_missing_store(self, tmp_path: Path, monkeypatch):
-        """A v1 project whose store directory was deleted must exit nonzero
-        with actionable guidance, never an empty diff. Resolution no longer
-        yields a path for a missing legacy store — the cwd falls through to
-        the no-project outcome, so the CLI names the available projects
+        """A project whose store directory was deleted must exit nonzero
+        with actionable guidance, never an empty diff. The missing store
+        surfaces as a typed disconnected state with reconnect guidance
         instead of operating on a directory that does not exist.
         """
         import shutil
 
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
-        # Delete the project store directory; the registry still points
-        # at it, but cwd resolution treats the missing store as no project.
+        # Delete the project store directory; the registry still points at it.
         shutil.rmtree(store)
 
         result = runner.invoke(app, ["diff-since-last-session"])
         assert result.exit_code == 1
-        assert "No project found for current directory" in result.output
-        assert "myproj" in result.output
+        assert "was connected on this machine" in result.output
+        assert "nauro reconnect" in result.output
 
 
 # --- Helpers for time-based snapshot fixtures ---

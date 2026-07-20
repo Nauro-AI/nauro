@@ -13,7 +13,7 @@ from nauro_core.constants import OPEN_QUESTIONS_MD
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -29,7 +29,7 @@ _LEGACY_FILE = (
 def _setup_project(tmp_path: Path, monkeypatch, questions: str) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     (store / OPEN_QUESTIONS_MD).write_text(questions)
     monkeypatch.chdir(repo)
@@ -82,7 +82,7 @@ def test_migrate_refreshes_agents_md(tmp_path: Path, monkeypatch):
     """Open questions surface in AGENTS.md, so the migrated ids must too."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     (store / OPEN_QUESTIONS_MD).write_text(
         "# Open Questions\n\n- [2026-05-12 20:18 UTC] surfaced question\n"
@@ -124,7 +124,7 @@ def test_migrate_continues_past_existing_q_ids(tmp_path: Path, monkeypatch):
 def test_migrate_unknown_project_rejected(tmp_path: Path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 

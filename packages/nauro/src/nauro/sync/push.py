@@ -29,7 +29,8 @@ def push_store_to_cloud(project_id: str, store_path: Path) -> bool:
 
     Cloud-mode projects with a token → presign push. Cloud-mode without
     a token → warn and return False (caller surfaces exit 1). Anything
-    else (v1, v2-local) → True since nothing was expected to upload.
+    else (local-mode or unknown id) → True since nothing was expected to
+    upload.
 
     A presign/auth-refresh failure during the push is reported and maps
     to False; per-file PUT failures are logged and skipped.

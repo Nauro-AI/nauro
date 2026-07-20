@@ -12,7 +12,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.store.snapshot import (
     capture_snapshot,
     find_snapshot_near_date,
@@ -98,8 +98,7 @@ def test_bad_timestamp_snapshot_skipped_by_date_search_and_prune(tmp_path: Path)
 
 
 def test_nauro_log_does_not_crash_on_corrupt_snapshot(tmp_path: Path, monkeypatch):
-    register_project("p", [tmp_path])
-    store_path = tmp_path / "projects" / "p"
+    _pid, store_path = register_project_v2("p", [tmp_path])
     scaffold_project_store("p", store_path)
     capture_snapshot(store_path, trigger="ok")
     _snap(store_path, 2).write_text("{ broken")

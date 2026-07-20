@@ -5,7 +5,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import get_project, register_project
+from nauro.store.registry import register_project_v2
 from nauro.store.snapshot import capture_snapshot
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._ansi import strip_ansi
@@ -59,7 +59,7 @@ def test_init_command(tmp_path: Path, monkeypatch):
 
 def test_note_command(tmp_path: Path, monkeypatch):
     """nauro note should accept a message."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -72,7 +72,7 @@ def test_note_command(tmp_path: Path, monkeypatch):
 
 def test_sync_command(tmp_path: Path, monkeypatch):
     """nauro sync should capture a snapshot."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -83,7 +83,7 @@ def test_sync_command(tmp_path: Path, monkeypatch):
 
 def test_log_command(tmp_path: Path, monkeypatch):
     """nauro log should list snapshots."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -100,8 +100,8 @@ def test_log_command(tmp_path: Path, monkeypatch):
 def test_note_with_project_flag_overrides_cwd(tmp_path: Path, monkeypatch):
     """--project flag should resolve the named project regardless of cwd."""
     # Register two projects
-    store_a = register_project("alpha", [tmp_path / "repo_a"])
-    store_b = register_project("beta", [tmp_path / "repo_b"])
+    _pid_a, store_a = register_project_v2("alpha", [tmp_path / "repo_a"])
+    _pid_b, store_b = register_project_v2("beta", [tmp_path / "repo_b"])
     scaffold_project_store("alpha", store_a)
     scaffold_project_store("beta", store_b)
 
@@ -125,7 +125,7 @@ def test_note_with_project_flag_overrides_cwd(tmp_path: Path, monkeypatch):
 
 def test_project_flag_unknown_name_gives_error(tmp_path: Path, monkeypatch):
     """--project with an unknown name should error and list available projects."""
-    store = register_project("realproj", [tmp_path])
+    _pid, store = register_project_v2("realproj", [tmp_path])
     scaffold_project_store("realproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -137,7 +137,7 @@ def test_project_flag_unknown_name_gives_error(tmp_path: Path, monkeypatch):
 
 def test_no_project_flag_no_cwd_match_gives_error(tmp_path: Path, monkeypatch):
     """Missing --project and no cwd match should error with available projects."""
-    store = register_project("faraway", [tmp_path / "elsewhere"])
+    _pid, store = register_project_v2("faraway", [tmp_path / "elsewhere"])
     scaffold_project_store("faraway", store)
 
     # cwd doesn't match any registered repo
@@ -153,10 +153,10 @@ def test_no_project_flag_no_cwd_match_gives_error(tmp_path: Path, monkeypatch):
 
 
 def test_no_cwd_match_suggests_project_by_dirname(tmp_path: Path, monkeypatch):
-    """When cwd dirname matches a project name, suggest adding the repo path."""
+    """When cwd dirname matches a local project name, suggest init --add-repo."""
     old_repo = tmp_path / "old_location" / "myapp"
     old_repo.mkdir(parents=True)
-    store = register_project("myapp", [old_repo])
+    _pid, store = register_project_v2("myapp", [old_repo])
     scaffold_project_store("myapp", store)
 
     # Clone/move to a new location with same dirname
@@ -170,9 +170,57 @@ def test_no_cwd_match_suggests_project_by_dirname(tmp_path: Path, monkeypatch):
     assert "nauro init myapp --add-repo" in result.output
 
 
+def test_no_suggestion_for_ambiguous_project_name(tmp_path: Path, monkeypatch):
+    """Two projects sharing the matching name suppress the hint entirely:
+    the hinted init --add-repo command refuses duplicate names."""
+    repo_a = tmp_path / "a" / "myapp"
+    repo_a.mkdir(parents=True)
+    _pid_a, store_a = register_project_v2("myapp", [repo_a])
+    scaffold_project_store("myapp", store_a)
+    repo_b = tmp_path / "b" / "myapp"
+    repo_b.mkdir(parents=True)
+    _pid_b, store_b = register_project_v2("myapp", [repo_b])
+    scaffold_project_store("myapp", store_b)
+
+    elsewhere = tmp_path / "elsewhere" / "myapp"
+    elsewhere.mkdir(parents=True)
+    monkeypatch.chdir(elsewhere)
+
+    result = runner.invoke(app, ["note", "test"])
+    assert result.exit_code == 1
+    assert "exists but this path is not registered" not in result.output
+    assert "Available projects" in result.output
+
+
+def test_no_cwd_match_suggests_attach_for_cloud_project(tmp_path: Path, monkeypatch):
+    """A cloud-mode suggestion hints nauro attach, since init --add-repo
+    intentionally rejects cloud-scoped projects."""
+    from nauro.constants import REPO_CONFIG_MODE_CLOUD
+
+    old_repo = tmp_path / "old_location" / "cloudapp"
+    old_repo.mkdir(parents=True)
+    pid, store = register_project_v2(
+        "cloudapp",
+        [old_repo],
+        mode=REPO_CONFIG_MODE_CLOUD,
+        server_url="https://api.example.test",
+    )
+    scaffold_project_store("cloudapp", store)
+
+    new_repo = tmp_path / "new_location" / "cloudapp"
+    new_repo.mkdir(parents=True)
+    monkeypatch.chdir(new_repo)
+
+    result = runner.invoke(app, ["note", "test"])
+    assert result.exit_code == 1
+    assert "project 'cloudapp' exists but this path is not registered" in result.output
+    assert f"nauro attach {pid}" in result.output
+    assert "--add-repo" not in result.output
+
+
 def test_sync_with_project_flag(tmp_path: Path, monkeypatch):
     """nauro sync --project should target the named project."""
-    store = register_project("myproj", [tmp_path / "repo"])
+    _pid, store = register_project_v2("myproj", [tmp_path / "repo"])
     scaffold_project_store("myproj", store)
 
     # cwd is unrelated
@@ -187,7 +235,7 @@ def test_sync_with_project_flag(tmp_path: Path, monkeypatch):
 
 def test_log_with_project_flag(tmp_path: Path, monkeypatch):
     """nauro log --project should target the named project."""
-    store = register_project("myproj", [tmp_path / "repo"])
+    _pid, store = register_project_v2("myproj", [tmp_path / "repo"])
     scaffold_project_store("myproj", store)
     capture_snapshot(store, trigger="test")
 
@@ -198,16 +246,3 @@ def test_log_with_project_flag(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["log", "--project", "myproj"])
     assert result.exit_code == 0
     assert "v001" in result.output
-
-
-def test_get_project_returns_entry(tmp_path: Path, monkeypatch):
-    """get_project should return the entry dict for a known project."""
-    register_project("proj", [tmp_path / "repo"])
-    entry = get_project("proj")
-    assert entry is not None
-    assert "repo_paths" in entry
-
-
-def test_get_project_returns_none_for_unknown(tmp_path: Path, monkeypatch):
-    """get_project should return None for unknown projects."""
-    assert get_project("nonexistent") is None

@@ -28,7 +28,7 @@ from nauro.mcp.stdio_server import (
     update_state,
 )
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
 
@@ -53,7 +53,7 @@ def _append_question(store_path: Path, question: str) -> None:
 @pytest.fixture
 def store(tmp_path: Path, monkeypatch) -> Path:
     """Pre-scaffolded project store with known content."""
-    store_path = register_project("testproj", [tmp_path / "repo"])
+    _pid, store_path = register_project_v2("testproj", [tmp_path / "repo"])
     scaffold_project_store("testproj", store_path)
 
     (store_path / "stack.md").write_text(
@@ -77,8 +77,8 @@ class TestResolveStore:
         assert result == store
 
     def test_raises_on_unknown_project(self, store: Path):
-        # Unknown name in v2 falls through to v1 legacy; if also missing
-        # there, ProjectNotFoundError carries the "registry" anchor.
+        # An unknown name matches nothing in the registry;
+        # ProjectNotFoundError carries the "registry" anchor.
         from nauro.store.resolution import ProjectNotFoundError
 
         with pytest.raises(ProjectNotFoundError, match="registry"):
@@ -723,7 +723,8 @@ class TestPullOnStartup:
 
         with patch("nauro.sync.hooks.pull_before_session", return_value=3) as mock_pull:
             _pull_on_startup()
-            mock_pull.assert_called_once_with("testproj", store)
+            # The id-keyed store directory name is the project id.
+            mock_pull.assert_called_once_with(store.name, store)
 
     def test_does_not_raise_on_pull_failure(self, store: Path, monkeypatch, tmp_path):
         """Server startup continues even if hooks throws."""

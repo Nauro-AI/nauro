@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.constants import DECISIONS_DIR, OPEN_QUESTIONS_MD
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import write_decision_file
 
@@ -84,7 +84,7 @@ def _decision_md(
 
 def _new_store(tmp_path, monkeypatch, name: str = "graphproj") -> Path:
     """Register and scaffold a project, chdir into its repo, return the store."""
-    store = register_project(name, [tmp_path])
+    _pid, store = register_project_v2(name, [tmp_path])
     scaffold_project_store(name, store)
     monkeypatch.chdir(tmp_path)
     return store

@@ -7,7 +7,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import _scaffolded_cloud_project
@@ -18,7 +18,7 @@ runner = CliRunner()
 @pytest.fixture()
 def project_store(tmp_path: Path, monkeypatch):
     """Set up a project store for testing."""
-    store = register_project("testproj", [tmp_path])
+    _pid, store = register_project_v2("testproj", [tmp_path])
     scaffold_project_store("testproj", store)
     monkeypatch.chdir(tmp_path)
     return store
