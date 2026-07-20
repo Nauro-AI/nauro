@@ -6,11 +6,10 @@ server manifest, diff it against sync-state, mint presigned GET URLs, and
 transfer changed files directly from S3 — then renumber colliding
 decisions and merge conflicting append-only files.
 
-The two callers differ only in how they surface progress and how they
-react to a union-merge failure: the CLI echoes to the terminal and must
-fail loud on a bad merge; the hook logs quietly and must never raise.
-That asymmetry is injected through the :class:`Reporter` protocol rather
-than branched inside the pull core, so the two paths cannot drift again.
+The two callers differ only in how they surface progress: the CLI echoes
+to the terminal; the hook logs quietly and must never raise. That
+asymmetry is injected through the :class:`Reporter` protocol rather than
+branched inside the pull core, so the two paths cannot drift again.
 """
 
 from __future__ import annotations
@@ -23,7 +22,6 @@ from nauro_core import extract_decision_number
 
 from nauro.cli.commands.auth import AuthRefreshError
 from nauro.sync.merge import (
-    UnionMergeError,
     detect_conflict,
     resolve_conflict,
     should_skip,
@@ -45,11 +43,10 @@ from nauro.sync.state import (
 
 
 class Reporter(Protocol):
-    """Surface for pull progress and merge-failure policy.
+    """Surface for pull progress.
 
-    The CLI implementation echoes to the terminal and re-raises on a union
-    merge failure (``nauro sync`` must exit nonzero). The hook implementation
-    logs quietly and swallows the failure (session startup must never crash).
+    The CLI implementation echoes to the terminal; the hook implementation
+    logs quietly (session startup must never crash).
     """
 
     def info(self, msg: str) -> None:
@@ -57,13 +54,6 @@ class Reporter(Protocol):
 
     def warn(self, msg: str) -> None:
         """Report a recoverable anomaly (presign URL shortfall, bad manifest)."""
-
-    def on_merge_failure(self, relative_path: str, exc: Exception) -> bool:
-        """Handle a union-merge failure for ``relative_path``.
-
-        Return True to re-raise (surface the failure to the caller) or False
-        to swallow it and leave the local file untouched.
-        """
 
 
 def _renumber_decision_if_collision(
@@ -166,9 +156,7 @@ def run_pull(
     of files merged.
 
     Caller-facing failures (manifest/presign auth-refresh or transport errors)
-    are reported through ``reporter`` and map to a 0 return. A union-merge
-    failure is routed to ``reporter.on_merge_failure`` — re-raised when it
-    returns True (the CLI), swallowed when it returns False (the hook).
+    are reported through ``reporter`` and map to a 0 return.
     """
     try:
         manifest = fetch_manifest(project_id)
@@ -275,14 +263,7 @@ def run_pull(
             continue
 
         local_file = store_path / rel
-        try:
-            merged_content = resolve_conflict(store_path, local_file, remote_content, rel, state)
-        except UnionMergeError as exc:
-            # Leave the local file untouched rather than overwrite it with
-            # possibly-corrupt bytes. The reporter decides whether to surface.
-            if reporter.on_merge_failure(rel, exc):
-                raise
-            continue
+        merged_content = resolve_conflict(store_path, local_file, remote_content, rel)
         local_file.write_bytes(merged_content)
         local_sha = compute_sha256(local_file)
         update_file_state(state, rel, local_sha, remote_etag)

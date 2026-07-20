@@ -1,6 +1,5 @@
 """nauro sync — Capture a snapshot and regenerate AGENTS.md in associated repos."""
 
-import logging
 from pathlib import Path
 
 import typer
@@ -14,8 +13,6 @@ from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
 from nauro.sync.push import push_store_to_cloud
 from nauro.templates.agents_md_regen import warn_then_regen
-
-logger = logging.getLogger("nauro.sync")
 
 # Names retained for callers/tests that import the push helper from this
 # command module; the implementation now lives in ``nauro.sync.push``.
@@ -113,9 +110,7 @@ def _pull_from_cloud(project_id: str, store_path: Path) -> int:
 class _EchoReporter:
     """Pull reporter for ``nauro sync``.
 
-    Echoes progress to the terminal (warnings on stderr) and re-raises on a
-    union-merge failure so an explicit sync fails loud rather than reporting a
-    partial success.
+    Echoes progress to the terminal (warnings on stderr).
     """
 
     def info(self, msg: str) -> None:
@@ -124,20 +119,11 @@ class _EchoReporter:
     def warn(self, msg: str) -> None:
         typer.echo(f"  {msg}", err=True)
 
-    def on_merge_failure(self, relative_path: str, exc: Exception) -> bool:
-        logger.exception("Union merge failed for %s", relative_path)
-        typer.echo(
-            f"  Error: merge failed for {relative_path} ({exc}) - left unchanged",
-            err=True,
-        )
-        return True
-
 
 def _pull_via_presign(project_id: str, store_path: Path) -> int:
     """GET /sync/manifest → POST /sync/presign → S3 GETs.
 
-    Delegates to the shared pull core with an echo reporter; a union-merge
-    failure propagates so ``nauro sync`` exits nonzero.
+    Delegates to the shared pull core with an echo reporter.
     """
     from nauro.sync.pull import run_pull
 

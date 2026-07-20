@@ -2,11 +2,10 @@
 
 ``run_pull`` is the single pull-and-merge implementation behind both
 ``nauro sync`` and the SessionStart hook. The two callers differ only in
-their :class:`~nauro.sync.pull.Reporter`: the CLI echoes and re-raises on
-a union-merge failure, the hook logs and swallows. These tests drive the
-core directly with both reporter flavors plus a recording stub, and pin
-the renumber-on-collision helper byte-for-byte against the canonical
-cases the hook previously owned.
+their :class:`~nauro.sync.pull.Reporter`: the CLI echoes to the terminal,
+the hook logs quietly. These tests drive the core directly with a
+recording stub, and pin the renumber-on-collision helper byte-for-byte
+against the canonical cases the hook previously owned.
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ import httpx
 import pytest
 
 from nauro.store.registry import register_project
-from nauro.sync.merge import UnionMergeError
 from nauro.sync.pull import _renumber_decision_if_collision, run_pull
 from nauro.sync.state import (
     FileState,
@@ -66,13 +64,11 @@ def _presign(ops) -> httpx.Response:
 
 
 class _RecordingReporter:
-    """Records messages; ``on_merge_failure`` returns the configured policy."""
+    """Records reported messages."""
 
-    def __init__(self, *, reraise: bool) -> None:
-        self.reraise = reraise
+    def __init__(self) -> None:
         self.infos: list[str] = []
         self.warns: list[str] = []
-        self.merge_failures: list[tuple[str, Exception]] = []
 
     def info(self, msg: str) -> None:
         self.infos.append(msg)
@@ -80,12 +76,8 @@ class _RecordingReporter:
     def warn(self, msg: str) -> None:
         self.warns.append(msg)
 
-    def on_merge_failure(self, relative_path: str, exc: Exception) -> bool:
-        self.merge_failures.append((relative_path, exc))
-        return self.reraise
 
-
-# --- run_pull happy path (both reporter policies behave identically here) ---
+# --- run_pull happy path ---
 
 
 class TestRunPullCleanPull:
@@ -95,8 +87,7 @@ class TestRunPullCleanPull:
         _seed_token()
         return store
 
-    @pytest.mark.parametrize("reraise", [True, False])
-    def test_clean_pull_writes_file_and_updates_state(self, cloud_store, reraise):
+    def test_clean_pull_writes_file_and_updates_state(self, cloud_store):
         rel = "decisions/099-remote.md"
         manifest = _manifest([{"path": rel, "etag": '"new"', "size": 1, "last_modified": "x"}])
         presign = _presign([{"verb": "GET", "path": rel}])
@@ -106,7 +97,7 @@ class TestRunPullCleanPull:
                 return manifest
             return httpx.Response(200, content=b"# 099\nfresh remote body\n")
 
-        reporter = _RecordingReporter(reraise=reraise)
+        reporter = _RecordingReporter()
         with (
             patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
             patch("nauro.sync.remote.httpx.post", return_value=presign),
@@ -120,8 +111,7 @@ class TestRunPullCleanPull:
         assert reporter.infos == ["Merged 1 file(s) from remote"]
         assert reporter.warns == []
 
-    @pytest.mark.parametrize("reraise", [True, False])
-    def test_append_only_conflict_invokes_resolve_and_writes_merge(self, cloud_store, reraise):
+    def test_append_only_conflict_invokes_resolve_and_writes_merge(self, cloud_store):
         # state_history.md is append-only with section-aware set-union merge.
         rel = "state_history.md"
         local = cloud_store / rel
@@ -144,7 +134,7 @@ class TestRunPullCleanPull:
                 return manifest
             return httpx.Response(200, content=b"## History\n\nremote entry\n")
 
-        reporter = _RecordingReporter(reraise=reraise)
+        reporter = _RecordingReporter()
         with (
             patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
             patch("nauro.sync.remote.httpx.post", return_value=presign),
@@ -157,7 +147,7 @@ class TestRunPullCleanPull:
         assert b"local entry" in merged_bytes
         assert b"remote entry" in merged_bytes
         assert compute_sha256(local) != local_sha
-        assert reporter.merge_failures == []
+        assert reporter.warns == []
 
 
 # --- the bug-fix pin: decision-number collision renumbers, never overwrites ---
@@ -212,86 +202,6 @@ class TestRunPullDecisionCollision:
         state = load_state(cloud_store)
         assert "decisions/004-remote-decision.md" in state.files
         assert rel not in state.files
-
-
-# --- union-merge routing: one test per reporter policy ---
-
-
-class TestRunPullUnionMergeRouting:
-    @pytest.fixture()
-    def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("mergecore", tmp_path)
-        _seed_token()
-        return store
-
-    def _setup_conflict(self, cloud_store):
-        rel = "decisions/050-conflicted.md"
-        local_file = cloud_store / rel
-        local_file.parent.mkdir(parents=True, exist_ok=True)
-        local_file.write_bytes(b"# 050\nlocal body\n")
-
-        state = SyncState()
-        state.files[rel] = FileState(
-            local_sha256="old_sha",
-            remote_etag='"old_etag"',
-            last_sync="2026-05-16T00:00:00Z",
-        )
-        save_state(cloud_store, state)
-
-        manifest = _manifest([{"path": rel, "etag": '"new_etag"', "size": 1, "last_modified": "x"}])
-        presign = _presign([{"verb": "GET", "path": rel}])
-
-        def fake_get(url, **kwargs):
-            if "/sync/manifest" in url:
-                return manifest
-            return httpx.Response(200, content=b"# 050\nremote body\n")
-
-        return rel, local_file, fake_get, presign
-
-    def test_echo_reporter_reraises_on_union_merge_failure(self, cloud_store, monkeypatch):
-        """The echo reporter returns True from on_merge_failure → run_pull
-        re-raises so nauro sync fails loud. The local file is left untouched."""
-        from nauro.cli.commands.sync import _EchoReporter
-
-        rel, local_file, fake_get, presign = self._setup_conflict(cloud_store)
-        original = local_file.read_bytes()
-
-        def boom(*args, **kwargs):
-            raise UnionMergeError("simulated git failure")
-
-        monkeypatch.setattr("nauro.sync.pull.resolve_conflict", boom)
-
-        with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", return_value=presign),
-            pytest.raises(UnionMergeError),
-        ):
-            run_pull(CLOUD_PID, cloud_store, _EchoReporter())
-
-        assert local_file.read_bytes() == original
-
-    def test_logging_reporter_swallows_union_merge_failure(self, cloud_store, monkeypatch):
-        """The logging reporter returns False → run_pull swallows the failure,
-        returns without raising, and leaves the file byte-identical."""
-        from nauro.sync.hooks import _LoggingReporter
-
-        rel, local_file, fake_get, presign = self._setup_conflict(cloud_store)
-        original = local_file.read_bytes()
-
-        def boom(*args, **kwargs):
-            raise UnionMergeError("simulated git failure")
-
-        monkeypatch.setattr("nauro.sync.pull.resolve_conflict", boom)
-
-        with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", return_value=presign),
-        ):
-            merged = run_pull(CLOUD_PID, cloud_store, _LoggingReporter())
-
-        # The failed file was skipped, not counted, and never raised.
-        assert merged == 0
-        assert local_file.read_bytes() == original
 
 
 # --- renumber helper: byte-identical to the canonical pre-port cases ---
