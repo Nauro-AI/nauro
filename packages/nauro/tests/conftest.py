@@ -101,8 +101,9 @@ def register_v2_repo(
     ``seed_decisions_into`` or a demo project). ``monkeypatch`` is required
     only when ``chdir`` is True.
 
-    This body is v2-only by design: v1 ``register_project`` seeders are left
-    untouched and must never be routed through here.
+    This factory is the canonical store seeder: the registry is v2-only, so
+    every test that needs a registered project routes through it or calls
+    ``register_project_v2`` directly.
     """
     repo = tmp_path / "repo"
     repo.mkdir()

@@ -5,7 +5,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import get_project, register_project
+from nauro.store.registry import get_project, register_project, register_project_v2
 from nauro.store.snapshot import capture_snapshot
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._ansi import strip_ansi
@@ -59,7 +59,7 @@ def test_init_command(tmp_path: Path, monkeypatch):
 
 def test_note_command(tmp_path: Path, monkeypatch):
     """nauro note should accept a message."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -72,7 +72,7 @@ def test_note_command(tmp_path: Path, monkeypatch):
 
 def test_sync_command(tmp_path: Path, monkeypatch):
     """nauro sync should capture a snapshot."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -83,7 +83,7 @@ def test_sync_command(tmp_path: Path, monkeypatch):
 
 def test_log_command(tmp_path: Path, monkeypatch):
     """nauro log should list snapshots."""
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -100,8 +100,8 @@ def test_log_command(tmp_path: Path, monkeypatch):
 def test_note_with_project_flag_overrides_cwd(tmp_path: Path, monkeypatch):
     """--project flag should resolve the named project regardless of cwd."""
     # Register two projects
-    store_a = register_project("alpha", [tmp_path / "repo_a"])
-    store_b = register_project("beta", [tmp_path / "repo_b"])
+    _pid_a, store_a = register_project_v2("alpha", [tmp_path / "repo_a"])
+    _pid_b, store_b = register_project_v2("beta", [tmp_path / "repo_b"])
     scaffold_project_store("alpha", store_a)
     scaffold_project_store("beta", store_b)
 
@@ -125,7 +125,7 @@ def test_note_with_project_flag_overrides_cwd(tmp_path: Path, monkeypatch):
 
 def test_project_flag_unknown_name_gives_error(tmp_path: Path, monkeypatch):
     """--project with an unknown name should error and list available projects."""
-    store = register_project("realproj", [tmp_path])
+    _pid, store = register_project_v2("realproj", [tmp_path])
     scaffold_project_store("realproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -137,7 +137,7 @@ def test_project_flag_unknown_name_gives_error(tmp_path: Path, monkeypatch):
 
 def test_no_project_flag_no_cwd_match_gives_error(tmp_path: Path, monkeypatch):
     """Missing --project and no cwd match should error with available projects."""
-    store = register_project("faraway", [tmp_path / "elsewhere"])
+    _pid, store = register_project_v2("faraway", [tmp_path / "elsewhere"])
     scaffold_project_store("faraway", store)
 
     # cwd doesn't match any registered repo
@@ -172,7 +172,7 @@ def test_no_cwd_match_suggests_project_by_dirname(tmp_path: Path, monkeypatch):
 
 def test_sync_with_project_flag(tmp_path: Path, monkeypatch):
     """nauro sync --project should target the named project."""
-    store = register_project("myproj", [tmp_path / "repo"])
+    _pid, store = register_project_v2("myproj", [tmp_path / "repo"])
     scaffold_project_store("myproj", store)
 
     # cwd is unrelated
@@ -187,7 +187,7 @@ def test_sync_with_project_flag(tmp_path: Path, monkeypatch):
 
 def test_log_with_project_flag(tmp_path: Path, monkeypatch):
     """nauro log --project should target the named project."""
-    store = register_project("myproj", [tmp_path / "repo"])
+    _pid, store = register_project_v2("myproj", [tmp_path / "repo"])
     scaffold_project_store("myproj", store)
     capture_snapshot(store, trigger="test")
 

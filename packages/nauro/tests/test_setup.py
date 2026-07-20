@@ -14,7 +14,7 @@ from nauro.cli.integrations.json_mcp import _configure_mcp, recorded_mcp_command
 from nauro.cli.integrations.legacy import CLAUDE_MD_END, CLAUDE_MD_START
 from nauro.cli.integrations.outcomes import CodexConfigKind, JsonMcpKind
 from nauro.cli.main import app
-from nauro.store.registry import register_project, register_project_v2
+from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -26,7 +26,7 @@ def _setup_project(tmp_path: Path, monkeypatch, repo_paths: list[Path] | None = 
     if repo_paths is None:
         repo_paths = [tmp_path / "repo"]
         repo_paths[0].mkdir()
-    store = register_project("testproj", repo_paths)
+    _pid, store = register_project_v2("testproj", repo_paths)
     scaffold_project_store("testproj", store)
     monkeypatch.chdir(repo_paths[0])
     return repo_paths
@@ -288,9 +288,9 @@ class TestProjectResolution:
         repo_a.mkdir()
         repo_b.mkdir()
 
-        store_a = register_project("proj-a", [repo_a])
+        _pid_a, store_a = register_project_v2("proj-a", [repo_a])
         scaffold_project_store("proj-a", store_a)
-        store_b = register_project("proj-b", [repo_b])
+        _pid_b, store_b = register_project_v2("proj-b", [repo_b])
         scaffold_project_store("proj-b", store_b)
 
         monkeypatch.chdir(repo_a)

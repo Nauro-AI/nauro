@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store.config import save_config
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.sync.state import SyncState, save_state
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -21,7 +21,7 @@ runner = CliRunner()
 
 
 def _scaffold(name: str = "statusproj", *, repo):
-    store = register_project(name, [repo])
+    _pid, store = register_project_v2(name, [repo])
     scaffold_project_store(name, store)
     return store
 

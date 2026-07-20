@@ -18,7 +18,7 @@ from nauro.demo import create_demo_project
 from nauro.mcp.tools import tool_get_context, tool_get_raw_file
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import _list_decisions, read_text_lenient
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.store.snapshot import capture_snapshot
 from nauro.templates.agents_md import (
     parse_preserved_sections,
@@ -115,13 +115,13 @@ def test_regenerate_survives_poisoned_existing_agents_md(tmp_path: Path):
     # is required to exercise the rewrite.
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
 
     agents_md = repo / "AGENTS.md"
     agents_md.write_bytes(b"# AGENTS.md\n\nOld auto content\n\n# Manual\n\nKeep caf\xe9 note\n")
 
-    updated = regenerate_agents_md_for_project("myproj", store, overwrite_unmanaged=True)
+    updated = regenerate_agents_md_for_project(pid, store, overwrite_unmanaged=True)
 
     assert repo in updated
     regenerated = read_text_lenient(agents_md)
@@ -147,10 +147,10 @@ def test_scaffold_writes_utf8_bytes(tmp_path: Path):
 def test_agents_md_write_emits_utf8_bytes(tmp_path: Path):
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
 
-    regenerate_agents_md_for_project("myproj", store)
+    regenerate_agents_md_for_project(pid, store)
 
     agents_md = repo / "AGENTS.md"
     raw = agents_md.read_bytes()

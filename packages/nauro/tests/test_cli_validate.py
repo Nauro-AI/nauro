@@ -3,14 +3,14 @@
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
 
 
 def _setup_project(tmp_path, monkeypatch):
-    store = register_project("testproj", [tmp_path])
+    _pid, store = register_project_v2("testproj", [tmp_path])
     scaffold_project_store("testproj", store)
     monkeypatch.chdir(tmp_path)
     return store
@@ -36,7 +36,7 @@ def test_validate_status_on_non_empty_store(tmp_path, monkeypatch):
 
 def test_validate_status_empty_store(tmp_path, monkeypatch):
     """An empty decisions set reports zero counts without error."""
-    store = register_project("emptyproj", [tmp_path])
+    _pid, store = register_project_v2("emptyproj", [tmp_path])
     scaffold_project_store("emptyproj", store)
     # Remove the seed decision so the store has no decisions.
     for decision in (store / "decisions").glob("*.md"):

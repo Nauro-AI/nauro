@@ -34,7 +34,7 @@ from nauro.cli.integrations.outcomes import BridgeKind
 from nauro.cli.main import app
 from nauro.constants import CLAUDE_BRIDGE_MARKER, CLAUDE_MD
 from nauro.mcp.tools import tool_propose_decision
-from nauro.store.registry import register_project, register_project_v2
+from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -524,7 +524,7 @@ def test_sync_multi_repo_bridges_every_repo(tmp_path: Path, monkeypatch):
     repo2 = tmp_path / "repo2"
     repo1.mkdir()
     repo2.mkdir()
-    store = register_project("multi", [repo1, repo2])
+    _pid, store = register_project_v2("multi", [repo1, repo2])
     scaffold_project_store("multi", store)
     monkeypatch.chdir(repo1)
 
@@ -548,7 +548,7 @@ def test_sync_continues_when_one_repo_has_a_broken_claude_md(tmp_path: Path, mon
     repo1.mkdir()
     repo2.mkdir()
     (repo1 / CLAUDE_MD).mkdir()  # broken: a directory where the bridge would go
-    store = register_project("multi", [repo1, repo2])
+    _pid, store = register_project_v2("multi", [repo1, repo2])
     scaffold_project_store("multi", store)
     monkeypatch.chdir(repo2)
 

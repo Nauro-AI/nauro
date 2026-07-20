@@ -14,7 +14,7 @@ from nauro.cli.integrations.skills import (
     materialize_skills_codex,
 )
 from nauro.cli.main import app
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.agents_md import FOOTER_MARKER
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -29,7 +29,7 @@ def _setup_project(tmp_path, monkeypatch, repos=None):
     detection assertions.
     """
     repos = repos if repos is not None else [tmp_path]
-    store = register_project("testproj", repos)
+    _pid, store = register_project_v2("testproj", repos)
     scaffold_project_store("testproj", store)
     monkeypatch.chdir(repos[0])
     monkeypatch.setattr(

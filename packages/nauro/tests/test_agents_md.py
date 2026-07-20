@@ -193,11 +193,11 @@ def test_generate_without_manual_section():
 
 
 def test_sync_writes_agents_md(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 
@@ -219,11 +219,11 @@ def test_sync_agents_md_carries_project_scope_without_h1_stutter(tmp_path: Path,
     The file's own H1 is stripped by the L0 builder, so the payload must not
     stutter a "# myproj" heading directly under the section header.
     """
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     (store / "project.md").write_text(
         "# myproj\n\n**One-liner:** Ships the thing.\n## Goals\n- Ship v1\n"
@@ -242,11 +242,11 @@ def test_sync_agents_md_carries_project_scope_without_h1_stutter(tmp_path: Path,
 
 def test_sync_agents_md_omits_scaffold_project_placeholders(tmp_path: Path, monkeypatch):
     """A freshly scaffolded store must not leak project.md placeholder prompts."""
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo)
 
@@ -261,13 +261,13 @@ def test_sync_agents_md_omits_scaffold_project_placeholders(tmp_path: Path, monk
 
 
 def test_sync_multi_repo(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"
     repo1.mkdir()
     repo2.mkdir()
-    store = register_project("myproj", [repo1, repo2])
+    _pid, store = register_project_v2("myproj", [repo1, repo2])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(repo1)
 
@@ -280,11 +280,11 @@ def test_sync_multi_repo(tmp_path: Path, monkeypatch):
 
 
 def test_sync_skips_missing_repo(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
     real_repo = tmp_path / "real"
     real_repo.mkdir()
-    store = register_project("myproj", [real_repo, tmp_path / "nonexistent"])
+    _pid, store = register_project_v2("myproj", [real_repo, tmp_path / "nonexistent"])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(real_repo)
 
@@ -297,11 +297,11 @@ def test_sync_skips_missing_repo(tmp_path: Path, monkeypatch):
 
 
 def test_sync_preserves_manual_section(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    store = register_project("myproj", [repo])
+    _pid, store = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store)
 
     # Pre-populate an AGENTS.md with a manual section

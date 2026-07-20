@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from nauro.mcp.tools import tool_flag_question, tool_propose_decision
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 OPEN_QUESTIONS = "open-questions.md"
@@ -22,7 +22,7 @@ OPEN_QUESTIONS = "open-questions.md"
 @pytest.fixture()
 def store(tmp_path: Path) -> Path:
     """A scaffolded project store registered against tmp_path."""
-    store_path = register_project("testproj", [tmp_path])
+    _pid, store_path = register_project_v2("testproj", [tmp_path])
     scaffold_project_store("testproj", store_path)
     return store_path
 

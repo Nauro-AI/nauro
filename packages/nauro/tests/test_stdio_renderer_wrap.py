@@ -32,7 +32,7 @@ from nauro.mcp.stdio_server import (
     update_state,
 )
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.registry import register_project
+from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
@@ -41,7 +41,7 @@ from tests._writer_compat import append_decision
 @pytest.fixture
 def seeded_store(tmp_path: Path, monkeypatch) -> Path:
     """Pre-scaffolded project store with one decision and one question."""
-    store_path = register_project("blockshape", [tmp_path / "repo"])
+    _pid, store_path = register_project_v2("blockshape", [tmp_path / "repo"])
     scaffold_project_store("blockshape", store_path)
     (store_path / "stack.md").write_text(
         "# Stack\n- **Python 3.11** — primary language\n- **FastAPI** — HTTP framework\n"

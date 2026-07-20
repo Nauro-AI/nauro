@@ -246,9 +246,9 @@ class TestDiffSinceLastSession:
 
 class TestLogCommand:
     def test_log_shows_snapshots(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -263,9 +263,9 @@ class TestLogCommand:
         assert "second sync" in result.output
 
     def test_log_limit(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -279,9 +279,9 @@ class TestLogCommand:
         assert "v001" not in result.output
 
     def test_log_full(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -295,9 +295,9 @@ class TestLogCommand:
         assert "decisions/" in result.output
 
     def test_log_no_snapshots(self, tmp_path: Path, monkeypatch):
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -319,9 +319,9 @@ class TestLogCommand:
 class TestDiffCommand:
     def test_diff_no_args(self, tmp_path: Path, monkeypatch):
         """nauro diff-since-last-session — diff since last session."""
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 
@@ -344,9 +344,9 @@ class TestDiffCommand:
 
     def test_diff_not_enough_snapshots(self, tmp_path: Path, monkeypatch):
         """nauro diff-since-last-session with < 2 snapshots shows helpful message."""
-        from nauro.store.registry import register_project
+        from nauro.store.registry import register_project_v2
 
-        store = register_project("myproj", [tmp_path])
+        _pid, store = register_project_v2("myproj", [tmp_path])
         scaffold_project_store("myproj", store)
         monkeypatch.chdir(tmp_path)
 

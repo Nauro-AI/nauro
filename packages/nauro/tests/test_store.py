@@ -765,9 +765,9 @@ def _minimal_v2_decision(path: Path, num: int, title: str) -> None:
 
 
 def test_note_decision_cli(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -778,9 +778,9 @@ def test_note_decision_cli(tmp_path: Path, monkeypatch):
 
 
 def test_note_question_auto_detect(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -790,9 +790,9 @@ def test_note_question_auto_detect(tmp_path: Path, monkeypatch):
 
 
 def test_note_question_flag(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -813,9 +813,9 @@ def test_note_no_project(tmp_path: Path, monkeypatch):
 
 
 def test_sync_cli(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
@@ -826,9 +826,9 @@ def test_sync_cli(tmp_path: Path, monkeypatch):
 
 
 def test_sync_with_message(tmp_path: Path, monkeypatch):
-    from nauro.store.registry import register_project
+    from nauro.store.registry import register_project_v2
 
-    store = register_project("myproj", [tmp_path])
+    _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
     monkeypatch.chdir(tmp_path)
 
