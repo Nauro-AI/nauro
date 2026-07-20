@@ -222,57 +222,6 @@ class TestPullBeforeSessionPresign:
 
         assert result == 0
 
-    def test_pull_swallows_union_merge_error_and_leaves_file_untouched(
-        self, cloud_store, monkeypatch
-    ):
-        """SessionStart auto-pull must not crash on a failed union merge.
-
-        The failing file is skipped (left on disk as-is), the rest of the
-        pull continues, and the call returns normally.
-        """
-        from nauro.sync.merge import UnionMergeError
-
-        rel = "decisions/050-conflicted.md"
-        local_file = cloud_store / rel
-        local_file.parent.mkdir(parents=True, exist_ok=True)
-        local_file.write_bytes(b"# 050\nlocal body\n")
-        original = local_file.read_bytes()
-
-        # Diverged from last-synced state on both sides → conflict, not pull.
-        state = SyncState()
-        state.files[rel] = FileState(
-            local_sha256="old_sha",
-            remote_etag='"old_etag"',
-            last_sync="2026-05-16T00:00:00Z",
-        )
-        save_state(cloud_store, state)
-
-        manifest = self._manifest(
-            [{"path": rel, "etag": '"new_etag"', "size": 1, "last_modified": "x"}],
-        )
-        presign = self._presign([{"verb": "GET", "path": rel}])
-
-        def fake_get(url, **kwargs):
-            if "/sync/manifest" in url:
-                return manifest
-            return httpx.Response(200, content=b"# 050\nremote body\n")
-
-        def boom(*args, **kwargs):
-            raise UnionMergeError("simulated git failure")
-
-        monkeypatch.setattr("nauro.sync.pull.resolve_conflict", boom)
-
-        with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", return_value=presign),
-        ):
-            # Must not raise.
-            result = pull_before_session(CLOUD_PID, cloud_store)
-
-        assert result == 0
-        # The local file was left untouched rather than overwritten.
-        assert local_file.read_bytes() == original
-
 
 # --- push happy path ---
 

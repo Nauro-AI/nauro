@@ -263,8 +263,7 @@ class TestSyncHonesty:
 class TestSyncPullSurfacesAndMerges:
     """End-to-end ``nauro sync`` pull behaviour through the shared core.
 
-    A clean pull echoes a "Merged N file(s)" line; a union-merge failure
-    surfaces and exits nonzero rather than reporting a partial success.
+    A clean pull echoes a "Merged N file(s)" line.
     """
 
     @staticmethod
@@ -334,70 +333,6 @@ class TestSyncPullSurfacesAndMerges:
 
         assert result.exit_code == 0, result.output + (result.stderr or "")
         assert "Merged 1 file(s) from remote" in result.output
-
-    def test_union_merge_failure_exits_one(self, tmp_path, monkeypatch):
-        import httpx
-
-        from nauro.sync.merge import UnionMergeError
-        from nauro.sync.state import FileState, SyncState, save_state
-
-        store, _json = self._seed_cloud_auth("mergefail", tmp_path)
-        rel = "decisions/051-conflicted.md"
-        local_file = store / rel
-        local_file.parent.mkdir(parents=True, exist_ok=True)
-        local_file.write_bytes(b"# 051\nlocal body\n")
-
-        state = SyncState()
-        state.files[rel] = FileState(
-            local_sha256="old_sha",
-            remote_etag='"old_etag"',
-            last_sync="2026-05-16T00:00:00Z",
-        )
-        save_state(store, state)
-
-        def fake_get(url, **kwargs):
-            if "/sync/manifest" in url:
-                return self._http_ok(
-                    {
-                        "files": [
-                            {"path": rel, "etag": '"new_etag"', "size": 1, "last_modified": "x"}
-                        ],
-                        "next_cursor": None,
-                    },
-                    _json,
-                )
-            return httpx.Response(200, content=b"# 051\nremote body\n")
-
-        def fake_post(url, **kwargs):
-            ops = kwargs.get("json", {}).get("operations", [])
-            return self._http_ok(
-                {
-                    "urls": [
-                        {
-                            "verb": op["verb"],
-                            "path": op["path"],
-                            "url": f"https://s3.example/{op['verb']}/{op['path']}",
-                            "expires_at": "2026-05-16T13:00:00Z",
-                        }
-                        for op in ops
-                    ]
-                },
-                _json,
-            )
-
-        def boom(*args, **kwargs):
-            raise UnionMergeError("simulated git failure")
-
-        monkeypatch.setattr("nauro.sync.pull.resolve_conflict", boom)
-
-        with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", side_effect=fake_post),
-        ):
-            result = runner.invoke(app, ["sync", "--project", "mergefail"])
-
-        assert result.exit_code == 1
-        assert isinstance(result.exception, UnionMergeError)
 
 
 class TestLinkCloudRefusesWithoutAuth:

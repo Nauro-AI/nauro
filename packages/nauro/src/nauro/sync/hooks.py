@@ -16,9 +16,9 @@ silent-no-op when either is missing. The two no-op cases are:
 
 The pull and push transport lives in ``nauro.sync.pull`` and
 ``nauro.sync.push`` and is shared with the ``nauro sync`` CLI command.
-These hooks supply a logging :class:`~nauro.sync.pull.Reporter` that
-never re-raises, so the shared core stays silent and crash-free here
-while the CLI surfaces failures.
+These hooks supply a logging :class:`~nauro.sync.pull.Reporter`, so the
+shared core stays silent and crash-free here while the CLI echoes
+progress to the terminal.
 
 Token refresh on 401 is handled inside ``request_presigned_urls`` and
 ``fetch_manifest`` via ``with_token_refresh``. ``AuthRefreshError``
@@ -37,9 +37,8 @@ logger = logging.getLogger("nauro.sync")
 class _LoggingReporter:
     """Pull reporter for the SessionStart hook.
 
-    Routes progress to ``logger`` at the appropriate level and swallows
-    union-merge failures (returns False) so auto-pull never crashes a
-    session start.
+    Routes progress to ``logger`` at the appropriate level so auto-pull
+    never writes to the session's terminal.
     """
 
     def info(self, msg: str) -> None:
@@ -47,10 +46,6 @@ class _LoggingReporter:
 
     def warn(self, msg: str) -> None:
         logger.warning("sync pull: %s", msg)
-
-    def on_merge_failure(self, relative_path: str, exc: Exception) -> bool:
-        logger.exception("sync pull: union merge failed for %s", relative_path)
-        return False
 
 
 def pull_before_session(project_id: str, store_path: Path) -> int:
@@ -74,8 +69,7 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
     try:
         return run_pull(project_id, store_path, _LoggingReporter())
     except Exception:
-        # The logging reporter never re-raises union-merge failures, but a
-        # genuinely unexpected error must not escape session startup either.
+        # A genuinely unexpected error must not escape session startup.
         logger.exception("sync pull: unexpected failure for %s", project_id)
         return 0
 

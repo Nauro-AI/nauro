@@ -5,9 +5,6 @@ how to merge or which version wins.
 """
 
 import logging
-import shutil
-import subprocess
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,19 +14,11 @@ from nauro.sync.state import SyncState
 
 logger = logging.getLogger("nauro.sync")
 
-
-class UnionMergeError(Exception):
-    """Raised when ``git merge-file --union`` exits with a nonzero status.
-
-    Signals that the merged content cannot be trusted. Callers decide
-    whether to surface the failure or skip the file untouched.
-    """
-
-
-# Append-only logs where a set-union merge is safe. Decisions are not
-# append-only. An interleaving union merge would corrupt them, so decision
-# conflicts resolve by last-write-wins with a recoverable backup instead.
-APPEND_ONLY_PATTERNS = ("open-questions.md", "state_history.md")
+# Append-only logs where a set-union merge is safe. Everything else,
+# including decision files (mutable single records rewritten in place by
+# update/supersede), resolves by last-write-wins with a recoverable backup,
+# because no automatic merge of two divergent rewrites is correct.
+_SET_UNION_PATHS = ("open-questions.md", "state_history.md")
 
 # Files that are never synced. The graph command's default output lands in the
 # store directory; its generation timestamp changes every run, so its sha never
@@ -70,16 +59,6 @@ def detect_conflict(
     return local_changed and remote_changed
 
 
-def _is_append_only(relative_path: str) -> bool:
-    """Check if a file uses append-only merge strategy."""
-    return any(relative_path.startswith(p) or relative_path == p for p in APPEND_ONLY_PATTERNS)
-
-
-def _git_available() -> bool:
-    """Check if git is available on PATH."""
-    return shutil.which("git") is not None
-
-
 def _save_conflict_backup(project_path: Path, relative_path: str, content: bytes) -> Path:
     """Save the losing version to .conflict-backup/."""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -92,31 +71,21 @@ def _save_conflict_backup(project_path: Path, relative_path: str, content: bytes
     return backup_path
 
 
-_SET_UNION_PATHS = ("open-questions.md", "state_history.md")
-
-
 def resolve_conflict(
     project_path: Path,
     local_path: Path,
     remote_content: bytes,
     relative_path: str,
-    state: SyncState,
 ) -> bytes:
     """Resolve a conflict between local and remote versions.
 
-    For append-only files: git merge-file --union (falls back to LWW if git unavailable).
-    For everything else: last-write-wins with backup of the losing version.
+    Files in ``_SET_UNION_PATHS`` merge by section-aware set-union.
+    Everything else: last-write-wins with backup of the losing version.
     """
     local_content = local_path.read_bytes()
 
     if relative_path in _SET_UNION_PATHS:
         return _set_union_markdown(local_content, remote_content)
-
-    if _is_append_only(relative_path) and _git_available():
-        return _union_merge(local_content, remote_content, relative_path, state)
-
-    if _is_append_only(relative_path) and not _git_available():
-        logger.warning("git not available - falling back to last-write-wins for %s", relative_path)
 
     # Last-write-wins: keep local, back up remote
     _save_conflict_backup(project_path, relative_path, remote_content)
@@ -126,47 +95,6 @@ def resolve_conflict(
         relative_path,
     )
     return local_content
-
-
-def _union_merge(
-    local_content: bytes, remote_content: bytes, relative_path: str, state: SyncState
-) -> bytes:
-    """Use git merge-file --union for append-only files.
-
-    The common base is always empty (we do not persist the last-synced
-    content), so ``--union`` degenerates to an append-only union: every
-    line unique to either side is retained, with no conflict markers.
-
-    A nonzero exit from git signals a genuine failure (IO/stat error, or
-    a signal kill) rather than a resolved conflict — union resolution
-    returns 0 in that case. On a nonzero status the merged file cannot be
-    trusted, so this raises ``UnionMergeError`` instead of returning
-    possibly-corrupt content.
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        local_tmp = tmp / "local"
-        base_tmp = tmp / "base"
-        remote_tmp = tmp / "remote"
-
-        local_tmp.write_bytes(local_content)
-        remote_tmp.write_bytes(remote_content)
-        base_tmp.write_bytes(b"")
-
-        result = subprocess.run(
-            ["git", "merge-file", "--union", str(local_tmp), str(base_tmp), str(remote_tmp)],
-            capture_output=True,
-        )
-
-        if result.returncode != 0:
-            raise UnionMergeError(
-                f"git merge-file --union failed for {relative_path} "
-                f"(exit code {result.returncode}): {result.stderr.decode(errors='replace')}"
-            )
-
-        merged = local_tmp.read_bytes()
-        logger.info("Union merge completed for %s (exit code %d)", relative_path, result.returncode)
-        return merged
 
 
 def _parse_sections(lines: list[str]) -> tuple[list[str], list[tuple[str, list[str]]]]:
