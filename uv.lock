@@ -928,7 +928,7 @@ wheels = [
 
 [[package]]
 name = "nauro"
-version = "1.6.0"
+version = "1.7.0"
 source = { editable = "packages/nauro" }
 dependencies = [
     { name = "filelock" },
@@ -970,7 +970,7 @@ provides-extras = ["dev", "embeddings"]
 
 [[package]]
 name = "nauro-core"
-version = "1.2.0"
+version = "1.3.0"
 source = { editable = "packages/nauro-core" }
 dependencies = [
     { name = "bm25s" },
