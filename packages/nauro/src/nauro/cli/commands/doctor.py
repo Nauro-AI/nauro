@@ -28,10 +28,24 @@ def _label(number: int) -> str:
     return f"D{number}"
 
 
+def _render_unknown_keys(diagnosis: StoreDiagnosis) -> list[str]:
+    """Render the advisory unknown-frontmatter-keys section, or nothing."""
+    if not diagnosis.unknown_frontmatter_keys:
+        return []
+    lines = [
+        f"Unknown frontmatter keys ({len(diagnosis.unknown_frontmatter_keys)}) "
+        "(advisory, preserved on rewrite, not a defect):"
+    ]
+    for row in diagnosis.unknown_frontmatter_keys:
+        lines.append(f"  {_label(row.number)}: {', '.join(row.keys)}")
+    lines.append("")
+    return lines
+
+
 def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
     """Render a diagnosis as human-readable report lines."""
     if diagnosis.is_clean:
-        return ["No integrity defects found."]
+        return ["No integrity defects found.", *_render_unknown_keys(diagnosis)]
 
     lines: list[str] = []
 
@@ -74,6 +88,8 @@ def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
                     f"superseded_by={_label(row.conflicting_with)}"
                 )
         lines.append("")
+
+    lines.extend(_render_unknown_keys(diagnosis))
 
     total = (
         len(diagnosis.unparseable)

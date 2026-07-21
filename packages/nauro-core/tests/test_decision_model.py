@@ -639,19 +639,92 @@ class TestNegativeValidation:
         with pytest.raises(ValidationError, match="superseded_by"):
             parse_decision(text, "001-test.md")
 
-    def test_extra_frontmatter_key_raises(self) -> None:
-        """extra='forbid' on Decision means typos fail loudly."""
+    def test_unknown_frontmatter_key_is_preserved(self) -> None:
+        """extra='allow': an unknown key (alongside valid confidence) is
+        captured in model_extra and round-trips rather than raising."""
         text = (
             "---\n"
             "date: 2026-04-01\n"
             "confidence: high\n"
-            "confidance: high\n"  # typo
+            "confidance: high\n"  # unknown key sitting next to the real one
             "---\n\n"
-            "# 001 \u2014 Typo in frontmatter\n\n"
+            "# 001 \u2014 Unknown key in frontmatter\n\n"
+            "## Decision\n\nSomething.\n"
+        )
+        decision = parse_decision(text, "001-test.md")
+        assert decision.model_extra == {"confidance": "high"}
+        assert "confidance: high" in format_decision(decision)
+
+    def test_required_key_typo_still_raises(self) -> None:
+        """A typo that omits a required key (confidence) fails loudly: the
+        unknown 'confidance' is tolerated, but the missing 'confidence' is a
+        missing-required error, not a tolerated unknown key."""
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidance: high\n"  # only the typo \u2014 real key absent
+            "---\n\n"
+            "# 001 \u2014 Required key typo\n\n"
             "## Decision\n\nSomething.\n"
         )
         with pytest.raises(ValidationError):
             parse_decision(text, "001-test.md")
+
+
+class TestUnknownFrontmatterKeys:
+    """Tolerant-reader contract: unknown frontmatter keys survive round-trip."""
+
+    _TRAILING_UNKNOWN = (
+        "---\n"
+        "date: 2026-04-01\n"
+        "version: 1\n"
+        "status: active\n"
+        "confidence: high\n"
+        "decision_type: null\n"
+        "reversibility: null\n"
+        "source: null\n"
+        "files_affected: []\n"
+        "supersedes: null\n"
+        "superseded_by: null\n"
+        "origin: codex-1.2.3\n"
+        "---\n\n"
+        "# 001 \u2014 Trailing unknown key\n\n"
+        "## Decision\n\nChose A.\n"
+    )
+
+    def test_trailing_unknown_key_round_trips_byte_identically(self) -> None:
+        """A canonical frontmatter with a trailing unknown key reformats to
+        the same bytes: the writer appends unknown keys after the known block."""
+        decision = parse_decision(self._TRAILING_UNKNOWN, "001-test.md")
+        assert decision.model_extra == {"origin": "codex-1.2.3"}
+        assert format_decision(decision) == self._TRAILING_UNKNOWN
+
+    def test_unknown_key_survives_model_copy_supersede_flip(self) -> None:
+        """The supersede rewrite path uses model_copy(update=...); an unknown
+        key on the old decision must survive the flip and re-emit."""
+        decision = parse_decision(self._TRAILING_UNKNOWN, "001-test.md")
+        flipped = decision.model_copy(
+            update={
+                "status": DecisionStatus.superseded,
+                "superseded_by": "42",
+            }
+        )
+        assert flipped.model_extra == {"origin": "codex-1.2.3"}
+        formatted = format_decision(flipped)
+        assert "origin: codex-1.2.3" in formatted
+        assert "status: superseded" in formatted
+        assert "superseded_by: '42'" in formatted
+
+    @pytest.mark.parametrize("text,filename", ALL_FIXTURES)
+    def test_no_extras_output_matches_prechange_bytes(self, text: str, filename: str) -> None:
+        """With no unknown keys, the writer's output is byte-for-byte the
+        pre-tolerance output. The checked-in fixtures were authored in
+        canonical form and predate this change, so each fixture IS pre-change
+        writer output; asserting ``format(parse(fixture)) == fixture`` pins the
+        formatter against a golden captured before the extras loop existed."""
+        decision = parse_decision(text, filename)
+        assert decision.model_extra in (None, {})
+        assert format_decision(decision) == text
 
 
 # ── Model-level construction tests (no parsing) ──

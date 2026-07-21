@@ -4,9 +4,36 @@ The authoritative shape for a parsed decision. `parse_decision` reads a
 markdown file with YAML frontmatter and returns a validated `Decision`.
 `format_decision` goes the other way.
 
-Strict by design. Unknown enum values, missing required fields, malformed
-YAML, non-ISO dates, reasonless rejected alternatives on active decisions,
-and superseded decisions without a `superseded_by` ref all raise.
+Tolerant reader, known-key writer. Unknown enum values, missing required
+fields, malformed YAML, non-ISO dates, reasonless rejected alternatives on
+active decisions, and superseded decisions without a `superseded_by` ref all
+still raise. But an *unknown* frontmatter key (one this version has no field
+for) is accepted and preserved rather than rejected: a newer writer may have
+authored a key this reader does not model, and dropping it on a read-modify-
+write cycle would silently strip fields the newer version depends on — a
+worse failure than rejection, landing far from its cause. Supersession is
+exactly such a rewrite path, so preservation is load-bearing, not cosmetic.
+Typos on required keys still fail loudly: omitting `confidence` while adding
+`confidance` is a missing-required error, not a tolerated unknown key.
+
+Round-trip bound (precise):
+
+- Unknown keys are never silently dropped. Their values pass back through
+  `format_decision` subject to PyYAML safe-load/safe-dump normalization —
+  scalar representation, quoting style, key ordering within a mapping, and
+  specialty-tag containers may be normalized, and unordered containers may
+  serialize nondeterministically. Semantic value is preserved; exact bytes
+  of an arbitrary value are not promised.
+- A value the JSON-mode dump gate cannot process fails loudly at rewrite
+  rather than being dropped: `model_dump(mode="json")` raises on such a value
+  (e.g. non-UTF-8 bytes from a `!!binary`) *before* YAML serialization is
+  reached. YAML itself could represent those bytes, so the gate, not the YAML
+  writer, is the failing layer.
+- Byte-identity is guaranteed only for a *trailing* unknown key whose value
+  has a deterministic representation, in an already-canonical nauro-authored
+  file. An unknown key interleaved among known keys migrates to the end of
+  the frontmatter block on rewrite (the writer emits known keys in canonical
+  order, then unknown keys in first-seen order).
 
 Supersession refs (`supersedes`, `superseded_by`) are validated as plain
 integer strings: "70", not "070" or "070-some-slug" or "D70".
@@ -103,9 +130,13 @@ class Decision(BaseModel):
     Frontmatter fields round-trip through YAML. Derived fields (``num``,
     ``title``, ``rationale``, ``body``, ``content``) are populated by the
     parser from the markdown body and the filename.
+
+    ``extra="allow"``: unknown frontmatter keys are captured in
+    ``model_extra`` and preserved through ``format_decision`` rather than
+    rejected. See the module docstring for the tolerant-reader contract.
     """
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config = ConfigDict(extra="allow", validate_assignment=True)
 
     # ── Frontmatter: required ──
     date: _date
@@ -220,9 +251,12 @@ _H1_FORMAT = "# {num:03d} \u2014 {title}"
 def parse_decision(text: str, filename: str) -> Decision:
     """Parse a decision markdown file into a validated ``Decision``.
 
-    Strict by design: raises ``ValueError`` (and propagates
-    ``pydantic.ValidationError``) on any deviation from the canonical
-    v2 format.
+    Strict on structure, tolerant on unknown frontmatter keys: raises
+    ``ValueError`` (and propagates ``pydantic.ValidationError``) on any
+    deviation from the canonical v2 format, but an unknown frontmatter key is
+    captured by ``Decision``'s ``extra="allow"`` config — the
+    ``Decision(**metadata, ...)`` call below absorbs it into ``model_extra``
+    automatically — and preserved on rewrite instead of rejected.
 
     Raises:
         ValueError: missing/unterminated frontmatter, missing H1, missing
@@ -419,6 +453,16 @@ def format_decision(decision: Decision) -> str:
         {reason}
 
     Idempotent with ``parse_decision``: format → parse → format is byte-identical.
+
+    Known keys are emitted in canonical ``_FRONTMATTER_ORDER``. Unknown keys
+    captured on the tolerant reader (``model_extra``) are appended after the
+    known block in first-seen order, so their values are never dropped; an
+    interleaved unknown key migrates to the end on reformat. Value fidelity is
+    bounded by PyYAML safe-dump normalization, and a value the JSON-mode dump
+    gate cannot process (e.g. non-UTF-8 bytes) raises there — before YAML
+    emission — rather than being silently lost. Byte-identity holds only for a
+    trailing unknown key with a deterministic representation in an
+    already-canonical file. See the module docstring for the full bound.
     """
     dumped = decision.model_dump(mode="json", exclude=_DERIVED_FIELDS)
 
@@ -431,6 +475,8 @@ def format_decision(decision: Decision) -> str:
         dumped["date"] = _date.fromisoformat(dumped["date"])
 
     ordered = {k: dumped[k] for k in _FRONTMATTER_ORDER if k in dumped}
+    for key, value in (decision.model_extra or {}).items():
+        ordered[key] = value
 
     yaml_block = yaml.safe_dump(
         ordered,
