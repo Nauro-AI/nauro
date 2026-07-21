@@ -29,7 +29,7 @@ import typer
 from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 
 from nauro.cli._json_input import parse_json_list_of_dicts
-from nauro.cli.utils import resolve_target_project
+from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.mcp import tools as mcp_tools
 
 # Tools that should auto-generate a CLI command. list_projects is
@@ -321,6 +321,11 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         name for name in schema_arg_names if props.get(name, {}).get("enum")
     ]
 
+    # Write adapters accept a keyword-only ``origin`` so the CLI can stamp the
+    # transport; read adapters do not. Detect it once so the command stamps
+    # only the surfaces that record provenance.
+    accepts_origin = "origin" in inspect.signature(adapter).parameters
+
     def command(**kwargs: Any) -> None:
         project = kwargs.pop("project", None)
         # --json is a parity no-op; JSON is the only output mode.
@@ -340,6 +345,8 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
                 kwargs[name] = value.value
 
         adapter_kwargs = {name: kwargs[name] for name in schema_arg_names if name in kwargs}
+        if accepts_origin:
+            adapter_kwargs["origin"] = cli_origin()
         envelope = adapter(store_path, **adapter_kwargs)
         _emit_envelope(envelope)
         _exit_for_envelope(envelope)

@@ -14,10 +14,11 @@ from nauro_core.constants import STATE_CURRENT_FILENAME
 from nauro_core.operations import update_state as _update_state_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
-from nauro.cli.utils import resolve_target_project
-from nauro.constants import PROJECT_MD, STACK_MD
+from nauro.cli.utils import cli_origin, resolve_target_project
+from nauro.constants import DECISIONS_DIR, PROJECT_MD, STACK_MD
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.journal import JournalEvent, append_event, payload_hash
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.store_lock import store_write_lock
 
@@ -41,19 +42,28 @@ def _import_append_decision(
     confidence: str = "medium",
 ) -> None:
     """Adapter for the import paths: write a decision via the kernel."""
+    proposal = {
+        "title": title,
+        "rationale": rationale,
+        "rejected": rejected,
+        "confidence": confidence,
+    }
     # Hold the allocation lock across the number computation and the write so
     # concurrent local writers cannot mint the same decision number. The
     # post-loop capture_snapshot stays outside the lock.
     with decision_write_lock(store_path):
-        _write_decision_direct(
-            FilesystemStore(store_path),
-            {
-                "title": title,
-                "rationale": rationale,
-                "rejected": rejected,
-                "confidence": confidence,
-            },
-        )
+        decision_id = _write_decision_direct(FilesystemStore(store_path), proposal)
+    append_event(
+        store_path,
+        JournalEvent(
+            operation="propose_decision",
+            target=DECISIONS_DIR,
+            status="committed",
+            decision_id=decision_id,
+            origin=cli_origin(),
+            payload_hash=payload_hash(proposal),
+        ),
+    )
 
 
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
@@ -128,7 +138,18 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
         # state_history.md; hold one lock across the whole kernel call so a
         # concurrent local writer cannot drop an update on either file.
         with store_write_lock(store_path, STATE_CURRENT_FILENAME):
-            _update_state_op(FilesystemStore(store_path), delta)
+            state_result = _update_state_op(FilesystemStore(store_path), delta)
+        if state_result.status != "noop":
+            append_event(
+                store_path,
+                JournalEvent(
+                    operation="update_state",
+                    target=STATE_CURRENT_FILENAME,
+                    status="committed",
+                    origin=cli_origin(),
+                    payload_hash=payload_hash({"delta": delta}),
+                ),
+            )
 
     return counts
 

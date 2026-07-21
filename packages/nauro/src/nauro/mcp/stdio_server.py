@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from mcp.server import FastMCP
+from mcp.server.fastmcp import Context
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from nauro_core.constants import MCP_INSTRUCTIONS
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
@@ -54,6 +55,7 @@ from nauro.mcp.tools import (
     tool_update_state,
 )
 from nauro.onboarding import WELCOME_NO_PROJECT
+from nauro.store.journal import OriginDescriptor
 from nauro.store.resolution import (
     DisconnectedProject,
     DisconnectedProjectError,
@@ -179,6 +181,31 @@ def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
         }
     except StoreResolutionError as exc:
         return None, {"store": "local", "status": "error", "guidance": str(exc)}
+
+
+def _origin_from_ctx(mcp_ctx: Context | None) -> OriginDescriptor:
+    """Build the stdio-MCP origin descriptor from the request Context.
+
+    ``clientInfo`` comes from the client's unauthenticated ``initialize``
+    metadata, reachable at request time via
+    ``ctx.session.client_params.clientInfo``. Every hop is guarded so a client
+    that sent no ``clientInfo`` (or a Context absent entirely, as in a direct
+    unit test) still yields a well-formed descriptor with the name/version
+    unset. The descriptor bounds and sanitizes the strings itself.
+    """
+    client_name: str | None = None
+    client_version: str | None = None
+    session = getattr(mcp_ctx, "session", None) if mcp_ctx is not None else None
+    client_params = getattr(session, "client_params", None) if session is not None else None
+    client_info = getattr(client_params, "clientInfo", None) if client_params is not None else None
+    if client_info is not None:
+        client_name = getattr(client_info, "name", None)
+        client_version = getattr(client_info, "version", None)
+    return OriginDescriptor(
+        transport="stdio-mcp",
+        client_name=client_name,
+        client_version=client_version,
+    )
 
 
 # ``cwd`` exists only on the local transport (the hosted server has no
@@ -369,6 +396,7 @@ def propose_decision(
         Field(description=_param_desc("propose_decision", "project_id")),
     ] = None,
     cwd: _CWD_PARAM = None,
+    mcp_ctx: Context | None = None,
 ) -> dict:
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
@@ -385,6 +413,7 @@ def propose_decision(
         reversibility=reversibility,
         files_affected=files_affected,
         resolves_questions=resolves_questions,
+        origin=_origin_from_ctx(mcp_ctx),
     )
 
 
@@ -406,12 +435,18 @@ def flag_question(
         str | None, Field(description=_param_desc("flag_question", "project_id"))
     ] = None,
     cwd: _CWD_PARAM = None,
+    mcp_ctx: Context | None = None,
 ) -> str | dict:
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
         return err if disconnected_reason_code(err) is not None else err["guidance"]
     result = tool_flag_question(
-        store_path, question, context, targets=targets, resolved_by=resolved_by
+        store_path,
+        question,
+        context,
+        targets=targets,
+        resolved_by=resolved_by,
+        origin=_origin_from_ctx(mcp_ctx),
     )
     if result.get("status") == "rejected":
         error = result.get("error") or {}
@@ -431,11 +466,12 @@ def update_state(
         str | None, Field(description=_param_desc("update_state", "project_id"))
     ] = None,
     cwd: _CWD_PARAM = None,
+    mcp_ctx: Context | None = None,
 ) -> str | dict:
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
         return err if disconnected_reason_code(err) is not None else err["guidance"]
-    result = tool_update_state(store_path, delta)
+    result = tool_update_state(store_path, delta, origin=_origin_from_ctx(mcp_ctx))
     if result.get("warning"):
         return f"State updated. {result['warning']}"
     return "State updated."
