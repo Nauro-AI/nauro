@@ -24,9 +24,11 @@ Round-trip bound (precise):
   specialty-tag containers may be normalized, and unordered containers may
   serialize nondeterministically. Semantic value is preserved; exact bytes
   of an arbitrary value are not promised.
-- A value the writer cannot re-serialize fails loudly at rewrite rather than
-  being dropped: the JSON-mode dump gate raises on values PyYAML safe-dump
-  cannot emit (e.g. a non-UTF-8 `!!binary`).
+- A value the JSON-mode dump gate cannot process fails loudly at rewrite
+  rather than being dropped: `model_dump(mode="json")` raises on such a value
+  (e.g. non-UTF-8 bytes from a `!!binary`) *before* YAML serialization is
+  reached. YAML itself could represent those bytes, so the gate, not the YAML
+  writer, is the failing layer.
 - Byte-identity is guaranteed only for a *trailing* unknown key whose value
   has a deterministic representation, in an already-canonical nauro-authored
   file. An unknown key interleaved among known keys migrates to the end of
@@ -456,9 +458,10 @@ def format_decision(decision: Decision) -> str:
     captured on the tolerant reader (``model_extra``) are appended after the
     known block in first-seen order, so their values are never dropped; an
     interleaved unknown key migrates to the end on reformat. Value fidelity is
-    bounded by PyYAML safe-dump normalization, and a value safe-dump cannot
-    emit raises here rather than being silently lost. Byte-identity holds only
-    for a trailing unknown key with a deterministic representation in an
+    bounded by PyYAML safe-dump normalization, and a value the JSON-mode dump
+    gate cannot process (e.g. non-UTF-8 bytes) raises there — before YAML
+    emission — rather than being silently lost. Byte-identity holds only for a
+    trailing unknown key with a deterministic representation in an
     already-canonical file. See the module docstring for the full bound.
     """
     dumped = decision.model_dump(mode="json", exclude=_DERIVED_FIELDS)
