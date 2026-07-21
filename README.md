@@ -1,4 +1,10 @@
+
+
+
+
 # Nauro
+
+[![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![Python](https://img.shields.io/pypi/pyversions/nauro.svg)](https://pypi.org/project/nauro/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 **Give your agents the context code leaves out.**
 
@@ -6,13 +12,11 @@ Nauro keeps current state, open questions, and human-approved project judgment i
 
 The record combines project scope, state, open questions, and the rationale behind decisions. Nauro surfaces the relevant slice before work, then carries approved judgment and reported progress into later sessions and connected tools.
 
-[![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![Python](https://img.shields.io/pypi/pyversions/nauro.svg)](https://pypi.org/project/nauro/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-
 **Status:** Stable (1.x). Semantic versioning covers the CLI, local stdio MCP contract, on-disk store format, and curated `nauro-core` import API. Cloud sync and hosted MCP are versioned separately.
 
 ## See it in practice
 
-https://github.com/user-attachments/assets/9e6c475b-c584-470b-84c2-12f01b3a425a
+https://github.com/user-attachments/assets/f75ede99-db11-4460-bc09-801c86df1e19
 
 *A real Codex session in Pareto, a reproducible mock project. Nauro retrieves an existing concurrency cap before the agent recommends an override. After approval, the agent records the decision and changes the code. This is one controlled example. Recurring value in other projects remains unproven.*
 
