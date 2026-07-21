@@ -715,14 +715,16 @@ class TestUnknownFrontmatterKeys:
         assert "status: superseded" in formatted
         assert "superseded_by: '42'" in formatted
 
-    def test_no_extras_output_is_byte_identical(self) -> None:
-        """With no unknown keys, output is unchanged from the pre-tolerance
-        writer: the extras loop adds nothing."""
-        decision = parse_decision(MINIMAL_V2, MINIMAL_V2_FILENAME)
+    @pytest.mark.parametrize("text,filename", ALL_FIXTURES)
+    def test_no_extras_output_matches_prechange_bytes(self, text: str, filename: str) -> None:
+        """With no unknown keys, the writer's output is byte-for-byte the
+        pre-tolerance output. The checked-in fixtures were authored in
+        canonical form and predate this change, so each fixture IS pre-change
+        writer output; asserting ``format(parse(fixture)) == fixture`` pins the
+        formatter against a golden captured before the extras loop existed."""
+        decision = parse_decision(text, filename)
         assert decision.model_extra in (None, {})
-        assert format_decision(decision) == format_decision(
-            parse_decision(format_decision(decision), MINIMAL_V2_FILENAME)
-        )
+        assert format_decision(decision) == text
 
 
 # ── Model-level construction tests (no parsing) ──

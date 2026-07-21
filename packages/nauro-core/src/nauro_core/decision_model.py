@@ -16,11 +16,22 @@ exactly such a rewrite path, so preservation is load-bearing, not cosmetic.
 Typos on required keys still fail loudly: omitting `confidence` while adding
 `confidance` is a missing-required error, not a tolerated unknown key.
 
-Round-trip bound: values of unknown keys always survive a read-modify-write.
-Unknown keys trailing the known frontmatter round-trip byte-identically. An
-unknown key interleaved among known keys migrates to the end of the
-frontmatter block on rewrite (the writer emits known keys in canonical order,
-then unknown keys in first-seen order); its value is unchanged.
+Round-trip bound (precise):
+
+- Unknown keys are never silently dropped. Their values pass back through
+  `format_decision` subject to PyYAML safe-load/safe-dump normalization —
+  scalar representation, quoting style, key ordering within a mapping, and
+  specialty-tag containers may be normalized, and unordered containers may
+  serialize nondeterministically. Semantic value is preserved; exact bytes
+  of an arbitrary value are not promised.
+- A value the writer cannot re-serialize fails loudly at rewrite rather than
+  being dropped: the JSON-mode dump gate raises on values PyYAML safe-dump
+  cannot emit (e.g. a non-UTF-8 `!!binary`).
+- Byte-identity is guaranteed only for a *trailing* unknown key whose value
+  has a deterministic representation, in an already-canonical nauro-authored
+  file. An unknown key interleaved among known keys migrates to the end of
+  the frontmatter block on rewrite (the writer emits known keys in canonical
+  order, then unknown keys in first-seen order).
 
 Supersession refs (`supersedes`, `superseded_by`) are validated as plain
 integer strings: "70", not "070" or "070-some-slug" or "D70".
@@ -443,9 +454,12 @@ def format_decision(decision: Decision) -> str:
 
     Known keys are emitted in canonical ``_FRONTMATTER_ORDER``. Unknown keys
     captured on the tolerant reader (``model_extra``) are appended after the
-    known block in first-seen order, so their values survive every rewrite.
-    An unknown key interleaved among known keys therefore migrates to the end
-    on reformat; a trailing unknown key round-trips byte-identically.
+    known block in first-seen order, so their values are never dropped; an
+    interleaved unknown key migrates to the end on reformat. Value fidelity is
+    bounded by PyYAML safe-dump normalization, and a value safe-dump cannot
+    emit raises here rather than being silently lost. Byte-identity holds only
+    for a trailing unknown key with a deterministic representation in an
+    already-canonical file. See the module docstring for the full bound.
     """
     dumped = decision.model_dump(mode="json", exclude=_DERIVED_FIELDS)
 
