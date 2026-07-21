@@ -9,7 +9,7 @@ from nauro_core.operations.propose_decision import _write_decision_direct
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.journal import JournalEvent, append_event, payload_hash
+from nauro.store.journal import record_event
 from nauro.store.store_lock import store_write_lock
 from nauro.templates.agents_md_regen import warn_then_regen
 
@@ -104,15 +104,13 @@ def note(
         # already wraps decision_write_lock. AGENTS.md regen stays outside.
         with store_write_lock(store_path, OPEN_QUESTIONS_MD):
             _flag_question_op(fs_store, text, None)
-        append_event(
+        record_event(
             store_path,
-            JournalEvent(
-                operation="flag_question",
-                target=OPEN_QUESTIONS_MD,
-                status="committed",
-                origin=cli_origin(),
-                payload_hash=payload_hash({"question": text}),
-            ),
+            operation="flag_question",
+            target=OPEN_QUESTIONS_MD,
+            status="committed",
+            payload={"question": text},
+            origin=cli_origin(),
         )
         typer.echo(f"Question added to {project_name}:")
         typer.echo(f"  {text}")
@@ -130,18 +128,14 @@ def note(
                     "confidence": confidence,
                 },
             )
-        append_event(
+        record_event(
             store_path,
-            JournalEvent(
-                operation="propose_decision",
-                target=DECISIONS_DIR,
-                status="committed",
-                decision_id=decision_id,
-                origin=cli_origin(),
-                payload_hash=payload_hash(
-                    {"title": text, "rationale": rationale, "confidence": confidence}
-                ),
-            ),
+            operation="propose_decision",
+            target=DECISIONS_DIR,
+            status="committed",
+            payload={"title": text, "rationale": rationale, "confidence": confidence},
+            origin=cli_origin(),
+            decision_id=decision_id,
         )
         filepath = store_path / DECISIONS_DIR / f"{decision_id}.md"
         typer.echo(f"Decision recorded in {project_name}:")

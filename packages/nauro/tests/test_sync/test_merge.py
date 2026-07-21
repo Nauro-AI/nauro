@@ -54,6 +54,12 @@ class TestShouldSkip:
         assert should_skip("journal/events.jsonl") is True
         assert should_skip("journal/.lock") is True
 
+    def test_journal_skip_normalizes_windows_separators(self):
+        # The push scan builds relative paths via str(relative_to(...)), which
+        # yields backslash separators on Windows; the rule must still match.
+        assert should_skip("journal\\events.jsonl") is True
+        assert should_skip("decisions\\.lock") is True
+
 
 class TestDetectConflict:
     def test_no_previous_state(self):

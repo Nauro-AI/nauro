@@ -41,15 +41,22 @@ LOCK_ARTIFACT_SUFFIXES = (".md.lock", ".json.lock", RMW_LOCK_SUFFIX)
 
 
 def should_skip(relative_path: str) -> bool:
-    """Return True if this file should never be synced."""
-    if relative_path in NEVER_SYNC:
+    """Return True if this file should never be synced.
+
+    Backslashes are normalized to forward slashes first: the push scan builds
+    relative paths via ``str(relative_to(...))``, which yields ``\\`` separators
+    on Windows, so every prefix/basename/suffix check below operates on a
+    POSIX-normalized path and stays cross-platform.
+    """
+    normalized = relative_path.replace("\\", "/")
+    if normalized in NEVER_SYNC:
         return True
     # The write-path provenance journal is store-local by design: it is
     # excluded from cloud sync in v1 (both its events log and its lock).
-    if relative_path.startswith(JOURNAL_DIR + "/"):
+    if normalized.startswith(JOURNAL_DIR + "/"):
         return True
-    basename = relative_path.rsplit("/", 1)[-1]
-    return basename == DIR_LOCK_NAME or relative_path.endswith(LOCK_ARTIFACT_SUFFIXES)
+    basename = normalized.rsplit("/", 1)[-1]
+    return basename == DIR_LOCK_NAME or normalized.endswith(LOCK_ARTIFACT_SUFFIXES)
 
 
 def detect_conflict(

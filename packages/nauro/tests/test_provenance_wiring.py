@@ -145,6 +145,27 @@ class TestCliAttribution:
         assert events[0].origin.transport == "cli"
         assert events[0].origin.client_name == "nauro-cli"
 
+    def test_import_memory_bank_journals_file_merges(self, tmp_path: Path, monkeypatch):
+        # projectBrief.md → project.md and techContext.md → stack.md mutate
+        # store content, so each merge must journal a committed import_merge
+        # event — a valid import never leaves the journal empty.
+        _repo, store = self._project(tmp_path, monkeypatch)
+        mb = tmp_path / "memory-bank"
+        mb.mkdir()
+        (mb / "projectBrief.md").write_text("# Brief\n\nWe are building a widget.\n")
+        (mb / "techContext.md").write_text("# Tech\n\nPython and Postgres.\n")
+        result = runner.invoke(app, ["import", "--memory-bank", str(mb)])
+        assert result.exit_code == 0, result.output
+        events = read_events(store)
+        merges = [e for e in events if e.operation == "import_merge"]
+        targets = {e.target for e in merges}
+        assert targets == {"project.md", "stack.md"}
+        for event in merges:
+            assert event.status == "committed"
+            assert event.origin is not None
+            assert event.origin.transport == "cli"
+            assert event.origin.client_name == "nauro-cli"
+
 
 # --- no new surface ----------------------------------------------------------
 

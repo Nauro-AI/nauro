@@ -107,6 +107,54 @@ class TestAppendReadEvents:
         events = read_events(store)
         assert len(events) == 2
 
+    def test_truncated_final_multibyte_character_is_tolerated(self, store: Path):
+        append_event(
+            store,
+            JournalEvent(
+                operation="update_state",
+                target="state_current.md",
+                status="committed",
+                origin=_ORIGIN,
+                payload_hash=payload_hash({"delta": "x"}),
+            ),
+        )
+        # A crash mid-append can leave a partial multibyte UTF-8 sequence as the
+        # final bytes: the first byte of "€" (\xe2\x82\xac) with the rest lost.
+        with _events_file(store).open("ab") as fh:
+            fh.write(b'{"delta": "\xe2')
+        events = read_events(store)
+        assert len(events) == 1
+
+    def test_line_separator_in_client_name_does_not_break_framing(self, store: Path):
+        # U+2028 is a Unicode line separator that str.splitlines() would treat
+        # as a record boundary; ensure_ascii serialization escapes it, so the
+        # single event still round-trips as one line.
+        evil_name = "evil" + chr(0x2028) + "client"
+        origin = OriginDescriptor(
+            transport="stdio-mcp",
+            client_name=evil_name,
+            client_version="1.0",
+        )
+        append_event(
+            store,
+            JournalEvent(
+                operation="flag_question",
+                target="open-questions.md",
+                status="committed",
+                origin=origin,
+                payload_hash=payload_hash({"question": "q"}),
+            ),
+        )
+        raw = _events_file(store).read_bytes()
+        # No raw U+2028 byte sequence landed, and exactly one physical line
+        # was written (the separator did not split the record).
+        assert b"\xe2\x80\xa8" not in raw
+        assert raw.count(b"\n") == 1
+        events = read_events(store)
+        assert len(events) == 1
+        assert events[0].origin is not None
+        assert events[0].origin.client_name == evil_name
+
 
 # --- lock placement ----------------------------------------------------------
 
@@ -130,18 +178,18 @@ class TestFailOpen:
     def test_append_swallows_internal_error(self, store: Path):
         # An event whose serialization blows up must not surface from append.
         class Boom:
-            def model_dump_json(self, **_kwargs):
+            def model_dump(self, **_kwargs):
                 raise RuntimeError("serialize boom")
 
         # append_event must never raise, whatever it is handed.
         append_event(store, Boom())  # type: ignore[arg-type]
         assert not _events_file(store).exists()
 
-    def test_write_survives_a_raising_journal_append(self, store: Path, monkeypatch):
+    def test_write_survives_a_raising_journal_record(self, store: Path, monkeypatch):
         def boom(*_args, **_kwargs):
-            raise RuntimeError("append boom")
+            raise RuntimeError("record boom")
 
-        monkeypatch.setattr(tools, "append_event", boom)
+        monkeypatch.setattr(tools, "record_event", boom)
 
         propose = tool_propose_decision(
             store, title="Ship the widget", rationale=_LONG_RATIONALE, origin=_ORIGIN
@@ -153,6 +201,39 @@ class TestFailOpen:
 
         update = tool_update_state(store, delta="Shipped the widget", origin=_ORIGIN)
         assert update["status"] == "ok"
+
+    def test_write_survives_event_construction_failure(self, store: Path, monkeypatch):
+        # A failure inside event construction/hashing (not just the file append)
+        # must be swallowed end-to-end: record_event guards the whole region.
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("construct boom")
+
+        monkeypatch.setattr("nauro.store.journal.payload_hash", boom)
+
+        propose = tool_propose_decision(
+            store, title="Ship the widget", rationale=_LONG_RATIONALE, origin=_ORIGIN
+        )
+        assert propose["status"] == "confirmed"
+        assert read_events(store) == []
+
+    def test_record_event_swallows_construction_failure(self, store: Path, monkeypatch):
+        # Direct record_event coverage: a raising JournalEvent constructor is
+        # caught, and nothing is written.
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("construct boom")
+
+        monkeypatch.setattr("nauro.store.journal.JournalEvent", boom)
+        from nauro.store.journal import record_event
+
+        record_event(
+            store,
+            operation="update_state",
+            target="state_current.md",
+            status="committed",
+            payload={"delta": "x"},
+            origin=_ORIGIN,
+        )
+        assert read_events(store) == []
 
 
 # --- adapter wiring: committed / rejected / no-event -------------------------

@@ -67,10 +67,8 @@ from nauro.store.config import resolve_embeddings_flag
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.journal import (
-    JournalEvent,
     OriginDescriptor,
-    append_event,
-    payload_hash,
+    record_event,
 )
 from nauro.store.reader import read_text_lenient
 from nauro.store.snapshot import (
@@ -202,15 +200,15 @@ def _emit_write_event(
         return
 
     payload = {k: v for k, v in bound.arguments.items() if k not in ("store_path", "origin")}
-    event = JournalEvent(
+    record_event(
+        store_path,
         operation=operation,
         target=target,
         status=journal_status,
-        decision_id=decision_id,
+        payload=payload,
         origin=origin,
-        payload_hash=payload_hash(payload),
+        decision_id=decision_id,
     )
-    append_event(store_path, event)
 
 
 def _reject_if_too_long(value: str, label: str, max_length: int) -> dict | None:

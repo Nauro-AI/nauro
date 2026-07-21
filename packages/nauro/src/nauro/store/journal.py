@@ -122,13 +122,49 @@ def payload_hash(payload: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def record_event(
+    store_path: Path,
+    *,
+    operation: str,
+    target: str,
+    status: str,
+    payload: dict,
+    origin: OriginDescriptor | None = None,
+    decision_id: str | None = None,
+) -> None:
+    """Construct, hash, and append a write-path event — fully fail-open.
+
+    Hashing and event construction join the append inside a single guarded
+    region: a journaling defect (an unhashable payload, a bad status) must never
+    escape into the caller after the underlying store write has already
+    committed. Callers pass raw ingredients rather than a pre-built event so no
+    construction happens outside the guard.
+    """
+    try:
+        event = JournalEvent(
+            operation=operation,
+            target=target,
+            status=status,  # type: ignore[arg-type]
+            decision_id=decision_id,
+            origin=origin,
+            payload_hash=payload_hash(payload),
+        )
+        append_event(store_path, event)
+    except Exception:
+        logger.debug("journal event emission failed for %s", operation, exc_info=True)
+
+
 def append_event(store_path: Path, event: JournalEvent) -> None:
-    """Append one event to the store's journal. Never raises (fail-open).
+    """Append one already-built event to the store's journal. Never raises.
 
     A journaling failure must never fail or block the underlying store write,
     so every error here is swallowed with a debug log. The dedicated journal
     lock is acquired after the caller's resource lock has been released, so it
     never nests inside a store or decision write lock.
+
+    The line is serialized with ``ensure_ascii=True`` so no raw non-ASCII byte
+    (including the Unicode line separators U+0085/U+2028/U+2029) can ever land
+    in the file and corrupt the one-event-per-line framing.
 
     Rotation is deliberately deferred: the journal grows unbounded in 1.x.
     """
@@ -136,7 +172,9 @@ def append_event(store_path: Path, event: JournalEvent) -> None:
         journal_dir = store_path / JOURNAL_DIR
         journal_dir.mkdir(parents=True, exist_ok=True)
         lock_path = journal_dir / JOURNAL_LOCK_NAME
-        line = event.model_dump_json(exclude_none=True) + "\n"
+        line = (
+            json.dumps(event.model_dump(mode="json", exclude_none=True), ensure_ascii=True) + "\n"
+        )
         with FileLock(str(lock_path)):
             with (journal_dir / JOURNAL_EVENTS_FILENAME).open("a", encoding="utf-8") as fh:
                 fh.write(line)
@@ -147,20 +185,21 @@ def append_event(store_path: Path, event: JournalEvent) -> None:
 def read_events(store_path: Path) -> list[JournalEvent]:
     """Read all parseable events from the store's journal.
 
-    Internal reader — not wired to any CLI or MCP surface. Tolerates a
-    truncated final record (an interrupted append leaves a partial last line):
-    any line that fails to parse or validate is skipped rather than raising.
+    Internal reader — not wired to any CLI or MCP surface. The file is read as
+    bytes and split on ``b"\\n"`` so a truncated final record — an interrupted
+    append can leave a partial multibyte UTF-8 character — is decoded per line
+    inside the tolerated path: any line that fails to decode, parse, or validate
+    is skipped rather than raising.
     """
     events_file = store_path / JOURNAL_DIR / JOURNAL_EVENTS_FILENAME
     if not events_file.exists():
         return []
     events: list[JournalEvent] = []
-    for line in events_file.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped:
+    for chunk in events_file.read_bytes().split(b"\n"):
+        if not chunk.strip():
             continue
         try:
-            events.append(JournalEvent.model_validate(json.loads(stripped)))
-        except (json.JSONDecodeError, ValidationError):
+            events.append(JournalEvent.model_validate(json.loads(chunk.decode("utf-8"))))
+        except (UnicodeDecodeError, json.JSONDecodeError, ValidationError):
             continue
     return events
