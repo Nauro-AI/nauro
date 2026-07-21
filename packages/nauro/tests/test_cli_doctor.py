@@ -63,6 +63,24 @@ def test_defective_store_exits_zero_and_renders_defects(tmp_path: Path) -> None:
     assert "D999" in result.stdout
 
 
+def test_unknown_frontmatter_key_renders_advisory_on_clean_store(tmp_path: Path) -> None:
+    """An unknown key is advisory: the store is still clean (exit 0, the
+    clean message prints) and the advisory section prints alongside it."""
+    store = _new_store(tmp_path)
+    canonical = _decision_md(12)
+    close = canonical.find("\n---\n", len("---\n"))
+    with_unknown = canonical[:close] + "\norigin: codex-1.2.3" + canonical[close:]
+    write_decision_file(store, 12, "unknown-key", with_unknown)
+
+    result = runner.invoke(app, ["doctor", "--project", "docproj"])
+
+    assert result.exit_code == 0
+    assert "No integrity defects found." in result.stdout
+    assert "Unknown frontmatter keys" in result.stdout
+    assert "D12" in result.stdout
+    assert "origin" in result.stdout
+
+
 def test_project_resolution_and_report_header(tmp_path: Path) -> None:
     _new_store(tmp_path, name="another")
     result = runner.invoke(app, ["doctor", "--project", "another"])

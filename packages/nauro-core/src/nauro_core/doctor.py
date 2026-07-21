@@ -12,6 +12,11 @@ and reports four kinds of structural defect in the decision set:
        or a forward/back conflict where ``X.supersedes=Y`` while ``Y`` records
        ``superseded_by=Z`` naming a third, present decision.
 
+It also surfaces unknown frontmatter keys — keys the reader tolerates and
+preserves but does not model. This is advisory, not a defect: the tolerant
+reader accepts them by design, so they do not make a store unclean
+(:attr:`StoreDiagnosis.is_clean` stays tied to the four defect categories).
+
 Every check is zero-false-positive by construction and the output is fully
 sorted, so two diagnoses over the same store are identical. The module stands
 apart from ``graph.py``: that builder's edge collection keeps only live
@@ -87,6 +92,19 @@ class StatusContradiction(BaseModel):
     conflicting_with: int | None = None
 
 
+class UnknownFrontmatterKeys(BaseModel):
+    """A parsed decision carrying frontmatter keys the reader does not model.
+
+    Advisory only: the tolerant reader preserves these keys, so their presence
+    is not an integrity defect. ``keys`` is sorted.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    number: int
+    keys: tuple[str, ...]
+
+
 class StoreDiagnosis(BaseModel):
     """The full result of :func:`diagnose_store`. Every list is sorted."""
 
@@ -96,10 +114,15 @@ class StoreDiagnosis(BaseModel):
     dangling_refs: list[DanglingRef] = Field(default_factory=list)
     cycles: list[SupersessionCycle] = Field(default_factory=list)
     contradictions: list[StatusContradiction] = Field(default_factory=list)
+    unknown_frontmatter_keys: list[UnknownFrontmatterKeys] = Field(default_factory=list)
 
     @property
     def is_clean(self) -> bool:
-        """True when no defect of any category was found."""
+        """True when no defect of any category was found.
+
+        Unknown frontmatter keys are advisory, not a defect, so they never
+        make a store unclean.
+        """
         return not (self.unparseable or self.dangling_refs or self.cycles or self.contradictions)
 
 
@@ -124,13 +147,25 @@ def diagnose_store(store: Store) -> StoreDiagnosis:
     dangling_refs = _dangling_refs(parsed, existing_numbers)
     cycles = _cycles(parsed)
     contradictions = _contradictions(parsed, by_num, existing_numbers)
+    unknown_frontmatter_keys = _unknown_frontmatter_keys(parsed)
 
     return StoreDiagnosis(
         unparseable=unparseable,
         dangling_refs=dangling_refs,
         cycles=cycles,
         contradictions=contradictions,
+        unknown_frontmatter_keys=unknown_frontmatter_keys,
     )
+
+
+def _unknown_frontmatter_keys(parsed: list[Decision]) -> list[UnknownFrontmatterKeys]:
+    """Decisions carrying tolerated-but-unmodeled frontmatter keys. Sorted."""
+    rows: list[UnknownFrontmatterKeys] = []
+    for d in parsed:
+        extras = d.model_extra or {}
+        if extras:
+            rows.append(UnknownFrontmatterKeys(number=d.num, keys=tuple(sorted(extras))))
+    return sorted(rows, key=lambda row: row.number)
 
 
 def _index_by_num(parsed: list[Decision]) -> dict[int, Decision]:

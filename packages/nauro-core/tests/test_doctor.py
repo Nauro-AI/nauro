@@ -17,7 +17,7 @@ from nauro_core.decision_model import (
     format_decision,
 )
 from nauro_core.doctor import diagnose_store
-from nauro_core.operations import InMemoryStore
+from nauro_core.operations import InMemoryStore, propose_decision
 
 
 def _stem(num: int, slug: str = "decision") -> str:
@@ -217,3 +217,64 @@ def test_deterministic_ordering() -> None:
         _stem(30, "zeta"),
     ]
     assert [(r.source, r.target) for r in diagnosis.dangling_refs] == [(5, 800), (20, 900)]
+
+
+# ── Unknown frontmatter keys (advisory) ──
+
+
+def _inject_unknown(body: str, line: str) -> str:
+    """Insert a raw ``key: value`` frontmatter line before the closing fence."""
+    close = body.find("\n---\n", len("---\n"))
+    return body[:close] + f"\n{line}" + body[close:]
+
+
+def test_unknown_frontmatter_key_surfaced() -> None:
+    store = InMemoryStore(decisions={_stem(12): _inject_unknown(_body(12), "origin: codex-1.2.3")})
+    diagnosis = diagnose_store(store)
+    assert len(diagnosis.unknown_frontmatter_keys) == 1
+    row = diagnosis.unknown_frontmatter_keys[0]
+    assert row.number == 12
+    assert row.keys == ("origin",)
+
+
+def test_unknown_frontmatter_key_does_not_make_store_unclean() -> None:
+    store = InMemoryStore(decisions={_stem(12): _inject_unknown(_body(12), "origin: codex-1.2.3")})
+    diagnosis = diagnose_store(store)
+    # The only finding is the advisory unknown key; the store stays clean.
+    assert diagnosis.unparseable == []
+    assert diagnosis.dangling_refs == []
+    assert diagnosis.cycles == []
+    assert diagnosis.contradictions == []
+    assert diagnosis.is_clean is True
+
+
+def test_supersede_preserves_unknown_key_on_flipped_old_file() -> None:
+    # An old decision carries an unknown key; superseding it flips status and
+    # writes superseded_by via model_copy. The unknown key must survive that
+    # rewrite — a reader that dropped it would strip newer-version fields.
+    old_stem = "001-adopt-postgresql-primary-database"
+    canonical = format_decision(
+        Decision(
+            date=date(2026, 1, 1),
+            confidence=DecisionConfidence.medium,
+            num=1,
+            title="Adopt PostgreSQL primary database",
+            rationale="Mature ecosystem with strong JSON support.",
+        )
+    )
+    store = InMemoryStore(decisions={old_stem: _inject_unknown(canonical, "origin: codex-1.2.3")})
+
+    result = propose_decision(
+        store,
+        title="Switch to managed PostgreSQL provider",
+        rationale="Reduces operational burden; the self-hosting rationale no longer applies.",
+        confidence="medium",
+        operation="supersede",
+        affected_decision_id="decision-001",
+    )
+    assert result.status == "confirmed"
+
+    flipped = store.read_decision(old_stem)
+    assert flipped is not None
+    assert "status: superseded" in flipped
+    assert "origin: codex-1.2.3" in flipped
