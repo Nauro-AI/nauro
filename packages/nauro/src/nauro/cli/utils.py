@@ -41,18 +41,24 @@ class DisconnectedProjectExit(typer.Exit):
     """CLI resolution already rendered typed reconnect guidance."""
 
 
-def cli_origin() -> OriginDescriptor:
+def cli_origin() -> OriginDescriptor | None:
     """Origin descriptor stamped on every write-path event from the CLI surface.
 
     Shared by the auto-generated write commands and the hand-written direct-write
     commands (``note``, ``import``) so the transport attribution is identical
-    across both.
+    across both. Total by construction: origin is provenance, never load-bearing
+    for the write, so any failure yields ``None`` rather than raising. The direct
+    commands additionally pass this as an ``origin_factory`` so even a defective
+    override is caught inside the journal's fail-open guard.
     """
-    return OriginDescriptor(
-        transport="cli",
-        client_name="nauro-cli",
-        client_version=__version__,
-    )
+    try:
+        return OriginDescriptor(
+            transport="cli",
+            client_name="nauro-cli",
+            client_version=__version__,
+        )
+    except Exception:
+        return None
 
 
 def refuse_global_config_collision(repo_root: Path) -> None:

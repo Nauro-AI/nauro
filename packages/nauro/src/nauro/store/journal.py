@@ -23,7 +23,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -129,18 +131,21 @@ def record_event(
     target: str,
     status: str,
     payload: dict,
-    origin: OriginDescriptor | None = None,
+    origin_factory: Callable[[], OriginDescriptor | None] | None = None,
     decision_id: str | None = None,
 ) -> None:
     """Construct, hash, and append a write-path event — fully fail-open.
 
-    Hashing and event construction join the append inside a single guarded
-    region: a journaling defect (an unhashable payload, a bad status) must never
-    escape into the caller after the underlying store write has already
-    committed. Callers pass raw ingredients rather than a pre-built event so no
-    construction happens outside the guard.
+    The origin is built by ``origin_factory`` *inside* the guard rather than
+    passed as a value: an argument expression is evaluated before the call, so
+    passing a constructed descriptor would leave its construction outside the
+    fail-open region. Hashing, origin construction, and event construction all
+    join the append inside one ``try``: a journaling defect (an unhashable
+    payload, a bad status, a raising origin builder) must never escape into the
+    caller after the underlying store write has already committed.
     """
     try:
+        origin = origin_factory() if origin_factory is not None else None
         event = JournalEvent(
             operation=operation,
             target=target,
@@ -166,6 +171,11 @@ def append_event(store_path: Path, event: JournalEvent) -> None:
     (including the Unicode line separators U+0085/U+2028/U+2029) can ever land
     in the file and corrupt the one-event-per-line framing.
 
+    A crash mid-append can leave a final record with no trailing newline;
+    before appending, the file is checked and a newline is inserted first if
+    needed, so a new committed event never concatenates onto a corrupt partial
+    line and drag both into unreadability.
+
     Rotation is deliberately deferred: the journal grows unbounded in 1.x.
     """
     try:
@@ -175,9 +185,14 @@ def append_event(store_path: Path, event: JournalEvent) -> None:
         line = (
             json.dumps(event.model_dump(mode="json", exclude_none=True), ensure_ascii=True) + "\n"
         )
+        events_path = journal_dir / JOURNAL_EVENTS_FILENAME
         with FileLock(str(lock_path)):
-            with (journal_dir / JOURNAL_EVENTS_FILENAME).open("a", encoding="utf-8") as fh:
-                fh.write(line)
+            with events_path.open("a+b") as fh:
+                if fh.seek(0, os.SEEK_END) > 0:
+                    fh.seek(-1, os.SEEK_END)
+                    if fh.read(1) != b"\n":
+                        fh.write(b"\n")
+                fh.write(line.encode("utf-8"))
     except Exception:
         logger.debug("journal append failed for %s", store_path, exc_info=True)
 

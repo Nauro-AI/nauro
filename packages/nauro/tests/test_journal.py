@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from nauro.mcp import tools
 from nauro.mcp.tools import tool_flag_question, tool_propose_decision, tool_update_state
@@ -106,6 +107,27 @@ class TestAppendReadEvents:
             fh.write('{"operation": "flag_question", "target": "open-que')
         events = read_events(store)
         assert len(events) == 2
+
+    def test_append_after_unterminated_tail_stays_readable(self, store: Path):
+        # A crash mid-append can leave a final line with no trailing newline.
+        # The next append must not concatenate onto that corrupt fragment and
+        # render the new (valid) event unreadable too.
+        journal = store / JOURNAL_DIR
+        journal.mkdir(parents=True, exist_ok=True)
+        _events_file(store).write_bytes(b'{"operation": "flag_question", "target": "open-que')
+        append_event(
+            store,
+            JournalEvent(
+                operation="update_state",
+                target="state_current.md",
+                status="committed",
+                origin=_ORIGIN,
+                payload_hash=payload_hash({"delta": "x"}),
+            ),
+        )
+        events = read_events(store)
+        assert len(events) == 1
+        assert events[0].operation == "update_state"
 
     def test_truncated_final_multibyte_character_is_tolerated(self, store: Path):
         append_event(
@@ -231,9 +253,50 @@ class TestFailOpen:
             target="state_current.md",
             status="committed",
             payload={"delta": "x"},
-            origin=_ORIGIN,
+            origin_factory=lambda: _ORIGIN,
         )
         assert read_events(store) == []
+
+    def test_record_event_swallows_raising_origin_factory(self, store: Path):
+        # A raising origin factory is invoked inside the guard, so nothing
+        # escapes and nothing is written.
+        from nauro.store.journal import record_event
+
+        def boom():
+            raise RuntimeError("origin boom")
+
+        record_event(
+            store,
+            operation="update_state",
+            target="state_current.md",
+            status="committed",
+            payload={"delta": "x"},
+            origin_factory=boom,
+        )
+        assert read_events(store) == []
+
+    def test_note_write_survives_raising_origin_factory(self, tmp_path: Path, monkeypatch):
+        # The origin is constructed inside record_event's guard, so a defective
+        # cli_origin override cannot escape after the note has committed.
+        from nauro.cli.commands import note as note_cmd
+        from nauro.cli.main import app
+
+        def boom():
+            raise RuntimeError("cli_origin boom")
+
+        monkeypatch.setattr(note_cmd, "cli_origin", boom)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _pid, store_path = register_project_v2("noteproj", [repo])
+        scaffold_project_store("noteproj", store_path)
+        monkeypatch.chdir(repo)
+
+        result = CliRunner().invoke(app, ["note", "Use Postgres for v2 storage"])
+        assert result.exit_code == 0, result.output
+        # The decision landed; the journal simply recorded nothing for it.
+        assert any(store_path.glob("decisions/*postgres*.md"))
+        assert read_events(store_path) == []
 
 
 # --- adapter wiring: committed / rejected / no-event -------------------------

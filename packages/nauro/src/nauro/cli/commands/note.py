@@ -110,7 +110,7 @@ def note(
             target=OPEN_QUESTIONS_MD,
             status="committed",
             payload={"question": text},
-            origin=cli_origin(),
+            origin_factory=cli_origin,
         )
         typer.echo(f"Question added to {project_name}:")
         typer.echo(f"  {text}")
@@ -134,7 +134,7 @@ def note(
             target=DECISIONS_DIR,
             status="committed",
             payload={"title": text, "rationale": rationale, "confidence": confidence},
-            origin=cli_origin(),
+            origin_factory=cli_origin,
             decision_id=decision_id,
         )
         filepath = store_path / DECISIONS_DIR / f"{decision_id}.md"

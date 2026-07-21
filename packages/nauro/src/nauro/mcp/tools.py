@@ -200,13 +200,16 @@ def _emit_write_event(
         return
 
     payload = {k: v for k, v in bound.arguments.items() if k not in ("store_path", "origin")}
+    # The transport already built the descriptor before this adapter ran; the
+    # factory just hands it back inside record_event's guard, keeping a single
+    # emission interface across every call site.
     record_event(
         store_path,
         operation=operation,
         target=target,
         status=journal_status,
         payload=payload,
-        origin=origin,
+        origin_factory=lambda: origin,
         decision_id=decision_id,
     )
 

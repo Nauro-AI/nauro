@@ -59,7 +59,7 @@ def _import_append_decision(
         target=DECISIONS_DIR,
         status="committed",
         payload=proposal,
-        origin=cli_origin(),
+        origin_factory=cli_origin,
         decision_id=decision_id,
     )
 
@@ -78,7 +78,7 @@ def _journal_import_merge(store_path: Path, target: str, content: str) -> None:
         target=target,
         status="committed",
         payload={"content": content},
-        origin=cli_origin(),
+        origin_factory=cli_origin,
     )
 
 
@@ -160,7 +160,7 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
                 target=STATE_CURRENT_FILENAME,
                 status="committed",
                 payload={"delta": delta},
-                origin=cli_origin(),
+                origin_factory=cli_origin,
             )
 
     return counts

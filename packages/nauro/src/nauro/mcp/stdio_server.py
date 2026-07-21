@@ -183,7 +183,7 @@ def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
         return None, {"store": "local", "status": "error", "guidance": str(exc)}
 
 
-def _origin_from_ctx(mcp_ctx: Context | None) -> OriginDescriptor:
+def _origin_from_ctx(mcp_ctx: Context | None) -> OriginDescriptor | None:
     """Build the stdio-MCP origin descriptor from the request Context.
 
     ``clientInfo`` comes from the client's unauthenticated ``initialize``
@@ -191,21 +191,27 @@ def _origin_from_ctx(mcp_ctx: Context | None) -> OriginDescriptor:
     ``ctx.session.client_params.clientInfo``. Every hop is guarded so a client
     that sent no ``clientInfo`` (or a Context absent entirely, as in a direct
     unit test) still yields a well-formed descriptor with the name/version
-    unset. The descriptor bounds and sanitizes the strings itself.
+    unset. Total by construction: origin is provenance, never load-bearing for
+    the write, so any failure yields ``None`` rather than raising.
     """
-    client_name: str | None = None
-    client_version: str | None = None
-    session = getattr(mcp_ctx, "session", None) if mcp_ctx is not None else None
-    client_params = getattr(session, "client_params", None) if session is not None else None
-    client_info = getattr(client_params, "clientInfo", None) if client_params is not None else None
-    if client_info is not None:
-        client_name = getattr(client_info, "name", None)
-        client_version = getattr(client_info, "version", None)
-    return OriginDescriptor(
-        transport="stdio-mcp",
-        client_name=client_name,
-        client_version=client_version,
-    )
+    try:
+        client_name: str | None = None
+        client_version: str | None = None
+        session = getattr(mcp_ctx, "session", None) if mcp_ctx is not None else None
+        client_params = getattr(session, "client_params", None) if session is not None else None
+        client_info = (
+            getattr(client_params, "clientInfo", None) if client_params is not None else None
+        )
+        if client_info is not None:
+            client_name = getattr(client_info, "name", None)
+            client_version = getattr(client_info, "version", None)
+        return OriginDescriptor(
+            transport="stdio-mcp",
+            client_name=client_name,
+            client_version=client_version,
+        )
+    except Exception:
+        return None
 
 
 # ``cwd`` exists only on the local transport (the hosted server has no
