@@ -14,10 +14,11 @@ from nauro_core.constants import STATE_CURRENT_FILENAME
 from nauro_core.operations import update_state as _update_state_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
-from nauro.cli.utils import resolve_target_project
-from nauro.constants import PROJECT_MD, STACK_MD
+from nauro.cli.utils import cli_origin, resolve_target_project
+from nauro.constants import DECISIONS_DIR, PROJECT_MD, STACK_MD
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.journal import record_event
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.store_lock import store_write_lock
 
@@ -41,19 +42,44 @@ def _import_append_decision(
     confidence: str = "medium",
 ) -> None:
     """Adapter for the import paths: write a decision via the kernel."""
+    proposal = {
+        "title": title,
+        "rationale": rationale,
+        "rejected": rejected,
+        "confidence": confidence,
+    }
     # Hold the allocation lock across the number computation and the write so
     # concurrent local writers cannot mint the same decision number. The
     # post-loop capture_snapshot stays outside the lock.
     with decision_write_lock(store_path):
-        _write_decision_direct(
-            FilesystemStore(store_path),
-            {
-                "title": title,
-                "rationale": rationale,
-                "rejected": rejected,
-                "confidence": confidence,
-            },
-        )
+        decision_id = _write_decision_direct(FilesystemStore(store_path), proposal)
+    record_event(
+        store_path,
+        operation="propose_decision",
+        target=DECISIONS_DIR,
+        status="committed",
+        payload=proposal,
+        origin_factory=cli_origin,
+        decision_id=decision_id,
+    )
+
+
+def _journal_import_merge(store_path: Path, target: str, content: str) -> None:
+    """Record a committed write-path event for a Memory Bank file merge.
+
+    projectBrief.md → project.md and techContext.md → stack.md mutate store
+    content, so they carry provenance like every other write path. The
+    ``import_merge`` operation names the action; ``target`` names the file
+    touched.
+    """
+    record_event(
+        store_path,
+        operation="import_merge",
+        target=target,
+        status="committed",
+        payload={"content": content},
+        origin_factory=cli_origin,
+    )
 
 
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
@@ -85,19 +111,17 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
     # projectBrief.md → project.md
     brief_path = memory_bank / "projectBrief.md"
     if brief_path.exists():
-        _append_to_store_file(
-            store_path / PROJECT_MD,
-            _read(brief_path),
-        )
+        brief = _read(brief_path)
+        if _append_to_store_file(store_path / PROJECT_MD, brief):
+            _journal_import_merge(store_path, PROJECT_MD, brief)
         counts["files_merged"] += 1
 
     # techContext.md → stack.md
     tech_path = memory_bank / "techContext.md"
     if tech_path.exists():
-        _append_to_store_file(
-            store_path / STACK_MD,
-            _read(tech_path),
-        )
+        tech = _read(tech_path)
+        if _append_to_store_file(store_path / STACK_MD, tech):
+            _journal_import_merge(store_path, STACK_MD, tech)
         counts["files_merged"] += 1
 
     # decisionLog.md → decisions/NNN-title.md
@@ -128,7 +152,16 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
         # state_history.md; hold one lock across the whole kernel call so a
         # concurrent local writer cannot drop an update on either file.
         with store_write_lock(store_path, STATE_CURRENT_FILENAME):
-            _update_state_op(FilesystemStore(store_path), delta)
+            state_result = _update_state_op(FilesystemStore(store_path), delta)
+        if state_result.status != "noop":
+            record_event(
+                store_path,
+                operation="update_state",
+                target=STATE_CURRENT_FILENAME,
+                status="committed",
+                payload={"delta": delta},
+                origin_factory=cli_origin,
+            )
 
     return counts
 
@@ -167,22 +200,25 @@ def _compose_state_delta(active_body: str | None, progress_items: list[str]) -> 
     return None
 
 
-def _append_to_store_file(target: Path, content: str) -> None:
+def _append_to_store_file(target: Path, content: str) -> bool:
     """Append imported content to an existing store markdown file.
 
     Adds a ## Imported from Memory Bank header before the content.
     If the file doesn't exist, creates it with just the imported content.
+    Returns True when a write occurred, False when the content was empty and
+    the file was left untouched.
     """
     header = "\n\n## Imported from Memory Bank\n\n"
     stripped = content.strip()
     if not stripped:
-        return
+        return False
 
     if target.exists():
         existing = _read(target)
         target.write_text(existing.rstrip() + header + stripped + "\n", encoding="utf-8")
     else:
         target.write_text(header.lstrip() + stripped + "\n", encoding="utf-8")
+    return True
 
 
 def _parse_and_import_decisions(content: str, store_path: Path) -> int:

@@ -8,12 +8,14 @@ converts flag_question and update_state to strings for FastMCP compatibility).
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from nauro_core.constants import (
+    DECISIONS_DIR,
     MAX_CONTEXT_LENGTH,
     MAX_DELTA_LENGTH,
     MAX_QUESTION_LENGTH,
@@ -64,6 +66,10 @@ from nauro.onboarding import (
 from nauro.store.config import resolve_embeddings_flag
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.journal import (
+    OriginDescriptor,
+    record_event,
+)
 from nauro.store.reader import read_text_lenient
 from nauro.store.snapshot import (
     capture_snapshot,
@@ -120,6 +126,92 @@ def _stamp_identity(func: Callable[..., Any]) -> Callable[..., Any]:
         return result
 
     return wrapper
+
+
+# Map a tool envelope ``status`` to a journal event status. ``committed`` and
+# ``rejected`` are the only two journalled outcomes; every other status (a
+# store-missing ``error`` guidance envelope, an ``update_state`` ``noop``) is a
+# non-event and records nothing.
+_COMMITTED_STATUSES: frozenset[str] = frozenset({"confirmed", "ok"})
+_REJECTED_STATUSES: frozenset[str] = frozenset({"rejected"})
+
+
+def journaled(*, operation: str, target: str) -> Callable[..., Any]:
+    """Append a write-path provenance event after the wrapped adapter returns.
+
+    The event is emitted *after* the adapter has returned — the adapter's own
+    resource lock (decision/store write lock) is released by then, so the
+    journal's dedicated lock never nests inside it. Emission is fail-open: the
+    hash and append are wrapped so a journaling defect can never turn a
+    successful write into a failure.
+
+    The payload hashed is the adapter's logical arguments with ``store_path``
+    and ``origin`` removed — ``origin`` is provenance, not payload, and
+    ``store_path`` is environment. ``committed`` events carry ``decision_id``
+    when the envelope reports one; ``rejected`` events carry the payload hash
+    and no decision id.
+    """
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        sig = inspect.signature(func)
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            result = func(*args, **kwargs)
+            try:
+                _emit_write_event(func, sig, operation, target, args, kwargs, result)
+            except Exception:
+                logger.debug("journal event emission failed for %s", operation, exc_info=True)
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+def _emit_write_event(
+    func: Callable[..., Any],
+    sig: inspect.Signature,
+    operation: str,
+    target: str,
+    args: tuple,
+    kwargs: dict,
+    result: Any,
+) -> None:
+    """Build and append the journal event for a completed write-path call."""
+    if not isinstance(result, dict):
+        return
+    status = result.get("status")
+    if status in _COMMITTED_STATUSES:
+        journal_status = "committed"
+        decision_id = result.get("decision_id")
+    elif status in _REJECTED_STATUSES:
+        journal_status = "rejected"
+        decision_id = None
+    else:
+        # error guidance, noop, or an unrecognised status: nothing to record.
+        return
+
+    bound = sig.bind(*args, **kwargs)
+    bound.apply_defaults()
+    store_path = bound.arguments.get("store_path")
+    origin = bound.arguments.get("origin")
+    if not isinstance(store_path, Path):
+        return
+
+    payload = {k: v for k, v in bound.arguments.items() if k not in ("store_path", "origin")}
+    # The transport already built the descriptor before this adapter ran; the
+    # factory just hands it back inside record_event's guard, keeping a single
+    # emission interface across every call site.
+    record_event(
+        store_path,
+        operation=operation,
+        target=target,
+        status=journal_status,
+        payload=payload,
+        origin_factory=lambda: origin,
+        decision_id=decision_id,
+    )
 
 
 def _reject_if_too_long(value: str, label: str, max_length: int) -> dict | None:
@@ -277,6 +369,7 @@ def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
 
 
 @_stamp_identity
+@journaled(operation="propose_decision", target=DECISIONS_DIR)
 def tool_propose_decision(
     store_path: Path,
     title: str = "",
@@ -289,6 +382,8 @@ def tool_propose_decision(
     reversibility: str | None = None,
     files_affected: list[str] | None = None,
     resolves_questions: list[str] | None = None,
+    *,
+    origin: OriginDescriptor | None = None,
 ) -> dict:
     """Propose a new decision through the validation pipeline."""
     guidance = _check_store_exists(store_path)
@@ -469,12 +564,15 @@ Surface related existing decisions without writing anything.
 
 
 @_stamp_identity
+@journaled(operation="flag_question", target=OPEN_QUESTIONS_MD)
 def tool_flag_question(
     store_path: Path,
     question: str | None = None,
     context: str | None = None,
     targets: list[str] | None = None,
     resolved_by: str | None = None,
+    *,
+    origin: OriginDescriptor | None = None,
 ) -> dict:
     """Flag an open question, or resolve existing entries against a decision.
 
@@ -766,7 +864,13 @@ def tool_search_decisions(
 
 
 @_stamp_identity
-def tool_update_state(store_path: Path, delta: str) -> dict:
+@journaled(operation="update_state", target=STATE_CURRENT_FILENAME)
+def tool_update_state(
+    store_path: Path,
+    delta: str,
+    *,
+    origin: OriginDescriptor | None = None,
+) -> dict:
     """Update current project state. Returns a warning on keyword overlap."""
     guidance = _check_store_exists(store_path)
     if guidance:

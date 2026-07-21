@@ -16,7 +16,9 @@ from pathlib import Path
 
 import typer
 
+from nauro import __version__
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
+from nauro.store.journal import OriginDescriptor
 from nauro.store.registry import (
     RegistrySchemaError,
     add_repo_v2,
@@ -37,6 +39,26 @@ from nauro.store.write_safety import find_symlink
 
 class DisconnectedProjectExit(typer.Exit):
     """CLI resolution already rendered typed reconnect guidance."""
+
+
+def cli_origin() -> OriginDescriptor | None:
+    """Origin descriptor stamped on every write-path event from the CLI surface.
+
+    Shared by the auto-generated write commands and the hand-written direct-write
+    commands (``note``, ``import``) so the transport attribution is identical
+    across both. Total by construction: origin is provenance, never load-bearing
+    for the write, so any failure yields ``None`` rather than raising. The direct
+    commands additionally pass this as an ``origin_factory`` so even a defective
+    override is caught inside the journal's fail-open guard.
+    """
+    try:
+        return OriginDescriptor(
+            transport="cli",
+            client_name="nauro-cli",
+            client_version=__version__,
+        )
+    except Exception:
+        return None
 
 
 def refuse_global_config_collision(repo_root: Path) -> None:
@@ -213,6 +235,7 @@ def _resolve_project_entry(project_name: str, project_key: str) -> dict:
 # Re-exported for callers that need to write or extend v2 entries directly
 __all__ = [
     "add_repo_v2",
+    "cli_origin",
     "DisconnectedProjectExit",
     "refuse_global_config_collision",
     "refuse_repo_config_symlink",

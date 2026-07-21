@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.graph import DEFAULT_GRAPH_FILENAME
+from nauro.store.journal import JOURNAL_DIR
 from nauro.store.store_lock import DIR_LOCK_NAME, RMW_LOCK_SUFFIX
 from nauro.sync.state import SyncState
 
@@ -40,11 +41,22 @@ LOCK_ARTIFACT_SUFFIXES = (".md.lock", ".json.lock", RMW_LOCK_SUFFIX)
 
 
 def should_skip(relative_path: str) -> bool:
-    """Return True if this file should never be synced."""
-    if relative_path in NEVER_SYNC:
+    """Return True if this file should never be synced.
+
+    Backslashes are normalized to forward slashes first: the push scan builds
+    relative paths via ``str(relative_to(...))``, which yields ``\\`` separators
+    on Windows, so every prefix/basename/suffix check below operates on a
+    POSIX-normalized path and stays cross-platform.
+    """
+    normalized = relative_path.replace("\\", "/")
+    if normalized in NEVER_SYNC:
         return True
-    basename = relative_path.rsplit("/", 1)[-1]
-    return basename == DIR_LOCK_NAME or relative_path.endswith(LOCK_ARTIFACT_SUFFIXES)
+    # The write-path provenance journal is store-local by design: it is
+    # excluded from cloud sync in v1 (both its events log and its lock).
+    if normalized.startswith(JOURNAL_DIR + "/"):
+        return True
+    basename = normalized.rsplit("/", 1)[-1]
+    return basename == DIR_LOCK_NAME or normalized.endswith(LOCK_ARTIFACT_SUFFIXES)
 
 
 def detect_conflict(
