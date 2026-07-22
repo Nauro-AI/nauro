@@ -18,7 +18,7 @@ The record combines project scope, state, open questions, and the rationale behi
 
 https://github.com/user-attachments/assets/f75ede99-db11-4460-bc09-801c86df1e19
 
-*A real Codex session in Pareto, a reproducible mock project. Nauro retrieves an existing concurrency cap before the agent recommends an override. After approval, the agent records the decision and changes the code. This is one controlled example. Recurring value in other projects remains unproven.*
+*A real Codex session and then a Claude session in Pareto, a reproducible mock project.*
 
 ## Install
 
