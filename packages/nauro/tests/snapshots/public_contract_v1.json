@@ -488,6 +488,20 @@
         "name": "graph",
         "params": [
           {
+            "choices": [
+              "html",
+              "json"
+            ],
+            "default": "html",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "format",
+            "required": false,
+            "type": "choice"
+          },
+          {
             "default": true,
             "flags": [
               "--include-bodies",
@@ -631,6 +645,21 @@
           {
             "kind": "argument",
             "name": "name",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "journal",
+        "params": [
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
             "required": false,
             "type": "text"
           }
