@@ -1700,3 +1700,85 @@ def test_largest_consolidation_cluster_takes_origin(tmp_path, monkeypatch):
 
     # Determinism: same input renders identical positions.
     assert build_graph_layout(payload, priority_center=100)["positions"] == prioritized["positions"]
+
+
+# ── JSON emission (--format json) ──
+
+
+def test_json_format_emits_payload_to_stdout(tmp_path, monkeypatch):
+    """--format json prints the graph payload as parseable JSON on stdout."""
+    _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph", "--format", "json"])
+    assert result.exit_code == 0
+
+    payload = json.loads(result.stdout)
+    assert payload["payload_version"] == 2
+    numbers = {n["number"] for n in payload["nodes"]}
+    assert numbers == {2, 3, 4}
+
+
+def test_json_format_writes_no_html_file(tmp_path, monkeypatch):
+    """JSON mode creates no HTML file in the store directory."""
+    store = _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph", "--format", "json"])
+    assert result.exit_code == 0
+    assert not (store / "nauro-graph.html").exists()
+    assert next(tmp_path.glob("**/nauro-graph.html"), None) is None
+
+
+def test_json_format_never_opens_browser(tmp_path, monkeypatch, _no_browser):
+    """JSON mode never opens a browser, even with --open default on."""
+    _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph", "--format", "json"])
+    assert result.exit_code == 0
+    assert _no_browser == []
+
+
+def test_json_format_bodies_default_on_and_redact(tmp_path, monkeypatch):
+    """Bodies ride on nodes by default; --no-include-bodies drops them in JSON."""
+    store = _new_store(tmp_path, monkeypatch)
+    body = "The full rationale that rides on the node body by default."
+    write_decision_file(store, 2, "with-body", _decision_md(2, "A decision", body=body))
+
+    result = runner.invoke(app, ["graph", "--format", "json"])
+    assert result.exit_code == 0
+    node = next(n for n in json.loads(result.stdout)["nodes"] if n["number"] == 2)
+    assert body in node["body"]
+
+    result = runner.invoke(app, ["graph", "--format", "json", "--no-include-bodies"])
+    assert result.exit_code == 0
+    node = next(n for n in json.loads(result.stdout)["nodes"] if n["number"] == 2)
+    assert "body" not in node
+
+
+def test_json_format_with_output_exits_2(tmp_path, monkeypatch):
+    """--output combined with --format json is a usage error (exit 2)."""
+    _populated_store(tmp_path, monkeypatch)
+    target = tmp_path / "out.json"
+
+    result = runner.invoke(app, ["graph", "--format", "json", "--output", str(target)])
+    assert result.exit_code == 2
+    assert not target.exists()
+
+
+def test_json_format_is_byte_identical_across_runs(tmp_path, monkeypatch):
+    """Two JSON runs over the same store produce byte-identical stdout."""
+    _populated_store(tmp_path, monkeypatch)
+
+    first = runner.invoke(app, ["graph", "--format", "json"])
+    second = runner.invoke(app, ["graph", "--format", "json"])
+    assert first.exit_code == 0
+    assert second.exit_code == 0
+    assert first.stdout == second.stdout
+
+
+def test_default_format_html_still_writes_file(tmp_path, monkeypatch):
+    """The default (no --format) path still writes the HTML file to the store."""
+    store = _populated_store(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["graph", "--no-open"])
+    assert result.exit_code == 0
+    assert (store / "nauro-graph.html").exists()

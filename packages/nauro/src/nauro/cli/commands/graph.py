@@ -14,10 +14,19 @@ background context reads at a glance. ``--no-include-bodies`` drops the bodies
 for a redacted artifact (titles and metadata only) that is safe to share more
 widely. The store-directory output default still keeps the file out of git
 working trees in both modes.
+
+``--format json`` emits the graph payload as a JSON document on stdout instead
+of writing an HTML file: it builds the same payload, creates no file, and never
+opens a browser (``--open`` is inapplicable and unconditionally skipped). It is
+the machine-read the D456 desktop viewer consumes. ``--output`` is not honored
+in JSON mode and errors, because JSON is a stdout contract; shell redirection
+covers a human who wants a file.
 """
 
 from __future__ import annotations
 
+import enum
+import json
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +42,13 @@ from nauro.constants import DECISIONS_DIR
 from nauro.graph import DEFAULT_GRAPH_FILENAME, render_html
 from nauro.store._atomic import atomic_write_text
 from nauro.store.reader import read_text_lenient
+
+
+class GraphFormat(str, enum.Enum):
+    """Output format for the graph command."""
+
+    html = "html"
+    json = "json"
 
 
 def _read_decisions_lenient(store_path: Path) -> list[Decision]:
@@ -101,12 +117,20 @@ def graph(
     output: Path | None = typer.Option(
         None,
         "--output",
-        help="Write the HTML here instead of the store directory.",
+        help="Write the HTML here instead of the store directory. "
+        "Not valid with --format json (JSON goes to stdout; redirect it to a file).",
+    ),
+    format: GraphFormat = typer.Option(
+        GraphFormat.html,
+        "--format",
+        help="html writes a self-contained HTML file; json emits the graph "
+        "payload to stdout (no file, no browser).",
     ),
     open_browser: bool = typer.Option(
         True,
         "--open/--no-open",
-        help="Open the generated file in a browser (default on).",
+        help="Open the generated file in a browser (default on). "
+        "Inapplicable and skipped with --format json.",
     ),
     include_bodies: bool = typer.Option(
         True,
@@ -115,7 +139,15 @@ def graph(
         "Use --no-include-bodies for a redacted titles-and-metadata artifact.",
     ),
 ) -> None:
-    """Render the project's decision graph to a self-contained HTML file."""
+    """Render the project's decision graph to a self-contained HTML file, or to
+    a JSON document on stdout with --format json."""
+    if format is GraphFormat.json and output is not None:
+        raise typer.BadParameter(
+            "--output is not valid with --format json; JSON is written to stdout, "
+            "so redirect it to a file instead.",
+            param_hint="--output",
+        )
+
     project_name, store_path = resolve_target_project(project)
 
     decisions = _read_decisions_lenient(store_path)
@@ -123,6 +155,10 @@ def graph(
     payload = build_graph_payload(
         decisions, questions, project=project_name, include_bodies=include_bodies
     )
+
+    if format is GraphFormat.json:
+        typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     html = render_html(payload, generated_at=generated_at)

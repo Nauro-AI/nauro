@@ -57,6 +57,7 @@ def _register_commands() -> None:
         hook,
         import_cmd,
         init,
+        journal,
         link,
         log,
         note,
@@ -83,6 +84,7 @@ def _register_commands() -> None:
     app.add_typer(hook.hook_app, name="hook")
     app.command(name="sync")(sync.sync)
     app.command(name="graph")(graph.graph)
+    app.command(name="journal")(journal.journal)
     app.command(name="log")(log.log)
     app.command(name="import")(import_cmd.import_cmd)
     app.command(name="serve")(serve.serve)
