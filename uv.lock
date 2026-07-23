@@ -928,7 +928,7 @@ wheels = [
 
 [[package]]
 name = "nauro"
-version = "1.8.0"
+version = "1.9.0"
 source = { editable = "packages/nauro" }
 dependencies = [
     { name = "filelock" },
