@@ -50,6 +50,21 @@ WRITE_TOOL_ROWS: list[tuple[str, str]] = [
 ]
 
 
+# Rendered in AGENTS.md only: the shared static block sits a few characters
+# under its 1,700-char truncation budget (MCP_INSTRUCTIONS_STATIC_MAX_CHARS in
+# the nauro-core constants tests), so it cannot carry this section.
+EVIDENCE_RIDER_SECTION = (
+    "## When to record outcome evidence\n"
+    "\n"
+    "When the world tests an existing decision, propose an update rider on it: "
+    "an exception is approved against it, an incident traces back to it, it "
+    "survives a real test, or it stops mattering. Open the rider with a dated "
+    "evidence marker, `*Evidence (<type>, <date>):*`, with types exception, "
+    "held, pain, and obsolete. The rider goes through the same draft-and-approve "
+    "flow as any proposal.\n"
+)
+
+
 def _render_tool_rows(rows: list[tuple[str, str]]) -> str:
     return "\n".join(f"- `{sig}` - {desc}" for sig, desc in rows)
 
@@ -112,6 +127,7 @@ def generate_agents_md(
         "across agents and suggest they run 'nauro status'. If the 'nauro' command is not "
         "installed, install it with 'uv tool install nauro'.\n"
     )
+    parts.append(EVIDENCE_RIDER_SECTION)
     parts.append(f"## Project: {project_name}\n\n{l0_payload}\n")
 
     # Store-routing block. This file lives in the working copy, so any agent

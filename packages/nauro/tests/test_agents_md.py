@@ -59,6 +59,20 @@ def test_generate_includes_behavioral_instructions():
     assert "advisory conflict checks" not in result
 
 
+def test_generate_includes_evidence_rider_section():
+    result = generate_agents_md("myproj", "payload")
+    assert result.count("## When to record outcome evidence") == 1
+    assert "propose an update rider" in result
+    assert "`*Evidence (<type>, <date>):*`" in result
+    # Sits below the MCP-absent breadcrumb and above the project payload,
+    # leaving the canonical preflight block atomic.
+    breadcrumb_idx = result.index("If you have no Nauro MCP tools in this session")
+    evidence_idx = result.index("## When to record outcome evidence")
+    project_idx = result.index("## Project: myproj")
+    assert breadcrumb_idx < evidence_idx < project_idx
+    assert result.count(MCP_INSTRUCTIONS_STATIC) == 1
+
+
 def test_generate_frontloads_canonical_preflight_before_l0_payload():
     l0_payload = "**One-liner:** Stable project scope.\n\n## Current State\n\nActive work."
     result = generate_agents_md("myproj", l0_payload)
@@ -92,7 +106,8 @@ def test_generate_breadcrumb_names_only_the_self_routing_entry_command():
     # Scoped to the rendered breadcrumb paragraph (its start through the next
     # section header): it must not name any downstream remedy that `nauro status`
     # routes to. Other sections may legitimately mention these commands.
-    paragraph = result[result.index(breadcrumb) : result.index("## Project:")]
+    breadcrumb_start = result.index(breadcrumb)
+    paragraph = result[breadcrumb_start : result.index("\n## ", breadcrumb_start)]
     assert "reconnect" not in paragraph
     assert "setup all" not in paragraph
     assert "sync" not in paragraph
