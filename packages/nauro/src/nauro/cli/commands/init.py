@@ -261,7 +261,7 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
     if cwd_is_git:
         typer.echo(
             "  Warning: this directory is a git repo; the demo config will steer "
-            "its resolution to the demo doctrine.",
+            "its resolution to the demo project.",
             err=True,
         )
     typer.echo(
