@@ -106,7 +106,8 @@ def test_generate_breadcrumb_names_only_the_self_routing_entry_command():
     # Scoped to the rendered breadcrumb paragraph (its start through the next
     # section header): it must not name any downstream remedy that `nauro status`
     # routes to. Other sections may legitimately mention these commands.
-    paragraph = result[result.index(breadcrumb) : result.index("## Project:")]
+    breadcrumb_start = result.index(breadcrumb)
+    paragraph = result[breadcrumb_start : result.index("\n## ", breadcrumb_start)]
     assert "reconnect" not in paragraph
     assert "setup all" not in paragraph
     assert "sync" not in paragraph
