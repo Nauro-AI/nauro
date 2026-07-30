@@ -1192,7 +1192,7 @@ def _render_insight_labels(
 
     A label is a dark rounded pill behind stroked text so it reads on the dark
     canvas without bulk. The named top story (the largest consolidation, flagged
-    ``primary``) gets the stronger ``short`` form ("D297 · retires 13") as its
+    ``primary``) gets the stronger ``short`` form ("D42 · retires 13") as its
     at-rest headline; the others get the compact "D<n>" form. This is
     informational labelling, not a selection state, so the default view stays
     even-emphasis. The whole group is ``pointer-events: none`` in CSS so labels
@@ -1441,8 +1441,9 @@ def _barycentric_rows(
     Column 0 (the oldest generation, the retired leaves) keeps rows ascending by
     number. For every later column the row is the mean of the rows of the nodes
     the node supersedes (its predecessors one column to the left), so a retirer
-    sits vertically centered on the children that converge into it: D297 lands
-    centered on its 13 leaves, D208 centered between the D105 chain and D73.
+    sits vertically centered on the children that converge into it: a retirer
+    of 13 leaves lands centered on that fan, one with two predecessors lands
+    midway between them.
 
     Collisions within a column are resolved deterministically. Nodes are ordered
     by ``(barycenter, number)`` and then walked top to bottom, pushing each down

@@ -57,7 +57,7 @@ def test_remove_unadopts_repo_and_keeps_store(tmp_path, monkeypatch):
     # surface wiring + generated AGENTS.md gone (the .mcp.json had only nauro)
     assert not (repo / ".mcp.json").exists()
     assert not (repo / "AGENTS.md").exists()
-    # store left intact (D248: never delete decisions as a teardown side effect)
+    # store left intact (never delete decisions as a teardown side effect)
     assert store_path.is_dir()
     assert "store left intact" in result.output
 

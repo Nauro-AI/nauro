@@ -1,6 +1,6 @@
-"""Frozen-contract snapshot for the 1.0 public surface (D318).
+"""Frozen-contract snapshot for the 1.0 public surface.
 
-D318 took ``nauro`` and ``nauro-core`` to 1.0.0 and froze the *local product
+The 1.0 release took ``nauro`` and ``nauro-core`` to 1.0.0 and froze the *local product
 surface*: the stdio MCP tool contract (names + schemas), the CLI command tree
 (commands + flags), the on-disk store-format constants, and ``nauro-core``'s
 curated public import API. After 1.0, breaking any of these requires a major
@@ -18,7 +18,7 @@ can disagree with the code, which is exactly what a freeze needs.
 The test never decides major-vs-minor. It makes a contract change **loud**: an
 intentional change is a deliberate snapshot regen, and the resulting diff (e.g.
 ``+ "required": ["proposed_approach", "scope"]``) is the trigger to ask "is this
-a 2.0?" — a question for review (the @nauro-reviewer pass) against D318, not for
+a 2.0?" — a question for review (the @nauro-reviewer pass) against the freeze, not for
 this assertion.
 
 What is frozen here:
@@ -30,7 +30,8 @@ What is frozen here:
   - ``cli_autogen_commands`` — the explicit set of tools mirrored as CLI
                                commands (``AUTOGEN_ALLOWLIST``).
   - ``nauro_core_public_api``— ``nauro_core.__all__``, the curated import surface
-                               D318 promised (vs. the ~107 incidental exports).
+                               the 1.0 freeze promised (vs. the ~107 incidental
+                               exports).
   - ``public_constant_values``— the *values* of the store-format filenames,
                                schema version, size limits, and decision types
                                (renaming ``project.md`` breaks every store).
@@ -321,7 +322,7 @@ def test_public_contract_matches_snapshot() -> None:
             diff = diff[:8000] + "\n... (diff truncated)"
         raise AssertionError(
             "The 1.0 public contract has drifted from the checked-in snapshot "
-            f"({SNAPSHOT_PATH.name}). This is a frozen surface under D318: a change "
+            f"({SNAPSHOT_PATH.name}). This is a surface frozen at 1.0: a change "
             "here is a major-version (2.0) concern unless it is purely additive and "
             "you have confirmed so. If the change is intentional and reviewed, "
             f"regenerate with `{_UPDATE_ENV}=1 .venv/bin/python -m pytest "

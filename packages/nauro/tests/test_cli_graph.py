@@ -730,7 +730,7 @@ def test_timeline_marks_positioned_by_date_not_index(tmp_path, monkeypatch):
 
 
 def test_bodies_default_on_and_no_include_bodies_redacts(tmp_path, monkeypatch):
-    """Decision bodies render by default (D331); --no-include-bodies redacts them.
+    """Decision bodies render by default; --no-include-bodies redacts them.
 
     By default the body key is embedded and the rationale renders as structured
     HTML in the detail panel. --no-include-bodies drops the body key and the
