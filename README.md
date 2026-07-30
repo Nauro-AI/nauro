@@ -18,7 +18,7 @@ The record combines project scope, state, open questions, and the rationale behi
 
 https://github.com/user-attachments/assets/f75ede99-db11-4460-bc09-801c86df1e19
 
-*A real Codex session and then a Claude session in Pareto, the mock project Nauro is developed against.*
+*A real Codex session, then a Claude session in Pareto, Nauro's development mock project.*
 
 ## Install
 
@@ -30,7 +30,7 @@ Install `uv` with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS or 
 
 ## Try the demo
 
-Pennykeep, the tiny bundled demo project, needs no account or agent setup:
+Pennykeep, the bundled demo, needs no account or agent setup:
 
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
