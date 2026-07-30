@@ -55,6 +55,14 @@ Nauro surfaces prior judgment for the agent to assess. Retrieval is advisory and
 
 Adoption, setup, and incidental regeneration preserve an unmanaged `AGENTS.md` and warn. `nauro sync` is the sole explicit overwrite path. A `# Manual` section survives replacement.
 
+## Desktop app (macOS)
+
+A free, read-only viewer over the project record: timeline, map, list, activity, docs. First launch sets up the CLI.
+
+https://github.com/user-attachments/assets/e23d3d7f-2d5b-4ce4-be18-fcaff74e7973
+
+[Download for macOS (Apple silicon)](https://github.com/Nauro-AI/nauro-app-releases/releases/latest/download/Nauro-macOS-arm64.dmg), signed and notarized.
+
 ## Fit
 
 If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Nauro may be more than you need.
