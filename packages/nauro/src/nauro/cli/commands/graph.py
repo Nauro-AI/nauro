@@ -18,7 +18,7 @@ working trees in both modes.
 ``--format json`` emits the graph payload as a JSON document on stdout instead
 of writing an HTML file: it builds the same payload, creates no file, and never
 opens a browser (``--open`` is inapplicable and unconditionally skipped). It is
-the machine-read the D456 desktop viewer consumes. ``--output`` is not honored
+the machine-read the desktop viewer consumes. ``--output`` is not honored
 in JSON mode and errors, because JSON is a stdout contract; shell redirection
 covers a human who wants a file.
 """

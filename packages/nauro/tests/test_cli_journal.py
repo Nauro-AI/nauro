@@ -1,6 +1,6 @@
 """Tests for the ``nauro journal`` command.
 
-The command reads the store-local D455 event journal and emits every parseable
+The command reads the store-local event journal and emits every parseable
 event as a JSON array on stdout, oldest first. A missing or empty journal emits
 ``[]``; a truncated final record is skipped by the tolerant reader.
 """

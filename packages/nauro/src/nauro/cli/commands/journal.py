@@ -1,8 +1,8 @@
 """nauro journal: emit the write-path provenance journal as JSON on stdout.
 
-Reads the store-local D455 event journal and writes every parseable event as a
+Reads the store-local event journal and writes every parseable event as a
 single JSON array to stdout, oldest first (append order). It is the machine-read
-the D456 desktop viewer's operations log consumes; it is deliberately a
+the desktop viewer's operations log consumes; it is deliberately a
 hand-written CLI command, not an MCP tool, because it serves a local GUI read
 and does not belong on the frozen stdio tool contract.
 

@@ -278,7 +278,7 @@ def test_adopt_body_step0_mandates_two_citations_batch_confirm_and_precheck():
     assert "propose_decision" in body
     assert "direct-write bypass" in body
 
-    # Capture status; confirm does not imply filed (D272 active-title dedup can
+    # Capture status; confirm does not imply filed (active-title dedup can
     # reject a card colliding with one written earlier in the same batch).
     assert "captures the `propose_decision` return status" in body
     assert "does not assume confirm means filed" in body

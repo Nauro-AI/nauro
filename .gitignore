@@ -19,3 +19,7 @@ AGENTS.md
 **/.claude/settings.local.json
 .cursor/
 .mcp.json
+
+# >>> nauro: machine-local wiring (regenerated per machine) >>>
+/.codex/hooks.json
+# <<< nauro <<<

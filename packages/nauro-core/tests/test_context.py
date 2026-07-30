@@ -515,7 +515,7 @@ class TestBuildL0DiscoveryPointerExclusion:
         assert "RESUME:" not in result
 
     def test_select_pointer_excluded(self):
-        # SELECT: checkpoints (nauro-loop candidate sets, D322) are discovery
+        # SELECT: checkpoints (nauro-loop candidate sets) are discovery
         # pointers too and must not surface as L0 open questions.
         content = (
             "# Open Questions\n"

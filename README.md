@@ -18,7 +18,7 @@ The record combines project scope, state, open questions, and the rationale behi
 
 https://github.com/user-attachments/assets/f75ede99-db11-4460-bc09-801c86df1e19
 
-*A real Codex session and then a Claude session in Pareto, a reproducible mock project.*
+*A real Codex session, then a Claude session in Pareto, Nauro's development mock project.*
 
 ## Install
 
@@ -28,9 +28,9 @@ uv tool install nauro
 
 Install `uv` with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS or Linux, or use the [Windows instructions](https://docs.astral.sh/uv/getting-started/installation/). With Python 3.10 or newer, `pipx install nauro` also works.
 
-## Try Pennykeep
+## Try the demo
 
-The local demo needs no account or agent setup:
+Pennykeep, the bundled demo, needs no account or agent setup:
 
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
