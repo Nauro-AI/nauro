@@ -63,6 +63,29 @@ def _presign(ops) -> httpx.Response:
     )
 
 
+# A canonical decision carrying the base_commit provenance stamp as its
+# trailing frontmatter key. Sync moves raw bytes, so stamped files must
+# round-trip byte-identically like any other decision.
+_STAMPED_SHA = "a1b2c3d4" * 5
+_STAMPED_DECISION = (
+    "---\n"
+    "date: 2026-08-05\n"
+    "version: 1\n"
+    "status: active\n"
+    "confidence: high\n"
+    "decision_type: null\n"
+    "reversibility: null\n"
+    "source: null\n"
+    "files_affected: []\n"
+    "supersedes: null\n"
+    "superseded_by: null\n"
+    f"base_commit: {_STAMPED_SHA}\n"
+    "---\n\n"
+    "# 099 — Remote stamped decision\n\n"
+    "## Decision\n\nChose A.\n"
+).encode()
+
+
 class _RecordingReporter:
     """Records reported messages."""
 
@@ -110,6 +133,25 @@ class TestRunPullCleanPull:
         assert state.files[rel].remote_etag == '"new"'
         assert reporter.infos == ["Merged 1 file(s) from remote"]
         assert reporter.warns == []
+
+    def test_clean_pull_of_stamped_decision_is_byte_identical(self, cloud_store):
+        rel = "decisions/099-remote-stamped.md"
+        manifest = _manifest([{"path": rel, "etag": '"new"', "size": 1, "last_modified": "x"}])
+        presign = _presign([{"verb": "GET", "path": rel}])
+
+        def fake_get(url, **kwargs):
+            if "/sync/manifest" in url:
+                return manifest
+            return httpx.Response(200, content=_STAMPED_DECISION)
+
+        with (
+            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.post", return_value=presign),
+        ):
+            merged = run_pull(CLOUD_PID, cloud_store, _RecordingReporter())
+
+        assert merged == 1
+        assert (cloud_store / rel).read_bytes() == _STAMPED_DECISION
 
     def test_append_only_conflict_invokes_resolve_and_writes_merge(self, cloud_store):
         # state_history.md is append-only with section-aware set-union merge.
@@ -288,6 +330,22 @@ class TestRenumberDecisionIfCollision:
 
         assert rel == "decisions/003-same-slug.md"
         assert out == content
+
+    def test_collision_renumber_preserves_base_commit_stamp(self, project_store):
+        decisions_dir = project_store / "decisions"
+        decisions_dir.mkdir(exist_ok=True)
+        (decisions_dir / "099-local.md").write_text("# 099 — Local")
+
+        rel, out = _renumber_decision_if_collision(
+            project_store,
+            "decisions/099-remote-stamped.md",
+            _STAMPED_DECISION,
+        )
+
+        assert rel == "decisions/100-remote-stamped.md"
+        # Only the H1 number changed; the stamp line is untouched.
+        assert out == _STAMPED_DECISION.replace(b"# 099 ", b"# 100 ")
+        assert f"base_commit: {_STAMPED_SHA}".encode() in out
 
     def test_non_decision_files_pass_through(self, project_store):
         content = b"some content"

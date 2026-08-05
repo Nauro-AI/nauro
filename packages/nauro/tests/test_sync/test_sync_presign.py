@@ -468,6 +468,35 @@ class TestPushViaPresign:
         assert state.files["stack.md"].local_sha256 == new_sha
         assert state.files["stack.md"].remote_etag == '"e_pushed"'
 
+    def test_stamped_decision_pushed_byte_identical(self, cloud_store):
+        """A decision carrying the base_commit stamp uploads verbatim; the
+        push path never rewrites decision bytes."""
+        from tests.test_sync.test_pull import _STAMPED_DECISION
+
+        self._seed_synced_state(cloud_store)
+        rel = "decisions/099-remote-stamped.md"
+        (cloud_store / "decisions").mkdir(exist_ok=True)
+        (cloud_store / rel).write_bytes(_STAMPED_DECISION)
+
+        put_response = MagicMock(spec=httpx.Response)
+        put_response.status_code = 200
+        put_response.headers = {"ETag": '"e_pushed"'}
+
+        def fake_post(url, **kwargs):
+            return self._presign_response(kwargs["json"]["operations"])
+
+        from nauro.sync import remote
+        from nauro.sync.push import push_changed_files
+
+        with (
+            patch.object(remote.httpx, "post", side_effect=fake_post),
+            patch.object(remote.httpx, "put", return_value=put_response) as mock_put,
+        ):
+            pushed = push_changed_files(CLOUD_PID, cloud_store)
+
+        assert pushed == 1
+        assert mock_put.call_args.kwargs["content"] == _STAMPED_DECISION
+
     def test_oversize_context_brief_skipped_loudly_and_retained(self, cloud_store, capsys):
         """An over-cap context/*.md is skipped from the push with a loud
         warning and left on disk, while other changed files still upload.
