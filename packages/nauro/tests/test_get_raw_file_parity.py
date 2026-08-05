@@ -2,8 +2,10 @@
 
 After the kernel cutover, every local surface that exposes
 ``get_raw_file`` must produce the same envelope for the same path
-against the same store. This file pins that envelope shape across the
-two adapter wirings that exist today.
+against the same store. This file pins the direct-tool envelope shape
+and the stdio transport's rendered surface: the stdio wrapper is
+renderer-scoped, so its ``content[0]`` text must equal the shared
+``RENDERERS["get_raw_file"]`` rendering of the direct-tool envelope.
 
 Two compressions vs. the ``check_decision`` parity test:
 
@@ -22,6 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from nauro_core.renderers import RENDERERS
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.demo import create_demo_project
@@ -47,8 +50,16 @@ def demo_repo(tmp_path, monkeypatch):
     return pid, store_path
 
 
-def _stdio_envelope(pid: str, path: str) -> dict:
-    return stdio_get_raw_file(path=path, project_id=pid)
+def _stdio_rendered(pid: str, path: str) -> str:
+    """Rendered stdio surface text for the parity comparison.
+
+    ``get_raw_file`` is renderer-scoped: the wrapper returns a single
+    ``content[0]`` block carrying the renderer output.
+    """
+    result = stdio_get_raw_file(path=path, project_id=pid)
+    assert len(result.content) == 1
+    assert result.structuredContent is None
+    return result.content[0].text
 
 
 def _tool_envelope(store_path: Path, path: str) -> dict:
@@ -58,14 +69,16 @@ def _tool_envelope(store_path: Path, path: str) -> dict:
 
 def test_stdio_and_tool_match_on_success_path(demo_repo):
     pid, store_path = demo_repo
-    stdio = _stdio_envelope(pid, EXISTING_PATH)
     tool = _tool_envelope(store_path, EXISTING_PATH)
-    assert stdio == tool
+    rendered = _stdio_rendered(pid, EXISTING_PATH)
+    assert rendered == RENDERERS["get_raw_file"](tool)
+    # Hit path renders the file content verbatim.
+    assert rendered == tool["content"]
 
 
 def test_success_envelope_carries_content(demo_repo):
-    pid, _ = demo_repo
-    envelope = _stdio_envelope(pid, EXISTING_PATH)
+    _pid, store_path = demo_repo
+    envelope = _tool_envelope(store_path, EXISTING_PATH)
     assert envelope["store"] == "local"
     assert "content" in envelope
     assert envelope["content"]
@@ -76,34 +89,40 @@ def test_success_envelope_carries_content(demo_repo):
 
 def test_not_found_envelope_matches_across_surfaces(demo_repo):
     pid, store_path = demo_repo
-    stdio = _stdio_envelope(pid, MISSING_PATH)
     tool = _tool_envelope(store_path, MISSING_PATH)
-    assert stdio == tool
+    rendered = _stdio_rendered(pid, MISSING_PATH)
+    assert rendered == RENDERERS["get_raw_file"](tool)
     # Locked miss envelope shape.
-    assert stdio["store"] == "local"
-    assert "content" not in stdio
-    assert stdio["error"]["kind"] == "error"
-    assert stdio["error"]["reason"] == f"File not found: {MISSING_PATH}"
+    assert tool["store"] == "local"
+    assert "content" not in tool
+    assert tool["error"]["kind"] == "error"
+    assert tool["error"]["reason"] == f"File not found: {MISSING_PATH}"
     # Adapter adds the available_files hint as a sibling field, not
     # inside the error reason — kept structured so clients can render
     # the hint independently of the error message.
-    assert isinstance(stdio["available_files"], list)
-    assert all(isinstance(p, str) for p in stdio["available_files"])
-    assert EXISTING_PATH in stdio["available_files"]
+    assert isinstance(tool["available_files"], list)
+    assert all(isinstance(p, str) for p in tool["available_files"])
+    assert EXISTING_PATH in tool["available_files"]
+    # Rendered surface: error line first, then the hint entries in the
+    # adapter-composed order — the ordering is a contract.
+    assert rendered.startswith(f"Error: File not found: {MISSING_PATH}")
+    hint_lines = [line for line in rendered.split("\n") if line.startswith("  - ")]
+    assert hint_lines == [f"  - {p}" for p in tool["available_files"]]
 
 
 def test_traversal_envelope_matches_across_surfaces(demo_repo):
     pid, store_path = demo_repo
-    stdio = _stdio_envelope(pid, TRAVERSAL_PATH)
     tool = _tool_envelope(store_path, TRAVERSAL_PATH)
-    assert stdio == tool
+    rendered = _stdio_rendered(pid, TRAVERSAL_PATH)
+    assert rendered == RENDERERS["get_raw_file"](tool)
     # Traversal is rejected by the adapter before any kernel call;
     # reason text is distinct from the kernel-side "File not found".
-    assert stdio["store"] == "local"
-    assert "content" not in stdio
-    assert "available_files" not in stdio
-    assert stdio["error"]["kind"] == "error"
-    assert stdio["error"]["reason"] == f"Invalid path: {TRAVERSAL_PATH}"
+    assert tool["store"] == "local"
+    assert "content" not in tool
+    assert "available_files" not in tool
+    assert tool["error"]["kind"] == "error"
+    assert tool["error"]["reason"] == f"Invalid path: {TRAVERSAL_PATH}"
+    assert rendered == f"Error: Invalid path: {TRAVERSAL_PATH}"
 
 
 def test_nul_path_returns_rejection_not_raw_traceback(demo_repo):
@@ -117,5 +136,5 @@ def test_nul_path_returns_rejection_not_raw_traceback(demo_repo):
     assert "content" not in tool
     assert tool["error"]["kind"] == "error"
     assert tool["error"]["reason"] == f"Invalid path: {nul_path}"
-    # Same clean envelope across surfaces.
-    assert _stdio_envelope(pid, nul_path) == tool
+    # Same clean rejection across surfaces.
+    assert _stdio_rendered(pid, nul_path) == RENDERERS["get_raw_file"](tool)

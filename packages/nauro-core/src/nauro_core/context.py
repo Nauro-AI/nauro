@@ -29,7 +29,7 @@ from nauro_core.parsing import (
     is_scaffold_project_md,
     strip_leading_h1,
 )
-from nauro_core.questions import EntryBlock, OpenQuestionsFile
+from nauro_core.questions import EntryBlock, OpenQuestionsFile, truncate_entry_text
 from nauro_core.state import assemble_state_for_context
 
 # Open questions older than this nudge the reader to close or defer.
@@ -59,8 +59,12 @@ def _render_open_questions(
     A ``(open NN days; consider closing or deferring)`` line is prepended
     when ``entry.timestamp`` is set and the entry is older than
     :data:`_AGE_PROJECTION_DAYS`. Q-form entries without a timestamp
-    render without the projection. Entries render whole — the limit never
-    cuts mid-entry.
+    render without the projection. The limit never cuts mid-entry, but
+    each entry's joined rendered text is capped at
+    :data:`~nauro_core.constants.QUESTION_ENTRY_CHAR_BUDGET` characters
+    via :func:`~nauro_core.questions.truncate_entry_text`; entries at or
+    under the budget render byte-unchanged, over-budget entries end with
+    an explicit pointer at ``get_raw_file("open-questions.md")``.
 
     When ``include_omission_trailer`` is set and genuine entries were
     omitted beyond the limit, one trailer line reports the omitted count
@@ -90,7 +94,7 @@ def _render_open_questions(
             age_days = (today - entry.timestamp.date()).days
             if age_days > _AGE_PROJECTION_DAYS:
                 lines.append(f"(open {age_days} days; consider closing or deferring)")
-        lines.extend(entry.render())
+        lines.append(truncate_entry_text("\n".join(entry.render())))
         rendered += 1
 
     if include_omission_trailer and omitted:

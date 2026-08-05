@@ -19,6 +19,11 @@ L1_DECISIONS_LIMIT = 10
 L1_DECISIONS_SUMMARY_LIMIT = 10
 # L1 working-set cap on genuine open questions, mirrors L1_DECISIONS_LIMIT.
 L1_QUESTIONS_LIMIT = 10
+# Per-entry character cap on rendered open-question text in the L0/L1
+# payloads and the session diff. A presentation limit only: L2 and
+# get_raw_file keep the full file verbatim, and truncated entries carry
+# an explicit pointer at the full text.
+QUESTION_ENTRY_CHAR_BUDGET = 480
 
 # ── Validation thresholds ──
 VALID_CONFIDENCES: set[str] = {"high", "medium", "low"}

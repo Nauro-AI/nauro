@@ -4,7 +4,11 @@ After the kernel cutover, every local surface that exposes
 ``diff_since_last_session`` must produce the same envelope for the same
 arguments against the same store. The two wirings under test here are
 the ``tool_diff_since_last_session`` direct call and the stdio MCP
-wrapper that maps ``project_id`` onto a store path.
+wrapper that maps ``project_id`` onto a store path. The stdio wrapper
+is renderer-scoped: its single ``content[0]`` block must equal the
+shared ``RENDERERS["diff_since_last_session"]`` rendering of the
+direct-tool envelope — a verbatim passthrough of the ``diff`` body,
+including the canonical sentinel strings byte-for-byte.
 
 Two compressions vs. the ``check_decision`` parity test:
 
@@ -23,6 +27,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from nauro_core.renderers import RENDERERS
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL, SNAPSHOTS_DIR
 from nauro.mcp.stdio_server import diff_since_last_session as stdio_diff_since_last_session
@@ -110,57 +115,61 @@ def missing_store(tmp_path, monkeypatch):
     return nonexistent
 
 
-def _stdio_envelope(pid: str, days: int | None = None) -> dict:
-    return stdio_diff_since_last_session(project_id=pid, days=days)
+def _stdio_rendered(pid: str, days: int | None = None) -> str:
+    """Rendered stdio surface text for the parity comparison.
+
+    ``diff_since_last_session`` is renderer-scoped: the wrapper returns a
+    single ``content[0]`` block carrying the renderer output.
+    """
+    result = stdio_diff_since_last_session(project_id=pid, days=days)
+    assert len(result.content) == 1
+    assert result.structuredContent is None
+    return result.content[0].text
 
 
 def _tool_envelope(store_path: Path, days: int | None = None) -> dict:
     return tool_diff_since_last_session(store_path, days)
 
 
-def _clock_invariant(envelope: dict) -> dict:
-    """Strip clock-derived parts so two independent calls compare equal.
+def _strip_anchor(text: str) -> str:
+    """Strip the clock-derived anchor line so two independent calls compare.
 
-    The days-based ``cutoff_date_used`` is the REQUESTED cutoff
-    (``now - N days``), recomputed from ``datetime.now()`` on every call,
-    and that same value is interpolated into the rendered ``Anchor:`` line.
-    Two independent surface calls therefore differ by microseconds in the
-    cutoff field and the anchor line, so parity is asserted on everything
-    else; the cutoff's own consistency is checked separately.
+    The days-based cutoff is the REQUESTED cutoff (``now - N days``),
+    recomputed from ``datetime.now()`` on every call and interpolated into
+    the rendered ``Anchor:`` line. Two independent surface calls therefore
+    differ by microseconds in that line, so parity is asserted on
+    everything else; the cutoff's own consistency is checked separately.
     """
-    out = {k: v for k, v in envelope.items() if k != "cutoff_date_used"}
-    if isinstance(out.get("diff"), str):
-        out["diff"] = "\n".join(
-            line for line in out["diff"].split("\n") if not line.startswith("Anchor:")
-        )
-    return out
+    return "\n".join(line for line in text.split("\n") if not line.startswith("Anchor:"))
 
 
 def test_session_scoped_envelope_matches_across_surfaces(seeded_repo):
     pid, store_path = seeded_repo
-    stdio = _stdio_envelope(pid)
     tool = _tool_envelope(store_path)
-    assert stdio == tool
-    assert stdio["store"] == "local"
-    assert "v001" in stdio["diff"]
-    assert "v002" in stdio["diff"]
+    rendered = _stdio_rendered(pid)
+    assert rendered == RENDERERS["diff_since_last_session"](tool)
+    # The renderer passes the diff body through verbatim.
+    assert rendered == tool["diff"]
+    assert tool["store"] == "local"
+    assert "v001" in rendered
+    assert "v002" in rendered
     # Session-scoped diffs do not surface a cutoff_date_used field.
-    assert "cutoff_date_used" not in stdio
+    assert "cutoff_date_used" not in tool
 
 
 def test_time_based_envelope_matches_across_surfaces(time_indexed_repo):
     pid, store_path = time_indexed_repo
-    stdio = _stdio_envelope(pid, days=7)
     tool = _tool_envelope(store_path, days=7)
+    rendered = _stdio_rendered(pid, days=7)
     # The cutoff is now() - N days, recomputed per call, so the two
     # independent surfaces agree on everything but that clock-derived value.
-    assert _clock_invariant(stdio) == _clock_invariant(tool)
-    assert stdio["store"] == "local"
-    assert "v001" in stdio["diff"]
-    assert "v002" in stdio["diff"]
+    assert _strip_anchor(rendered) == _strip_anchor(RENDERERS["diff_since_last_session"](tool))
+    assert tool["store"] == "local"
+    assert "v001" in rendered
+    assert "v002" in rendered
     # Days-based path threads the REQUESTED cutoff (now - N days) through as
     # cutoff_date_used — not the (older) resolved baseline timestamp.
-    assert stdio["cutoff_date_used"]
+    assert tool["cutoff_date_used"]
 
 
 def test_days_based_surfaces_anchor_line(time_indexed_repo):
@@ -168,16 +177,18 @@ def test_days_based_surfaces_anchor_line(time_indexed_repo):
     # days-based path surfaces the requested-cutoff anchor header on both the
     # auto-generated CLI and the stdio MCP surface with no adapter change.
     pid, store_path = time_indexed_repo
-    stdio = _stdio_envelope(pid, days=7)
     tool = _tool_envelope(store_path, days=7)
-    assert _clock_invariant(stdio) == _clock_invariant(tool)
-    assert "Anchor: requested ≤ " in stdio["diff"]
-    assert "most-recent snapshot at-or-before cutoff" in stdio["diff"]
-    assert stdio["cutoff_date_used"] in stdio["diff"]
+    rendered = _stdio_rendered(pid, days=7)
+    assert _strip_anchor(rendered) == _strip_anchor(RENDERERS["diff_since_last_session"](tool))
+    assert "Anchor: requested ≤ " in rendered
+    assert "most-recent snapshot at-or-before cutoff" in rendered
+    # Envelope-level self-consistency: the threaded cutoff surfaces in the
+    # same call's rendered anchor line.
+    assert tool["cutoff_date_used"] in tool["diff"]
 
     # The anchor's "requested ≤" value is the REQUESTED cutoff (now - 7d),
     # parsing within a few seconds of it — not the resolved baseline.
-    cutoff = datetime.fromisoformat(stdio["cutoff_date_used"])
+    cutoff = datetime.fromisoformat(tool["cutoff_date_used"])
     expected_cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     assert abs((cutoff - expected_cutoff).total_seconds()) < 60
 
@@ -185,35 +196,34 @@ def test_days_based_surfaces_anchor_line(time_indexed_repo):
     # fixture backdates the baseline (v001) to 14 days ago, so the requested
     # cutoff (7 days ago) and the "resolved to baseline <ts>" value differ.
     baseline_ts = load_snapshot(store_path, 1)["timestamp"]
-    assert stdio["cutoff_date_used"] != baseline_ts
-    assert f"resolved to baseline {baseline_ts[:19]}" in stdio["diff"]
-    assert f"requested ≤ {stdio['cutoff_date_used']}" in stdio["diff"]
+    assert tool["cutoff_date_used"] != baseline_ts
+    assert f"resolved to baseline {baseline_ts[:19]}" in tool["diff"]
+    assert f"requested ≤ {tool['cutoff_date_used']}" in tool["diff"]
 
 
 def test_session_scoped_diff_omits_anchor_line(seeded_repo):
     # The no-arg session diff carries no cutoff, so the anchor header must be
     # absent — keeping that output byte-identical to pre-anchor behaviour.
     pid, _store_path = seeded_repo
-    stdio = _stdio_envelope(pid)
-    assert "Anchor:" not in stdio["diff"]
+    assert "Anchor:" not in _stdio_rendered(pid)
 
 
 def test_empty_store_session_scoped_envelope_matches(empty_repo):
     pid, store_path = empty_repo
-    stdio = _stdio_envelope(pid)
     tool = _tool_envelope(store_path)
-    assert stdio == tool
-    assert stdio["store"] == "local"
-    assert "Not enough snapshots" in stdio["diff"]
+    rendered = _stdio_rendered(pid)
+    assert rendered == RENDERERS["diff_since_last_session"](tool)
+    assert tool["store"] == "local"
+    assert rendered == "Not enough snapshots to compute a diff (need at least 2)."
 
 
 def test_empty_store_days_based_envelope_matches(empty_repo):
     pid, store_path = empty_repo
-    stdio = _stdio_envelope(pid, days=7)
     tool = _tool_envelope(store_path, days=7)
-    assert stdio == tool
-    assert stdio["store"] == "local"
-    assert "No snapshots" in stdio["diff"]
+    rendered = _stdio_rendered(pid, days=7)
+    assert rendered == RENDERERS["diff_since_last_session"](tool)
+    assert tool["store"] == "local"
+    assert rendered == "No snapshots available."
 
 
 def test_days_based_one_snapshot_covers_range_matches_across_surfaces(single_snapshot_repo):
@@ -222,13 +232,13 @@ def test_days_based_one_snapshot_covers_range_matches_across_surfaces(single_sna
     # one-snapshot-covers-range sentinel (byte-identical to pre-cutover
     # output) on both the auto-generated CLI path and the stdio MCP path.
     pid, store_path = single_snapshot_repo
-    stdio = _stdio_envelope(pid, days=7)
     tool = _tool_envelope(store_path, days=7)
-    # The sentinel diff carries no anchor line, but the envelope still
-    # surfaces the (clock-derived) requested cutoff, so compare modulo it.
-    assert _clock_invariant(stdio) == _clock_invariant(tool)
-    assert stdio["store"] == "local"
-    assert stdio["diff"] == "Only one snapshot covers the requested time range — no diff available."
+    rendered = _stdio_rendered(pid, days=7)
+    # The sentinel diff carries no anchor line; the envelope still surfaces
+    # the (clock-derived) requested cutoff, which the rendered text omits.
+    assert rendered == RENDERERS["diff_since_last_session"](tool)
+    assert tool["store"] == "local"
+    assert rendered == "Only one snapshot covers the requested time range — no diff available."
 
 
 def test_missing_store_guidance_matches_across_surfaces(missing_store):

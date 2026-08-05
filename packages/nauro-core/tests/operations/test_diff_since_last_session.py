@@ -383,3 +383,72 @@ def test_new_decision_title_keeps_leading_hash() -> None:
         "  + New file: decisions/002-hotfix.md\n"
         "    #1 priority hotfix"
     )
+
+
+# ── Question bullets honour the per-entry character budget ──
+
+
+def test_over_budget_added_question_truncates_with_pointer() -> None:
+    from nauro_core.constants import QUESTION_ENTRY_CHAR_BUDGET
+    from nauro_core.questions import QUESTION_TRUNCATION_POINTER
+
+    long_q = "- [Q2] Adopt the long option? " + "detail " * 120
+    snap_a = _snapshot(
+        1,
+        "2026-05-01T10:00:00+00:00",
+        {"open-questions.md": "# Open Questions\n- [Q1] Pick a queue?\n"},
+    )
+    snap_b = _snapshot(
+        2,
+        "2026-05-02T10:00:00+00:00",
+        {"open-questions.md": f"# Open Questions\n- [Q1] Pick a queue?\n{long_q.rstrip()}\n"},
+    )
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b)
+    assert result.diff is not None
+    bullet = next(
+        line for line in result.diff.split("\n") if line.lstrip().startswith("+ New question:")
+    )
+    assert bullet.rstrip().endswith(QUESTION_TRUNCATION_POINTER)
+    assert len(bullet.strip()) <= QUESTION_ENTRY_CHAR_BUDGET + 1 + len(QUESTION_TRUNCATION_POINTER)
+
+
+def test_under_budget_question_bullets_render_byte_unchanged() -> None:
+    from nauro_core.questions import QUESTION_TRUNCATION_POINTER
+
+    snap_a = _snapshot(
+        1,
+        "2026-05-01T10:00:00+00:00",
+        {"open-questions.md": "# Open Questions\n- [Q1] Pick a queue?\n"},
+    )
+    snap_b = _snapshot(
+        2,
+        "2026-05-02T10:00:00+00:00",
+        {"open-questions.md": "# Open Questions\n- [Q2] Choose a broker?\n"},
+    )
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b)
+    assert result.diff is not None
+    assert "    + New question: [Q2] Choose a broker?" in result.diff
+    assert "    - Resolved/removed: [Q1] Pick a queue?" in result.diff
+    assert QUESTION_TRUNCATION_POINTER not in result.diff
+
+
+def test_over_budget_removed_question_truncates_with_pointer() -> None:
+    from nauro_core.questions import QUESTION_TRUNCATION_POINTER
+
+    long_q = "- [Q1] Retired long question? " + "context " * 120
+    snap_a = _snapshot(
+        1,
+        "2026-05-01T10:00:00+00:00",
+        {"open-questions.md": f"# Open Questions\n{long_q.rstrip()}\n"},
+    )
+    snap_b = _snapshot(
+        2,
+        "2026-05-02T10:00:00+00:00",
+        {"open-questions.md": "# Open Questions\n"},
+    )
+    result = diff_since_last_session(InMemoryStore(), snap_a, snap_b)
+    assert result.diff is not None
+    bullet = next(
+        line for line in result.diff.split("\n") if line.lstrip().startswith("- Resolved/removed:")
+    )
+    assert bullet.rstrip().endswith(QUESTION_TRUNCATION_POINTER)

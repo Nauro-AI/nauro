@@ -217,13 +217,12 @@ class TestWelcomeDisambiguation:
     caller already has a (mis-)configured project."""
 
     def test_unknown_project_id_surfaces_specific_error(self, store: Path):
-        """Bogus project_id keyword on a dict-returning tool → guidance
-        names the registry, not the welcome screen."""
-        result = get_raw_file(path="project.md", project_id="does-not-exist")
-        assert result["status"] == "error"
-        assert "Welcome to Nauro" not in result["guidance"]
+        """Bogus project_id keyword on a renderer-scoped tool → rendered
+        guidance names the registry, not the welcome screen."""
+        rendered = _rendered(get_raw_file(path="project.md", project_id="does-not-exist"))
+        assert "Welcome to Nauro" not in rendered
         # ProjectNotFoundError surfaces the registry-lookup framing.
-        assert "registry" in result["guidance"].lower() or "not found" in result["guidance"].lower()
+        assert "registry" in rendered.lower() or "not found" in rendered.lower()
 
     def test_unknown_project_id_string_tool_surfaces_specific_error(self, store: Path):
         """Same disambiguation on a string-returning tool: a non-welcome
@@ -240,9 +239,8 @@ class TestWelcomeDisambiguation:
         from nauro.store.registry import _registry_file
 
         _registry_file().write_text('{"projects": {}, "schema_version": 2}\n')
-        result = get_raw_file(path="project.md")
-        assert result["status"] == "error"
-        assert "Welcome to Nauro" in result["guidance"]
+        rendered = _rendered(get_raw_file(path="project.md"))
+        assert "Welcome to Nauro" in rendered
 
     def test_disconnected_project_returns_structured_recovery_envelope(self, tmp_path, monkeypatch):
         from nauro.store.repo_config import save_repo_config
@@ -254,15 +252,20 @@ class TestWelcomeDisambiguation:
 
         result = get_raw_file(path="project.md", cwd=str(repo))
 
-        assert result["status"] == "error"
-        assert result["error"]["kind"] == "error"
-        assert result["error"]["reason"] == result["guidance"]
-        assert result["project_id"] == pid
-        assert result["project_name"] == "Pareto"
-        assert result["project_mode"] == "local"
-        assert result["reason_code"] == "not_connected_on_this_machine"
-        assert result["recovery_actions"] == ["locate", "continue"]
-        assert "Welcome to Nauro" not in result["guidance"]
+        # Renderer-scoped tool: the disconnected envelope survives as
+        # structuredContent while content[0] carries the rendered guidance.
+        envelope = result.structuredContent
+        assert envelope is not None
+        assert envelope["status"] == "error"
+        assert envelope["error"]["kind"] == "error"
+        assert envelope["error"]["reason"] == envelope["guidance"]
+        assert envelope["project_id"] == pid
+        assert envelope["project_name"] == "Pareto"
+        assert envelope["project_mode"] == "local"
+        assert envelope["reason_code"] == "not_connected_on_this_machine"
+        assert envelope["recovery_actions"] == ["locate", "continue"]
+        assert "Welcome to Nauro" not in envelope["guidance"]
+        assert _rendered(result) == envelope["guidance"]
 
         write_result = update_state(delta="anything", cwd=str(repo))
         assert isinstance(write_result, dict)

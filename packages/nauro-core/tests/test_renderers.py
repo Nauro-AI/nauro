@@ -11,10 +11,17 @@ from __future__ import annotations
 import json
 
 from nauro_core.constants import LEXICAL_RANK_CAVEAT, NO_RELATED_DECISIONS
+from nauro_core.operations.diff_since_last_session import (
+    NO_SNAPSHOTS_AVAILABLE,
+    NOT_ENOUGH_SNAPSHOTS,
+    ONE_SNAPSHOT_COVERS_RANGE,
+)
 from nauro_core.renderers import (
     render_check_decision,
+    render_diff_since_last_session,
     render_get_context,
     render_get_decision,
+    render_get_raw_file,
     render_list_decisions,
     render_list_projects,
     render_search_decisions,
@@ -701,3 +708,116 @@ class TestDisconnectedProjectGuidance:
         assert render_check_decision(result) == result["guidance"]
         assert render_search_decisions(result) == result["guidance"]
         assert render_list_decisions(result) == result["guidance"]
+
+
+class TestRenderGetRawFile:
+    def test_hit_passes_content_through_verbatim(self):
+        content = "# Stack\n\n- **Python 3.11** - primary language\n"
+        result = {"store": "local", "content": content}
+        assert render_get_raw_file(result) == content
+
+    def test_empty_file_renders_empty_string(self):
+        result = {"store": "local", "content": ""}
+        assert render_get_raw_file(result) == ""
+
+    def test_miss_renders_error_line_then_hint_in_order(self):
+        result = {
+            "store": "local",
+            "error": {"kind": "error", "reason": "File not found: nope.md"},
+            "available_files": [
+                "project.md",
+                "state_current.md",
+                "stack.md",
+                "decisions/002-use-fastapi.md",
+                "decisions/ (2 files)",
+            ],
+        }
+        text = render_get_raw_file(result)
+        lines = text.split("\n")
+        assert lines[0] == "Error: File not found: nope.md"
+        assert lines[1] == ""
+        assert lines[2] == "Available files:"
+        # The adapter-composed hint order is a contract: canonical root files
+        # first, then remaining root markdown, then per-directory anchors.
+        assert lines[3:] == [
+            "  - project.md",
+            "  - state_current.md",
+            "  - stack.md",
+            "  - decisions/002-use-fastapi.md",
+            "  - decisions/ (2 files)",
+        ]
+
+    def test_error_without_hint_renders_error_line_only(self):
+        result = {
+            "store": "local",
+            "error": {"kind": "error", "reason": "Invalid path: ../../etc/passwd"},
+        }
+        assert render_get_raw_file(result) == "Error: Invalid path: ../../etc/passwd"
+
+    def test_no_project_guidance_surfaces(self):
+        result = {"store": "local", "status": "error", "guidance": "Welcome to Nauro."}
+        assert render_get_raw_file(result) == "Welcome to Nauro."
+
+    def test_disconnected_guidance_preferred(self):
+        result = {
+            "store": "local",
+            "status": "error",
+            "error": {"kind": "error", "reason": "internal structured reason"},
+            "guidance": "Run `nauro reconnect` to restore this project.",
+            "reason_code": "connected_record_missing",
+        }
+        assert render_get_raw_file(result) == result["guidance"]
+
+
+class TestRenderDiffSinceLastSession:
+    def test_diff_body_passes_through_verbatim(self):
+        diff = (
+            "Changes from v001 → v002\n"
+            "  (2026-05-01T10:00:00 → 2026-05-02T10:00:00)\n"
+            "\n"
+            "  ~ stack.md\n"
+            "    + - PostgreSQL"
+        )
+        result = {"store": "local", "diff": diff}
+        assert render_diff_since_last_session(result) == diff
+
+    def test_sentinels_pass_through_byte_identical(self):
+        # The canonical sentinel strings are a cross-surface contract; the
+        # renderer must stay byte-transparent to them.
+        for sentinel in (
+            NO_SNAPSHOTS_AVAILABLE,
+            NOT_ENOUGH_SNAPSHOTS,
+            ONE_SNAPSHOT_COVERS_RANGE,
+        ):
+            result = {"store": "local", "diff": sentinel}
+            assert render_diff_since_last_session(result) == sentinel
+
+    def test_anchor_line_passes_through(self):
+        diff = (
+            "Changes from v001 → v002\n"
+            "Anchor: requested ≤ 2026-04-24T10:00:00+00:00; resolved to baseline "
+            "2026-05-01T10:00:00 (most-recent snapshot at-or-before cutoff; "
+            "oldest-snapshot fallback)\n"
+            "\n"
+            "  No changes detected."
+        )
+        result = {"store": "local", "diff": diff, "cutoff_date_used": "2026-04-24T10:00:00+00:00"}
+        assert render_diff_since_last_session(result) == diff
+
+    def test_error_renders_error_line(self):
+        result = {"store": "local", "error": {"kind": "error", "reason": "boom"}}
+        assert render_diff_since_last_session(result) == "Error: boom"
+
+    def test_no_project_guidance_surfaces(self):
+        result = {"store": "local", "status": "error", "guidance": "Welcome to Nauro."}
+        assert render_diff_since_last_session(result) == "Welcome to Nauro."
+
+    def test_disconnected_guidance_preferred(self):
+        result = {
+            "store": "local",
+            "status": "error",
+            "error": {"kind": "error", "reason": "internal structured reason"},
+            "guidance": "Run `nauro reconnect` to restore this project.",
+            "reason_code": "connected_record_missing",
+        }
+        assert render_diff_since_last_session(result) == result["guidance"]

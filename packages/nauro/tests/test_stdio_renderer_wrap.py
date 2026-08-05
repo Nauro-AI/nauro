@@ -1,10 +1,10 @@
 """Block-shape contract for the local stdio MCP read tools.
 
 Renderer-scoped read tools listed in ``nauro_core.renderers.RENDERERS``
-return a ``CallToolResult`` with a single ``TextContent`` block:
-``content[0]`` carries the renderer output. Write tools,
-``get_raw_file``, ``diff_since_last_session``, and pre-resolution error
-responses stay single-block (or stay strings).
+— all seven read tools on this transport — return a ``CallToolResult``
+with a single ``TextContent`` block: ``content[0]`` carries the renderer
+output. Write tools and pre-resolution error responses stay single-block
+(or stay strings).
 
 Mirrors ``TestContentBlockShape`` from the remote MCP router so both
 transports stay in sync.
@@ -146,6 +146,8 @@ class TestNoStructuredContent:
         (get_decision, {"number": 1}),
         (search_decisions, {"query": "typed recovery"}),
         (check_decision, {"proposed_approach": "Use typed recovery"}),
+        (get_raw_file, {"path": "stack.md"}),
+        (diff_since_last_session, {}),
     ],
 )
 def test_disconnected_renderer_reads_preserve_full_structured_envelope(
@@ -186,20 +188,28 @@ def test_disconnected_renderer_reads_preserve_full_structured_envelope(
 
 
 class TestSingleBlockReads:
-    """Pass-through read tools keep the single-value shape — ``get_raw_file``
-    returns a dict (no renderer registered), ``diff_since_last_session`` likewise."""
+    """``get_raw_file`` and ``diff_since_last_session`` are renderer-scoped
+    like the other five read tools: a single rendered ``content[0]`` block."""
 
-    def test_get_raw_file_returns_dict(self, seeded_store: Path):
+    def test_get_raw_file_returns_rendered_block(self, seeded_store: Path):
         result = get_raw_file(path="stack.md", project_id="blockshape")
-        # No renderer scope; the FastMCP layer converts the dict to its own
-        # single content block at the MCP wire boundary. Direct Python
-        # callers see the dict envelope unchanged.
-        assert isinstance(result, dict)
-        assert result["content"].startswith("# Stack")
+        assert isinstance(result, CallToolResult)
+        blocks = result.content
+        assert len(blocks) == 1
+        assert isinstance(blocks[0], TextContent) and blocks[0].type == "text"
+        # Hit path passes the file content through verbatim.
+        assert blocks[0].text.startswith("# Stack")
+        assert result.structuredContent is None
 
-    def test_diff_since_last_session_returns_dict(self, seeded_store: Path):
+    def test_diff_since_last_session_returns_rendered_block(self, seeded_store: Path):
         result = diff_since_last_session(project_id="blockshape")
-        assert isinstance(result, dict)
+        assert isinstance(result, CallToolResult)
+        blocks = result.content
+        assert len(blocks) == 1
+        # The seeded store has no snapshots; the canonical sentinel passes
+        # through byte-identical.
+        assert blocks[0].text == "Not enough snapshots to compute a diff (need at least 2)."
+        assert result.structuredContent is None
 
 
 class TestSingleBlockWrites:

@@ -31,13 +31,30 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from nauro_core.constants import POINTER_FLAG_PREFIXES
+from nauro_core.constants import POINTER_FLAG_PREFIXES, QUESTION_ENTRY_CHAR_BUDGET
 
 _TIMESTAMP_FMT = "%Y-%m-%d %H:%M UTC"
 _RESOLVED_HEADER = "## Resolved"
 _DEFAULT_HEADER = "# Open Questions"
 _RESOLVED_PREFIX_TOKEN = "Resolved by D"
 _RESOLVED_PREFIX_SEP = " on "
+
+# Appended to over-budget entry text by :func:`truncate_entry_text` so a
+# capped payload never silently hides content.
+QUESTION_TRUNCATION_POINTER = '... [truncated - full text: get_raw_file("open-questions.md")]'
+
+
+def truncate_entry_text(text: str) -> str:
+    """Cap rendered question-entry text at :data:`QUESTION_ENTRY_CHAR_BUDGET`.
+
+    Text at or under the budget is returned byte-unchanged. Over-budget
+    text is cut at the budget (trailing whitespace stripped) and ends
+    with :data:`QUESTION_TRUNCATION_POINTER`, pointing the reader at the
+    full file.
+    """
+    if len(text) <= QUESTION_ENTRY_CHAR_BUDGET:
+        return text
+    return text[:QUESTION_ENTRY_CHAR_BUDGET].rstrip() + " " + QUESTION_TRUNCATION_POINTER
 
 
 class ResolvedRef(BaseModel):

@@ -17,10 +17,12 @@ The shared `nauro_core.mcp_tools.ALL_TOOLS` registry contains 11 tools.
 single project store, so the discovery tool is not registered here.
 
 Renderer-scoped read tools listed in ``nauro_core.renderers.RENDERERS``
-return a ``CallToolResult`` with a single ``TextContent`` block:
-``content[0]`` carries the renderer output. Other tools — write tools,
-``get_raw_file``, ``diff_since_last_session`` — keep their existing
-single-block shape.
+— all seven read tools registered here — return a ``CallToolResult``
+with a single ``TextContent`` block: ``content[0]`` carries the renderer
+output. Write tools keep their existing single-value shape. A tool name
+missing from ``RENDERERS`` (an older installed nauro-core) falls back to
+a JSON dump of the envelope, so the wrapper degrades gracefully instead
+of crashing.
 """
 
 from __future__ import annotations
@@ -252,11 +254,10 @@ def get_raw_file(
         str | None, Field(description=_param_desc("get_raw_file", "project_id"))
     ] = None,
     cwd: _CWD_PARAM = None,
-) -> dict:
+) -> CallToolResult:
     store_path, err = _resolve_or_error(project_id, cwd)
-    if err is not None:
-        return err
-    return tool_get_raw_file(store_path, path)
+    result = err if err is not None else tool_get_raw_file(store_path, path)
+    return _wrap_with_renderer("get_raw_file", result)
 
 
 @mcp.tool(**_spec_kwargs("list_decisions"))
@@ -301,11 +302,10 @@ def diff_since_last_session(
     days: Annotated[
         int | None, Field(description=_param_desc("diff_since_last_session", "days"))
     ] = None,
-) -> dict:
+) -> CallToolResult:
     store_path, err = _resolve_or_error(project_id, cwd)
-    if err is not None:
-        return err
-    return tool_diff_since_last_session(store_path, days)
+    result = err if err is not None else tool_diff_since_last_session(store_path, days)
+    return _wrap_with_renderer("diff_since_last_session", result)
 
 
 @mcp.tool(**_spec_kwargs("search_decisions"))

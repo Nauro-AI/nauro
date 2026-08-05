@@ -27,6 +27,7 @@ from nauro_core.constants import (
 from nauro_core.operations.results import DiffSinceLastSessionResult
 from nauro_core.operations.store import Store
 from nauro_core.parsing import _is_top_level_bullet
+from nauro_core.questions import truncate_entry_text
 
 # Success-path sentinels rendered when the adapter cannot supply a usable
 # (baseline, latest) pair. Exposed as module constants so adapters can
@@ -256,7 +257,14 @@ def _diff_stack(old: str, new: str) -> list[str]:
 
 
 def _diff_questions(old: str, new: str) -> list[str]:
-    """Diff open-questions.md semantically."""
+    """Diff open-questions.md semantically.
+
+    Each rendered bullet is capped at
+    :data:`~nauro_core.constants.QUESTION_ENTRY_CHAR_BUDGET` characters
+    via :func:`~nauro_core.questions.truncate_entry_text`, matching the
+    L0/L1 question projection; bullets at or under the budget render
+    byte-unchanged.
+    """
     changes: list[str] = []
 
     def extract_questions(content: str) -> list[str]:
@@ -269,9 +277,9 @@ def _diff_questions(old: str, new: str) -> list[str]:
     removed = [q for q in old_qs if q not in new_qs]
 
     for q in added:
-        changes.append(f"+ New question: {q.removeprefix('- ')}")
+        changes.append(truncate_entry_text(f"+ New question: {q.removeprefix('- ')}"))
     for q in removed:
-        changes.append(f"- Resolved/removed: {q.removeprefix('- ')}")
+        changes.append(truncate_entry_text(f"- Resolved/removed: {q.removeprefix('- ')}"))
 
     return changes
 

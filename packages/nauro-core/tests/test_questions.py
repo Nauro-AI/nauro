@@ -5,7 +5,9 @@ from datetime import date, datetime
 import pytest
 from pydantic import ValidationError
 
+from nauro_core.constants import QUESTION_ENTRY_CHAR_BUDGET
 from nauro_core.questions import (
+    QUESTION_TRUNCATION_POINTER,
     EntryBlock,
     HeaderBlock,
     MigrationRename,
@@ -16,6 +18,7 @@ from nauro_core.questions import (
     ResolvedRef,
     TripleHashBlock,
     UnparsableBlock,
+    truncate_entry_text,
 )
 
 
@@ -1200,3 +1203,44 @@ class TestNormalize:
         assert result.relocated_ids == ()
         assert result.skipped_prose_ids == ("Q5",)
         assert result.file is parsed
+
+
+class TestTruncateEntryText:
+    """Per-entry character cap on rendered question text.
+
+    Pure helper shared by the L0/L1 question projection and the session
+    diff's question bullets. Text at or under the budget is byte-unchanged;
+    over-budget text is cut at the budget and ends with the pointer at the
+    full file.
+    """
+
+    def test_under_budget_is_byte_unchanged(self):
+        text = "- [Q1] Short question?"
+        assert truncate_entry_text(text) is text
+
+    def test_exactly_at_budget_is_byte_unchanged(self):
+        text = "x" * QUESTION_ENTRY_CHAR_BUDGET
+        assert truncate_entry_text(text) == text
+
+    def test_one_over_budget_truncates_with_pointer(self):
+        text = "x" * (QUESTION_ENTRY_CHAR_BUDGET + 1)
+        result = truncate_entry_text(text)
+        assert result == "x" * QUESTION_ENTRY_CHAR_BUDGET + " " + QUESTION_TRUNCATION_POINTER
+        assert result.endswith(QUESTION_TRUNCATION_POINTER)
+
+    def test_pointer_names_the_raw_file(self):
+        assert 'get_raw_file("open-questions.md")' in QUESTION_TRUNCATION_POINTER
+        assert "[truncated" in QUESTION_TRUNCATION_POINTER
+
+    def test_cut_strips_trailing_whitespace_before_pointer(self):
+        # A cut landing on whitespace must not leave a double space before
+        # the pointer.
+        text = "word " * 200  # 1000 chars; position 480 falls inside "word "
+        result = truncate_entry_text(text)
+        cut = text[:QUESTION_ENTRY_CHAR_BUDGET].rstrip()
+        assert result == cut + " " + QUESTION_TRUNCATION_POINTER
+
+    def test_output_length_is_bounded(self):
+        text = "y" * 100_000
+        result = truncate_entry_text(text)
+        assert len(result) <= QUESTION_ENTRY_CHAR_BUDGET + 1 + len(QUESTION_TRUNCATION_POINTER)
