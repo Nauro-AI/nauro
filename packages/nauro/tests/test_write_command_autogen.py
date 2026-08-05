@@ -1,6 +1,6 @@
-"""End-to-end tests for the auto-generated ``propose-decision`` CLI command.
+"""End-to-end tests for the auto-generated write CLI commands.
 
-Three concerns are pinned here:
+Three concerns are pinned here for ``propose-decision``:
 
 * Happy paths through the write tool land the same envelope the adapter
   returns (auto-confirmed adds, supersedes with ``--operation supersede
@@ -14,6 +14,11 @@ Three concerns are pinned here:
   repeated-flag form and ``list[dict]`` (``--rejected``) literal /
   ``@file`` / ``-`` (stdin) sigil forms are exercised here so the
   framework convention is pinned at the CLI surface.
+
+``flag-question`` pins the primary-positional convention: the optional
+``question`` property accepts both the positional and ``--question``
+spellings, supplying both is a usage error, and the ``--resolved-by``
+resolve action still works with the positional omitted.
 """
 
 from __future__ import annotations
@@ -383,3 +388,49 @@ class TestFlagShapes:
         assert result.exit_code == 2, result.output
         assert "supersede" in strip_ansi(result.output)
         assert '"store"' not in result.stdout
+
+
+# ── flag-question argument shapes ───────────────────────────────────────────
+
+
+def _seed_resolvable(store_path: Path) -> None:
+    """Seed one open question and one decision the resolve action can target."""
+    (store_path / "open-questions.md").write_text("# Open Questions\n\n- [Q1] needs a decision\n")
+    decisions = store_path / "decisions"
+    decisions.mkdir(exist_ok=True)
+    (decisions / "042-some-decision.md").write_text("# Decision 42\n")
+
+
+class TestFlagQuestionArgumentShapes:
+    def test_positional_question(self, seeded_repo) -> None:
+        result = runner.invoke(app, ["flag-question", "Should we cache reads?"])
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.stdout)
+        assert envelope["store"] == "local"
+        assert envelope["status"] == "ok"
+
+    def test_question_flag_matches_positional(self, seeded_repo) -> None:
+        positional = runner.invoke(app, ["flag-question", "Should we cache reads?"])
+        flagged = runner.invoke(app, ["flag-question", "--question", "Should we cache writes?"])
+        assert positional.exit_code == 0, positional.output
+        assert flagged.exit_code == 0, flagged.output
+        assert json.loads(positional.stdout) == json.loads(flagged.stdout)
+
+    def test_both_spellings_exit_two(self, seeded_repo) -> None:
+        result = runner.invoke(
+            app,
+            ["flag-question", "Should we cache reads?", "--question", "Should we cache writes?"],
+        )
+        # Usage error rendered by Typer at exit 2; the adapter never runs.
+        assert result.exit_code == 2, result.output
+        assert "--question" in strip_ansi(result.output)
+        assert '"store"' not in result.stdout
+
+    def test_resolved_by_without_question(self, seeded_repo) -> None:
+        _pid, store_path, _repo = seeded_repo
+        _seed_resolvable(store_path)
+        result = runner.invoke(app, ["flag-question", "--resolved-by", "D42", "--targets", "Q1"])
+        assert result.exit_code == 0, result.output
+        envelope = json.loads(result.stdout)
+        assert envelope["status"] == "ok"
+        assert "[Resolved by D42 on " in (store_path / "open-questions.md").read_text()

@@ -15,7 +15,12 @@ from nauro_core.constants import (
     MIN_RATIONALE_LENGTH,
     VALID_CONFIDENCES,
 )
-from nauro_core.decision_model import DecisionConfidence
+from nauro_core.decision_model import (
+    DECISION_TYPE_VALUES,
+    DecisionConfidence,
+    DecisionSource,
+    Reversibility,
+)
 from nauro_core.search import Bm25Hit, bm25_retrieve
 
 # Tier-2 BM25 defaults shared by local (nauro) and remote (mcp-server) surfaces.
@@ -143,6 +148,17 @@ def rejected_item_label(item: dict) -> str | None:
     return None
 
 
+# Optional enum-valued proposal fields and their allowed wire values. Each
+# must reject at Tier 1: the write path coerces them with the enum
+# constructor, so a non-member value that slips past screening raises an
+# uncaught ValueError after validation has already passed.
+_OPTIONAL_ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("decision_type", DECISION_TYPE_VALUES),
+    ("reversibility", tuple(r.value for r in Reversibility)),
+    ("source", tuple(s.value for s in DecisionSource)),
+)
+
+
 def screen_structural(
     proposal: dict,
     existing_hashes: set[str],
@@ -150,7 +166,8 @@ def screen_structural(
 ) -> tuple[str, str | None]:
     """Run structural screening on a proposal. No I/O.
 
-    Checks: schema validation (title, rationale, confidence), minimum rationale
+    Checks: schema validation (title, rationale, confidence, the optional
+    enum fields decision_type / reversibility / source), minimum rationale
     length, rejected-alternative labels (each dict item must carry a non-empty
     'alternative' or 'name'), hash dedup against existing_hashes, and title
     dedup against active_decisions (same title as a decision still in force).
@@ -179,6 +196,19 @@ def screen_structural(
     confidence = proposal.get("confidence", DecisionConfidence.medium.value)
     if confidence not in VALID_CONFIDENCES:
         return ("reject", f"Invalid confidence: {confidence}. Must be one of: {VALID_CONFIDENCES}")
+
+    # None and blank strings coerce to unset on the write path, so only a
+    # non-blank non-member value rejects.
+    for field_name, allowed in _OPTIONAL_ENUM_FIELDS:
+        raw = proposal.get(field_name)
+        if raw is None:
+            continue
+        value = raw.strip() if isinstance(raw, str) else str(raw)
+        if value and value not in allowed:
+            return (
+                "reject",
+                f"Invalid {field_name}: {value}. Must be one of: {', '.join(allowed)}",
+            )
 
     if len(rationale) < MIN_RATIONALE_LENGTH:
         return (

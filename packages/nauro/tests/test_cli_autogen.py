@@ -20,7 +20,7 @@ import pytest
 from nauro_core.mcp_tools import ALL_TOOLS
 from typer.testing import CliRunner
 
-from nauro.cli.autogen import AUTOGEN_ALLOWLIST
+from nauro.cli.autogen import AUTOGEN_ALLOWLIST, AUTOGEN_PRIMARY_POSITIONAL
 from nauro.cli.main import app
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.demo import create_demo_project
@@ -104,6 +104,33 @@ class TestAutogenCoverage:
         relocation. It must stay out of the auto-gen allowlist so a future
         reintroduction in the registry does not silently surface a CLI."""
         assert "confirm_decision" not in AUTOGEN_ALLOWLIST
+
+    def test_positional_arguments_match_schema_plus_declared_primaries(self) -> None:
+        """Every command's positional arguments are exactly its required
+        schema properties plus any declared primary positional, in order.
+        Pins the argument shape of all ten commands so a primary-positional
+        designation cannot silently reshape another command."""
+        import click
+        import typer as typer_mod
+
+        command = typer_mod.main.get_command(app)
+        ctx = click.Context(command, info_name="nauro")
+        specs = {spec["name"]: spec for spec in ALL_TOOLS}
+        assert AUTOGEN_PRIMARY_POSITIONAL == {"flag_question": "question"}
+        for name in AUTOGEN_ALLOWLIST:
+            sub = command.get_command(ctx, name.replace("_", "-"))
+            assert sub is not None
+            # typer vendors its own click fork, so TyperArgument is not a
+            # click.Argument; param_type_name discriminates on either lineage.
+            arguments = [p.name for p in sub.params if p.param_type_name == "argument"]
+            schema = specs[name]["input_schema"]
+            expected = [r for r in schema.get("required", []) if r not in {"project_id", "cwd"}]
+            if name in AUTOGEN_PRIMARY_POSITIONAL:
+                expected.append(AUTOGEN_PRIMARY_POSITIONAL[name])
+            assert arguments == expected, (
+                f"'{name.replace('_', '-')}' positional arguments {arguments} "
+                f"drifted from the schema-derived shape {expected}."
+            )
 
 
 # ── Per-tool happy + error paths ────────────────────────────────────────────

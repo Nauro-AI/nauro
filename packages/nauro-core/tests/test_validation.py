@@ -236,6 +236,36 @@ class TestScreenStructural:
         action, _reason = screen_structural(proposal, set(), [])
         assert action == "pass"
 
+    def test_invalid_reversibility(self):
+        action, reason = screen_structural(self._proposal(reversibility="reversible"), set(), [])
+        assert action == "reject"
+        assert "Invalid reversibility: reversible" in reason
+        assert "easy, moderate, hard" in reason
+
+    def test_invalid_decision_type(self):
+        action, reason = screen_structural(self._proposal(decision_type="banana"), set(), [])
+        assert action == "reject"
+        assert "Invalid decision_type: banana" in reason
+        assert "architecture" in reason
+
+    def test_invalid_source(self):
+        action, reason = screen_structural(self._proposal(source="banana"), set(), [])
+        assert action == "reject"
+        assert "Invalid source: banana" in reason
+        assert "mcp" in reason
+
+    def test_valid_enum_fields_pass(self):
+        proposal = self._proposal(reversibility="moderate", decision_type="pattern", source="mcp")
+        action, reason = screen_structural(proposal, set(), [])
+        assert action == "pass"
+        assert reason is None
+
+    def test_none_and_blank_enum_fields_pass(self):
+        # None and blank coerce to unset on the write path; neither rejects.
+        proposal = self._proposal(reversibility=None, decision_type="  ", source="")
+        action, _reason = screen_structural(proposal, set(), [])
+        assert action == "pass"
+
     def test_none_title(self):
         action, reason = screen_structural(self._proposal(title=None), set(), [])
         assert action == "reject"

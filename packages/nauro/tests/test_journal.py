@@ -365,6 +365,26 @@ class TestToolJournaling:
         assert events[0].decision_id is None
         assert events[0].payload_hash
 
+    def test_invalid_enum_tier1_rejection_records_rejected_event(self, store: Path):
+        # A non-member enum value rejects at Tier 1 like any other structural
+        # defect, so it flows through the same rejected-event journaling
+        # instead of escaping as a raised ValueError.
+        result = tool_propose_decision(
+            store,
+            title="Adopt widgets",
+            rationale=_LONG_RATIONALE,
+            reversibility="reversible",
+            origin=_ORIGIN,
+        )
+        assert result["status"] == "rejected"
+        assert "Invalid reversibility" in result["assessment"]
+        events = read_events(store)
+        assert len(events) == 1
+        assert events[0].operation == "propose_decision"
+        assert events[0].status == "rejected"
+        assert events[0].decision_id is None
+        assert events[0].payload_hash
+
 
 # --- snapshot exclusion ------------------------------------------------------
 
