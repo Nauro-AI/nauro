@@ -3,13 +3,14 @@
 from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 
-from nauro_core.constants import PROJECT_MD_SCAFFOLD_BODY
+from nauro_core.constants import PROJECT_MD_SCAFFOLD_BODY, QUESTION_ENTRY_CHAR_BUDGET
 from nauro_core.context import build_l0, build_l1, build_l2
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
     DecisionStatus,
 )
+from nauro_core.questions import QUESTION_TRUNCATION_POINTER
 
 
 def _make_decision(num, title, status="active", date="2026-04-01", rationale="Reason."):
@@ -715,3 +716,79 @@ class TestBuildL1OpenQuestionsProjection:
         content = "# Open Questions\n\n" + self._genuine(12)
         result = build_l0(self._files(content), [])
         assert "more open questions" not in result
+
+
+class TestQuestionEntryCharBudget:
+    """Each question entry's rendered text is capped at
+    QUESTION_ENTRY_CHAR_BUDGET characters in L0 and L1.
+
+    Entries at or under the budget render byte-unchanged; over-budget
+    entries are cut and end with the pointer at the full file. L2 dumps
+    open-questions.md verbatim and stays uncapped.
+    """
+
+    def _files(self, content: str) -> dict[str, str]:
+        return {"open-questions.md": content}
+
+    def _over_budget_entry(self) -> str:
+        body = "Should we adopt the long option? " + "detail " * 100
+        return f"- [Q1] {body.strip()}\n"
+
+    def test_under_budget_entry_renders_byte_unchanged_at_l0(self):
+        entry = "- [Q1] Short and sweet?"
+        content = f"# Open Questions\n\n{entry}\n"
+        result = build_l0(self._files(content), [])
+        assert entry in result
+        assert QUESTION_TRUNCATION_POINTER not in result
+
+    def test_over_budget_entry_truncates_at_l0(self):
+        content = "# Open Questions\n\n" + self._over_budget_entry()
+        result = build_l0(self._files(content), [])
+        assert QUESTION_TRUNCATION_POINTER in result
+        assert "detail detail detail detail" in result  # leading text survives
+        section = result[result.index("## Open Questions") :]
+        entry_line = section.split("\n")[1]
+        assert len(entry_line) <= QUESTION_ENTRY_CHAR_BUDGET + 1 + len(QUESTION_TRUNCATION_POINTER)
+
+    def test_over_budget_entry_truncates_at_l1(self):
+        content = "# Open Questions\n\n" + self._over_budget_entry()
+        result = build_l1(self._files(content), [])
+        assert QUESTION_TRUNCATION_POINTER in result
+
+    def test_l0_and_l1_truncate_identically(self):
+        content = "# Open Questions\n\n" + self._over_budget_entry()
+        l0 = build_l0(self._files(content), [])
+        l1 = build_l1(self._files(content), [])
+        l0_line = next(line for line in l0.split("\n") if line.startswith("- [Q1]"))
+        l1_line = next(line for line in l1.split("\n") if line.startswith("- [Q1]"))
+        assert l0_line == l1_line
+
+    def test_l2_keeps_full_text_verbatim(self):
+        content = "# Open Questions\n\n" + self._over_budget_entry()
+        result = build_l2(self._files(content), [])
+        assert content.strip() in result
+        assert QUESTION_TRUNCATION_POINTER not in result
+
+    def test_multiline_entry_capped_on_joined_text(self):
+        # The budget applies to the entry's joined rendered text (head plus
+        # continuation lines), so a long continuation tail is cut too.
+        long_tail = "  " + "tail " * 150
+        content = f"# Open Questions\n\n- [Q1] Multi-line head?\n{long_tail}\n"
+        result = build_l1(self._files(content), [])
+        assert QUESTION_TRUNCATION_POINTER in result
+        assert "Multi-line head?" in result
+
+    def test_cap_leaves_age_projection_untouched(self):
+        target = datetime.now(timezone.utc).date() - timedelta(days=45)
+        body = "Old and long? " + "padding " * 100
+        content = f"# Open Questions\n\n- [{_legacy_id(target)}] {body.strip()}\n"
+        result = build_l0(self._files(content), [])
+        assert "(open 45 days; consider closing or deferring)" in result
+        assert QUESTION_TRUNCATION_POINTER in result
+
+    def test_cap_leaves_omission_trailer_untouched(self):
+        entries = "".join(f"- [Q{i}] Genuine question {i}?\n" for i in range(1, 13))
+        content = "# Open Questions\n\n" + entries
+        result = build_l1(self._files(content), [])
+        assert "(+2 more open questions" in result
+        assert QUESTION_TRUNCATION_POINTER not in result

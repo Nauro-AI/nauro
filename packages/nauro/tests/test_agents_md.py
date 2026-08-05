@@ -297,6 +297,36 @@ def test_sync_agents_md_omits_scaffold_project_placeholders(tmp_path: Path, monk
     assert "[Hard limits" not in content
 
 
+def test_sync_agents_md_truncates_over_budget_question_like_l0(tmp_path: Path, monkeypatch):
+    """An over-budget question entry truncates identically in AGENTS.md and L0.
+
+    AGENTS.md embeds the L0 payload via build_l0_payload, so the capped
+    entry bytes (cut at the budget, ending with the pointer) must appear
+    verbatim — never the full over-budget tail.
+    """
+    from nauro_core.questions import QUESTION_TRUNCATION_POINTER, truncate_entry_text
+
+    from nauro.store.registry import register_project_v2
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _pid, store = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    body = "Should we adopt the long option? " + "detail " * 120 + "UNIQUE-TAIL-MARKER"
+    entry_line = f"- [Q1] {body}"
+    (store / "open-questions.md").write_text(f"# Open Questions\n\n{entry_line}\n")
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["sync"])
+    assert result.exit_code == 0
+
+    content = (repo / "AGENTS.md").read_text()
+    # The exact truncated bytes the L0 builder produces appear in AGENTS.md.
+    assert truncate_entry_text(entry_line) in content
+    assert QUESTION_TRUNCATION_POINTER in content
+    assert "UNIQUE-TAIL-MARKER" not in content
+
+
 def test_sync_multi_repo(tmp_path: Path, monkeypatch):
     from nauro.store.registry import register_project_v2
 

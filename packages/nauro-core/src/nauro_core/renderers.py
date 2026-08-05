@@ -23,6 +23,11 @@ Per-tool surface area:
   rows. Empty-state guidance flows through unchanged.
 * ``get_context`` — passthrough; the kernel-assembled markdown is already
   human-readable.
+* ``get_raw_file`` — hit: the file content verbatim; miss: the
+  ``Error: File not found`` line plus the ``available_files`` hint in
+  its composed order.
+* ``diff_since_last_session`` — passthrough of the rendered diff body,
+  including the canonical sentinel strings byte-for-byte.
 * ``list_projects`` — short tabular list of ``(name, role, project_id)``
   rows so the agent can disambiguate without re-fetching.
 """
@@ -326,6 +331,49 @@ def render_get_context(result: dict) -> str:
     return body.rstrip() or _guidance(result)
 
 
+def render_get_raw_file(result: dict) -> str:
+    """Render a raw-file read.
+
+    On a hit the file content passes through verbatim — it is already the
+    primary human-readable payload. On a miss the error line renders
+    first (``Error: File not found: <path>``), then the adapter-composed
+    ``available_files`` hint in its exact order — the ordering (canonical
+    root files, remaining root markdown, per-directory anchors) is a
+    cross-surface contract, never reorder it here.
+    """
+    if guidance := _connection_guidance(result):
+        return guidance
+    if "error" in result:
+        lines = [_error_block(result["error"])]
+        available = result.get("available_files") or []
+        if available:
+            lines.append("")
+            lines.append("Available files:")
+            lines.extend(f"  - {path}" for path in available)
+        return "\n".join(lines)
+    content = result.get("content")
+    if content is None:
+        return _guidance(result)
+    return content
+
+
+def render_diff_since_last_session(result: dict) -> str:
+    """Render a session diff.
+
+    The kernel/adapter ``diff`` body is already human-readable text and
+    passes through verbatim: the canonical sentinel strings ("No
+    snapshots available.", "Not enough snapshots...", "Only one snapshot
+    covers...") and the anchor line are cross-surface contracts, so the
+    renderer must stay byte-transparent to them.
+    """
+    if guidance := _connection_guidance(result):
+        return guidance
+    if "error" in result:
+        return _error_block(result["error"])
+    diff = result.get("diff") or ""
+    return diff or _guidance(result)
+
+
 def render_list_projects(result: dict) -> str:
     """Render the user's project list as a short tabular block."""
     projects = result.get("projects") or []
@@ -346,16 +394,16 @@ def render_list_projects(result: dict) -> str:
     return "\n".join(lines).rstrip()
 
 
-# Renderer registry used by the dispatcher. Only read tools whose JSON
-# envelope is unhelpful as primary content appear here; ``get_raw_file``
-# and ``diff_since_last_session`` already return user-rendered bodies and
-# are intentionally absent.
+# Renderer registry used by the dispatcher: every read tool renders a
+# single human-readable text block through it.
 RENDERERS = {
     "check_decision": render_check_decision,
     "get_decision": render_get_decision,
     "search_decisions": render_search_decisions,
     "list_decisions": render_list_decisions,
     "get_context": render_get_context,
+    "get_raw_file": render_get_raw_file,
+    "diff_since_last_session": render_diff_since_last_session,
     "list_projects": render_list_projects,
 }
 
@@ -364,8 +412,10 @@ __all__ = [
     "RENDERERS",
     "disconnected_reason_code",
     "render_check_decision",
+    "render_diff_since_last_session",
     "render_get_context",
     "render_get_decision",
+    "render_get_raw_file",
     "render_list_decisions",
     "render_list_projects",
     "render_search_decisions",
