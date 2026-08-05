@@ -715,6 +715,31 @@ class TestUnknownFrontmatterKeys:
         assert "status: superseded" in formatted
         assert "superseded_by: '42'" in formatted
 
+    def test_base_commit_stamp_round_trips_byte_identically(self) -> None:
+        """The write-path provenance stamp is a trailing unknown key; a
+        stamped decision must reformat to the same bytes."""
+        sha = "4f3c2b1a" * 5
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "version: 1\n"
+            "status: active\n"
+            "confidence: high\n"
+            "decision_type: null\n"
+            "reversibility: null\n"
+            "source: null\n"
+            "files_affected: []\n"
+            "supersedes: null\n"
+            "superseded_by: null\n"
+            f"base_commit: {sha}\n"
+            "---\n\n"
+            "# 001 \u2014 Stamped decision\n\n"
+            "## Decision\n\nChose A.\n"
+        )
+        decision = parse_decision(text, "001-test.md")
+        assert decision.model_extra == {"base_commit": sha}
+        assert format_decision(decision) == text
+
     @pytest.mark.parametrize("text,filename", ALL_FIXTURES)
     def test_no_extras_output_matches_prechange_bytes(self, text: str, filename: str) -> None:
         """With no unknown keys, the writer's output is byte-for-byte the

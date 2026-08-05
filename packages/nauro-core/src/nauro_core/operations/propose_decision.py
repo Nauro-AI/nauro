@@ -123,6 +123,7 @@ def propose_decision(
     files_affected: list[str] | None = None,
     resolves_questions: list[str] | None = None,
     source: str | None = None,
+    base_commit: str | None = None,
 ) -> ProposeDecisionResult:
     """Run the proposal through the validation pipeline and commit on Tier 1 clean.
 
@@ -144,6 +145,7 @@ def propose_decision(
         "files_affected": files_affected,
         "resolves_questions": list(resolves_questions) if resolves_questions else [],
         "source": source,
+        "base_commit": base_commit,
     }
 
     # --- operation="update": reject metadata fields up front ---
@@ -283,6 +285,16 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
     filename = f"{_decision_number_prefix(next_num)}{slug}"
     rationale = proposal.get("rationale") or title
 
+    # base_commit rides the tolerant reader's unknown-key channel: passed as
+    # an extra constructor kwarg it lands in model_extra and renders as a
+    # trailing frontmatter key. It must be omitted entirely when unresolved —
+    # a modeled field (or an explicit None) would serialize ``base_commit:
+    # null`` into every file this writer touches.
+    provenance_kwargs: dict[str, str] = {}
+    base_commit = proposal.get("base_commit")
+    if base_commit:
+        provenance_kwargs["base_commit"] = base_commit
+
     decision = Decision(
         date=datetime.now(timezone.utc).date(),
         version=1,
@@ -298,6 +310,7 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
         num=next_num,
         title=title,
         rationale=rationale,
+        **provenance_kwargs,
     )
     store.write_file(_decision_path(filename), format_decision(decision))
 

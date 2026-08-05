@@ -1010,3 +1010,166 @@ def test_slug_single_giant_word_hard_cuts_at_cap() -> None:
     )
     assert result.status == "confirmed"
     assert result.decision_id == "001-" + "x" * 60
+
+
+# ── base_commit provenance stamp ────────────────────────────────────────
+#
+# The stamp is captured by the local transports and threaded through the
+# optional ``base_commit`` kwarg. It rides the tolerant reader's unknown-key
+# channel (model_extra → trailing frontmatter key); the kernel never
+# resolves it and hosted callers never pass it, so every path without the
+# kwarg must produce files with no trace of the key.
+
+_SHA_A = "a" * 40
+_SHA_B = "b" * 40
+
+
+def _confirmed(result: ProposeDecisionResult) -> str:
+    assert result.status == "confirmed"
+    assert result.decision_id is not None
+    return result.decision_id
+
+
+class TestBaseCommitStamp:
+    def test_add_with_base_commit_stamps_trailing_frontmatter_key(self) -> None:
+        from nauro_core.decision_model import format_decision, parse_decision
+
+        store = InMemoryStore()
+        decision_id = _confirmed(
+            propose_decision(
+                store,
+                title="Adopt Redis",
+                rationale="In-memory cache for hot read paths across the API tier.",
+                confidence="medium",
+                base_commit=_SHA_A,
+            )
+        )
+        body = store.read_decision(decision_id)
+        assert body is not None
+        assert f"base_commit: {_SHA_A}" in body
+        # Round-trip: the stamp lands in model_extra and reformats
+        # byte-identically as a trailing unknown key.
+        parsed = parse_decision(body, f"{decision_id}.md")
+        assert parsed.model_extra == {"base_commit": _SHA_A}
+        assert format_decision(parsed) == body
+
+    def test_add_without_kwarg_writes_no_stamp(self) -> None:
+        store = InMemoryStore()
+        decision_id = _confirmed(
+            propose_decision(
+                store,
+                title="Adopt Redis",
+                rationale="In-memory cache for hot read paths across the API tier.",
+                confidence="medium",
+            )
+        )
+        body = store.read_decision(decision_id)
+        assert body is not None
+        assert "base_commit" not in body
+
+    def test_add_with_none_base_commit_writes_no_stamp(self) -> None:
+        # Explicit None must omit the key entirely — never ``base_commit: null``.
+        store = InMemoryStore()
+        decision_id = _confirmed(
+            propose_decision(
+                store,
+                title="Adopt Redis",
+                rationale="In-memory cache for hot read paths across the API tier.",
+                confidence="medium",
+                base_commit=None,
+            )
+        )
+        body = store.read_decision(decision_id)
+        assert body is not None
+        assert "base_commit" not in body
+
+    def test_update_preserves_stamp_and_never_restamps(self) -> None:
+        store = InMemoryStore()
+        decision_id = _confirmed(
+            propose_decision(
+                store,
+                title="Adopt Redis",
+                rationale="In-memory cache for hot read paths across the API tier.",
+                confidence="medium",
+                base_commit=_SHA_A,
+            )
+        )
+        result = propose_decision(
+            store,
+            title="",
+            rationale="Extended to cover the background job tier after the audit.",
+            operation="update",
+            affected_decision_id=decision_id,
+            base_commit=_SHA_B,
+        )
+        assert result.status == "confirmed"
+        body = store.read_decision(decision_id)
+        assert body is not None
+        assert f"base_commit: {_SHA_A}" in body
+        assert _SHA_B not in body
+        assert body.count("base_commit") == 1
+
+    def test_supersede_preserves_old_stamp_and_stamps_new(self) -> None:
+        store = InMemoryStore()
+        old_id = _confirmed(
+            propose_decision(
+                store,
+                title="Adopt Redis",
+                rationale="In-memory cache for hot read paths across the API tier.",
+                confidence="medium",
+                base_commit=_SHA_A,
+            )
+        )
+        result = propose_decision(
+            store,
+            title="Adopt Valkey",
+            rationale="Valkey replaces Redis after the licensing change upstream.",
+            operation="supersede",
+            affected_decision_id=old_id,
+            confidence="medium",
+            base_commit=_SHA_B,
+        )
+        new_id = _confirmed(result)
+        old_body = store.read_decision(old_id)
+        assert old_body is not None
+        # The flip rewrites the old file; its original stamp survives and is
+        # not replaced by the superseding call's stamp.
+        assert "status: superseded" in old_body
+        assert f"base_commit: {_SHA_A}" in old_body
+        assert _SHA_B not in old_body
+        new_body = store.read_decision(new_id)
+        assert new_body is not None
+        assert f"base_commit: {_SHA_B}" in new_body
+        assert _SHA_A not in new_body
+
+    def test_supersede_and_update_without_kwarg_stay_unstamped(self) -> None:
+        store = InMemoryStore()
+        old_id = _confirmed(
+            propose_decision(
+                store,
+                title="Adopt Redis",
+                rationale="In-memory cache for hot read paths across the API tier.",
+                confidence="medium",
+            )
+        )
+        supersede = propose_decision(
+            store,
+            title="Adopt Valkey",
+            rationale="Valkey replaces Redis after the licensing change upstream.",
+            operation="supersede",
+            affected_decision_id=old_id,
+            confidence="medium",
+        )
+        new_id = _confirmed(supersede)
+        update = propose_decision(
+            store,
+            title="",
+            rationale="Extended to cover the background job tier after the audit.",
+            operation="update",
+            affected_decision_id=new_id,
+        )
+        assert update.status == "confirmed"
+        for stem in (old_id, new_id):
+            body = store.read_decision(stem)
+            assert body is not None
+            assert "base_commit" not in body

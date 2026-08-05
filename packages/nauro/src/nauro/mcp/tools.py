@@ -145,9 +145,10 @@ def journaled(*, operation: str, target: str) -> Callable[..., Any]:
     hash and append are wrapped so a journaling defect can never turn a
     successful write into a failure.
 
-    The payload hashed is the adapter's logical arguments with ``store_path``
-    and ``origin`` removed — ``origin`` is provenance, not payload, and
-    ``store_path`` is environment. ``committed`` events carry ``decision_id``
+    The payload hashed is the adapter's logical arguments with ``store_path``,
+    ``origin``, and ``base_commit`` removed — ``origin`` and ``base_commit``
+    are provenance, not payload, and ``store_path`` is environment.
+    ``committed`` events carry ``decision_id``
     when the envelope reports one; ``rejected`` events carry the payload hash
     and no decision id.
     """
@@ -199,7 +200,9 @@ def _emit_write_event(
     if not isinstance(store_path, Path):
         return
 
-    payload = {k: v for k, v in bound.arguments.items() if k not in ("store_path", "origin")}
+    payload = {
+        k: v for k, v in bound.arguments.items() if k not in ("store_path", "origin", "base_commit")
+    }
     # The transport already built the descriptor before this adapter ran; the
     # factory just hands it back inside record_event's guard, keeping a single
     # emission interface across every call site.
@@ -384,6 +387,7 @@ def tool_propose_decision(
     resolves_questions: list[str] | None = None,
     *,
     origin: OriginDescriptor | None = None,
+    base_commit: str | None = None,
 ) -> dict:
     """Propose a new decision through the validation pipeline."""
     guidance = _check_store_exists(store_path)
@@ -463,6 +467,7 @@ def tool_propose_decision(
             files_affected=files_affected,
             resolves_questions=resolves_questions,
             source="mcp",
+            base_commit=base_commit,
         )
 
     dumped = result.model_dump(mode="json", exclude_none=True)

@@ -58,6 +58,7 @@ from nauro.mcp.tools import (
 )
 from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.journal import OriginDescriptor
+from nauro.store.repo_head import resolve_repo_head
 from nauro.store.resolution import (
     DisconnectedProject,
     DisconnectedProjectError,
@@ -420,6 +421,7 @@ def propose_decision(
         files_affected=files_affected,
         resolves_questions=resolves_questions,
         origin=_origin_from_ctx(mcp_ctx),
+        base_commit=resolve_repo_head(cwd),
     )
 
 

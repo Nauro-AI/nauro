@@ -35,6 +35,7 @@ from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 from nauro.cli._json_input import parse_json_list_of_dicts
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.mcp import tools as mcp_tools
+from nauro.store.repo_head import resolve_process_repo_head
 
 # Tools that should auto-generate a CLI command. list_projects is
 # excluded — local installs auto-resolve to a single project and do not
@@ -392,9 +393,13 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
     ]
 
     # Write adapters accept a keyword-only ``origin`` so the CLI can stamp the
-    # transport; read adapters do not. Detect it once so the command stamps
-    # only the surfaces that record provenance.
-    accepts_origin = "origin" in inspect.signature(adapter).parameters
+    # transport; read adapters do not. The decision write adapter additionally
+    # accepts ``base_commit``, stamping the HEAD of the repository enclosing
+    # the CLI process cwd. Detect both once so the command stamps only the
+    # surfaces that record provenance.
+    adapter_params = inspect.signature(adapter).parameters
+    accepts_origin = "origin" in adapter_params
+    accepts_base_commit = "base_commit" in adapter_params
 
     def command(**kwargs: Any) -> None:
         project = kwargs.pop("project", None)
@@ -427,6 +432,8 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         adapter_kwargs = {name: kwargs[name] for name in schema_arg_names if name in kwargs}
         if accepts_origin:
             adapter_kwargs["origin"] = cli_origin()
+        if accepts_base_commit:
+            adapter_kwargs["base_commit"] = resolve_process_repo_head()
         envelope = adapter(store_path, **adapter_kwargs)
         _emit_envelope(envelope)
         _exit_for_envelope(envelope)
