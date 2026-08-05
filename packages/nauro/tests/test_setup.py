@@ -221,7 +221,7 @@ class TestAGENTSMD:
         assert agents_md.exists()
         content = agents_md.read_text()
         assert "## Project: testproj" in content
-        assert "When to use these tools" in content
+        assert "## Nauro MCP Tools" in content
         assert "regenerated AGENTS.md" in result.output
 
 

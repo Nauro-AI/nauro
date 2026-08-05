@@ -640,14 +640,7 @@ class TestSetupAllTranscripts:
             "  unchanged {TMP}/.codex/agents/nauro-executor.toml\n"
             "  unchanged {TMP}/.codex/agents/nauro-reviewer.toml\n"
             "  unchanged {TMP}/.codex/agents/nauro-tech-lead.toml\n"
-            "  {TMP}/repo: regenerated AGENTS.md\n"
-            + _bridge_line()
-            + "\n"
-            + CONNECTOR_NOTICE_LINE
-            + "\n"
-            + ALL_RESTART_LINE
-            + "\n"
-            + TRY_IT_LINE
+            "\n" + CONNECTOR_NOTICE_LINE + "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
         )
         assert result.stderr == ""
         assert (tmp_path / ".claude" / "agents" / "nauro-planner.md.bak").read_text(
@@ -686,14 +679,7 @@ class TestSetupAllTranscripts:
             "  unchanged {TMP}/.codex/agents/nauro-executor.toml\n"
             "  unchanged {TMP}/.codex/agents/nauro-reviewer.toml\n"
             "  unchanged {TMP}/.codex/agents/nauro-tech-lead.toml\n"
-            "  {TMP}/repo: regenerated AGENTS.md\n"
-            + _bridge_line()
-            + "\n"
-            + CONNECTOR_NOTICE_LINE
-            + "\n"
-            + ALL_RESTART_LINE
-            + "\n"
-            + TRY_IT_LINE
+            "\n" + CONNECTOR_NOTICE_LINE + "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
         )
         assert result.stderr == ""
         assert not (tmp_path / ".claude" / "agents" / "nauro-planner.md.bak").exists()
@@ -843,8 +829,9 @@ def _mask_agents_md_timestamp(data: bytes) -> bytes:
 def _assert_trees_identical(first: dict[str, bytes], second: dict[str, bytes]) -> None:
     """Byte-identity across runs; AGENTS.md compared with its timestamp masked.
 
-    AGENTS.md is regenerated on every add run with a fresh UTC timestamp, so
-    it is the one artifact excluded from byte-equality.
+    AGENTS.md regen is content-conditional, so a rerun normally skips it and
+    plain byte-equality would hold; the timestamp mask keeps this assertion
+    valid for runs that do rewrite the file.
     """
     assert sorted(first) == sorted(second)
     for rel, before in first.items():
@@ -867,8 +854,14 @@ class TestCommandIdempotency:
         assert second.exit_code == 0
 
         _assert_trees_identical(tree_first, _tree_bytes(tmp_path))
-        # The second run re-reports "wrote"/"regenerated" rather than a no-op.
-        assert second.stdout == first.stdout
+        # The second run re-reports "wrote" for the JSON MCP sink, but the
+        # unchanged AGENTS.md is skipped, so its section disappears entirely.
+        assert _norm(second.stdout, tmp_path) == (
+            "Configured Nauro for project 'proj':\n"
+            "\n"
+            "  {TMP}/repo: wrote nauro to .mcp.json\n"
+            "\n" + CLAUDE_NEXT_LINE + "\n" + TRY_IT_LINE
+        )
         assert second.stderr == ""
 
     def test_cursor_rerun(self, tmp_path: Path, monkeypatch):
@@ -917,7 +910,8 @@ class TestCommandIdempotency:
 
         _assert_trees_identical(tree_first, _tree_bytes(tmp_path))
         # MCP JSON sinks re-report "wrote". Skills, agents, hooks, and Codex
-        # report explicit no-op statuses.
+        # report explicit no-op statuses. The unchanged AGENTS.md is skipped,
+        # so its regen section disappears from the rerun transcript.
         assert _norm(second.stdout, tmp_path) == (
             "Configured Nauro for project 'proj' across all surfaces:\n"
             "\n"
@@ -946,9 +940,7 @@ class TestCommandIdempotency:
             "  unchanged {TMP}/.codex/agents/nauro-reviewer.toml\n"
             "  unchanged {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: nauro hooks already present in .codex/hooks.json\n"
-            "  {TMP}/repo: regenerated AGENTS.md\n"
-            + _bridge_line()
-            + "\n"
+            "\n"
             + CONNECTOR_NOTICE_LINE
             + "\n"
             + HOOKS_NOTICE_LINE

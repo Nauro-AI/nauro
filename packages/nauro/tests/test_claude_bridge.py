@@ -417,11 +417,18 @@ def test_setup_claude_code_twice_keeps_bridge_stable(tmp_path: Path, monkeypatch
 
     second = runner.invoke(app, ["setup", "claude-code"])
     assert second.exit_code == 0
+    third = runner.invoke(app, ["setup", "claude-code"])
+    assert third.exit_code == 0
 
-    # The bridge survives a second run byte-for-byte, and the transcript is
-    # stable (no oscillation between legacy cleanup and the bridge write).
+    # The bridge survives repeated runs byte-for-byte. The second run skips
+    # the unchanged AGENTS.md (content-conditional regen), so its transcript
+    # drops the regen block relative to the first; from then on the
+    # steady-state transcript is stable (no oscillation between legacy
+    # cleanup and the bridge write).
     assert (repo / CLAUDE_MD).read_bytes() == bridge_bytes
-    assert second.stdout == first.stdout
+    assert "regenerated AGENTS.md" in first.stdout
+    assert "regenerated AGENTS.md" not in second.stdout
+    assert third.stdout == second.stdout
 
 
 def test_legacy_block_stripped_then_treated_as_foreign_unbridged(tmp_path: Path, monkeypatch):
