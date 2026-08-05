@@ -332,11 +332,17 @@
             "type": "text"
           },
           {
+            "kind": "argument",
+            "name": "question",
+            "required": false,
+            "type": "text"
+          },
+          {
             "flags": [
               "--question"
             ],
             "kind": "option",
-            "name": "question",
+            "name": "question_option",
             "required": false,
             "type": "text"
           },

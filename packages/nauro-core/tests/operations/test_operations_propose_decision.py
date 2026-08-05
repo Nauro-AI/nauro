@@ -27,6 +27,7 @@ from nauro_core.constants import OPEN_QUESTIONS_MD
 from nauro_core.decision_model import (
     DECISION_TYPE_VALUES,
     DecisionStatus,
+    Reversibility,
 )
 from nauro_core.operations import (
     InMemoryStore,
@@ -922,6 +923,53 @@ def test_every_advertised_decision_type_commits(decision_type: str) -> None:
         decision_type=decision_type,
     )
     assert result.status == "confirmed"
+
+
+@pytest.mark.parametrize("reversibility", [r.value for r in Reversibility])
+def test_every_advertised_reversibility_commits(reversibility: str) -> None:
+    store = InMemoryStore()
+    result = propose_decision(
+        store,
+        title=f"Decision reversible as {reversibility}",
+        rationale="A rationale long enough to clear the minimum length threshold.",
+        confidence="medium",
+        reversibility=reversibility,
+    )
+    assert result.status == "confirmed"
+    body = store.read_decision(result.decision_id)
+    assert body is not None
+    assert f"reversibility: {reversibility}" in body
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "allowed_fragment"),
+    [
+        ("reversibility", "reversible", "easy, moderate, hard"),
+        ("reversibility", "banana", "easy, moderate, hard"),
+        ("decision_type", "banana", "architecture"),
+        ("source", "banana", "mcp"),
+    ],
+)
+def test_invalid_enum_value_rejected_at_tier_1(
+    field: str, value: str, allowed_fragment: str
+) -> None:
+    """A non-member enum value rejects with the clean Tier 1 envelope instead
+    of raising ValueError from the write path's enum coercion, and nothing is
+    written to the store."""
+    store = InMemoryStore()
+    result = propose_decision(
+        store,
+        title="Adopt Redis for hot caching",
+        rationale="In-memory cache for the hot read paths across the API tier.",
+        confidence="medium",
+        **{field: value},
+    )
+    assert result.status == "rejected"
+    assert result.tier == 1
+    assert result.operation == "reject"
+    assert f"Invalid {field}: {value}" in result.assessment
+    assert allowed_fragment in result.assessment
+    assert store.list_decisions() == []
 
 
 # ── Slug truncation goldens ─────────────────────────────────────────────

@@ -15,6 +15,10 @@ them natively). ``list[dict]`` properties map to a single JSON-valued
 flag parsed at dispatch time by ``cli._json_input``; that helper raises
 ``typer.BadParameter`` on malformed input so Typer renders to stderr at
 exit 2 without ever invoking the adapter.
+
+Tools in ``AUTOGEN_PRIMARY_POSITIONAL`` additionally surface one declared
+optional string property as a positional argument alongside its option
+flag; the two spellings merge at dispatch.
 """
 
 from __future__ import annotations
@@ -53,6 +57,19 @@ AUTOGEN_ALLOWLIST: frozenset[str] = frozenset(
     }
 )
 
+# Optional schema properties promoted to the command's positional argument.
+# The generic rule — only required properties become positionals — leaves a
+# tool whose primary payload is optional in the schema without a positional
+# form: flag_question's ``question`` may be omitted (the resolve action
+# passes ``resolved_by`` instead), yet ``nauro flag-question "..."`` is the
+# invocation the flag action naturally suggests. A tool named here surfaces
+# the designated string property both as an optional positional argument and
+# as its regular option flag; dispatch merges the two spellings and rejects
+# the call when both carry a value. The MCP schema is unchanged.
+AUTOGEN_PRIMARY_POSITIONAL: dict[str, str] = {
+    "flag_question": "question",
+}
+
 # Properties that should never reach the CLI surface. project_id is
 # replaced by ``--project NAME``; cwd is implicit from the working
 # directory.
@@ -75,15 +92,59 @@ def _bool_option_flag(property_name: str) -> str:
     return f"--{kebab}/--no-{kebab}"
 
 
+def _primary_option_alias(property_name: str) -> str:
+    """Signature name for the option spelling of a primary positional.
+
+    The rendered flag keeps the property's own name (``--question``); only
+    the Python parameter name is aliased so the positional and option
+    spellings can coexist in one signature. Dispatch merges the alias back
+    into the schema property.
+    """
+    return f"{property_name}_option"
+
+
+def _primary_positional_params(name: str, prop: dict[str, Any]) -> list[inspect.Parameter]:
+    """Build the two spellings of a primary-positional property."""
+    desc = prop.get("description", "")
+    positional = inspect.Parameter(
+        name=name,
+        kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        default=typer.Argument(None, help=desc),
+        annotation=str,
+    )
+    option = inspect.Parameter(
+        name=_primary_option_alias(name),
+        kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        default=typer.Option(
+            None,
+            _option_flag(name),
+            help=f"{desc} Equivalent to passing the value positionally.",
+        ),
+        annotation=str,
+    )
+    return [positional, option]
+
+
 def _schema_to_typer_params(spec: ToolSpec) -> list[inspect.Parameter]:
     """Translate an input_schema into ordered Typer parameters.
 
     Required string/integer properties become positional arguments;
-    everything else becomes an option. project_id and cwd are dropped.
+    everything else becomes an option, except a declared primary positional,
+    which surfaces as both. project_id and cwd are dropped.
     """
     schema = spec["input_schema"]
     properties: dict[str, Any] = schema.get("properties", {}) or {}
     required: list[str] = list(schema.get("required", []) or [])
+
+    primary = AUTOGEN_PRIMARY_POSITIONAL.get(spec["name"])
+    if primary is not None and (
+        primary in required or properties.get(primary, {}).get("type") != "string"
+    ):
+        raise ValueError(
+            f"Primary positional {primary!r} for {spec['name']!r} must be an "
+            "optional string property in the tool schema. Fix "
+            "AUTOGEN_PRIMARY_POSITIONAL in cli/autogen.py."
+        )
 
     params: list[inspect.Parameter] = []
 
@@ -105,6 +166,9 @@ def _schema_to_typer_params(spec: ToolSpec) -> list[inspect.Parameter]:
     # Then options, in property-declaration order.
     for name, prop in properties.items():
         if name in _DROPPED_PROPERTIES or name in required:
+            continue
+        if name == primary:
+            params.extend(_primary_positional_params(name, prop))
             continue
         annotation, default = _optional_param(name, prop)
         params.append(
@@ -293,11 +357,17 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
     adapter = _resolve_adapter(tool_name)
     params = _schema_to_typer_params(spec)
 
+    # The primary positional's option spelling is a signature-only alias:
+    # it is merged into the schema property at dispatch and never reaches
+    # the adapter under its alias name.
+    primary = AUTOGEN_PRIMARY_POSITIONAL.get(tool_name)
+    primary_alias = _primary_option_alias(primary) if primary is not None else None
+
     # Names of the schema-derived arguments, in dispatch order. These
     # are passed positionally to the adapter to match its
     # ``store_path, <required>, <optional>`` signature.
     schema_arg_names: list[str] = [
-        p.name for p in params if p.name not in {"project", "json_output"}
+        p.name for p in params if p.name not in {"project", "json_output", primary_alias}
     ]
 
     # Properties declared as ``array of object`` arrive as raw strings from
@@ -330,6 +400,16 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         project = kwargs.pop("project", None)
         # --json is a parity no-op; JSON is the only output mode.
         kwargs.pop("json_output", None)
+
+        if primary is not None:
+            option_value = kwargs.pop(primary_alias, None)
+            if option_value is not None:
+                if kwargs.get(primary) is not None:
+                    raise typer.BadParameter(
+                        f"Pass {primary.upper()} positionally or via "
+                        f"{_option_flag(primary)}, not both."
+                    )
+                kwargs[primary] = option_value
 
         _project_name, store_path = resolve_target_project(project)
 
@@ -371,6 +451,13 @@ def register_autogen_commands(app: typer.Typer) -> None:
         raise RuntimeError(
             f"Auto-gen allowlist references unknown tools: {sorted(unknown)}. "
             "Update AUTOGEN_ALLOWLIST in cli/autogen.py."
+        )
+    unknown_primary = set(AUTOGEN_PRIMARY_POSITIONAL) - AUTOGEN_ALLOWLIST
+    if unknown_primary:
+        raise RuntimeError(
+            f"Primary-positional map references non-allowlisted tools: "
+            f"{sorted(unknown_primary)}. Update AUTOGEN_PRIMARY_POSITIONAL "
+            "in cli/autogen.py."
         )
 
     for spec in ALL_TOOLS:
