@@ -36,7 +36,7 @@ from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 from nauro.cli._json_input import parse_json_list_of_dicts
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.mcp import tools as mcp_tools
-from nauro.mcp.rendering import try_render_envelope
+from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
 from nauro.store.repo_head import resolve_process_repo_head
 
 # Tools that should auto-generate a CLI command. list_projects is
@@ -84,16 +84,6 @@ class OutputFormat(str, enum.Enum):
 
     json = "json"
     text = "text"
-
-
-# Schema properties threaded to the tool's renderer as kwargs in text mode,
-# mirroring the stdio server's per-tool threading: ``get_decision`` passes the
-# requested mode; ``search_decisions`` passes the query the kernel envelope
-# intentionally omits.
-_RENDERER_KWARG_PROPERTIES: dict[str, tuple[str, ...]] = {
-    "get_decision": ("mode",),
-    "search_decisions": ("query",),
-}
 
 
 def _command_name(tool_name: str) -> str:
@@ -470,8 +460,6 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
     accepts_origin = "origin" in adapter_params
     accepts_base_commit = "base_commit" in adapter_params
 
-    renderer_kwarg_names = _RENDERER_KWARG_PROPERTIES.get(tool_name, ())
-
     def command(**kwargs: Any) -> None:
         project = kwargs.pop("project", None)
         # --json is a parity no-op; --format selects the output mode.
@@ -509,9 +497,9 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         envelope = _resolve_adapter(tool_name)(store_path, **adapter_kwargs)
 
         if output_format is OutputFormat.text:
-            renderer_kwargs = {
-                name: kwargs[name] for name in renderer_kwarg_names if name in kwargs
-            }
+            # Same per-tool renderer-kwarg threading as the stdio server,
+            # through the shared resolver so the surfaces cannot drift.
+            renderer_kwargs = resolve_renderer_kwargs(tool_name, kwargs, store_path)
             # A renderer failure falls back silently to json-mode streams;
             # a traceback on stderr would break the stream contract.
             rendered = try_render_envelope(tool_name, envelope, renderer_kwargs).text

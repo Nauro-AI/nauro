@@ -48,7 +48,7 @@ from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field
 
 from nauro import __version__
-from nauro.mcp.rendering import try_render_envelope
+from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
 from nauro.mcp.tools import (
     tool_check_decision,
     tool_diff_since_last_session,
@@ -248,7 +248,11 @@ def get_context(
     store_path, err = _resolve_or_error(project_id, cwd)
     # tool_get_context accepts both int and string levels.
     result = err if err is not None else tool_get_context(store_path, level)
-    return _wrap_with_renderer("get_context", result)
+    return _wrap_with_renderer(
+        "get_context",
+        result,
+        resolve_renderer_kwargs("get_context", {"level": level}, store_path),
+    )
 
 
 @mcp.tool(**_spec_kwargs("get_raw_file"))
@@ -261,7 +265,11 @@ def get_raw_file(
 ) -> CallToolResult:
     store_path, err = _resolve_or_error(project_id, cwd)
     result = err if err is not None else tool_get_raw_file(store_path, path)
-    return _wrap_with_renderer("get_raw_file", result)
+    return _wrap_with_renderer(
+        "get_raw_file",
+        result,
+        resolve_renderer_kwargs("get_raw_file", {"path": path}, store_path),
+    )
 
 
 @mcp.tool(**_spec_kwargs("list_decisions"))
@@ -293,7 +301,11 @@ def get_decision(
 ) -> CallToolResult:
     store_path, err = _resolve_or_error(project_id, cwd)
     result = err if err is not None else tool_get_decision(store_path, number, mode)
-    return _wrap_with_renderer("get_decision", result, {"mode": mode})
+    return _wrap_with_renderer(
+        "get_decision",
+        result,
+        resolve_renderer_kwargs("get_decision", {"mode": mode}, store_path),
+    )
 
 
 @mcp.tool(**_spec_kwargs("diff_since_last_session"))
@@ -333,7 +345,11 @@ def search_decisions(
     # The kernel envelope omits the echoed query; thread it to the renderer
     # so the local header shows the term, matching the remote transport,
     # which carries query in its envelope.
-    return _wrap_with_renderer("search_decisions", result, {"query": query})
+    return _wrap_with_renderer(
+        "search_decisions",
+        result,
+        resolve_renderer_kwargs("search_decisions", {"query": query}, store_path),
+    )
 
 
 @mcp.tool(**_spec_kwargs("check_decision"))

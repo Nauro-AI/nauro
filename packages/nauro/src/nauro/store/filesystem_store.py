@@ -15,6 +15,25 @@ from nauro_core.constants import DECISIONS_DIR
 from nauro.store.reader import read_text_lenient
 
 
+def canonical_store_relative_path(store_path: Path, path: str) -> str | None:
+    """Resolve ``path`` against the store root to its canonical relative form.
+
+    Returns the POSIX-style store-relative path
+    (``context/../open-questions.md`` resolves to ``open-questions.md``) or
+    ``None`` when the path escapes the store or cannot be resolved.
+    Read-side companion to :meth:`FilesystemStore._resolve_within`:
+    consumers that key per-file rules off the requested path (the
+    bounded-read renderer kwargs) classify on this canonical form so alias
+    spellings cannot dodge a rule. The escape rejection on the read/write
+    path itself stays in :meth:`FilesystemStore._resolve_within`.
+    """
+    try:
+        target = (store_path / path).resolve()
+        return target.relative_to(store_path.resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
+
+
 class FilesystemStore:
     """Concrete ``Store`` rooted at a single project's on-disk directory.
 
