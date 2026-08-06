@@ -19,8 +19,8 @@ from typing import Any, TypedDict
 
 from nauro_core.decision_model import DECISION_TYPE_VALUES
 from nauro_core.protocol import (
-    _APPROVAL_BEFORE_PROPOSE,
     _PROPOSAL_VISIBILITY_DETAIL,
+    APPROVAL_BEFORE_PROPOSE,
     GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
@@ -52,8 +52,8 @@ class ToolSpec(TypedDict):
 _PROJECT_PARAM: dict[str, Any] = {
     "type": "string",
     "description": (
-        "Optional; auto-resolved when you have one project. With multiple, "
-        "list ids via list_projects (hosted) or `nauro projects` (local)."
+        "Optional; auto-resolved for one project. With several, list ids "
+        "via list_projects (hosted) or `nauro projects` (local)."
     ),
 }
 
@@ -78,20 +78,17 @@ GET_CONTEXT: ToolSpec = {
     "description": (
         "Return project context at the requested detail level.\n"
         "\n"
-        "L0 (concise) includes project summary, current state, top open "
-        "questions, and the last 10 active decisions with titles and dates. "
-        "L1 (working set) adds full decision bodies for recent decisions. "
-        "L2 (full dump) includes everything in the store.\n"
+        "L0 (concise): summary, current state, top open questions, last 10 "
+        "active decisions. L1 adds full bodies for recent decisions. L2 "
+        "includes everything in the store.\n"
         "\n"
-        "Payload sizes scale with the store: L1 is a bounded working set; "
-        "L2 is the full dump and can exceed hundreds of thousands of tokens "
-        "on a mature store. Default to L0 plus targeted get_decision "
+        "Payloads scale with the store: L1 is a bounded working set; L2 can "
+        "run past 100k tokens. Default to L0 plus targeted get_decision "
         "lookups.\n"
         "\n"
-        "Call this at session start or when you need to understand the "
-        "project's goals, constraints, and recent history. Do NOT call "
-        "list_decisions after get_context unless you need decisions beyond "
-        "the last 10 or need the include_superseded filter."
+        "Call at session start. Do NOT call list_decisions after "
+        "get_context unless you need decisions beyond the last 10 or the "
+        "include_superseded filter."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -115,13 +112,10 @@ GET_RAW_FILE: ToolSpec = {
     "description": (
         "Return the raw markdown content of any file in the Nauro project store.\n"
         "\n"
-        "Valid paths include: project.md, state_current.md, stack.md, open-questions.md, "
-        "decisions/042-some-decision.md\n"
-        "\n"
-        "This is a low-level escape hatch. For most use cases, prefer:\n"
-        "- get_context for project overview, state, questions, recent decisions\n"
-        "- get_decision for a specific decision by number\n"
-        "- search_decisions for finding decisions by topic"
+        "A low-level escape hatch: prefer get_context for overview, "
+        "get_decision for one decision, search_decisions for topics. Valid "
+        "paths: project.md, state_current.md, stack.md, open-questions.md, "
+        "decisions/042-some-decision.md"
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -130,8 +124,8 @@ GET_RAW_FILE: ToolSpec = {
             "path": {
                 "type": "string",
                 "description": (
-                    "File path relative to project store root "
-                    "(e.g., 'project.md', 'decisions/001-initial-architecture.md')."
+                    "Path relative to store root (e.g. 'project.md', "
+                    "'decisions/001-initial-architecture.md')."
                 ),
             },
             "project_id": _PROJECT_PARAM,
@@ -144,9 +138,9 @@ LIST_DECISIONS: ToolSpec = {
     "name": "list_decisions",
     "title": "List decision history",
     "description": (
-        "Browse the full decision history. Use when you need decisions beyond "
-        "the last 10 included in get_context, or when you need the "
-        "include_superseded filter. For topical lookups, prefer search_decisions."
+        "Browse the full decision history. Use for decisions beyond the last "
+        "10 in get_context or for the include_superseded filter; for topical "
+        "lookups, prefer search_decisions."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -174,15 +168,12 @@ GET_DECISION: ToolSpec = {
     "description": (
         "Return a specific decision by its number.\n"
         "\n"
-        "mode=header (compact) returns the triage frontmatter (status, "
-        "supersession, date, type, confidence), the title, and a short lede "
-        "from the rationale — enough to decide whether a decision is worth a "
-        "full read. mode=full (default) returns the complete markdown: "
-        "metadata, full rationale, and rejected alternatives. Use header as "
-        "the standalone triage read for decisions surfaced by "
-        "search_decisions or list_decisions (check_decision hits already "
-        "carry these headers inline), then full for the ones you actually "
-        "reason about."
+        "mode=header returns the triage frontmatter (status, supersession, "
+        "date, type, confidence), the title, and a short rationale lede. "
+        "mode=full (default) returns the complete markdown. Use header to "
+        "triage decisions surfaced by search_decisions or list_decisions "
+        "(check_decision hits already carry headers inline), then full for "
+        "the ones you actually reason about."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -196,10 +187,7 @@ GET_DECISION: ToolSpec = {
                 "type": "string",
                 "enum": ["header", "full"],
                 "default": "full",
-                "description": (
-                    "header: triage projection (frontmatter + title + lede). "
-                    "full: complete decision body. Default full."
-                ),
+                "description": "header: triage projection; full: complete body. Default full.",
             },
             "project_id": _PROJECT_PARAM,
         },
@@ -213,10 +201,9 @@ DIFF_SINCE_LAST_SESSION: ToolSpec = {
     "description": (
         "Show what changed in the project context since the last snapshot.\n"
         "\n"
-        "When days is omitted, diffs the two most recent snapshots "
-        "(session-scoped). When days is provided, finds the nearest snapshot "
-        "to N days ago and diffs against the current state. Useful for "
-        "catching up on changes made in other sessions or on other machines."
+        "Omitting days diffs the two most recent snapshots (session-scoped); "
+        "with days, diffs the nearest snapshot to N days ago against current "
+        "state. Useful for catching up on other sessions or machines."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -224,10 +211,7 @@ DIFF_SINCE_LAST_SESSION: ToolSpec = {
         "properties": {
             "days": {
                 "type": "integer",
-                "description": (
-                    "Optional: number of days to look back. Finds the nearest "
-                    "snapshot to N days ago and diffs against the latest."
-                ),
+                "description": "Optional: days to look back.",
             },
             "project_id": _PROJECT_PARAM,
         },
@@ -239,16 +223,13 @@ SEARCH_DECISIONS: ToolSpec = {
     "name": "search_decisions",
     "title": "Search decisions",
     "description": (
-        "Search across all project decisions using BM25 relevance ranking "
-        "against titles and rationale. Returns active decisions by default; "
-        "pass include_superseded=true to include superseded ones.\n"
+        "Search all project decisions with BM25 ranking against titles and "
+        "rationale. Active decisions by default; pass include_superseded=true "
+        "to include superseded ones.\n"
         "\n"
-        "Use when you need to find decisions about a specific topic rather "
-        "than browsing the full list. More token-efficient than list_decisions "
-        "for targeted lookups.\n"
-        "\n"
-        "Returns decision number, title, date, status, and a relevance "
-        "snippet from the matching rationale. Requires a non-empty query."
+        "More token-efficient than list_decisions for topical lookups. "
+        "Returns number, title, date, status, and a relevance snippet; the "
+        "query must be non-empty."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -284,11 +265,10 @@ CHECK_DECISION: ToolSpec = {
         "\n"
         f"This tool does NOT judge conflicts. {GET_DECISION_BEFORE_PROPOSING}\n"
         "\n"
-        "Use this to consult the project's decision history before committing "
-        'to an approach — especially when the user asks "should we...", '
-        '"what if we...", "can we...", or "check if...". If check_decision '
-        "returns no related decisions and the choice should be recorded, "
-        f"follow this approval boundary: {_APPROVAL_BEFORE_PROPOSE}"
+        "Consult before committing to any approach, especially on "
+        '"should we / what if / can we / check if" asks. If no related '
+        "decisions return and the choice should be recorded, follow this "
+        f"approval boundary before `propose_decision`: {APPROVAL_BEFORE_PROPOSE}"
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {
@@ -300,9 +280,7 @@ CHECK_DECISION: ToolSpec = {
             },
             "context": {
                 "type": "string",
-                "description": (
-                    "Optional additional context about why you're considering this approach."
-                ),
+                "description": "Optional context on why you're considering this approach.",
             },
             "project_id": _PROJECT_PARAM,
         },
@@ -317,16 +295,15 @@ PROPOSE_DECISION: ToolSpec = {
         "Record an architectural decision. The write commits in a single "
         "call once structural validation passes.\n"
         "\n"
-        "Similarity hits are advisory: they return on similar_decisions and "
-        "never block the write.\n"
+        "Similarity hits are advisory: returned on similar_decisions, never "
+        "blocking the write.\n"
         "\n"
-        f"{_APPROVAL_BEFORE_PROPOSE}\n"
+        f"{APPROVAL_BEFORE_PROPOSE}\n"
         "\n"
         f"{_PROPOSAL_VISIBILITY_DETAIL}\n"
         "\n"
-        "Call this when you choose between two or more approaches, replace "
-        "or remove a dependency, establish a new pattern, or cut scope. "
-        "Always include what was rejected and why."
+        "Use for approach choices, dependency swaps, new patterns, and "
+        "scope cuts; include what was rejected and why."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
     "input_schema": {
@@ -336,12 +313,9 @@ PROPOSE_DECISION: ToolSpec = {
                 "type": "string",
                 "default": "",
                 "description": (
-                    "Short title for the decision. Required non-empty for "
-                    "operation=add and operation=supersede: an empty title is "
-                    "structurally rejected. Omit (or leave empty) for "
-                    "operation=update, which appends rationale only and "
-                    "rejects a non-empty title; the target decision keeps its "
-                    "existing title."
+                    "Short title for the decision. Required non-empty for add "
+                    "and supersede; omit for update, which appends rationale "
+                    "only and rejects a non-empty title."
                 ),
             },
             "rationale": {
@@ -354,17 +328,13 @@ PROPOSE_DECISION: ToolSpec = {
                 "type": "string",
                 "enum": ["add", "update", "supersede"],
                 "default": "add",
-                "description": (
-                    f"How this proposal relates to existing decisions. "
-                    f"{PROPOSE_DECISION_OPERATIONS}\n\n"
-                    f"{UPDATE_SUPERSEDE_CARE}"
-                ),
+                "description": (f"{PROPOSE_DECISION_OPERATIONS}\n\n{UPDATE_SUPERSEDE_CARE}"),
             },
             "affected_decision_id": {
                 "type": "string",
                 "description": (
-                    "Required when operation is 'update' or 'supersede'. The id "
-                    "(e.g. 'decision-042') of the decision being modified."
+                    "Required for update and supersede: the id "
+                    "(e.g. 'decision-042') being modified."
                 ),
             },
             "rejected": {
@@ -377,10 +347,9 @@ PROPOSE_DECISION: ToolSpec = {
                     },
                 },
                 "description": (
-                    "Alternatives considered and rejected. Each item must "
-                    "carry a non-empty 'alternative' key (legacy alias: "
-                    "'name') plus a 'reason'; items without one are rejected "
-                    "at the boundary."
+                    "Alternatives considered and rejected. Each item needs a "
+                    "non-empty 'alternative' key (legacy alias: 'name') plus "
+                    "a 'reason'."
                 ),
             },
             "confidence": {
@@ -393,47 +362,38 @@ PROPOSE_DECISION: ToolSpec = {
                 # CLI autogen surface) materialise "medium", which the kernel
                 # then rejects as a disallowed metadata change on update.
                 "description": (
-                    "Author's confidence: 'high' only when a source "
-                    "explicitly approves; 'medium' when best available given "
-                    "known tradeoffs; 'low' for a working assumption that "
-                    "may be revisited."
+                    "Author's confidence: 'high' only with explicit source "
+                    "approval; 'medium' best available; 'low' working "
+                    "assumption."
                 ),
             },
             "decision_type": {
                 "type": "string",
                 "enum": list(DECISION_TYPE_VALUES),
                 "description": (
-                    "Optional architectural category for the decision. Helps "
-                    "downstream filtering and reporting; omit when none "
-                    "applies cleanly."
+                    "Optional architectural category; omit when none applies cleanly."
                 ),
             },
             "reversibility": {
                 "type": "string",
                 "enum": ["easy", "moderate", "hard"],
                 "description": (
-                    "How costly it would be to reverse this decision later. "
-                    "'easy' = config or one-file change; 'moderate' = "
-                    "multi-day migration; 'hard' = irreversible without "
-                    "significant rework."
+                    "Cost to reverse later: 'easy' = config or one-file "
+                    "change; 'moderate' = multi-day migration; 'hard' = "
+                    "major rework."
                 ),
             },
             "files_affected": {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Optional list of repo-relative paths most affected by "
-                    "this decision. Anchors the decision to specific code "
-                    "for future reviewers."
+                    "Optional repo-relative paths most affected, anchoring the decision to code."
                 ),
             },
             "resolves_questions": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": (
-                    f"{RESOLVES_OPEN_QUESTIONS} Call get_context "
-                    "(L0 surfaces the open questions) to discover the ids."
-                ),
+                "description": (f"{RESOLVES_OPEN_QUESTIONS} get_context L0 lists the ids."),
             },
             "project_id": _PROJECT_PARAM,
         },
@@ -453,20 +413,14 @@ FLAG_QUESTION: ToolSpec = {
         "questions against a decision. Writes to open-questions.md in the "
         "project store.\n"
         "\n"
-        "To flag: pass `question`. Before writing, checks whether the "
-        "question is already addressed by an existing decision — if so, the "
-        "response includes a hint pointing to that decision (the question is "
-        "still logged).\n"
+        "To flag: pass `question`; if an existing decision already addresses "
+        "it, the response hints at it (the question is still logged).\n"
         "\n"
-        "To resolve: pass `resolved_by` (a decision id) and the entry ids to "
-        "stamp in `targets`. Each named entry is stamped resolved and, when "
-        "the move is prose-safe, relocated below `## Resolved`; entries with "
-        "detached body paragraphs are stamped in place. No new entry is "
-        "appended. The response names any entries relocated.\n"
+        "To resolve: pass `resolved_by` and the entry ids in `targets`; each "
+        "is stamped resolved and, when prose-safe, moved below "
+        "`## Resolved`.\n"
         "\n"
-        "Pass exactly one of `question` or `resolved_by`. Use the flag action "
-        "for ambiguities a human should weigh in on; use the resolve action "
-        "once a decision has answered open questions."
+        "Pass exactly one of `question` or `resolved_by`."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
     "input_schema": {
@@ -474,10 +428,7 @@ FLAG_QUESTION: ToolSpec = {
         "properties": {
             "question": {
                 "type": "string",
-                "description": (
-                    "The question to flag. Pass for the flag action; omit when "
-                    "passing resolved_by."
-                ),
+                "description": "The question to flag; omit when passing resolved_by.",
             },
             "context": {
                 "type": "string",
@@ -487,23 +438,18 @@ FLAG_QUESTION: ToolSpec = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "Question ids (Q### or legacy timestamp form). On the flag "
-                    "action, an optional list of candidates this flag may "
-                    "duplicate: when any named id is already resolved by a "
-                    "decision, the server short-circuits without appending and "
-                    "the response names the resolving decision. On the resolve "
-                    "action (resolved_by set), the entries to stamp as resolved "
-                    "— every id must exist in open-questions.md or the call is "
-                    "rejected."
+                    "Question ids (Q### or legacy timestamp form). On flag: "
+                    "optional duplicate candidates - if any is already "
+                    "resolved, the call short-circuits without appending. On "
+                    "resolve: the entries to stamp; every id must exist."
                 ),
             },
             "resolved_by": {
                 "type": "string",
                 "description": (
-                    "Decision id (e.g. D123) that resolves the entries named in "
-                    "targets. When set, the call resolves instead of appending; "
-                    "the id must resolve to a decision that exists in the store. "
-                    "Pass exactly one of question or resolved_by."
+                    "Decision id (e.g. D123) resolving the entries in "
+                    "targets; when set, the call resolves instead of "
+                    "appending."
                 ),
             },
             "project_id": _PROJECT_PARAM,
@@ -517,12 +463,12 @@ UPDATE_STATE: ToolSpec = {
     "title": "Update project state",
     "description": (
         "Update the project's current state with a progress delta and trigger "
-        "a snapshot. Before writing, checks whether the delta appears to "
-        "repeat work already recorded in recent state entries and returns a "
-        "warning if found (the update is still applied).\n"
+        "a snapshot.\n"
         "\n"
-        "Use when you complete a meaningful unit of work — a feature, a "
-        "refactor, a bug fix — so the next session starts with current context."
+        "If the delta appears to repeat recent state entries, a warning "
+        "returns (the update still applies). Use when you complete a "
+        "meaningful unit of work so the next session starts with current "
+        "context."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
     "input_schema": {
@@ -545,9 +491,9 @@ LIST_PROJECTS: ToolSpec = {
     "name": "list_projects",
     "title": "List projects",
     "description": (
-        "Return the projects this user has access to. Other tools auto-resolve "
-        "to your project when you have one — call list_projects only if you "
-        "have multiple and need to pick a specific project_id to pass."
+        "Return the projects this user has access to. Call only when you "
+        "have multiple projects and need a project_id to pass; other tools "
+        "auto-resolve when you have one."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {

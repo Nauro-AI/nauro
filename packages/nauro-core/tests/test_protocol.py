@@ -13,8 +13,8 @@ from nauro_core import protocol
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.mcp_tools import get_tool_spec
 from nauro_core.protocol import (
-    _APPROVAL_BEFORE_PROPOSE,
     _PROPOSAL_VISIBILITY_DETAIL,
+    APPROVAL_BEFORE_PROPOSE,
     CANONICAL_FRAGMENTS,
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -32,17 +32,17 @@ from nauro_core.protocol import (
 
 
 class TestFragmentAnchors:
-    def test_private_approval_fragment_pins_human_authority(self) -> None:
+    def test_approval_fragment_pins_human_authority(self) -> None:
         for operation in ("add", "update", "supersede"):
-            assert operation in _APPROVAL_BEFORE_PROPOSE
-        assert "related decisions" in _APPROVAL_BEFORE_PROPOSE
-        assert "explicit user approval" in _APPROVAL_BEFORE_PROPOSE
-        assert "commits immediately after validation" in _APPROVAL_BEFORE_PROPOSE
+            assert operation in APPROVAL_BEFORE_PROPOSE
+        assert "related decisions" in APPROVAL_BEFORE_PROPOSE
+        assert "explicit user approval" in APPROVAL_BEFORE_PROPOSE
+        assert "commits immediately after validation" in APPROVAL_BEFORE_PROPOSE
         # Visibility kernel: the draft renders as readable Markdown, the turn
         # ends with it, and approval is the user's next reply.
-        assert "readable Markdown" in _APPROVAL_BEFORE_PROPOSE
-        assert "end the turn" in _APPROVAL_BEFORE_PROPOSE
-        assert "next reply" in _APPROVAL_BEFORE_PROPOSE
+        assert "readable Markdown" in APPROVAL_BEFORE_PROPOSE
+        assert "end the turn" in APPROVAL_BEFORE_PROPOSE
+        assert "next reply" in APPROVAL_BEFORE_PROPOSE
 
     def test_visibility_detail_fragment_forbids_same_turn_prompt_coupling(self) -> None:
         assert "same turn" in _PROPOSAL_VISIBILITY_DETAIL
@@ -54,8 +54,18 @@ class TestFragmentAnchors:
         assert "stay internal" in _PROPOSAL_VISIBILITY_DETAIL
         assert "raw JSON only" in _PROPOSAL_VISIBILITY_DETAIL
 
-    def test_approval_fragments_are_not_public_protocol_api(self) -> None:
+    def test_approval_fragment_public_name_and_compat_alias(self) -> None:
+        """The approval fragment is public API (re-exported for downstream
+        composition); the underscore name survives only as a compat alias
+        for consumers pinned to pre-1.6.0 nauro-core."""
+        import nauro_core
+
+        assert "APPROVAL_BEFORE_PROPOSE" in protocol.__all__
+        assert "APPROVAL_BEFORE_PROPOSE" in nauro_core.__all__
         assert "_APPROVAL_BEFORE_PROPOSE" not in protocol.__all__
+        assert protocol._APPROVAL_BEFORE_PROPOSE is protocol.APPROVAL_BEFORE_PROPOSE
+        assert nauro_core.APPROVAL_BEFORE_PROPOSE is protocol.APPROVAL_BEFORE_PROPOSE
+        # Neither approval fragment is a markdown-substitution token.
         assert "APPROVAL_BEFORE_PROPOSE" not in CANONICAL_FRAGMENTS
         assert "_PROPOSAL_VISIBILITY_DETAIL" not in protocol.__all__
         assert "PROPOSAL_VISIBILITY_DETAIL" not in CANONICAL_FRAGMENTS
@@ -225,8 +235,8 @@ class TestMcpInstructionsComposition:
     def test_mcp_static_contains_fragment_verbatim(self, fragment: str) -> None:
         assert fragment in MCP_INSTRUCTIONS_STATIC
 
-    def test_mcp_static_contains_private_approval_fragment(self) -> None:
-        assert _APPROVAL_BEFORE_PROPOSE in MCP_INSTRUCTIONS_STATIC
+    def test_mcp_static_contains_approval_fragment(self) -> None:
+        assert APPROVAL_BEFORE_PROPOSE in MCP_INSTRUCTIONS_STATIC
         assert "human-ratified project judgment" in MCP_INSTRUCTIONS_STATIC
 
     def test_mcp_static_has_no_unresolved_tokens(self) -> None:

@@ -29,8 +29,9 @@ MAX_INLINE_PROJECTS = 3
 
 # The 0-project composition must fit entirely under the claude.ai
 # initialize.instructions truncation point (2,023 chars). The static block is
-# capped at 1,700 characters, so this copy targets at most 195 characters and
-# leaves headroom for the two joining newlines.
+# capped at 1,635 characters, leaving 386 characters for this copy plus the
+# two joining newlines; the copy targets at most 195 to keep slack for
+# multi-project compositions.
 WELCOME_NO_PROJECT = (
     "`nauro auth login` before cloud ops. "
     "`nauro init <name>` (local), `nauro init --cloud <name>`, or "

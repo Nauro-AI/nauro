@@ -218,12 +218,17 @@ def _origin_from_ctx(mcp_ctx: Context | None) -> OriginDescriptor | None:
 # ``cwd`` exists only on the local transport (the hosted server has no
 # filesystem to resolve against), so its description lives here rather than
 # in the shared ToolSpec registry, which would surface it on remote schemas.
+# The parameter stays despite the server-side os.getcwd() fallback: MCP
+# clients spawn this server outside the workspace (Claude Desktop observed
+# live at cwd=/; Cursor and the Claude Code desktop app spawn without a
+# workspace cwd), and propose_decision feeds cwd into resolve_repo_head for
+# the base-commit stamp.
 _CWD_PARAM = Annotated[
     str | None,
     Field(
         description=(
-            "Optional. The caller's absolute working directory; resolves "
-            "the project from the local registry when project_id is omitted."
+            "Optional. Absolute working directory used to resolve the "
+            "project when project_id is omitted."
         )
     ),
 ]

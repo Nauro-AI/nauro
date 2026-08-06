@@ -44,8 +44,14 @@ def test_generate_includes_behavioral_instructions():
     assert result.count(public_artifacts_rule) == 1
     # The digest keeps the check_decision preflight rule.
     assert "call `check_decision` with the proposal" in result
-    # The human-authority boundary survives verbatim: a no-MCP session can
-    # still reach `nauro propose-decision` (single-call commit) via shell.
+    # The human-authority boundary survives verbatim, and the digest supplies
+    # the write-call anchor the fragment itself no longer carries: a no-MCP
+    # session can still reach `nauro propose-decision` (single-call commit)
+    # via shell.
+    anchored_boundary = (
+        f"Before `propose_decision` (or `nauro propose-decision`): {_APPROVAL_BEFORE_PROPOSE}"
+    )
+    assert result.count(anchored_boundary) == 1
     assert result.count(_APPROVAL_BEFORE_PROPOSE) == 1
     assert "advisory conflict checks" not in result
 

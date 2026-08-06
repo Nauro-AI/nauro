@@ -11,6 +11,10 @@ existing callers use.
 """
 
 from nauro_core.constants import NO_DECISIONS_TO_CHECK as NO_DECISIONS_TO_CHECK
+
+# Underscore alias, not the public APPROVAL_BEFORE_PROPOSE name: the public
+# re-export landed after the current nauro-core floor (>=1.5.0), so switching
+# is gated on raising the floor to nauro-core>=1.6.0 at the next release.
 from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
 
 WELCOME_NO_PROJECT = (

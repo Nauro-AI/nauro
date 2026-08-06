@@ -9,7 +9,7 @@ from nauro_core.instructions import (
     build_remote_instructions,
 )
 from nauro_core.mcp_tools import ALL_TOOLS, get_tool_spec
-from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
+from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 
 # Real-shaped 26-char ULIDs for the inline-rendering tests.
 ULID_ALPHA = "01AAAAAAAAAAAAAAAAAAAAAAAA"
@@ -133,7 +133,15 @@ class TestLookup:
 
     @pytest.mark.parametrize("name", ["check_decision", "propose_decision"])
     def test_decision_write_guidance_carries_approval_boundary(self, name: str) -> None:
-        assert _APPROVAL_BEFORE_PROPOSE in get_tool_spec(name)["description"]
+        assert APPROVAL_BEFORE_PROPOSE in get_tool_spec(name)["description"]
+
+    def test_check_decision_anchors_approval_boundary_to_propose_decision(self) -> None:
+        """The fragment itself no longer names the write call, so every
+        surface must supply the anchor adjacently. check_decision composes
+        it directly before the fragment; a reword that drops the anchor
+        would leave "the call commits" pointing at nothing."""
+        composed = f"before `propose_decision`: {APPROVAL_BEFORE_PROPOSE}"
+        assert composed in get_tool_spec("check_decision")["description"]
 
 
 class TestGetContextLevel:
