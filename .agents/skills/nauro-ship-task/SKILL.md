@@ -38,7 +38,7 @@ Before invoking `@nauro-planner`, the parent session confirms the planner will r
 
 ### 1. Plan
 
-Invoke the `@nauro-planner` subagent with the task description. The planner runs `check_decision` against the proposed approach, classifies as GREEN / AMBER / RED, reads related decision bodies via `get_decision`, investigates the code, and returns a plan in the plan shape (Why / Approach / What changes / What's deferred / Test plan), plus the verdict line and any complete decision draft awaiting approval.
+Invoke the `@nauro-planner` subagent with the task description. The planner runs `check_decision` against the proposed approach, classifies as GREEN / AMBER / RED, triages the inline headers, reads the decisions that inform the approach via `get_decision`, investigates the code, and returns a plan in the plan shape (Why / Approach / What changes / What's deferred / Test plan), plus the verdict line and any complete decision draft awaiting approval.
 
 If the planner returns RED with a supersede draft, the chain pauses here. Surface the complete draft to the user: paste the planner's complete rendered proposal exactly as returned, no reserialization to JSON, no abbreviation, no pointer to output above, immediately before the approval ask. Only on explicit user approval does the parent re-invoke the planner with that approval to file the exact draft. An explicit "override RED on the cited decision, proceed" may continue without filing, but it is not approval to call `propose_decision`.
 

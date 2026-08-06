@@ -12,9 +12,11 @@ would. They must not mutate the input dict.
 Per-tool surface area:
 
 * ``check_decision`` — a single honest lead line (count + call-to-action +
-  lexical-rank caveat), then the hit list: top hit with rationale preview +
-  lower hits as a short list. The agent-facing call-to-action in the lead
-  comes from the upstream ``assessment`` field.
+  lexical-rank caveat), then a header-equivalent triage block per hit:
+  label/status/score line, untruncated title, date + type + confidence
+  line, supersession refs when present, and the rationale lede as a
+  wrapped paragraph. The agent-facing call-to-action in the lead comes
+  from the upstream ``assessment`` field.
 * ``get_decision`` — light header on top of the markdown body the kernel
   already returns.
 * ``search_decisions`` — query echo, then a ranked short list of hits
@@ -33,6 +35,8 @@ Per-tool surface area:
 """
 
 from __future__ import annotations
+
+import textwrap
 
 from nauro_core.constants import LEXICAL_RANK_CAVEAT, NO_RELATED_DECISIONS
 from nauro_core.parsing import _decision_label
@@ -119,7 +123,7 @@ def render_check_decision(result: dict) -> str:
 
     Empty-store and zero-hit assessments flow through unchanged. The
     rendered list pulls structure from ``related_decisions`` so the
-    top-match marker and rationale preview render even when an upstream
+    top-match marker and triage headers render even when an upstream
     assessment-string edit drifts.
     """
     if guidance := _connection_guidance(result):
@@ -145,7 +149,7 @@ def render_check_decision(result: dict) -> str:
     # generic prompt.
     cta = (
         _extract_call_to_action(assessment)
-        or "Call get_decision on each related decision before proposing."
+        or "Call get_decision (mode=full) on each decision you reason about before proposing."
     )
     lead = (
         f"{count} related {'decision' if count == 1 else 'decisions'}. {cta} {LEXICAL_RANK_CAVEAT}"
@@ -154,24 +158,66 @@ def render_check_decision(result: dict) -> str:
     lines.append("")
 
     for idx, hit in enumerate(related):
-        label = _id_to_label(hit.get("id", ""))
-        status = hit.get("status", "")
-        score = hit.get("score", 0.0)
-        title = hit.get("title", "") or "(no title)"
-        is_top = idx == 0
-        score_str = f"BM25 {score:5.2f}" if isinstance(score, (int, float)) else "BM25 ?"
-        marker = "    <- top match" if is_top else ""
-        header = f"  - {label}  [{status}]  {score_str}{marker}"
-        lines.append(header)
-        lines.append(f"    {_truncate(title, _TITLE_BUDGET)}")
-        if is_top:
-            preview = (hit.get("rationale_preview") or "").strip()
-            if preview:
-                preview_line = _truncate(preview.replace("\n", " "), _WIDTH - 6)
-                lines.append(f'    "{preview_line}"')
+        lines.extend(_check_hit_block(hit, is_top=idx == 0))
         lines.append("")
 
     return "\n".join(lines).rstrip()
+
+
+def _check_hit_block(hit: dict, *, is_top: bool) -> list[str]:
+    """Render one hit as a header-equivalent triage block.
+
+    Layout mirrors ``get_decision``'s header mode so the inline hit is a
+    full substitute for a ``mode=header`` follow-up call: label/status/
+    score line, the untruncated title (deliberately exempt from the
+    tabular ``_TITLE_BUDGET`` — parity with the header projection requires
+    the whole title), the date/type/confidence line, supersession refs
+    only when present, and the rationale lede as a wrapped paragraph.
+    """
+    label = _id_to_label(hit.get("id", ""))
+    status = hit.get("status", "")
+    score = hit.get("score", 0.0)
+    title = hit.get("title", "") or "(no title)"
+    score_str = f"BM25 {score:5.2f}" if isinstance(score, (int, float)) else "BM25 ?"
+    marker = "    <- top match" if is_top else ""
+
+    lines = [f"  - {label}  [{status}]  {score_str}{marker}", f"    {title}"]
+
+    triage_parts = [
+        f"{prefix} {value}"
+        for prefix, value in (
+            ("decided", hit.get("date", "")),
+            ("type", hit.get("decision_type", "")),
+            ("confidence", hit.get("confidence", "")),
+        )
+        if value
+    ]
+    if triage_parts:
+        lines.append(f"    {'  '.join(triage_parts)}")
+
+    supersession_parts = [
+        f"{prefix} {value}"
+        for prefix, value in (
+            ("supersedes", hit.get("supersedes", "")),
+            ("superseded_by", hit.get("superseded_by", "")),
+        )
+        if value
+    ]
+    if supersession_parts:
+        lines.append(f"    {'  '.join(supersession_parts)}")
+
+    preview = (hit.get("rationale_preview") or "").strip()
+    if preview:
+        # Keep paths and long identifiers intact: never split inside a word
+        # or at a hyphen, even when that costs an overlong line.
+        wrapped = textwrap.wrap(
+            preview.replace("\n", " "),
+            _WIDTH - 4,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        lines.extend(f"    {segment}" for segment in wrapped)
+    return lines
 
 
 def _extract_call_to_action(assessment: str) -> str:

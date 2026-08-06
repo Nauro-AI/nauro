@@ -88,6 +88,16 @@ def test_related_decision_canonical_id_and_status_enrichment() -> None:
     assert hit.date == "2026-04-16"
     assert hit.score > 0.0
     assert "PostgreSQL" in hit.rationale_preview
+    # Inline triage headers: the hit carries the same fields header mode
+    # projects. The seed's confidence default is medium; unset frontmatter
+    # stays None and drops out of exclude_none dumps.
+    assert hit.confidence == "medium"
+    assert hit.decision_type is None
+    assert hit.supersedes is None
+    assert hit.superseded_by is None
+    dumped = hit.model_dump(mode="json", exclude_none=True)
+    assert "decision_type" not in dumped
+    assert "superseded_by" not in dumped
 
 
 def test_assessment_single_match_directs_to_get_decision() -> None:
@@ -98,7 +108,8 @@ def test_assessment_single_match_directs_to_get_decision() -> None:
     assert result.error is None
     assert "Top match: D007" in result.assessment
     assert LEXICAL_RANK_CAVEAT in result.assessment
-    assert "Call get_decision(7) before proposing." in result.assessment
+    assert "Its triage header is inline." in result.assessment
+    assert "Call get_decision(7) (mode=full) before proposing." in result.assessment
 
 
 def test_assessment_multi_match_directs_to_each() -> None:
@@ -111,7 +122,11 @@ def test_assessment_multi_match_directs_to_each() -> None:
     assert len(result.related_decisions) >= 2
     assert "Found" in result.assessment
     assert LEXICAL_RANK_CAVEAT in result.assessment
-    assert "Call get_decision on each related decision before proposing." in result.assessment
+    assert "Triage headers are inline." in result.assessment
+    assert (
+        "Call get_decision (mode=full) on each decision you reason about before proposing."
+        in result.assessment
+    )
 
 
 def test_superseded_decisions_are_excluded_from_hits() -> None:

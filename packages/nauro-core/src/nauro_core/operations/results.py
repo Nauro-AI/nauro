@@ -16,9 +16,16 @@ from pydantic import BaseModel, ConfigDict, Field
 class RelatedDecision(BaseModel):
     """A decision surfaced by retrieval as related to a proposed approach.
 
-    The canonical retrieval-hit shape: enriched with status/date and a
-    rationale preview so any transport can render the same hit without
+    The canonical retrieval-hit shape: enriched with the triage-header
+    fields (status, date, type, confidence, supersession refs) and a
+    rationale lede so any transport can render the same hit without
     re-fetching the underlying decision body.
+
+    ``decision_type``, ``confidence``, ``supersedes``, and
+    ``superseded_by`` stay optional so hits whose decision omits those
+    frontmatter fields still serialize; the adapter's ``exclude_none=True``
+    template choice drops the keys when they are unset (the
+    :class:`DecisionSummary`/:class:`SearchHit` key-omission contract).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -29,6 +36,10 @@ class RelatedDecision(BaseModel):
     status: str
     date: str
     rationale_preview: str
+    decision_type: str | None = None
+    confidence: str | None = None
+    supersedes: str | None = None
+    superseded_by: str | None = None
 
 
 class ErrorPayload(BaseModel):

@@ -11,9 +11,10 @@ the lookup itself is shared by construction.
 * ``"full"`` (default) — the verbatim markdown body, unchanged.
 * ``"header"`` — a compact projection (triage frontmatter fields, the
   title, and a short lede from the ``## Decision`` section) for cheap
-  triage of the related-decision list a check returns. The projection
-  rides in the existing ``content`` field; the result model shape is the
-  same for both modes.
+  standalone triage of decisions surfaced by ``search_decisions`` or
+  ``list_decisions`` (``check_decision`` hits carry these headers
+  inline). The projection rides in the existing ``content`` field; the
+  result model shape is the same for both modes.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from typing import Literal
 
 from nauro_core.decision_model import Decision
 from nauro_core.operations.decision_lookup import parse_decision_or_none
+from nauro_core.operations.related_hits import decision_lede, frontmatter_value
 from nauro_core.operations.results import ErrorPayload, GetDecisionResult
 from nauro_core.operations.store import Store
 from nauro_core.parsing import _decision_filename, extract_decision_number
@@ -38,11 +40,6 @@ _HEADER_FRONTMATTER_FIELDS: tuple[str, ...] = (
     "decision_type",
     "confidence",
 )
-
-# Lede budget. The first paragraph of the ``## Decision`` section is the
-# load-bearing sentence(s); cap it so the projection stays compact while
-# still carrying enough rationale to triage on.
-_LEDE_MAX_CHARS = 300
 
 
 def get_decision(
@@ -106,48 +103,15 @@ def _project_header(decision: Decision) -> str:
     """
     frontmatter_lines: list[str] = []
     for field in _HEADER_FRONTMATTER_FIELDS:
-        value = _frontmatter_value(decision, field)
+        value = frontmatter_value(decision, field)
         if value:
             frontmatter_lines.append(f"{field}: {value}")
 
     blocks: list[str] = ["\n".join(frontmatter_lines)]
     blocks.append(f"# {decision.num:03d} — {decision.title}")
 
-    lede = _lede(decision.rationale)
+    lede = decision_lede(decision.rationale)
     if lede:
         blocks.append(lede)
 
     return "\n\n".join(blocks)
-
-
-def _frontmatter_value(decision, field: str) -> str:
-    """Return the on-disk string for a triage frontmatter field, or ``""``.
-
-    Enum-valued fields (``status``, ``decision_type``, ``confidence``)
-    serialize to their underlying token; ``date`` to ISO format;
-    supersession refs are already plain integer strings.
-    """
-    raw = getattr(decision, field, None)
-    if raw is None:
-        return ""
-    if field == "date":
-        return raw.isoformat()
-    value = getattr(raw, "value", raw)
-    return str(value)
-
-
-def _lede(rationale: str) -> str:
-    """Return the first paragraph of the rationale, truncated to the budget.
-
-    Returns ``""`` when the rationale is empty or opens with whitespace
-    only, so the projection omits the lede block entirely.
-    """
-    stripped = rationale.strip()
-    if not stripped:
-        return ""
-    paragraph = stripped.split("\n\n", 1)[0].strip()
-    if not paragraph:
-        return ""
-    if len(paragraph) <= _LEDE_MAX_CHARS:
-        return paragraph
-    return paragraph[: _LEDE_MAX_CHARS - 1].rstrip() + "…"

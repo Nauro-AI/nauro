@@ -46,8 +46,9 @@ PROTOCOL_DIGEST = (
     "Before responding to any technical change request - architecture, "
     "library choice, API design, data model, infrastructure, a vendor swap - "
     "call `check_decision` with the proposal, even when you intend to push "
-    "back or refuse. It surfaces related decisions without judging conflicts; "
-    "read them with `get_decision` before proposing.\n"
+    "back or refuse. It surfaces related decisions with their triage headers "
+    "inline, without judging conflicts; before proposing, read the ones you "
+    "reason about in full with `get_decision`.\n"
     "\n"
     f"{_APPROVAL_BEFORE_PROPOSE}\n"
 )
