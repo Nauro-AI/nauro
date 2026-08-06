@@ -14,10 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# Underscore alias, not the public APPROVAL_BEFORE_PROPOSE name: the public
-# re-export landed after the current nauro-core floor (>=1.5.0), so switching
-# is gated on raising the floor to nauro-core>=1.6.0 at the next release.
-from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
+from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEADER
 from nauro.store.reader import read_text_lenient
@@ -56,7 +53,7 @@ PROTOCOL_DIGEST = (
     # The fragment no longer names the write call, so this surface supplies
     # the anchor: without MCP the boundary applies to `nauro propose-decision`.
     f"Before `propose_decision` (or `nauro propose-decision`): "
-    f"{_APPROVAL_BEFORE_PROPOSE}\n"
+    f"{APPROVAL_BEFORE_PROPOSE}\n"
 )
 
 

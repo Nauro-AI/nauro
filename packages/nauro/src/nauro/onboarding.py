@@ -11,11 +11,7 @@ existing callers use.
 """
 
 from nauro_core.constants import NO_DECISIONS_TO_CHECK as NO_DECISIONS_TO_CHECK
-
-# Underscore alias, not the public APPROVAL_BEFORE_PROPOSE name: the public
-# re-export landed after the current nauro-core floor (>=1.5.0), so switching
-# is gated on raising the floor to nauro-core>=1.6.0 at the next release.
-from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
+from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 
 WELCOME_NO_PROJECT = (
     "Welcome to Nauro! No project store found.\n"
@@ -38,7 +34,7 @@ NO_CONTEXT_YET = (
     "- Use propose_decision to record architectural decisions\n"
     "- Use update_state to track current progress\n"
     "\n"
-    f"{_APPROVAL_BEFORE_PROPOSE}"
+    f"{APPROVAL_BEFORE_PROPOSE}"
 )
 
 
