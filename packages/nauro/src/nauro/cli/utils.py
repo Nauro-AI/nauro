@@ -36,9 +36,33 @@ from nauro.store.resolution import (
 )
 from nauro.store.write_safety import find_symlink
 
+# Pinned vocabulary for ProjectResolutionExit.reason. Machine-readable
+# consumers (e.g. ``nauro status --json``) surface these values verbatim.
+RESOLUTION_AMBIGUOUS_PROJECT = "ambiguous_project"
+RESOLUTION_UNKNOWN_PROJECT = "unknown_project"
+RESOLUTION_DISCONNECTED_PROJECT = "disconnected_project"
+RESOLUTION_NO_PROJECT = "no_project"
 
-class DisconnectedProjectExit(typer.Exit):
+
+class ProjectResolutionExit(typer.Exit):
+    """Project resolution failed; the guidance was already printed to stderr.
+
+    ``reason`` is one of the pinned vocabulary values above; ``guidance`` is
+    the exact message the raise site printed, so structured consumers can
+    re-surface it without re-deriving the prose.
+    """
+
+    def __init__(self, reason: str, guidance: str) -> None:
+        super().__init__(code=1)
+        self.reason = reason
+        self.guidance = guidance
+
+
+class DisconnectedProjectExit(ProjectResolutionExit):
     """CLI resolution already rendered typed reconnect guidance."""
+
+    def __init__(self, guidance: str) -> None:
+        super().__init__(RESOLUTION_DISCONNECTED_PROJECT, guidance)
 
 
 def cli_origin() -> OriginDescriptor | None:
@@ -140,7 +164,8 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
         (project_display_name, store_path) tuple.
 
     Raises:
-        typer.Exit: If no project can be resolved.
+        ProjectResolutionExit: If no project can be resolved. The exception
+        carries the pinned reason value and the printed guidance.
     """
     if project_flag is not None:
         # 1 — registry lookup by name
@@ -154,62 +179,61 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
                 for pid, _entry in matches[:5]
                 for name in [_entry.get("name", "?")]
             )
-            typer.echo(
-                f"Multiple projects named '{project_flag}'. Disambiguate by id: {ids}",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+            message = f"Multiple projects named '{project_flag}'. Disambiguate by id: {ids}"
+            typer.echo(message, err=True)
+            raise ProjectResolutionExit(RESOLUTION_AMBIGUOUS_PROJECT, message)
         if len(matches) == 1:
             pid, _entry = matches[0]
             connection = resolve_registered_project(pid)
             if isinstance(connection, DisconnectedProject):
                 typer.echo(connection.guidance, err=True)
-                raise DisconnectedProjectExit(code=1)
+                raise DisconnectedProjectExit(connection.guidance)
             if connection is not None:
                 return project_flag, connection.store_path
 
         available = _available_project_names()
-        typer.echo(f"Unknown project '{project_flag}'.", err=True)
+        lines = [f"Unknown project '{project_flag}'."]
         if available:
-            typer.echo(f"Available projects: {', '.join(available)}", err=True)
+            lines.append(f"Available projects: {', '.join(available)}")
         else:
-            typer.echo("No projects registered. Run 'nauro init' first.", err=True)
-        raise typer.Exit(code=1)
+            lines.append("No projects registered. Run 'nauro init' first.")
+        message = "\n".join(lines)
+        typer.echo(message, err=True)
+        raise ProjectResolutionExit(RESOLUTION_UNKNOWN_PROJECT, message)
 
     # 2 — cwd waterfall: repo config walk-up → registry by repo path
     cwd = Path.cwd()
     resolution = resolve_from_cwd(cwd)
     if isinstance(resolution, DisconnectedProject):
         typer.echo(resolution.guidance, err=True)
-        raise DisconnectedProjectExit(code=1)
+        raise DisconnectedProjectExit(resolution.guidance)
     if resolution is not None:
         return resolution.display_name, resolution.store_path
 
     # 3 — error
     available = _available_project_names()
-    typer.echo("No project found for current directory.", err=True)
+    lines = ["No project found for current directory."]
 
     suggestion = suggest_project_for_path(cwd)
     if suggestion:
         pid, entry = suggestion
         name = entry.get("name", "")
-        typer.echo(
-            f"Hint: project {name!r} exists but this path is not registered.",
-            err=True,
-        )
+        lines.append(f"Hint: project {name!r} exists but this path is not registered.")
         # init --add-repo intentionally rejects cloud-scoped projects; the
         # documented association path for those is nauro attach. The name is
         # shell-quoted because the line is meant to be copy-pasted.
         if entry.get("mode") == REPO_CONFIG_MODE_CLOUD:
-            typer.echo(f"  Run: nauro attach {pid}", err=True)
+            lines.append(f"  Run: nauro attach {pid}")
         else:
-            typer.echo(f"  Run: nauro init {shlex.quote(name)} --add-repo .", err=True)
+            lines.append(f"  Run: nauro init {shlex.quote(name)} --add-repo .")
     elif available:
-        typer.echo(f"Available projects: {', '.join(available)}", err=True)
-        typer.echo("Use --project <name> to target a specific project.", err=True)
+        lines.append(f"Available projects: {', '.join(available)}")
+        lines.append("Use --project <name> to target a specific project.")
     else:
-        typer.echo("Run 'nauro init' first.", err=True)
-    raise typer.Exit(code=1)
+        lines.append("Run 'nauro init' first.")
+    message = "\n".join(lines)
+    typer.echo(message, err=True)
+    raise ProjectResolutionExit(RESOLUTION_NO_PROJECT, message)
 
 
 def _resolve_project_entry(project_name: str, project_key: str) -> dict:
@@ -237,6 +261,7 @@ __all__ = [
     "add_repo_v2",
     "cli_origin",
     "DisconnectedProjectExit",
+    "ProjectResolutionExit",
     "refuse_global_config_collision",
     "refuse_repo_config_symlink",
     "register_project_v2",

@@ -19,6 +19,9 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+# rich_markup_mode=None renders plain Click help (no box-drawing panels),
+# which agent consumers parse more cheaply than the Rich layout. Sub-apps
+# inherit the mode at render time.
 app = typer.Typer(
     name="nauro",
     help=(
@@ -26,6 +29,8 @@ app = typer.Typer(
         "surfaced before work."
     ),
     no_args_is_help=True,
+    rich_markup_mode=None,
+    pretty_exceptions_enable=False,
 )
 
 

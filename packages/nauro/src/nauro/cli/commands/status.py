@@ -1,11 +1,13 @@
 """nauro status — Show capability table for the current project."""
 
+import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
+from pydantic import BaseModel
 
 from nauro.cli import nauro_command
 from nauro.cli._codex_hooks import (
@@ -15,7 +17,12 @@ from nauro.cli._codex_hooks import (
     _parse_codex_hooks,
 )
 from nauro.cli.integrations import codex_config, json_mcp
-from nauro.cli.utils import DisconnectedProjectExit, resolve_target_project
+from nauro.cli.utils import (
+    RESOLUTION_NO_PROJECT,
+    DisconnectedProjectExit,
+    ProjectResolutionExit,
+    resolve_target_project,
+)
 
 
 def _is_windows() -> bool:
@@ -446,53 +453,17 @@ def _workflow_agents_status_line(snapshot: _WiringSnapshot) -> str:
     return f"  Workflow      active ({detail})"
 
 
-def _render_wiring_status(repo_paths: list[Path], *, no_probe: bool) -> None:
-    snapshot = _collect_wiring(repo_paths)
-    probes = _probe_wiring(snapshot, no_probe=no_probe)
-    typer.echo(_mcp_status_line(snapshot, probes))
-    typer.echo(_codex_hooks_status_line(snapshot, probes))
-    typer.echo(_skills_status_line(snapshot))
-    typer.echo(_workflow_agents_status_line(snapshot))
-    typer.echo(_agents_status_line(snapshot))
-
-
-def _warn_if_project_name_shared(project_name: str, project_id: str) -> None:
+def _count_shared_names(project_name: str, project_id: str) -> int:
     try:
         from nauro.store.registry import find_projects_by_name_v2
 
-        shared = [
-            candidate_id
+        return sum(
+            1
             for candidate_id, _ in find_projects_by_name_v2(project_name)
             if candidate_id != project_id
-        ]
+        )
     except Exception:
-        shared = []
-    if shared:
-        typer.echo(
-            f"  Warning: {len(shared)} other local project(s) share the name "
-            f"'{project_name}'. They are separate stores - run `nauro projects` "
-            "to inspect.\n",
-            err=True,
-        )
-
-
-def _render_sync_status(project_id: str) -> bool:
-    from nauro.cli.commands.auth import load_access_token
-    from nauro.store.registry import is_cloud_project
-
-    has_token = bool(load_access_token())
-    is_cloud = is_cloud_project(project_id)
-    if has_token and is_cloud:
-        typer.echo("  Sync          active (event-driven, presign)")
-        return True
-    if not is_cloud:
-        typer.echo(
-            "  Sync          inactive - local-only project."
-            " Enable with 'nauro auth login', then 'nauro link --cloud'."
-        )
-    else:
-        typer.echo("  Sync          inactive - run 'nauro auth login' to enable")
-    return False
+        return 0
 
 
 def _repo_paths(project_id: str) -> list[Path]:
@@ -504,15 +475,116 @@ def _repo_paths(project_id: str) -> list[Path]:
         return []
 
 
-def _render_decision_status(store_path: Path, project_id: str, *, sync_enabled: bool) -> None:
-    from nauro.store.reader import _list_decisions
+@dataclass(frozen=True)
+class _StatusFacts:
+    """Everything one status run observed, gathered before any output."""
 
-    local_count = len(_list_decisions(store_path))
-    if not sync_enabled:
+    project_name: str
+    store_path: Path
+    shared_name_count: int
+    authenticated: bool
+    cloud: bool
+    snapshot: _WiringSnapshot
+    probes: _WiringProbeResults
+    local_decisions: int
+    remote_decisions: int | None
+    last_full_sync: str | None
+
+    @property
+    def project_id(self) -> str:
+        return self.store_path.name
+
+    @property
+    def sync_enabled(self) -> bool:
+        return self.authenticated and self.cloud
+
+
+def _collect_status(project_name: str, store_path: Path, *, no_probe: bool) -> _StatusFacts:
+    """Gather every fact the human table and the JSON payload render from."""
+    from nauro.cli.commands.auth import load_access_token
+    from nauro.store.reader import _list_decisions
+    from nauro.store.registry import is_cloud_project
+
+    project_id = store_path.name
+    authenticated = bool(load_access_token())
+    cloud = is_cloud_project(project_id)
+    sync_enabled = authenticated and cloud
+    snapshot = _collect_wiring(_repo_paths(project_id))
+    probes = _probe_wiring(snapshot, no_probe=no_probe)
+
+    remote_decisions = _count_remote_decisions(project_id) if sync_enabled else None
+    last_full_sync: str | None = None
+    if sync_enabled:
+        from nauro.sync.state import load_state
+
+        # load_state only guards JSON decode errors: valid JSON of the wrong
+        # shape raises AttributeError, an unreadable file PermissionError,
+        # non-UTF-8 bytes UnicodeDecodeError. And a parseable state object
+        # passes any last_full_sync value through untyped, so a non-string
+        # would later crash both output modes. A broken sync-state file must
+        # degrade to "no recorded sync", never crash status.
+        try:
+            recorded = load_state(store_path).last_full_sync
+        except Exception:
+            recorded = None
+        last_full_sync = recorded if isinstance(recorded, str) and recorded else None
+
+    return _StatusFacts(
+        project_name=project_name,
+        store_path=store_path,
+        shared_name_count=_count_shared_names(project_name, project_id),
+        authenticated=authenticated,
+        cloud=cloud,
+        snapshot=snapshot,
+        probes=probes,
+        local_decisions=len(_list_decisions(store_path)),
+        remote_decisions=remote_decisions,
+        last_full_sync=last_full_sync,
+    )
+
+
+# ── Human table emission ────────────────────────────────────────────────────
+
+
+def _emit_human_status(facts: _StatusFacts) -> None:
+    typer.echo(f"Project: {facts.project_name}")
+    typer.echo(f"Store:   {facts.store_path}\n")
+
+    if facts.shared_name_count:
+        typer.echo(
+            f"  Warning: {facts.shared_name_count} other local project(s) share the name "
+            f"'{facts.project_name}'. They are separate stores - run `nauro projects` "
+            "to inspect.\n",
+            err=True,
+        )
+    _emit_sync_status(facts)
+    typer.echo(_mcp_status_line(facts.snapshot, facts.probes))
+    typer.echo(_codex_hooks_status_line(facts.snapshot, facts.probes))
+    typer.echo(_skills_status_line(facts.snapshot))
+    typer.echo(_workflow_agents_status_line(facts.snapshot))
+    typer.echo(_agents_status_line(facts.snapshot))
+    _emit_decision_status(facts)
+
+
+def _emit_sync_status(facts: _StatusFacts) -> None:
+    if facts.sync_enabled:
+        typer.echo("  Sync          active (event-driven, presign)")
+    elif not facts.cloud:
+        typer.echo(
+            "  Sync          inactive - local-only project."
+            " Enable with 'nauro auth login', then 'nauro link --cloud'."
+        )
+    else:
+        typer.echo("  Sync          inactive - run 'nauro auth login' to enable")
+
+
+def _emit_decision_status(facts: _StatusFacts) -> None:
+    local_count = facts.local_decisions
+    if not facts.sync_enabled:
         typer.echo(f"\n  Decisions: {local_count} local")
         return
 
-    remote_count = _count_remote_decisions(project_id)
+    remote_count = facts.remote_decisions
     if remote_count is None:
         typer.echo(f"\n  Decisions: {local_count} local (could not reach remote)")
         return
@@ -520,16 +592,177 @@ def _render_decision_status(store_path: Path, project_id: str, *, sync_enabled: 
     sync_label = "in sync" if local_count == remote_count else "out of sync"
     typer.echo(f"\n  Decisions: {local_count} local, {remote_count} remote ({sync_label})")
 
-    from nauro.sync.state import load_state
-
-    sync_state = load_state(store_path)
-    if sync_state.last_full_sync:
-        time_ago = _format_time_ago(sync_state.last_full_sync)
-        timestamp = sync_state.last_full_sync[:19].replace("T", " ") + " UTC"
+    if facts.last_full_sync:
+        time_ago = _format_time_ago(facts.last_full_sync)
+        timestamp = facts.last_full_sync[:19].replace("T", " ") + " UTC"
         typer.echo(f"  Last sync: {timestamp} ({time_ago})")
 
     if local_count != remote_count:
         typer.echo("  Run `nauro sync` to reconcile.")
+
+
+# ── JSON payload ────────────────────────────────────────────────────────────
+
+
+class _CountsPayload(BaseModel):
+    present: int
+    current: int
+    expected: int
+
+
+class _SurfaceCountsPayload(BaseModel):
+    claude: _CountsPayload
+    codex: _CountsPayload
+
+
+class _SyncPayload(BaseModel):
+    cloud: bool
+    authenticated: bool
+    active: bool
+
+
+class _McpPayload(BaseModel):
+    repo_count: int
+    wired_repos: int
+    codex_global: bool
+    probed: bool
+    healthy: bool | None
+
+
+class _CodexHooksPayload(BaseModel):
+    repo_count: int
+    configured_repos: int
+    complete: bool | None
+    probed: bool
+    healthy: bool | None
+
+
+class _SkillsPayload(BaseModel):
+    core: _SurfaceCountsPayload
+    opt_in: _SurfaceCountsPayload
+    legacy_codex_copies: int
+
+
+class _AgentsMdPayload(BaseModel):
+    repo_count: int
+    generated_repos: int
+
+
+class _DecisionsPayload(BaseModel):
+    local: int
+    remote: int | None
+    in_sync: bool | None
+    last_full_sync: str | None
+
+
+class StatusPayload(BaseModel):
+    """Curated machine-readable projection of one status run.
+
+    Internal wiring state (recorded command strings, per-repo hook tuples)
+    stays out deliberately: the payload carries capability facts, not the
+    probe plumbing.
+    """
+
+    project: str
+    project_id: str
+    store_path: str
+    shared_name_count: int
+    sync: _SyncPayload
+    mcp: _McpPayload
+    codex_hooks: _CodexHooksPayload
+    skills: _SkillsPayload
+    workflow_agents: _SurfaceCountsPayload
+    agents_md: _AgentsMdPayload
+    decisions: _DecisionsPayload
+
+
+def _counts_payload(counts: _ArtifactCounts) -> _CountsPayload:
+    return _CountsPayload(present=counts.present, current=counts.current, expected=counts.expected)
+
+
+def _surface_counts_payload(pair: _SurfacePair) -> _SurfaceCountsPayload:
+    return _SurfaceCountsPayload(
+        claude=_counts_payload(pair.claude), codex=_counts_payload(pair.codex)
+    )
+
+
+def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
+    snapshot, probes = facts.snapshot, facts.probes
+
+    mcp_probed = not probes.skipped and probes.mcp is not None
+    mcp_healthy = (
+        all(probes.mcp.get(command, True) for command in snapshot.mcp_commands)
+        if mcp_probed
+        else None
+    )
+
+    configured = snapshot.configured_hooks
+    # Null when nothing is configured — completeness is not applicable, same
+    # idiom as the healthy fields when nothing was probed.
+    hooks_complete = (
+        all(
+            state.complete and state.recorded_commands and all(state.recorded_commands)
+            for state in configured
+        )
+        if configured
+        else None
+    )
+    hooks_probed = not probes.skipped and probes.hooks is not None
+    hooks_healthy = (
+        all(probes.hooks.get(command, True) for command in snapshot.hook_commands)
+        if hooks_probed
+        else None
+    )
+
+    workflow = snapshot.workflow
+    return StatusPayload(
+        project=facts.project_name,
+        project_id=facts.project_id,
+        store_path=str(facts.store_path),
+        shared_name_count=facts.shared_name_count,
+        sync=_SyncPayload(
+            cloud=facts.cloud,
+            authenticated=facts.authenticated,
+            active=facts.sync_enabled,
+        ),
+        mcp=_McpPayload(
+            repo_count=snapshot.repo_count,
+            wired_repos=snapshot.mcp_wired,
+            codex_global=snapshot.codex_global,
+            probed=mcp_probed,
+            healthy=mcp_healthy,
+        ),
+        codex_hooks=_CodexHooksPayload(
+            repo_count=snapshot.repo_count,
+            configured_repos=len(configured),
+            complete=hooks_complete,
+            probed=hooks_probed,
+            healthy=hooks_healthy,
+        ),
+        skills=_SkillsPayload(
+            core=_surface_counts_payload(workflow.core_skills),
+            opt_in=_surface_counts_payload(workflow.opt_in_skills),
+            legacy_codex_copies=workflow.legacy_codex_skills,
+        ),
+        workflow_agents=_surface_counts_payload(workflow.agents),
+        agents_md=_AgentsMdPayload(
+            repo_count=snapshot.repo_count,
+            generated_repos=snapshot.agents_generated,
+        ),
+        decisions=_DecisionsPayload(
+            local=facts.local_decisions,
+            remote=facts.remote_decisions,
+            in_sync=(
+                None
+                if facts.remote_decisions is None
+                else facts.local_decisions == facts.remote_decisions
+            ),
+            last_full_sync=facts.last_full_sync,
+        ),
+    )
+
+
+_STATUS_NO_PROJECT_MESSAGE = "No project found. Run 'nauro init <name>' to get started."
 
 
 def status(
@@ -543,20 +776,31 @@ def status(
         "--no-probe",
         help="Skip executable liveness probes; report wiring presence only.",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit the capability report as machine-readable JSON.",
+    ),
 ) -> None:
     """Show which Nauro capabilities are active or inactive."""
     try:
         project_name, store_path = resolve_target_project(project)
     except typer.Exit as exc:
         if not isinstance(exc, DisconnectedProjectExit):
-            typer.echo("No project found. Run 'nauro init <name>' to get started.", err=True)
+            typer.echo(_STATUS_NO_PROJECT_MESSAGE, err=True)
+        if json_output:
+            # A plain typer.Exit without resolution fields should not occur;
+            # map it defensively to the no-project reason.
+            if isinstance(exc, ProjectResolutionExit):
+                reason, guidance = exc.reason, exc.guidance
+            else:
+                reason, guidance = RESOLUTION_NO_PROJECT, _STATUS_NO_PROJECT_MESSAGE
+            envelope = {"status": "error", "error": {"reason": reason, "guidance": guidance}}
+            typer.echo(json.dumps(envelope, indent=2))
         raise typer.Exit(exc.exit_code) from exc
 
-    typer.echo(f"Project: {project_name}")
-    typer.echo(f"Store:   {store_path}\n")
-
-    project_id = store_path.name
-    _warn_if_project_name_shared(project_name, project_id)
-    sync_enabled = _render_sync_status(project_id)
-    _render_wiring_status(_repo_paths(project_id), no_probe=no_probe)
-    _render_decision_status(store_path, project_id, sync_enabled=sync_enabled)
+    facts = _collect_status(project_name, store_path, no_probe=no_probe)
+    if json_output:
+        typer.echo(json.dumps(_build_status_payload(facts).model_dump(), indent=2))
+        return
+    _emit_human_status(facts)

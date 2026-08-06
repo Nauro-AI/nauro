@@ -3,8 +3,9 @@
 Walks ``nauro_core.mcp_tools.ALL_TOOLS`` and, for each tool name in the
 allowlist, registers a Typer command that calls the matching
 ``tool_<name>`` adapter in ``nauro.mcp.tools`` and prints the resulting
-envelope as JSON. Auto-generation keeps the CLI surface in lockstep
-with the MCP surface.
+envelope as JSON (the default) or, under ``--format text``, renders it
+through the shared read-tool renderers with a JSON fallback.
+Auto-generation keeps the CLI surface in lockstep with the MCP surface.
 
 The allowlist is explicit (not derived from the ``readOnlyHint``
 annotation) so future additions to the registry — read or write —
@@ -35,6 +36,7 @@ from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 from nauro.cli._json_input import parse_json_list_of_dicts
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.mcp import tools as mcp_tools
+from nauro.mcp.rendering import try_render_envelope
 from nauro.store.repo_head import resolve_process_repo_head
 
 # Tools that should auto-generate a CLI command. list_projects is
@@ -75,6 +77,23 @@ AUTOGEN_PRIMARY_POSITIONAL: dict[str, str] = {
 # replaced by ``--project NAME``; cwd is implicit from the working
 # directory.
 _DROPPED_PROPERTIES: frozenset[str] = frozenset({"project_id", "cwd"})
+
+
+class OutputFormat(str, enum.Enum):
+    """Value set of the ``--format`` flag shared by every auto-gen command."""
+
+    json = "json"
+    text = "text"
+
+
+# Schema properties threaded to the tool's renderer as kwargs in text mode,
+# mirroring the stdio server's per-tool threading: ``get_decision`` passes the
+# requested mode; ``search_decisions`` passes the query the kernel envelope
+# intentionally omits.
+_RENDERER_KWARG_PROPERTIES: dict[str, tuple[str, ...]] = {
+    "get_decision": ("mode",),
+    "search_decisions": ("query",),
+}
 
 
 def _command_name(tool_name: str) -> str:
@@ -195,6 +214,24 @@ def _schema_to_typer_params(spec: ToolSpec) -> list[inspect.Parameter]:
         )
     )
 
+    # --format selects the output rendering; json (the default) is
+    # byte-identical to the historical JSON-only surface.
+    params.append(
+        inspect.Parameter(
+            name="output_format",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            default=typer.Option(
+                OutputFormat.json,
+                "--format",
+                help=(
+                    "Output format: json prints the machine-readable envelope; "
+                    "text renders it for human reading."
+                ),
+            ),
+            annotation=OutputFormat,
+        )
+    )
+
     # --json no-op preserved for parity with hand-written commands.
     params.append(
         inspect.Parameter(
@@ -203,7 +240,7 @@ def _schema_to_typer_params(spec: ToolSpec) -> list[inspect.Parameter]:
             default=typer.Option(
                 True,
                 "--json/--no-json",
-                help="Compatibility no-op; JSON is the only output format.",
+                help="Compatibility no-op; use --format to choose the output format.",
             ),
             annotation=bool,
         )
@@ -330,31 +367,61 @@ def _emit_envelope(envelope: dict) -> None:
     typer.echo(json.dumps(envelope, indent=2))
 
 
-def _exit_for_envelope(envelope: dict) -> None:
-    """If the envelope signals an error, print guidance to stderr and exit 1.
+def _exit_code_for_envelope(envelope: dict) -> int:
+    """Map an envelope to its exit code, independent of output format.
 
     Caller-fixable rejections (``status: "rejected"``) carry a structured
     ``error`` payload but stay exit 0 — they are not transport-level errors
     and the envelope on stdout already carries the reason.
     """
     if envelope.get("status") == "error":
-        guidance = envelope.get("guidance") or ""
-        if guidance:
-            typer.echo(guidance, err=True)
-        raise typer.Exit(code=1)
+        return 1
     if envelope.get("status") == "rejected":
-        return
+        return 0
     if envelope.get("error"):
-        err = envelope["error"]
+        return 1
+    return 0
+
+
+def _error_guidance(envelope: dict) -> str:
+    """The stderr guidance text an error envelope carries, or an empty string.
+
+    Emitted only in json mode — in text mode the rendered stdout is the sole
+    carrier of the error prose, so echoing it again on stderr would duplicate
+    the message.
+    """
+    if envelope.get("status") == "error":
+        return envelope.get("guidance") or ""
+    if envelope.get("status") == "rejected":
+        return ""
+    err = envelope.get("error")
+    if err:
         reason = err.get("reason") if isinstance(err, dict) else str(err)
-        if reason:
-            typer.echo(reason, err=True)
-        raise typer.Exit(code=1)
+        return reason or ""
+    return ""
+
+
+def _emit_json_mode(envelope: dict) -> None:
+    """Emit the envelope with json-mode streams and raise on error exit codes.
+
+    Also the fallback for text mode when no renderer applies (write tools)
+    or the renderer raised: envelope on stdout, guidance on stderr,
+    format-independent exit code.
+    """
+    _emit_envelope(envelope)
+    guidance = _error_guidance(envelope)
+    if guidance:
+        typer.echo(guidance, err=True)
+    code = _exit_code_for_envelope(envelope)
+    if code:
+        raise typer.Exit(code=code)
 
 
 def _make_command(spec: ToolSpec) -> Callable[..., None]:
     """Build the Typer callback that dispatches to the matching adapter."""
     tool_name = spec["name"]
+    # Resolved at build time to fail loudly on a broken allowlist entry, and
+    # again at dispatch so a patched adapter (tests) is honored.
     adapter = _resolve_adapter(tool_name)
     params = _schema_to_typer_params(spec)
 
@@ -368,7 +435,9 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
     # are passed positionally to the adapter to match its
     # ``store_path, <required>, <optional>`` signature.
     schema_arg_names: list[str] = [
-        p.name for p in params if p.name not in {"project", "json_output", primary_alias}
+        p.name
+        for p in params
+        if p.name not in {"project", "json_output", "output_format", primary_alias}
     ]
 
     # Properties declared as ``array of object`` arrive as raw strings from
@@ -401,10 +470,13 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
     accepts_origin = "origin" in adapter_params
     accepts_base_commit = "base_commit" in adapter_params
 
+    renderer_kwarg_names = _RENDERER_KWARG_PROPERTIES.get(tool_name, ())
+
     def command(**kwargs: Any) -> None:
         project = kwargs.pop("project", None)
-        # --json is a parity no-op; JSON is the only output mode.
+        # --json is a parity no-op; --format selects the output mode.
         kwargs.pop("json_output", None)
+        output_format = kwargs.pop("output_format", OutputFormat.json)
 
         if primary is not None:
             option_value = kwargs.pop(primary_alias, None)
@@ -434,9 +506,24 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
             adapter_kwargs["origin"] = cli_origin()
         if accepts_base_commit:
             adapter_kwargs["base_commit"] = resolve_process_repo_head()
-        envelope = adapter(store_path, **adapter_kwargs)
-        _emit_envelope(envelope)
-        _exit_for_envelope(envelope)
+        envelope = _resolve_adapter(tool_name)(store_path, **adapter_kwargs)
+
+        if output_format is OutputFormat.text:
+            renderer_kwargs = {
+                name: kwargs[name] for name in renderer_kwarg_names if name in kwargs
+            }
+            # A renderer failure falls back silently to json-mode streams;
+            # a traceback on stderr would break the stream contract.
+            rendered = try_render_envelope(tool_name, envelope, renderer_kwargs).text
+            if rendered is not None:
+                # Rendered stdout is the sole carrier of error/guidance prose;
+                # no stderr duplicate. Exit codes stay format-independent.
+                typer.echo(rendered)
+                code = _exit_code_for_envelope(envelope)
+                if code:
+                    raise typer.Exit(code=code)
+                return
+        _emit_json_mode(envelope)
 
     command.__signature__ = inspect.Signature(parameters=params)  # type: ignore[attr-defined]
     command.__name__ = f"autogen_{tool_name}"
