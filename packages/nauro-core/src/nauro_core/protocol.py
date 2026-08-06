@@ -29,9 +29,8 @@ CHECK_DECISION_RETURNS = (
 )
 
 GET_DECISION_BEFORE_PROPOSING = (
-    "When related decisions appear, call `get_decision` on each before "
-    "proposing: `mode=header` to triage and `mode=full` for those you reason "
-    "about."
+    "Related hits carry their triage headers inline; before proposing, call "
+    "`get_decision` (`mode=full`) on each decision you reason about."
 )
 
 PROPOSE_DECISION_OPERATIONS = (

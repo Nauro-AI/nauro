@@ -40,7 +40,7 @@ Per card, the agent prepares:
 
 ### Step 0.2: Pre-check and classify each card
 
-Before presenting the batch, the agent runs Step 7 steps 1–3 for each card: call `check_decision(proposed_approach=<title plus the one-line summary>, project_id=...)` **once per card**, read every related decision, classify the operation, and prepare the complete operation-specific proposal. Annotate each card with the related decisions and assessment from the pre-pass. Doing this up front lets the batch show the exact proposed write and any overlap before confirmation.
+Before presenting the batch, the agent runs Step 7 steps 1–3 for each card: call `check_decision(proposed_approach=<title plus the one-line summary>, project_id=...)` **once per card**, triage the inline headers, read in full the decisions that bear on the card, classify the operation, and prepare the complete operation-specific proposal. Annotate each card with the related decisions and assessment from the pre-pass. Doing this up front lets the batch show the exact proposed write and any overlap before confirmation.
 
 ### Step 0.3 — One batch confirm
 

@@ -48,7 +48,7 @@ Sequencing: the rendered proposal is the final text of the turn, the turn ends w
 **Mode A: Direction-setting (pre-work consult).** A planner or the human is about to start substantive architectural work. The caller passes a description of the proposed change.
 
 1. `check_decision` with the proposed change.
-2. `get_decision` on every related result. Do not act on the assessment string alone; the body has the rationale and supersession state.
+2. `get_decision` on every related result. Do not act on the assessment string alone: the body has the full rationale and rejected alternatives.
 3. Cross-reference adjacent surface area via `search_decisions` if the change touches a known contested area.
 4. Return verdict: GREEN (no doctrine concern, proceed), AMBER (proceed with the listed constraints), RED (contradicts active doctrine — redirect or supersede first).
 5. If the direction establishes new doctrine or changes existing doctrine, draft the complete `add`, `update`, or `supersede` payload and route it through the approval channel above. Call `propose_decision` only after explicit approval of that exact draft. The kernel commits immediately on Tier 1 clean.

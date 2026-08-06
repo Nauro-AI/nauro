@@ -178,9 +178,11 @@ GET_DECISION: ToolSpec = {
         "supersession, date, type, confidence), the title, and a short lede "
         "from the rationale — enough to decide whether a decision is worth a "
         "full read. mode=full (default) returns the complete markdown: "
-        "metadata, full rationale, and rejected alternatives. Read header to "
-        "triage a list of related decisions, then full for the ones you "
-        "actually reason about."
+        "metadata, full rationale, and rejected alternatives. Use header as "
+        "the standalone triage read for decisions surfaced by "
+        "search_decisions or list_decisions (check_decision hits already "
+        "carry these headers inline), then full for the ones you actually "
+        "reason about."
     ),
     "annotations": {**_READ_ANNOTATIONS, "idempotentHint": True},
     "input_schema": {

@@ -39,11 +39,35 @@
       },
       "RelatedDecision": {
         "additionalProperties": false,
-        "description": "A decision surfaced by retrieval as related to a proposed approach.\n\nThe canonical retrieval-hit shape: enriched with status/date and a\nrationale preview so any transport can render the same hit without\nre-fetching the underlying decision body.",
+        "description": "A decision surfaced by retrieval as related to a proposed approach.\n\nThe canonical retrieval-hit shape: enriched with the triage-header\nfields (status, date, type, confidence, supersession refs) and a\nrationale lede so any transport can render the same hit without\nre-fetching the underlying decision body.\n\n``decision_type``, ``confidence``, ``supersedes``, and\n``superseded_by`` stay optional so hits whose decision omits those\nfrontmatter fields still serialize; the adapter's ``exclude_none=True``\ntemplate choice drops the keys when they are unset (the\n:class:`DecisionSummary`/:class:`SearchHit` key-omission contract).",
         "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Confidence"
+          },
           "date": {
             "title": "Date",
             "type": "string"
+          },
+          "decision_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Decision Type"
           },
           "id": {
             "title": "Id",
@@ -60,6 +84,30 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Superseded By"
+          },
+          "supersedes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Supersedes"
           },
           "title": {
             "title": "Title",
@@ -110,11 +158,35 @@
   },
   "RelatedDecision": {
     "additionalProperties": false,
-    "description": "A decision surfaced by retrieval as related to a proposed approach.\n\nThe canonical retrieval-hit shape: enriched with status/date and a\nrationale preview so any transport can render the same hit without\nre-fetching the underlying decision body.",
+    "description": "A decision surfaced by retrieval as related to a proposed approach.\n\nThe canonical retrieval-hit shape: enriched with the triage-header\nfields (status, date, type, confidence, supersession refs) and a\nrationale lede so any transport can render the same hit without\nre-fetching the underlying decision body.\n\n``decision_type``, ``confidence``, ``supersedes``, and\n``superseded_by`` stay optional so hits whose decision omits those\nfrontmatter fields still serialize; the adapter's ``exclude_none=True``\ntemplate choice drops the keys when they are unset (the\n:class:`DecisionSummary`/:class:`SearchHit` key-omission contract).",
     "properties": {
+      "confidence": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Confidence"
+      },
       "date": {
         "title": "Date",
         "type": "string"
+      },
+      "decision_type": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Decision Type"
       },
       "id": {
         "title": "Id",
@@ -131,6 +203,30 @@
       "status": {
         "title": "Status",
         "type": "string"
+      },
+      "superseded_by": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Superseded By"
+      },
+      "supersedes": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Supersedes"
       },
       "title": {
         "title": "Title",

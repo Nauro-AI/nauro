@@ -119,6 +119,29 @@ def test_active_decision_surfaces_in_both_stores(both_stores):
         assert "decision-002" not in ids
 
 
+def test_enriched_triage_keys_match_across_stores(both_stores):
+    """The inline triage-header enrichment serializes with identical key sets
+    from both surfaces, and ``superseded_by`` stays absent on active hits
+    (unset fields drop under ``exclude_none``)."""
+    fs_store, cloud = both_stores
+
+    fs_result = check_decision(fs_store, PROPOSED_APPROACH)
+    cloud_result = check_decision(cloud, PROPOSED_APPROACH)
+
+    fs_hits = {hit.id: hit for hit in fs_result.related_decisions}
+    cloud_hits = {hit.id: hit for hit in cloud_result.related_decisions}
+    assert fs_hits.keys() == cloud_hits.keys()
+
+    for hit_id, fs_hit in fs_hits.items():
+        fs_dump = fs_hit.model_dump(mode="json", exclude_none=True)
+        cloud_dump = cloud_hits[hit_id].model_dump(mode="json", exclude_none=True)
+        assert fs_dump.keys() == cloud_dump.keys()
+        assert fs_dump == cloud_dump
+        # Every seeded hit is active: no superseded_by key may serialize.
+        assert "superseded_by" not in fs_dump
+        assert fs_dump["confidence"] == "high"
+
+
 def test_rejection_envelope_matches_across_stores(both_stores):
     """Over-length inputs produce the same ``error`` payload from each surface."""
     from nauro_core.constants import MAX_APPROACH_LENGTH

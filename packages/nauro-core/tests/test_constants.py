@@ -181,15 +181,14 @@ class TestMcpInstructions:
         remote = build_remote_instructions(MCP_INSTRUCTIONS_STATIC, [])
         assert remote.endswith(MCP_INSTRUCTIONS)
 
-    def test_header_first_hydration_fragment_present_and_bounded(self) -> None:
-        """The reworded hydration sentence is spliced into the static block
-        and stays compact. The leading fetch mandate must precede the
-        mode guidance so the sentence cannot read as "skip fetching"."""
+    def test_inline_header_fragment_present_and_bounded(self) -> None:
+        """The inline-header sentence is spliced into the static block and
+        stays compact. Hits carry their triage headers inline, so the only
+        follow-up read the static block directs is the full body."""
         assert GET_DECISION_BEFORE_PROPOSING in MCP_INSTRUCTIONS_STATIC
-        assert "`mode=header`" in MCP_INSTRUCTIONS_STATIC
-        assert GET_DECISION_BEFORE_PROPOSING.index("before proposing") < (
-            GET_DECISION_BEFORE_PROPOSING.index("`mode=header`")
-        )
+        assert "inline" in MCP_INSTRUCTIONS_STATIC
+        assert "`mode=full`" in MCP_INSTRUCTIONS_STATIC
+        assert "`mode=header`" not in MCP_INSTRUCTIONS_STATIC
         # The reword must not exceed the original sentence's length, so the
         # static block holds at or below its pre-change ceiling.
         assert len(GET_DECISION_BEFORE_PROPOSING) <= 200

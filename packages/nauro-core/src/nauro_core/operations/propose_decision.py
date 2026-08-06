@@ -54,21 +54,19 @@ from nauro_core.operations.decision_lookup import (
     find_decision_stem_by_num,
     parse_all_decisions,
 )
+from nauro_core.operations.related_hits import to_related_decisions
 from nauro_core.operations.results import (
     ErrorPayload,
     ProposeDecisionResult,
-    RelatedDecision,
 )
 from nauro_core.operations.store import Store
 from nauro_core.parsing import (
-    _canonical_decision_id,
     _decision_filename,
     _decision_number_prefix,
     _decision_path,
     extract_decision_number,
 )
 from nauro_core.questions import EntryBlock, OpenQuestionsFile
-from nauro_core.search import Bm25Hit
 from nauro_core.validation import (
     check_bm25_similarity,
     compute_hash,
@@ -232,7 +230,7 @@ def propose_decision(
     if parsed is None:
         parsed = parse_all_decisions(store)
     _t2_action, similar_raw = check_bm25_similarity(proposal, parsed)
-    similar_models = _to_related_decisions(similar_raw, parsed)
+    similar_models = to_related_decisions(similar_raw, parsed)
 
     # --- Commit ---
     decision_id, actual_operation, touched, resolve_outcome, error = _execute_operation(
@@ -374,39 +372,6 @@ def _update_hash_index(store: Store, title: str, rationale: str, decision_id: st
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     _save_hash_index(store, index)
-
-
-# ── Tier 2 result reshape ─────────────────────────────────────────────────
-
-
-def _to_related_decisions(
-    raw_hits: list[Bm25Hit],
-    parsed_decisions: list[Decision],
-) -> list[RelatedDecision]:
-    """Lift the ``bm25_retrieve`` dict shape into :class:`RelatedDecision`.
-
-    Matches the unified shape ``check_decision`` already returns; the
-    BM25 row dict is normalized into :class:`RelatedDecision` at the
-    kernel boundary so every transport renders the same hit.
-    """
-    by_num: dict[int, Decision] = {d.num: d for d in parsed_decisions}
-    out: list[RelatedDecision] = []
-    for hit in raw_hits:
-        num = hit["number"]
-        decision = by_num.get(num)
-        status = decision.status.value if decision else DecisionStatus.active.value
-        date = decision.date.isoformat() if decision and decision.date else ""
-        out.append(
-            RelatedDecision(
-                id=_canonical_decision_id(num),
-                title=hit.get("title", ""),
-                score=hit.get("similarity", 0.0),
-                status=status,
-                date=date,
-                rationale_preview=hit.get("rationale_preview", ""),
-            )
-        )
-    return out
 
 
 # ── Operation execution ───────────────────────────────────────────────────

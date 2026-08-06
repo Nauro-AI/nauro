@@ -64,12 +64,14 @@ class TestRenderCheckDecision:
                     "status": "active",
                     "date": "2026-05-10",
                     "rationale_preview": "Planner cache_control set to ttl: 1h.",
+                    "confidence": "high",
                 }
             ],
             "assessment": (
                 'Top match: D145 "Adopt 1-hour prompt cache tier for planner" '
                 "(status active, decided 2026-05-10, BM25 19.1). "
-                "Call get_decision(145) before proposing."
+                "Its triage header is inline. "
+                "Call get_decision(145) (mode=full) before proposing."
             ),
         }
         text = render_check_decision(result)
@@ -78,6 +80,9 @@ class TestRenderCheckDecision:
         assert "19.07" in text or "19.1" in text
         assert "Adopt 1-hour prompt cache tier" in text
         assert "Planner cache_control" in text
+        # The triage line carries the header fields the hit provides.
+        assert "decided 2026-05-10" in text
+        assert "confidence high" in text
         # Lead-line call-to-action must mention get_decision
         assert "get_decision" in text
 
@@ -120,7 +125,8 @@ class TestRenderCheckDecision:
                 "Found 3 related decisions. "
                 'Top match: D145 "Adopt 1-hour prompt cache tier for planner" '
                 "(status active, decided 2026-05-10, BM25 19.1). "
-                "Call get_decision on each related decision before proposing."
+                "Triage headers are inline. Call get_decision (mode=full) on "
+                "each decision you reason about before proposing."
             ),
         }
         text = render_check_decision(result)
@@ -135,10 +141,11 @@ class TestRenderCheckDecision:
         assert "Adopt 1-hour prompt cache tier" in text
         assert "Prompt cache strategy" in text
         assert "Retire monolithic-agent mode" in text
-        # Top hit shows rationale preview; lower hits do not
+        # Every hit renders its rationale lede — the inline triage block
+        # replaces the old top-hit-only preview.
         assert "Pareto sets the planner" in text
-        assert "Cache per role" not in text
-        assert "Modes go away" not in text
+        assert "Cache per role" in text
+        assert "Modes go away" in text
         # Lead-line call-to-action mentions get_decision
         assert "get_decision" in text
 
@@ -170,7 +177,8 @@ class TestRenderCheckDecision:
                 "Found 2 related decisions. "
                 'Top match: D145 "Adopt 1-hour prompt cache tier for planner" '
                 "(status active, decided 2026-05-10, BM25 19.1). "
-                "Call get_decision on each related decision before proposing."
+                "Triage headers are inline. Call get_decision (mode=full) on "
+                "each decision you reason about before proposing."
             ),
         }
         text = render_check_decision(result)
@@ -181,7 +189,10 @@ class TestRenderCheckDecision:
         # The lexical-rank caveat now reaches the rendered surface.
         assert LEXICAL_RANK_CAVEAT in text
 
-    def test_long_title_does_not_blow_up(self):
+    def test_long_title_renders_untruncated(self):
+        """check_decision hits are header-equivalent: the title renders in
+        full, exempt from the tabular _TITLE_BUDGET truncation that
+        list_decisions / search_decisions keep."""
         long_title = "x" * 200
         result = {
             "store": "remote",
@@ -198,8 +209,8 @@ class TestRenderCheckDecision:
             "assessment": "...",
         }
         text = render_check_decision(result)
-        # Renderer must not crash; the title should appear in some form.
         assert "D001" in text
+        assert long_title in text
 
     def test_unicode_in_title(self):
         result = {
@@ -243,6 +254,170 @@ class TestRenderCheckDecision:
         text = render_check_decision(result)
         assert text.startswith("Error:")
         assert "Proposed approach exceeds" in text
+
+    def test_lead_extracts_cta_from_reworded_assessment(self):
+        """_extract_call_to_action keys off the literal "Call " prefix; the
+        inline-header rewording keeps a trailing "Call ..." sentence, so the
+        lead line carries the kernel CTA instead of the renderer fallback."""
+        from nauro_core.renderers import _extract_call_to_action
+
+        assessment = (
+            "Found 2 related decisions. "
+            'Top match: D010 "First" (status active, decided 2026-05-10, BM25 9.0). '
+            f"{LEXICAL_RANK_CAVEAT} "
+            "Triage headers are inline. Call get_decision (mode=full) on each "
+            "decision you reason about before proposing."
+        )
+        assert _extract_call_to_action(assessment) == (
+            "Call get_decision (mode=full) on each decision you reason about before proposing."
+        )
+
+    def test_every_hit_renders_a_triage_block(self):
+        """Each hit carries its own header-equivalent block: date/type/
+        confidence line and the rationale lede, not just the top hit."""
+        result = {
+            "store": "remote",
+            "related_decisions": [
+                {
+                    "id": "decision-010",
+                    "title": "First",
+                    "score": 9.0,
+                    "status": "active",
+                    "date": "2026-05-10",
+                    "rationale_preview": "First lede paragraph.",
+                    "decision_type": "architecture",
+                    "confidence": "high",
+                },
+                {
+                    "id": "decision-011",
+                    "title": "Second",
+                    "score": 4.0,
+                    "status": "active",
+                    "date": "2026-06-01",
+                    "rationale_preview": "Second lede paragraph.",
+                    "confidence": "medium",
+                },
+            ],
+            "assessment": "...",
+        }
+        text = render_check_decision(result)
+        assert "decided 2026-05-10  type architecture  confidence high" in text
+        assert "decided 2026-06-01  confidence medium" in text
+        assert "First lede paragraph." in text
+        assert "Second lede paragraph." in text
+
+    def test_supersession_line_only_when_present(self):
+        result = {
+            "store": "remote",
+            "related_decisions": [
+                {
+                    "id": "decision-010",
+                    "title": "Superseding",
+                    "score": 9.0,
+                    "status": "active",
+                    "date": "2026-05-10",
+                    "rationale_preview": "Lede.",
+                    "supersedes": "7",
+                },
+                {
+                    "id": "decision-011",
+                    "title": "Plain",
+                    "score": 4.0,
+                    "status": "active",
+                    "date": "2026-06-01",
+                    "rationale_preview": "Lede.",
+                },
+            ],
+            "assessment": "...",
+        }
+        text = render_check_decision(result)
+        assert text.count("supersedes 7") == 1
+        assert "superseded_by" not in text
+
+    def test_long_lede_wraps_untruncated(self):
+        """A full 300-char lede renders whole as a wrapped paragraph — no
+        single-line truncation, no dropped characters."""
+        lede = ("word " * 70).strip()[:299] + "z"
+        assert len(lede) == 300
+        result = {
+            "store": "remote",
+            "related_decisions": [
+                {
+                    "id": "decision-010",
+                    "title": "Long lede",
+                    "score": 9.0,
+                    "status": "active",
+                    "date": "2026-05-10",
+                    "rationale_preview": lede,
+                }
+            ],
+            "assessment": "...",
+        }
+        text = render_check_decision(result)
+        hit_lines = [ln.strip() for ln in text.splitlines() if ln.startswith("    ")]
+        # Drop the title line, rejoin the wrapped lede lines.
+        assert hit_lines[0] == "Long lede"
+        rejoined = " ".join(hit_lines[2:])
+        assert rejoined == lede
+        # Wrapped lede lines respect the 80-column render width.
+        assert all(len(ln) <= 80 for ln in text.splitlines() if ln.startswith("    "))
+
+    def test_empty_lede_omits_paragraph(self):
+        """Empty-lede omission parity with header mode: a hit whose lede is
+        empty renders no lede block at all."""
+        result = {
+            "store": "remote",
+            "related_decisions": [
+                {
+                    "id": "decision-010",
+                    "title": "No lede",
+                    "score": 9.0,
+                    "status": "active",
+                    "date": "2026-05-10",
+                    "rationale_preview": "",
+                }
+            ],
+            "assessment": "...",
+        }
+        text = render_check_decision(result)
+        lines = text.splitlines()
+        hit_lines = [ln for ln in lines if ln.startswith("    ")]
+        assert hit_lines == ["    No lede", "    decided 2026-05-10"]
+
+    def test_hit_title_matches_header_mode_title_bytes(self):
+        """A >70-char title renders byte-identical to the title header mode
+        projects for the same decision — the inline block is a full
+        substitute for a mode=header follow-up."""
+        from datetime import date as _date
+
+        from conftest import _seed_decision, _store_with
+
+        from nauro_core.operations import check_decision, get_decision
+
+        long_title = (
+            "Adopt a very long deliberately verbose decision title that exceeds the budget"
+        )
+        assert len(long_title) > 70
+        store = _store_with(
+            _seed_decision(
+                42,
+                long_title,
+                "Verbose deliberately long budget decision rationale.",
+                decision_date=_date(2026, 5, 10),
+            ),
+        )
+        header = get_decision(store, 42, mode="header").content
+        assert header is not None
+        header_title = header.split("# 042 — ", 1)[1].split("\n", 1)[0]
+
+        check_result = check_decision(store, "Adopt a deliberately verbose decision title")
+        envelope = {
+            "store": "local",
+            **check_result.model_dump(mode="json", exclude_none=True),
+        }
+        text = render_check_decision(envelope)
+        assert f"    {header_title}" in text.splitlines()
+        assert header_title == long_title
 
 
 class TestRenderGetDecision:

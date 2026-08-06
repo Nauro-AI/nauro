@@ -19,20 +19,16 @@ from nauro_core.constants import (
     NO_DECISIONS_TO_CHECK,
     NO_RELATED_DECISIONS,
 )
-from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.operations.decision_lookup import parse_all_decisions
+from nauro_core.operations.related_hits import to_related_decisions
 from nauro_core.operations.results import (
     CheckDecisionResult,
     ErrorPayload,
     RelatedDecision,
 )
 from nauro_core.operations.store import Store
-from nauro_core.parsing import (
-    _canonical_decision_id,
-    _decision_label,
-    extract_decision_number,
-)
-from nauro_core.search import Bm25Hit, union_retrieve
+from nauro_core.parsing import _decision_label, extract_decision_number
+from nauro_core.search import union_retrieve
 from nauro_core.validation import check_content_length, is_scaffold_seed
 
 # Extended stopword list for ``check_decision`` retrieval. Mirrors the
@@ -96,32 +92,11 @@ def check_decision(
     if not hits:
         return CheckDecisionResult(assessment=NO_RELATED_DECISIONS)
 
-    by_num = {d.num: d for d in decisions}
-    related = [_hit_to_related(hit, by_num) for hit in hits]
+    related = to_related_decisions(hits, decisions)
 
     return CheckDecisionResult(
         related_decisions=related,
         assessment=_assessment(related),
-    )
-
-
-def _hit_to_related(hit: Bm25Hit, by_num: dict[int, Decision]) -> RelatedDecision:
-    """Lift a ``bm25_retrieve`` hit into the canonical retrieval-hit shape."""
-    num = hit["number"]
-    decision = by_num.get(num)
-    canonical_id = _canonical_decision_id(num)
-    status = decision.status.value if decision else DecisionStatus.active.value
-    date = decision.date.isoformat() if decision and decision.date else ""
-    # Embedding-sourced hits carry similarity=None (no BM25 score); surface 0.0
-    # so the score field stays a float and signals "not a BM25 match".
-    similarity = hit.get("similarity")
-    return RelatedDecision(
-        id=canonical_id,
-        title=hit.get("title", ""),
-        score=similarity if similarity is not None else 0.0,
-        status=status,
-        date=date,
-        rationale_preview=hit.get("rationale_preview", ""),
     )
 
 
@@ -146,8 +121,12 @@ def _assessment(related: list[RelatedDecision]) -> str:
     )
     if len(related) == 1:
         target = f"get_decision({top_num})" if top_num is not None else "get_decision"
-        return f"{top_line} {LEXICAL_RANK_CAVEAT} Call {target} before proposing."
+        return (
+            f"{top_line} {LEXICAL_RANK_CAVEAT} Its triage header is inline."
+            f" Call {target} (mode=full) before proposing."
+        )
     return (
         f"Found {len(related)} related decisions. {top_line} {LEXICAL_RANK_CAVEAT}"
-        " Call get_decision on each related decision before proposing."
+        " Triage headers are inline. Call get_decision (mode=full) on each"
+        " decision you reason about before proposing."
     )

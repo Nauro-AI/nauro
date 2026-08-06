@@ -24,7 +24,7 @@ from nauro_core.operations import (
     InMemoryStore,
     get_decision,
 )
-from nauro_core.operations.get_decision import _LEDE_MAX_CHARS
+from nauro_core.operations.related_hits import LEDE_MAX_CHARS
 
 
 def test_returns_result_type() -> None:
@@ -224,12 +224,12 @@ def test_header_lede_truncates_at_boundary() -> None:
 
     lede = header.rsplit("\n\n", 1)[-1]
     assert lede.endswith("…")
-    assert len(lede) <= _LEDE_MAX_CHARS
+    assert len(lede) <= LEDE_MAX_CHARS
 
 
 def test_header_just_under_budget_is_not_truncated() -> None:
     """A first paragraph exactly at the budget keeps its final character."""
-    para = "x" * _LEDE_MAX_CHARS
+    para = "x" * LEDE_MAX_CHARS
     stem, body = _full_decision(100, "At budget", para)
     store = _store_with((stem, body))
     header = get_decision(store, 100, mode="header").content

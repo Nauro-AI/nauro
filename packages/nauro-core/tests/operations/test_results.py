@@ -30,7 +30,7 @@ def test_related_decision_model_dump_shape() -> None:
         date="2026-01-01",
         rationale_preview="ACID compliance trumps document flexibility for this workload.",
     )
-    dumped = hit.model_dump(mode="json")
+    dumped = hit.model_dump(mode="json", exclude_none=True)
     assert dumped == {
         "id": "decision-042",
         "title": "Use Postgres",
@@ -39,6 +39,26 @@ def test_related_decision_model_dump_shape() -> None:
         "date": "2026-01-01",
         "rationale_preview": "ACID compliance trumps document flexibility for this workload.",
     }
+
+
+def test_related_decision_triage_fields_serialize_when_set() -> None:
+    hit = RelatedDecision(
+        id="decision-042",
+        title="Use Postgres",
+        score=1.5,
+        status="active",
+        date="2026-01-01",
+        rationale_preview="ACID compliance.",
+        decision_type="architecture",
+        confidence="high",
+        supersedes="7",
+        superseded_by="99",
+    )
+    dumped = hit.model_dump(mode="json", exclude_none=True)
+    assert dumped["decision_type"] == "architecture"
+    assert dumped["confidence"] == "high"
+    assert dumped["supersedes"] == "7"
+    assert dumped["superseded_by"] == "99"
 
 
 def test_related_decision_rejects_unknown_fields() -> None:

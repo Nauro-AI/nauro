@@ -18,7 +18,7 @@ Every decision proposal uses the same approval rule for all three operations: `a
     Call `check_decision` with the proposed approach. Classify the response:
 
     - **GREEN** — no related decisions, or the related decisions are clearly off-topic once you read the titles and the assessment string. Spot-check the top one or two hits via `get_decision` to confirm, then proceed.
-    - **AMBER** — related decisions appear adjacent (touch the same surface area, name the same dependency, or share keywords with the proposed change) but don't directly contradict it. `get_decision` on every related decision; spot-check adjacent contested areas via `search_decisions` for terms not in the original query. The plan must name which decisions inform the approach.
+    - **AMBER** — related decisions appear adjacent (touch the same surface area, name the same dependency, or share keywords with the proposed change) but don't directly contradict it. Triage the inline headers, then `get_decision` in full on every decision that informs the plan; spot-check adjacent contested areas via `search_decisions` for terms not in the original query. The plan must name which decisions inform the approach.
     - **RED** — at least one related decision *directly contradicts* the proposed change, OR the proposal would supersede an active decision. `get_decision` on every related decision is mandatory and must be read in full — the assessment string does not judge for you.
 
     The verdict goes in the plan as a one-line header before "Why" — the verdict word plus a comma-separated list of the decision numbers it touches. The reader sees the doctrine cost upfront.
