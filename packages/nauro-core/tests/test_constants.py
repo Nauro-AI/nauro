@@ -24,7 +24,7 @@ from nauro_core.constants import (
 from nauro_core.decision_model import DecisionType
 from nauro_core.instructions import build_remote_instructions
 from nauro_core.protocol import (
-    _APPROVAL_BEFORE_PROPOSE,
+    APPROVAL_BEFORE_PROPOSE,
     GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
@@ -42,7 +42,9 @@ from nauro_core.protocol import (
 # matching ToolSpec descriptions, which tools/list delivers intact past the
 # cliff — that durable home is what makes static-tail loss acceptable.
 MCP_INSTRUCTIONS_TRUNCATION_LIMIT = 2023
-MCP_INSTRUCTIONS_STATIC_MAX_CHARS = 1700
+# Ratcheted down from 1,700 when the approval fragment was trimmed; a future
+# edit that grows the block past the landed size forces a conscious bump.
+MCP_INSTRUCTIONS_STATIC_MAX_CHARS = 1635
 
 
 class TestLimits:
@@ -114,7 +116,7 @@ class TestFilenames:
 class TestMcpInstructions:
     def test_human_authority_and_approval_contract_are_present(self):
         assert "human-ratified project judgment" in MCP_INSTRUCTIONS_STATIC
-        assert _APPROVAL_BEFORE_PROPOSE in MCP_INSTRUCTIONS_STATIC
+        assert APPROVAL_BEFORE_PROPOSE in MCP_INSTRUCTIONS_STATIC
 
     def test_check_decision_section_is_a_precondition(self):
         """The check_decision guidance must explicitly forbid the skip-on-rejection

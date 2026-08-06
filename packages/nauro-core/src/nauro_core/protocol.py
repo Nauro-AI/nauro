@@ -35,19 +35,17 @@ GET_DECISION_BEFORE_PROPOSING = (
 
 PROPOSE_DECISION_OPERATIONS = (
     "Pick the right `operation`:\n"
-    "- `add` (default) — genuinely new ground; no existing decision is being changed.\n"
-    "- `update` — rationale-only; provide `affected_decision_id`. The "
+    "- `add` (default) - genuinely new ground.\n"
+    "- `update` - rationale-only; needs `affected_decision_id`. The "
     "server rejects `title`, `confidence`, `decision_type`, `reversibility`, "
-    "`files_affected`, and `rejected` at the boundary — use supersede for any "
-    "of those.\n"
-    "- `supersede` — replace an existing decision with one that contradicts or "
-    "wholly subsumes it. Provide `affected_decision_id`."
+    "`files_affected`, and `rejected` - use supersede for those.\n"
+    "- `supersede` - replace a decision this one contradicts or wholly "
+    "subsumes; needs `affected_decision_id`."
 )
 
 UPDATE_SUPERSEDE_CARE = (
-    "Default to `add` when uncertain — a later proposal can update or "
-    "supersede it once context clarifies. A wrongly-confirmed supersede is "
-    "hard to reverse."
+    "Default to `add` when uncertain - a later proposal can update or "
+    "supersede it; a wrong supersede is hard to reverse."
 )
 
 NO_INVENT_RATIONALE = (
@@ -55,28 +53,29 @@ NO_INVENT_RATIONALE = (
     "reasoning that supports it."
 )
 
-_APPROVAL_BEFORE_PROPOSE = (
-    "Before `propose_decision`, present the complete add, update, or supersede "
-    "draft as readable Markdown with any related decisions, end the turn with "
-    "the draft, and collect explicit user approval from the user's next reply. "
-    "The call commits immediately after validation."
+APPROVAL_BEFORE_PROPOSE = (
+    "Present the complete add, update, or supersede draft as readable "
+    "Markdown with related decisions, end the turn, and get explicit user "
+    "approval from the user's next reply; the call commits immediately after "
+    "validation."
 )
 
+# Compat alias for consumers pinned to pre-1.6.0 nauro-core; excluded from
+# __all__. Remove once every in-repo import moves to the public name.
+_APPROVAL_BEFORE_PROPOSE = APPROVAL_BEFORE_PROPOSE
+
 _PROPOSAL_VISIBILITY_DETAIL = (
-    "Never couple the draft with an approval prompt (such as AskUserQuestion) "
-    "in the same turn: text emitted before a tool call may never render, so "
-    "the user would approve a draft they cannot see. An approval prompt may "
-    "carry the choice only once the full draft is on screen from a prior turn. "
-    "Structured `propose_decision` arguments stay internal; show raw JSON only "
-    "on an explicit debugging request."
+    "Never pair the draft with an approval prompt (AskUserQuestion) in the "
+    "same turn - text before a tool call may never render. Prompt only once "
+    "the draft is on screen from a prior turn. Arguments stay internal; show "
+    "raw JSON only when debugging is requested."
 )
 
 RESOLVES_OPEN_QUESTIONS = (
-    "When a proposal closes one of `get_context`'s open questions, include "
-    "the question's `[Q###]` id (legacy timestamp ids are accepted) in "
-    "`resolves_questions`. Named entries are stamped with a back-reference to "
-    "the new decision and, when the move is prose-safe, relocated under "
-    "`## Resolved`; unknown or ambiguous ids reject at the boundary."
+    "When a proposal closes an open question, include its `[Q###]` id "
+    "(legacy timestamp ids accepted) in `resolves_questions`. Named entries "
+    "get a back-reference and, when prose-safe, move under `## Resolved`; "
+    "unknown or ambiguous ids reject."
 )
 
 CANONICAL_FRAGMENTS: dict[str, str] = {
@@ -146,6 +145,7 @@ def protocol_tokens_in(text: str, *, only_unknown: bool = False) -> list[str]:
 
 
 __all__ = [
+    "APPROVAL_BEFORE_PROPOSE",
     "CANONICAL_FRAGMENTS",
     "CHECK_DECISION_RETURNS",
     "GET_DECISION_BEFORE_PROPOSING",

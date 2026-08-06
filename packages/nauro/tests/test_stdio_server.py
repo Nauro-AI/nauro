@@ -641,6 +641,53 @@ class TestToolSpecDescriptionsReachAgent:
         )
 
 
+class TestCwdParamReachesAgent:
+    """Every locally registered tool must advertise an optional ``cwd``.
+
+    ``cwd`` exists only in the FastMCP wrapper annotations (the shared
+    ToolSpec registry deliberately omits it so it never surfaces on remote
+    schemas), so the frozen-contract snapshot cannot see it - this test is
+    the guard for its emitted shape. The parameter is load-bearing: MCP
+    clients spawn this server outside the workspace (Claude Desktop observed
+    live at cwd=/), and propose_decision feeds cwd into resolve_repo_head
+    for the base-commit stamp.
+    """
+
+    LOCAL_TOOLS = (
+        "get_context",
+        "get_raw_file",
+        "list_decisions",
+        "get_decision",
+        "diff_since_last_session",
+        "search_decisions",
+        "check_decision",
+        "propose_decision",
+        "flag_question",
+        "update_state",
+    )
+
+    @pytest.fixture
+    def schemas_by_name(self):
+        import asyncio
+
+        tools = asyncio.run(mcp.list_tools())
+        return {t.name: t.inputSchema for t in tools}
+
+    def test_covers_every_registered_tool(self, schemas_by_name):
+        assert set(schemas_by_name) == set(self.LOCAL_TOOLS)
+
+    @pytest.mark.parametrize("tool", LOCAL_TOOLS)
+    def test_cwd_is_optional_nullable_string(self, schemas_by_name, tool):
+        schema = schemas_by_name[tool]
+        assert "cwd" in schema["properties"], f"{tool} does not advertise cwd"
+        cwd = schema["properties"]["cwd"]
+        assert "cwd" not in schema.get("required", []), f"{tool} must not require cwd"
+        assert {option["type"] for option in cwd["anyOf"]} == {"string", "null"}, (
+            f"{tool} cwd must be string-or-null, got: {cwd!r}"
+        )
+        assert cwd["default"] is None
+
+
 class TestContentSizeLimits:
     """H3 STRIDE fix: local tools must reject oversized inputs."""
 

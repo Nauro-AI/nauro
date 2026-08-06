@@ -196,6 +196,9 @@ from nauro_core.parsing import (
     scan_decision_references as scan_decision_references,
 )
 from nauro_core.protocol import (
+    APPROVAL_BEFORE_PROPOSE as APPROVAL_BEFORE_PROPOSE,
+)
+from nauro_core.protocol import (
     CANONICAL_FRAGMENTS as CANONICAL_FRAGMENTS,
 )
 from nauro_core.protocol import (
@@ -355,6 +358,7 @@ __all__ = [
     "build_remote_instructions",
     "serialize_snapshot",
     "MCP_INSTRUCTIONS_STATIC",
+    "APPROVAL_BEFORE_PROPOSE",
     "CHECK_DECISION_RETURNS",
     "GET_DECISION_BEFORE_PROPOSING",
     "NO_INVENT_RATIONALE",

@@ -14,6 +14,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+# Underscore alias, not the public APPROVAL_BEFORE_PROPOSE name: the public
+# re-export landed after the current nauro-core floor (>=1.5.0), so switching
+# is gated on raising the floor to nauro-core>=1.6.0 at the next release.
 from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEADER
@@ -50,13 +53,16 @@ PROTOCOL_DIGEST = (
     "inline, without judging conflicts; before proposing, read the ones you "
     "reason about in full with `get_decision`.\n"
     "\n"
+    # The fragment no longer names the write call, so this surface supplies
+    # the anchor: without MCP the boundary applies to `nauro propose-decision`.
+    f"Before `propose_decision` (or `nauro propose-decision`): "
     f"{_APPROVAL_BEFORE_PROPOSE}\n"
 )
 
 
-# Rendered in AGENTS.md only: the shared static block sits a few characters
-# under its 1,700-char truncation budget (MCP_INSTRUCTIONS_STATIC_MAX_CHARS in
-# the nauro-core constants tests), so it cannot carry this section.
+# Rendered in AGENTS.md only: the shared static block sits at its 1,635-char
+# truncation budget (MCP_INSTRUCTIONS_STATIC_MAX_CHARS in the nauro-core
+# constants tests), so it cannot carry this section.
 EVIDENCE_RIDER_SECTION = (
     "## When to record outcome evidence\n"
     "\n"

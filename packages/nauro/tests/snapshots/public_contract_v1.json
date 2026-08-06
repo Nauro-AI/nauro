@@ -1667,6 +1667,7 @@
   "contract_version": 1,
   "nauro_core_public_api": [
     "ALL_TOOLS",
+    "APPROVAL_BEFORE_PROPOSE",
     "CHECK_DECISION_RETURNS",
     "DECISIONS_DIR",
     "DECISION_HASHES_FILE",
