@@ -1,5 +1,6 @@
 """nauro log — List recent snapshots with metadata."""
 
+import json
 from pathlib import Path
 
 import typer
@@ -31,6 +32,11 @@ def log(
         "--project",
         help="Target project name. Overrides cwd resolution.",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit the listing as machine-readable JSON.",
+    ),
 ) -> None:
     """List recent snapshots with version, timestamp, and trigger.
 
@@ -39,10 +45,20 @@ def log(
     _project_name, store_path = resolve_target_project(project)
 
     if decisions:
-        _show_decisions(store_path, show_all=all_decisions)
+        if json_output:
+            _emit_decisions_json(store_path, show_all=all_decisions)
+        else:
+            _show_decisions(store_path, show_all=all_decisions)
         return
 
     snapshots = list_snapshots(store_path)
+
+    if json_output:
+        shown = snapshots[:limit]
+        if full:
+            shown = [load_snapshot(store_path, snap["version"]) for snap in shown]
+        typer.echo(json.dumps(shown, indent=2))
+        return
 
     if not snapshots:
         typer.echo("No snapshots yet. Run 'nauro sync' to create the first one.")
@@ -56,6 +72,25 @@ def log(
         _show_summary(store_path, shown)
 
 
+def _decision_rows(store_path: Path, *, show_all: bool) -> list[dict]:
+    """Decision listing rows, superseded entries filtered unless ``show_all``."""
+    return [
+        {
+            "num": d.num,
+            "status": str(d.status.value),
+            "version": d.version,
+            "title": d.title,
+            "superseded_by": d.superseded_by,
+        }
+        for d in _list_decisions(store_path)
+        if show_all or str(d.status.value) != "superseded"
+    ]
+
+
+def _emit_decisions_json(store_path: Path, *, show_all: bool) -> None:
+    typer.echo(json.dumps(_decision_rows(store_path, show_all=show_all), indent=2))
+
+
 def _show_decisions(store_path: Path, show_all: bool = False) -> None:
     """Display decision list with status."""
     all_decs = _list_decisions(store_path)
@@ -65,7 +100,7 @@ def _show_decisions(store_path: Path, show_all: bool = False) -> None:
         return
 
     typer.echo(f"{'ID':<8} {'Status':<14} {'V':<4} {'Title'}")
-    typer.echo("─" * 70)
+    typer.echo("-" * 70)
 
     for d in all_decs:
         status = str(d.status.value)
@@ -82,7 +117,7 @@ def _show_decisions(store_path: Path, show_all: bool = False) -> None:
 def _show_summary(store_path: Path, snapshots: list[dict]) -> None:
     """Display snapshot metadata table."""
     typer.echo(f"{'Version':<10} {'Timestamp':<22} {'Trigger'}")
-    typer.echo("─" * 60)
+    typer.echo("-" * 60)
 
     for snap in snapshots:
         version = f"v{snap['version']:03d}"
@@ -99,7 +134,7 @@ def _show_full(store_path: Path, snapshots: list[dict]) -> None:
     """Display full snapshot content."""
     for i, snap_meta in enumerate(snapshots):
         if i > 0:
-            typer.echo("\n" + "═" * 60 + "\n")
+            typer.echo("\n" + "=" * 60 + "\n")
 
         snap = load_snapshot(store_path, snap_meta["version"])
         version = f"v{snap['version']:03d}"
@@ -107,7 +142,7 @@ def _show_full(store_path: Path, snapshots: list[dict]) -> None:
         trigger = snap.get("trigger", "") or "-"
 
         typer.echo(f"Snapshot {version}  |  {ts}  |  {trigger}")
-        typer.echo("─" * 60)
+        typer.echo("-" * 60)
 
         files = snap.get("files", {})
         for filename in sorted(files):

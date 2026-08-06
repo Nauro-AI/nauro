@@ -39,11 +39,16 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from nauro_core.constants import MCP_INSTRUCTIONS
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
 from nauro_core.operations import ErrorPayload
-from nauro_core.renderers import RENDERERS as _RENDERERS
+
+# Back-compat re-export — tests patch the registry through this name. It is
+# the same dict object nauro.mcp.rendering renders from, so an in-place patch
+# here reaches the shared render step.
+from nauro_core.renderers import RENDERERS as _RENDERERS  # noqa: F401
 from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field
 
 from nauro import __version__
+from nauro.mcp.rendering import try_render_envelope
 from nauro.mcp.tools import (
     tool_check_decision,
     tool_diff_since_last_session,
@@ -95,24 +100,17 @@ def _wrap_with_renderer(
     structured envelope so clients can act on stable recovery metadata while
     humans still receive the rendered guidance.
     """
-    json_text = json.dumps(result, indent=2, default=str)
     structured_content = result if disconnected_reason_code(result) is not None else None
-    renderer = _RENDERERS.get(tool_name)
-    if renderer is None:
-        return CallToolResult(
-            content=[TextContent(type="text", text=json_text)],
-            structuredContent=structured_content,
+    outcome = try_render_envelope(tool_name, result, renderer_kwargs)
+    if outcome.failure is not None:
+        logger.error(
+            "renderer failed for tool=%s; falling back to JSON-only",
+            tool_name,
+            exc_info=outcome.failure,
         )
-    try:
-        rendered = renderer(result, **(renderer_kwargs or {}))
-    except Exception:
-        logger.exception("renderer failed for tool=%s; falling back to JSON-only", tool_name)
-        return CallToolResult(
-            content=[TextContent(type="text", text=json_text)],
-            structuredContent=structured_content,
-        )
+    text = outcome.text if outcome.text is not None else json.dumps(result, indent=2, default=str)
     return CallToolResult(
-        content=[TextContent(type="text", text=rendered)],
+        content=[TextContent(type="text", text=text)],
         structuredContent=structured_content,
     )
 

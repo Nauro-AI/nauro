@@ -208,7 +208,9 @@ class TestGetDecision:
         assert result.exit_code == 0, result.output
         assert "header" in result.output
         assert "full" in result.output
-        assert "[default: full]" in result.output
+        # Plain Click help wraps at the option column, so normalize whitespace
+        # before asserting the default marker.
+        assert "[default: full]" in " ".join(result.output.split())
 
     def test_mode_header_happy_path(self, demo_repo) -> None:
         result = runner.invoke(app, ["get-decision", "1", "--mode", "header"])

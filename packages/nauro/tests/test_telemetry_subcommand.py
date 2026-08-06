@@ -68,5 +68,8 @@ def test_telemetry_no_args_keeps_frozen_subcommand_tree(nauro_home):
 
     result = CliRunner().invoke(app, ["telemetry"])
 
+    # Plain Click routes no-args help to stderr (exit 2, unchanged); the
+    # frozen property under test is the subcommand tree itself.
+    help_text = result.stdout + result.stderr
     for command in ("status", "enable", "disable", "reset"):
-        assert command in result.stdout
+        assert command in help_text

@@ -194,6 +194,20 @@
             "type": "boolean"
           },
           {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
             "flags": [
               "--project"
             ],
@@ -272,6 +286,20 @@
             "type": "boolean"
           },
           {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
             "flags": [
               "--project"
             ],
@@ -321,6 +349,20 @@
             "name": "json_output",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
           },
           {
             "flags": [
@@ -399,6 +441,20 @@
             "type": "choice"
           },
           {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
             "flags": [
               "--project"
             ],
@@ -446,6 +502,20 @@
             "type": "integer"
           },
           {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
             "flags": [
               "--project"
             ],
@@ -471,6 +541,20 @@
             "name": "json_output",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
           },
           {
             "kind": "argument",
@@ -727,6 +811,20 @@
             "type": "integer"
           },
           {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
             "flags": [
               "--project"
             ],
@@ -771,6 +869,17 @@
             "is_flag": true,
             "kind": "option",
             "name": "full",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
             "required": false,
             "type": "boolean"
           },
@@ -979,6 +1088,20 @@
             "type": "choice"
           },
           {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
             "flags": [
               "--project"
             ],
@@ -1137,6 +1260,20 @@
             "name": "limit",
             "required": false,
             "type": "integer"
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
           },
           {
             "flags": [
@@ -1347,6 +1484,17 @@
           {
             "default": false,
             "flags": [
+              "--json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
               "--no-probe"
             ],
             "is_flag": true,
@@ -1451,6 +1599,20 @@
             "name": "json_output",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
           },
           {
             "flags": [
