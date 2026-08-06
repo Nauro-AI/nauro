@@ -38,7 +38,14 @@ from __future__ import annotations
 
 import textwrap
 
-from nauro_core.constants import LEXICAL_RANK_CAVEAT, NO_RELATED_DECISIONS
+from nauro_core.bounded_read import render_bounded_file
+from nauro_core.constants import (
+    CHARS_PER_TOKEN,
+    CONTEXT_GUARD_REPORT,
+    L2_CHAR_BUDGET,
+    LEXICAL_RANK_CAVEAT,
+    NO_RELATED_DECISIONS,
+)
 from nauro_core.parsing import _decision_label
 
 # Width target for the rendered text blocks. Picked to fit standard
@@ -92,8 +99,16 @@ def _guidance(result: dict) -> str:
     repo that has not run ``nauro init`` returns the actionable welcome text
     instead of an empty string (``get_context``/``get_decision``) or a
     misleading "no results" line (``check_decision``/``search_decisions``).
+
+    A non-string ``guidance`` value is ignored: guidance is advisory
+    metadata, and raising on a malformed field would trigger the callers'
+    full-envelope JSON fallback — which, with an oversized body alongside,
+    would bypass the bounded-read guards entirely.
     """
-    return (result.get("guidance") or "").strip()
+    guidance = result.get("guidance")
+    if not isinstance(guidance, str):
+        return ""
+    return guidance.strip()
 
 
 def disconnected_reason_code(result: dict) -> str | None:
@@ -360,7 +375,7 @@ def render_list_decisions(result: dict) -> str:
     return "\n".join(lines).rstrip()
 
 
-def render_get_context(result: dict) -> str:
+def render_get_context(result: dict, level: str | int | None = None) -> str:
     """Render context. The kernel already assembles human-readable markdown;
     pass it through, with structured errors surfaced explicitly.
 
@@ -368,21 +383,55 @@ def render_get_context(result: dict) -> str:
     surfaces the assembled markdown under ``context``; the local stdio
     server uses ``content`` (the kernel ``GetContextResult`` field name).
     Accept either so a single renderer covers both transports.
+
+    A body over :data:`L2_CHAR_BUDGET` chars is withheld behind a compact
+    guard report instead. The gate is size-keyed, not level-keyed: any
+    over-budget body gates on every transport, with or without the ``level``
+    renderer kwarg - ``level``, where threaded, only tailors the report's
+    wording. At or under budget the rendering is byte-identical to the
+    pre-guard passthrough.
     """
     if guidance := _connection_guidance(result):
         return guidance
     if "error" in result:
         return _error_block(result["error"])
     body = result.get("context") or result.get("content") or ""
+    if not isinstance(body, str):
+        body = str(body)
+    if len(body) > L2_CHAR_BUDGET:
+        return _context_guard_report(len(body), level)
     return body.rstrip() or _guidance(result)
 
 
-def render_get_raw_file(result: dict) -> str:
+def _context_guard_report(size: int, level: str | int | None) -> str:
+    """Compact size-and-recovery report replacing an over-budget context body."""
+    if isinstance(level, bool):
+        level_clause = ""
+    elif isinstance(level, int):
+        level_clause = f" (level L{level})"
+    elif isinstance(level, str) and level.strip():
+        level_clause = f" (level {level.strip()})"
+    else:
+        level_clause = ""
+    return CONTEXT_GUARD_REPORT.format(
+        level_clause=level_clause,
+        chars=f"{size:,}",
+        tokens=f"{size // CHARS_PER_TOKEN:,}",
+        budget=f"{L2_CHAR_BUDGET:,}",
+    )
+
+
+def render_get_raw_file(result: dict, path: str | None = None) -> str:
     """Render a raw-file read.
 
-    On a hit the file content passes through verbatim — it is already the
-    primary human-readable payload. On a miss the error line renders
-    first (``Error: File not found: <path>``), then the adapter-composed
+    On a hit the file content renders through the bounded-read rules of
+    :func:`nauro_core.bounded_read.render_bounded_file`: byte-verbatim at or
+    under its budget, head/tail/structure-aware truncation with elision
+    markers over it. ``path`` is the canonical store-relative path threaded
+    as a renderer kwarg by the local surfaces (it never enters the result
+    envelope); a surface that threads none gets the generic head-keep rule.
+    On a miss the error line renders first
+    (``Error: File not found: <path>``), then the adapter-composed
     ``available_files`` hint in its exact order — the ordering (canonical
     root files, remaining root markdown, per-directory anchors) is a
     cross-surface contract, never reorder it here.
@@ -391,16 +440,28 @@ def render_get_raw_file(result: dict) -> str:
         return guidance
     if "error" in result:
         lines = [_error_block(result["error"])]
-        available = result.get("available_files") or []
-        if available:
+        # Tolerate a malformed hint: a non-list value or non-string entries
+        # are dropped rather than raised on — a raising renderer would fall
+        # back to the full JSON envelope and defeat the bounded render.
+        available = result.get("available_files")
+        hint_paths = (
+            [entry for entry in available if isinstance(entry, str)]
+            if isinstance(available, (list, tuple))
+            else []
+        )
+        if hint_paths:
             lines.append("")
             lines.append("Available files:")
-            lines.extend(f"  - {path}" for path in available)
+            lines.extend(f"  - {path}" for path in hint_paths)
         return "\n".join(lines)
     content = result.get("content")
     if content is None:
         return _guidance(result)
-    return content
+    if not isinstance(content, str):
+        content = str(content)
+    if not isinstance(path, str):
+        path = None
+    return render_bounded_file(content, path)
 
 
 def render_diff_since_last_session(result: dict) -> str:

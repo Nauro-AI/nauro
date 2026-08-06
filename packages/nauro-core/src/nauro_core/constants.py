@@ -159,6 +159,72 @@ MAX_APPROACH_LENGTH = 5_000
 # briefs run ~11-21 KB; 50 KiB leaves headroom without inviting storage bombs.
 MAX_BRIEF_BYTES = 50 * 1024
 
+# ── Bounded rendered reads (renderer channel only) ──
+# Character caps on the rendered agent-facing read surface: the stdio MCP
+# content[0] block and the CLI's --format text mode, applied inside
+# nauro_core.renderers. The CLI's default json output stays uncapped - it is
+# the local recovery channel. Budgets key off characters; reported token
+# estimates are chars / CHARS_PER_TOKEN. Budgets bound retained file content
+# only: elision markers are additional bounded-constant annotations.
+L2_CHAR_BUDGET = 200_000
+RAW_FILE_CHAR_BUDGET = 40_000
+# context/*.md shared briefs get their own ceiling. Sync pushes are bounded
+# at MAX_BRIEF_BYTES (50 KiB), so every sync-valid brief renders whole; only
+# a locally-retained oversized brief is bounded.
+CONTEXT_FILE_CHAR_BUDGET = 51_200
+# Over-budget open-questions.md: the open preamble keeps a head window plus
+# an unconditionally reserved tail window ending at its last character, so
+# the newest appended entries always render.
+OPEN_PREAMBLE_HEAD_CHARS = 30_000
+OPEN_PREAMBLE_TAIL_CHARS = 10_000
+# Cap on discovery-pointer entries re-surfaced from elided open-questions
+# spans, total across all spans in file order.
+POINTER_EXTRACT_LIMIT = 20
+# Files whose newest content appends at the end render tail-first.
+TAIL_KEEP_FILENAMES: tuple[str, ...] = (STATE_HISTORY_FILENAME,)
+
+# Recovery clause spliced into every bounded-read elision marker. {path} is
+# the canonical store-relative path when known, or a placeholder otherwise.
+BOUNDED_READ_RECOVERY = (
+    "full text: `nauro get-raw-file {path}` (default json output is unbounded; "
+    "redirect it to a file) or the store file itself"
+)
+RAW_FILE_HEAD_CUT_MARKER = "[... {omitted} chars omitted from the end of {path} - {recovery}]"
+RAW_FILE_TAIL_CUT_MARKER = "[... {omitted} chars omitted from the start of {path} - {recovery}]"
+OPEN_QUESTIONS_MID_ELISION_MARKER = (
+    "[... {omitted} chars of older open entries omitted here - {recovery}]"
+)
+OPEN_QUESTIONS_RESOLVED_ELIDED_MARKER = (
+    "[## Resolved section elided ({omitted} chars) - {recovery}]"
+)
+OPEN_QUESTIONS_POST_CUT_MARKER = (
+    "[... {omitted} chars omitted from the sections after ## Resolved - {recovery}]"
+)
+OPEN_QUESTIONS_POST_ELIDED_MARKER = (
+    "[{count} section(s) after ## Resolved elided ({omitted} chars) - {recovery}]"
+)
+POINTER_BLOCK_HEADER = "[discovery pointers from the omitted content above:]"
+POINTER_OVERFLOW_TRAILER = (
+    "[... {overflow} more omitted discovery pointers not shown - {recovery}]"
+)
+
+# Guard report returned instead of an over-budget get_context body. Size-keyed,
+# not level-keyed: any over-budget body gates on every transport; {level_clause}
+# names the requested level only when the surface threaded it.
+CONTEXT_GUARD_REPORT = (
+    "Context withheld: the assembled get_context{level_clause} payload is "
+    "{chars} chars (~{tokens} tokens estimated), over the {budget}-char "
+    "rendered budget. Returning it inline would flood the session context.\n"
+    "\n"
+    "Recover incrementally instead:\n"
+    "- get_context level L1 - the bounded working set\n"
+    "- get_raw_file per store file (project.md, stack.md, state_current.md, "
+    "state_history.md, open-questions.md, context/*.md)\n"
+    "- get_decision / list_decisions (include_superseded=true) for decision history\n"
+    "- on a local install: `nauro get-context --level 2` prints the complete "
+    "json envelope - redirect it to a file"
+)
+
 # ── MCP server instructions ──
 # Delivered via the MCP `initialize` response to every connected client.
 # Single source of truth: both local (stdio) and remote (HTTP) servers
