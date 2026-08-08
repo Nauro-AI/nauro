@@ -15,8 +15,10 @@ from nauro_core.constants import (
     OPEN_QUESTIONS_MD,
     POINTER_FLAG_PREFIXES,
     PROJECT_MD,
+    RAW_FILE_CHAR_BUDGET,
     REVERSIBILITY_LEVELS,
     SNAPSHOTS_DIR,
+    STACK_DOC_CHAR_LIMIT,
     STACK_MD,
     STATE_MD,
     VALID_CONFIDENCES,
@@ -70,6 +72,15 @@ class TestSizeLimits:
         warn-and-skip gate and the nauro-context skill prose both reference
         this single value, so a careless change must trip a test."""
         assert MAX_BRIEF_BYTES == 50 * 1024
+
+    def test_stack_doc_char_limit_is_40k(self):
+        assert STACK_DOC_CHAR_LIMIT == 40_000
+
+    def test_stack_doc_cap_matches_raw_file_read_ceiling(self):
+        """The stack write cap is tied to the complete raw-file read ceiling so
+        every accepted stack.md can be returned whole by one get_raw_file call.
+        Moving either value forces a conscious look at the other."""
+        assert STACK_DOC_CHAR_LIMIT == RAW_FILE_CHAR_BUDGET
 
 
 class TestValidValues:
