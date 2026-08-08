@@ -1,7 +1,7 @@
 """Deterministic store-integrity diagnosis for ``nauro doctor``.
 
 ``diagnose_store`` reads a project store through the :class:`Store` protocol
-and reports four kinds of structural defect in the decision set:
+and reports four kinds of *blocking* structural defect in the decision set:
 
     1. Unparseable decision files.
     2. Dangling supersession refs — a ``supersedes``/``superseded_by`` value
@@ -12,10 +12,18 @@ and reports four kinds of structural defect in the decision set:
        or a forward/back conflict where ``X.supersedes=Y`` while ``Y`` records
        ``superseded_by=Z`` naming a third, present decision.
 
+Alongside those it reports one *repairable* defect: a supersede backref orphan,
+an active decision whose ``supersedes`` target is itself still active and
+carries no reciprocal ``superseded_by``. Severity is split deliberately.
+:attr:`StoreDiagnosis.is_clean` stays bound to the four blocking categories
+above and is unmoved by an orphan, because an orphan is a recoverable
+half-write rather than a store a reader cannot trust; it is surfaced through
+:attr:`StoreDiagnosis.has_repairable_defects` instead, and ``nauro repair``
+is the gated action that closes it.
+
 It also surfaces unknown frontmatter keys — keys the reader tolerates and
 preserves but does not model. This is advisory, not a defect: the tolerant
-reader accepts them by design, so they do not make a store unclean
-(:attr:`StoreDiagnosis.is_clean` stays tied to the four defect categories).
+reader accepts them by design, so they do not make a store unclean.
 
 Every check is zero-false-positive by construction and the output is fully
 sorted, so two diagnoses over the same store are identical. The module stands
@@ -28,6 +36,8 @@ submodule-only and is deliberately not part of ``nauro_core.__all__``.
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -92,6 +102,20 @@ class StatusContradiction(BaseModel):
     conflicting_with: int | None = None
 
 
+class SupersedeOrphan(BaseModel):
+    """A half-written supersession: the forward edge exists, the backref does not.
+
+    ``child`` is active and records ``supersedes=target``; ``target`` is still
+    active and carries no ``superseded_by``. Repairable rather than blocking —
+    see the module docstring for the severity split.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    child: int
+    target: int
+
+
 class UnknownFrontmatterKeys(BaseModel):
     """A parsed decision carrying frontmatter keys the reader does not model.
 
@@ -114,16 +138,23 @@ class StoreDiagnosis(BaseModel):
     dangling_refs: list[DanglingRef] = Field(default_factory=list)
     cycles: list[SupersessionCycle] = Field(default_factory=list)
     contradictions: list[StatusContradiction] = Field(default_factory=list)
+    supersede_orphans: list[SupersedeOrphan] = Field(default_factory=list)
     unknown_frontmatter_keys: list[UnknownFrontmatterKeys] = Field(default_factory=list)
 
     @property
     def is_clean(self) -> bool:
-        """True when no defect of any category was found.
+        """True when no blocking defect was found.
 
-        Unknown frontmatter keys are advisory, not a defect, so they never
-        make a store unclean.
+        Bound to the four blocking categories only. Unknown frontmatter keys
+        are advisory, and supersede backref orphans are repairable, so neither
+        makes a store unclean.
         """
         return not (self.unparseable or self.dangling_refs or self.cycles or self.contradictions)
+
+    @property
+    def has_repairable_defects(self) -> bool:
+        """True when the store carries a defect ``nauro repair`` can close."""
+        return bool(self.supersede_orphans)
 
 
 def diagnose_store(store: Store) -> StoreDiagnosis:
@@ -132,12 +163,15 @@ def diagnose_store(store: Store) -> StoreDiagnosis:
 
     # Existence is on-disk stems, not parsed nums: a present-but-unparseable
     # file still counts as existing, so a ref to it is reported once (as
-    # unparseable) and never double-reported as dangling.
-    existing_numbers = {
+    # unparseable) and never double-reported as dangling. The counts (not just
+    # the set) are kept because the orphan check needs to know a number is
+    # carried by exactly one file before it names that file repairable.
+    stem_counts = Counter(
         num
         for stem in store.list_decisions()
         if (num := extract_decision_number(stem)) is not None
-    }
+    )
+    existing_numbers = set(stem_counts)
     by_num = _index_by_num(parsed)
 
     unparseable = sorted(
@@ -147,6 +181,7 @@ def diagnose_store(store: Store) -> StoreDiagnosis:
     dangling_refs = _dangling_refs(parsed, existing_numbers)
     cycles = _cycles(parsed)
     contradictions = _contradictions(parsed, by_num, existing_numbers)
+    supersede_orphans = _supersede_orphans(parsed, by_num, stem_counts, cycles)
     unknown_frontmatter_keys = _unknown_frontmatter_keys(parsed)
 
     return StoreDiagnosis(
@@ -154,6 +189,7 @@ def diagnose_store(store: Store) -> StoreDiagnosis:
         dangling_refs=dangling_refs,
         cycles=cycles,
         contradictions=contradictions,
+        supersede_orphans=supersede_orphans,
         unknown_frontmatter_keys=unknown_frontmatter_keys,
     )
 
@@ -322,3 +358,48 @@ def _contradictions(
         rows,
         key=lambda r: (r.kind, r.decision, r.other, r.conflicting_with or 0),
     )
+
+
+def _supersede_orphans(
+    parsed: list[Decision],
+    by_num: dict[int, Decision],
+    stem_counts: Mapping[int, int],
+    cycles: list[SupersessionCycle],
+) -> list[SupersedeOrphan]:
+    """Half-written supersessions: forward edge present, backref absent. Sorted.
+
+    A row is emitted only when every one of these holds, so the finding names a
+    single unambiguous pair of files and nothing else:
+
+    - the child parses and is still active, and records ``supersedes=target``;
+    - ``target`` is not the child's own number (a self-reference is a cycle);
+    - exactly one on-disk stem carries each side's number, so both the file to
+      repair and the decision claiming it are unambiguous. The child-side guard
+      is what keeps one shape from reporting twice: two parseable files sharing
+      a number and a forward edge are one duplicate-number defect, not two
+      orphans;
+    - the target's file parses, is still active, and carries no
+      ``superseded_by``.
+
+    A candidate whose child or target belongs to a reported cycle is suppressed:
+    the cycle is the defect there, and every defect is reported once.
+    """
+    cycle_members = {member for cycle in cycles for member in cycle.members}
+    rows: list[SupersedeOrphan] = []
+    for d in parsed:
+        if d.status is not DecisionStatus.active or d.supersedes is None:
+            continue
+        target_num = int(d.supersedes)
+        if target_num == d.num:
+            continue
+        if stem_counts.get(d.num, 0) != 1 or stem_counts.get(target_num, 0) != 1:
+            continue
+        if d.num in cycle_members or target_num in cycle_members:
+            continue
+        target = by_num.get(target_num)
+        if target is None:
+            continue
+        if target.status is not DecisionStatus.active or target.superseded_by is not None:
+            continue
+        rows.append(SupersedeOrphan(child=d.num, target=target_num))
+    return sorted(rows, key=lambda row: (row.child, row.target))

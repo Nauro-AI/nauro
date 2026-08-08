@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 
 import pytest
+from nauro_core.decision_model import Decision, format_decision
 
 from nauro.store import recovery
 from nauro.store.recovery import RecoveryError, bind_local_store, restore_cloud_store
@@ -254,6 +256,41 @@ def test_restore_cloud_store_rejects_malformed_presign_result(tmp_path, monkeypa
 
     assert not destination.exists()
     assert not list(destination.parent.glob(f".{PID}.restore-*"))
+
+
+def _decision_bytes(num: int, *, supersedes: str | None = None) -> bytes:
+    return format_decision(
+        Decision(
+            date="2026-03-15",
+            confidence="high",
+            num=num,
+            title=f"Decision {num}",
+            rationale=f"Rationale for decision {num}.",
+            supersedes=supersedes,
+        )
+    ).encode("utf-8")
+
+
+def test_restore_accepts_a_repairable_orphan_and_names_the_repair_command(
+    tmp_path, monkeypatch, caplog
+):
+    """A missing supersession backref is recoverable, not a corrupt record.
+
+    The restore must still install (integrity validation is unmoved by it) and
+    must say which command closes it."""
+    source = tmp_path / "source"
+    files = _store_files(source)
+    files["decisions/019-target.md"] = _decision_bytes(19)
+    files["decisions/020-child.md"] = _decision_bytes(20, supersedes="19")
+    _mock_remote(monkeypatch, files)
+    destination = tmp_path / "projects" / PID
+
+    with caplog.at_level(logging.WARNING, logger="nauro.store.recovery"):
+        result = restore_cloud_store(PID, destination)
+
+    assert result == destination
+    assert (destination / "decisions" / "019-target.md").is_file()
+    assert "nauro repair" in caplog.text
 
 
 def test_restore_cloud_store_rejects_damaged_decision_graph(tmp_path, monkeypatch):

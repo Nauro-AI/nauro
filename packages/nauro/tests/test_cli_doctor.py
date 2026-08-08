@@ -81,6 +81,33 @@ def test_unknown_frontmatter_key_renders_advisory_on_clean_store(tmp_path: Path)
     assert "origin" in result.stdout
 
 
+def test_supersede_orphan_renders_its_own_section_and_repair_remedy(tmp_path: Path) -> None:
+    """An orphan is repairable, not blocking: the store still reads clean, the
+    orphan gets its own counted section, and the section names the remedy."""
+    store = _new_store(tmp_path)
+    write_decision_file(store, 20, "child", _decision_md(20, supersedes="19"))
+    write_decision_file(store, 19, "target", _decision_md(19))
+
+    result = runner.invoke(app, ["doctor", "--project", "docproj"])
+
+    assert result.exit_code == 0
+    assert "No integrity defects found." in result.stdout
+    assert "Supersede backref orphans (1)" in result.stdout
+    assert "D20 supersedes D19" in result.stdout
+    assert "nauro repair" in result.stdout
+    assert "Found 1 repairable defect(s)." in result.stdout
+
+
+def test_clean_store_report_is_unchanged_by_the_orphan_section(tmp_path: Path) -> None:
+    store = _new_store(tmp_path)
+    write_decision_file(store, 1, "settled", _decision_md(1))
+
+    result = runner.invoke(app, ["doctor", "--project", "docproj"])
+
+    assert result.exit_code == 0
+    assert result.stdout == "Project: docproj\n\nNo integrity defects found.\n"
+
+
 def test_project_resolution_and_report_header(tmp_path: Path) -> None:
     _new_store(tmp_path, name="another")
     result = runner.invoke(app, ["doctor", "--project", "another"])

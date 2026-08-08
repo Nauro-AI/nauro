@@ -219,6 +219,157 @@ def test_deterministic_ordering() -> None:
     assert [(r.source, r.target) for r in diagnosis.dangling_refs] == [(5, 800), (20, 900)]
 
 
+# ── Supersede backref orphans (repairable, non-blocking) ──
+
+
+def test_supersede_orphan_reported() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(20, supersedes="19"),
+            _stem(19): _body(19),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert [(row.child, row.target) for row in diagnosis.supersede_orphans] == [(20, 19)]
+
+
+def test_supersede_orphan_does_not_change_is_clean() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(20, supersedes="19"),
+            _stem(19): _body(19),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert diagnosis.is_clean is True
+    assert diagnosis.has_repairable_defects is True
+
+
+def test_clean_store_has_no_repairable_defects() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(1): _body(1),
+            _stem(2): _body(2, status=DecisionStatus.superseded, superseded_by="3"),
+            _stem(3): _body(3, supersedes="2"),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert diagnosis.supersede_orphans == []
+    assert diagnosis.has_repairable_defects is False
+
+
+def test_target_carrying_backref_is_not_an_orphan() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(20, supersedes="19"),
+            _stem(19): _body(19, status=DecisionStatus.superseded, superseded_by="20"),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert diagnosis.supersede_orphans == []
+
+
+def test_superseded_target_is_not_an_orphan() -> None:
+    # The target is already retired by a third decision, so its backref is not
+    # missing — it names someone else. That is a contradiction, not an orphan.
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(20, supersedes="19"),
+            _stem(19): _body(19, status=DecisionStatus.superseded, superseded_by="21"),
+            _stem(21): _body(21),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert diagnosis.supersede_orphans == []
+
+
+def test_superseded_child_is_not_an_orphan() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(
+                20, status=DecisionStatus.superseded, superseded_by="21", supersedes="19"
+            ),
+            _stem(19): _body(19),
+            _stem(21): _body(21),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert diagnosis.supersede_orphans == []
+
+
+def test_self_referential_supersedes_is_not_an_orphan() -> None:
+    store = InMemoryStore(decisions={_stem(20): _body(20, supersedes="20")})
+    diagnosis = diagnose_store(store)
+    assert diagnosis.supersede_orphans == []
+
+
+def test_orphan_suppressed_when_child_or_target_is_in_a_cycle() -> None:
+    # D20 -> D19 is orphan-shaped, but D19 and D21 form a two-cycle that D20
+    # joins through D19. Each defect is reported once: the cycle wins.
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(20, supersedes="19"),
+            _stem(19): _body(19, supersedes="21"),
+            _stem(21): _body(21, supersedes="19"),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert [c.members for c in diagnosis.cycles] == [(19, 21)]
+    assert diagnosis.supersede_orphans == []
+
+
+def test_orphan_suppressed_when_target_number_is_duplicated() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(20, supersedes="19"),
+            _stem(19, "first"): _body(19),
+            _stem(19, "second"): _body(19),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert diagnosis.supersede_orphans == []
+
+
+def test_orphan_suppressed_when_child_number_is_duplicated() -> None:
+    # Both files parse and carry the same forward edge. Without a child-side
+    # guard this reports the one shape twice; the pair is not unambiguous, so
+    # it is not an orphan finding at all.
+    store = InMemoryStore(
+        decisions={
+            _stem(20, "first"): _body(20, supersedes="19"),
+            _stem(20, "second"): _body(20, supersedes="19"),
+            _stem(19): _body(19),
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert diagnosis.supersede_orphans == []
+    assert diagnosis.has_repairable_defects is False
+
+
+def test_orphan_unaffected_by_an_unrelated_unparseable_file() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(20, supersedes="19"),
+            _stem(19): _body(19),
+            _stem(30, "broken"): "garbage that does not parse",
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert [(row.child, row.target) for row in diagnosis.supersede_orphans] == [(20, 19)]
+    assert diagnosis.is_clean is False
+
+
+def test_unparseable_target_is_not_an_orphan() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(20): _body(20, supersedes="19"),
+            _stem(19, "broken"): "garbage that does not parse",
+        }
+    )
+    diagnosis = diagnose_store(store)
+    assert diagnosis.supersede_orphans == []
+
+
 # ── Unknown frontmatter keys (advisory) ──
 
 
