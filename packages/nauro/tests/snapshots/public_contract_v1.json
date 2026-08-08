@@ -1225,6 +1225,21 @@
       },
       {
         "kind": "command",
+        "name": "repair",
+        "params": [
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
         "name": "search-decisions",
         "params": [
           {

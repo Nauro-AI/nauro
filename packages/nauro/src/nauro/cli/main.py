@@ -70,6 +70,7 @@ def _register_commands() -> None:
         questions,
         reconnect,
         render_plugin,
+        repair,
         serve,
         setup,
         status,
@@ -97,6 +98,7 @@ def _register_commands() -> None:
     app.add_typer(setup.setup_app, name="setup")
     app.command(name="status")(status.status)
     app.command(name="doctor")(doctor.doctor)
+    app.command(name="repair")(repair.repair)
     app.add_typer(config.config_app, name="config")
     app.add_typer(validate.validate_app, name="validate")
     app.add_typer(auth.auth_app, name="auth")

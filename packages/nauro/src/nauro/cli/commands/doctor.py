@@ -6,6 +6,11 @@ contradictions. Report-only — it never edits the store — and it exits 0
 whether or not it finds defects, because a defect is information for the user,
 not a failed command.
 
+Supersede backref orphans are reported in their own section and counted
+separately: they are repairable rather than blocking, and the section names
+`nauro repair` as the remedy. Doctor still writes nothing itself — detection
+and the gated flip stay in different commands.
+
 Scope boundary: doctor reads only the decision store, so its findings can be
 deterministic with no false positives. Everything else that can be "off" on a
 machine — not connected, missing or dead wiring — is `nauro status`'s job;
@@ -42,12 +47,42 @@ def _render_unknown_keys(diagnosis: StoreDiagnosis) -> list[str]:
     return lines
 
 
+def _render_orphans(diagnosis: StoreDiagnosis) -> list[str]:
+    """Render the repairable supersede-orphan section, or nothing."""
+    if not diagnosis.supersede_orphans:
+        return []
+    lines = [
+        f"Supersede backref orphans ({len(diagnosis.supersede_orphans)}) "
+        "(repairable, not a blocking defect):"
+    ]
+    for row in diagnosis.supersede_orphans:
+        lines.append(
+            f"  {_label(row.child)} supersedes {_label(row.target)}, but "
+            f"{_label(row.target)} is still active with no superseded_by backref"
+        )
+    lines.append("  Fix: run 'nauro repair' to review and confirm the backref.")
+    lines.append("")
+    return lines
+
+
+def _render_repairable_total(diagnosis: StoreDiagnosis) -> list[str]:
+    """Count repairable defects on their own line, apart from blocking ones."""
+    if not diagnosis.supersede_orphans:
+        return []
+    return [f"Found {len(diagnosis.supersede_orphans)} repairable defect(s)."]
+
+
 def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
     """Render a diagnosis as human-readable report lines."""
-    if diagnosis.is_clean:
-        return ["No integrity defects found.", *_render_unknown_keys(diagnosis)]
-
     lines: list[str] = []
+
+    if diagnosis.is_clean:
+        return [
+            "No integrity defects found.",
+            *_render_orphans(diagnosis),
+            *_render_unknown_keys(diagnosis),
+            *_render_repairable_total(diagnosis),
+        ]
 
     if diagnosis.unparseable:
         lines.append(f"Unparseable decision files ({len(diagnosis.unparseable)}):")
@@ -89,6 +124,7 @@ def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
                 )
         lines.append("")
 
+    lines.extend(_render_orphans(diagnosis))
     lines.extend(_render_unknown_keys(diagnosis))
 
     total = (
@@ -98,6 +134,7 @@ def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
         + len(diagnosis.contradictions)
     )
     lines.append(f"Found {total} defect(s).")
+    lines.extend(_render_repairable_total(diagnosis))
     return lines
 
 

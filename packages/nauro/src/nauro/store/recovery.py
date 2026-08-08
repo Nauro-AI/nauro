@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import shutil
 import tempfile
@@ -35,6 +36,8 @@ from nauro.sync.remote import (
     fetch_via_presigned_url,
     request_presigned_urls,
 )
+
+logger = logging.getLogger("nauro.store.recovery")
 
 
 class RecoveryError(RuntimeError):
@@ -162,6 +165,14 @@ def _validate_restored_store(store_path: Path) -> None:
     diagnosis = diagnose_store(FilesystemStore(store_path))
     if not diagnosis.is_clean:
         raise RecoveryError("Cloud record failed decision-store integrity validation.")
+    # A supersede backref orphan is repairable, not a reason to reject a
+    # restore: the record is readable and every decision is intact. Name it
+    # and the command that closes it rather than failing the recovery.
+    if diagnosis.has_repairable_defects:
+        logger.warning(
+            "Restored record carries %d supersede backref orphan(s); run 'nauro repair'.",
+            len(diagnosis.supersede_orphans),
+        )
 
 
 def _destination_is_available(destination: Path) -> bool:
