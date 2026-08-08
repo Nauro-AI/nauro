@@ -237,3 +237,25 @@ def test_note_nonempty_text_succeeds(tmp_path: Path, monkeypatch):
     new_files = [f for f in decisions_dir.glob("*.md") if f.name != "001-initial-setup.md"]
     assert len(new_files) == 1
     assert "use-redis-for-session-storage" in new_files[0].name
+
+
+def test_note_survives_a_failing_agents_md_regen(tmp_path: Path, monkeypatch):
+    """The decision is recorded and reported even when the regen fails."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _pid, store = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(repo)
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("AGENTS.md is not writable")
+
+    monkeypatch.setattr("nauro.store.post_commit.warn_then_regen", _boom)
+
+    result = runner.invoke(app, ["note", "Use Postgres for v2 storage"])
+
+    assert result.exit_code == 0, result.output
+    assert "Decision recorded" in result.stdout
+    assert "AGENTS.md regeneration failed" in result.stderr
+    new_files = [f for f in (store / "decisions").glob("*.md") if f.name != "001-initial-setup.md"]
+    assert len(new_files) == 1

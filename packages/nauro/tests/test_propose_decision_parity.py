@@ -33,6 +33,7 @@ import pytest
 from nauro.mcp import tools as mcp_tools
 from nauro.mcp.stdio_server import propose_decision as stdio_propose_decision
 from nauro.mcp.tools import tool_propose_decision
+from nauro.store import post_commit as post_commit_module
 from nauro.templates.agents_md_regen import warn_then_regen
 from tests._writer_compat import append_decision
 from tests.conftest import register_v2_repo
@@ -47,13 +48,13 @@ def _no_push(monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_regen(monkeypatch):
     """Suppress AGENTS.md regen so the parity layer stays local."""
-    monkeypatch.setattr(mcp_tools, "warn_then_regen", lambda *args, **kwargs: [])
+    monkeypatch.setattr(post_commit_module, "warn_then_regen", lambda *args, **kwargs: [])
 
 
 @pytest.fixture(autouse=True)
 def _no_snapshot(monkeypatch):
     """Suppress snapshot capture so the parity layer doesn't touch snapshots/."""
-    monkeypatch.setattr(mcp_tools, "capture_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(post_commit_module, "capture_snapshot", lambda *args, **kwargs: None)
 
 
 @pytest.fixture
@@ -332,7 +333,7 @@ def test_snapshot_runs_only_on_confirmed(seeded_repo, monkeypatch):
     def _capture(*args, **kwargs):
         snapshots_called.append((args, kwargs))
 
-    monkeypatch.setattr(mcp_tools, "capture_snapshot", _capture)
+    monkeypatch.setattr(post_commit_module, "capture_snapshot", _capture)
 
     # Tier 1 reject — no snapshot.
     tool_propose_decision(
@@ -362,7 +363,7 @@ def test_regen_runs_only_on_confirmed(seeded_repo, monkeypatch):
         return []
 
     # Test-local override takes precedence over the autouse fixture's stub.
-    monkeypatch.setattr(mcp_tools, "warn_then_regen", _regen)
+    monkeypatch.setattr(post_commit_module, "warn_then_regen", _regen)
 
     # Tier 1 reject — no regen.
     tool_propose_decision(
@@ -395,7 +396,7 @@ def test_confirmed_regen_surfaces_tracked_agents_warning(seeded_repo, monkeypatc
     warn_then_regen(store_path.name, store_path)
     assert (repo / "AGENTS.md").is_file()
     subprocess.run(["git", "add", "AGENTS.md"], cwd=repo, check=True)
-    monkeypatch.setattr(mcp_tools, "warn_then_regen", warn_then_regen)
+    monkeypatch.setattr(post_commit_module, "warn_then_regen", warn_then_regen)
 
     envelope = tool_propose_decision(
         store_path,
@@ -414,7 +415,7 @@ def test_confirmed_regen_preserves_unmanaged_agents_md(seeded_repo, monkeypatch)
     repo = Path.cwd()
     sentinel = b"# Hand-written agent rules\n\nKeep these instructions.\n"
     (repo / "AGENTS.md").write_bytes(sentinel)
-    monkeypatch.setattr(mcp_tools, "warn_then_regen", warn_then_regen)
+    monkeypatch.setattr(post_commit_module, "warn_then_regen", warn_then_regen)
 
     envelope = tool_propose_decision(
         store_path,

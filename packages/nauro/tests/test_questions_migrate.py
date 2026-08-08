@@ -131,3 +131,20 @@ def test_migrate_unknown_project_rejected(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["questions", "migrate", "--project", "nope"])
     assert result.exit_code == 1
     assert "Unknown project 'nope'." in result.output
+
+
+def test_migrate_survives_a_failing_agents_md_regen(tmp_path: Path, monkeypatch):
+    """The renumbered file is written and reported even when the regen fails."""
+    store = _setup_project(tmp_path, monkeypatch, _LEGACY_FILE)
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("AGENTS.md is not writable")
+
+    monkeypatch.setattr("nauro.store.post_commit.warn_then_regen", _boom)
+
+    result = runner.invoke(app, ["questions", "migrate"])
+
+    assert result.exit_code == 0, result.output
+    assert "Migrated 2 entry(ies)" in result.stdout
+    assert "AGENTS.md regeneration failed" in result.stderr
+    assert "[Q1]" in (store / OPEN_QUESTIONS_MD).read_text()

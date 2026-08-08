@@ -32,6 +32,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.mcp import tools as mcp_tools
+from nauro.store import post_commit as post_commit_module
 from tests._ansi import strip_ansi
 from tests._writer_compat import append_decision
 from tests.conftest import register_v2_repo
@@ -48,13 +49,13 @@ def _no_push(monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_regen(monkeypatch):
     """Suppress AGENTS.md regen so the CLI layer stays local."""
-    monkeypatch.setattr(mcp_tools, "warn_then_regen", lambda *args, **kwargs: [])
+    monkeypatch.setattr(post_commit_module, "warn_then_regen", lambda *args, **kwargs: [])
 
 
 @pytest.fixture(autouse=True)
 def _no_snapshot(monkeypatch):
     """Suppress snapshot capture so the CLI layer doesn't touch snapshots/."""
-    monkeypatch.setattr(mcp_tools, "capture_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(post_commit_module, "capture_snapshot", lambda *args, **kwargs: None)
 
 
 @pytest.fixture

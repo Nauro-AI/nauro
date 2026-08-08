@@ -10,8 +10,8 @@ from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.journal import record_event
+from nauro.store.post_commit import run_post_commit
 from nauro.store.store_lock import store_write_lock
-from nauro.templates.agents_md_regen import warn_then_regen
 
 
 def _validate_confidence(value: str) -> str:
@@ -142,13 +142,14 @@ def note(
         typer.echo(f"  {filepath}")
 
     # Refresh AGENTS.md so MCP-disconnected agents see the update without
-    # requiring a separate `nauro sync`. Mirrors the warn-then-regen
-    # sequence in `nauro sync`.
-    project_key = store_path.name
-    updated_repos = warn_then_regen(
-        project_key,
+    # requiring a separate `nauro sync`. The write above has already committed,
+    # so this trails it through the fail-open seam.
+    outcome = run_post_commit(
         store_path,
+        regenerate_agents_md=True,
         warn=lambda msg: typer.echo(msg, err=True),
     )
-    for repo_path in updated_repos:
+    for line in outcome.warnings:
+        typer.echo(line, err=True)
+    for repo_path in outcome.updated_repos:
         typer.echo(f"  Updated AGENTS.md: {repo_path}")

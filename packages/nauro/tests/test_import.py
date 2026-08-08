@@ -212,6 +212,37 @@ def test_import_cli_full(tmp_path: Path, monkeypatch, full_memory_bank: Path):
     assert snaps[0]["trigger"] == "import: memory-bank"
 
 
+@pytest.mark.parametrize(
+    ("flag", "source_fixture", "summary"),
+    [
+        ("--memory-bank", "full_memory_bank", "Imported Memory Bank into myproj"),
+        ("--adr", "madr_directory", "Imported ADRs into myproj"),
+    ],
+)
+def test_import_reports_the_merge_when_the_snapshot_fails(
+    tmp_path: Path, monkeypatch, request, flag: str, source_fixture: str, summary: str
+):
+    """A committed import always reports itself, so nobody re-runs it blind."""
+    source = request.getfixturevalue(source_fixture)
+    _pid, store = register_project_v2("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("nauro.store.post_commit.capture_snapshot", _boom)
+
+    result = runner.invoke(app, ["import", flag, str(source)])
+
+    assert result.exit_code == 0
+    assert summary in result.stdout
+    assert "snapshot capture failed" in result.stderr
+    imported = [f for f in (store / "decisions").glob("*.md") if f.name != "001-initial-setup.md"]
+    assert imported
+    assert list_snapshots(store) == []
+
+
 def test_import_cli_partial(tmp_path: Path, monkeypatch, partial_memory_bank: Path):
     _pid, store = register_project_v2("myproj", [tmp_path])
     scaffold_project_store("myproj", store)
