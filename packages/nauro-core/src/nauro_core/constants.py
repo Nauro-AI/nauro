@@ -159,6 +159,14 @@ MAX_APPROACH_LENGTH = 5_000
 # briefs run ~11-21 KB; 50 KiB leaves headroom without inviting storage bombs.
 MAX_BRIEF_BYTES = 50 * 1024
 
+# ── stack.md document cap (write path) ──
+# Ceiling on a complete stack.md document submitted through the typed stack
+# update operation. The value deliberately equals RAW_FILE_CHAR_BUDGET below,
+# the complete ordinary-file read ceiling, so every accepted document can be
+# returned whole by one authorized get_raw_file("stack.md") call. Moving
+# either value without the other breaks that guarantee.
+STACK_DOC_CHAR_LIMIT = 40_000
+
 # ── Bounded rendered reads (renderer channel only) ──
 # Character caps on the rendered agent-facing read surface: the stdio MCP
 # content[0] block and the CLI's --format text mode, applied inside
