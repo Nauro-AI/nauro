@@ -1,5 +1,7 @@
 # CLAUDE.md — Nauro (monorepo)
 
+@AGENTS.md
+
 Nauro is a versioned project context system for AI coding agents. This is a `uv` workspace monorepo with two packages:
 
 | Package | Path | Python | Purpose |
@@ -70,7 +72,8 @@ Principal commands (run `nauro --help` for the full surface):
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
 - `nauro log` — list recent snapshots with metadata
 - `nauro status` — capability table for the current project (active surfaces, absolute store path)
-- `nauro doctor` — report deterministic store-integrity defects (unparseable decision files, dangling or cyclic supersession refs, status contradictions); report-only, always exits 0
+- `nauro doctor` — report deterministic store-integrity defects (unparseable decision files, dangling or cyclic supersession refs, status contradictions) plus repairable supersede backref orphans; report-only, always exits 0
+- `nauro repair` — flip the single unambiguous supersede backref orphan after interactive confirmation; every other shape is reported with guidance and left alone
 - `nauro graph` — render the decision graph to one self-contained HTML file in the store directory and open it
 - `nauro serve` — start the local MCP server (stdio transport)
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
