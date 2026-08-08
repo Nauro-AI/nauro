@@ -37,14 +37,13 @@ from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.journal import record_event
+from nauro.store.post_commit import run_post_commit
 from nauro.store.registry import (
     RegistryEntryV2,
     StoreBindingError,
     get_project_v2,
     validate_registry_entry_v2,
 )
-from nauro.store.snapshot import capture_snapshot
-from nauro.templates.agents_md_regen import warn_then_regen
 
 REPAIR_OPERATION = "repair_supersede_backref"
 
@@ -241,15 +240,16 @@ def repair(
     typer.echo(f"Repaired {_label(plan.target_num)}: now superseded by {_label(plan.child_num)}.")
     typer.echo(f"  {store_path / plan.target_path}")
 
-    capture_snapshot(
+    outcome = run_post_commit(
         store_path,
-        trigger=f"repair: {_label(plan.target_num)} superseded by {_label(plan.child_num)}",
-    )
-    updated_repos = warn_then_regen(
-        store_path.name,
-        store_path,
+        snapshot_trigger=(
+            f"repair: {_label(plan.target_num)} superseded by {_label(plan.child_num)}"
+        ),
+        regenerate_agents_md=True,
         warn=lambda msg: typer.echo(msg, err=True),
     )
-    for repo_path in updated_repos:
+    for line in outcome.warnings:
+        typer.echo(line, err=True)
+    for repo_path in outcome.updated_repos:
         typer.echo(f"  Updated AGENTS.md: {repo_path}")
     typer.echo("Run 'nauro sync' to publish this change.")

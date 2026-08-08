@@ -58,6 +58,25 @@ class TestSyncPullBeforePush:
         assert "Pulling from remote" not in result.output
 
 
+class TestSyncSnapshotIsPrimaryWork:
+    """The snapshot is sync's own work, so a failure there is a real failure.
+
+    The post-commit seam makes an ancillary snapshot or regen fail open on the
+    write commands; sync sits outside that boundary and must stay hard-fail.
+    """
+
+    def test_snapshot_failure_exits_nonzero(self, project_store, monkeypatch):
+        def _boom(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("nauro.cli.commands.sync.capture_snapshot", _boom)
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 1
+        assert "local-only project; nothing to upload" not in result.output
+
+
 class TestSyncPullNoConfig:
     """Verify pull is a no-op when S3 is not configured."""
 

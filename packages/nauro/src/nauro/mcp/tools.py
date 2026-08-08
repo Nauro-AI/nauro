@@ -70,15 +70,14 @@ from nauro.store.journal import (
     OriginDescriptor,
     record_event,
 )
+from nauro.store.post_commit import run_post_commit
 from nauro.store.reader import read_text_lenient
 from nauro.store.snapshot import (
-    capture_snapshot,
     list_snapshots,
     load_snapshot,
     resolve_diff_snapshots,
 )
 from nauro.store.store_lock import store_write_lock
-from nauro.templates.agents_md_regen import warn_then_regen
 
 logger = logging.getLogger("nauro.mcp.tools")
 
@@ -486,21 +485,21 @@ def tool_propose_decision(
     response: dict = {"store": "local", **dumped}
 
     if result.status == "confirmed":
-        capture_snapshot(store_path, trigger=f"decision: {result.decision_id}")
-        if touched:
-            regen_warnings: list[str] = []
+        regen_warnings: list[str] = []
+        outcome = run_post_commit(
+            store_path,
+            snapshot_trigger=f"decision: {result.decision_id}",
+            regenerate_agents_md=bool(touched),
+            warn=regen_warnings.append,
             # Stay protocol-silent about the Claude Code bridge on this stdio
             # path: the bridge is still ensured, just not narrated into the
             # tool response.
-            warn_then_regen(
-                store_path.name,
-                store_path,
-                warn=regen_warnings.append,
-                surface_bridge_notices=False,
-            )
-            if regen_warnings:
-                response["assessment"] = "\n\n".join([response["assessment"], *regen_warnings])
-        _try_push(store_path)
+            surface_bridge_notices=False,
+            push=_try_push,
+        )
+        notes = [*regen_warnings, *outcome.warnings]
+        if notes:
+            response["assessment"] = "\n\n".join([response["assessment"], *notes])
 
     return response
 
@@ -652,10 +651,9 @@ def tool_flag_question(
         # so the on-disk store stays untouched and observers see a clean reject.
         return response
 
-    capture_snapshot(store_path, trigger=f"question: {question}")
     if hint:
         response["hint"] = hint
-    _try_push(store_path)
+    run_post_commit(store_path, snapshot_trigger=f"question: {question}", push=_try_push)
     return response
 
 
@@ -691,8 +689,11 @@ def _flag_question_resolve(
     if result.status == "rejected":
         return response
 
-    capture_snapshot(store_path, trigger=f"resolved by {resolved_by}: {targets or []}")
-    _try_push(store_path)
+    run_post_commit(
+        store_path,
+        snapshot_trigger=f"resolved by {resolved_by}: {targets or []}",
+        push=_try_push,
+    )
     return response
 
 
@@ -898,8 +899,10 @@ def tool_update_state(
     # Adapter-side side effects only run on the success path. ``noop``
     # means the kernel had no existing state file to update — skip the
     # snapshot/push since nothing was written.
+    # A degraded ancillary step is logged, not surfaced: ``warning`` is the
+    # kernel's own keyword-overlap advisory, and writing adapter text into it
+    # would repurpose a pinned field the same way a new field would.
     if result.status != "noop":
-        capture_snapshot(store_path, trigger=f"state: {delta}")
-        _try_push(store_path)
+        run_post_commit(store_path, snapshot_trigger=f"state: {delta}", push=_try_push)
 
     return envelope

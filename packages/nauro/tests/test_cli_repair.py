@@ -157,6 +157,44 @@ def test_journal_failure_does_not_fail_the_repair(
     assert read_events(store) == []
 
 
+def test_snapshot_failure_does_not_fail_the_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _new_store(tmp_path)
+    _seed_orphan(store)
+
+    def _boom(*_args: object, **_kwargs: object) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("nauro.store.post_commit.capture_snapshot", _boom)
+
+    result = runner.invoke(app, ["repair", "--project", "repairproj"], input="y\n")
+
+    assert result.exit_code == 0
+    assert "Repaired D19" in result.stdout
+    assert "snapshot capture failed" in result.stderr
+    assert "status: superseded" in _target_body(store)
+
+
+def test_regen_failure_does_not_fail_the_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _new_store(tmp_path)
+    _seed_orphan(store)
+
+    def _boom(*_args: object, **_kwargs: object) -> list[Path]:
+        raise ValueError("registry entry is malformed")
+
+    monkeypatch.setattr("nauro.store.post_commit.warn_then_regen", _boom)
+
+    result = runner.invoke(app, ["repair", "--project", "repairproj"], input="y\n")
+
+    assert result.exit_code == 0
+    assert "Repaired D19" in result.stdout
+    assert "AGENTS.md regeneration failed" in result.stderr
+    assert "status: superseded" in _target_body(store)
+
+
 def test_store_changing_under_a_confirmed_plan_aborts_without_writing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

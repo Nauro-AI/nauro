@@ -19,7 +19,7 @@ from nauro.constants import DECISIONS_DIR, PROJECT_MD, STACK_MD
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.journal import record_event
-from nauro.store.snapshot import capture_snapshot
+from nauro.store.post_commit import run_post_commit
 from nauro.store.store_lock import store_write_lock
 
 
@@ -50,7 +50,7 @@ def _import_append_decision(
     }
     # Hold the allocation lock across the number computation and the write so
     # concurrent local writers cannot mint the same decision number. The
-    # post-loop capture_snapshot stays outside the lock.
+    # post-loop snapshot capture stays outside the lock.
     with decision_write_lock(store_path):
         decision_id = _write_decision_direct(FilesystemStore(store_path), proposal)
     record_event(
@@ -633,7 +633,6 @@ def import_cmd(
             raise typer.Exit(code=1)
 
         counts = _import_memory_bank(mb, store_path)
-        capture_snapshot(store_path, trigger="import: memory-bank")
 
         typer.echo(f"Imported Memory Bank into {project_name}:")
         typer.echo(f"  Store: {store_path}")
@@ -649,6 +648,10 @@ def import_cmd(
             )
         typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
 
+        outcome = run_post_commit(store_path, snapshot_trigger="import: memory-bank")
+        for line in outcome.warnings:
+            typer.echo(line, err=True)
+
     if adr is not None:
         adr_path = Path(adr)
         if not adr_path.is_dir():
@@ -656,7 +659,6 @@ def import_cmd(
             raise typer.Exit(code=1)
 
         adr_counts = _import_adrs(adr_path, store_path)
-        capture_snapshot(store_path, trigger="import: adr")
 
         typer.echo(f"Imported ADRs into {project_name}:")
         typer.echo(f"  Store: {store_path}")
@@ -671,3 +673,7 @@ def import_cmd(
                 err=True,
             )
         typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
+
+        outcome = run_post_commit(store_path, snapshot_trigger="import: adr")
+        for line in outcome.warnings:
+            typer.echo(line, err=True)
