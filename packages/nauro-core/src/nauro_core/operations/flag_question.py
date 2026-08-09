@@ -41,6 +41,11 @@ from nauro_core.operations.decision_lookup import find_decision_stem_by_num
 from nauro_core.operations.results import ErrorPayload, FlagQuestionResult
 from nauro_core.operations.store import Store
 from nauro_core.parsing import extract_decision_number
+from nauro_core.question_append import (
+    allocate_question_number,
+    compose_question_entry,
+    insert_question_entry,
+)
 from nauro_core.questions import EntryBlock, OpenQuestionsFile
 
 _DEFAULT_FILE_BODY = "# Open Questions\n"
@@ -114,26 +119,9 @@ def flag_question(
         if rejection is not None:
             return rejection
 
-    existing_nums = [
-        b.entry.num for b in parsed.blocks if isinstance(b, EntryBlock) and b.entry.num is not None
-    ]
-    next_num = max(existing_nums, default=0) + 1
-    entry = f"- [Q{next_num}] {question}"
-
-    lines = content.split("\n")
-    insert_idx = 1
-    for i, line in enumerate(lines):
-        if line.startswith("# "):
-            insert_idx = i + 1
-            break
-
-    while insert_idx < len(lines) and (
-        lines[insert_idx].strip() == "" or lines[insert_idx].startswith("<!--")
-    ):
-        insert_idx += 1
-
-    lines.insert(insert_idx, entry)
-    store.write_file(OPEN_QUESTIONS_MD, "\n".join(lines))
+    next_num = allocate_question_number(parsed)
+    entry = compose_question_entry(next_num, question)
+    store.write_file(OPEN_QUESTIONS_MD, insert_question_entry(content, entry))
 
     return FlagQuestionResult(status="ok", num=next_num)
 

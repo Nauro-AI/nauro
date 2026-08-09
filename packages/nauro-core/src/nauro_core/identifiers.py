@@ -19,6 +19,11 @@ The kinds:
   or underscores, at most 64 characters.
 - ``audit_target_id`` - stable opaque audit target identifiers: 1 to 128
   printable ASCII characters, never an alias or free text.
+- ``brief_slug`` - shared-context brief names mapping to
+  ``context/<slug>.md``: 1 to 120 lowercase ASCII letters and digits with
+  internal hyphens only (never leading or trailing).
+- ``stack_revision`` - stack.md content revisions: a lowercase 64-character
+  SHA-256 hex digest, or the literal absent token for a missing file.
 
 Matching is always whole-value, so a trailing newline never passes.
 """
@@ -29,12 +34,16 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
+from nauro_core.constants import BRIEF_SLUG_MAX_LENGTH, STACK_REVISION_ABSENT
+
 
 class IdentifierKind(str, Enum):
     ulid = "ulid"
     operation_id = "operation_id"
     server_token = "server_token"
     audit_target_id = "audit_target_id"
+    brief_slug = "brief_slug"
+    stack_revision = "stack_revision"
 
 
 @dataclass(frozen=True)
@@ -59,6 +68,15 @@ _SHAPES: dict[IdentifierKind, _Shape] = {
         "a lowercase server-owned token of at most 64 characters, starting with a letter",
     ),
     IdentifierKind.audit_target_id: _PRINTABLE_ASCII,
+    IdentifierKind.brief_slug: _Shape(
+        re.compile(rf"[a-z0-9](?:[a-z0-9-]{{0,{BRIEF_SLUG_MAX_LENGTH - 2}}}[a-z0-9])?"),
+        f"1 to {BRIEF_SLUG_MAX_LENGTH} lowercase ASCII letters, digits, or internal hyphens",
+    ),
+    IdentifierKind.stack_revision: _Shape(
+        re.compile(rf"[0-9a-f]{{64}}|{STACK_REVISION_ABSENT}"),
+        f"a lowercase 64-character SHA-256 hex digest or the literal "
+        f"token {STACK_REVISION_ABSENT!r}",
+    ),
 }
 
 
