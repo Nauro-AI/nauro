@@ -932,6 +932,37 @@ class TestBuildL1StackProjection:
         assert "Chose over Go" not in result
         assert "even deeper rationale" not in result
 
+    def test_hash_tag_line_does_not_trigger_structured_mode(self):
+        # A prose file with a hash-tag word is not structured: the real
+        # paragraphs must survive the walk instead of being discarded.
+        stack = "We use #python on the backend.\n\n#TODO revisit the queue choice.\n"
+        result = build_l1(self._files(stack), [])
+        assert "We use #python on the backend." in result
+        assert "#TODO revisit the queue choice." in result
+
+    def test_hashes_without_following_space_are_not_headings(self):
+        stack = "##foo prose line.\n\n#######x seven hashes prose.\n"
+        result = build_l1(self._files(stack), [])
+        assert "##foo prose line." in result
+        assert "#######x seven hashes prose." in result
+
+    def test_bare_hash_runs_are_headings(self):
+        # "#" and "######" alone are valid ATX headings and stay items;
+        # the same predicate drives structured-mode detection and item
+        # classification, so both render.
+        stack = "#\n- item one\n######\n- item two\n"
+        result = build_l1(self._files(stack), [])
+        body_lines = self._projection_body(result).split("\n")
+        assert body_lines == ["#", "- item one", "######", "- item two"]
+
+    def test_seven_hash_heading_is_prose_not_an_item(self):
+        # Seven hashes exceed the ATX marker bound even with a space, so
+        # the line is neither a heading item nor a structured trigger.
+        stack = "# Stack\n####### not a heading\n- real item\n"
+        result = build_l1(self._files(stack), [])
+        assert "- real item" in result
+        assert "not a heading" not in result
+
     def test_ordered_list_items_are_items(self):
         stack = "# Stack\n1. Python\n2. Postgres\n"
         result = build_l1(self._files(stack), [])

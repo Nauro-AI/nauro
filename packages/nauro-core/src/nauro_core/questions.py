@@ -443,6 +443,18 @@ class OpenQuestionsFile(BaseModel):
         return [e for e in self.unresolved_entries if e.is_discovery_pointer]
 
     @property
+    def numbered_entries(self) -> list[QuestionEntry]:
+        """Entries carrying a ``Q`` number, resolved history included, in file order.
+
+        The allocation domain for minting the next ``Q###``: a number stays
+        reserved for the file's lifetime, so resolved entries participate.
+        Legacy timestamp-form entries carry no number and are absent.
+        """
+        return [
+            b.entry for b in self.blocks if isinstance(b, EntryBlock) and b.entry.num is not None
+        ]
+
+    @property
     def known_question_ids(self) -> set[str]:
         """All ids the file knows about: entry ids plus triple-hash embedded ids."""
         known: set[str] = set()

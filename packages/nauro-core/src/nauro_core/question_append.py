@@ -10,20 +10,18 @@ pure — the caller reads and writes the file bytes.
 
 from __future__ import annotations
 
-from nauro_core.questions import EntryBlock, OpenQuestionsFile
+from nauro_core.questions import OpenQuestionsFile
 
 
 def allocate_question_number(parsed: OpenQuestionsFile) -> int:
     """Return the next sequential ``Q`` number for *parsed*.
 
-    One past the highest numbered entry anywhere in the file (resolved
-    history included), so a released number is never reused; an empty or
-    number-free file allocates ``1``.
+    One past the highest numbered entry anywhere in the file
+    (:attr:`~nauro_core.questions.OpenQuestionsFile.numbered_entries`, so
+    resolved history participates and a released number is never reused);
+    an empty or number-free file allocates ``1``.
     """
-    existing_nums = [
-        b.entry.num for b in parsed.blocks if isinstance(b, EntryBlock) and b.entry.num is not None
-    ]
-    return max(existing_nums, default=0) + 1
+    return max((entry.num for entry in parsed.numbered_entries), default=0) + 1
 
 
 def compose_question_entry(num: int, body: str) -> str:

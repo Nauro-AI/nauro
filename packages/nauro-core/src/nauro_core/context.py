@@ -48,8 +48,17 @@ _STACK_ITEM_TRUNCATION_MARKER = '... [item truncated - full text: get_raw_file("
 
 
 def _is_stack_heading(line: str) -> bool:
-    """A top-level heading line: ``#`` at column zero."""
-    return line.startswith("#")
+    """An ATX heading line: 1-6 ``#`` at column zero, then space, tab, or
+    end of line.
+
+    A hash-tag word like ``#python`` is ordinary prose, not a heading —
+    without the follow-character rule one such line would flip the whole
+    file into structured mode and discard its prose paragraphs.
+    """
+    marker_length = len(line) - len(line.lstrip("#"))
+    if not 1 <= marker_length <= 6:
+        return False
+    return marker_length == len(line) or line[marker_length] in " \t"
 
 
 def _is_first_level_list_item(line: str) -> bool:
