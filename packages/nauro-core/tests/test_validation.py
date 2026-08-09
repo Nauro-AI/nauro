@@ -15,6 +15,7 @@ from nauro_core.validation import (
     compute_hash,
     envelope_token_message,
     find_envelope_token,
+    normalize_title,
     screen_structural,
 )
 
@@ -44,6 +45,32 @@ class TestComputeHash:
         h = compute_hash("Title", "Rationale")
         assert isinstance(h, str)
         assert len(h) == 64  # SHA-256 hex
+
+
+class TestNormalizeTitle:
+    def test_lowercases(self):
+        assert normalize_title("Use FastAPI") == "use fastapi"
+
+    def test_collapses_and_strips_whitespace(self):
+        # split() collapses runs of any whitespace (tabs, newlines) and
+        # drops leading/trailing whitespace entirely.
+        assert normalize_title("  Use\t FastAPI \n now ") == "use fastapi now"
+
+    def test_normalized_titles_compare_equal(self):
+        assert normalize_title("Use  FastAPI") == normalize_title("use fastapi")
+
+    def test_importable_from_top_level(self):
+        import nauro_core
+
+        assert nauro_core.normalize_title is normalize_title
+        assert "normalize_title" in nauro_core.__all__
+
+    def test_private_name_is_gone(self):
+        """The public name is a true rename, not an alias: a restored private
+        implementation with a public wrapper would let the two drift apart."""
+        from nauro_core import validation
+
+        assert not hasattr(validation, "_normalize_title")
 
 
 class TestCheckBm25Similarity:
