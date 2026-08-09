@@ -1688,6 +1688,7 @@
     "DECISION_HASHES_FILE",
     "DECISION_TYPES",
     "GET_DECISION_BEFORE_PROPOSING",
+    "HOSTED_STORE_FORMAT_VERSION",
     "MAX_APPROACH_LENGTH",
     "MAX_BRIEF_BYTES",
     "MAX_CONTEXT_LENGTH",
@@ -1717,6 +1718,7 @@
     "extract_decision_number",
     "extract_stack_summary",
     "format_decision",
+    "normalize_title",
     "parse_decision",
     "sanitize_sub",
     "serialize_snapshot"

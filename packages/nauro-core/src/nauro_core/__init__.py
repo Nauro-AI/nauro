@@ -16,6 +16,9 @@ from nauro_core.constants import (
     DECISIONS_DIR as DECISIONS_DIR,
 )
 from nauro_core.constants import (
+    HOSTED_STORE_FORMAT_VERSION as HOSTED_STORE_FORMAT_VERSION,
+)
+from nauro_core.constants import (
     L0_DECISIONS_SUMMARY_LIMIT as L0_DECISIONS_SUMMARY_LIMIT,
 )
 from nauro_core.constants import (
@@ -322,6 +325,9 @@ from nauro_core.validation import (
     is_scaffold_seed as is_scaffold_seed,
 )
 from nauro_core.validation import (
+    normalize_title as normalize_title,
+)
+from nauro_core.validation import (
     screen_structural as screen_structural,
 )
 
@@ -351,8 +357,9 @@ __all__ = [
     "build_l0",
     "build_l1",
     "build_l2",
-    # Hashing.
+    # Hashing and title normalization for dedup.
     "compute_hash",
+    "normalize_title",
     # MCP tool contract, remote instructions, and snapshot serialization.
     "ALL_TOOLS",
     "build_remote_instructions",
@@ -377,6 +384,7 @@ __all__ = [
     "MIN_RATIONALE_LENGTH",
     # Store-format constants.
     "SNAPSHOT_SCHEMA_VERSION",
+    "HOSTED_STORE_FORMAT_VERSION",
     "DECISIONS_DIR",
     "SNAPSHOTS_DIR",
     "DECISION_HASHES_FILE",

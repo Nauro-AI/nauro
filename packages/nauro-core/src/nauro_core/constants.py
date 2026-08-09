@@ -38,6 +38,13 @@ DECISION_HASHES_FILE = ".decision-hashes.json"
 SNAPSHOT_SCHEMA_VERSION = 1
 LEGACY_SCHEMA_VERSION = 0
 
+# ── Hosted store format versioning ──
+# Versions the hosted store format contract, stamped as the
+# store_format_version field of the hosted generation pointer. Distinct from
+# SNAPSHOT_SCHEMA_VERSION, which versions the snapshot JSON shape: the two
+# must be able to move independently, so neither may stand in for the other.
+HOSTED_STORE_FORMAT_VERSION = 1
+
 # ── Token heuristic ──
 CHARS_PER_TOKEN = 4  # rough chars-per-token for GPT/Claude family models
 

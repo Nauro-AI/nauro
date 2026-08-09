@@ -4,6 +4,7 @@ from nauro_core import DECISION_TYPES
 from nauro_core.constants import (
     DECISION_HASHES_FILE,
     DECISIONS_DIR,
+    HOSTED_STORE_FORMAT_VERSION,
     L0_DECISIONS_SUMMARY_LIMIT,
     L0_QUESTIONS_LIMIT,
     L1_DECISIONS_LIMIT,
@@ -81,6 +82,17 @@ class TestSizeLimits:
         every accepted stack.md can be returned whole by one get_raw_file call.
         Moving either value forces a conscious look at the other."""
         assert STACK_DOC_CHAR_LIMIT == RAW_FILE_CHAR_BUDGET
+
+
+class TestHostedStoreFormatVersion:
+    def test_current_version_is_one(self):
+        assert HOSTED_STORE_FORMAT_VERSION == 1
+
+    def test_exported_from_top_level(self):
+        import nauro_core
+
+        assert nauro_core.HOSTED_STORE_FORMAT_VERSION == HOSTED_STORE_FORMAT_VERSION
+        assert "HOSTED_STORE_FORMAT_VERSION" in nauro_core.__all__
 
 
 class TestValidValues:

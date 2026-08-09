@@ -124,7 +124,7 @@ def compute_hash(title: str, rationale: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
-def _normalize_title(title: str) -> str:
+def normalize_title(title: str) -> str:
     """Collapse whitespace and lowercase for title comparison."""
     return " ".join(title.lower().split())
 
@@ -236,7 +236,7 @@ def screen_structural(
     # supersede target). Entries may be either Decision objects or lightweight
     # dicts (the mcp-server tier-1 path loads just title+num from S3 without
     # full parsing). Handle both shapes.
-    title_normalized = _normalize_title(title)
+    title_normalized = normalize_title(title)
     for d in active_decisions:
         if hasattr(d, "title"):
             existing_title = d.title
@@ -244,7 +244,7 @@ def screen_structural(
         else:
             existing_title = d.get("title", "")
             existing_num = d.get("num", "?")
-        if _normalize_title(existing_title) == title_normalized:
+        if normalize_title(existing_title) == title_normalized:
             return (
                 "reject",
                 f"An active decision already has this title: D{existing_num}. "
