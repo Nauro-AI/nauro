@@ -4,6 +4,12 @@ Each operation returns a per-operation ``*Result`` model so transports
 shape responses from typed attributes rather than loosely-typed dicts.
 ``RelatedDecision`` and ``ErrorPayload`` are shared submodels reused by
 multiple operations; per-operation ``Result`` models live alongside.
+
+The plan-returning operations (``update_stack``, ``share_context``) are
+executed by the hosted server, so their outcome models — the accepted,
+conflict, and workflow shapes at the bottom of this module — are defined
+here as the cross-surface contract even though the kernel never
+constructs them itself.
 """
 
 from __future__ import annotations
@@ -317,3 +323,100 @@ class ProposeDecisionResult(BaseModel):
     relocated_ids: tuple[str, ...] | None = None
     skipped_prose_ids: tuple[str, ...] | None = None
     error: ErrorPayload | None = None
+
+
+class UpdateStackAccepted(BaseModel):
+    """Committed outcome of a hosted ``update_stack`` operation.
+
+    ``stack_revision`` is the revision the store carries after the write —
+    the precondition for the caller's next conditional update.
+    ``previous_revision`` is the revision (or the absent token) the write
+    replaced. ``receipt_id`` and ``event_id`` bind the outcome to the
+    operation's receipt and audit event.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    stack_revision: str
+    previous_revision: str
+    receipt_id: str
+    event_id: str
+
+
+class StackRevisionConflict(BaseModel):
+    """A supplied ``expected_revision`` did not match the current stack.
+
+    A terminal outcome, not an error: no canonical write occurred.
+    ``current_revision`` (a hex digest or the absent token) is the
+    precondition a fresh call must observe and supply.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["stale_revision"] = "stale_revision"
+    expected_revision: str
+    current_revision: str
+
+
+class ShareContextAccepted(BaseModel):
+    """Committed outcome of a hosted ``share_context`` operation.
+
+    ``path`` is the immutable brief's store-relative location,
+    ``question_id`` the ``Q###`` id of its discovery pointer, and
+    ``content_digest`` the SHA-256 hex digest of the stored brief bytes.
+    ``receipt_id`` and ``event_id`` bind the outcome to the operation's
+    receipt and question event.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    path: str
+    question_id: str
+    event_id: str
+    content_digest: str
+    receipt_id: str
+
+
+class SlugConflict(BaseModel):
+    """The requested brief slug is already taken.
+
+    A terminal outcome, not an error: briefs are immutable, so a landed
+    slug never frees up. ``suggested_slug`` is a fresh candidate the
+    caller may retry with as a new operation.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["slug_conflict"] = "slug_conflict"
+    slug: str
+    suggested_slug: str
+
+
+class WorkflowExpired(BaseModel):
+    """A resumed operation is past the retry horizon.
+
+    The workflow named by ``operation_id`` can no longer complete; nothing
+    was mutated by the resume. The caller starts over with a fresh
+    operation id.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["expired"] = "expired"
+    operation_id: str
+
+
+class WorkflowInProgress(BaseModel):
+    """The operation's durable workflow is still active.
+
+    A retryable outcome: the invocation exhausted its per-call budget
+    without reaching a terminal state, and retrying the same
+    ``operation_id`` resumes the work.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["in_progress"] = "in_progress"
+    operation_id: str

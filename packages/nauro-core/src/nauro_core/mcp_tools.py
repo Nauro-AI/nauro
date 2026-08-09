@@ -17,6 +17,12 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+from nauro_core.constants import (
+    MAX_BRIEF_BYTES,
+    POINTER_PREFIX_BY_KIND,
+    STACK_DOC_CHAR_LIMIT,
+    STACK_REVISION_ABSENT,
+)
 from nauro_core.decision_model import DECISION_TYPE_VALUES
 from nauro_core.protocol import (
     _PROPOSAL_VISIBILITY_DETAIL,
@@ -54,6 +60,18 @@ _PROJECT_PARAM: dict[str, Any] = {
     "description": (
         "Optional; auto-resolved for one project. With several, list ids "
         "via list_projects (hosted) or `nauro projects` (local)."
+    ),
+}
+
+# Schema-optional so local adapters can generate and bind one when the
+# caller omits it; the hosted HTTP surface refuses the call without it.
+_OPERATION_ID_PARAM: dict[str, Any] = {
+    "type": "string",
+    "description": (
+        "Client-generated idempotency identifier for this operation (1-128 "
+        "printable ASCII characters). Required on the hosted HTTP surface; "
+        "resending the same operation_id with the same payload returns the "
+        "original outcome instead of repeating the write."
     ),
 }
 
@@ -503,6 +521,113 @@ LIST_PROJECTS: ToolSpec = {
     },
 }
 
+# ── Hosted-only tool specs ──
+#
+# update_stack and share_context are served by the hosted HTTP surface only
+# for now: they are deliberately absent from ALL_TOOLS, which the stdio
+# server, the CLI autogen allowlist, and the public contract snapshot all
+# key off, so defining them here changes no local surface. They join
+# ALL_TOOLS when the local adapters ship.
+
+UPDATE_STACK: ToolSpec = {
+    "name": "update_stack",
+    "title": "Update the stack document",
+    "description": (
+        "Replace the complete stack.md document in one call. content is the "
+        f"full replacement (Markdown, at most {STACK_DOC_CHAR_LIMIT:,} "
+        "characters); partial patches are not supported.\n"
+        "\n"
+        "Pass expected_revision — the stack_revision from a prior read, or "
+        f"'{STACK_REVISION_ABSENT}' when creating a missing file — to make "
+        "the write conditional: a mismatch returns stale_revision with the "
+        "current revision and writes nothing.\n"
+        "\n"
+        "stack.md is reported material: record technologies, dependencies, "
+        "and compatibility observations. Goals, constraints, and choices "
+        "with rationale belong in propose_decision, not here."
+    ),
+    "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "content": {
+                "type": "string",
+                "description": (
+                    "The complete replacement stack.md document; stored "
+                    "byte-exact with no normalization."
+                ),
+            },
+            "expected_revision": {
+                "type": "string",
+                "description": (
+                    "Optional precondition: the lowercase SHA-256 hex "
+                    "stack_revision observed on a prior read, or "
+                    f"'{STACK_REVISION_ABSENT}' when the file did not exist. "
+                    "If supplied it is enforced."
+                ),
+            },
+            "operation_id": _OPERATION_ID_PARAM,
+            "project_id": _PROJECT_PARAM,
+        },
+        "required": ["content"],
+    },
+}
+
+SHARE_CONTEXT: ToolSpec = {
+    "name": "share_context",
+    "title": "Share a context brief",
+    "description": (
+        "Create one immutable context brief and its discovery pointer as a "
+        "single operation: the body lands at context/<slug>.md and a "
+        "pointer entry is appended to open-questions.md so other agents "
+        "can find it.\n"
+        "\n"
+        "Slugs are permanent — a taken slug returns slug_conflict with a "
+        "fresh suggestion; retry as a new operation. Use pointer_kind "
+        "'brief' for shared context, 'resume' for in-flight work handoffs, "
+        "'selection' for parked candidate sets."
+    ),
+    "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "slug": {
+                "type": "string",
+                "description": (
+                    "Brief name: 1-120 lowercase ASCII letters, digits, or "
+                    "internal hyphens. Maps only to context/<slug>.md."
+                ),
+            },
+            "content": {
+                "type": "string",
+                "description": (
+                    f"The complete immutable brief body (at most {MAX_BRIEF_BYTES:,} UTF-8 bytes)."
+                ),
+            },
+            "pointer_kind": {
+                "type": "string",
+                "enum": list(POINTER_PREFIX_BY_KIND),
+                "description": (
+                    "Discovery-pointer kind: brief (shared context), resume "
+                    "(in-flight work handoff), or selection (parked "
+                    "candidate set)."
+                ),
+            },
+            "summary": {
+                "type": "string",
+                "description": (
+                    "Nonempty single line (at most 300 characters) carried "
+                    "in the discovery pointer; match the brief's own "
+                    "summary."
+                ),
+            },
+            "operation_id": _OPERATION_ID_PARAM,
+            "project_id": _PROJECT_PARAM,
+        },
+        "required": ["slug", "content", "pointer_kind", "summary"],
+    },
+}
+
 # ── Registry ──
 
 ALL_TOOLS: tuple[ToolSpec, ...] = (
@@ -518,6 +643,11 @@ ALL_TOOLS: tuple[ToolSpec, ...] = (
     UPDATE_STATE,
     LIST_PROJECTS,
 )
+
+# The hosted HTTP server's registry: every shared tool plus the
+# hosted-only typed operations above. Local surfaces keep keying off
+# ALL_TOOLS, so this tuple is inert for them.
+HOSTED_TOOLS: tuple[ToolSpec, ...] = (*ALL_TOOLS, UPDATE_STACK, SHARE_CONTEXT)
 
 _BY_NAME: dict[str, ToolSpec] = {spec["name"]: spec for spec in ALL_TOOLS}
 

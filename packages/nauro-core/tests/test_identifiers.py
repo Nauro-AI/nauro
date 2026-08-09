@@ -19,6 +19,8 @@ VALID_BY_KIND = {
     IdentifierKind.operation_id: "op-1",
     IdentifierKind.server_token: "update_stack",
     IdentifierKind.audit_target_id: "target-1",
+    IdentifierKind.brief_slug: "auth-cutover-2",
+    IdentifierKind.stack_revision: "0" * 64,
 }
 
 
@@ -135,6 +137,82 @@ class TestServerToken:
 
     def test_rejects_non_str(self) -> None:
         assert not is_identifier(IdentifierKind.server_token, None)
+
+
+class TestBriefSlug:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "a",
+            "1",
+            "auth-cutover-2",
+            "a-b",
+            "a--b",
+            "a" * 120,
+            "a" + "-" * 118 + "b",
+        ],
+    )
+    def test_accepts(self, value: str) -> None:
+        assert is_identifier(IdentifierKind.brief_slug, value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "-",
+            "-a",
+            "a-",
+            "-a-",
+            "A",
+            "Auth-Cutover",
+            "a_b",
+            "a b",
+            "a.b",
+            "a/b",
+            "café",
+            "a" * 121,
+        ],
+    )
+    def test_rejects(self, value: str) -> None:
+        assert not is_identifier(IdentifierKind.brief_slug, value)
+
+    def test_rejects_non_str(self) -> None:
+        assert not is_identifier(IdentifierKind.brief_slug, None)
+
+
+class TestStackRevision:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "0" * 64,
+            "f" * 64,
+            "0123456789abcdef" * 4,
+            "absent",
+        ],
+    )
+    def test_accepts(self, value: str) -> None:
+        assert is_identifier(IdentifierKind.stack_revision, value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "0" * 63,
+            "0" * 65,
+            "A" * 64,
+            "0123456789ABCDEF" * 4,
+            "g" * 64,
+            "ABSENT",
+            "Absent",
+            "absent ",
+            "present",
+        ],
+    )
+    def test_rejects(self, value: str) -> None:
+        assert not is_identifier(IdentifierKind.stack_revision, value)
+
+    def test_rejects_non_str(self) -> None:
+        assert not is_identifier(IdentifierKind.stack_revision, None)
 
 
 class TestTrailingNewline:

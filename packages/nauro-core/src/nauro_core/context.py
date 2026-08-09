@@ -16,7 +16,11 @@ from nauro_core.constants import (
     L1_QUESTIONS_LIMIT,
     OPEN_QUESTIONS_MD,
     PROJECT_MD,
+    STACK_AUTO_CHAR_BUDGET,
+    STACK_AUTO_ITEM_CHAR_LIMIT,
+    STACK_AUTO_ITEM_LIMIT,
     STACK_MD,
+    STACK_NON_AUTHORITATIVE_FRAMING,
     STATE_CURRENT_FILENAME,
     STATE_HISTORY_FILENAME,
     STATE_MD,
@@ -36,6 +40,166 @@ from nauro_core.state import assemble_state_for_context
 # Q-form entries without a minted-at timestamp silently skip the projection
 # until ``flag_question`` starts stamping them.
 _AGE_PROJECTION_DAYS = 30
+
+# Appended to a projection item cut at STACK_AUTO_ITEM_CHAR_LIMIT. The budget
+# bounds retained file content only; the marker is an additional
+# bounded-constant annotation.
+_STACK_ITEM_TRUNCATION_MARKER = '... [item truncated - full text: get_raw_file("stack.md")]'
+
+
+def _is_stack_heading(line: str) -> bool:
+    """A top-level heading line: ``#`` at column zero."""
+    return line.startswith("#")
+
+
+def _is_first_level_list_item(line: str) -> bool:
+    """A first-level Markdown list item: a list marker at column zero.
+
+    Matches the unordered markers (``-``, ``*``, ``+``) and ordered markers
+    (a 1-9 digit number followed by ``.`` or ``)``), each followed by a
+    space. Indented (nested) list items and continuation lines never
+    match — the projection carries the inventory skeleton, not nested
+    rationale prose.
+    """
+    if line.startswith(("- ", "* ", "+ ")):
+        return True
+    digits = 0
+    while digits < len(line) and line[digits] in "0123456789":
+        digits += 1
+    if not 1 <= digits <= 9:
+        return False
+    return line[digits : digits + 1] in (".", ")") and line[digits + 1 : digits + 2] == " "
+
+
+def _fence_delimiter(line: str) -> tuple[str, int, str] | None:
+    """Split a potential code-fence line into ``(char, run, rest)``.
+
+    A fence delimiter is a run of at least three backticks or tildes
+    indented at most three spaces; ``rest`` is whatever follows the run
+    (the info string on an opener; must be blank on a closer).
+    """
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return None
+    if not stripped or stripped[0] not in "`~":
+        return None
+    char = stripped[0]
+    run = len(stripped) - len(stripped.lstrip(char))
+    if run < 3:
+        return None
+    return char, run, stripped[run:]
+
+
+def _lines_outside_fences(lines: list[str]) -> list[str]:
+    """Drop fenced code-block lines before item detection.
+
+    Tracks the basic CommonMark fence rule: a fence opens on a run of at
+    least three backticks or tildes indented at most three spaces (a
+    backtick fence's info string may not itself contain a backtick — such
+    a line is ordinary text; tilde info strings may), and closes only on a
+    matching-or-longer run of the same character with nothing else on the
+    line; an unclosed fence runs to end of file. The delimiters and
+    everything between them drop out, and each elided fence leaves one
+    blank line so paragraphs never merge across it.
+    """
+    outside: list[str] = []
+    fence: tuple[str, int] | None = None
+    for line in lines:
+        delimiter = _fence_delimiter(line)
+        if fence is None:
+            if delimiter is not None and not (delimiter[0] == "`" and "`" in delimiter[2]):
+                fence = delimiter[0], delimiter[1]
+                outside.append("")
+            else:
+                outside.append(line)
+        elif (
+            delimiter is not None
+            and delimiter[0] == fence[0]
+            and delimiter[1] >= fence[1]
+            and not delimiter[2].strip()
+        ):
+            fence = None
+    return outside
+
+
+def _stack_projection_items(stack: str) -> tuple[list[str], str]:
+    """Deterministic walk of stack.md into projection items, in file order.
+
+    Fenced code blocks are excluded first — their lines are never items. A
+    structured file (any top-level heading or first-level list item outside
+    fences) projects exactly those lines; everything nested or loose is
+    excluded. An unstructured file projects its nonblank Markdown
+    paragraphs instead. Returns ``(items, joiner)`` — structured items join
+    line-by-line, unstructured paragraphs keep a blank line between them.
+    """
+    lines = _lines_outside_fences(stack.split("\n"))
+    structured = [
+        line.rstrip()
+        for line in lines
+        if _is_stack_heading(line) or _is_first_level_list_item(line)
+    ]
+    if structured:
+        return structured, "\n"
+
+    paragraphs: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        if line.strip():
+            current.append(line.rstrip())
+        elif current:
+            paragraphs.append("\n".join(current))
+            current = []
+    if current:
+        paragraphs.append("\n".join(current))
+    return paragraphs, "\n\n"
+
+
+def _render_stack_projection(stack: str) -> str:
+    """Render the bounded L1 stack projection block.
+
+    Walks the projection items in file order, truncating overlong items at
+    :data:`~nauro_core.constants.STACK_AUTO_ITEM_CHAR_LIMIT` retained
+    characters with an explicit marker, and stops before rendering more than
+    :data:`~nauro_core.constants.STACK_AUTO_ITEM_LIMIT` items or exceeding
+    :data:`~nauro_core.constants.STACK_AUTO_CHAR_BUDGET` characters across
+    the joined projection body — retained item text plus the inter-item
+    separators the join emits. The framing line, per-item truncation
+    markers, and the omitted-count trailer are bounded-constant annotations
+    outside that budget. The block opens with the non-authoritative framing
+    line and, when the walk stopped early, closes with the omitted-item
+    count and the ``get_raw_file("stack.md")`` route to the full file.
+    """
+    items, joiner = _stack_projection_items(stack)
+
+    rendered: list[str] = []
+    retained_total = 0
+    omitted = 0
+    for idx, item in enumerate(items):
+        retained = item[:STACK_AUTO_ITEM_CHAR_LIMIT]
+        separator_cost = len(joiner) if rendered else 0
+        if (
+            len(rendered) == STACK_AUTO_ITEM_LIMIT
+            or retained_total + separator_cost + len(retained) > STACK_AUTO_CHAR_BUDGET
+        ):
+            omitted = len(items) - idx
+            break
+        if len(item) > STACK_AUTO_ITEM_CHAR_LIMIT:
+            rendered.append(retained.rstrip() + " " + _STACK_ITEM_TRUNCATION_MARKER)
+        else:
+            rendered.append(item)
+        retained_total += separator_cost + len(retained)
+
+    if not rendered:
+        # An entirely fenced (or otherwise item-free) file projects the
+        # framing line alone.
+        return STACK_NON_AUTHORITATIVE_FRAMING
+
+    block = STACK_NON_AUTHORITATIVE_FRAMING + "\n" + joiner.join(rendered)
+    if omitted:
+        block += (
+            f'\n(+{omitted} more stack items — see get_raw_file("stack.md") for the full file)'
+        )
+    return block
 
 
 def _active_decisions(decisions: list[Decision]) -> list[Decision]:
@@ -219,6 +383,13 @@ def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
     Canonical section order: project → state → stack → questions →
     full decisions (last N active) → earlier decisions summary.
 
+    The stack section is a bounded projection of stack.md, not the raw
+    file: the deterministic walk in :func:`_render_stack_projection` keeps
+    the inventory skeleton under its own item and character budgets, opens
+    with the non-authoritative framing line, and points at
+    ``get_raw_file("stack.md")`` for anything omitted. The full file stays
+    reachable via get_raw_file and L2.
+
     The questions section is a capped projection of genuine open entries,
     not the raw file: resolved history and discovery pointers drop out,
     the first ``L1_QUESTIONS_LIMIT`` genuine entries render in file order,
@@ -247,7 +418,7 @@ def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
 
     stack = files.get(STACK_MD, "")
     if stack.strip():
-        sections.append(stack.strip())
+        sections.append(_render_stack_projection(stack))
 
     questions_content = files.get(OPEN_QUESTIONS_MD, "")
     if questions_content.strip():
@@ -281,7 +452,8 @@ def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
 
     Canonical section order mirrors L1: project → state (with history) →
     stack → questions → all decisions. L2 is a superset of L1: it carries
-    project.md and stack.md verbatim (the loader fetches both for level 2),
+    project.md verbatim and the complete stack.md body under the same
+    non-authoritative framing line L1's bounded projection opens with,
     the appended state history that L1 omits, and every decision including
     superseded ones rather than L1's recent-active cap.
 
@@ -306,7 +478,7 @@ def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
 
     stack = files.get(STACK_MD, "")
     if stack.strip():
-        sections.append(stack.strip())
+        sections.append(STACK_NON_AUTHORITATIVE_FRAMING + "\n" + stack.strip())
 
     questions_content = files.get(OPEN_QUESTIONS_MD, "")
     if questions_content.strip():
