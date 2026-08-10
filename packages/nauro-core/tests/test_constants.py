@@ -13,6 +13,7 @@ from nauro_core.constants import (
     MCP_INSTRUCTIONS,
     MCP_INSTRUCTIONS_STATIC,
     MIN_RATIONALE_LENGTH,
+    OPEN_QUESTIONS_DEFAULT_BODY,
     OPEN_QUESTIONS_MD,
     POINTER_FLAG_PREFIXES,
     PROJECT_MD,
@@ -93,6 +94,23 @@ class TestHostedStoreFormatVersion:
 
         assert nauro_core.HOSTED_STORE_FORMAT_VERSION == HOSTED_STORE_FORMAT_VERSION
         assert "HOSTED_STORE_FORMAT_VERSION" in nauro_core.__all__
+
+
+class TestOpenQuestionsDefaultBody:
+    def test_is_the_bare_top_level_header(self):
+        assert OPEN_QUESTIONS_DEFAULT_BODY == "# Open Questions\n"
+
+    def test_exported_from_top_level(self):
+        import nauro_core
+
+        assert nauro_core.OPEN_QUESTIONS_DEFAULT_BODY == OPEN_QUESTIONS_DEFAULT_BODY
+        assert "OPEN_QUESTIONS_DEFAULT_BODY" in nauro_core.__all__
+
+    def test_kernel_private_alias_still_resolves(self):
+        # Retained for one release: a deployed consumer imports the private name.
+        from nauro_core.operations.flag_question import _DEFAULT_FILE_BODY
+
+        assert _DEFAULT_FILE_BODY == OPEN_QUESTIONS_DEFAULT_BODY
 
 
 class TestValidValues:

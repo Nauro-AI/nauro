@@ -18,6 +18,7 @@ stay byte-identical.
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -31,6 +32,34 @@ from nauro_core.operations.planning import PlanRejected, canonical_payload_bytes
 # MAX_QUESTION_LENGTH by construction of this cap and the slug bound.
 SUMMARY_CHAR_LIMIT = 300
 
+# Unicode general categories a summary may never carry: control characters
+# (Cc, which covers tab and ESC) plus the line and paragraph separators
+# (Zl, Zp). Together these are every separator str.splitlines recognises
+# beyond \n and \r, so an accepted summary stays one entry line for every
+# reader of open-questions.md, not only for the writer that appends it.
+_FORBIDDEN_SUMMARY_CATEGORIES = frozenset({"Cc", "Zl", "Zp"})
+
+# Bidirectional controls reorder rendered text without appearing in it, so a
+# summary carrying one can display differently from the bytes an auditor
+# reads. They are format characters (Cf), which the visible-content rule
+# below strips rather than rejects, so they are named explicitly.
+_BIDI_CONTROLS = frozenset(
+    "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+)
+
+# Category prefixes that count as visible content: letters, numbers, symbols,
+# and punctuation. A summary of only format characters, whitespace, or
+# combining marks renders blank in the pointer entry.
+_VISIBLE_CATEGORY_PREFIXES = frozenset({"L", "N", "S", "P"})
+
+# Default-ignorable code points Unicode classifies as letters (Lo), so the
+# category test alone would count them as visible even though they render as
+# nothing. unicodedata exposes no Default_Ignorable_Code_Point property, but
+# the enumeration is complete rather than partial: every other default-ignorable
+# code point is already Cf, Mn, or Cn, none of which carries a visible category
+# prefix. Recheck this set when the bundled Unicode data gains a new one.
+_INVISIBLE_LETTERS = frozenset("\u115f\u1160\u3164\uffa0")
+
 
 def brief_path(slug: str) -> str:
     """Return the store-relative brief path for a validated *slug*."""
@@ -40,6 +69,32 @@ def brief_path(slug: str) -> str:
 def compose_pointer_body(pointer_kind: str, path: str, summary: str) -> str:
     """Compose the canonical discovery-pointer body with the ASCII separator."""
     return f"{POINTER_PREFIX_BY_KIND[pointer_kind]} {path} - {summary}"
+
+
+def _reject_hidden_summary_characters(summary: str) -> None:
+    """Reject *summary* if it carries a control, separator, or bidi character."""
+    for char in summary:
+        if unicodedata.category(char) in _FORBIDDEN_SUMMARY_CATEGORIES:
+            raise PlanRejected(
+                f"summary contains a control or separator character (U+{ord(char):04X}); "
+                "it must be one line of plain text."
+            )
+        if char in _BIDI_CONTROLS:
+            raise PlanRejected(
+                f"summary contains a bidirectional control character (U+{ord(char):04X}); "
+                "it must read the same stored as rendered."
+            )
+
+
+def _reject_summary_without_visible_content(summary: str) -> None:
+    """Reject *summary* if nothing renders once formatting is stripped."""
+    for char in summary:
+        category = unicodedata.category(char)
+        if category == "Cf" or char.isspace() or char in _INVISIBLE_LETTERS:
+            continue
+        if category[0] in _VISIBLE_CATEGORY_PREFIXES:
+            return
+    raise PlanRejected("summary has no visible characters.")
 
 
 class ShareContextPlan(BaseModel):
@@ -85,7 +140,12 @@ def share_context(
             selects the discovery-pointer prefix.
         summary: Nonempty single line of at most
             :data:`SUMMARY_CHAR_LIMIT` characters, carried in the composed
-            pointer body.
+            pointer body. It must be UTF-8-encodable text that carries no
+            control character, line or paragraph separator, or bidirectional
+            control, and that still holds a visible character once format
+            characters and whitespace are stripped. The pointer is a
+            discovery surface an agent reads and a human audits, so what is
+            stored has to be what both of them see.
 
     Returns:
         :class:`ShareContextPlan` on acceptance.
@@ -126,6 +186,8 @@ def share_context(
         summary.encode("utf-8")
     except UnicodeEncodeError:
         raise PlanRejected("summary is not valid UTF-8-encodable text.") from None
+    _reject_hidden_summary_characters(summary)
+    _reject_summary_without_visible_content(summary)
 
     path = brief_path(slug)
     return ShareContextPlan(

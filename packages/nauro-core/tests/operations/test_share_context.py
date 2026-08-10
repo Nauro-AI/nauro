@@ -70,6 +70,20 @@ class TestShareContextAccepts:
         plan = _plan(content="x" * MAX_BRIEF_BYTES)
         assert len(plan.content.encode("utf-8")) == MAX_BRIEF_BYTES
 
+    @pytest.mark.parametrize(
+        "summary",
+        [
+            "the auth cutover plan",
+            "the auth\u00a0cutover plan",  # non-breaking space inside real text
+            "family \U0001f468\u200d\U0001f469\u200d\U0001f467 rollout",  # ZWJ sequence
+            "\u8a8d\u8a3c\u5207\u308a\u66ff\u3048",  # CJK only, no ASCII
+            "20260810",  # digits only
+            "\u0645\u06cc\u200c\u0631\u0648\u062f",  # Persian, interior ZWNJ
+        ],
+    )
+    def test_visible_summary_accepted(self, summary: str) -> None:
+        assert _plan(summary=summary).summary == summary
+
     def test_worst_case_pointer_body_fits_question_length(self) -> None:
         # Maximum slug plus maximum summary: the composed pointer must fit
         # the flag_question body cap by construction, since the hosted
@@ -156,6 +170,52 @@ class TestShareContextRejects:
         with pytest.raises(PlanRejected) as excinfo:
             _plan(summary=summary)
         assert "single line" in excinfo.value.reason
+
+    @pytest.mark.parametrize(
+        "summary",
+        [
+            "tab\tseparated",
+            "vertical\x0btab",
+            "file\x1cseparator",
+            "next\x85line",
+            "line\u2028separator",
+            "paragraph\u2029separator",
+            "escape\x1bsequence",
+        ],
+    )
+    def test_control_character_summary_rejects(self, summary: str) -> None:
+        with pytest.raises(PlanRejected) as excinfo:
+            _plan(summary=summary)
+        assert "control" in excinfo.value.reason
+
+    @pytest.mark.parametrize(
+        "summary",
+        [
+            "override\u202edrappa",
+            "isolate\u2066text",
+            "left\u200emark",
+        ],
+    )
+    def test_bidi_control_summary_rejects(self, summary: str) -> None:
+        with pytest.raises(PlanRejected) as excinfo:
+            _plan(summary=summary)
+        assert "bidirectional" in excinfo.value.reason
+
+    @pytest.mark.parametrize(
+        "summary",
+        [
+            "\u200b\u200b\u200b",  # zero-width spaces only
+            "\ufe0f\ufe0f",  # variation selectors only
+            "\u0301\u0308",  # combining marks only
+            "\u3164\u3164",  # hangul filler only
+            "\u115f",  # hangul choseong filler only
+            "\uffa0",  # halfwidth hangul filler only
+        ],
+    )
+    def test_summary_without_visible_characters_rejects(self, summary: str) -> None:
+        with pytest.raises(PlanRejected) as excinfo:
+            _plan(summary=summary)
+        assert "visible" in excinfo.value.reason
 
     def test_over_length_summary_rejects(self) -> None:
         with pytest.raises(PlanRejected) as excinfo:
