@@ -21,6 +21,16 @@ logger = logging.getLogger("nauro.sync")
 # because no automatic merge of two divergent rewrites is correct.
 _SET_UNION_PATHS = ("open-questions.md", "state_history.md")
 
+# Scratch directory a pull creates for the decision bodies it must hold before
+# taking the decision lock. Removed at the end of the run; the prefix keeps a
+# directory orphaned by a kill signal out of both sync directions.
+SPOOL_DIR_PREFIX = ".pull-spool-"
+
+# Recovery drop-box for content the pull declined to install: the losing side
+# of a last-write-wins conflict, and the remote decision behind a quarantined
+# number collision.
+CONFLICT_BACKUP_DIR = ".conflict-backup"
+
 # Files that are never synced. The graph command's default output lands in the
 # store directory; its generation timestamp changes every run, so its sha never
 # settles and syncing it would re-push the artifact on every run and fan it out
@@ -51,6 +61,8 @@ def should_skip(relative_path: str) -> bool:
     normalized = relative_path.replace("\\", "/")
     if normalized in NEVER_SYNC:
         return True
+    if normalized.split("/", 1)[0].startswith(SPOOL_DIR_PREFIX):
+        return True
     # The write-path provenance journal is store-local by design: it is
     # excluded from cloud sync in v1 (both its events log and its lock).
     if normalized.startswith(JOURNAL_DIR + "/"):
@@ -71,16 +83,26 @@ def detect_conflict(
     return local_changed and remote_changed
 
 
+def write_backup(project_path: Path, backup_name: str, content: bytes) -> Path:
+    """Write ``content`` into ``.conflict-backup/`` under ``backup_name``.
+
+    The single writer into the backup directory: the last-write-wins loser
+    below names its file by timestamp, the quarantined remote decision in
+    ``sync.quarantine`` names its file by remote version.
+    """
+    backup_dir = project_path / CONFLICT_BACKUP_DIR
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / backup_name
+    backup_path.write_bytes(content)
+    logger.info("Conflict backup saved: %s", backup_path)
+    return backup_path
+
+
 def _save_conflict_backup(project_path: Path, relative_path: str, content: bytes) -> Path:
     """Save the losing version to .conflict-backup/."""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename = relative_path.replace("/", "_")
-    backup_dir = project_path / ".conflict-backup"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_path = backup_dir / f"{timestamp}-{filename}"
-    backup_path.write_bytes(content)
-    logger.info("Conflict backup saved: %s", backup_path)
-    return backup_path
+    return write_backup(project_path, f"{timestamp}-{filename}", content)
 
 
 def resolve_conflict(

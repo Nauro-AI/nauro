@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from nauro.store._atomic import atomic_write_text
+
 logger = logging.getLogger("nauro.sync")
 
 SYNC_STATE_FILE = ".sync-state.json"
@@ -46,7 +48,15 @@ def load_state(project_path: Path) -> SyncState:
 
 
 def save_state(project_path: Path, state: SyncState) -> None:
-    """Write .sync-state.json to project directory."""
+    """Write .sync-state.json to project directory.
+
+    Written through a tmp sibling and ``os.replace``: a crash during the write
+    must leave the previous state readable rather than a truncated file, since
+    an unreadable state file makes every tracked path look untracked and
+    reopens the published-versus-unpublished question the collision classifier
+    answers from it. The serialized shape is unchanged, so an older binary
+    reads entries written here without adaptation.
+    """
     data = {
         "files": {
             rel_path: {
@@ -58,8 +68,7 @@ def save_state(project_path: Path, state: SyncState) -> None:
         },
         "last_full_sync": state.last_full_sync,
     }
-    state_file = project_path / SYNC_STATE_FILE
-    state_file.write_text(json.dumps(data, indent=2) + "\n")
+    atomic_write_text(project_path / SYNC_STATE_FILE, json.dumps(data, indent=2) + "\n")
 
 
 def compute_sha256(file_path: Path) -> str:

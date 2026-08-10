@@ -517,3 +517,54 @@ def test_status_no_project_shows_friendly_message(tmp_path, monkeypatch):
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 1
     assert "No project found. Run 'nauro init <name>' to get started." in result.output
+
+
+def _write_quarantine_backup(store, remote_path: str, content: bytes = b"remote body\n") -> None:
+    from nauro.sync.quarantine import save_quarantine_backup
+
+    save_quarantine_backup(store, remote_path, content, '"etag"')
+
+
+def test_status_names_unresolved_quarantined_collisions(tmp_path, monkeypatch):
+    """A quarantine records no sync state, so status is what keeps it visible."""
+    store = _setup_project(tmp_path, monkeypatch)
+    _write_quarantine_backup(store, "decisions/003-remote.md")
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    assert "Quarantined decision-number collisions: 1" in result.output
+    assert "decisions/003-remote.md" in result.output
+
+
+def test_status_drops_a_quarantine_once_the_remote_file_is_tracked(tmp_path, monkeypatch):
+    from nauro.sync.state import FileState, SyncState, save_state
+
+    store = _setup_project(tmp_path, monkeypatch)
+    _write_quarantine_backup(store, "decisions/003-remote.md")
+    state = SyncState()
+    state.files["decisions/003-remote.md"] = FileState(local_sha256="abc", remote_etag='"e"')
+    save_state(store, state)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    assert "Quarantined decision-number collisions" not in result.output
+
+
+def test_status_says_nothing_about_quarantines_when_there_are_none(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    assert "Quarantined" not in result.output
+
+
+def test_status_says_quarantines_are_unreadable_rather_than_absent(tmp_path, monkeypatch):
+    """A broken sync-state file must not silently turn a real quarantine into
+    a clean report."""
+    store = _setup_project(tmp_path, monkeypatch)
+    _write_quarantine_backup(store, "decisions/003-remote.md")
+    (store / ".sync-state.json").write_text("[]")
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    assert "Quarantined decision-number collisions: could not be read" in result.output

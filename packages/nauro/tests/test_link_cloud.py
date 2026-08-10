@@ -327,3 +327,30 @@ def test_link_cloud_with_no_repo_config_errors(tmp_path, monkeypatch):
 
     assert result.exit_code == 1
     assert "Not a nauro repo" in result.output
+
+
+def test_link_cloud_lock_contention_keeps_rekey(tmp_path, monkeypatch):
+    """A concurrent sync holding the store lock is a best-effort push failure,
+    not a traceback over an irreversible promotion."""
+    from nauro.sync.lock import SyncLockTimeoutError
+
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+
+    init_result = runner.invoke(app, ["init", "linkproj"])
+    assert init_result.exit_code == 0, init_result.output
+
+    busy = SyncLockTimeoutError(tmp_path / CLOUD_PID, 10.0)
+
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=_create_response()),
+        patch("nauro.cli.commands.link.push_changed_files", side_effect=busy),
+    ):
+        result = runner.invoke(app, ["link", "--cloud"])
+
+    assert result.exit_code == 0, result.output
+    assert "nauro sync" in result.output
+    new_entry = registry.get_project_v2(CLOUD_PID)
+    assert new_entry is not None
+    assert new_entry["mode"] == "cloud"

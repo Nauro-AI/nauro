@@ -20,6 +20,7 @@ from nauro_core.constants import MAX_BRIEF_BYTES
 
 from nauro.cli.commands.auth import load_access_token
 from nauro.store.registry import is_cloud_project
+from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, sync_lock
 
 logger = logging.getLogger("nauro.sync")
 
@@ -33,9 +34,12 @@ def push_store_to_cloud(project_id: str, store_path: Path) -> bool:
     upload.
 
     A presign/auth-refresh failure during the push is reported and maps
-    to False; per-file PUT failures are logged and skipped.
+    to False; per-file PUT failures are logged and skipped. A concurrent sync
+    holding the store lock past the bounded wait is also a reported failure:
+    an explicit sync must not report success for an upload it never attempted.
     """
     from nauro.cli.commands.auth import AuthRefreshError
+    from nauro.sync.lock import SyncLockTimeoutError
     from nauro.sync.remote import PresignError
 
     if not is_cloud_project(project_id):
@@ -51,6 +55,9 @@ def push_store_to_cloud(project_id: str, store_path: Path) -> bool:
 
     try:
         pushed = push_changed_files(project_id, store_path)
+    except SyncLockTimeoutError as exc:
+        typer.echo(f"  Warning: {exc}", err=True)
+        return False
     except AuthRefreshError as exc:
         typer.echo(f"  {exc}", err=True)
         return False
@@ -64,18 +71,34 @@ def push_store_to_cloud(project_id: str, store_path: Path) -> bool:
     return True
 
 
-def push_changed_files(project_id: str, store_path: Path) -> int:
+def push_changed_files(
+    project_id: str,
+    store_path: Path,
+    *,
+    lock_timeout: float = CLI_SYNC_LOCK_TIMEOUT,
+) -> int:
     """Upload every store file whose local sha differs from sync-state.
 
     POSTs ``/sync/presign`` for the changed paths, then PUTs each one to
     its presigned URL, recording the returned ETag in sync-state. Returns
     the number of files successfully pushed.
 
+    Held under the store's sync lock for the whole run: a pull resolving a
+    decision-number collision renames local files, and a push scanning the
+    store mid-sequence would upload a half-applied rename.
+
     Raises :class:`~nauro.cli.commands.auth.AuthRefreshError` or
     :class:`~nauro.sync.remote.PresignError` if minting the presigned
     URLs fails; per-file PUT failures are logged and skipped so a partial
     upload still records the files that did land.
+    Raises :class:`~nauro.sync.lock.SyncLockTimeoutError` when another sync holds
+    the store lock for longer than ``lock_timeout``.
     """
+    with sync_lock(store_path, lock_timeout):
+        return _push_changed_files_locked(project_id, store_path)
+
+
+def _push_changed_files_locked(project_id: str, store_path: Path) -> int:
     from nauro.sync.merge import should_skip
     from nauro.sync.remote import (
         PresignError,

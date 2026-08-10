@@ -145,11 +145,12 @@ def link(
     import httpx
 
     from nauro.cli.commands.auth import AuthRefreshError
+    from nauro.sync.lock import SyncLockTimeoutError
     from nauro.sync.remote import PresignError
 
     try:
         pushed = push_changed_files(cloud_id, new_store)
-    except (AuthRefreshError, PresignError, httpx.HTTPError) as exc:
+    except (AuthRefreshError, PresignError, SyncLockTimeoutError, httpx.HTTPError) as exc:
         typer.echo(
             f"  Warning: linked, but the initial cloud push failed ({exc}).\n"
             "  Run 'nauro sync' to upload the project store.",

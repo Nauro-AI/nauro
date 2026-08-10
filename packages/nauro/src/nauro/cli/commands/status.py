@@ -476,6 +476,14 @@ def _repo_paths(project_id: str) -> list[Path]:
 
 
 @dataclass(frozen=True)
+class _QuarantineReport:
+    """Quarantined collisions, or the fact that they could not be listed."""
+
+    collisions: tuple[str, ...] = ()
+    readable: bool = True
+
+
+@dataclass(frozen=True)
 class _StatusFacts:
     """Everything one status run observed, gathered before any output."""
 
@@ -489,6 +497,7 @@ class _StatusFacts:
     local_decisions: int
     remote_decisions: int | None
     last_full_sync: str | None
+    quarantine: _QuarantineReport
 
     @property
     def project_id(self) -> str:
@@ -540,7 +549,27 @@ def _collect_status(project_name: str, store_path: Path, *, no_probe: bool) -> _
         local_decisions=len(_list_decisions(store_path)),
         remote_decisions=remote_decisions,
         last_full_sync=last_full_sync,
+        quarantine=_quarantined_collisions(store_path),
     )
+
+
+def _quarantined_collisions(store_path: Path) -> _QuarantineReport:
+    """Remote decisions a pull quarantined and no later pull installed.
+
+    A quarantine records no sync state by design, so the pull warning scrolls
+    away with the session that saw it; naming the collisions here is what keeps
+    an unresolved one visible until someone acts on it. A failure to list them
+    is reported as such rather than as "none": a corrupt sync-state file would
+    otherwise hide exactly the collisions this line exists to surface.
+    """
+    try:
+        from nauro.sync.quarantine import unresolved_quarantines
+
+        return _QuarantineReport(
+            collisions=tuple(item.label for item in unresolved_quarantines(store_path))
+        )
+    except Exception:
+        return _QuarantineReport(readable=False)
 
 
 # ── Human table emission ────────────────────────────────────────────────────
@@ -564,6 +593,7 @@ def _emit_human_status(facts: _StatusFacts) -> None:
     typer.echo(_workflow_agents_status_line(facts.snapshot))
     typer.echo(_agents_status_line(facts.snapshot))
     _emit_decision_status(facts)
+    _emit_quarantine_status(facts)
 
 
 def _emit_sync_status(facts: _StatusFacts) -> None:
@@ -599,6 +629,22 @@ def _emit_decision_status(facts: _StatusFacts) -> None:
 
     if local_count != remote_count:
         typer.echo("  Run `nauro sync` to reconcile.")
+
+
+def _emit_quarantine_status(facts: _StatusFacts) -> None:
+    if not facts.quarantine.readable:
+        typer.echo(
+            "\n  Quarantined decision-number collisions: could not be read"
+            " - run `nauro sync` for the full report."
+        )
+        return
+    quarantined = facts.quarantine.collisions
+    if not quarantined:
+        return
+    typer.echo(f"\n  Quarantined decision-number collisions: {len(quarantined)}")
+    for remote_path in quarantined:
+        typer.echo(f"    - {remote_path} was not installed; a local file holds that number")
+    typer.echo("  Run `nauro sync` for the full report on each one.")
 
 
 # ── JSON payload ────────────────────────────────────────────────────────────
@@ -653,6 +699,7 @@ class _DecisionsPayload(BaseModel):
     remote: int | None
     in_sync: bool | None
     last_full_sync: str | None
+    quarantined_collisions: list[str] | None
 
 
 class StatusPayload(BaseModel):
@@ -758,6 +805,9 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
                 else facts.local_decisions == facts.remote_decisions
             ),
             last_full_sync=facts.last_full_sync,
+            quarantined_collisions=(
+                list(facts.quarantine.collisions) if facts.quarantine.readable else None
+            ),
         ),
     )
 
