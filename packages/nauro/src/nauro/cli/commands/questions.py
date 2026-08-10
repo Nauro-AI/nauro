@@ -9,7 +9,7 @@ the kernel helper, and prints a summary.
 """
 
 import typer
-from nauro_core.constants import OPEN_QUESTIONS_MD
+from nauro_core.constants import OPEN_QUESTIONS_DEFAULT_BODY, OPEN_QUESTIONS_MD
 from nauro_core.questions import OpenQuestionsFile
 
 from nauro.cli.utils import resolve_target_project
@@ -17,8 +17,6 @@ from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.post_commit import run_post_commit
 
 questions_app = typer.Typer(help="Maintenance commands for open-questions.md.")
-
-_DEFAULT_FILE_BODY = "# Open Questions\n"
 
 
 @questions_app.command(name="migrate")
@@ -38,7 +36,7 @@ def migrate(
     project_name, store_path = resolve_target_project(project)
     fs_store = FilesystemStore(store_path)
 
-    content = fs_store.read_file(OPEN_QUESTIONS_MD) or _DEFAULT_FILE_BODY
+    content = fs_store.read_file(OPEN_QUESTIONS_MD) or OPEN_QUESTIONS_DEFAULT_BODY
     result = OpenQuestionsFile.parse(content).migrate()
 
     if not result.renames:

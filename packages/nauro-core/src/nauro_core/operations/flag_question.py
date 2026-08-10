@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from nauro_core.constants import OPEN_QUESTIONS_MD
+from nauro_core.constants import OPEN_QUESTIONS_DEFAULT_BODY, OPEN_QUESTIONS_MD
 from nauro_core.operations.decision_lookup import find_decision_stem_by_num
 from nauro_core.operations.results import ErrorPayload, FlagQuestionResult
 from nauro_core.operations.store import Store
@@ -48,7 +48,9 @@ from nauro_core.question_append import (
 )
 from nauro_core.questions import EntryBlock, OpenQuestionsFile
 
-_DEFAULT_FILE_BODY = "# Open Questions\n"
+# Private alias kept for one release: a deployed consumer still imports this
+# name. New code reads OPEN_QUESTIONS_DEFAULT_BODY from nauro_core directly.
+_DEFAULT_FILE_BODY = OPEN_QUESTIONS_DEFAULT_BODY
 
 _FRESHNESS_CAVEAT = "This reads the working copy, only as fresh as the most recent pull."
 

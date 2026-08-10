@@ -70,6 +70,9 @@ from nauro_core.constants import (
     NO_RELATED_DECISIONS as NO_RELATED_DECISIONS,
 )
 from nauro_core.constants import (
+    OPEN_QUESTIONS_DEFAULT_BODY as OPEN_QUESTIONS_DEFAULT_BODY,
+)
+from nauro_core.constants import (
     OPEN_QUESTIONS_MD as OPEN_QUESTIONS_MD,
 )
 from nauro_core.constants import (
@@ -392,6 +395,7 @@ __all__ = [
     "STACK_MD",
     "STATE_MD",
     "OPEN_QUESTIONS_MD",
+    "OPEN_QUESTIONS_DEFAULT_BODY",
     "STATE_CURRENT_FILENAME",
     "STATE_HISTORY_FILENAME",
 ]

@@ -616,9 +616,9 @@ SHARE_CONTEXT: ToolSpec = {
             "summary": {
                 "type": "string",
                 "description": (
-                    "Nonempty single line (at most 300 characters) carried "
-                    "in the discovery pointer; match the brief's own "
-                    "summary."
+                    "Nonempty single line (at most 300 characters) with at "
+                    "least one visible character, carried in the discovery "
+                    "pointer; match the brief's own summary."
                 ),
             },
             "operation_id": _OPERATION_ID_PARAM,

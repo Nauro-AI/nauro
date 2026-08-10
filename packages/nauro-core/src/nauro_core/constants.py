@@ -59,6 +59,13 @@ OPEN_QUESTIONS_MD = "open-questions.md"
 DECISIONS_DIR = "decisions"
 SNAPSHOTS_DIR = "snapshots"
 
+# ── open-questions.md default body ──
+# Stand-in body every write surface falls back to when open-questions.md is
+# absent: the bare top-level header the Q-form writer inserts entries after.
+# Shared between the kernel append path, the local CLI, and the remote server
+# so a missing file cannot be scaffolded differently per surface.
+OPEN_QUESTIONS_DEFAULT_BODY = "# Open Questions\n"
+
 # ── Empty-state guidance ──
 # Returned by `check_decision` when the store has no decisions yet. Shared
 # between local (nauro) and remote (mcp-server) so the empty-store onboarding
