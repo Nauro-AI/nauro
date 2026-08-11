@@ -2,6 +2,8 @@
 
 from nauro_core.decision_model import parse_decision
 
+from nauro.store import _atomic
+from nauro.store._atomic import atomic_write_bytes
 from nauro.sync.merge import (
     _set_union_markdown,
     detect_conflict,
@@ -41,6 +43,27 @@ class TestShouldSkip:
         assert should_skip("snapshots/.lock") is True
         # write_file's one non-markdown target, the decision-hash index.
         assert should_skip(".decision-hashes.json.lock") is True
+
+    def test_an_orphaned_atomic_tmp_sibling_is_skipped(self, tmp_path, monkeypatch):
+        """A kill between the tmp write and the replace strands a sibling.
+
+        It is a complete-looking copy of a store file under a name nothing
+        reads, so pushing it would publish a version the user never had. The
+        name comes from the real writer rather than a hand-spelled pattern.
+        """
+        monkeypatch.setattr(_atomic.os, "replace", lambda src, dst: None)
+        atomic_write_bytes(tmp_path / "stack.md", b"# Stack\n")
+        orphan = next(entry.name for entry in tmp_path.iterdir())
+
+        assert orphan.startswith(".stack.md.") and orphan.endswith(".tmp")
+        assert should_skip(orphan) is True
+        assert should_skip(f"decisions/{orphan}") is True
+
+    def test_ordinary_tmp_names_still_sync(self):
+        # The shape is narrow: the store's own tmp siblings carry a random hex
+        # token, so a file the user happens to name .notes.tmp is content.
+        assert should_skip(".notes.tmp") is False
+        assert should_skip("context/draft.tmp") is False
 
     def test_non_artifact_lock_names_still_sync(self):
         # Only the store's own artifact shapes are skipped; user content that

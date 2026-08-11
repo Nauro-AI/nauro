@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.graph import DEFAULT_GRAPH_FILENAME
+from nauro.store._atomic import is_tmp_sibling
 from nauro.store.journal import JOURNAL_DIR
 from nauro.store.store_lock import DIR_LOCK_NAME, RMW_LOCK_SUFFIX
 from nauro.sync.state import SyncState
@@ -73,6 +74,14 @@ def should_skip(relative_path: str) -> bool:
     if normalized.startswith(JOURNAL_DIR + "/"):
         return True
     basename = normalized.rsplit("/", 1)[-1]
+    # A half-written sibling from the atomic write primitive. The write removes
+    # its own tmp file on failure, but a kill signal between the write and the
+    # replace strands a complete-looking copy of a store file under a name
+    # nothing reads - and syncing it would publish a version the user never had
+    # and install it for every collaborator. The shape is recognised by
+    # ``_atomic`` itself, so the writer and this exclusion cannot drift.
+    if is_tmp_sibling(basename):
+        return True
     return basename == DIR_LOCK_NAME or normalized.endswith(LOCK_ARTIFACT_SUFFIXES)
 
 

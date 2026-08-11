@@ -43,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from nauro.cli.commands.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR
+from nauro.store._atomic import atomic_write_bytes
 from nauro.sync.collisions import (
     DecisionOutcome,
     DecisionVerdict,
@@ -139,10 +140,16 @@ class _Transfer:
 
 @dataclass
 class _Tally:
-    """What one run changed, in the terms it reports."""
+    """What one run changed, in the terms it reports.
+
+    ``refused`` counts the subjects a local filesystem error stopped. They are
+    not failures of the run - each one is reported and the next sync retries it
+    - but they are the reason a run cannot claim to have synced the whole store.
+    """
 
     merged: int = 0
     adopted: int = 0
+    refused: int = 0
 
 
 @dataclass(frozen=True)
@@ -332,12 +339,17 @@ def _triage(
             continue
 
         local_file = store_path / rel
+        if not local_file.exists():
+            # A tracked file the user deleted is not a conflict: a conflict
+            # protects local content and there is none. The remote store is
+            # append-only, so the file comes back on this pull.
+            work.pulls.append(item)
+            continue
         if not file_changed_locally(store_path, rel, state):
             work.pulls.append(item)
             continue
 
-        local_sha = compute_sha256(local_file) if local_file.exists() else ""
-        if detect_conflict(rel, state, local_sha, entry.etag):
+        if detect_conflict(rel, state, compute_sha256(local_file), entry.etag):
             work.conflicts.append(item)
 
     work.decisions[:0] = contested
@@ -363,6 +375,11 @@ def run_pull(
     Returns the number of files merged. Caller-facing failures
     (manifest/presign auth-refresh or transport errors) are reported through
     ``reporter`` and map to a 0 return.
+
+    The write phase is crash-safe in both directions: a local filesystem error
+    on one file is reported and the batch continues, and sync state is written
+    whatever happens, so what landed is always recorded even when the run does
+    not reach the end.
 
     Raises:
         ~nauro.sync.lock.SyncLockTimeoutError: another sync held the store
@@ -394,46 +411,121 @@ def _run_pull_locked(
         return 0
 
     tally = _Tally()
-    # The gated batch has to be complete before the lock is taken, because the
-    # lock must not span a transfer. It is spooled to disk rather than held:
-    # a manifest is server-supplied input, and its total size is not a number
-    # this process gets to be surprised by.
-    with _spool(store_path) as spool:
-        gated = _spool_batch(urls, work.decisions, reporter, spool)
-        with decision_lock(store_path, lock_timeout):
-            corpus = DecisionCorpus.scan(store_path)
-            _report_completion(corpus, reporter)
-            for item in work.decisions:
-                transfer = gated.get(item.rel)
-                if transfer is not None:
-                    _apply_decision(corpus, transfer, state, manifest, reporter, tally)
+    # Flipped the moment the decision lock is held, which is the moment this run
+    # can start changing the store. Everything before it - the manifest, the
+    # triage, the presign, the transfers, the wait for the lock - leaves the
+    # store exactly as it found it, and a failure there must not rewrite sync
+    # state: a state file that failed to parse loads as empty, and persisting
+    # that emptiness would untrack a whole store on a lock timeout.
+    mutating = False
+    try:
+        # The gated batch has to be complete before the lock is taken, because
+        # the lock must not span a transfer. It is spooled to disk rather than
+        # held: a manifest is server-supplied input, and its total size is not a
+        # number this process gets to be surprised by.
+        with _spool(store_path) as spool:
+            gated = _spool_batch(urls, work.decisions, reporter, spool)
+            with decision_lock(store_path, lock_timeout):
+                mutating = True
+                corpus = DecisionCorpus.scan(store_path)
+                with _guarded_step(DECISIONS_DIR, _COMPLETION_FAILURE_DETAIL, reporter, tally):
+                    _report_completion(corpus, reporter)
+                for item in work.decisions:
+                    transfer = gated.get(item.rel)
+                    if transfer is None:
+                        continue
+                    with _guarded_step(item.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
+                        _apply_decision(corpus, transfer, state, manifest, reporter, tally)
 
-    for transfer in _stream(urls, work.pulls, reporter):
-        if not _generic_write_allowed(store_path, transfer, state, reporter):
-            continue
-        target = store_path / transfer.rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(transfer.content)
-        update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
-        tally.merged += 1
+        for transfer in _stream(urls, work.pulls, reporter):
+            with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
+                if _generic_write_allowed(store_path, transfer, state, reporter):
+                    target = store_path / transfer.rel
+                    atomic_write_bytes(target, transfer.content)
+                    update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
+                    tally.merged += 1
 
-    for transfer in _stream(urls, work.conflicts, reporter):
-        if not _generic_write_allowed(store_path, transfer, state, reporter):
-            continue
-        _resolve_and_record(store_path, transfer, state)
-        tally.merged += 1
+        for transfer in _stream(urls, work.conflicts, reporter):
+            with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
+                if _generic_write_allowed(store_path, transfer, state, reporter):
+                    _resolve_and_record(store_path, transfer, state)
+                    tally.merged += 1
 
-    state.last_full_sync = datetime.now(timezone.utc).isoformat()
-    save_state(store_path, state)
+        if not tally.refused:
+            # The timestamp says this run walked the whole store and wrote
+            # everything it found, so it advances only when every leg ran and
+            # no file was left behind by a local write failure.
+            state.last_full_sync = datetime.now(timezone.utc).isoformat()
+    finally:
+        # Sync state records what actually landed, so once this run could have
+        # landed something it is written whatever happens above. A run that
+        # stopped early leaves a truthful partial record rather than none at
+        # all, which is what keeps the next run from replaying into a store the
+        # state no longer describes.
+        if mutating:
+            save_state(store_path, state)
 
     if tally.adopted:
         reporter.info(f"Adopted {tally.adopted} local file(s) already on the server")
     if tally.merged:
         reporter.info(f"Merged {tally.merged} file(s) from remote")
-    elif not tally.adopted:
+    if tally.refused:
+        # Said last, after the warnings that explain each one. A run that could
+        # not write must never sign off as "No remote changes".
+        reporter.info(
+            f"Left {tally.refused} item(s) for the next sync: this run could not write them"
+        )
+    elif not (tally.merged or tally.adopted):
         reporter.info("No remote changes")
 
     return tally.merged
+
+
+# What a step that could not write says for itself. Same shape as _SKIP_DETAIL
+# above - what happened to this one subject, and what the user does about it -
+# because each message is printed on its own and speaks only for the file or
+# the pass it names.
+_WRITE_FAILURE_DETAIL = (
+    "a local filesystem error stopped the write ({error}), so nothing was recorded for "
+    "it and anything half-applied was left for the next run to finish. Fix the local "
+    "problem - permissions, free space, a directory that disappeared - then run "
+    "'nauro sync' again; it retries this file."
+)
+_COMPLETION_FAILURE_DETAIL = (
+    "the pass that finishes an interrupted renumber could not write here ({error}), so "
+    "any half-applied rename was left as it was. Fix the local problem - permissions, "
+    "free space - then run 'nauro sync' again; the pass runs on every sync."
+)
+
+
+@contextmanager
+def _guarded_step(subject: str, detail: str, reporter: Reporter, tally: _Tally) -> Iterator[None]:
+    """Run one mutation step, turning a local filesystem error into its outcome.
+
+    A pull mutates many files under one lock, and a store the run cannot write
+    - a read-only decision, a full disk, a directory removed underfoot - is a
+    property of one path, not of the batch. Before this guard, that path's
+    ``OSError`` escaped the whole run, so every file already written went
+    unrecorded and the next run replayed into a store its own state no longer
+    described.
+
+    So an ``OSError`` here is reported against the subject that raised it and
+    the batch carries on with the next file. That is only safe because every
+    step it wraps leaves a state the next run heals rather than a half-written
+    one: the remote bytes land through an atomic replace, so a file is either
+    its old version or its new one and never a truncation the push would then
+    upload over the good remote copy; an interrupted renumber is completed by
+    the next pull's completion pass; and a file written without a state entry
+    is adopted on its next classification.
+
+    Failures are counted on the tally, because a run that could not write
+    everything it found has not fully synced the store.
+    """
+    try:
+        yield
+    except OSError as exc:
+        tally.refused += 1
+        reporter.warn(f"{subject}: {detail.format(error=exc)}")
 
 
 def _presign(
@@ -597,7 +689,7 @@ def _resolve_and_record(store_path: Path, transfer: _Transfer, state: SyncState)
     """Apply the last-write-wins conflict policy and record the result."""
     local_file = store_path / transfer.rel
     merged_content = resolve_conflict(store_path, local_file, transfer.content, transfer.rel)
-    local_file.write_bytes(merged_content)
+    atomic_write_bytes(local_file, merged_content)
     update_file_state(state, transfer.rel, compute_sha256(local_file), transfer.etag)
 
 
@@ -672,8 +764,7 @@ def _apply_decision(
         return
 
     target = store_path / transfer.rel
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(transfer.content)
+    atomic_write_bytes(target, transfer.content)
     update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
     corpus.record_added(target, transfer.content.decode("utf-8", errors="replace"))
     tally.merged += 1
