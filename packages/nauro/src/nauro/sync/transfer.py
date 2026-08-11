@@ -113,6 +113,14 @@ def pause(seconds: float) -> None:
 def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], bytes]) -> bytes:
     """Download one object, retrying transient faults and one stale URL.
 
+    A re-mint is a credential refresh, not a network fault, so it resets the
+    transient budget instead of spending from it: the URL that failed and the
+    URL that replaces it are different requests, and the second one has to be
+    able to ride out a dropped connection too. The total stays bounded because
+    ``reminted`` is a one-time latch - at worst a full budget before the mint
+    and a full budget after it, then the second refusal falls through as
+    permanent.
+
     Raises:
         ~nauro.sync.remote.PresignError: the last failure, once the fault is
             permanent or the attempt budget is spent.
@@ -129,6 +137,7 @@ def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], bytes
                 # A URL minted seconds ago that still answers 403 is refused,
                 # not expired, so the mint is offered exactly once.
                 reminted = True
+                failures = 0
                 urls.remint()
                 continue
             if fault is not TransferFault.TRANSIENT or failures >= _MAX_ATTEMPTS:

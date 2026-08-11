@@ -137,6 +137,46 @@ def test_transient_transport_fault_retries_with_backoff_and_restores(tmp_path, m
     assert len(cloud.waits) == 2
 
 
+def test_a_transient_fault_gets_four_attempts_and_no_more(tmp_path, monkeypatch):
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.always_fail["project.md"] = _transport_fault()
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+
+    with pytest.raises(RecoveryError, match="download failed"):
+        restore_cloud_store(PID, destination)
+
+    assert cloud.fetched.count("project.md") == 4
+    assert len(cloud.waits) == 3
+
+
+def test_a_remint_does_not_spend_the_transient_budget(tmp_path, monkeypatch):
+    """A re-mint refreshes a credential; it is not a failed network attempt.
+
+    The URL that replaces a stale one has to be able to ride out a dropped
+    connection too, so the fresh URL starts with the whole budget.
+    """
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.faults["project.md"] = [
+        _http_fault(403),
+        _transport_fault(),
+        _transport_fault(),
+        _transport_fault(),
+    ]
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+
+    result = restore_cloud_store(PID, destination)
+
+    assert result == destination
+    # One refusal, then a full budget of three retries and the success.
+    assert cloud.fetched.count("project.md") == 5
+    assert len(cloud.mints) == 2
+    assert len(cloud.waits) == 3
+
+
 def test_permanent_http_fault_aborts_on_the_first_attempt(tmp_path, monkeypatch):
     files = _store_files(tmp_path / "source")
     cloud = _Cloud(files)
