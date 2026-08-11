@@ -99,6 +99,43 @@ def _cap_to_first_unit(body: str) -> str:
     return text[:cut].rstrip()
 
 
+_ASCII_DIGITS = "0123456789"
+
+
+def is_ascii_decimal(token: str) -> bool:
+    """True when ``token`` is a non-empty run of ASCII decimal digits.
+
+    The one test for "could this store have written that number". Every number
+    it renders - a decision's filename prefix, its H1, a ``D70`` reference, a
+    question's ``Q7`` id - is written in ASCII, so every reader here reads back
+    in ASCII, and one predicate keeps the readers from disagreeing.
+
+    ``str.isdigit`` is not that test. It is true across scripts, and the two
+    ways it goes wrong both matter: a superscript or circled digit passes it
+    and then makes ``int`` raise, and an Arabic-Indic run passes it and reads
+    as a number whose canonical written form is ASCII, so the value and the
+    text that carried it can never agree again.
+    """
+    return bool(token) and all(char in _ASCII_DIGITS for char in token)
+
+
+def _continues_a_number(char: str) -> bool:
+    """True when ``char`` could be one more digit of the number just read.
+
+    The right-boundary test for a number token, and deliberately narrower than
+    :func:`is_ascii_decimal`'s complement: ``str.isdecimal`` is true for exactly
+    the characters ``int`` accepts as digits, which is what "this number goes
+    on" means. So an Arabic-Indic digit after an ASCII run continues the number,
+    and the token is one number written in two scripts.
+
+    A superscript or circled digit is not one of them - ``int`` refuses it - so
+    it never continues a number. In a body it is a footnote marker after a
+    reference, and in a name it is simply where the number ended, the same as a
+    letter.
+    """
+    return char.isdecimal()
+
+
 def extract_decision_number(identifier: str) -> int | None:
     """Extract the decision number from a decision identifier.
 
@@ -108,24 +145,37 @@ def extract_decision_number(identifier: str) -> int | None:
     - prefixed: ``"D042"`` or ``"D42"``
     - bare integer: ``"42"``
 
+    The number is ASCII decimal (see :func:`is_ascii_decimal`); an identifier
+    numbered in any other script is one no writer here produced, and reads as
+    no number rather than as an error. Callers already handle that answer: it
+    is the same one a name like ``notes.md`` gets.
+
+    The whole number token is judged, not just its first characters. A run
+    that stops where the number continues in another script (see
+    :func:`_continues_a_number`) is one number written two ways, so it names
+    nothing here - reading the ASCII part alone would let such a name claim
+    decision 12, which it does not spell. A run that stops anywhere else is the
+    ordinary shape: the number ended and the rest is slug, so ``12x-foo.md``
+    still reads 12.
+
     Returns None if the identifier doesn't match a known shape.
     """
     s = identifier.removesuffix(".md")
     low = s.lower()
     if low.startswith("decision-"):
         s = s[len("decision-") :]
-    elif low.startswith("d") and len(s) > 1 and s[1].isdigit():
+    elif low.startswith("d") and len(s) > 1 and is_ascii_decimal(s[1]):
         s = s[1:]
     leading = ""
     for ch in s:
-        if ch.isdigit():
+        if is_ascii_decimal(ch):
             leading += ch
-        else:
-            break
+            continue
+        if _continues_a_number(ch):
+            return None
+        break
     return int(leading) if leading else None
 
-
-_ASCII_DIGITS = "0123456789"
 
 # Body reference prefixes, lowercased. ``extract_decision_number`` accepts the
 # same forms for a single identifier; this scanner finds every occurrence in a
@@ -182,7 +232,12 @@ def _scan_prefix(text: str, low: str, prefix: str, found: set[int], max_number: 
         digit_start = i
         while i < n and text[i] in _ASCII_DIGITS:
             i += 1
-        if i > digit_start:
+        # Right boundary, same rule as ``extract_decision_number``: a run that
+        # stops at a digit from another script is one number written in two
+        # scripts and references nothing, while a run that stops at a letter or
+        # a space is an ordinary reference that ends there.
+        mixed_script = i < n and _continues_a_number(text[i])
+        if i > digit_start and not mixed_script:
             value = int(text[digit_start:i])
             if 1 <= value <= max_number:
                 found.add(value)

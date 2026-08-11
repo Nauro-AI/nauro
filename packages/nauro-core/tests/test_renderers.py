@@ -17,6 +17,7 @@ from nauro_core.operations.diff_since_last_session import (
     ONE_SNAPSHOT_COVERS_RANGE,
 )
 from nauro_core.renderers import (
+    _id_to_label,
     render_check_decision,
     render_diff_since_last_session,
     render_get_context,
@@ -996,3 +997,19 @@ class TestRenderDiffSinceLastSession:
             "reason_code": "connected_record_missing",
         }
         assert render_diff_since_last_session(result) == result["guidance"]
+
+
+class TestIdToLabel:
+    def test_ascii_id_becomes_a_label(self):
+        assert _id_to_label("decision-145") == "D145"
+
+    def test_a_non_ascii_number_falls_back_to_the_raw_id(self):
+        # str.isdigit passes these; int() raises on the first one and reads the
+        # second as 12, a number no id here could have been written with.
+        assert _id_to_label("decision-\u00b2") == "decision-\u00b2"
+        assert _id_to_label("decision-\u0661\u0662") == "decision-\u0661\u0662"
+
+    def test_a_mixed_script_number_falls_back_to_the_raw_id(self):
+        # The suffix is tested whole, so a number that continues in another
+        # script was already refused rather than cut short.
+        assert _id_to_label("decision-12\u0661") == "decision-12\u0661"

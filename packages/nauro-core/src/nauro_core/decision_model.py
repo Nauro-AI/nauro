@@ -57,7 +57,7 @@ from enum import Enum
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from nauro_core.parsing import extract_decision_number
+from nauro_core.parsing import extract_decision_number, is_ascii_decimal
 
 # ── Enums (values match on-disk lowercase tokens verbatim) ──
 
@@ -173,7 +173,7 @@ class Decision(BaseModel):
         """
         if v is None:
             return v
-        if not v.isdigit():
+        if not is_ascii_decimal(v):
             raise ValueError(
                 f"supersession ref must be a plain integer string (e.g. '70'), got {v!r}"
             )
@@ -234,7 +234,11 @@ _FRONTMATTER_ORDER: tuple[str, ...] = (
 # ── Parser ──
 
 
-_H1_PATTERN = re.compile(r"^#\s+(\d+)\s+\u2014\s+(.+)$", re.MULTILINE)
+# ``[0-9]`` rather than ``\d``: the pattern is Unicode-aware by default, and a
+# heading numbered in another script names a number whose filename form is
+# ASCII, so the two could never match again. Such a heading is malformed here,
+# the same as a missing one.
+_H1_PATTERN = re.compile(r"^#\s+([0-9]+)\s+\u2014\s+(.+)$", re.MULTILINE)
 _SUBSECTION_SPLIT = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
 
 _DECISION_ANCHOR = "## Decision"

@@ -32,6 +32,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from nauro_core.constants import POINTER_FLAG_PREFIXES, QUESTION_ENTRY_CHAR_BUDGET
+from nauro_core.parsing import is_ascii_decimal
 
 _TIMESTAMP_FMT = "%Y-%m-%d %H:%M UTC"
 _RESOLVED_HEADER = "## Resolved"
@@ -808,7 +809,7 @@ def _parse_q_id(text: str) -> int | None:
     if len(text) < 2 or text[0] != "Q":
         return None
     digits = text[1:]
-    if not digits.isdigit():
+    if not is_ascii_decimal(digits):
         return None
     num = int(digits)
     if num < 1:
@@ -825,6 +826,8 @@ def _parse_resolved_prefix(text: str) -> ResolvedRef | None:
     if sep_idx < 1:
         return None
     num_str = rest[:sep_idx]
+    if not is_ascii_decimal(num_str):
+        return None
     date_str = rest[sep_idx + len(_RESOLVED_PREFIX_SEP) :].strip()
     try:
         return ResolvedRef(decision_num=int(num_str), date=_date.fromisoformat(date_str))
