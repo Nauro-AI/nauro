@@ -2036,3 +2036,33 @@ class TestStrandedTmpSiblings:
         assert merged == 1
         assert stranded.exists()
         assert any("interrupted write" in warning for warning in reporter.warns)
+
+    def test_a_walk_that_breaks_partway_still_lets_the_pull_run(self, collision_store, monkeypatch):
+        """The sweep is best-effort hygiene, not a gate on the sync.
+
+        It runs before the manifest fetch, so an error escaping the traversal
+        aborts a pull that never started, and the session-start hook swallows
+        that into a silently skipped sync. A directory can vanish underneath
+        the walk at any time: the store is one other processes write into.
+        """
+        stranded = self._strand(collision_store / "stack.md", b"# Stack\n", age_seconds=600)
+        real_rglob = Path.rglob
+
+        def break_partway(self, *args, **kwargs):
+            if self != collision_store:
+                yield from real_rglob(self, *args, **kwargs)
+                return
+            yield stranded
+            raise OSError(5, "Input/output error")
+
+        monkeypatch.setattr(pull_module.Path, "rglob", break_partway)
+
+        merged, reporter = pull(
+            collision_store, [("decisions/020-remote.md", decision_bytes(20, "Remote"))]
+        )
+
+        assert merged == 1
+        assert (collision_store / "decisions/020-remote.md").exists()
+        # What the walk reached before it broke was still cleaned up.
+        assert not stranded.exists()
+        assert any("could not finish looking" in warning for warning in reporter.warns)

@@ -695,22 +695,36 @@ def _sweep_interrupted_writes(store_path: Path, reporter: Reporter) -> int:
     a sweep they accumulate for the life of the store, each one a full copy of
     whatever was being written. The pull is where they are collected because it
     already holds the sync lock and already walks the store.
+
+    Hygiene never costs the caller the sync it asked for. This is the first
+    thing a run does, before the manifest fetch, so an error escaping it would
+    abort a pull that had not started - and on the session-start hook, which
+    swallows everything, skip it in silence. The walk is guarded as well as
+    each file: the store is a directory other processes and the user write
+    into, so a directory can vanish underneath the traversal, and which errors
+    a walk raises rather than swallows differs across the Python versions this
+    supports. The guarantee has to be this function's, not the walk's.
     """
     cutoff = time.time() - _STRANDED_TMP_MIN_AGE_SECONDS
     removed = 0
-    for path in store_path.rglob("*"):
-        if not is_tmp_sibling(path.name) or not path.is_file():
-            continue
-        try:
-            if path.stat().st_mtime > cutoff:
+    try:
+        for path in store_path.rglob("*"):
+            if not is_tmp_sibling(path.name) or not path.is_file():
                 continue
-            path.unlink()
-        except OSError as exc:
-            # One dropping this run cannot remove is not a reason to refuse the
-            # pull that was asked for.
-            reporter.warn(f"could not remove the interrupted write {path}: {exc}")
-            continue
-        removed += 1
+            try:
+                if path.stat().st_mtime > cutoff:
+                    continue
+                path.unlink()
+            except OSError as exc:
+                # One dropping this run cannot remove is not a reason to refuse
+                # the pull that was asked for.
+                reporter.warn(f"could not remove the interrupted write {path}: {exc}")
+                continue
+            removed += 1
+    except OSError as exc:
+        # The walk stops where it broke. What it removed before that still
+        # counts, and the next run starts the sweep again.
+        reporter.warn(f"could not finish looking for interrupted writes: {exc}")
     if removed:
         reporter.info(f"Cleaned {removed} interrupted write(s)")
     return removed
