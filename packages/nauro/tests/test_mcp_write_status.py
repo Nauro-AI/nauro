@@ -26,9 +26,29 @@ def test_ok_returns_the_wrapper_success_line():
     assert render_write_status({"store": "local", "status": "ok"}, _success) == "Committed."
 
 
-def test_a_missing_status_reads_as_ok():
-    """Adapters always stamp a status; an envelope without one is a success."""
-    assert render_write_status({"store": "local"}, _success) == "Committed."
+def test_an_envelope_with_no_status_is_not_a_success():
+    """Every adapter stamps a status. One that does not is a broken envelope."""
+    assert render_write_status({"store": "local"}, _explode) == (
+        "The envelope carried no write status. Treat the write as unconfirmed."
+    )
+
+
+def test_an_envelope_with_no_status_still_carries_its_text():
+    envelope = {"store": "local", "guidance": "Run 'nauro init <name>'."}
+    assert render_write_status(envelope, _explode) == (
+        "The envelope carried no write status. Treat the write as unconfirmed. "
+        "Run 'nauro init <name>'."
+    )
+
+
+def test_a_rejection_falls_back_to_its_remedial_guidance():
+    """``error.guidance`` is read when the payload carries no reason text."""
+    envelope = {
+        "store": "local",
+        "status": "rejected",
+        "error": {"kind": "rejected", "reason": "", "guidance": "Shorten the delta."},
+    }
+    assert render_write_status(envelope, _explode) == "Shorten the delta."
 
 
 def test_rejected_returns_the_error_reason_alone():
@@ -49,7 +69,11 @@ def test_error_returns_the_guidance():
     ("status", "expected"),
     [
         ("rejected", "The write was rejected. Nothing was recorded."),
-        ("noop", "No write was made. The store reported nothing to update."),
+        (
+            "noop",
+            "No write was made. The store has no state file to update. "
+            "Run 'nauro status' for the store path, then restore state_current.md there.",
+        ),
         ("error", "The write did not run. Nothing was recorded."),
     ],
 )

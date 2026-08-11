@@ -288,6 +288,29 @@ class TestStdioCarriesTheAssessment:
 class TestStdioNamesEveryStatus:
     """A status that wrote nothing must never read as a flagged question."""
 
+    def test_an_over_length_question_reports_the_rejection(self, seeded_repo):
+        pid, store_path = seeded_repo
+        overlong = "x" * 10_000
+        before = (store_path / "open-questions.md").read_text()
+
+        stdio_string = stdio_flag_question(question=overlong, project_id=pid)
+
+        assert "Question flagged." not in stdio_string
+        assert stdio_string == tool_flag_question(store_path, overlong)["error"]["reason"]
+        assert (store_path / "open-questions.md").read_text() == before
+
+    def test_an_envelope_fragment_reports_the_rejection(self, seeded_repo):
+        pid, store_path = seeded_repo
+        leaked = "Should we ship X?</parameter>"
+        before = (store_path / "open-questions.md").read_text()
+
+        stdio_string = stdio_flag_question(question=leaked, project_id=pid)
+
+        assert "Question flagged." not in stdio_string
+        assert stdio_string == tool_flag_question(store_path, leaked)["error"]["reason"]
+        assert "</parameter>" in stdio_string
+        assert (store_path / "open-questions.md").read_text() == before
+
     def test_a_store_lost_after_resolution_reports_the_guidance(
         self, seeded_repo, tmp_path, monkeypatch
     ):
@@ -311,4 +334,7 @@ class TestStdioNamesEveryStatus:
         stdio_string = stdio_flag_question(resolved_by="D42", targets=["Q1"], project_id=pid)
 
         assert "Question(s) resolved." not in stdio_string
-        assert "nauro init" in stdio_string
+        assert (
+            stdio_string
+            == tool_flag_question(vanished, resolved_by="D42", targets=["Q1"])["guidance"]
+        )

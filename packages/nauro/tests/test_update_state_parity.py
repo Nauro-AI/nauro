@@ -241,7 +241,10 @@ class TestStdioNamesEveryStatus:
 
         assert tool_update_state(store_path, "probe")["status"] == "noop"
         assert "State updated." not in stdio_string
-        assert stdio_string == "No write was made. The store reported nothing to update."
+        assert stdio_string == (
+            "No write was made. The store has no state file to update. "
+            "Run 'nauro status' for the store path, then restore state_current.md there."
+        )
         assert not (store_path / "state_current.md").exists()
 
     def test_a_store_lost_after_resolution_reports_the_guidance(
