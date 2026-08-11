@@ -27,6 +27,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app as cli_app
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
+from nauro.mcp import stdio_server as stdio_module
 from nauro.mcp import tools as mcp_tools
 from nauro.mcp.stdio_server import update_state as stdio_update_state
 from nauro.mcp.tools import tool_update_state
@@ -207,3 +208,51 @@ class TestStdioCarriesTheAssessment:
         assert stdio_update_state(delta="Shipped the stdio surface", project_id=pid) == (
             "State updated."
         )
+
+
+class TestStdioNamesEveryStatus:
+    """A status that wrote nothing must never read as a completed write.
+
+    The stdio surface answers with one line, so a status it does not read is
+    a status the agent never learns about. Each cell below wrote nothing to
+    the store, and each one used to answer "State updated."
+    """
+
+    def test_an_over_length_delta_reports_the_rejection(self, seeded_repo):
+        pid, store_path = seeded_repo
+        before = (store_path / "state_current.md").read_text()
+
+        stdio_string = stdio_update_state(delta="x" * 10_000, project_id=pid)
+
+        assert "State updated." not in stdio_string
+        assert "exceeds" in stdio_string.lower()
+        # The kernel's own reason, and nothing bolted on.
+        rejection = tool_update_state(store_path, "x" * 10_000)
+        assert stdio_string == rejection["error"]["reason"]
+        assert (store_path / "state_current.md").read_text() == before
+
+    def test_a_noop_reports_that_nothing_was_written(self, seeded_repo):
+        pid, store_path = seeded_repo
+        # No state_current.md and no legacy state.md: the kernel early-returns
+        # without writing.
+        (store_path / "state_current.md").unlink()
+
+        stdio_string = stdio_update_state(delta="Shipped the stdio surface", project_id=pid)
+
+        assert tool_update_state(store_path, "probe")["status"] == "noop"
+        assert "State updated." not in stdio_string
+        assert stdio_string == "No write was made. The store reported nothing to update."
+        assert not (store_path / "state_current.md").exists()
+
+    def test_a_store_lost_after_resolution_reports_the_guidance(
+        self, seeded_repo, tmp_path, monkeypatch
+    ):
+        """The store-missing race: resolution succeeded, then the store went."""
+        pid, _store_path = seeded_repo
+        vanished = tmp_path / "vanished-store"
+        monkeypatch.setattr(stdio_module, "_resolve_store", lambda *_a, **_kw: vanished)
+
+        stdio_string = stdio_update_state(delta="Shipped the stdio surface", project_id=pid)
+
+        assert "State updated." not in stdio_string
+        assert stdio_string == tool_update_state(vanished, "probe")["guidance"]

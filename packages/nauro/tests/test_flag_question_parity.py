@@ -26,6 +26,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app as cli_app
+from nauro.mcp import stdio_server as stdio_module
 from nauro.mcp import tools as mcp_tools
 from nauro.mcp.stdio_server import flag_question as stdio_flag_question
 from nauro.mcp.tools import tool_flag_question
@@ -282,3 +283,32 @@ class TestStdioCarriesTheAssessment:
         assert stdio_flag_question(resolved_by="D42", targets=["Q1"], project_id=pid) == (
             "Question(s) resolved."
         )
+
+
+class TestStdioNamesEveryStatus:
+    """A status that wrote nothing must never read as a flagged question."""
+
+    def test_a_store_lost_after_resolution_reports_the_guidance(
+        self, seeded_repo, tmp_path, monkeypatch
+    ):
+        """The store-missing race: resolution succeeded, then the store went."""
+        pid, _store_path = seeded_repo
+        vanished = tmp_path / "vanished-store"
+        monkeypatch.setattr(stdio_module, "_resolve_store", lambda *_a, **_kw: vanished)
+
+        stdio_string = stdio_flag_question(question="Should we ship X?", project_id=pid)
+
+        assert "Question flagged." not in stdio_string
+        assert stdio_string == tool_flag_question(vanished, "Should we ship X?")["guidance"]
+
+    def test_a_lost_store_does_not_read_as_a_resolve_either(
+        self, seeded_repo, tmp_path, monkeypatch
+    ):
+        pid, _store_path = seeded_repo
+        vanished = tmp_path / "vanished-store"
+        monkeypatch.setattr(stdio_module, "_resolve_store", lambda *_a, **_kw: vanished)
+
+        stdio_string = stdio_flag_question(resolved_by="D42", targets=["Q1"], project_id=pid)
+
+        assert "Question(s) resolved." not in stdio_string
+        assert "nauro init" in stdio_string

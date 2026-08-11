@@ -23,6 +23,13 @@ output. Write tools keep their existing single-value shape. A tool name
 missing from ``RENDERERS`` (an older installed nauro-core) falls back to
 a JSON dump of the envelope, so the wrapper degrades gracefully instead
 of crashing.
+
+The two write tools that answer with a flat string — ``flag_question``
+and ``update_state`` — route every envelope through
+``nauro.mcp.write_status.render_write_status``, which owns the
+status-to-line dispatch. Each wrapper supplies only the line for a write
+that committed. ``propose_decision`` returns the envelope itself and
+needs no such seam.
 """
 
 from __future__ import annotations
@@ -61,9 +68,9 @@ from nauro.mcp.tools import (
     tool_search_decisions,
     tool_update_state,
 )
+from nauro.mcp.write_status import render_write_status
 from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.journal import OriginDescriptor
-from nauro.store.post_commit import with_assessment
 from nauro.store.repo_head import resolve_repo_head
 from nauro.store.resolution import (
     DisconnectedProject,
@@ -476,15 +483,16 @@ def flag_question(
         resolved_by=resolved_by,
         origin=_origin_from_ctx(mcp_ctx),
     )
-    if result.get("status") == "rejected":
-        error = result.get("error") or {}
-        reason = str(error.get("reason", "Flag rejected."))
-        return reason
-    if resolved_by is not None:
-        return with_assessment("Question(s) resolved.", result)
-    if result.get("hint"):
-        return with_assessment(f"{result['hint']} The question has still been logged.", result)
-    return with_assessment("Question flagged.", result)
+
+    def flagged() -> str:
+        """The confirmation line for a question the kernel did write."""
+        if resolved_by is not None:
+            return "Question(s) resolved."
+        if result.get("hint"):
+            return f"{result['hint']} The question has still been logged."
+        return "Question flagged."
+
+    return render_write_status(result, flagged)
 
 
 @mcp.tool(**_spec_kwargs("update_state"))
@@ -500,9 +508,13 @@ def update_state(
     if err is not None:
         return err if disconnected_reason_code(err) is not None else err["guidance"]
     result = tool_update_state(store_path, delta, origin=_origin_from_ctx(mcp_ctx))
-    if result.get("warning"):
-        return with_assessment(f"State updated. {result['warning']}", result)
-    return with_assessment("State updated.", result)
+
+    def updated() -> str:
+        """The confirmation line for a state body the kernel did write."""
+        warning = result.get("warning")
+        return f"State updated. {warning}" if warning else "State updated."
+
+    return render_write_status(result, updated)
 
 
 def _pull_on_startup() -> None:
