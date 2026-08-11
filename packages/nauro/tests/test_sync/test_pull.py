@@ -21,6 +21,7 @@ import httpx
 import pytest
 from nauro_core.operations.propose_decision import _next_decision_num
 
+from nauro.cli.commands.auth import AuthRefreshError
 from nauro.store import _atomic
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.store.filesystem_store import FilesystemStore
@@ -1829,6 +1830,73 @@ class TestLocalWriteFailures:
             pull(collision_store, [("decisions/015-remote.md", decision_bytes(15, "Remote"))])
 
         assert (collision_store / ".sync-state.json").read_bytes() == corrupt
+
+
+class TestServerOutOfReach:
+    """A run that fetched nothing must not read as a store already in step.
+
+    Both legs returned an empty report, which counts zero refusals and says
+    zero files are owed. The command then exited 0 and pushed over a pull that
+    never happened.
+    """
+
+    def test_a_manifest_failure_says_the_run_never_saw_the_server(
+        self, collision_store, monkeypatch
+    ):
+        def refuse(_project_id):
+            raise PresignError("503 service unavailable")
+
+        monkeypatch.setattr(pull_module, "fetch_manifest", refuse)
+        reporter = _RecordingReporter()
+
+        report = run_pull(CLOUD_PID, collision_store, reporter)
+
+        assert report.manifest_read is False
+        assert report.left_work_behind is True
+        assert load_state(collision_store).last_full_sync == ""
+        assert any("manifest fetch failed" in warning for warning in reporter.warns)
+
+    def test_an_auth_failure_on_the_manifest_reads_the_same_way(self, collision_store, monkeypatch):
+        def refuse(_project_id):
+            raise AuthRefreshError("session expired; run 'nauro auth login'")
+
+        monkeypatch.setattr(pull_module, "fetch_manifest", refuse)
+
+        report = run_pull(CLOUD_PID, collision_store, _RecordingReporter())
+
+        assert report.manifest_read is False
+        assert report.left_work_behind is True
+
+    def test_a_total_presign_failure_counts_every_planned_file(self, collision_store, monkeypatch):
+        """Here the run does know what it missed, so it says how much."""
+
+        def refuse(*_args):
+            raise PresignError("403 forbidden")
+
+        monkeypatch.setattr(pull_module, "request_presigned_urls", refuse)
+
+        report, reporter = pull_report(
+            collision_store,
+            [
+                ("decisions/018-remote.md", decision_bytes(18, "Unfetched")),
+                ("stack.md", b"# Stack\n\nremote\n"),
+            ],
+        )
+
+        assert report.refused == 2
+        assert report.merged == 0
+        assert report.manifest_read is True
+        assert report.left_work_behind is True
+        assert not (collision_store / "decisions/018-remote.md").exists()
+        assert load_state(collision_store).last_full_sync == ""
+        assert any("presign request failed" in warning for warning in reporter.warns)
+        assert any("Left 2 item(s) for the next sync" in line for line in reporter.infos)
+
+    def test_a_clean_run_says_it_read_the_server(self, collision_store):
+        report, _reporter = pull_report(collision_store, [])
+
+        assert report.manifest_read is True
+        assert report.left_work_behind is False
 
 
 class TestPartialWrites:

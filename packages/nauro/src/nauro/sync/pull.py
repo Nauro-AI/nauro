@@ -168,15 +168,25 @@ class _Tally:
 class PullReport:
     """What one pull run left behind, for a caller that must act on it.
 
-    ``nauro sync`` turns ``refused`` into a nonzero exit: a run that could not
-    write everything the server holds must not report success to a script.
-    ``skipped_permanent`` is reported to the user but never changes an exit
-    code, because no rerun resolves it.
+    ``nauro sync`` turns unfinished work into a nonzero exit: a run that could
+    not bring the store level with the server must not report success to a
+    script. Unfinished has two shapes, and a count describes only one of them.
+    ``refused`` counts files a later sync retries. ``manifest_read`` is False
+    when the run never learned what the server holds at all, which no file
+    count can stand in for - there is no denominator. ``skipped_permanent`` is
+    neither: it is reported to the user and never changes an exit code,
+    because no rerun resolves it.
     """
 
     merged: int = 0
     refused: int = 0
     skipped_permanent: int = 0
+    manifest_read: bool = True
+
+    @property
+    def left_work_behind(self) -> bool:
+        """True when the store is short of the server and a rerun can close it."""
+        return self.refused > 0 or not self.manifest_read
 
     @classmethod
     def _of(cls, tally: _Tally) -> PullReport:
@@ -463,9 +473,14 @@ def run_pull(
     changed set is hundreds of megabytes of snapshots is never held in memory
     and a local decision writer never waits on the whole batch.
 
-    Returns a :class:`PullReport`. Caller-facing failures (manifest/presign
-    auth-refresh or transport errors) are reported through ``reporter`` and map
-    to an empty report.
+    Returns a :class:`PullReport`. A transport or auth-refresh failure is
+    reported through ``reporter`` and then carried in that report, in the terms
+    the run can honestly give: a manifest fetch that failed returns
+    ``manifest_read=False``, because the run never learned what the server
+    holds and has no count to offer; a presign request that failed as a whole
+    counts every planned file as refused, because there the total is known.
+    Neither returns an empty report, which would say the store is already level
+    with the server.
 
     The write phase is crash-safe in both directions: a local filesystem error
     on one file is reported and the batch continues, and sync state is written
@@ -486,23 +501,33 @@ def _run_pull_locked(
 ) -> PullReport:
     _sweep_interrupted_writes(store_path, reporter)
 
+    # A run that could not read the file list did not sync anything and cannot
+    # say how much it missed. It reports that plainly rather than as a count of
+    # zero, which the caller would read as a store already level with the
+    # server. Nothing is written on the way out, so the last-full-sync stamp
+    # keeps the date of the last run that did finish.
     try:
         rows = fetch_manifest(project_id)
     except AuthRefreshError as exc:
         reporter.warn(str(exc))
-        return PullReport()
+        return PullReport(manifest_read=False)
     except PresignError as exc:
         reporter.warn(f"manifest fetch failed: {exc}")
-        return PullReport()
+        return PullReport(manifest_read=False)
 
     manifest = _parse_manifest(rows, reporter)
     state = load_state(store_path)
     work = _triage(store_path, manifest, state, reporter)
     tally = _Tally(skipped_permanent=manifest.unreadable_rows + work.skipped_permanent)
 
-    urls = _presign(project_id, work.all_files(), reporter)
+    planned = work.all_files()
+    urls = _presign(project_id, planned, reporter)
     if urls is None:
-        return PullReport._of(tally)
+        # The request failed as a whole, so every file it was for stays where
+        # it is. Here the denominator is known, so each one is counted: the
+        # cause is reported above and the total is reported below.
+        tally.refused += len(planned)
+        return _report_tally(tally, reporter)
 
     # Flipped the moment the decision lock is held, which is the moment this run
     # can start changing the store. Everything before it - the manifest, the
@@ -573,6 +598,15 @@ def _run_pull_locked(
         if mutating:
             save_state(store_path, state)
 
+    return _report_tally(tally, reporter)
+
+
+def _report_tally(tally: _Tally, reporter: Reporter) -> PullReport:
+    """Say what the run did, and hand the caller the same answer.
+
+    Every leg that stops early ends here too, so a run that fetched nothing
+    still names what it owes instead of falling silent.
+    """
     if tally.adopted:
         reporter.info(f"Adopted {tally.adopted} local file(s) already on the server")
     if tally.merged:
@@ -584,9 +618,10 @@ def _run_pull_locked(
         )
     if tally.refused:
         # Said last, after the warnings that explain each one. A run that could
-        # not write must never sign off as "No remote changes".
+        # not finish must never sign off as "No remote changes".
         reporter.info(
-            f"Left {tally.refused} item(s) for the next sync: this run could not write them"
+            f"Left {tally.refused} item(s) for the next sync: this run could not "
+            "fetch or write them"
         )
     elif not (tally.merged or tally.adopted or tally.skipped_permanent):
         reporter.info("No remote changes")

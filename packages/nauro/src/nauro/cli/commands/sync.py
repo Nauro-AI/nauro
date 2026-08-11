@@ -103,18 +103,29 @@ def sync(
     if warnings:
         print_warnings(warnings)
 
-    if pulled.refused:
+    if pulled.left_work_behind:
         # Exit 2, after everything else ran: the snapshot, the regen, and the
         # push all succeeded, so this is not the exit-1 failure of the command,
         # but the store does not hold everything the server has and a script
         # must not read that as a clean sync.
         typer.echo(
-            f"Error: {pulled.refused} remote file(s) were not written this sync "
-            "(each one is reported above). Run 'nauro sync' again once the local "
-            "problem is fixed.",
+            f"Error: {_unfinished_pull_detail(pulled)}. The reason is reported "
+            "above. Run 'nauro sync' again once the problem is fixed.",
             err=True,
         )
         raise typer.Exit(code=2)
+
+
+def _unfinished_pull_detail(report: PullReport) -> str:
+    """Name what the pull left undone, in the terms that run knows it.
+
+    A run that never read the server's file list has no count to give: saying
+    zero files were missed would describe a store that is level with the
+    server, which is the one thing this run cannot claim.
+    """
+    if not report.manifest_read:
+        return "this sync could not read the server's file list, so it pulled nothing"
+    return f"{report.refused} remote file(s) were not written this sync"
 
 
 def _pull_from_cloud(project_id: str, store_path: Path) -> PullReport:

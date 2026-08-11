@@ -88,6 +88,37 @@ class TestSyncExitCode:
         assert result.exit_code == 2, result.output
         assert "2 remote file(s) were not written" in result.output
 
+    def test_a_pull_that_never_read_the_server_exits_two(self, project_store, monkeypatch):
+        """An empty report used to say the same thing as a store in step."""
+        self._stub_pull(monkeypatch, PullReport(manifest_read=False))
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 2, result.output
+        assert "could not read the server's file list" in result.output
+
+    def test_the_push_still_runs_before_that_exit(self, project_store, monkeypatch):
+        """The push order is unchanged: the snapshot is local work worth keeping."""
+        from nauro.cli.commands import sync as sync_mod
+
+        call_order = []
+
+        def mock_pull(_project_name, _store_path):
+            call_order.append("pull")
+            return PullReport(manifest_read=False)
+
+        def mock_push(_project_name, _store_path):
+            call_order.append("push")
+            return True
+
+        monkeypatch.setattr(sync_mod, "_pull_from_cloud", mock_pull)
+        monkeypatch.setattr(sync_mod, "_push_to_cloud", mock_push)
+
+        result = runner.invoke(app, ["sync"])
+
+        assert call_order == ["pull", "push"]
+        assert result.exit_code == 2, result.output
+
     def test_a_permanent_skip_alone_exits_zero(self, project_store, monkeypatch):
         """A quarantined collision has its own surface and no retry to offer."""
         self._stub_pull(monkeypatch, PullReport(skipped_permanent=1))
