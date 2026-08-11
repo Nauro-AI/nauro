@@ -1,4 +1,4 @@
-"""Tests for the atomic text-write primitive in ``nauro.store._atomic``."""
+"""Tests for the atomic write primitives in ``nauro.store._atomic``."""
 
 import threading
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from nauro.store import _atomic
-from nauro.store._atomic import atomic_write_text
+from nauro.store._atomic import atomic_write_bytes, atomic_write_text
 
 
 def test_round_trip_exact_bytes(tmp_path):
@@ -168,3 +168,42 @@ def test_sensitive_write_leaves_no_tmp_behind(tmp_path):
     target = tmp_path / "config.json"
     atomic_write_text(target, "x\n", mode=0o600)
     assert [p.name for p in tmp_path.iterdir()] == ["config.json"]
+
+
+def test_bytes_round_trip_and_overwrite(tmp_path):
+    p = tmp_path / "remote.md"
+    atomic_write_bytes(p, b"first\n")
+    atomic_write_bytes(p, b"second\n")
+    assert p.read_bytes() == b"second\n"
+    assert list(tmp_path.iterdir()) == [p]
+
+
+def test_bytes_creates_missing_parent_dirs(tmp_path):
+    p = tmp_path / "decisions" / "007-x.md"
+    atomic_write_bytes(p, b"body\n")
+    assert p.read_bytes() == b"body\n"
+
+
+def test_bytes_leave_the_existing_file_whole_when_the_write_dies(tmp_path, monkeypatch):
+    """The reason the pull needs this: a truncating write that fails halfway
+    leaves a file that is neither version, and the next push uploads it."""
+    p = tmp_path / "stack.md"
+    p.write_bytes(b"the whole local file\n")
+
+    def boom(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(_atomic.os, "replace", boom)
+    with pytest.raises(OSError):
+        atomic_write_bytes(p, b"short")
+
+    assert p.read_bytes() == b"the whole local file\n"
+    assert list(tmp_path.iterdir()) == [p]
+
+
+def test_bytes_preserve_existing_permissions(tmp_path):
+    p = tmp_path / "stack.md"
+    p.write_bytes(b"old\n")
+    p.chmod(0o640)
+    atomic_write_bytes(p, b"new\n")
+    assert (p.stat().st_mode & 0o777) == 0o640

@@ -28,6 +28,7 @@ from nauro.sync.collisions import (
 from nauro.sync.corpus import DecisionCorpus
 from nauro.sync.headings import (
     has_rewritable_heading,
+    heading_line_number,
     heading_number,
     rewrite_decision_heading,
     strip_number_prefix,
@@ -101,6 +102,23 @@ class TestHeadingPrimitives:
         assert heading_number("# 8 — Title\n") == 8
         assert heading_number("## 008 — Title\n") is None
         assert heading_number("#Not a heading\n") is None
+
+    @pytest.mark.parametrize(
+        "digits",
+        [
+            "²",  # superscript two
+            "١٢٣",  # Arabic-Indic 123
+            "፩",  # Ethiopic digit one
+            "①",  # circled digit one
+        ],
+    )
+    def test_a_non_ascii_digit_heading_claims_no_number(self, digits):
+        # ``str.isdigit`` is true for a whole zoo of characters ``int`` refuses,
+        # and the ones it accepts (Arabic-Indic) name a number whose canonical
+        # filename form is ASCII, so the heading and the name would then read as
+        # disagreeing.
+        assert heading_line_number(f"# {digits} — Title") is None
+        assert heading_number(f"# {digits} — Title\n") is None
 
     def test_rewritable_is_narrower_than_readable(self):
         assert has_rewritable_heading("# 008 — Title\n", 8) is True
@@ -404,6 +422,18 @@ class TestNonCanonicalHeadingNumbers:
         assert first.repaired == ()
         assert second == first
         assert path.read_bytes() == body
+
+    def test_a_non_ascii_digit_heading_does_not_break_the_pull(self, store):
+        # One decision file whose H1 carries a non-ASCII digit used to abort
+        # every sync from inside the completion pass, which runs on every pull.
+        body = decision_bytes(44, "Local decision").replace(b"\n# 044", "\n# ²".encode())
+        write_local_decision(store, "044-local.md", body)
+
+        merged, _reporter = pull(store, [("decisions/045-remote.md", decision_bytes(45, "Remote"))])
+
+        assert merged == 1
+        assert (store / "decisions/044-local.md").read_bytes() == body
+        assert (store / "decisions/045-remote.md").exists()
 
     def test_pull_reports_the_quarantined_mismatch_every_run(self, store):
         body = decision_bytes(42, "Local decision").replace(b"\n# 042", b"\n# 42")

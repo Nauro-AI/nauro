@@ -21,8 +21,8 @@ _HEADING_SEPARATORS = ("—", "-")
 def heading_number(text: str) -> int | None:
     """Return the number in the first decision H1, if the text has one.
 
-    Deliberately as lax as the decision parser: any digit run counts, so a
-    heading this module refuses to rewrite is still *read* correctly and a
+    Deliberately as lax as the decision parser: any ASCII digit run counts, so
+    a heading this module refuses to rewrite is still *read* correctly and a
     filename/heading disagreement is detected rather than missed.
     """
     for line in text.splitlines():
@@ -42,7 +42,15 @@ def heading_line_number(line: str) -> int | None:
         # No space after the hash: "#Not a heading", or a deeper "## " level.
         return None
     head, _, tail = rest.partition(" ")
-    if not head.isdigit() or not tail.startswith(_HEADING_SEPARATORS):
+    # ASCII decimal only, because a heading number is only useful if the rest of
+    # the pipeline can round-trip it. ``str.isdigit`` is true across scripts: a
+    # superscript or circled digit passes it and then makes ``int`` raise, and
+    # ``isdecimal`` - the narrower predicate ``int`` does accept - still admits
+    # an Arabic-Indic run, whose number renders back into a filename in ASCII.
+    # That is a heading and a name this module would then read as disagreeing
+    # and try to repair. Neither is a number this store can carry, so the line
+    # claims none.
+    if not (head.isascii() and head.isdigit()) or not tail.startswith(_HEADING_SEPARATORS):
         return None
     return int(head)
 

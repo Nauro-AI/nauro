@@ -268,8 +268,32 @@ def test_degraded_snapshot_keeps_the_flag_question_envelope(
     envelope = tool_flag_question(adapter_store, question="Should the cache be write-through?")
 
     assert envelope["status"] == "ok"
+    assert "snapshot capture failed" in envelope["assessment"]
+    assert "disk full" in envelope["assessment"]
     assert [e.status for e in read_events(adapter_store)] == ["committed"]
     assert no_push == [adapter_store]
+
+
+def test_degraded_push_reaches_the_flag_question_resolve_envelope(
+    adapter_store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (adapter_store / "open-questions.md").write_text(
+        "# Open Questions\n\n- [Q1] Should the cache be write-through?\n"
+    )
+    decisions = adapter_store / "decisions"
+    decisions.mkdir(exist_ok=True)
+    (decisions / "042-caching.md").write_text("# 042 — Caching\n")
+
+    def _boom(_store_path: Path) -> None:
+        raise RuntimeError("S3 credentials expired")
+
+    monkeypatch.setattr(mcp_tools, "_try_push", _boom)
+
+    envelope = tool_flag_question(adapter_store, resolved_by="D42", targets=["Q1"])
+
+    assert envelope["status"] == "ok"
+    assert "cloud push failed" in envelope["assessment"]
+    assert "S3 credentials expired" in envelope["assessment"]
 
 
 def test_degraded_snapshot_keeps_the_update_state_envelope(
@@ -280,5 +304,24 @@ def test_degraded_snapshot_keeps_the_update_state_envelope(
     envelope = tool_update_state(adapter_store, delta="Shipped the caching layer.")
 
     assert envelope["status"] == "ok"
+    assert "snapshot capture failed" in envelope["assessment"]
+    assert "disk full" in envelope["assessment"]
+    # The kernel's own advisory field is untouched: adapter text never lands in it.
+    assert "snapshot" not in envelope.get("warning", "")
     assert [e.status for e in read_events(adapter_store)] == ["committed"]
     assert no_push == [adapter_store]
+
+
+def test_a_clean_run_adds_no_assessment_to_the_short_envelopes(
+    adapter_store: Path, no_push: list[Path]
+) -> None:
+    """The degraded channel is silent when nothing degraded.
+
+    ``assessment`` is a field these two envelopes do not otherwise carry, so it
+    may only appear when there is something to say.
+    """
+    flagged = tool_flag_question(adapter_store, question="Should the cache be write-through?")
+    updated = tool_update_state(adapter_store, delta="Shipped the caching layer.")
+
+    assert "assessment" not in flagged
+    assert "assessment" not in updated

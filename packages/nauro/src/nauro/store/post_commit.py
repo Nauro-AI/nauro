@@ -26,7 +26,7 @@ stays a failure and exits nonzero.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from enum import Enum
 from pathlib import Path
 
@@ -146,3 +146,37 @@ def run_post_commit(
             )
 
     return PostCommitOutcome(degraded=tuple(degraded), updated_repos=tuple(updated_repos))
+
+
+# The one free-text field every MCP write envelope shares. Degraded steps ride
+# here rather than in a field of their own: the envelope shapes are pinned, and
+# a new key would be a contract change for a condition that is not a failure of
+# the write.
+ASSESSMENT_FIELD = "assessment"
+
+
+def surface_post_commit(
+    envelope: dict,
+    outcome: PostCommitOutcome,
+    *,
+    extra_warnings: Sequence[str] = (),
+) -> dict:
+    """Route a post-commit outcome's warnings into one write tool's envelope.
+
+    The single place the MCP adapters turn a degraded ancillary step into
+    something the agent can read. Without it the outcome was returned and
+    dropped, and the only record was a debug log line no local install
+    configures - so a store whose snapshot, ``AGENTS.md``, or cloud push had
+    stopped working said nothing at all.
+
+    The envelope is mutated in place and returned. The key appears only when
+    there is a warning to carry, so a clean run's envelope is byte-identical to
+    what a surface that never degrades would return, and any assessment the
+    caller already wrote keeps its place at the front.
+    """
+    notes = [*extra_warnings, *outcome.warnings]
+    if not notes:
+        return envelope
+    existing = envelope.get(ASSESSMENT_FIELD)
+    envelope[ASSESSMENT_FIELD] = "\n\n".join([existing, *notes] if existing else notes)
+    return envelope

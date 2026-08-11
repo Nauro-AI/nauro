@@ -12,6 +12,8 @@ classifier and its crash windows are unit-tested in ``test_collisions.py``.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -1312,3 +1314,265 @@ class TestUnreadableLocalNames:
 
         assert merged == 1
         assert "008-remote.md" in entry_names(collision_store / "decisions")
+
+
+class TestLocallyDeletedFiles:
+    """A tracked file the user deleted is not a conflict.
+
+    A conflict exists to protect local content from being overwritten. There is
+    no local content here, and the remote store is append-only, so the pull
+    reinstalls the file. Treating the absence as a conflict made the resolver
+    read a file that is not there, which aborted the whole run - including the
+    state save for everything the same run had already written.
+    """
+
+    def test_a_deleted_tracked_file_is_reinstalled(self, collision_store):
+        (collision_store / "stack.md").write_text("# Stack\n\nlocal\n")
+        track(collision_store, "stack.md")
+        (collision_store / "stack.md").unlink()
+
+        merged, reporter = pull(
+            collision_store,
+            [("stack.md", b"# Stack\n\nremote\n")],
+            etags={"stack.md": '"v2"'},
+        )
+
+        assert merged == 1
+        assert (collision_store / "stack.md").read_bytes() == b"# Stack\n\nremote\n"
+        state = load_state(collision_store)
+        assert state.files["stack.md"].remote_etag == '"v2"'
+        assert state.last_full_sync
+        assert reporter.warns == []
+
+    def test_a_deleted_tracked_decision_is_reinstalled(self, collision_store):
+        rel = "decisions/003-shared.md"
+        write_local_decision(collision_store, "003-shared.md", decision_bytes(3, "Shared", "v1."))
+        track(collision_store, rel)
+        (collision_store / rel).unlink()
+        updated = decision_bytes(3, "Shared", "v2.")
+
+        merged, reporter = pull(collision_store, [(rel, updated)], etags={rel: '"v2"'})
+
+        assert merged == 1
+        assert (collision_store / rel).read_bytes() == updated
+        assert load_state(collision_store).files[rel].remote_etag == '"v2"'
+        assert reporter.warns == []
+
+    def test_the_rest_of_the_batch_still_lands_and_is_recorded(self, collision_store):
+        (collision_store / "stack.md").write_text("# Stack\n\nlocal\n")
+        track(collision_store, "stack.md")
+        (collision_store / "stack.md").unlink()
+
+        merged, _reporter = pull(
+            collision_store,
+            [
+                ("decisions/009-remote.md", decision_bytes(9, "Remote")),
+                ("stack.md", b"# Stack\n\nremote\n"),
+            ],
+            etags={"stack.md": '"v2"'},
+        )
+
+        assert merged == 2
+        state = load_state(collision_store)
+        assert "decisions/009-remote.md" in state.files
+        assert "stack.md" in state.files
+
+
+class TestLocalWriteFailures:
+    """A local filesystem error stops one file, not the run.
+
+    Everything a pull mutates happens under the decision lock, and the record
+    of what landed is written at the end. An escaping OSError therefore lost
+    that record for every file the run had already written, and the next run
+    replayed into a store it no longer described.
+    """
+
+    @staticmethod
+    def _refuse(monkeypatch, name: str, *, once: bool = False) -> None:
+        """Fail the store write for one filename, as a full disk would."""
+        real = pull_module.atomic_write_bytes
+        pending = {name}
+
+        def guarded(path, data):
+            if path.name == name and (pending or not once):
+                pending.clear()
+                raise PermissionError(13, "Permission denied")
+            return real(path, data)
+
+        monkeypatch.setattr(pull_module, "atomic_write_bytes", guarded)
+
+    def test_a_failed_write_is_reported_and_the_batch_continues(self, collision_store, monkeypatch):
+        self._refuse(monkeypatch, "010-remote.md")
+
+        merged, reporter = pull(
+            collision_store,
+            [
+                ("decisions/010-remote.md", decision_bytes(10, "Refused")),
+                ("decisions/011-remote.md", decision_bytes(11, "Fine")),
+            ],
+        )
+
+        assert merged == 1
+        state = load_state(collision_store)
+        assert "decisions/011-remote.md" in state.files
+        assert "decisions/010-remote.md" not in state.files
+        assert any("010-remote.md" in warning for warning in reporter.warns)
+
+    def test_the_next_run_retries_the_file_that_failed(self, collision_store, monkeypatch):
+        self._refuse(monkeypatch, "010-remote.md", once=True)
+        entries = [("decisions/010-remote.md", decision_bytes(10, "Refused"))]
+
+        pull(collision_store, entries)
+        merged, _reporter = pull(collision_store, entries)
+
+        assert merged == 1
+        assert (collision_store / "decisions/010-remote.md").exists()
+        assert "decisions/010-remote.md" in load_state(collision_store).files
+
+    def test_a_failed_generic_write_keeps_the_state_of_what_landed(
+        self, collision_store, monkeypatch
+    ):
+        (collision_store / "stack.md").write_text("# Stack\n\nlocal\n")
+        track(collision_store, "stack.md")
+        self._refuse(monkeypatch, "stack.md")
+
+        merged, reporter = pull(
+            collision_store,
+            [
+                ("stack.md", b"# Stack\n\nremote\n"),
+                ("decisions/012-remote.md", decision_bytes(12, "Fine")),
+            ],
+            etags={"stack.md": '"v2"'},
+        )
+
+        assert merged == 1
+        state = load_state(collision_store)
+        assert "decisions/012-remote.md" in state.files
+        assert state.files["stack.md"].remote_etag != '"v2"'
+        assert any("stack.md" in warning for warning in reporter.warns)
+
+    def test_a_failing_completion_pass_does_not_abort_the_run(self, collision_store, monkeypatch):
+        def refuse(*_args, **_kwargs):
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr(pull_module, "run_completion_pass", refuse)
+
+        merged, reporter = pull(
+            collision_store, [("decisions/013-remote.md", decision_bytes(13, "Remote"))]
+        )
+
+        assert merged == 1
+        assert "decisions/013-remote.md" in load_state(collision_store).files
+        assert any("decisions:" in warning for warning in reporter.warns)
+
+    def test_a_refused_file_holds_back_the_full_sync_timestamp(self, collision_store, monkeypatch):
+        self._refuse(monkeypatch, "014-remote.md")
+
+        _merged, reporter = pull(
+            collision_store, [("decisions/014-remote.md", decision_bytes(14, "Refused"))]
+        )
+
+        # The store was not fully synced: one file is still owed.
+        assert load_state(collision_store).last_full_sync == ""
+        # And the run says so rather than signing off as a quiet no-op.
+        assert "No remote changes" not in reporter.infos
+        assert any("next sync" in line for line in reporter.infos)
+
+    def test_a_lock_timeout_leaves_an_unreadable_state_file_alone(
+        self, collision_store, monkeypatch
+    ):
+        """A run that never reached the write phase does not rewrite state.
+
+        An unreadable state file loads as an empty one, so a save on the way
+        out of a run that wrote nothing would untrack the whole store and hand
+        the corruption a permanent form.
+        """
+        corrupt = b'{"files": {"stack.md": '
+        (collision_store / ".sync-state.json").write_bytes(corrupt)
+
+        def refuse_lock(store_path, timeout, *_args, **_kwargs):
+            raise SyncLockTimeoutError(store_path, timeout, "decision")
+
+        monkeypatch.setattr(pull_module, "decision_lock", refuse_lock)
+
+        with pytest.raises(SyncLockTimeoutError):
+            pull(collision_store, [("decisions/015-remote.md", decision_bytes(15, "Remote"))])
+
+        assert (collision_store / ".sync-state.json").read_bytes() == corrupt
+
+
+class TestPartialWrites:
+    """A write that dies halfway must not leave a shortened file behind.
+
+    A plain write truncates the target first, so an error partway through
+    leaves bytes that are neither version. Nothing downstream can tell: the
+    next push reads the file as a local change and uploads the truncation over
+    the good remote copy, and there is no backup of what it replaced.
+    """
+
+    def test_a_dead_write_leaves_the_original_file_and_its_state_entry(
+        self, collision_store, monkeypatch
+    ):
+        original = b"# Stack\n\nthe local version, in full\n"
+        (collision_store / "stack.md").write_bytes(original)
+        track(collision_store, "stack.md")
+        before = load_state(collision_store).files["stack.md"]
+
+        real_replace = os.replace
+
+        def die_on_stack(src, dst, **kwargs):
+            if Path(dst).name == "stack.md":
+                raise OSError(28, "No space left on device")
+            return real_replace(src, dst, **kwargs)
+
+        monkeypatch.setattr("nauro.store._atomic.os.replace", die_on_stack)
+
+        merged, reporter = pull(
+            collision_store,
+            [("stack.md", b"# Stack\n\nthe remote version\n")],
+            etags={"stack.md": '"v2"'},
+        )
+
+        assert merged == 0
+        assert (collision_store / "stack.md").read_bytes() == original
+        after = load_state(collision_store).files["stack.md"]
+        assert (after.local_sha256, after.remote_etag) == (before.local_sha256, before.remote_etag)
+        assert any("stack.md" in warning for warning in reporter.warns)
+        # The half-written sibling is not left lying in the store either.
+        assert not list(collision_store.glob(".stack.md.*.tmp"))
+
+    def test_a_dead_decision_install_lands_nothing_and_retries(self, collision_store, monkeypatch):
+        """The install leg has the worst chain if a truncation survives.
+
+        A shortened decision file is untracked, so the next run classifies it
+        as a local record, keeps it over the remote one, and pushes it - the
+        store's own copy of that decision, silently replaced by a fragment.
+        """
+        rel = "decisions/016-remote.md"
+        body = decision_bytes(16, "Remote")
+        real_replace = os.replace
+        dying = {rel}
+
+        def die_on_install(src, dst, **kwargs):
+            if Path(dst).name == "016-remote.md" and dying:
+                dying.clear()
+                raise OSError(28, "No space left on device")
+            return real_replace(src, dst, **kwargs)
+
+        monkeypatch.setattr("nauro.store._atomic.os.replace", die_on_install)
+
+        merged, reporter = pull(collision_store, [(rel, body)])
+
+        assert merged == 0
+        assert "016-remote.md" not in entry_names(collision_store / "decisions")
+        assert rel not in load_state(collision_store).files
+        assert not list((collision_store / "decisions").glob(".016-remote.md.*.tmp"))
+        assert any("016-remote.md" in warning for warning in reporter.warns)
+
+        # Nothing about the store now argues against the remote decision, so
+        # the next run installs it whole.
+        merged, _reporter = pull(collision_store, [(rel, body)])
+
+        assert merged == 1
+        assert (collision_store / rel).read_bytes() == body
+        assert rel in load_state(collision_store).files
