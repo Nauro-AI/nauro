@@ -22,9 +22,10 @@ ALLOWLIST = {
     # Byte-matched marker for legacy CLAUDE.md block cleanup; blocks with
     # this exact text are already deployed on user machines.
     ("nauro/constants.py", "NAURO_BLOCK_START"),
-    # Input matching, not output: collision renumbering must recognize the
-    # em-dash decision headings nauro-core writes ("# NNN — Title").
-    ("nauro/sync/pull.py", "old_prefix"),
+    # Input matching, not output: the sync layer must recognize the em-dash
+    # decision headings nauro-core writes ("# NNN — Title").
+    ("nauro/sync/headings.py", "_HEADING_SEPARATORS"),
+    ("nauro/sync/headings.py", "line.startswith"),
 }
 
 

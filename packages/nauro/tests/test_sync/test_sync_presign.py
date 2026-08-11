@@ -471,7 +471,7 @@ class TestPushViaPresign:
     def test_stamped_decision_pushed_byte_identical(self, cloud_store):
         """A decision carrying the base_commit stamp uploads verbatim; the
         push path never rewrites decision bytes."""
-        from tests.test_sync.test_pull import _STAMPED_DECISION
+        from tests.test_sync.conftest import _STAMPED_DECISION
 
         self._seed_synced_state(cloud_store)
         rel = "decisions/099-remote-stamped.md"
@@ -638,3 +638,55 @@ class TestPushViaPresign:
         refresh_calls = [c for c in mock_post.call_args_list if "/oauth/token" in c.args[0]]
         assert len(presign_calls) == 2
         assert len(refresh_calls) == 1
+
+
+class TestPresignResponseTyping:
+    """Both transfer directions read the presign response through one model.
+
+    Typing one remote response and dict-walking the other is how the two drift;
+    a malformed row is skipped and reported either way, which is the lenient
+    behaviour both directions already had.
+    """
+
+    def test_well_formed_entries_are_indexed_by_path(self):
+        from nauro.sync.remote import urls_by_path
+
+        usable, skipped = urls_by_path(
+            [
+                {"verb": "GET", "path": "a.md", "url": "https://s3/a", "expires_at": "x"},
+                {"verb": "PUT", "path": "b.md", "url": "https://s3/b"},
+            ],
+            "GET",
+        )
+
+        assert usable == {"a.md": "https://s3/a"}
+        assert skipped == ()
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            "not a mapping",
+            {"verb": "GET", "path": "a.md"},
+            {"verb": "GET", "url": "https://s3/a"},
+            {"path": "a.md", "url": "https://s3/a"},
+            None,
+        ],
+    )
+    def test_a_malformed_entry_is_skipped_and_named(self, entry):
+        from nauro.sync.remote import urls_by_path
+
+        usable, skipped = urls_by_path([entry], "GET")
+
+        assert usable == {}
+        assert len(skipped) == 1
+
+    def test_a_malformed_entry_does_not_lose_its_neighbours(self):
+        from nauro.sync.remote import urls_by_path
+
+        usable, skipped = urls_by_path(
+            [{"verb": "GET", "path": "a.md"}, {"verb": "GET", "path": "b.md", "url": "u"}],
+            "GET",
+        )
+
+        assert usable == {"b.md": "u"}
+        assert len(skipped) == 1

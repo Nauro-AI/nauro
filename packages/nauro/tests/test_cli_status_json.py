@@ -115,7 +115,13 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
         "agents_md": {"repo_count": 1, "generated_repos": 0},
         # Local-only project: no remote comparison. The scaffold seeds one
         # decision.
-        "decisions": {"local": 1, "remote": None, "in_sync": None, "last_full_sync": None},
+        "decisions": {
+            "local": 1,
+            "remote": None,
+            "in_sync": None,
+            "last_full_sync": None,
+            "quarantined_collisions": [],
+        },
     }
 
 
@@ -292,3 +298,30 @@ def test_status_survives_non_string_last_full_sync(tmp_path, monkeypatch, bad_va
     payload = json.loads(as_json.stdout)
     assert payload["decisions"]["remote"] == 1
     assert payload["decisions"]["last_full_sync"] is None
+
+
+def test_status_json_lists_unresolved_quarantined_collisions(tmp_path, monkeypatch):
+    from nauro.sync.quarantine import save_quarantine_backup
+
+    store, _repo = _setup_project(tmp_path, monkeypatch)
+    save_quarantine_backup(store, "decisions/003-remote.md", b"remote body\n", '"etag"')
+
+    result = runner.invoke(app, ["status", "--json"])
+    assert result.exit_code == 0, result.output
+
+    payload = json.loads(result.stdout)
+    assert payload["decisions"]["quarantined_collisions"] == ["decisions/003-remote.md"]
+
+
+def test_status_json_reports_null_when_quarantines_cannot_be_listed(tmp_path, monkeypatch):
+    from nauro.sync.quarantine import save_quarantine_backup
+
+    store, _repo = _setup_project(tmp_path, monkeypatch)
+    save_quarantine_backup(store, "decisions/003-remote.md", b"remote body\n", '"etag"')
+    (store / ".sync-state.json").write_text("[]")
+
+    result = runner.invoke(app, ["status", "--json"])
+    assert result.exit_code == 0, result.output
+
+    payload = json.loads(result.stdout)
+    assert payload["decisions"]["quarantined_collisions"] is None

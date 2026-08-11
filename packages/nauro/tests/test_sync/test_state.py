@@ -1,5 +1,7 @@
 """Tests for nauro.sync.state."""
 
+import json
+
 import pytest
 
 from nauro.sync.state import (
@@ -49,6 +51,42 @@ class TestLoadSaveState:
         (project_dir / ".sync-state.json").write_text("not json{{{")
         state = load_state(project_dir)
         assert state.files == {}
+
+    def test_save_leaves_no_temporary_siblings(self, project_dir):
+        state = SyncState(last_full_sync="2026-08-10T10:00:00Z")
+        state.files["project.md"] = FileState(local_sha256="abc123")
+        save_state(project_dir, state)
+
+        assert [path.name for path in project_dir.iterdir()] == [".sync-state.json"]
+
+    def test_save_replaces_the_previous_file_wholesale(self, project_dir):
+        first = SyncState()
+        first.files["a.md"] = FileState(local_sha256="a")
+        save_state(project_dir, first)
+
+        second = SyncState()
+        second.files["b.md"] = FileState(local_sha256="b")
+        save_state(project_dir, second)
+
+        assert set(load_state(project_dir).files) == {"b.md"}
+
+    def test_written_state_still_reads_under_the_three_field_loader(self, project_dir):
+        """Mixed versions: an older binary reads what this one writes."""
+        state = SyncState(last_full_sync="2026-08-10T10:00:00Z")
+        state.files["decisions/003-remote.md"] = FileState(
+            local_sha256="abc123",
+            remote_etag='"etag"',
+            last_sync="2026-08-10T09:00:00Z",
+        )
+        save_state(project_dir, state)
+
+        data = json.loads((project_dir / ".sync-state.json").read_text())
+        assert data["last_full_sync"] == "2026-08-10T10:00:00Z"
+        assert data["files"]["decisions/003-remote.md"] == {
+            "local_sha256": "abc123",
+            "remote_etag": '"etag"',
+            "last_sync": "2026-08-10T09:00:00Z",
+        }
 
 
 class TestChangeDetection:

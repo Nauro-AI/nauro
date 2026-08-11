@@ -122,12 +122,19 @@ class _EchoReporter:
 def _pull_via_presign(project_id: str, store_path: Path) -> int:
     """GET /sync/manifest → POST /sync/presign → S3 GETs.
 
-    Delegates to the shared pull core with an echo reporter.
+    Delegates to the shared pull core with an echo reporter. An explicit sync
+    fails loud when another sync holds the store lock: silently skipping the
+    pull would push stale content over whatever the other run is landing.
     """
+    from nauro.sync.lock import SyncLockTimeoutError
     from nauro.sync.pull import run_pull
 
     typer.echo("Pulling from remote...")
-    return run_pull(project_id, store_path, _EchoReporter())
+    try:
+        return run_pull(project_id, store_path, _EchoReporter())
+    except SyncLockTimeoutError as exc:
+        typer.echo(f"Error: {exc}. Try again once it finishes.", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def _show_status(project_flag: str | None) -> None:
@@ -176,8 +183,19 @@ def _show_status(project_flag: str | None) -> None:
     else:
         typer.echo("  Pending local changes: none")
 
+    from nauro.sync.quarantine import list_quarantine_backups, unresolved_quarantines
+
+    quarantined = unresolved_quarantines(store_path, state)
+    if quarantined:
+        typer.echo(f"  Quarantined decision-number collisions: {len(quarantined)}")
+        for item in quarantined:
+            typer.echo(f"    - {item.label} (remote copy: {item.backup_path.name})")
+
     backup_dir = store_path / ".conflict-backup"
     if backup_dir.exists():
-        backups = list(backup_dir.iterdir())
+        # Quarantine backups live in the same directory but are already
+        # reported above; counting them again would double-report one event.
+        quarantine_names = {item.backup_path.name for item in list_quarantine_backups(store_path)}
+        backups = [path for path in backup_dir.iterdir() if path.name not in quarantine_names]
         if backups:
             typer.echo(f"  Conflict backups: {len(backups)}")

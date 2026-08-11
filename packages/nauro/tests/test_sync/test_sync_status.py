@@ -133,3 +133,55 @@ class TestLastSyncTime:
         result = runner.invoke(app, ["sync", "--status"])
         assert result.exit_code == 0, result.output
         assert "Last successful sync: never" in result.output
+
+
+class TestQuarantinedCollisions:
+    def test_status_names_each_unresolved_collision(self, tmp_path, monkeypatch):
+        from nauro.sync.quarantine import save_quarantine_backup
+
+        store = _scaffold(repo=tmp_path)
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+        save_quarantine_backup(store, "decisions/003-remote.md", b"remote body\n", '"etag"')
+
+        result = runner.invoke(app, ["sync", "--status"])
+        assert result.exit_code == 0, result.output
+        assert "Quarantined decision-number collisions: 1" in result.output
+        assert "decisions/003-remote.md" in result.output
+
+    def test_quarantine_backups_are_not_counted_twice(self, tmp_path, monkeypatch):
+        """The quarantine copy lives in the conflict-backup directory, so the
+        generic total must exclude what the line above already named."""
+        from nauro.sync.merge import write_backup
+        from nauro.sync.quarantine import save_quarantine_backup
+
+        store = _scaffold(repo=tmp_path)
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+        save_quarantine_backup(store, "decisions/003-remote.md", b"remote body\n", '"etag"')
+
+        result = runner.invoke(app, ["sync", "--status"])
+        assert result.exit_code == 0, result.output
+        assert "Quarantined decision-number collisions: 1" in result.output
+        assert "Conflict backups" not in result.output
+
+        write_backup(store, "20260810T000000Z-project.md", b"losing side\n")
+        result = runner.invoke(app, ["sync", "--status"])
+        assert result.exit_code == 0, result.output
+        assert "Conflict backups: 1" in result.output

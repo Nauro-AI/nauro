@@ -62,12 +62,23 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
         return 0
 
     try:
+        from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
         from nauro.sync.pull import run_pull
     except ImportError:
         return 0
 
     try:
-        return run_pull(project_id, store_path, _LoggingReporter())
+        return run_pull(
+            project_id,
+            store_path,
+            _LoggingReporter(),
+            lock_timeout=HOOK_SYNC_LOCK_TIMEOUT,
+        )
+    except SyncLockTimeoutError as exc:
+        # Contention is an ordinary outcome here, not a failure: the other
+        # process is doing this same work, and session start never waits.
+        logger.info("sync pull: skipped, %s", exc)
+        return 0
     except Exception:
         # A genuinely unexpected error must not escape session startup.
         logger.exception("sync pull: unexpected failure for %s", project_id)
@@ -89,13 +100,19 @@ def push_after_write(project_id: str, store_path: Path) -> int:
 
     try:
         from nauro.cli.commands.auth import AuthRefreshError
+        from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
         from nauro.sync.push import push_changed_files
         from nauro.sync.remote import PresignError
     except ImportError:
         return 0
 
     try:
-        return push_changed_files(project_id, store_path)
+        return push_changed_files(project_id, store_path, lock_timeout=HOOK_SYNC_LOCK_TIMEOUT)
+    except SyncLockTimeoutError as exc:
+        # Post-write publication is a fail-open ancillary step: the changed
+        # files stay changed and the next push picks them up.
+        logger.info("sync push: skipped, %s", exc)
+        return 0
     except AuthRefreshError as exc:
         logger.warning("sync push: %s", exc)
         return 0
