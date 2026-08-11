@@ -64,7 +64,7 @@ def test_reconnect_cloud_restore_uses_same_binding_service(tmp_path, monkeypatch
     monkeypatch.chdir(repo)
     target = registry.get_store_path_v2(PID)
 
-    def restore(_pid, destination):
+    def restore(_pid, destination, _reporter=None):
         assert _pid == PID
         assert destination == target
         scaffold_project_store("Pareto", destination)
@@ -105,7 +105,7 @@ def test_reconnect_restore_reconciles_server_side_rename(tmp_path, monkeypatch):
     monkeypatch.chdir(repo)
     target = registry.get_store_path_v2(PID)
 
-    def restore(_pid, destination):
+    def restore(_pid, destination, _reporter=None):
         scaffold_project_store("Pareto-Renamed", destination)
         return destination
 

@@ -278,7 +278,7 @@ def test_attach_happy_path_inventory(tmp_path: Path, monkeypatch):
             request=httpx.Request(method, url),
         )
 
-    def restore(_project_id, destination):
+    def restore(_project_id, destination, _reporter=None):
         scaffold_project_store("team-proj", destination)
         return destination
 

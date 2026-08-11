@@ -15,6 +15,7 @@ from pathlib import Path
 
 import typer
 
+from nauro.cli._reporters import StderrReporter
 from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
@@ -108,10 +109,12 @@ def attach(
             # A previously connected machine lost its record: this is
             # recovery, so an empty remote stays a hard stop — a blank
             # directory must never stand in for a lost record.
-            store_path = restore_cloud_store(project_id, connection.store_path)
+            store_path = restore_cloud_store(project_id, connection.store_path, StderrReporter())
         elif connection is None:
             try:
-                store_path = restore_cloud_store(project_id, get_store_path_v2(project_id))
+                store_path = restore_cloud_store(
+                    project_id, get_store_path_v2(project_id), StderrReporter()
+                )
             except EmptyCloudRecordError:
                 # First connection on this machine to a cloud project whose
                 # record was never pushed. Attach's long-standing contract

@@ -690,3 +690,83 @@ class TestPresignResponseTyping:
 
         assert usable == {"b.md": "u"}
         assert len(skipped) == 1
+
+
+class TestPresignedGetFailures:
+    """Every download fault leaves the client as one typed PresignError."""
+
+    def test_a_transport_fault_never_escapes_as_a_raw_httpx_error(self):
+        from nauro.sync.remote import PresignError, PresignTransferError, fetch_via_presigned_url
+
+        with patch.object(httpx, "get", side_effect=httpx.ConnectError("no route")):
+            with pytest.raises(PresignTransferError) as caught:
+                fetch_via_presigned_url("https://s3/a")
+
+        # The pull core guards its transfers with `except PresignError`; a bare
+        # ConnectError past that guard used to crash the whole sync.
+        assert isinstance(caught.value, PresignError)
+        assert caught.value.transport is True
+        assert caught.value.status is None
+
+    def test_a_refused_status_carries_the_code_and_a_body_excerpt(self):
+        from nauro.sync.remote import PresignTransferError, fetch_via_presigned_url
+
+        refusal = httpx.Response(403, content=b"<Error>\n  <Code>AccessDenied</Code>\n</Error>")
+        with patch.object(httpx, "get", return_value=refusal):
+            with pytest.raises(PresignTransferError) as caught:
+                fetch_via_presigned_url("https://s3/a")
+
+        assert caught.value.status == 403
+        assert "AccessDenied" in caught.value.detail
+
+    def test_an_unsendable_url_is_typed_rather_than_thrown(self):
+        from nauro.sync.remote import PresignTransferError, fetch_via_presigned_url
+
+        with pytest.raises(PresignTransferError) as caught:
+            fetch_via_presigned_url("not-a-url")
+
+        assert caught.value.status is None
+        assert caught.value.transport is False
+
+
+class TestTransferPolicy:
+    """Classification decides what a retry may promise."""
+
+    @pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+    def test_overload_statuses_are_transient(self, status):
+        from nauro.sync.remote import PresignTransferError
+        from nauro.sync.transfer import TransferFault, classify_fault
+
+        fault = classify_fault(PresignTransferError("Presigned GET", status=status))
+
+        assert fault is TransferFault.TRANSIENT
+
+    @pytest.mark.parametrize("status", [400, 404, 409, 418])
+    def test_an_unnamed_status_is_permanent(self, status):
+        from nauro.sync.remote import PresignTransferError
+        from nauro.sync.transfer import TransferFault, classify_fault
+
+        fault = classify_fault(PresignTransferError("Presigned GET", status=status))
+
+        assert fault is TransferFault.PERMANENT
+
+    def test_a_refusal_is_an_expiry_candidate(self):
+        from nauro.sync.remote import PresignTransferError
+        from nauro.sync.transfer import TransferFault, classify_fault
+
+        fault = classify_fault(PresignTransferError("Presigned GET", status=403))
+
+        assert fault is TransferFault.EXPIRED_CANDIDATE
+
+    def test_a_plain_presign_error_is_permanent(self):
+        from nauro.sync.remote import PresignError
+        from nauro.sync.transfer import TransferFault, classify_fault
+
+        assert classify_fault(PresignError("something else")) is TransferFault.PERMANENT
+
+    def test_the_backoff_ceiling_doubles_and_then_caps(self):
+        from nauro.sync.transfer import backoff_delay
+
+        assert all(backoff_delay(1) <= 0.5 for _ in range(50))
+        assert all(backoff_delay(2) <= 1.0 for _ in range(50))
+        assert all(backoff_delay(20) <= 8.0 for _ in range(50))

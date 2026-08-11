@@ -38,7 +38,7 @@ def _list_response(projects):
     return handler
 
 
-def _restore_project(_project_id, destination):
+def _restore_project(_project_id, destination, _reporter=None):
     scaffold_project_store("team-proj", destination)
     return destination
 
