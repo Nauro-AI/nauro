@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from filelock import FileLock
@@ -12,6 +14,7 @@ from nauro.store import recovery
 from nauro.store.recovery import RecoveryError, RestoreBusyError, restore_cloud_store
 from nauro.sync import transfer
 from nauro.sync.remote import PresignTransferError
+from nauro.templates.scaffolds import scaffold_project_store
 from tests.test_recovery import PID, _decision_bytes, _store_files
 
 
@@ -44,6 +47,10 @@ class _Cloud:
         self.faults: dict[str, list[Exception]] = {}
         self.always_fail: dict[str, Exception] = {}
         self.waits: list[float] = []
+        # Paths served with a multipart ETag and no size, the shape that gives
+        # the manifest nothing to check a staged body against.
+        self.opaque: set[str] = set()
+        self.etag_revision = 0
 
     def install(self, monkeypatch) -> None:
         monkeypatch.setattr(recovery, "fetch_manifest", self.manifest)
@@ -52,14 +59,21 @@ class _Cloud:
         monkeypatch.setattr(transfer, "pause", self.waits.append)
 
     def manifest(self, _project_id: str) -> list[dict]:
-        return [
-            {
-                "path": path,
-                "etag": f'"{hashlib.md5(content).hexdigest()}"',
-                "size": len(content),
-            }
-            for path, content in sorted(self.files.items())
-        ]
+        rows = []
+        for path, content in sorted(self.files.items()):
+            if path in self.opaque:
+                rows.append(
+                    {"path": path, "etag": f'"{"0" * 31}{self.etag_revision}-2"'},
+                )
+                continue
+            rows.append(
+                {
+                    "path": path,
+                    "etag": f'"{hashlib.md5(content).hexdigest()}"',
+                    "size": len(content),
+                }
+            )
+        return rows
 
     def presign(self, _project_id: str, operations: list[dict[str, str]]) -> list[dict]:
         self.generation += 1
@@ -102,7 +116,7 @@ class _RecordingReporter:
         self.warn_lines.append(msg)
 
 
-def _staging(destination) -> object:
+def _staging(destination: Path) -> Path:
     return destination.parent / f".{PID}.restore"
 
 
@@ -202,17 +216,23 @@ def test_aborted_restore_keeps_staging_and_a_rerun_fetches_only_the_rest(tmp_pat
     assert f"Resuming a partial restore: 3 of {len(files)} files are staged." in resumed.info_lines
 
 
+def _abort_after_staging_all_but_last(cloud: _Cloud, destination: Path) -> Path:
+    """Leave a genuine partial restore behind: four files staged, one to go."""
+    cloud.always_fail["state_current.md"] = _http_fault(404)
+    with pytest.raises(RecoveryError):
+        restore_cloud_store(PID, destination)
+    cloud.always_fail.clear()
+    cloud.fetched.clear()
+    return _staging(destination)
+
+
 @pytest.mark.parametrize("damage", ["shorter", "same-size"])
 def test_resume_redownloads_a_corrupt_staged_file(damage, tmp_path, monkeypatch):
     files = _store_files(tmp_path / "source")
     cloud = _Cloud(files)
     cloud.install(monkeypatch)
     destination = tmp_path / "projects" / PID
-    staging = _staging(destination)
-    for relative, content in files.items():
-        target = staging / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+    staging = _abort_after_staging_all_but_last(cloud, destination)
     corrupt = b"x" if damage == "shorter" else b"x" * len(files["stack.md"])
     (staging / "stack.md").write_bytes(corrupt)
     (staging / "dropped.md").write_bytes(b"absent from the manifest")
@@ -220,9 +240,74 @@ def test_resume_redownloads_a_corrupt_staged_file(damage, tmp_path, monkeypatch)
     result = restore_cloud_store(PID, destination)
 
     assert result == destination
-    assert cloud.fetched == ["stack.md"]
+    assert cloud.fetched == ["stack.md", "state_current.md"]
     assert (destination / "stack.md").read_bytes() == files["stack.md"]
     assert not (destination / "dropped.md").exists()
+
+
+def test_resume_redownloads_a_same_size_corruption_behind_an_opaque_etag(tmp_path, monkeypatch):
+    """The manifest alone cannot catch this one.
+
+    A multipart ETag is not a content MD5 and the server sends no size for it,
+    so nothing in the manifest disagrees with a same-length corruption. The
+    digest this run recorded when it wrote the file is what catches it.
+    """
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.opaque.add("stack.md")
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    staging = _abort_after_staging_all_but_last(cloud, destination)
+    (staging / "stack.md").write_bytes(b"x" * len(files["stack.md"]))
+
+    result = restore_cloud_store(PID, destination)
+
+    assert result == destination
+    assert cloud.fetched == ["stack.md", "state_current.md"]
+    assert (destination / "stack.md").read_bytes() == files["stack.md"]
+
+
+def test_resume_redownloads_a_file_the_remote_rotated(tmp_path, monkeypatch):
+    """A staged file that is intact locally but stale remotely is refetched.
+
+    The ETag recorded at download time is compared against the fresh manifest,
+    so a remote file that moved on is re-downloaded even when the staged bytes
+    are exactly what this run wrote.
+    """
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.opaque.add("stack.md")
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    _abort_after_staging_all_but_last(cloud, destination)
+    # Same length, new content, new opaque ETag: only the recorded ETag differs.
+    cloud.files["stack.md"] = b"y" * len(files["stack.md"])
+    cloud.etag_revision += 1
+
+    result = restore_cloud_store(PID, destination)
+
+    assert result == destination
+    assert cloud.fetched == ["stack.md", "state_current.md"]
+    assert (destination / "stack.md").read_bytes() == cloud.files["stack.md"]
+
+
+def test_the_restore_record_never_reaches_the_store(tmp_path, monkeypatch):
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    ledger = destination.parent / f".{PID}.restore.ledger.json"
+
+    _abort_after_staging_all_but_last(cloud, destination)
+
+    # It exists while a partial restore is resumable, and it is not staged.
+    assert ledger.is_file()
+    assert not (_staging(destination) / ledger.name).exists()
+
+    restore_cloud_store(PID, destination)
+
+    assert not ledger.exists()
+    assert [path.name for path in destination.rglob("*") if "ledger" in path.name] == []
 
 
 def test_a_deadline_inside_the_margin_remints_before_each_download(tmp_path, monkeypatch):
@@ -297,7 +382,8 @@ def test_staging_writes_go_through_the_atomic_primitive(tmp_path, monkeypatch):
     real_write = recovery.atomic_write_bytes
 
     def counted(path, data):
-        written.append(path.name)
+        if "ledger" not in path.name:
+            written.append(path.name)
         real_write(path, data)
 
     monkeypatch.setattr(recovery, "atomic_write_bytes", counted)
@@ -381,6 +467,115 @@ def test_legacy_staging_directories_are_swept(tmp_path, monkeypatch):
     restore_cloud_store(PID, destination)
 
     assert not list(destination.parent.glob(f".{PID}.restore-*"))
+
+
+def test_a_failed_install_keeps_the_verified_tree_for_a_resume(tmp_path, monkeypatch):
+    """A filesystem fault at install time is not a reason to download again.
+
+    The content passed every check by then. The next run installs what is
+    already staged and fetches nothing.
+    """
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    reporter = _RecordingReporter()
+
+    staging = _staging(destination)
+    real_replace = recovery.os.replace
+
+    def refuse_the_install_rename(source, target):
+        # Only the install moves the staging directory itself; the atomic
+        # staging writes rename tmp siblings and must keep working.
+        if Path(source) == staging:
+            raise OSError("cross-device link")
+        return real_replace(source, target)
+
+    monkeypatch.setattr(recovery.os, "replace", refuse_the_install_rename)
+
+    with pytest.raises(RecoveryError, match="install"):
+        restore_cloud_store(PID, destination, reporter)
+
+    assert staging.is_dir()
+    assert any("Partial restore kept" in line for line in reporter.warn_lines)
+    assert cloud.fetched == sorted(files)
+
+    monkeypatch.undo()
+    cloud.install(monkeypatch)
+    cloud.fetched.clear()
+
+    result = restore_cloud_store(PID, destination)
+
+    assert result == destination
+    assert cloud.fetched == []
+    assert (destination / "project.md").read_bytes() == files["project.md"]
+    assert not staging.exists()
+
+
+def test_a_store_that_fails_validation_discards_the_staging_tree(tmp_path, monkeypatch):
+    """A bad assembled record must not resume into the same bad record."""
+    files = _store_files(tmp_path / "source")
+    decision = next(path for path in files if path.startswith("decisions/"))
+    files[decision] = files[decision].replace(b"superseded_by: null", b"superseded_by: '999'")
+    cloud = _Cloud(files)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+
+    with pytest.raises(RecoveryError, match="integrity"):
+        restore_cloud_store(PID, destination)
+
+    assert not _staging(destination).exists()
+    assert not (destination.parent / f".{PID}.restore.ledger.json").exists()
+
+
+def _lock_that_lets_another_run_finish(populate) -> object:
+    """A restore lock whose waiter finds the destination already taken."""
+    real_lock = recovery._restore_lock
+
+    @contextmanager
+    def racing_lock(project_id, destination):
+        with real_lock(project_id, destination):
+            populate(destination)
+            yield
+
+    return racing_lock
+
+
+def test_a_waiter_accepts_the_record_the_winner_installed(tmp_path, monkeypatch):
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    reporter = _RecordingReporter()
+    monkeypatch.setattr(
+        recovery,
+        "_restore_lock",
+        _lock_that_lets_another_run_finish(lambda path: scaffold_project_store("nauro", path)),
+    )
+
+    result = restore_cloud_store(PID, destination, reporter)
+
+    assert result == destination
+    assert cloud.fetched == []
+    assert any("Another restore completed" in line for line in reporter.info_lines)
+
+
+def test_a_waiter_refuses_a_destination_that_is_not_a_record(tmp_path, monkeypatch):
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+
+    def litter(path):
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "unrelated.txt").write_bytes(b"not a record")
+
+    monkeypatch.setattr(recovery, "_restore_lock", _lock_that_lets_another_run_finish(litter))
+
+    with pytest.raises(RecoveryError, match="nonempty destination"):
+        restore_cloud_store(PID, destination)
+
+    assert cloud.fetched == []
 
 
 def test_a_second_restore_refuses_while_one_is_running(tmp_path, monkeypatch):

@@ -54,6 +54,7 @@ logger = logging.getLogger("nauro.store.recovery")
 _STAGING_SUFFIX = ".restore"
 _LEGACY_STAGING_GLOB_SUFFIX = _STAGING_SUFFIX + "-*"
 _STAGING_LOCK_SUFFIX = _STAGING_SUFFIX + ".lock"
+_STAGING_LEDGER_SUFFIX = _STAGING_SUFFIX + ".ledger.json"
 
 # Two restores of one project would fight over the same staging tree. The wait
 # is short: the second run has a human in front of it.
@@ -438,40 +439,21 @@ def _fetch_manifest_entries(project_id: str) -> dict[str, CloudManifestEntry]:
     return entries
 
 
-def _audit_staged_files(staging: Path, entries: dict[str, CloudManifestEntry]) -> set[str]:
-    """Return the staged paths a resume may keep, deleting every other one.
+class StagedFile(BaseModel):
+    """What one staged file held, recorded by the run that wrote it."""
 
-    A staged file is kept only when the fresh manifest still lists it and it
-    passes the checks a download must pass, so a resumed run can assemble
-    nothing but the record the server holds now. Everything else — a
-    mismatch, an unreadable file, a path the manifest dropped, anything that
-    is not a regular file — goes, and the run downloads it again.
-    """
-    kept: set[str] = set()
-    try:
-        for path in sorted(staging.rglob("*")):
-            if path.is_dir() and not path.is_symlink():
-                continue
-            relative = path.relative_to(staging).as_posix()
-            entry = entries.get(relative)
-            if entry is not None and _staged_body_matches(path, entry):
-                kept.add(relative)
-                continue
-            path.unlink(missing_ok=True)
-        _prune_empty_directories(staging)
-    except OSError as exc:
-        raise RecoveryError(f"Could not audit the partial restore at {staging}: {exc}") from exc
-    return kept
+    model_config = ConfigDict(extra="ignore")
+
+    etag: StrictStr
+    sha256: StrictStr
 
 
-def _staged_body_matches(path: Path, entry: CloudManifestEntry) -> bool:
-    if not path.is_file() or path.is_symlink():
-        return False
-    try:
-        content = path.read_bytes()
-    except OSError:
-        return False
-    return _content_defect(content, entry) is None
+class StagingLedger(BaseModel):
+    """The staged files a resume may trust, keyed by store-relative path."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    files: dict[str, StagedFile] = Field(default_factory=dict)
 
 
 def _prune_empty_directories(staging: Path) -> None:
@@ -481,19 +463,129 @@ def _prune_empty_directories(staging: Path) -> None:
             path.rmdir()
 
 
-def _stage_file(staging: Path, relative: str, content: bytes) -> None:
-    """Land one downloaded file in staging, whole or not at all.
+@dataclass
+class _StagingArea:
+    """The staging directory plus the record of what this run put in it.
 
-    A truncating write that a kill interrupts leaves a short file that still
-    looks like content, and the resume audit clears only what it can prove
-    wrong: an entry carrying neither a size nor a single-part ETag has nothing
-    to check against, so a partial write would install. The tmp-then-rename
-    primitive removes the case instead of narrowing it.
+    The manifest alone cannot decide whether a staged file is still good. An
+    entry with an opaque multipart ETag and no size gives the audit nothing to
+    compare against, so a same-size corruption would pass it. The bytes are in
+    hand at download time, so the run records their sha256 next to the ETag it
+    downloaded them under, and the resume checks both: the digest catches local
+    damage, and the ETag catches a remote file that has moved on since.
+
+    The record lives beside the staging directory rather than inside it. That
+    keeps it out of the tree the install renames onto the store, and keeps it
+    alive through an install-phase failure that keeps staging for a resume.
     """
-    try:
-        atomic_write_bytes(staging / relative, content)
-    except OSError as exc:
-        raise RecoveryError(f"Could not stage cloud file {relative}: {exc}") from exc
+
+    path: Path
+    ledger_path: Path
+    ledger: StagingLedger
+
+    def audit(self, entries: dict[str, CloudManifestEntry]) -> set[str]:
+        """Return the staged paths a resume may keep, deleting every other one.
+
+        Everything else — an unrecorded file, a rotated remote, local damage, a
+        path the manifest dropped, anything that is not a regular file — goes,
+        and the run downloads it again.
+        """
+        kept: set[str] = set()
+        try:
+            for path in sorted(self.path.rglob("*")):
+                if path.is_dir() and not path.is_symlink():
+                    continue
+                relative = path.relative_to(self.path).as_posix()
+                entry = entries.get(relative)
+                if entry is not None and self._still_good(path, relative, entry):
+                    kept.add(relative)
+                    continue
+                path.unlink(missing_ok=True)
+            _prune_empty_directories(self.path)
+        except OSError as exc:
+            raise RecoveryError(
+                f"Could not audit the partial restore at {self.path}: {exc}"
+            ) from exc
+        self.ledger.files = {rel: rec for rel, rec in self.ledger.files.items() if rel in kept}
+        return kept
+
+    def _still_good(self, path: Path, relative: str, entry: CloudManifestEntry) -> bool:
+        record = self.ledger.files.get(relative)
+        if record is None or record.etag != entry.etag:
+            return False
+        if not path.is_file() or path.is_symlink():
+            return False
+        try:
+            content = path.read_bytes()
+        except OSError:
+            return False
+        if hashlib.sha256(content).hexdigest() != record.sha256:
+            return False
+        return _content_defect(content, entry) is None
+
+    def accept(self, relative: str, entry: CloudManifestEntry, content: bytes) -> None:
+        """Land one downloaded file and record what it is.
+
+        The file is written whole or not at all: a truncating write that a kill
+        interrupts leaves a short file that still looks like content.
+
+        The record is rewritten after every file rather than in batches. It
+        must never name a file that is not on disk, and writing it second keeps
+        it one step behind the filesystem at every instant — a kill between the
+        two costs one re-download, never a false trust. Batching would trade
+        that for a saving measured against the download it accompanies, on a
+        record of hundreds of files.
+        """
+        try:
+            atomic_write_bytes(self.path / relative, content)
+        except OSError as exc:
+            raise RecoveryError(f"Could not stage cloud file {relative}: {exc}") from exc
+        self.ledger.files[relative] = StagedFile(
+            etag=entry.etag, sha256=hashlib.sha256(content).hexdigest()
+        )
+        self._save()
+
+    def _save(self) -> None:
+        try:
+            atomic_write_bytes(self.ledger_path, self.ledger.model_dump_json().encode("utf-8"))
+        except OSError as exc:
+            raise RecoveryError(f"Could not record the partial restore: {exc}") from exc
+
+    def discard(self) -> None:
+        """Remove the staging tree and the record that described it."""
+        _discard(self.path)
+        _discard(self.ledger_path)
+
+
+def _ledger_path(project_id: str, destination: Path) -> Path:
+    return destination.parent / f".{project_id}{_STAGING_LEDGER_SUFFIX}"
+
+
+def _discard_restore_state(project_id: str, destination: Path) -> None:
+    """Remove any staging tree and record this project left beside ``destination``."""
+    _discard(_staging_path(project_id, destination))
+    _discard(_ledger_path(project_id, destination))
+
+
+def _open_staging_area(project_id: str, destination: Path, reporter: Reporter) -> _StagingArea:
+    """Open the staging directory and read whatever record accompanies it.
+
+    An unreadable record is reported and treated as empty: the cost is a full
+    re-download, never a file trusted on a record that could not be read.
+    """
+    staging = _staging_path(project_id, destination)
+    ledger_path = _ledger_path(project_id, destination)
+    _open_staging(staging)
+    ledger = StagingLedger()
+    if ledger_path.exists():
+        try:
+            ledger = StagingLedger.model_validate_json(ledger_path.read_bytes())
+        except (OSError, ValidationError) as exc:
+            reporter.warn(
+                f"The record of the partial restore could not be read ({exc}); "
+                "every staged file will be downloaded again."
+            )
+    return _StagingArea(staging, ledger_path, ledger)
 
 
 def _human_bytes(total: int) -> str:
@@ -516,7 +608,7 @@ def _report_start(
 
 def _download_pending(
     project_id: str,
-    staging: Path,
+    area: _StagingArea,
     entries: dict[str, CloudManifestEntry],
     pending: Sequence[str],
     reporter: Reporter,
@@ -530,16 +622,16 @@ def _download_pending(
                 content = download_with_retry(relative, chunk, fetch_via_presigned_url)
             except PresignError as exc:
                 raise RecoveryError(f"Cloud download failed for {relative}: {exc}") from exc
-            defect = _content_defect(content, entries[relative])
+            entry = entries[relative]
+            defect = _content_defect(content, entry)
             if defect is not None:
                 raise RecoveryError(f"Cloud {defect.value} validation failed for {relative}.")
-            _stage_file(staging, relative, content)
+            area.accept(relative, entry, content)
             progress.record(reporter)
 
 
 def _install_staged_store(staging: Path, destination: Path) -> None:
-    """Validate the assembled tree and move it onto the destination."""
-    _validate_restored_store(staging)
+    """Move the verified tree onto the destination."""
     # os.replace cannot move a directory onto an existing directory on
     # Windows (even an empty one _destination_is_available admitted).
     # rmdir only succeeds on an empty directory, so this also re-enforces
@@ -551,7 +643,29 @@ def _install_staged_store(staging: Path, destination: Path) -> None:
             raise RecoveryError(
                 f"Refusing to overwrite nonempty destination: {destination}."
             ) from exc
-    os.replace(staging, destination)
+    try:
+        os.replace(staging, destination)
+    except OSError as exc:
+        raise RecoveryError(
+            f"Could not install the restored record at {destination}: {exc}"
+        ) from exc
+
+
+def _holds_complete_record(destination: Path) -> bool:
+    """True when the destination already holds a complete, valid record."""
+    try:
+        _validate_restored_store(destination)
+    except RecoveryError:
+        return False
+    return True
+
+
+def _kept_message(staging: Path, progress: _Progress) -> str:
+    return (
+        f"Partial restore kept at {staging} "
+        f"({progress.done} of {progress.total} files ready). "
+        "Run the same command again to resume it, or delete that directory to start over."
+    )
 
 
 def restore_cloud_store(
@@ -583,43 +697,54 @@ def restore_cloud_store(
         raise RecoveryError(f"Refusing to overwrite nonempty destination: {destination}.")
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = _staging_path(project_id, destination)
     with _restore_lock(project_id, destination):
+        # The check above is stale by the time the lock is in hand: a run that
+        # waited here may find the record already installed by the run it
+        # waited for. That is the outcome it wanted, so it is not a failure.
+        if not _destination_is_available(destination):
+            _discard_restore_state(project_id, destination)
+            if _holds_complete_record(destination):
+                surface.info("Another restore completed this record first.")
+                return destination
+            raise RecoveryError(f"Refusing to overwrite nonempty destination: {destination}.")
+
         _sweep_legacy_staging(project_id, destination.parent)
         entries = _fetch_manifest_entries(project_id)
         if not entries:
             # A record that is not there cannot complete a partial restore,
             # so nothing is kept to resume toward.
-            _discard(staging)
+            _discard_restore_state(project_id, destination)
             raise EmptyCloudRecordError("Cloud project has no stored record to restore.")
 
-        _open_staging(staging)
-        staged = _audit_staged_files(staging, entries)
+        area = _open_staging_area(project_id, destination, surface)
+        staged = area.audit(entries)
         pending = [relative for relative in entries if relative not in staged]
         _report_start(entries, pending, surface)
 
         progress = _Progress(total=len(entries), done=len(staged))
         try:
-            _download_pending(project_id, staging, entries, pending, surface, progress)
+            _download_pending(project_id, area, entries, pending, surface, progress)
         except (RecoveryError, KeyboardInterrupt):
-            surface.warn(
-                f"Partial restore kept at {staging} "
-                f"({progress.done} of {progress.total} files ready). "
-                "Run the same command again to resume it, or delete that directory "
-                "to start over."
-            )
+            surface.warn(_kept_message(area.path, progress))
             raise
 
-        # Past this point staging is either installed or discarded: a tree
-        # that fails validation is a bad record, and rebuilding the same
-        # badness on the next run helps nobody.
-        installed = False
         try:
-            _install_staged_store(staging, destination)
-            installed = True
-        finally:
-            if not installed:
-                _discard(staging)
+            _validate_restored_store(area.path)
+        except RecoveryError:
+            # The assembled record is bad. Resuming would rebuild the same
+            # badness, so the next run starts from nothing.
+            area.discard()
+            raise
+
+        # The content is verified from here. An install that fails now is a
+        # local filesystem fault, not a bad record, so staging survives and the
+        # next run installs it without downloading anything twice.
+        try:
+            _install_staged_store(area.path, destination)
+        except RecoveryError:
+            surface.warn(_kept_message(area.path, progress))
+            raise
+        _discard(area.ledger_path)
         surface.info(f"Restored {len(entries)} files.")
         return destination
 
