@@ -70,7 +70,7 @@ from nauro.store.journal import (
     OriginDescriptor,
     record_event,
 )
-from nauro.store.post_commit import run_post_commit
+from nauro.store.post_commit import run_post_commit, surface_post_commit
 from nauro.store.reader import read_text_lenient
 from nauro.store.snapshot import (
     list_snapshots,
@@ -497,9 +497,7 @@ def tool_propose_decision(
             surface_bridge_notices=False,
             push=_try_push,
         )
-        notes = [*regen_warnings, *outcome.warnings]
-        if notes:
-            response["assessment"] = "\n\n".join([response["assessment"], *notes])
+        surface_post_commit(response, outcome, extra_warnings=regen_warnings)
 
     return response
 
@@ -653,8 +651,8 @@ def tool_flag_question(
 
     if hint:
         response["hint"] = hint
-    run_post_commit(store_path, snapshot_trigger=f"question: {question}", push=_try_push)
-    return response
+    outcome = run_post_commit(store_path, snapshot_trigger=f"question: {question}", push=_try_push)
+    return surface_post_commit(response, outcome)
 
 
 def _flag_question_resolve(
@@ -689,12 +687,12 @@ def _flag_question_resolve(
     if result.status == "rejected":
         return response
 
-    run_post_commit(
+    outcome = run_post_commit(
         store_path,
         snapshot_trigger=f"resolved by {resolved_by}: {targets or []}",
         push=_try_push,
     )
-    return response
+    return surface_post_commit(response, outcome)
 
 
 # Composed adapter-locally rather than exported from nauro-core: the fixed
@@ -899,10 +897,11 @@ def tool_update_state(
     # Adapter-side side effects only run on the success path. ``noop``
     # means the kernel had no existing state file to update — skip the
     # snapshot/push since nothing was written.
-    # A degraded ancillary step is logged, not surfaced: ``warning`` is the
-    # kernel's own keyword-overlap advisory, and writing adapter text into it
-    # would repurpose a pinned field the same way a new field would.
+    # A degraded ancillary step surfaces in ``assessment``, never in
+    # ``warning``: that field is the kernel's own keyword-overlap advisory, and
+    # writing adapter text into it would repurpose a pinned field.
     if result.status != "noop":
-        run_post_commit(store_path, snapshot_trigger=f"state: {delta}", push=_try_push)
+        outcome = run_post_commit(store_path, snapshot_trigger=f"state: {delta}", push=_try_push)
+        surface_post_commit(envelope, outcome)
 
     return envelope
