@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from nauro.cli.commands.auth import (
     DEFAULT_API_URL,
@@ -136,6 +137,37 @@ def request_presigned_urls(
     return all_urls
 
 
+class PresignedUrl(BaseModel):
+    """One minted URL from ``/sync/presign``, as far as the callers read it."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    verb: str
+    path: str
+    url: str
+
+
+def urls_by_path(entries: list[Any], verb: str) -> tuple[dict[str, str], tuple[str, ...]]:
+    """Index a presign response by store path for one verb.
+
+    Returns the usable URLs and the entries that could not be read, which each
+    caller reports in its own idiom. Malformed rows are skipped rather than
+    fatal: a partial batch still transfers what it can, and the caller already
+    handles a short response.
+    """
+    usable: dict[str, str] = {}
+    skipped: list[str] = []
+    for entry in entries:
+        try:
+            parsed = PresignedUrl.model_validate(entry)
+        except ValidationError:
+            skipped.append(repr(entry))
+            continue
+        if parsed.verb == verb:
+            usable[parsed.path] = parsed.url
+    return usable, tuple(skipped)
+
+
 def fetch_via_presigned_url(url: str) -> bytes:
     """GET ``url`` and return the body bytes (no local write)."""
     response = httpx.get(url, timeout=_DEFAULT_TRANSFER_TIMEOUT)
@@ -155,9 +187,11 @@ def put_via_presigned_url(url: str, local_path: Path) -> str:
 
 __all__ = [
     "PresignError",
+    "PresignedUrl",
     "fetch_manifest",
     "fetch_via_presigned_url",
     "put_via_presigned_url",
     "request_presigned_urls",
     "resolve_api_url",
+    "urls_by_path",
 ]

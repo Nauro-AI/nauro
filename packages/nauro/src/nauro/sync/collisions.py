@@ -139,8 +139,8 @@ _REASON_TEXT: dict[QuarantineReason, _ReasonText] = {
         _LOCAL_GUIDANCE,
     ),
     QuarantineReason.irregular_entry: _ReasonText(
-        "that number is claimed by an entry that is not a regular file "
-        "(a directory or a symlink), which this tool never reads or changes",
+        "that number is claimed by an entry this tool never reads - either not a "
+        "regular file, or not a name decision readers recognise",
         _LOCAL_GUIDANCE,
     ),
     QuarantineReason.non_canonical_path: _ReasonText(

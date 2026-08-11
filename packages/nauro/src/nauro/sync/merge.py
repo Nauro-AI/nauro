@@ -50,15 +50,20 @@ NEVER_SYNC = (".sync-state.json", DEFAULT_GRAPH_FILENAME)
 LOCK_ARTIFACT_SUFFIXES = (".md.lock", ".json.lock", RMW_LOCK_SUFFIX)
 
 
-def should_skip(relative_path: str) -> bool:
-    """Return True if this file should never be synced.
+def normalize_rel(relative_path: str) -> str:
+    """Return a store-relative path with POSIX separators.
 
-    Backslashes are normalized to forward slashes first: the push scan builds
-    relative paths via ``str(relative_to(...))``, which yields ``\\`` separators
-    on Windows, so every prefix/basename/suffix check below operates on a
-    POSIX-normalized path and stays cross-platform.
+    The push scan builds relative paths via ``str(relative_to(...))``, which
+    yields ``\\`` separators on Windows, and a manifest can carry either. Every
+    prefix and suffix check in the sync layer operates on the normalized form
+    so none of them has to remember which it was handed.
     """
-    normalized = relative_path.replace("\\", "/")
+    return relative_path.replace("\\", "/")
+
+
+def should_skip(relative_path: str) -> bool:
+    """Return True if this file should never be synced."""
+    normalized = normalize_rel(relative_path)
     if normalized in NEVER_SYNC:
         return True
     if normalized.split("/", 1)[0].startswith(SPOOL_DIR_PREFIX):

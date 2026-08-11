@@ -12,6 +12,7 @@ import json
 from collections import Counter
 
 import pytest
+from nauro_core import parse_decision
 
 from nauro.constants import DECISION_HASHES_FILE
 from nauro.sync import corpus as corpus_module
@@ -40,31 +41,14 @@ from nauro.sync.quarantine import (
     unresolved_quarantines,
 )
 from nauro.sync.state import FileState, SyncState, load_state, save_state
-from tests.test_sync.conftest import _scaffolded_cloud_project
-from tests.test_sync.test_pull import (
+from tests.test_sync.conftest import (
+    _STAMPED_DECISION,
+    _STAMPED_SHA,
+    _scaffolded_cloud_project,
     _seed_token,
     decision_bytes,
     pull,
     write_local_decision,
-)
-
-_STAMPED_SHA = "a1b2c3d4" * 5
-_STAMPED_DECISION = (
-    "---\n"
-    "date: 2026-08-05\n"
-    "version: 1\n"
-    "status: active\n"
-    "confidence: high\n"
-    "decision_type: null\n"
-    "reversibility: null\n"
-    "source: null\n"
-    "files_affected: []\n"
-    "supersedes: null\n"
-    "superseded_by: null\n"
-    f"base_commit: {_STAMPED_SHA}\n"
-    "---\n\n"
-    "# 099 — Remote stamped decision\n\n"
-    "## Decision\n\nChose A.\n"
 )
 
 
@@ -129,8 +113,11 @@ class TestHeadingPrimitives:
         )
 
     def test_rewrite_touches_only_the_heading(self):
-        rewritten = rewrite_decision_heading(_STAMPED_DECISION, 99, 100)
-        assert rewritten == _STAMPED_DECISION.replace("# 099 ", "# 100 ")
+        stamped = _STAMPED_DECISION.decode("utf-8")
+
+        rewritten = rewrite_decision_heading(stamped, 99, 100)
+
+        assert rewritten == stamped.replace("# 099 ", "# 100 ")
         assert f"base_commit: {_STAMPED_SHA}" in rewritten
 
 
@@ -656,3 +643,78 @@ class TestBackupFilenames:
         save_state(store, state)
 
         assert unresolved_quarantines(store) == []
+
+
+class TestHeadingFormsStayBound:
+    """The lax reader and the strict rewriter must not drift apart.
+
+    Two modules describe the same heading: the kernel's parser decides what a
+    decision file is, and this layer's rewriter decides which of those it may
+    renumber. If the strict form ever stopped being a subset of the parsed one,
+    a renumber would produce a file the kernel no longer reads - so the
+    relationship is asserted rather than assumed.
+    """
+
+    _HEADINGS = [
+        "# 003 — Em dash",
+        "# 003 - Hyphen",
+        "#  003 — Extra space",
+        "# 3 — Unpadded",
+        "# 0003 — Over padded",
+        "## 003 — Wrong level",
+        "#003 — No space",
+        "# 003 : Wrong separator",
+    ]
+
+    @pytest.mark.parametrize("heading", _HEADINGS)
+    def test_strict_is_a_subset_of_lax(self, heading):
+        text = f"{heading}\nbody\n"
+
+        if has_rewritable_heading(text, 3):
+            assert heading_number(text) == 3
+
+    @pytest.mark.parametrize("heading", _HEADINGS)
+    def test_a_rewrite_never_makes_a_readable_decision_unreadable(self, heading):
+        """The invariant a renumber depends on: if the kernel could read the
+        file before, it can read it after, and its heading agrees with the
+        filename the rename gives it."""
+        body = (
+            "---\ndate: 2026-08-11\nversion: 1\nstatus: active\nconfidence: high\n"
+            "decision_type: null\nreversibility: null\nsource: null\nfiles_affected: []\n"
+            "supersedes: null\nsuperseded_by: null\n---\n\n"
+            f"{heading}\n\n## Decision\n\nBody.\n"
+        )
+        try:
+            parse_decision(body, "003-x.md")
+        except ValueError:
+            return
+        if not has_rewritable_heading(body, 3):
+            return
+
+        rewritten = rewrite_decision_heading(body, 3, 44)
+
+        assert heading_number(rewritten) == 44
+        parsed = parse_decision(rewritten, "044-renamed.md")
+        assert parsed.num == 44
+        assert heading_number(parsed.content) == 44
+
+    def test_the_kernel_reads_every_heading_the_rewriter_accepts(self):
+        """The em-dash form is the one nauro-core's parser requires; the
+        rewriter also accepts a hyphen, which the parser does not. That gap is
+        deliberate and one-directional: a hyphen heading is renumberable but
+        was never a parseable decision to begin with, so no renumber can turn a
+        readable file into an unreadable one."""
+        em_dash = "# 003 — Title\n\n## Decision\n\nBody.\n"
+        frontmatter = (
+            "---\ndate: 2026-08-11\nversion: 1\nstatus: active\nconfidence: high\n"
+            "decision_type: null\nreversibility: null\nsource: null\nfiles_affected: []\n"
+            "supersedes: null\nsuperseded_by: null\n---\n\n"
+        )
+
+        assert has_rewritable_heading(em_dash, 3) is True
+        assert parse_decision(frontmatter + em_dash, "003-x.md").num == 3
+
+        hyphen = "# 003 - Title\n\n## Decision\n\nBody.\n"
+        assert has_rewritable_heading(hyphen, 3) is True
+        with pytest.raises(ValueError):
+            parse_decision(frontmatter + hyphen, "003-x.md")

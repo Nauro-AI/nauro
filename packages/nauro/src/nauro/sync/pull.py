@@ -54,11 +54,12 @@ from nauro.sync.collisions import (
     is_canonical_decision_path,
     run_completion_pass,
 )
-from nauro.sync.corpus import DecisionCorpus
+from nauro.sync.corpus import DecisionCorpus, SkipReason
 from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, decision_lock, sync_lock
 from nauro.sync.merge import (
     SPOOL_DIR_PREFIX,
     detect_conflict,
+    normalize_rel,
     resolve_conflict,
     should_skip,
 )
@@ -68,6 +69,7 @@ from nauro.sync.remote import (
     fetch_manifest,
     fetch_via_presigned_url,
     request_presigned_urls,
+    urls_by_path,
 )
 from nauro.sync.state import (
     SyncState,
@@ -210,11 +212,6 @@ class _Destination:
     inside_decisions: bool
     is_directory: bool
 
-    @property
-    def writable_generically(self) -> bool:
-        """True only where an untyped write may land."""
-        return self.inside_store and not self.inside_decisions and not self.is_directory
-
 
 def resolve_destination(store_path: Path, rel: str) -> _Destination:
     """Resolve a manifest path to the file it would really write.
@@ -233,7 +230,7 @@ def resolve_destination(store_path: Path, rel: str) -> _Destination:
     either crash on hashing a directory or, on a store that has none yet,
     create a regular file under the name every future decision write needs.
     """
-    normalized = rel.replace("\\", "/")
+    normalized = normalize_rel(rel)
     root = Path(os.path.realpath(store_path))
     decisions_root = Path(os.path.realpath(store_path / DECISIONS_DIR))
     resolved = Path(os.path.realpath(store_path / normalized))
@@ -243,6 +240,26 @@ def resolve_destination(store_path: Path, rel: str) -> _Destination:
         inside_decisions=resolved.is_relative_to(decisions_root),
         is_directory=resolved.is_dir(),
     )
+
+
+def needs_decision_gate(rel: str, destination: _Destination, state: SyncState) -> bool:
+    """True when this entry must be classified rather than written directly.
+
+    The planner routes on it and the write barrier refuses on it, so the two
+    cannot answer differently - which is exactly how a tracked decision once
+    ended up routed to an ordinary pull that the barrier then refused, leaving
+    every update after a decision's first sync stranded.
+
+    Either the spelling says decision or the destination does; the spelling
+    check is the cheap one and the destination check is the honest one. The
+    exemption is narrow: a canonically spelled decision that sync state already
+    tracks is an ordinary same-path update, changing no number and needing no
+    verdict. A path this store cannot enumerate is never exempt, however it is
+    tracked, because a legacy entry must not buy a file a pass around the gate.
+    """
+    if not (_is_decision_path(rel) or destination.inside_decisions):
+        return False
+    return not is_canonical_decision_path(rel) or rel not in state.files
 
 
 def _is_decision_path(rel: str) -> bool:
@@ -300,15 +317,7 @@ def _triage(
         if not destination.inside_store:
             reporter.warn(f"skipping manifest entry {rel!r}: it resolves outside the store")
             continue
-        # Either the spelling says decision or the destination does. The
-        # spelling check is the cheap one and the destination check is the
-        # honest one; a path only the latter recognises is exactly the kind
-        # this gate exists for. The tracked-state exemption comes last, so a
-        # legacy entry recorded under a spelling this store cannot enumerate
-        # never buys the file a pass around the gate.
-        if (_is_decision_path(rel) or destination.inside_decisions) and (
-            not is_canonical_decision_path(rel) or rel not in state.files
-        ):
+        if needs_decision_gate(rel, destination, state):
             number = extract_decision_number(_decision_name(rel))
             claimed = number is not None and bool(listing.holders(number))
             (contested if claimed else work.decisions).append(item)
@@ -400,7 +409,7 @@ def _run_pull_locked(
                     _apply_decision(corpus, transfer, state, manifest, reporter, tally)
 
     for transfer in _stream(urls, work.pulls, reporter):
-        if not _generic_write_allowed(store_path, transfer, reporter):
+        if not _generic_write_allowed(store_path, transfer, state, reporter):
             continue
         target = store_path / transfer.rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -409,7 +418,7 @@ def _run_pull_locked(
         tally.merged += 1
 
     for transfer in _stream(urls, work.conflicts, reporter):
-        if not _generic_write_allowed(store_path, transfer, reporter):
+        if not _generic_write_allowed(store_path, transfer, state, reporter):
             continue
         _resolve_and_record(store_path, transfer, state)
         tally.merged += 1
@@ -447,11 +456,10 @@ def _presign(
     if len(urls) < len(operations):
         reporter.warn(f"presign returned {len(urls)} URLs for {len(operations)} ops")
 
-    return {
-        entry["path"]: entry["url"]
-        for entry in urls
-        if isinstance(entry, dict) and entry.get("verb") == "GET"
-    }
+    usable, skipped = urls_by_path(urls, "GET")
+    for entry in skipped:
+        reporter.warn(f"skipping unreadable presign entry {entry}")
+    return usable
 
 
 def _stream(
@@ -510,6 +518,20 @@ def _spool_batch(
     return spooled
 
 
+_SKIP_DETAIL: dict[SkipReason, str] = {
+    SkipReason.not_a_regular_file: (
+        "not a regular file (a directory or a symlink). Nauro never reads or changes "
+        "it, and holds back any remote decision claiming its number. Remove it or "
+        "replace it with a regular file."
+    ),
+    SkipReason.unreadable_name: (
+        "not a name Nauro reads - decision files end in a lowercase '.md'. It holds "
+        "back any remote decision claiming its number. Rename it to the lowercase "
+        "suffix so it becomes a decision again."
+    ),
+}
+
+
 def _report_completion(corpus: DecisionCorpus, reporter: Reporter) -> None:
     """Run the crash-window completion pass and report what it did."""
     outcome = run_completion_pass(corpus)
@@ -532,11 +554,7 @@ def _report_completion(corpus: DecisionCorpus, reporter: Reporter) -> None:
             "heading by hand, then run 'nauro sync' again"
         )
     for entry in corpus.irregular:
-        reporter.warn(
-            f"decisions/{entry.name} is not a regular file (a directory or a symlink); "
-            "Nauro never reads or changes it, and holds back any remote decision "
-            "claiming its number. Remove or replace it with a regular file."
-        )
+        reporter.warn(f"decisions/{entry.name}: {_SKIP_DETAIL[entry.reason]}")
     if outcome.retargeted_stems:
         reporter.info(
             f"Repointed {len(outcome.retargeted_stems)} decision-hash entr"
@@ -544,22 +562,35 @@ def _report_completion(corpus: DecisionCorpus, reporter: Reporter) -> None:
         )
 
 
-def _generic_write_allowed(store_path: Path, transfer: _Transfer, reporter: Reporter) -> bool:
+def _generic_write_allowed(
+    store_path: Path, transfer: _Transfer, state: SyncState, reporter: Reporter
+) -> bool:
     """Refuse an untyped write that would land somewhere it may not.
 
     The last check before bytes hit the disk, and the one that does not depend
-    on having predicted the spelling: planning routes by destination too, so
-    reaching here with a decision destination means the two disagreed, and the
-    write is the wrong place to resolve that.
+    on having predicted the spelling. It asks the same question the planner
+    asked, so reaching here with an entry that needed the gate means the two
+    disagreed, and the write is the wrong place to resolve that.
     """
     destination = resolve_destination(store_path, transfer.rel)
-    if destination.writable_generically:
-        return True
-    reporter.warn(
-        f"refusing to write {transfer.rel!r}: it resolves to {destination.path}, "
-        "which is not a path an ordinary pull may write"
-    )
-    return False
+    if not destination.inside_store:
+        reporter.warn(
+            f"refusing to write {transfer.rel!r}: it resolves to {destination.path}, "
+            "outside the store"
+        )
+        return False
+    if destination.is_directory:
+        reporter.warn(
+            f"refusing to write {transfer.rel!r}: it resolves to the directory {destination.path}"
+        )
+        return False
+    if needs_decision_gate(transfer.rel, destination, state):
+        reporter.warn(
+            f"refusing to write {transfer.rel!r}: it resolves to {destination.path}, "
+            "which is not a path an ordinary pull may write"
+        )
+        return False
+    return True
 
 
 def _resolve_and_record(store_path: Path, transfer: _Transfer, state: SyncState) -> None:
@@ -644,10 +675,7 @@ def _apply_decision(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(transfer.content)
     update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
-    if target.parent == store_path / DECISIONS_DIR:
-        # A manifest path that only spells the directory like decisions/ is not
-        # part of the corpus this run maintains, whatever the filesystem folds.
-        corpus.record_added(target, transfer.content.decode("utf-8", errors="replace"))
+    corpus.record_added(target, transfer.content.decode("utf-8", errors="replace"))
     tally.merged += 1
 
 

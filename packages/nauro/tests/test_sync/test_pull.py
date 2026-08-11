@@ -12,7 +12,6 @@ classifier and its crash windows are unit-tested in ``test_collisions.py``.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import patch
 
 import httpx
@@ -37,79 +36,20 @@ from nauro.sync.state import (
     load_state,
     save_state,
 )
-from tests.conftest import seed_auth_config
-from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
-
-
-def _ok(status: int, payload: dict) -> httpx.Response:
-    return httpx.Response(
-        status,
-        content=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
-
-
-def _seed_token() -> None:
-    seed_auth_config(variant="sync")
-
-
-def _manifest(files, next_cursor=None) -> httpx.Response:
-    return _ok(200, {"files": files, "next_cursor": next_cursor})
-
-
-def _presign(ops) -> httpx.Response:
-    return _ok(
-        200,
-        {
-            "urls": [
-                {
-                    "verb": op["verb"],
-                    "path": op["path"],
-                    "url": f"https://s3.example/{op['verb']}/{op['path']}",
-                    "expires_at": "2026-05-16T13:00:00Z",
-                }
-                for op in ops
-            ]
-        },
-    )
-
-
-# A canonical decision carrying the base_commit provenance stamp as its
-# trailing frontmatter key. Sync moves raw bytes, so stamped files must
-# round-trip byte-identically like any other decision.
-_STAMPED_SHA = "a1b2c3d4" * 5
-_STAMPED_DECISION = (
-    "---\n"
-    "date: 2026-08-05\n"
-    "version: 1\n"
-    "status: active\n"
-    "confidence: high\n"
-    "decision_type: null\n"
-    "reversibility: null\n"
-    "source: null\n"
-    "files_affected: []\n"
-    "supersedes: null\n"
-    "superseded_by: null\n"
-    f"base_commit: {_STAMPED_SHA}\n"
-    "---\n\n"
-    "# 099 — Remote stamped decision\n\n"
-    "## Decision\n\nChose A.\n"
-).encode()
-
-
-class _RecordingReporter:
-    """Records reported messages."""
-
-    def __init__(self) -> None:
-        self.infos: list[str] = []
-        self.warns: list[str] = []
-
-    def info(self, msg: str) -> None:
-        self.infos.append(msg)
-
-    def warn(self, msg: str) -> None:
-        self.warns.append(msg)
-
+from tests.test_sync.conftest import (
+    _STAMPED_DECISION,
+    CLOUD_PID,
+    _manifest,
+    _presign,
+    _RecordingReporter,
+    _scaffolded_cloud_project,
+    _seed_token,
+    decision_bytes,
+    entry_names,
+    pull,
+    track,
+    write_local_decision,
+)
 
 # --- run_pull happy path ---
 
@@ -204,99 +144,6 @@ class TestRunPullCleanPull:
 
 
 # --- decision-number collisions: one classification per remote file ---
-
-
-def decision_bytes(
-    num: int,
-    title: str,
-    rationale: str = "Chose A.",
-    *,
-    status: str = "active",
-    supersedes: str | None = None,
-    superseded_by: str | None = None,
-    separator: str = "—",
-) -> bytes:
-    """A canonical decision file body, parseable by ``parse_decision``."""
-    return (
-        "---\n"
-        "date: 2026-08-10\n"
-        "version: 1\n"
-        f"status: {status}\n"
-        "confidence: high\n"
-        "decision_type: null\n"
-        "reversibility: null\n"
-        "source: null\n"
-        "files_affected: []\n"
-        f"supersedes: {repr(supersedes) if supersedes else 'null'}\n"
-        f"superseded_by: {repr(superseded_by) if superseded_by else 'null'}\n"
-        "---\n\n"
-        f"# {num:03d} {separator} {title}\n\n"
-        "## Decision\n\n"
-        f"{rationale}\n"
-    ).encode()
-
-
-def write_local_decision(store, filename: str, content: bytes) -> object:
-    decisions = store / "decisions"
-    decisions.mkdir(exist_ok=True)
-    path = decisions / filename
-    path.write_bytes(content)
-    return path
-
-
-def pull(store, entries, *, reporter=None, etags=None):
-    """Run one pull against a fake server holding exactly ``entries``.
-
-    ``entries`` is an ordered list of ``(path, body)`` pairs so the tests can
-    pin manifest order where order is the thing under test.
-    """
-    reporter = reporter or _RecordingReporter()
-    etags = etags or {}
-    bodies = dict(entries)
-    manifest = _manifest(
-        [
-            {
-                "path": rel,
-                "etag": etags.get(rel, f'"{rel}-v1"'),
-                "size": len(body),
-                "last_modified": "x",
-            }
-            for rel, body in entries
-        ]
-    )
-    presign = _presign([{"verb": "GET", "path": rel} for rel, _body in entries])
-
-    def fake_get(url, **kwargs):
-        if "/sync/manifest" in url:
-            return manifest
-        return httpx.Response(200, content=bodies[url.split("/GET/", 1)[1]])
-
-    with (
-        patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-        patch("nauro.sync.remote.httpx.post", return_value=presign),
-    ):
-        merged = run_pull(CLOUD_PID, store, reporter)
-    return merged, reporter
-
-
-def entry_names(directory) -> set[str]:
-    """Actual on-disk entry names.
-
-    ``Path.exists()`` folds case on macOS and Windows, so an assertion about
-    what a pull did or did not write has to read the directory itself.
-    """
-    return {entry.name for entry in directory.iterdir()} if directory.is_dir() else set()
-
-
-def track(store, rel: str) -> None:
-    """Record a sync-state entry for a local file, as a completed push would."""
-    state = load_state(store)
-    state.files[rel] = FileState(
-        local_sha256=compute_sha256(store / rel),
-        remote_etag='"pushed"',
-        last_sync="2026-08-10T00:00:00Z",
-    )
-    save_state(store, state)
 
 
 @pytest.fixture()
@@ -1246,7 +1093,10 @@ class TestWriteBarrier:
         """The barrier is asserted directly, not through a contrived planner:
         it is the last check before bytes land and has to hold on its own."""
         allowed = pull_module._generic_write_allowed(
-            collision_store, _Transfer(rel=rel, etag='"e"', _body=b""), _RecordingReporter()
+            collision_store,
+            _Transfer(rel=rel, etag='"e"', _body=b""),
+            SyncState(),
+            _RecordingReporter(),
         )
 
         assert allowed is False
@@ -1255,6 +1105,7 @@ class TestWriteBarrier:
         allowed = pull_module._generic_write_allowed(
             collision_store,
             _Transfer(rel="snapshots/v001.json", etag='"e"', _body=b""),
+            SyncState(),
             _RecordingReporter(),
         )
 
@@ -1339,3 +1190,125 @@ class TestDirectoryDestinations:
         assert merged == 0
         assert (collision_store / "snapshots").is_dir()
         assert any("directory" in warning for warning in reporter.warns)
+
+
+class TestTrackedDecisionUpdates:
+    """A decision's second sync and every one after it.
+
+    The gate exists to stop a write from creating a duplicate number. A remote
+    update to a decision the store already tracks, arriving at its own path,
+    creates nothing: it is the ordinary pull that carries a rider or a
+    supersession flip from one machine to another. Routing it through the
+    classifier would be worse than pointless - the same-path leg resolves
+    differing bytes by keeping the local copy, so a clean remote update would
+    be dropped on the floor.
+    """
+
+    @pytest.fixture()
+    def tracked(self, collision_store):
+        rel = "decisions/003-shared.md"
+        write_local_decision(collision_store, "003-shared.md", decision_bytes(3, "Shared", "v1."))
+        track(collision_store, rel)
+        return rel
+
+    def test_a_remote_update_lands(self, collision_store, tracked):
+        updated = decision_bytes(3, "Shared", "v2, with a rider from the other machine.")
+
+        merged, reporter = pull(collision_store, [(tracked, updated)], etags={tracked: '"v2"'})
+
+        assert merged == 1
+        assert (collision_store / tracked).read_bytes() == updated
+        assert load_state(collision_store).files[tracked].remote_etag == '"v2"'
+        assert reporter.warns == []
+
+    def test_a_two_sided_change_keeps_local_and_backs_up_remote(self, collision_store, tracked):
+        local_edit = decision_bytes(3, "Shared", "v2 edited here.")
+        (collision_store / tracked).write_bytes(local_edit)
+        remote_edit = decision_bytes(3, "Shared", "v2 edited there.")
+
+        merged, _reporter = pull(collision_store, [(tracked, remote_edit)], etags={tracked: '"v2"'})
+
+        # The existing last-write-wins policy for decision files, unchanged.
+        assert merged == 1
+        assert (collision_store / tracked).read_bytes() == local_edit
+        backups = [path.read_bytes() for path in (collision_store / ".conflict-backup").iterdir()]
+        assert backups == [remote_edit]
+
+    def test_the_barrier_admits_the_update_but_still_refuses_a_nested_path(
+        self, collision_store, tracked
+    ):
+        state = load_state(collision_store)
+
+        assert (
+            pull_module._generic_write_allowed(
+                collision_store,
+                _Transfer(rel=tracked, etag='"v2"', _body=b""),
+                state,
+                _RecordingReporter(),
+            )
+            is True
+        )
+        for rel in ("decisions/sub/003-shared.md", "decisions/003-untracked.md"):
+            assert (
+                pull_module._generic_write_allowed(
+                    collision_store,
+                    _Transfer(rel=rel, etag='"v2"', _body=b""),
+                    state,
+                    _RecordingReporter(),
+                )
+                is False
+            )
+
+    def test_a_non_canonical_tracked_path_is_still_quarantined(self, collision_store):
+        legacy = "decisions/004-old.MD"
+        write_local_decision(collision_store, "004-old.MD", b"legacy\n")
+        track(collision_store, legacy)
+
+        merged, reporter = pull(collision_store, [(legacy, b"newer\n")], etags={legacy: '"v2"'})
+
+        assert merged == 0
+        assert (collision_store / "decisions/004-old.MD").read_bytes() == b"legacy\n"
+        assert any("decisions/<name>.md" in warning for warning in reporter.warns)
+
+
+class TestUnreadableLocalNames:
+    """A local file the store's own readers cannot see still claims its number.
+
+    ``list_decisions`` and the kernel's allocator match a lowercase ``.md``
+    literally, so ``007-x.MD`` is invisible to them. If the corpus were blind to
+    it too, a remote decision would land beside it and the allocator would go on
+    to mint its number a third time.
+    """
+
+    def test_it_holds_back_a_remote_decision_claiming_its_number(self, collision_store):
+        local = write_local_decision(collision_store, "007-local.MD", decision_bytes(7, "Local"))
+
+        merged, reporter = pull(
+            collision_store, [("decisions/007-remote.md", decision_bytes(7, "Remote"))]
+        )
+
+        assert merged == 0
+        assert local.read_bytes() == decision_bytes(7, "Local")
+        assert "007-remote.md" not in entry_names(collision_store / "decisions")
+        assert any("lowercase '.md'" in warning for warning in reporter.warns)
+
+    def test_it_is_a_case_variant_of_the_name_the_server_sends(self, collision_store):
+        write_local_decision(collision_store, "007-remote.MD", decision_bytes(7, "Local"))
+
+        merged, reporter = pull(
+            collision_store, [("decisions/007-remote.md", decision_bytes(7, "Remote"))]
+        )
+
+        assert merged == 0
+        assert "007-remote.md" not in entry_names(collision_store / "decisions")
+        assert reporter.warns
+
+    def test_an_unrelated_number_is_unaffected(self, collision_store):
+        write_local_decision(collision_store, "007-local.MD", decision_bytes(7, "Local"))
+
+        merged, _reporter = pull(
+            collision_store, [("decisions/008-remote.md", decision_bytes(8, "Remote"))]
+        )
+
+        assert merged == 1
+        assert "008-remote.md" in entry_names(collision_store / "decisions")

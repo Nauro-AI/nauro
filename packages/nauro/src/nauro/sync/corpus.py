@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 from nauro_core import Decision, extract_decision_number, parse_decision
@@ -147,12 +148,28 @@ class ReferenceIndex:
         return not self.unparseable and self.questions_readable
 
 
+class SkipReason(str, Enum):
+    """Why an entry under ``decisions/`` is listed but never read."""
+
+    not_a_regular_file = "not-a-regular-file"
+    unreadable_name = "unreadable-name"
+
+
 @dataclass(frozen=True)
 class IrregularEntry:
-    """A ``decisions/*.md`` entry that is not a regular file."""
+    """An entry under ``decisions/`` this layer will not read or modify.
+
+    Either it is not a regular file, or its name is not one the store's readers
+    recognise - ``list_decisions`` and the kernel's allocator match a lowercase
+    ``.md`` suffix literally, so a file named ``007-x.MD`` is invisible to them
+    however readable it is here. Both shapes still claim their number, because a
+    number claimed by something nothing can read is exactly the ambiguity that
+    must hold a remote decision back rather than let it land alongside.
+    """
 
     name: str
     number: int | None
+    reason: SkipReason
 
 
 @dataclass
@@ -180,14 +197,30 @@ class DecisionCorpus:
         except (FileNotFoundError, NotADirectoryError):
             return corpus
         for entry in entries:
-            if not entry.name.endswith(".md"):
+            # Case-folded, so a file the store's own readers cannot see is at
+            # least visible here: it still occupies its number and its name is
+            # still a case variant of something the server may send.
+            if not entry.name.casefold().endswith(".md"):
                 continue
             names.add(entry.name)
             number = extract_decision_number(entry.name)
             # follow_symlinks=False: a symlink is not a file this layer reads,
             # follows, or rewrites, whatever it points at.
             if not entry.is_file(follow_symlinks=False):
-                irregular.append(IrregularEntry(name=entry.name, number=number))
+                irregular.append(
+                    IrregularEntry(
+                        name=entry.name,
+                        number=number,
+                        reason=SkipReason.not_a_regular_file,
+                    )
+                )
+                continue
+            if not entry.name.endswith(".md"):
+                irregular.append(
+                    IrregularEntry(
+                        name=entry.name, number=number, reason=SkipReason.unreadable_name
+                    )
+                )
                 continue
             if number is None:
                 continue
@@ -319,6 +352,7 @@ def _read_question_references(store_path: Path) -> tuple[frozenset[int], bool]:
 
 __all__ = [
     "PARSE_FAILURES",
+    "SkipReason",
     "DecisionCorpus",
     "DecisionFile",
     "IrregularEntry",

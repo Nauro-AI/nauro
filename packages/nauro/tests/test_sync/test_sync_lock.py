@@ -27,8 +27,13 @@ from nauro.sync.lock import (
 from nauro.sync.merge import should_skip
 from nauro.sync.pull import run_pull
 from nauro.sync.push import push_changed_files
-from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
-from tests.test_sync.test_pull import _ok, _RecordingReporter, _seed_token
+from tests.test_sync.conftest import (
+    CLOUD_PID,
+    _ok,
+    _RecordingReporter,
+    _scaffolded_cloud_project,
+    _seed_token,
+)
 
 runner = CliRunner()
 

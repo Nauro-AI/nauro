@@ -104,6 +104,7 @@ def _push_changed_files_locked(project_id: str, store_path: Path) -> int:
         PresignError,
         put_via_presigned_url,
         request_presigned_urls,
+        urls_by_path,
     )
     from nauro.sync.state import compute_sha256, load_state, save_state, update_file_state
 
@@ -157,11 +158,9 @@ def _push_changed_files_locked(project_id: str, store_path: Path) -> int:
     if len(urls) < len(operations):
         logger.warning("Presign returned %d URLs for %d ops", len(urls), len(operations))
 
-    url_by_path = {
-        entry["path"]: entry["url"]
-        for entry in urls
-        if isinstance(entry, dict) and entry.get("verb") == "PUT"
-    }
+    url_by_path, skipped = urls_by_path(urls, "PUT")
+    for entry in skipped:
+        logger.warning("Skipping unreadable presign entry %s", entry)
 
     pushed = 0
     for rel, local_sha, local_file in changed:

@@ -66,10 +66,14 @@ class QuarantinedCollision:
         return self.remote_path if self.complete_path else f"{self.remote_path}..."
 
 
+def _digest(material: bytes) -> str:
+    """The fixed-width, filename-safe key this module identifies things by."""
+    return hashlib.sha256(material).hexdigest()[:_KEY_LENGTH]
+
+
 def quarantine_key(remote_etag: str, remote_content: bytes) -> str:
     """Return the backup key identifying one remote version of a decision."""
-    material = remote_etag.encode("utf-8") if remote_etag else remote_content
-    return hashlib.sha256(material).hexdigest()[:_KEY_LENGTH]
+    return _digest(remote_etag.encode("utf-8") if remote_etag else remote_content)
 
 
 def path_key(remote_path: str) -> str:
@@ -82,7 +86,7 @@ def path_key(remote_path: str) -> str:
     bytes and renders as lowercase hex, which no filesystem folds together, so
     distinct paths always get distinct files.
     """
-    return hashlib.sha256(remote_path.encode("utf-8")).hexdigest()[:_KEY_LENGTH]
+    return _digest(remote_path.encode("utf-8"))
 
 
 def _encode_path(remote_path: str) -> str:
@@ -113,7 +117,7 @@ def _decode_path(encoded: str) -> str:
     index = 0
     while index < len(encoded):
         char = encoded[index]
-        if char == "%" and index + 2 < len(encoded) + 1:
+        if char == "%" and index + 2 <= len(encoded):
             hex_digits = encoded[index + 1 : index + 3]
             if len(hex_digits) == 2:
                 try:
