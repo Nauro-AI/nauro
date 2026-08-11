@@ -152,6 +152,10 @@ class _Tally:
     the opposite - a manifest row that resolves outside the store, a path an
     ordinary pull may not write, a quarantined collision - and retrying changes
     nothing about it, so it is reported and nothing more.
+
+    Both count manifest rows this run was asked to install, and only those.
+    Local files that were already irregular are the store's own hygiene: they
+    are warned about on every run and belong in neither count.
     """
 
     merged: int = 0
@@ -255,6 +259,7 @@ class _Destination:
     inside_store: bool
     inside_decisions: bool
     is_directory: bool
+    exists: bool
 
 
 def resolve_destination(store_path: Path, rel: str) -> _Destination:
@@ -283,6 +288,7 @@ def resolve_destination(store_path: Path, rel: str) -> _Destination:
         inside_store=resolved != root and resolved.is_relative_to(root),
         inside_decisions=resolved.is_relative_to(decisions_root),
         is_directory=resolved.is_dir(),
+        exists=resolved.exists(),
     )
 
 
@@ -296,14 +302,23 @@ def needs_decision_gate(rel: str, destination: _Destination, state: SyncState) -
 
     Either the spelling says decision or the destination does; the spelling
     check is the cheap one and the destination check is the honest one. The
-    exemption is narrow: a canonically spelled decision that sync state already
-    tracks is an ordinary same-path update, changing no number and needing no
-    verdict. A path this store cannot enumerate is never exempt, however it is
-    tracked, because a legacy entry must not buy a file a pass around the gate.
+    exemption is narrow: a canonically spelled decision that sync state tracks
+    and whose file is still on disk is an ordinary same-path update, changing
+    no number and needing no verdict. A path this store cannot enumerate is
+    never exempt, however it is tracked, because a legacy entry must not buy a
+    file a pass around the gate.
+
+    The file has to be there for that reasoning to hold. Once the local copy is
+    gone the number it held is free, a local writer can mint a different file
+    onto it, and reinstalling the tracked path without a verdict would leave two
+    files claiming one number and push the duplicate. A missing decision is
+    always classified.
     """
     if not (_is_decision_path(rel) or destination.inside_decisions):
         return False
-    return not is_canonical_decision_path(rel) or rel not in state.files
+    if not is_canonical_decision_path(rel):
+        return True
+    return rel not in state.files or not destination.exists
 
 
 def _is_decision_path(rel: str) -> bool:
@@ -507,7 +522,7 @@ def _run_pull_locked(
                 mutating = True
                 corpus = DecisionCorpus.scan(store_path)
                 with _guarded_step(DECISIONS_DIR, _COMPLETION_FAILURE_DETAIL, reporter, tally):
-                    _report_completion(corpus, reporter, tally)
+                    _report_completion(corpus, reporter)
                 for item in work.decisions:
                     transfer = gated.get(item.rel)
                     if transfer is None:
@@ -589,6 +604,10 @@ _WRITE_FAILURE_DETAIL = (
     "problem - permissions, free space, a directory that disappeared - then run "
     "'nauro sync' again; it retries this file."
 )
+_NO_URL_DETAIL = (
+    "{rel}: the server minted no download URL for it, so this run could not fetch it. "
+    "It stays for the next sync."
+)
 _COMPLETION_FAILURE_DETAIL = (
     "the pass that finishes an interrupted renumber could not write here ({error}), so "
     "any half-applied rename was left as it was. Fix the local problem - permissions, "
@@ -667,9 +686,9 @@ def _presign(
 ) -> dict[str, str] | None:
     """Mint one GET URL per planned file, or None on a request failure.
 
-    A shortfall and an unreadable entry are warned about here but counted where
-    the planned file is consumed, so a file the server did not mint a URL for
-    is counted once rather than once per place that notices.
+    A shortfall and an unreadable entry are reported here as the totals they
+    are. The file each one costs is named and counted where that file is
+    consumed, so no file is counted twice and none goes unnamed.
     """
     if not planned:
         return {}
@@ -700,12 +719,13 @@ def _stream(
 
     The caller writes each one before the next is fetched, so only a single
     file's content is ever held. A planned file that yields nothing - no URL,
-    or a transfer that failed - is counted refused here, because the caller
-    only ever sees what arrived.
+    or a transfer that failed - is named and counted refused here, because the
+    caller only ever sees what arrived.
     """
     for item in items:
         url = urls.get(item.rel)
         if not url:
+            reporter.warn(_NO_URL_DETAIL.format(rel=item.rel))
             tally.refused += 1
             continue
         try:
@@ -735,11 +755,16 @@ def _spool(store_path: Path) -> Iterator[Path]:
 def _spool_batch(
     urls: dict[str, str], items: list[_RemoteFile], reporter: Reporter, spool: Path
 ) -> dict[str, _Transfer]:
-    """Fetch a batch onto disk, keyed by store-relative path."""
+    """Fetch a batch onto disk, keyed by store-relative path.
+
+    Names what it could not fetch but counts nothing: the caller counts one
+    refusal per decision missing from the batch, whichever leg lost it.
+    """
     spooled: dict[str, _Transfer] = {}
     for index, item in enumerate(items):
         url = urls.get(item.rel)
         if not url:
+            reporter.warn(_NO_URL_DETAIL.format(rel=item.rel))
             continue
         try:
             content = fetch_via_presigned_url(url)
@@ -767,17 +792,16 @@ _SKIP_DETAIL: dict[SkipReason, str] = {
 }
 
 
-def _report_completion(corpus: DecisionCorpus, reporter: Reporter, tally: _Tally) -> None:
+def _report_completion(corpus: DecisionCorpus, reporter: Reporter) -> None:
     """Run the crash-window completion pass and report what it did.
 
     What it declines to touch - a heading it cannot realign, a heading outside
-    the form it rewrites, a decision file it never reads - is counted permanent:
-    each one needs a hand on the store, not another sync.
+    the form it rewrites, a decision file it never reads - is a local file that
+    was already there, not something this run was asked to install. Each one is
+    warned about and none is counted: they are the store's own hygiene, and
+    folding them into the run's counts would make every sync report leftovers.
     """
     outcome = run_completion_pass(corpus)
-    tally.skipped_permanent += (
-        len(outcome.unrepairable) + len(outcome.quarantined) + len(corpus.irregular)
-    )
     for repair in outcome.repaired:
         reporter.info(
             f"Completed an interrupted renumber: {repair.path.name} heading "
@@ -948,12 +972,14 @@ def _quarantine(
 ) -> None:
     """Leave both sides alone, back up the remote bytes, and say so.
 
-    Counted permanent: the same pull runs the same way tomorrow, and the
-    quarantine has its own surface in ``nauro sync --status`` until a person
-    settles the number.
+    Counted permanent once the backup is safe: the same pull runs the same way
+    tomorrow, and the quarantine has its own surface in ``nauro sync --status``
+    until a person settles the number. A backup that could not be written is a
+    local write error instead, counted refused by the guard above this one, so
+    the count is taken after the write rather than before it.
     """
-    tally.skipped_permanent += 1
     backup = save_quarantine_backup(store_path, transfer.rel, transfer.content, transfer.etag)
+    tally.skipped_permanent += 1
     local_names = ", ".join(path.name for path in verdict.colliders)
     text = verdict.text()
     named = f" ({local_names})" if local_names else ""

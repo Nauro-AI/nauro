@@ -1550,6 +1550,56 @@ class TestLocallyDeletedFiles:
         assert merged == 0
         assert reporter.infos == ["No remote changes"]
 
+    def test_a_locally_modified_file_with_an_unchanged_remote_is_left_alone(self, collision_store):
+        """An unmoved remote has nothing to say about a local edit.
+
+        The shortcut is what protects work in progress. Moving the local-change
+        probe above it would fetch the entry, call the edit a conflict, and
+        rewrite or back up a file the server never changed.
+        """
+        (collision_store / "stack.md").write_text("# Stack\n\npushed\n")
+        track(collision_store, "stack.md")
+        recorded = load_state(collision_store).files["stack.md"].local_sha256
+        (collision_store / "stack.md").write_text("# Stack\n\nlocal edit\n")
+
+        merged, reporter = pull(
+            collision_store,
+            [("stack.md", b"# Stack\n\npushed\n")],
+            etags={"stack.md": '"pushed"'},
+        )
+
+        assert merged == 0
+        assert (collision_store / "stack.md").read_text() == "# Stack\n\nlocal edit\n"
+        assert not (collision_store / CONFLICT_BACKUP_DIR).exists()
+        assert load_state(collision_store).files["stack.md"].local_sha256 == recorded
+        assert reporter.infos == ["No remote changes"]
+
+    def test_a_deleted_decision_is_classified_before_it_is_reinstalled(self, collision_store):
+        """Deleting a decision frees the number a local writer can then mint.
+
+        Sync state still tracks the path, and a tracked canonical decision is
+        exempt from the classifier as an ordinary same-path update. That holds
+        only while the file is there: reinstalling it without a verdict would
+        put two files on one number and push the duplicate.
+        """
+        rel = "decisions/004-foo.md"
+        body = decision_bytes(4, "Foo")
+        write_local_decision(collision_store, "004-foo.md", body)
+        track(collision_store, rel)
+        (collision_store / rel).unlink()
+        # A local writer takes the freed number before the next sync.
+        write_local_decision(collision_store, "004-bar.md", decision_bytes(4, "Bar", "Chose B."))
+
+        merged, reporter = pull(collision_store, [(rel, body)], etags={rel: '"pushed"'})
+
+        names = entry_names(collision_store / "decisions")
+        assert merged == 1
+        assert (collision_store / rel).read_bytes() == body
+        assert "004-bar.md" not in names
+        assert [name for name in names if name.startswith("004-")] == ["004-foo.md"]
+        assert any(name.endswith("-bar.md") for name in names)
+        assert any("Renumbered" in line for line in reporter.infos)
+
 
 class TestUntrackedLocalFiles:
     """A file sync state never recorded still has bytes worth keeping.
