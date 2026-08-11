@@ -63,6 +63,7 @@ from nauro.mcp.tools import (
 )
 from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.journal import OriginDescriptor
+from nauro.store.post_commit import with_assessment
 from nauro.store.repo_head import resolve_repo_head
 from nauro.store.resolution import (
     DisconnectedProject,
@@ -480,10 +481,10 @@ def flag_question(
         reason = str(error.get("reason", "Flag rejected."))
         return reason
     if resolved_by is not None:
-        return "Question(s) resolved."
+        return with_assessment("Question(s) resolved.", result)
     if result.get("hint"):
-        return f"{result['hint']} The question has still been logged."
-    return "Question flagged."
+        return with_assessment(f"{result['hint']} The question has still been logged.", result)
+    return with_assessment("Question flagged.", result)
 
 
 @mcp.tool(**_spec_kwargs("update_state"))
@@ -500,8 +501,8 @@ def update_state(
         return err if disconnected_reason_code(err) is not None else err["guidance"]
     result = tool_update_state(store_path, delta, origin=_origin_from_ctx(mcp_ctx))
     if result.get("warning"):
-        return f"State updated. {result['warning']}"
-    return "State updated."
+        return with_assessment(f"State updated. {result['warning']}", result)
+    return with_assessment("State updated.", result)
 
 
 def _pull_on_startup() -> None:
