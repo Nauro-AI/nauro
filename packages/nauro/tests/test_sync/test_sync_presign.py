@@ -194,7 +194,7 @@ class TestPullViaPresign:
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
-            merged = _pull_from_cloud(cloud_store.name, cloud_store)
+            merged = _pull_from_cloud(cloud_store.name, cloud_store).merged
 
         # Both files came back through the diff.
         assert merged == 2
@@ -227,7 +227,7 @@ class TestPullViaPresign:
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
-            merged = _pull_from_cloud(cloud_store.name, cloud_store)
+            merged = _pull_from_cloud(cloud_store.name, cloud_store).merged
 
         assert merged == 0
         mock_post.assert_not_called()
@@ -253,7 +253,7 @@ class TestPullViaPresign:
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
-            merged = _pull_from_cloud(cloud_store.name, cloud_store)
+            merged = _pull_from_cloud(cloud_store.name, cloud_store).merged
 
         # Presign request: payload carries project_id and the GET op.
         assert mock_post.call_count == 1
@@ -304,7 +304,7 @@ class TestPullViaPresign:
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
-            merged = _pull_from_cloud(cloud_store.name, cloud_store)
+            merged = _pull_from_cloud(cloud_store.name, cloud_store).merged
 
         assert merged == 1
         # last-write-wins kept the local body — verify by sha
@@ -342,7 +342,7 @@ class TestPullViaPresign:
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
-            merged = _pull_from_cloud(cloud_store.name, cloud_store)
+            merged = _pull_from_cloud(cloud_store.name, cloud_store).merged
 
         assert merged == 1
         # The 401 forced a refresh and a retry of the manifest call.
@@ -380,7 +380,7 @@ class TestPullViaPresign:
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
-            merged = _pull_from_cloud(cloud_store.name, cloud_store)
+            merged = _pull_from_cloud(cloud_store.name, cloud_store).merged
 
         assert merged == 1
         presign_calls = [c for c in mock_post.call_args_list if "/sync/presign" in c.args[0]]

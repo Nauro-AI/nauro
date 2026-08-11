@@ -7,13 +7,12 @@ from nauro.store import _atomic
 from nauro.store._atomic import atomic_write_bytes
 from nauro.sync.merge import (
     CONFLICT_BACKUP_DIR,
+    Side,
     _set_union_markdown,
-    detect_conflict,
     resolve_conflict,
     should_skip,
     write_backup,
 )
-from nauro.sync.state import FileState, SyncState
 
 
 class TestShouldSkip:
@@ -87,27 +86,6 @@ class TestShouldSkip:
         assert should_skip("decisions\\.lock") is True
 
 
-class TestDetectConflict:
-    def test_no_previous_state(self):
-        state = SyncState()
-        assert detect_conflict("new.md", state, "sha1", '"etag1"') is False
-
-    def test_only_local_changed(self):
-        state = SyncState()
-        state.files["test.md"] = FileState(local_sha256="old_sha", remote_etag='"same_etag"')
-        assert detect_conflict("test.md", state, "new_sha", '"same_etag"') is False
-
-    def test_only_remote_changed(self):
-        state = SyncState()
-        state.files["test.md"] = FileState(local_sha256="same_sha", remote_etag='"old_etag"')
-        assert detect_conflict("test.md", state, "same_sha", '"new_etag"') is False
-
-    def test_both_changed(self):
-        state = SyncState()
-        state.files["test.md"] = FileState(local_sha256="old_sha", remote_etag='"old_etag"')
-        assert detect_conflict("test.md", state, "new_sha", '"new_etag"') is True
-
-
 class TestResolveConflict:
     def test_lww_for_state_md(self, tmp_path):
         """state.md uses last-write-wins with backup."""
@@ -117,7 +95,9 @@ class TestResolveConflict:
         local_file.write_text("local state content")
         remote_content = b"remote state content"
 
-        result = resolve_conflict(project_path, local_file, remote_content, "state.md")
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "state.md", keeps=Side.local
+        )
 
         assert result == b"local state content"
         backup_dir = project_path / ".conflict-backup"
@@ -134,7 +114,9 @@ class TestResolveConflict:
         local_file.write_text("local project content")
         remote_content = b"remote project content"
 
-        result = resolve_conflict(project_path, local_file, remote_content, "project.md")
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "project.md", keeps=Side.local
+        )
 
         assert result == b"local project content"
         backup_dir = project_path / ".conflict-backup"
@@ -149,7 +131,9 @@ class TestResolveConflict:
         local_file.write_text('{"local": true}')
         remote_content = b'{"remote": true}'
 
-        result = resolve_conflict(project_path, local_file, remote_content, "snapshots/v001.json")
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "snapshots/v001.json", keeps=Side.local
+        )
 
         assert result == b'{"local": true}'
 
@@ -167,7 +151,9 @@ class TestResolveConflict:
         local_file.write_text("# Decision 001\nLocal addition\n")
         remote_content = b"# Decision 001\nRemote addition\n"
 
-        result = resolve_conflict(project_path, local_file, remote_content, "decisions/001-foo.md")
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "decisions/001-foo.md", keeps=Side.local
+        )
 
         # Local copy is kept whole, never interleaved with remote.
         assert result == b"# Decision 001\nLocal addition\n"
@@ -225,7 +211,11 @@ class TestResolveConflict:
         remote_content = remote_text.encode("utf-8")
 
         result = resolve_conflict(
-            project_path, local_file, remote_content, "decisions/042-cache-layer.md"
+            project_path,
+            local_file,
+            remote_content,
+            "decisions/042-cache-layer.md",
+            keeps=Side.local,
         )
 
         # The survivor is the local rewrite, whole and parseable as ONE decision.
@@ -248,7 +238,9 @@ class TestResolveConflict:
         local_file.write_text("- Question 1\n- Local question\n")
         remote_content = b"- Question 1\n- Remote question\n"
 
-        result = resolve_conflict(project_path, local_file, remote_content, "open-questions.md")
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "open-questions.md", keeps=Side.local
+        )
 
         result_str = result.decode()
         assert result_str.count("Question 1") == 1
@@ -397,7 +389,9 @@ class TestSetUnionMarkdown:
 
         monkeypatch.setattr("nauro.sync.merge._set_union_markdown", spy)
 
-        resolve_conflict(project_path, local_file, remote_content, "decisions/001-foo.md")
+        resolve_conflict(
+            project_path, local_file, remote_content, "decisions/001-foo.md", keeps=Side.local
+        )
 
         assert calls == []
         # Last-write-wins backs the remote loser up rather than interleaving it.
@@ -421,7 +415,9 @@ class TestSetUnionMarkdown:
 
         monkeypatch.setattr("nauro.sync.merge._set_union_markdown", spy)
 
-        result = resolve_conflict(project_path, local_file, remote_content, "open-questions.md")
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "open-questions.md", keeps=Side.local
+        )
 
         assert result == b"merged"
         assert len(calls) == 1
@@ -444,7 +440,9 @@ class TestSetUnionMarkdown:
 
         monkeypatch.setattr("nauro.sync.merge._set_union_markdown", spy)
 
-        result = resolve_conflict(project_path, local_file, remote_content, "state_history.md")
+        result = resolve_conflict(
+            project_path, local_file, remote_content, "state_history.md", keeps=Side.local
+        )
 
         assert result == b"merged"
         assert len(calls) == 1

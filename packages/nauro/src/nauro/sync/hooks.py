@@ -68,12 +68,14 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
         return 0
 
     try:
+        # The merged count only: session start has no exit code to carry a
+        # refusal, and the reporter above has already logged every one.
         return run_pull(
             project_id,
             store_path,
             _LoggingReporter(),
             lock_timeout=HOOK_SYNC_LOCK_TIMEOUT,
-        )
+        ).merged
     except SyncLockTimeoutError as exc:
         # Contention is an ordinary outcome here, not a failure: the other
         # process is doing this same work, and session start never waits.

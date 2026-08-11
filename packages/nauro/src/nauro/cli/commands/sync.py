@@ -1,6 +1,9 @@
 """nauro sync — Capture a snapshot and regenerate AGENTS.md in associated repos."""
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -14,6 +17,9 @@ from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
 from nauro.sync.push import push_store_to_cloud
 from nauro.templates.agents_md_regen import warn_then_regen
+
+if TYPE_CHECKING:  # the pull core pulls in httpx, so it stays off the CLI's import path
+    from nauro.sync.pull import PullReport
 
 # Names retained for callers/tests that import the push helper from this
 # command module; the implementation now lives in ``nauro.sync.push``.
@@ -41,6 +47,10 @@ def sync(
     state_current.md is not touched — use the MCP 'update_state' tool to
     record what changed. After a successful sync, structural store
     validation runs and any warnings are printed at the end.
+
+    Exit codes: 1 for a failure of the command itself (the snapshot, the push,
+    a store lock another sync holds), 2 when everything ran but the pull left
+    files it could not write for the next sync, 0 otherwise.
     """
     if status:
         _show_status(project)
@@ -51,7 +61,7 @@ def sync(
     project_key = store_path.name
     trigger = message or "manual sync"
 
-    _pull_from_cloud(project_key, store_path)
+    pulled = _pull_from_cloud(project_key, store_path)
 
     version = capture_snapshot(store_path, trigger=trigger)
 
@@ -93,17 +103,33 @@ def sync(
     if warnings:
         print_warnings(warnings)
 
+    if pulled.refused:
+        # Exit 2, after everything else ran: the snapshot, the regen, and the
+        # push all succeeded, so this is not the exit-1 failure of the command,
+        # but the store does not hold everything the server has and a script
+        # must not read that as a clean sync.
+        typer.echo(
+            f"Error: {pulled.refused} remote file(s) were not written this sync "
+            "(each one is reported above). Run 'nauro sync' again once the local "
+            "problem is fixed.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
 
-def _pull_from_cloud(project_id: str, store_path: Path) -> int:
+
+def _pull_from_cloud(project_id: str, store_path: Path) -> PullReport:
     """Pull remote changes via the manifest + presign endpoints.
 
     No-op when the project is not v2 cloud-mode (local-mode has no
-    presign target) or when no Auth0 token is configured.
+    presign target) or when no Auth0 token is configured; an empty report
+    says the same thing as a run that found nothing.
     """
+    from nauro.sync.pull import PullReport
+
     if not is_cloud_project(project_id):
-        return 0
+        return PullReport()
     if not load_access_token():
-        return 0
+        return PullReport()
     return _pull_via_presign(project_id, store_path)
 
 
@@ -120,7 +146,7 @@ class _EchoReporter:
         typer.echo(f"  {msg}", err=True)
 
 
-def _pull_via_presign(project_id: str, store_path: Path) -> int:
+def _pull_via_presign(project_id: str, store_path: Path) -> PullReport:
     """GET /sync/manifest → POST /sync/presign → S3 GETs.
 
     Delegates to the shared pull core with an echo reporter. An explicit sync
@@ -184,6 +210,7 @@ def _show_status(project_flag: str | None) -> None:
     else:
         typer.echo("  Pending local changes: none")
 
+    from nauro.sync.merge import CONFLICT_BACKUP_DIR
     from nauro.sync.quarantine import list_quarantine_backups, unresolved_quarantines
 
     quarantined = unresolved_quarantines(store_path, state)
@@ -192,7 +219,7 @@ def _show_status(project_flag: str | None) -> None:
         for item in quarantined:
             typer.echo(f"    - {item.label} (remote copy: {item.backup_path.name})")
 
-    backup_dir = store_path / ".conflict-backup"
+    backup_dir = store_path / CONFLICT_BACKUP_DIR
     if backup_dir.exists():
         # Quarantine backups live in the same directory but are already
         # reported above; counting them again would double-report one event.

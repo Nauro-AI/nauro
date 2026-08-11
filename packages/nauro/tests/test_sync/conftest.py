@@ -153,11 +153,13 @@ def write_local_decision(store, filename: str, content: bytes) -> object:
     return path
 
 
-def pull(store, entries, *, reporter=None, etags=None):
+def pull_report(store, entries, *, reporter=None, etags=None):
     """Run one pull against a fake server holding exactly ``entries``.
 
     ``entries`` is an ordered list of ``(path, body)`` pairs so the tests can
-    pin manifest order where order is the thing under test.
+    pin manifest order where order is the thing under test. Returns the full
+    :class:`~nauro.sync.pull.PullReport`; :func:`pull` is the merged-count form
+    most tests want.
     """
     reporter = reporter or _RecordingReporter()
     etags = etags or {}
@@ -184,8 +186,14 @@ def pull(store, entries, *, reporter=None, etags=None):
         patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
         patch("nauro.sync.remote.httpx.post", return_value=presign),
     ):
-        merged = run_pull(CLOUD_PID, store, reporter)
-    return merged, reporter
+        report = run_pull(CLOUD_PID, store, reporter)
+    return report, reporter
+
+
+def pull(store, entries, *, reporter=None, etags=None):
+    """Run one pull, returning ``(merged count, reporter)``."""
+    report, reporter = pull_report(store, entries, reporter=reporter, etags=etags)
+    return report.merged, reporter
 
 
 def entry_names(directory) -> set[str]:

@@ -31,10 +31,12 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum, auto
 from pathlib import Path
 from typing import Protocol
 
@@ -43,7 +45,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from nauro.cli.commands.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR
-from nauro.store._atomic import atomic_write_bytes
+from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.sync.collisions import (
     DecisionOutcome,
     DecisionVerdict,
@@ -59,7 +61,7 @@ from nauro.sync.corpus import DecisionCorpus, SkipReason
 from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, decision_lock, sync_lock
 from nauro.sync.merge import (
     SPOOL_DIR_PREFIX,
-    detect_conflict,
+    Side,
     normalize_rel,
     resolve_conflict,
     should_skip,
@@ -142,14 +144,43 @@ class _Transfer:
 class _Tally:
     """What one run changed, in the terms it reports.
 
-    ``refused`` counts the subjects a local filesystem error stopped. They are
-    not failures of the run - each one is reported and the next sync retries it
-    - but they are the reason a run cannot claim to have synced the whole store.
+    Two counts describe what did not land, because they answer different
+    questions. ``refused`` is a subject the next sync retries: a local write
+    error, a fetch that failed, a presign URL that never arrived. Each one is
+    reported, none is a failure of the run, and together they are the reason a
+    run cannot claim to have synced the whole store. ``skipped_permanent`` is
+    the opposite - a manifest row that resolves outside the store, a path an
+    ordinary pull may not write, a quarantined collision - and retrying changes
+    nothing about it, so it is reported and nothing more.
     """
 
     merged: int = 0
     adopted: int = 0
     refused: int = 0
+    skipped_permanent: int = 0
+
+
+@dataclass(frozen=True)
+class PullReport:
+    """What one pull run left behind, for a caller that must act on it.
+
+    ``nauro sync`` turns ``refused`` into a nonzero exit: a run that could not
+    write everything the server holds must not report success to a script.
+    ``skipped_permanent`` is reported to the user but never changes an exit
+    code, because no rerun resolves it.
+    """
+
+    merged: int = 0
+    refused: int = 0
+    skipped_permanent: int = 0
+
+    @classmethod
+    def _of(cls, tally: _Tally) -> PullReport:
+        return cls(
+            merged=tally.merged,
+            refused=tally.refused,
+            skipped_permanent=tally.skipped_permanent,
+        )
 
 
 @dataclass(frozen=True)
@@ -159,6 +190,7 @@ class _Manifest:
     entries: tuple[_ManifestEntry, ...]
     paths: frozenset[str]
     decision_numbers: frozenset[int]
+    unreadable_rows: int = 0
 
 
 def _parse_manifest(rows: list[dict], reporter: Reporter) -> _Manifest:
@@ -170,11 +202,13 @@ def _parse_manifest(rows: list[dict], reporter: Reporter) -> _Manifest:
     so a local renumber never mints onto one.
     """
     entries: list[_ManifestEntry] = []
+    unreadable = 0
     for row in rows:
         try:
             entry = _ManifestEntry.model_validate(row)
         except ValidationError:
             reporter.warn(f"skipping unreadable manifest entry {row!r}")
+            unreadable += 1
             continue
         if entry.path:
             entries.append(entry)
@@ -190,6 +224,7 @@ def _parse_manifest(rows: list[dict], reporter: Reporter) -> _Manifest:
         entries=tuple(entries),
         paths=frozenset(paths),
         decision_numbers=frozenset(numbers),
+        unreadable_rows=unreadable,
     )
 
 
@@ -199,12 +234,14 @@ class _Worklists:
 
     ``decisions`` holds every decision file the store does not track, whatever
     it looked like at planning time; each one is classified again against the
-    live corpus before it is written.
+    live corpus before it is written. ``skipped_permanent`` counts the entries
+    triage refused outright, which no worklist carries and no rerun recovers.
     """
 
     decisions: list[_RemoteFile] = field(default_factory=list)
     pulls: list[_RemoteFile] = field(default_factory=list)
     conflicts: list[_RemoteFile] = field(default_factory=list)
+    skipped_permanent: int = 0
 
     def all_files(self) -> list[_RemoteFile]:
         return self.decisions + self.pulls + self.conflicts
@@ -290,6 +327,72 @@ def _decision_name(rel: str) -> str:
     return rel.partition("/")[2]
 
 
+class _Route(Enum):
+    """What one manifest entry needs, before any worklist is built.
+
+    The reasoning lives in :func:`_route_entry` alone, so the collection step
+    reads as a table rather than as a second copy of it.
+    """
+
+    ignore = auto()
+    unusable = auto()
+    gate = auto()
+    install = auto()
+    conflict = auto()
+
+
+def _route_entry(
+    store_path: Path, entry: _ManifestEntry, state: SyncState, reporter: Reporter
+) -> _Route:
+    """Decide what one manifest entry needs, naming the ones it refuses.
+
+    The order is the substance. Every guard about where the bytes would land
+    runs before anything about whether they are wanted, so a refusal is always
+    reported rather than hidden behind a shortcut. The unchanged-remote
+    shortcut then applies only when the local file is still there: the remote
+    store is the record for a tracked file, so an entry the user deleted
+    locally is reinstalled whether or not its etag moved.
+    """
+    rel = entry.path
+    if should_skip(rel):
+        return _Route.ignore
+    # Server validates per-op on presign, but the manifest itself is
+    # currently trusted — drop suspicious entries before they hit disk.
+    if ".." in Path(rel).parts or rel.startswith("/"):
+        reporter.warn(f"skipping suspicious manifest entry {rel!r}")
+        return _Route.unusable
+
+    destination = resolve_destination(store_path, rel)
+    if not destination.inside_store:
+        reporter.warn(f"skipping manifest entry {rel!r}: it resolves outside the store")
+        return _Route.unusable
+
+    local_exists = (store_path / rel).exists()
+    if local_exists and not file_changed_remotely(entry.etag, rel, state):
+        return _Route.ignore
+
+    if needs_decision_gate(rel, destination, state):
+        return _Route.gate
+    if destination.is_directory:
+        # Nothing a manifest names as a file may land on a directory: the
+        # local-change probe below would hash it and raise.
+        reporter.warn(
+            f"skipping manifest entry {rel!r}: it resolves to the directory {destination.path}"
+        )
+        return _Route.unusable
+    if not local_exists:
+        # A file the user deleted is not a conflict: a conflict protects local
+        # content and there is none.
+        return _Route.install
+    if file_changed_locally(store_path, rel, state):
+        # Reaching here with a local file means the remote moved too, so both
+        # sides have content the other does not - whether or not sync state
+        # tracks the file. An untracked one used to match no list at all and be
+        # dropped in silence, which lost the remote version without a backup.
+        return _Route.conflict
+    return _Route.install
+
+
 def _triage(
     store_path: Path,
     manifest: _Manifest,
@@ -308,48 +411,21 @@ def _triage(
     listing = DecisionCorpus.scan(store_path)
     contested: list[_RemoteFile] = []
     for entry in manifest.entries:
-        rel = entry.path
-        if should_skip(rel):
+        route = _route_entry(store_path, entry, state, reporter)
+        if route is _Route.ignore:
             continue
-        # Server validates per-op on presign, but the manifest itself is
-        # currently trusted — drop suspicious entries before they hit disk.
-        if ".." in Path(rel).parts or rel.startswith("/"):
-            reporter.warn(f"skipping suspicious manifest entry {rel!r}")
-            continue
-        if not file_changed_remotely(entry.etag, rel, state):
+        if route is _Route.unusable:
+            work.skipped_permanent += 1
             continue
 
-        item = _RemoteFile(rel, entry.etag)
-        destination = resolve_destination(store_path, rel)
-        if not destination.inside_store:
-            reporter.warn(f"skipping manifest entry {rel!r}: it resolves outside the store")
-            continue
-        if needs_decision_gate(rel, destination, state):
-            number = extract_decision_number(_decision_name(rel))
+        item = _RemoteFile(entry.path, entry.etag)
+        if route is _Route.gate:
+            number = extract_decision_number(_decision_name(entry.path))
             claimed = number is not None and bool(listing.holders(number))
             (contested if claimed else work.decisions).append(item)
-            continue
-
-        if destination.is_directory:
-            # Nothing a manifest names as a file may land on a directory: the
-            # local-change probe below would hash it and raise.
-            reporter.warn(
-                f"skipping manifest entry {rel!r}: it resolves to the directory {destination.path}"
-            )
-            continue
-
-        local_file = store_path / rel
-        if not local_file.exists():
-            # A tracked file the user deleted is not a conflict: a conflict
-            # protects local content and there is none. The remote store is
-            # append-only, so the file comes back on this pull.
+        elif route is _Route.install:
             work.pulls.append(item)
-            continue
-        if not file_changed_locally(store_path, rel, state):
-            work.pulls.append(item)
-            continue
-
-        if detect_conflict(rel, state, compute_sha256(local_file), entry.etag):
+        else:
             work.conflicts.append(item)
 
     work.decisions[:0] = contested
@@ -362,7 +438,7 @@ def run_pull(
     reporter: Reporter,
     *,
     lock_timeout: float = CLI_SYNC_LOCK_TIMEOUT,
-) -> int:
+) -> PullReport:
     """Pull remote changes for ``project_id`` into ``store_path``.
 
     Walks the server manifest, then applies it in two phases. Untracked
@@ -372,9 +448,9 @@ def run_pull(
     changed set is hundreds of megabytes of snapshots is never held in memory
     and a local decision writer never waits on the whole batch.
 
-    Returns the number of files merged. Caller-facing failures
-    (manifest/presign auth-refresh or transport errors) are reported through
-    ``reporter`` and map to a 0 return.
+    Returns a :class:`PullReport`. Caller-facing failures (manifest/presign
+    auth-refresh or transport errors) are reported through ``reporter`` and map
+    to an empty report.
 
     The write phase is crash-safe in both directions: a local filesystem error
     on one file is reported and the batch continues, and sync state is written
@@ -392,25 +468,27 @@ def run_pull(
 
 def _run_pull_locked(
     project_id: str, store_path: Path, reporter: Reporter, lock_timeout: float
-) -> int:
+) -> PullReport:
+    _sweep_interrupted_writes(store_path, reporter)
+
     try:
         rows = fetch_manifest(project_id)
     except AuthRefreshError as exc:
         reporter.warn(str(exc))
-        return 0
+        return PullReport()
     except PresignError as exc:
         reporter.warn(f"manifest fetch failed: {exc}")
-        return 0
+        return PullReport()
 
     manifest = _parse_manifest(rows, reporter)
     state = load_state(store_path)
     work = _triage(store_path, manifest, state, reporter)
+    tally = _Tally(skipped_permanent=manifest.unreadable_rows + work.skipped_permanent)
 
     urls = _presign(project_id, work.all_files(), reporter)
     if urls is None:
-        return 0
+        return PullReport._of(tally)
 
-    tally = _Tally()
     # Flipped the moment the decision lock is held, which is the moment this run
     # can start changing the store. Everything before it - the manifest, the
     # triage, the presign, the transfers, the wait for the lock - leaves the
@@ -429,32 +507,47 @@ def _run_pull_locked(
                 mutating = True
                 corpus = DecisionCorpus.scan(store_path)
                 with _guarded_step(DECISIONS_DIR, _COMPLETION_FAILURE_DETAIL, reporter, tally):
-                    _report_completion(corpus, reporter)
+                    _report_completion(corpus, reporter, tally)
                 for item in work.decisions:
                     transfer = gated.get(item.rel)
                     if transfer is None:
+                        # No URL, or a fetch that failed - both already warned
+                        # about, and both counted here rather than where they
+                        # happened so one absent decision is counted once.
+                        tally.refused += 1
                         continue
                     with _guarded_step(item.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
                         _apply_decision(corpus, transfer, state, manifest, reporter, tally)
 
-        for transfer in _stream(urls, work.pulls, reporter):
+        for transfer in _stream(urls, work.pulls, reporter, tally):
             with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
                 if _generic_write_allowed(store_path, transfer, state, reporter):
                     target = store_path / transfer.rel
                     atomic_write_bytes(target, transfer.content)
                     update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
                     tally.merged += 1
+                else:
+                    tally.skipped_permanent += 1
 
-        for transfer in _stream(urls, work.conflicts, reporter):
+        for transfer in _stream(urls, work.conflicts, reporter, tally):
             with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
                 if _generic_write_allowed(store_path, transfer, state, reporter):
-                    _resolve_and_record(store_path, transfer, state)
+                    _resolve_and_record(
+                        store_path, transfer, state, _conflict_side(transfer.rel, state)
+                    )
                     tally.merged += 1
+                else:
+                    tally.skipped_permanent += 1
 
         if not tally.refused:
-            # The timestamp says this run walked the whole store and wrote
-            # everything it found, so it advances only when every leg ran and
-            # no file was left behind by a local write failure.
+            # The stamp says every file this run found is on disk. Only a
+            # transient refusal holds it back - a local write error, a fetch
+            # that failed, a presign URL that never arrived - because only
+            # those come back on the next run. A permanently skipped entry is
+            # reported on its own and never resolves by retrying, so gating on
+            # one would freeze the stamp for good. The stamp is pull-scoped: a
+            # push failure is the command's own exit-1 outcome and never
+            # reaches this line.
             state.last_full_sync = datetime.now(timezone.utc).isoformat()
     finally:
         # Sync state records what actually landed, so once this run could have
@@ -469,16 +562,21 @@ def _run_pull_locked(
         reporter.info(f"Adopted {tally.adopted} local file(s) already on the server")
     if tally.merged:
         reporter.info(f"Merged {tally.merged} file(s) from remote")
+    if tally.skipped_permanent:
+        reporter.info(
+            f"Skipped {tally.skipped_permanent} item(s) this sync cannot install: "
+            "each one is named above, and another run changes nothing"
+        )
     if tally.refused:
         # Said last, after the warnings that explain each one. A run that could
         # not write must never sign off as "No remote changes".
         reporter.info(
             f"Left {tally.refused} item(s) for the next sync: this run could not write them"
         )
-    elif not (tally.merged or tally.adopted):
+    elif not (tally.merged or tally.adopted or tally.skipped_permanent):
         reporter.info("No remote changes")
 
-    return tally.merged
+    return PullReport._of(tally)
 
 
 # What a step that could not write says for itself. Same shape as _SKIP_DETAIL
@@ -528,10 +626,51 @@ def _guarded_step(subject: str, detail: str, reporter: Reporter, tally: _Tally) 
         reporter.warn(f"{subject}: {detail.format(error=exc)}")
 
 
+# How old a tmp sibling must be before the sweep treats it as garbage. An
+# atomic write lives for the length of one write, so a minute-old tmp file is
+# one a kill signal stranded. The floor is what keeps the sweep off a write in
+# progress: store writers take the decision lock, but the store is a directory
+# the user can also write into, and this runs while only the sync lock is held.
+_STRANDED_TMP_MIN_AGE_SECONDS = 60.0
+
+
+def _sweep_interrupted_writes(store_path: Path, reporter: Reporter) -> int:
+    """Remove the tmp siblings killed writes stranded, and say how many.
+
+    Nothing reads these files and both sync directions exclude them, so without
+    a sweep they accumulate for the life of the store, each one a full copy of
+    whatever was being written. The pull is where they are collected because it
+    already holds the sync lock and already walks the store.
+    """
+    cutoff = time.time() - _STRANDED_TMP_MIN_AGE_SECONDS
+    removed = 0
+    for path in store_path.rglob("*"):
+        if not is_tmp_sibling(path.name) or not path.is_file():
+            continue
+        try:
+            if path.stat().st_mtime > cutoff:
+                continue
+            path.unlink()
+        except OSError as exc:
+            # One dropping this run cannot remove is not a reason to refuse the
+            # pull that was asked for.
+            reporter.warn(f"could not remove the interrupted write {path}: {exc}")
+            continue
+        removed += 1
+    if removed:
+        reporter.info(f"Cleaned {removed} interrupted write(s)")
+    return removed
+
+
 def _presign(
     project_id: str, planned: list[_RemoteFile], reporter: Reporter
 ) -> dict[str, str] | None:
-    """Mint one GET URL per planned file, or None on a request failure."""
+    """Mint one GET URL per planned file, or None on a request failure.
+
+    A shortfall and an unreadable entry are warned about here but counted where
+    the planned file is consumed, so a file the server did not mint a URL for
+    is counted once rather than once per place that notices.
+    """
     if not planned:
         return {}
 
@@ -555,21 +694,25 @@ def _presign(
 
 
 def _stream(
-    urls: dict[str, str], items: list[_RemoteFile], reporter: Reporter
+    urls: dict[str, str], items: list[_RemoteFile], reporter: Reporter, tally: _Tally
 ) -> Iterator[_Transfer]:
     """Yield each planned file's bytes, fetched one at a time.
 
     The caller writes each one before the next is fetched, so only a single
-    file's content is ever held.
+    file's content is ever held. A planned file that yields nothing - no URL,
+    or a transfer that failed - is counted refused here, because the caller
+    only ever sees what arrived.
     """
     for item in items:
         url = urls.get(item.rel)
         if not url:
+            tally.refused += 1
             continue
         try:
             content = fetch_via_presigned_url(url)
         except PresignError as exc:
             reporter.warn(f"error pulling {item.rel}: {exc}")
+            tally.refused += 1
             continue
         yield _Transfer(rel=item.rel, etag=item.etag, _body=content)
 
@@ -624,9 +767,17 @@ _SKIP_DETAIL: dict[SkipReason, str] = {
 }
 
 
-def _report_completion(corpus: DecisionCorpus, reporter: Reporter) -> None:
-    """Run the crash-window completion pass and report what it did."""
+def _report_completion(corpus: DecisionCorpus, reporter: Reporter, tally: _Tally) -> None:
+    """Run the crash-window completion pass and report what it did.
+
+    What it declines to touch - a heading it cannot realign, a heading outside
+    the form it rewrites, a decision file it never reads - is counted permanent:
+    each one needs a hand on the store, not another sync.
+    """
     outcome = run_completion_pass(corpus)
+    tally.skipped_permanent += (
+        len(outcome.unrepairable) + len(outcome.quarantined) + len(corpus.irregular)
+    )
     for repair in outcome.repaired:
         reporter.info(
             f"Completed an interrupted renumber: {repair.path.name} heading "
@@ -685,10 +836,26 @@ def _generic_write_allowed(
     return True
 
 
-def _resolve_and_record(store_path: Path, transfer: _Transfer, state: SyncState) -> None:
-    """Apply the last-write-wins conflict policy and record the result."""
+def _conflict_side(rel: str, state: SyncState) -> Side:
+    """Which copy of a contested path stays on disk.
+
+    A tracked path's two versions descend from a copy this store published, so
+    last-write-wins keeps the one the user is looking at. An untracked path was
+    never published from here and has no shared ancestor: the server's copy is
+    the record for it, and the local bytes go to the backup directory instead.
+    Neither side is lost either way; only which one needs a rename to recover.
+    """
+    return Side.local if rel in state.files else Side.remote
+
+
+def _resolve_and_record(
+    store_path: Path, transfer: _Transfer, state: SyncState, keeps: Side
+) -> None:
+    """Apply the conflict policy for one path and record the result."""
     local_file = store_path / transfer.rel
-    merged_content = resolve_conflict(store_path, local_file, transfer.content, transfer.rel)
+    merged_content = resolve_conflict(
+        store_path, local_file, transfer.content, transfer.rel, keeps=keeps
+    )
     atomic_write_bytes(local_file, merged_content)
     update_file_state(state, transfer.rel, compute_sha256(local_file), transfer.etag)
 
@@ -720,7 +887,7 @@ def _apply_decision(
             # Refused before anything was renamed or written, and the refusal
             # names its own reason rather than borrowing the heading's.
             reporter.warn(str(exc))
-            _quarantine(store_path, transfer, verdict.quarantined_as(exc.reason), reporter)
+            _quarantine(store_path, transfer, verdict.quarantined_as(exc.reason), reporter, tally)
             return
         reporter.info(
             f"Renumbered unpublished local decision {renumber.old_num:03d} -> "
@@ -734,11 +901,12 @@ def _apply_decision(
                 transfer,
                 verdict.quarantined_as(QuarantineReason.ambiguous_colliders),
                 reporter,
+                tally,
             )
             return
 
     if verdict.outcome is DecisionOutcome.quarantine:
-        _quarantine(store_path, transfer, verdict, reporter)
+        _quarantine(store_path, transfer, verdict, reporter, tally)
         return
 
     if verdict.outcome is DecisionOutcome.canonicalize:
@@ -757,9 +925,10 @@ def _apply_decision(
         return
 
     if verdict.outcome is DecisionOutcome.resolve_conflict:
-        # Last-write-wins keeps the local decision, so the file on disk is
-        # byte-unchanged and the corpus still describes it.
-        _resolve_and_record(store_path, transfer, state)
+        # The local decision stays, whatever sync state says about the path: the
+        # file on disk is byte-unchanged, so the corpus still describes it and
+        # the number it holds does not move underneath this batch.
+        _resolve_and_record(store_path, transfer, state, Side.local)
         tally.merged += 1
         return
 
@@ -775,8 +944,15 @@ def _quarantine(
     transfer: _Transfer,
     verdict: DecisionVerdict,
     reporter: Reporter,
+    tally: _Tally,
 ) -> None:
-    """Leave both sides alone, back up the remote bytes, and say so."""
+    """Leave both sides alone, back up the remote bytes, and say so.
+
+    Counted permanent: the same pull runs the same way tomorrow, and the
+    quarantine has its own surface in ``nauro sync --status`` until a person
+    settles the number.
+    """
+    tally.skipped_permanent += 1
     backup = save_quarantine_backup(store_path, transfer.rel, transfer.content, transfer.etag)
     local_names = ", ".join(path.name for path in verdict.colliders)
     text = verdict.text()
@@ -788,4 +964,4 @@ def _quarantine(
     )
 
 
-__all__ = ["Reporter", "run_pull"]
+__all__ = ["PullReport", "Reporter", "run_pull"]
