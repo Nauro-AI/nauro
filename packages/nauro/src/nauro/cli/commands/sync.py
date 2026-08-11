@@ -8,6 +8,7 @@ from nauro.cli.commands.auth import load_access_token
 from nauro.cli.integrations.outcomes import BridgeOutcome
 from nauro.cli.integrations.render import render
 from nauro.cli.utils import resolve_target_project
+from nauro.store._atomic import is_tmp_sibling
 from nauro.store.registry import is_cloud_project
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
@@ -195,7 +196,13 @@ def _show_status(project_flag: str | None) -> None:
     if backup_dir.exists():
         # Quarantine backups live in the same directory but are already
         # reported above; counting them again would double-report one event.
+        # A tmp sibling stranded by a kill mid-write is not a backup at all,
+        # and reporting one would name a conflict that never happened.
         quarantine_names = {item.backup_path.name for item in list_quarantine_backups(store_path)}
-        backups = [path for path in backup_dir.iterdir() if path.name not in quarantine_names]
+        backups = [
+            path
+            for path in backup_dir.iterdir()
+            if path.name not in quarantine_names and not is_tmp_sibling(path.name)
+        ]
         if backups:
             typer.echo(f"  Conflict backups: {len(backups)}")

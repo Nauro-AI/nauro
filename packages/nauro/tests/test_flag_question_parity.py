@@ -70,13 +70,6 @@ def _cli_envelope(args: list[str]) -> tuple[int, dict | None, str]:
     return result.exit_code, envelope, result.output
 
 
-def _render_stdio_string(envelope: dict) -> str:
-    """Mirror the stdio surface's dict-to-string rendering rule."""
-    if envelope.get("hint"):
-        return f"{envelope['hint']} The question has still been logged."
-    return "Question flagged."
-
-
 def test_ok_envelope_matches_across_tool_and_cli(seeded_repo):
     pid, store_path = seeded_repo
 
@@ -90,7 +83,7 @@ def test_ok_envelope_matches_across_tool_and_cli(seeded_repo):
     assert cli_envelope == {"store": "local", "status": "ok"}
 
     stdio_string = stdio_flag_question(question="Should we ship Z?", project_id=pid)
-    assert stdio_string == _render_stdio_string({"status": "ok"})
+    assert stdio_string == "Question flagged."
 
 
 def test_missing_store_guidance_matches_across_surfaces(missing_store):
@@ -213,3 +206,79 @@ def test_neither_question_nor_resolved_by_rejects_across_tool_and_cli(seeded_rep
     exit_code, cli_envelope, output = _cli_envelope([])
     assert exit_code == 0, output
     assert cli_envelope == tool_envelope
+
+
+def _raise_oserror(*_args: object, **_kwargs: object) -> int:
+    raise OSError("disk full")
+
+
+class TestStdioCarriesTheAssessment:
+    """The flat stdio string must say what the envelope says.
+
+    The adapter reports a degraded snapshot, regeneration, or push in the
+    envelope's ``assessment``. This transport renders the envelope down to one
+    string, so anything it does not read is lost for good.
+    """
+
+    def test_a_degraded_append_names_the_step(self, seeded_repo, monkeypatch):
+        pid, _store_path = seeded_repo
+        monkeypatch.setattr("nauro.store.post_commit.capture_snapshot", _raise_oserror)
+
+        stdio_string = stdio_flag_question(question="Should we ship X?", project_id=pid)
+
+        assert stdio_string.startswith("Question flagged.")
+        assert "snapshot capture failed" in stdio_string
+        assert "disk full" in stdio_string
+
+    def test_a_degraded_resolve_names_the_step(self, seeded_repo, monkeypatch):
+        pid, store_path = seeded_repo
+        _seed_resolvable(store_path, "Q1")
+        monkeypatch.setattr("nauro.store.post_commit.capture_snapshot", _raise_oserror)
+
+        stdio_string = stdio_flag_question(resolved_by="D42", targets=["Q1"], project_id=pid)
+
+        assert stdio_string.startswith("Question(s) resolved.")
+        assert "snapshot capture failed" in stdio_string
+
+    @staticmethod
+    def _with_hint(monkeypatch) -> None:
+        """Force the similar-decision hint branch, which needs a scoring stub."""
+        monkeypatch.setattr(
+            mcp_tools,
+            "check_bm25_similarity",
+            lambda *_args, **_kwargs: (
+                "needs_review",
+                [{"number": 7, "title": "Existing decision", "similarity": 0.9}],
+            ),
+        )
+
+    def test_a_degraded_hint_branch_names_the_step(self, seeded_repo, monkeypatch):
+        pid, _store_path = seeded_repo
+        self._with_hint(monkeypatch)
+        monkeypatch.setattr("nauro.store.post_commit.capture_snapshot", _raise_oserror)
+
+        stdio_string = stdio_flag_question(question="Should we cache hot reads?", project_id=pid)
+
+        assert "The question has still been logged." in stdio_string
+        assert "snapshot capture failed" in stdio_string
+
+    def test_a_clean_hint_branch_is_byte_identical(self, seeded_repo, monkeypatch):
+        pid, store_path = seeded_repo
+        self._with_hint(monkeypatch)
+        envelope = tool_flag_question(store_path, "Should we cache hot reads?")
+        assert envelope["hint"]
+
+        stdio_string = stdio_flag_question(question="Should we cache hot reads?", project_id=pid)
+
+        assert stdio_string == f"{envelope['hint']} The question has still been logged."
+
+    def test_a_clean_run_is_byte_identical(self, seeded_repo):
+        pid, store_path = seeded_repo
+
+        assert stdio_flag_question(question="Should we ship X?", project_id=pid) == (
+            "Question flagged."
+        )
+        _seed_resolvable(store_path, "Q1")
+        assert stdio_flag_question(resolved_by="D42", targets=["Q1"], project_id=pid) == (
+            "Question(s) resolved."
+        )

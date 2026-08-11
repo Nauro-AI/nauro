@@ -98,15 +98,6 @@ def _cli_envelope(args: list[str]) -> tuple[int, dict | None, str]:
     return result.exit_code, envelope, result.output
 
 
-def _render_stdio_string(envelope: dict) -> str:
-    """Mirror the stdio surface's dict-to-string rendering rule."""
-    if envelope.get("status") == "error":
-        return envelope.get("guidance", "")
-    if envelope.get("warning"):
-        return f"State updated. {envelope['warning']}"
-    return "State updated."
-
-
 def test_ok_envelope_matches_across_tool_and_cli(seeded_repo):
     pid, store_path = seeded_repo
 
@@ -122,7 +113,7 @@ def test_ok_envelope_matches_across_tool_and_cli(seeded_repo):
     assert cli_envelope == {"store": "local", "status": "ok"}
 
     stdio_string = stdio_update_state(delta="Shipped the stdio surface", project_id=pid)
-    assert stdio_string == _render_stdio_string({"status": "ok"})
+    assert stdio_string == "State updated."
 
 
 def test_warning_envelope_matches_across_tool_and_cli(overlap_repo):
@@ -146,7 +137,8 @@ def test_warning_envelope_matches_across_tool_and_cli(overlap_repo):
         delta="Implemented OAuth refresh logic with PKCE",
         project_id=pid,
     )
-    assert stdio_string == _render_stdio_string(tool_envelope)
+    # The warning branch, clean: the kernel's advisory and nothing else.
+    assert stdio_string == f"State updated. {tool_envelope['warning']}"
 
 
 def test_missing_store_guidance_matches_across_surfaces(missing_store):
@@ -178,3 +170,40 @@ def test_length_rejection_matches_across_tool_and_cli(seeded_repo):
     # but still carries the rejection reason in the printed envelope.
     assert exit_code == 0, output
     assert cli_envelope == tool_envelope
+
+
+def _raise_oserror(*_args: object, **_kwargs: object) -> int:
+    raise OSError("disk full")
+
+
+class TestStdioCarriesTheAssessment:
+    """The flat stdio string must say what the envelope says."""
+
+    def test_a_degraded_run_names_the_step(self, seeded_repo, monkeypatch):
+        pid, _store_path = seeded_repo
+        monkeypatch.setattr("nauro.store.post_commit.capture_snapshot", _raise_oserror)
+
+        stdio_string = stdio_update_state(delta="Shipped the caching layer.", project_id=pid)
+
+        assert stdio_string.startswith("State updated.")
+        assert "snapshot capture failed" in stdio_string
+        assert "disk full" in stdio_string
+
+    def test_the_kernel_warning_and_the_degraded_step_both_survive(self, overlap_repo, monkeypatch):
+        pid, _store_path = overlap_repo
+        monkeypatch.setattr("nauro.store.post_commit.capture_snapshot", _raise_oserror)
+
+        stdio_string = stdio_update_state(
+            delta="Implemented OAuth refresh logic with PKCE", project_id=pid
+        )
+
+        assert stdio_string.startswith("State updated. ")
+        assert "keywords" in stdio_string.lower()
+        assert "snapshot capture failed" in stdio_string
+
+    def test_a_clean_run_is_byte_identical(self, seeded_repo):
+        pid, _store_path = seeded_repo
+
+        assert stdio_update_state(delta="Shipped the stdio surface", project_id=pid) == (
+            "State updated."
+        )

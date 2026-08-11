@@ -180,3 +180,19 @@ def surface_post_commit(
     existing = envelope.get(ASSESSMENT_FIELD)
     envelope[ASSESSMENT_FIELD] = "\n\n".join([existing, *notes] if existing else notes)
     return envelope
+
+
+def with_assessment(message: str, envelope: dict) -> str:
+    """Return ``message`` carrying the envelope's assessment text, if it has any.
+
+    The counterpart of :func:`surface_post_commit` for a transport that renders
+    a write envelope down to a single string. Putting a degraded step in the
+    envelope is only half the job: a surface that then reports its own fixed
+    confirmation drops it again, one layer further out, and the agent is told
+    the write succeeded and nothing else.
+
+    A message with nothing to add comes back unchanged, so a clean run's wire
+    string stays exactly what it was.
+    """
+    assessment = envelope.get(ASSESSMENT_FIELD)
+    return f"{message}\n\n{assessment}" if assessment else message

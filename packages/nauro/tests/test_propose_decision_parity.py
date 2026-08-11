@@ -427,3 +427,28 @@ def test_confirmed_regen_preserves_unmanaged_agents_md(seeded_repo, monkeypatch)
     assert envelope["status"] == "confirmed"
     assert (repo / "AGENTS.md").read_bytes() == sentinel
     assert "existing AGENTS.md is not Nauro-generated" in envelope["assessment"]
+
+
+def test_stdio_propose_decision_keeps_the_degraded_step_in_the_envelope(seeded_repo, monkeypatch):
+    """This wrapper returns the envelope itself, so nothing has to be re-read.
+
+    Pinned because the two flat-string write wrappers next to it dropped the
+    same field, and a later refactor could flatten this one too.
+    """
+    pid, _store_path = seeded_repo
+
+    def _boom(*_args: object, **_kwargs: object) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(post_commit_module, "capture_snapshot", _boom)
+
+    envelope = stdio_propose_decision(
+        title="Use Redis for hot caching",
+        rationale="In-memory cache for the hot read paths across the API tier.",
+        confidence="medium",
+        project_id=pid,
+    )
+
+    assert isinstance(envelope, dict)
+    assert envelope["status"] == "confirmed"
+    assert "snapshot capture failed" in envelope["assessment"]
