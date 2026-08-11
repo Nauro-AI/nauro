@@ -110,6 +110,7 @@ class TestHeadingPrimitives:
             "١٢٣",  # Arabic-Indic 123
             "፩",  # Ethiopic digit one
             "①",  # circled digit one
+            "12١",  # ASCII 12 continuing in another script
         ],
     )
     def test_a_non_ascii_digit_heading_claims_no_number(self, digits):

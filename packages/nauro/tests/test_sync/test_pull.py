@@ -587,6 +587,80 @@ class TestAdoptionSiblings:
         assert any("letter case" in warning for warning in reporter.warns)
 
 
+class TestNonAsciiFilenameNumbers:
+    """A local file whose name carries a non-ASCII number is not a decision.
+
+    The corpus reads a number from every name in the directory, and the read
+    used to raise on a character that ``str.isdigit`` accepts but ``int`` does
+    not. That happens while the pull is still planning, before the lock and
+    before the per-file guard, so one such file aborted the whole sync.
+    """
+
+    def test_a_file_with_a_non_ascii_number_does_not_crash_the_pull(self, collision_store):
+        stray = collision_store / "decisions" / "\u00b2-x.md"
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_bytes(decision_bytes(2, "Stray"))
+
+        merged, reporter = pull(
+            collision_store, [("decisions/017-fine.md", decision_bytes(17, "Fine"))]
+        )
+
+        assert merged == 1
+        assert (collision_store / "decisions/017-fine.md").exists()
+        assert stray.read_bytes() == decision_bytes(2, "Stray")
+        assert reporter.warns == []
+
+    def test_it_claims_no_number_so_a_remote_decision_still_installs(self, collision_store):
+        # An Arabic-Indic name reads as 12 to the old parser, which would have
+        # made this file a collider for a number it does not spell.
+        stray = collision_store / "decisions" / "\u0661\u0662-y.md"
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_bytes(decision_bytes(12, "Stray"))
+
+        merged, _reporter = pull(
+            collision_store, [("decisions/012-remote.md", decision_bytes(12, "Remote"))]
+        )
+
+        assert merged == 1
+        assert (collision_store / "decisions/012-remote.md").exists()
+        assert stray.read_bytes() == decision_bytes(12, "Stray")
+
+    def test_a_number_continuing_in_another_script_contests_nothing(self, collision_store):
+        # The reader used to stop at the character it could not read and call
+        # this decision 12, so it contested a real decision it does not name.
+        stray = collision_store / "decisions" / "12\u0661-x.md"
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_bytes(decision_bytes(12, "Stray"))
+
+        corpus = DecisionCorpus.scan(collision_store)
+        assert corpus.holders(12) == ()
+        assert "12\u0661-x.md" not in {entry.path.name for entry in corpus.files}
+
+        merged, _reporter = pull(
+            collision_store, [("decisions/012-remote.md", decision_bytes(12, "Remote"))]
+        )
+
+        assert merged == 1
+        assert (collision_store / "decisions/012-remote.md").exists()
+        assert stray.read_bytes() == decision_bytes(12, "Stray")
+
+    def test_the_corpus_scan_skips_it(self, collision_store):
+        stray = collision_store / "decisions" / "\u00b2-x.md"
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_bytes(decision_bytes(2, "Stray"))
+
+        corpus = DecisionCorpus.scan(collision_store)
+
+        assert "\u00b2-x.md" not in {entry.path.name for entry in corpus.files}
+        # A plain skip, not an irregular entry: those exist to hold back a
+        # remote decision claiming the number a name occupies, and this name
+        # claims none.
+        assert corpus.irregular == ()
+        # It is still a name the store knows about, so a remote file cannot
+        # land on it unseen.
+        assert corpus.has_name("\u00b2-x.md") is True
+
+
 class TestIrregularEntries:
     """A directory or symlink named like a decision is never read or changed."""
 

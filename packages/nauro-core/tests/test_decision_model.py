@@ -585,6 +585,38 @@ class TestNegativeValidation:
         with pytest.raises(ValueError, match="missing or malformed H1"):
             parse_decision(text, "001-test.md")
 
+    def test_non_ascii_h1_number_raises(self) -> None:
+        """The H1 number is read in ASCII, like the filename it must match.
+
+        An Arabic-Indic run is a decimal digit to a Unicode-aware pattern, so
+        it used to parse as 12 - a number whose canonical filename is ASCII and
+        which no writer here could have produced.
+        """
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# \u0661\u0662 \u2014 Arabic-Indic heading number\n\n"
+            "## Decision\n\nSomething.\n"
+        )
+        with pytest.raises(ValueError, match="missing or malformed H1"):
+            parse_decision(text, "012-test.md")
+
+    def test_mixed_script_h1_number_raises(self) -> None:
+        # The pattern needs a separator after the digits, so a number that
+        # continues in another script never matched. Pinned.
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "---\n\n"
+            "# 12\u0661 \u2014 Mixed-script heading number\n\n"
+            "## Decision\n\nSomething.\n"
+        )
+        with pytest.raises(ValueError, match="missing or malformed H1"):
+            parse_decision(text, "012-test.md")
+
     def test_missing_decision_section_raises(self) -> None:
         text = (
             "---\n"
@@ -822,6 +854,12 @@ class TestSupersessionRefValidator:
         d = _minimal_decision(supersedes=None, superseded_by=None)
         assert d.supersedes is None
         assert d.superseded_by is None
+
+    def test_non_ascii_digits_rejected_as_not_an_integer_string(self) -> None:
+        # "\u0661\u0662" is a digit run to str.isdigit and 12 to int, so it used
+        # to fail as a leading-zeros problem, which is not what is wrong with it.
+        with pytest.raises(ValidationError, match="plain integer string"):
+            _minimal_decision(supersedes="\u0661\u0662")
 
     def test_leading_zeros_rejected(self) -> None:
         with pytest.raises(ValidationError, match="leading zeros"):

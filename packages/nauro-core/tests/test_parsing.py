@@ -15,6 +15,7 @@ from nauro_core.parsing import (
     _stem_from_decision_path,
     extract_decision_number,
     first_sentence_end,
+    is_ascii_decimal,
     is_scaffold_project_md,
     scan_decision_references,
     strip_leading_h1,
@@ -57,6 +58,66 @@ class TestExtractDecisionNumber:
 
     def test_decision_without_number_returns_none(self):
         assert extract_decision_number("decision-") is None
+
+
+class TestOnlyAsciiDigitsAreDecisionNumbers:
+    """A decision number is written in ASCII, so it is only read in ASCII.
+
+    ``str.isdigit`` is true across scripts. Some of those characters make
+    ``int`` raise, and the rest name a number whose canonical filename form is
+    ASCII, which no store could have written. Both are read as no number at
+    all, the same answer as any other name that is not a decision.
+    """
+
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "\u00b2-x.md",  # superscript two: int() raises on it
+            "\u0661\u0662-y.md",  # Arabic-Indic 12: int() accepts it
+            "\u136912-z.md",  # Ethiopic digit one, then ASCII digits
+            "\u2460-w.md",  # circled digit one
+        ],
+    )
+    def test_a_non_ascii_number_token_is_not_a_decision(self, identifier):
+        assert extract_decision_number(identifier) is None
+
+    @pytest.mark.parametrize("identifier", ["D\u0661\u0662", "d\u00b2", "decision-\u0661\u0662"])
+    def test_a_non_ascii_number_survives_every_prefix_form(self, identifier):
+        assert extract_decision_number(identifier) is None
+
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "12\u0661-x.md",  # ASCII 12, then Arabic-Indic 1
+            "12\u0661",
+            "D12\u0661",
+            "decision-12\u0661",
+        ],
+    )
+    def test_a_number_that_continues_in_another_script_is_not_a_decision(self, identifier):
+        # The run used to be cut at the first character it could not read, so
+        # this named decision 12 - and would have contested the real one.
+        assert extract_decision_number(identifier) is None
+
+    def test_a_run_that_ends_on_a_non_digit_keeps_its_old_reading(self):
+        # Long-standing behavior, unchanged here: the number ends where the
+        # digits end, and letters after it are part of the slug.
+        assert extract_decision_number("12x-foo.md") == 12
+        assert extract_decision_number("042-some-title.md") == 42
+
+    def test_a_footnote_marker_after_the_number_is_where_it_ends(self):
+        # A superscript is not a digit int() accepts, so it never continues a
+        # number: in a name it ends one, exactly as a letter does. The scanner
+        # reads "D118\u00b9" as 118 for the same reason.
+        assert extract_decision_number("12\u00b9-x.md") == 12
+        assert scan_decision_references("see D12\u00b9 here", 100) == {12}
+
+    def test_is_ascii_decimal_reads_the_token_not_the_script(self):
+        assert is_ascii_decimal("0042") is True
+        assert is_ascii_decimal("") is False
+        assert is_ascii_decimal("4 2") is False
+        assert is_ascii_decimal("\u0661\u0662") is False
+        assert is_ascii_decimal("\u00b2") is False
 
 
 class TestStripLeadingH1:
@@ -153,6 +214,16 @@ class TestScanDecisionReferences:
 
     def test_lowercase_d_form(self):
         assert scan_decision_references("see d70 there", 100) == {70}
+
+    def test_a_reference_that_continues_in_another_script_is_not_read(self):
+        # Same rule as the identifier reader: the digit run is cut at the first
+        # character it cannot read, so this used to register decision 12.
+        assert scan_decision_references("see D12\u0661 here", 100) == set()
+        assert scan_decision_references("per decision-12\u0661 there", 100) == set()
+
+    def test_a_reference_that_ends_on_a_non_digit_keeps_its_old_reading(self):
+        # Long-standing behavior, unchanged here.
+        assert scan_decision_references("see D12x here", 100) == {12}
 
     def test_prefix_collision_full_run_read(self):
         # The only "D1" in the body is the prefix of "D118"; reading the whole

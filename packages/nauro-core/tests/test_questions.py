@@ -593,6 +593,35 @@ class TestParseQForm:
         )
         assert OpenQuestionsFile.parse(content).format() == content
 
+    def test_non_ascii_q_number_is_not_an_entry(self):
+        """A non-ASCII id is not an entry this file could have written.
+
+        The superscript form used to raise out of the parser; the Arabic-Indic
+        form used to parse as 12 and take that id.
+        """
+        for identifier in ("Q\u00b2", "Q\u0661\u0662"):
+            file = OpenQuestionsFile.parse(f"# Open Questions\n\n- [{identifier}] body\n")
+            assert file.open_ids == []
+            assert [b for b in file.blocks if isinstance(b, EntryBlock)] == []
+
+    def test_non_ascii_resolver_number_does_not_resolve(self):
+        content = "# Open Questions\n\n- [Resolved by D\u0661\u0662 on 2026-05-19] [Q3] body\n"
+        file = OpenQuestionsFile.parse(content)
+        entry_blocks = [b for b in file.blocks if isinstance(b, EntryBlock)]
+        assert entry_blocks == [] or entry_blocks[0].entry.resolved_by is None
+
+    def test_a_mixed_script_q_number_is_not_an_entry(self):
+        # The id readers test the whole token, so a number that continues in
+        # another script was already refused. Pinned so it stays that way.
+        file = OpenQuestionsFile.parse("# Open Questions\n\n- [Q12\u0661] body\n")
+        assert file.open_ids == []
+
+    def test_a_mixed_script_resolver_number_does_not_resolve(self):
+        content = "# Open Questions\n\n- [Resolved by D12\u0661 on 2026-05-19] [Q3] body\n"
+        file = OpenQuestionsFile.parse(content)
+        entry_blocks = [b for b in file.blocks if isinstance(b, EntryBlock)]
+        assert entry_blocks == [] or entry_blocks[0].entry.resolved_by is None
+
     def test_mixed_grammar_parse(self):
         """Both id forms parse from a single file."""
         content = (

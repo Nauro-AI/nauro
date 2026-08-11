@@ -46,7 +46,7 @@ from nauro_core.constants import (
     LEXICAL_RANK_CAVEAT,
     NO_RELATED_DECISIONS,
 )
-from nauro_core.parsing import _decision_label
+from nauro_core.parsing import _decision_label, is_ascii_decimal
 
 # Width target for the rendered text blocks. Picked to fit standard
 # terminal widths and Markdown chat clients without horizontal scroll.
@@ -59,7 +59,7 @@ def _id_to_label(decision_id: str) -> str:
     prefix = "decision-"
     if decision_id.startswith(prefix):
         suffix = decision_id[len(prefix) :]
-        if suffix.isdigit():
+        if is_ascii_decimal(suffix):
             return _decision_label(int(suffix))
     return decision_id
 
