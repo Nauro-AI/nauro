@@ -7,7 +7,7 @@ import logging
 import os
 import shutil
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -30,6 +30,7 @@ from pydantic import (
 
 from nauro.cli.commands.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR, PROJECT_MD
+from nauro.store._atomic import atomic_write_bytes
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import bind_project_store_v2, get_store_path_v2
 from nauro.store.repo_config import load_repo_config
@@ -42,7 +43,7 @@ from nauro.sync.remote import (
     fetch_via_presigned_url,
     request_presigned_urls,
 )
-from nauro.sync.transfer import Reporter, download_with_retry
+from nauro.sync.transfer import NullReporter, Reporter, download_with_retry
 
 logger = logging.getLogger("nauro.store.recovery")
 
@@ -264,19 +265,14 @@ def _content_defect(content: bytes, entry: CloudManifestEntry) -> _IntegrityDefe
     return None
 
 
-class _NullReporter:
-    """Progress surface for callers that surface nothing (library use, hooks)."""
-
-    def info(self, msg: str) -> None:
-        """Discard routine progress."""
-
-    def warn(self, msg: str) -> None:
-        """Discard anomaly reports."""
-
-
 @dataclass
 class _Progress:
-    """Files staged so far against the number this run set out to download."""
+    """Files in hand against the whole manifest, not against this run's share.
+
+    A resumed run starts at the count it inherited from the staging directory,
+    so ``k of N`` answers the question the user is actually asking: how much of
+    the record is on disk.
+    """
 
     total: int
     done: int = 0
@@ -329,17 +325,35 @@ class _ChunkUrls:
     finish inside the margin. A stale-URL 403 re-mints through the same door.
     """
 
-    def __init__(self, project_id: str, paths: Sequence[str]) -> None:
+    def __init__(self, project_id: str, paths: Sequence[str], reporter: Reporter) -> None:
         self._project_id = project_id
         self._paths = list(paths)
+        # Everything from the cursor on is still outstanding, so a re-mint
+        # covers exactly the tail. in_order() owns the cursor and is the only
+        # thing that hands a path out, which is what keeps that true.
         self._cursor = 0
-        self._batch = _mint_download_urls(project_id, self._paths)
+        self._reporter = reporter
+        self._warned_undated = False
+        self._mint()
+
+    def _mint(self) -> None:
+        self._batch = _mint_download_urls(self._project_id, self._paths[self._cursor :])
+        if self._batch.deadline is None and not self._warned_undated:
+            # Without a ceiling the restore cannot re-mint ahead of an expiry,
+            # so it falls back to reacting to a refusal. Say so: a server that
+            # stops stamping expiries would otherwise disable the proactive
+            # path in silence.
+            self._warned_undated = True
+            self._reporter.warn(
+                "The presign response carried no expiry, so this restore cannot renew "
+                "a download URL before it lapses."
+            )
 
     def url_for(self, path: str) -> str:
         return self._batch.urls[path]
 
     def remint(self) -> None:
-        self._batch = _mint_download_urls(self._project_id, self._paths[self._cursor :])
+        self._mint()
 
     def in_order(self) -> Iterator[str]:
         """Yield each path behind a URL that is not about to expire."""
@@ -372,6 +386,19 @@ def _restore_lock(project_id: str, destination: Path) -> Iterator[None]:
         lock.release()
 
 
+def _discard(path: Path) -> None:
+    """Remove ``path``, whatever kind of file occupies it.
+
+    Best effort by design: every caller is either cleaning up after a failure
+    it is about to report, or opening a staging area it recreates immediately.
+    """
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, ignore_errors=True)
+        return
+    with suppress(OSError):
+        path.unlink(missing_ok=True)
+
+
 def _sweep_legacy_staging(project_id: str, parent: Path) -> None:
     """Remove staging directories a killed pre-resume run stranded.
 
@@ -379,7 +406,22 @@ def _sweep_legacy_staging(project_id: str, parent: Path) -> None:
     find, so nothing but this sweep ever collects them.
     """
     for stranded in parent.glob(f".{project_id}{_LEGACY_STAGING_GLOB_SUFFIX}"):
-        shutil.rmtree(stranded, ignore_errors=True)
+        _discard(stranded)
+
+
+def _open_staging(staging: Path) -> None:
+    """Make the staging path a directory, whatever is sitting on it.
+
+    Only a directory this restore can resume from may occupy the path. A file
+    there is not a partial restore under any reading, so it goes rather than
+    stopping a recovery on something no run of this code could have left.
+    """
+    if staging.exists() and not (staging.is_dir() and not staging.is_symlink()):
+        _discard(staging)
+    try:
+        staging.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RecoveryError(f"Could not open the restore staging area {staging}: {exc}") from exc
 
 
 def _fetch_manifest_entries(project_id: str) -> dict[str, CloudManifestEntry]:
@@ -440,10 +482,16 @@ def _prune_empty_directories(staging: Path) -> None:
 
 
 def _stage_file(staging: Path, relative: str, content: bytes) -> None:
-    target = staging / relative
+    """Land one downloaded file in staging, whole or not at all.
+
+    A truncating write that a kill interrupts leaves a short file that still
+    looks like content, and the resume audit clears only what it can prove
+    wrong: an entry carrying neither a size nor a single-part ETag has nothing
+    to check against, so a partial write would install. The tmp-then-rename
+    primitive removes the case instead of narrowing it.
+    """
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+        atomic_write_bytes(staging / relative, content)
     except OSError as exc:
         raise RecoveryError(f"Could not stage cloud file {relative}: {exc}") from exc
 
@@ -476,7 +524,7 @@ def _download_pending(
 ) -> None:
     """Download every outstanding file into staging, one presign chunk at a time."""
     for start in range(0, len(pending), PRESIGN_BATCH_LIMIT):
-        chunk = _ChunkUrls(project_id, pending[start : start + PRESIGN_BATCH_LIMIT])
+        chunk = _ChunkUrls(project_id, pending[start : start + PRESIGN_BATCH_LIMIT], reporter)
         for relative in chunk.in_order():
             try:
                 content = download_with_retry(relative, chunk, fetch_via_presigned_url)
@@ -518,7 +566,7 @@ def restore_cloud_store(
     the remaining files, not all of them. Only a complete, validated tree
     installs, and the install stays one rename.
     """
-    surface: Reporter = reporter if reporter is not None else _NullReporter()
+    surface: Reporter = reporter if reporter is not None else NullReporter()
     if not destination.is_absolute():
         raise RecoveryError(f"Restore destination must be absolute: {destination}.")
     # The canonical constraint is an external-binding rule: a mapped
@@ -542,21 +590,23 @@ def restore_cloud_store(
         if not entries:
             # A record that is not there cannot complete a partial restore,
             # so nothing is kept to resume toward.
-            shutil.rmtree(staging, ignore_errors=True)
+            _discard(staging)
             raise EmptyCloudRecordError("Cloud project has no stored record to restore.")
 
-        staging.mkdir(parents=True, exist_ok=True)
+        _open_staging(staging)
         staged = _audit_staged_files(staging, entries)
         pending = [relative for relative in entries if relative not in staged]
         _report_start(entries, pending, surface)
 
-        progress = _Progress(total=len(pending))
+        progress = _Progress(total=len(entries), done=len(staged))
         try:
             _download_pending(project_id, staging, entries, pending, surface, progress)
         except (RecoveryError, KeyboardInterrupt):
             surface.warn(
-                f"Partial restore kept ({progress.done} of {progress.total} files downloaded). "
-                "Run the same command again to resume it."
+                f"Partial restore kept at {staging} "
+                f"({progress.done} of {progress.total} files ready). "
+                "Run the same command again to resume it, or delete that directory "
+                "to start over."
             )
             raise
 
@@ -569,7 +619,7 @@ def restore_cloud_store(
             installed = True
         finally:
             if not installed:
-                shutil.rmtree(staging, ignore_errors=True)
+                _discard(staging)
         surface.info(f"Restored {len(entries)} files.")
         return destination
 

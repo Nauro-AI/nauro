@@ -31,7 +31,11 @@ class _Cloud:
     fetches, and backoff waits are all recorded.
     """
 
-    def __init__(self, files: dict[str, bytes], ttl: timedelta | None = None) -> None:
+    # The deployed presign endpoint stamps a 900-second ceiling on every URL,
+    # so that is the default here; ``ttl=None`` models a server that stopped.
+    def __init__(
+        self, files: dict[str, bytes], ttl: timedelta | None = timedelta(seconds=900)
+    ) -> None:
         self.files = files
         self.ttl = ttl
         self.generation = 0
@@ -178,18 +182,24 @@ def test_aborted_restore_keeps_staging_and_a_rerun_fetches_only_the_rest(tmp_pat
     assert sorted(
         path.relative_to(staging).as_posix() for path in staging.rglob("*") if path.is_file()
     ) == ["decisions/001-initial-setup.md", "open-questions.md", "project.md"]
-    assert any("Partial restore kept" in line for line in reporter.warn_lines)
+    # The count is against the whole record, and it names the kept directory.
+    assert reporter.warn_lines == [
+        f"Partial restore kept at {staging} (3 of {len(files)} files ready). "
+        "Run the same command again to resume it, or delete that directory to start over."
+    ]
 
     cloud.always_fail.clear()
     cloud.fetched.clear()
     cloud.mints.clear()
+    resumed = _RecordingReporter()
 
-    result = restore_cloud_store(PID, destination)
+    result = restore_cloud_store(PID, destination, resumed)
 
     assert result == destination
     assert cloud.fetched == ["stack.md", "state_current.md"]
     assert cloud.mints == [["stack.md", "state_current.md"]]
     assert not staging.exists()
+    assert f"Resuming a partial restore: 3 of {len(files)} files are staged." in resumed.info_lines
 
 
 @pytest.mark.parametrize("damage", ["shorter", "same-size"])
@@ -239,6 +249,22 @@ def test_a_deadline_beyond_the_margin_mints_once(tmp_path, monkeypatch):
     assert len(cloud.mints) == 1
 
 
+def test_a_batch_without_an_expiry_warns_once(tmp_path, monkeypatch):
+    """A server that stops stamping expiries must not disable the renewal quietly."""
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files, ttl=None)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    reporter = _RecordingReporter()
+
+    assert restore_cloud_store(PID, destination, reporter) == destination
+    assert [line for line in reporter.warn_lines if "no expiry" in line] == [
+        "The presign response carried no expiry, so this restore cannot renew "
+        "a download URL before it lapses."
+    ]
+    assert len(cloud.mints) == 1
+
+
 def test_progress_reports_start_cadence_and_completion(tmp_path, monkeypatch):
     files = _store_files(tmp_path / "source")
     for number in range(100, 130):
@@ -256,6 +282,91 @@ def test_progress_reports_start_cadence_and_completion(tmp_path, monkeypatch):
     assert reporter.warn_lines == []
 
 
+def test_staging_writes_go_through_the_atomic_primitive(tmp_path, monkeypatch):
+    """Every staged file lands by tmp-then-rename, never by a truncating write.
+
+    A manifest entry with no size and an opaque ETag gives the resume audit
+    nothing to check, so a short file would pass the audit and install as
+    content. The primitive removes the case rather than narrowing it.
+    """
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    written: list[str] = []
+    real_write = recovery.atomic_write_bytes
+
+    def counted(path, data):
+        written.append(path.name)
+        real_write(path, data)
+
+    monkeypatch.setattr(recovery, "atomic_write_bytes", counted)
+
+    restore_cloud_store(PID, destination)
+
+    assert recovery.atomic_write_bytes is counted
+    assert len(written) == len(files)
+    assert (destination / "project.md").read_bytes() == files["project.md"]
+
+
+def test_a_kill_mid_restore_keeps_only_whole_files(tmp_path, monkeypatch):
+    """An interrupt keeps the staging directory, and every survivor is complete."""
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.always_fail["project.md"] = KeyboardInterrupt()
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    reporter = _RecordingReporter()
+
+    with pytest.raises(KeyboardInterrupt):
+        restore_cloud_store(PID, destination, reporter)
+
+    staging = _staging(destination)
+    survivors = {
+        path.relative_to(staging).as_posix(): path.read_bytes()
+        for path in staging.rglob("*")
+        if path.is_file()
+    }
+    assert survivors == {relative: files[relative] for relative in survivors}
+    assert survivors
+    assert any(str(staging) in line for line in reporter.warn_lines)
+
+
+def test_resume_removes_a_tmp_sibling_a_kill_stranded(tmp_path, monkeypatch):
+    """The audit deletes every staged path the manifest does not list.
+
+    A tmp sibling from an interrupted atomic write is one of those paths, so
+    the resume clears it instead of installing it into the store.
+    """
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    staging = _staging(destination)
+    staging.mkdir(parents=True)
+    (staging / ".project.md.0123456789abcdef.tmp").write_bytes(b"half a file")
+
+    restore_cloud_store(PID, destination)
+
+    assert sorted(
+        path.relative_to(destination).as_posix()
+        for path in destination.rglob("*")
+        if path.is_file()
+    ) == sorted(files)
+
+
+def test_a_file_squatting_on_the_staging_path_is_cleared(tmp_path, monkeypatch):
+    files = _store_files(tmp_path / "source")
+    cloud = _Cloud(files)
+    cloud.install(monkeypatch)
+    destination = tmp_path / "projects" / PID
+    destination.parent.mkdir(parents=True)
+    _staging(destination).write_bytes(b"not a staging directory")
+
+    assert restore_cloud_store(PID, destination) == destination
+    assert (destination / "project.md").read_bytes() == files["project.md"]
+
+
 def test_legacy_staging_directories_are_swept(tmp_path, monkeypatch):
     files = _store_files(tmp_path / "source")
     cloud = _Cloud(files)
@@ -264,6 +375,8 @@ def test_legacy_staging_directories_are_swept(tmp_path, monkeypatch):
     stranded = destination.parent / f".{PID}.restore-ab12cd"
     stranded.mkdir(parents=True)
     (stranded / "project.md").write_bytes(b"orphaned by a killed run")
+    # A file wearing the same pattern is litter under the same reading.
+    (destination.parent / f".{PID}.restore-ef34gh").write_bytes(b"orphan")
 
     restore_cloud_store(PID, destination)
 

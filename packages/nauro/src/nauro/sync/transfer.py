@@ -46,17 +46,29 @@ class TransferFault(Enum):
 
 
 class Reporter(Protocol):
-    """Surface for transfer progress.
+    """Surface for transfer progress, shared by every path that moves bytes.
 
-    Structurally the pull core's reporter (:class:`nauro.sync.pull.Reporter`),
-    so one CLI implementation serves both paths.
+    The pull core and the cloud restore both report through it, and the CLI,
+    the hooks, and the tests each supply their own implementation: the CLI
+    echoes to the terminal, the hook logs quietly (session startup must never
+    crash), and a caller that surfaces nothing takes :class:`NullReporter`.
     """
 
     def info(self, msg: str) -> None:
-        """Report routine progress (a start line, a file count, a completion)."""
+        """Report routine progress (a file written, a count, a completion)."""
 
     def warn(self, msg: str) -> None:
-        """Report a recoverable anomaly (a kept partial transfer)."""
+        """Report a recoverable anomaly (a URL shortfall, a kept partial run)."""
+
+
+class NullReporter:
+    """Reporter for callers that surface nothing (library use, tests)."""
+
+    def info(self, msg: str) -> None:
+        """Discard routine progress."""
+
+    def warn(self, msg: str) -> None:
+        """Discard anomaly reports."""
 
 
 class UrlSource(Protocol):
@@ -125,6 +137,7 @@ def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], bytes
 
 
 __all__ = [
+    "NullReporter",
     "Reporter",
     "TransferFault",
     "UrlSource",
