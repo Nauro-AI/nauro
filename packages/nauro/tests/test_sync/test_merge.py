@@ -1,14 +1,17 @@
 """Tests for nauro.sync.merge."""
 
+import pytest
 from nauro_core.decision_model import parse_decision
 
 from nauro.store import _atomic
 from nauro.store._atomic import atomic_write_bytes
 from nauro.sync.merge import (
+    CONFLICT_BACKUP_DIR,
     _set_union_markdown,
     detect_conflict,
     resolve_conflict,
     should_skip,
+    write_backup,
 )
 from nauro.sync.state import FileState, SyncState
 
@@ -482,3 +485,37 @@ class TestSetUnionMarkdown:
         assert result.count("- old-entry") == 1
         assert result.count("- old-resolved") == 1
         assert result.count("- old-active") == 1
+
+
+class TestWriteBackupIsAtomic:
+    """The backup is the only copy of the bytes the pull declined to install.
+
+    The quarantine writer skips a backup that already exists, keyed by remote
+    version. A truncated file under the right name is therefore never rewritten,
+    and the content it was holding is gone.
+    """
+
+    def test_a_dead_write_leaves_no_backup_at_all(self, tmp_path, monkeypatch):
+        def boom(src, dst):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(_atomic.os, "replace", boom)
+
+        with pytest.raises(OSError):
+            write_backup(tmp_path, "20260810T000000Z-stack.md", b"the whole remote file\n")
+
+        backup_dir = tmp_path / CONFLICT_BACKUP_DIR
+        assert list(backup_dir.iterdir()) == []
+
+    def test_a_dead_rewrite_leaves_the_existing_backup_whole(self, tmp_path, monkeypatch):
+        first = write_backup(tmp_path, "20260810T000000Z-stack.md", b"the first copy\n")
+
+        def boom(src, dst):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(_atomic.os, "replace", boom)
+        with pytest.raises(OSError):
+            write_backup(tmp_path, "20260810T000000Z-stack.md", b"short")
+
+        assert first.read_bytes() == b"the first copy\n"
+        assert list((tmp_path / CONFLICT_BACKUP_DIR).iterdir()) == [first]

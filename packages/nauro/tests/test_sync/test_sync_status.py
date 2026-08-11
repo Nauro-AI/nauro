@@ -8,6 +8,7 @@ authenticated → server URL + per-project sync info; not authenticated →
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -185,3 +186,33 @@ class TestQuarantinedCollisions:
         result = runner.invoke(app, ["sync", "--status"])
         assert result.exit_code == 0, result.output
         assert "Conflict backups: 1" in result.output
+
+    def test_an_orphaned_tmp_sibling_is_not_counted(self, tmp_path, monkeypatch):
+        """A kill between the tmp write and the replace strands a sibling.
+
+        It lands in the same directory as the backups, under a name nothing
+        reads. It is not a backup, and reporting it as one would tell the user
+        a conflict happened that did not.
+        """
+        from nauro.store import _atomic
+        from nauro.sync.merge import write_backup
+
+        store = _scaffold(repo=tmp_path)
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+        with patch.object(_atomic.os, "replace", lambda src, dst: None):
+            write_backup(store, "20260810T000000Z-project.md", b"losing side\n")
+        assert [path.name for path in (store / ".conflict-backup").iterdir()] != []
+
+        result = runner.invoke(app, ["sync", "--status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Conflict backups" not in result.output

@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.graph import DEFAULT_GRAPH_FILENAME
-from nauro.store._atomic import is_tmp_sibling
+from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.store.journal import JOURNAL_DIR
 from nauro.store.store_lock import DIR_LOCK_NAME, RMW_LOCK_SUFFIX
 from nauro.sync.state import SyncState
@@ -103,11 +103,17 @@ def write_backup(project_path: Path, backup_name: str, content: bytes) -> Path:
     The single writer into the backup directory: the last-write-wins loser
     below names its file by timestamp, the quarantined remote decision in
     ``sync.quarantine`` names its file by remote version.
+
+    Written atomically, like everything else the pull lands. This file is the
+    only copy of content the pull declined to install, and the quarantine
+    writer keeps an existing backup for a remote version rather than writing it
+    again - so a half-written one would never be corrected, and what it was
+    holding would be gone.
     """
     backup_dir = project_path / CONFLICT_BACKUP_DIR
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_path = backup_dir / backup_name
-    backup_path.write_bytes(content)
+    atomic_write_bytes(backup_path, content)
     logger.info("Conflict backup saved: %s", backup_path)
     return backup_path
 

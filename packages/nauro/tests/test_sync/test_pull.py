@@ -1188,6 +1188,51 @@ class TestWriteBarrier:
         assert allowed is True
 
 
+class TestQuarantineBackupSurvivesADeadWrite:
+    """A backup that dies mid-write must not look like a finished one.
+
+    The quarantine writer skips a backup that already exists for the same
+    remote version, so a truncated file under the right name would be kept
+    forever - and it is the only copy of the bytes the pull declined to
+    install.
+    """
+
+    def _quarantining_pull(self, store, reporter=None):
+        remote = decision_bytes(3, "Remote decision", "Chose B.")
+        return pull(store, [("decisions/003-remote.md", remote)], reporter=reporter)
+
+    def test_the_next_pull_writes_the_backup_the_dead_write_did_not(
+        self, collision_store, monkeypatch
+    ):
+        write_local_decision(collision_store, "003-local.md", decision_bytes(3, "Local decision"))
+        track(collision_store, "decisions/003-local.md")
+        backup_dir = collision_store / ".conflict-backup"
+        real_replace = os.replace
+        dying = {"first run"}
+
+        def die_on_backup(src, dst, **kwargs):
+            if Path(dst).parent.name == ".conflict-backup" and dying:
+                dying.clear()
+                raise OSError(28, "No space left on device")
+            return real_replace(src, dst, **kwargs)
+
+        monkeypatch.setattr("nauro.store._atomic.os.replace", die_on_backup)
+
+        merged, reporter = self._quarantining_pull(collision_store)
+
+        assert merged == 0
+        # No half-written evidence, and the run said something about it.
+        assert entry_names(backup_dir) == set()
+        assert reporter.warns
+
+        merged, _reporter = self._quarantining_pull(collision_store)
+
+        assert merged == 0
+        backups = [path for path in backup_dir.iterdir()]
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == decision_bytes(3, "Remote decision", "Chose B.")
+
+
 class TestBackupIdentity:
     def test_two_spellings_of_one_path_keep_separate_backups(self, collision_store):
         """On a case-folding filesystem a name derived from the path alone
