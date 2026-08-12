@@ -36,6 +36,7 @@ from nauro.store.registry import bind_project_store_v2, get_store_path_v2
 from nauro.store.repo_config import load_repo_config
 from nauro.store.resolution import RepoResolution
 from nauro.sync.cloud_projects import CloudProjectError, list_projects
+from nauro.sync.etag import content_md5
 from nauro.sync.remote import (
     PRESIGN_BATCH_LIMIT,
     PresignError,
@@ -43,6 +44,7 @@ from nauro.sync.remote import (
     fetch_via_presigned_url,
     request_presigned_urls,
 )
+from nauro.sync.state import FileState, SyncState, save_state
 from nauro.sync.transfer import NullReporter, Reporter, download_with_retry
 
 logger = logging.getLogger("nauro.store.recovery")
@@ -223,21 +225,6 @@ def _destination_is_available(destination: Path) -> bool:
     return next(destination.iterdir(), None) is None
 
 
-def _etag_md5(raw_etag: str) -> str | None:
-    """Return the ETag as a content MD5, or None when it cannot be one.
-
-    An S3 ETag equals the object's MD5 only for single-part, non-KMS-encrypted
-    uploads. Multipart ETags (``<md5>-<parts>``) and SSE-KMS/SSE-C ETags are
-    opaque, so they yield None and the caller skips the MD5 comparison rather
-    than failing a restore the sync pull path would have accepted. Size and
-    optional sha256 checks still apply to every file.
-    """
-    value = raw_etag.strip('"').lower()
-    if len(value) != 32 or any(ch not in "0123456789abcdef" for ch in value):
-        return None
-    return value
-
-
 class _IntegrityDefect(Enum):
     """Which manifest check a body failed. The value names it to the user."""
 
@@ -255,7 +242,7 @@ def _content_defect(content: bytes, entry: CloudManifestEntry) -> _IntegrityDefe
     """
     if entry.size is not None and len(content) != entry.size:
         return _IntegrityDefect.SIZE
-    expected_md5 = _etag_md5(entry.etag)
+    expected_md5 = content_md5(entry.etag)
     if (
         expected_md5 is not None
         and hashlib.md5(content, usedforsecurity=False).hexdigest() != expected_md5
@@ -651,6 +638,46 @@ def _install_staged_store(staging: Path, destination: Path) -> None:
         ) from exc
 
 
+def _seed_sync_state(area: _StagingArea) -> None:
+    """Record the assembled record as synced, inside the tree about to land.
+
+    A restore is the one moment a store is provably level with the server, and
+    nothing else can record it: ``.sync-state.json`` is never synced, so it
+    never arrives from the remote either. Left unwritten, every entry the next
+    pull reads is absent, absent reads as changed on both sides, and the run
+    backs the whole store up and downloads it again. A decision the server
+    edited fares worse: it reaches the collision gate untracked, and the stale
+    local copy wins a conflict it should never have been in.
+
+    The ledger is the source because it holds what actually landed - an ETag
+    the manifest published, and a digest of the bytes on disk under it, which
+    are ``remote_etag`` and ``local_sha256`` unchanged. It covers every
+    installed file whether this run downloaded it or resumed onto it, since a
+    staged file no ledger record backs is never kept.
+
+    The state is written into staging rather than onto the store, so it arrives
+    in the same rename as the files it describes and no instant exists in which
+    an installed store is untracked.
+    """
+    now = _utcnow().isoformat()
+    state = SyncState(
+        files={
+            relative: FileState(local_sha256=record.sha256, remote_etag=record.etag, last_sync=now)
+            for relative, record in area.ledger.files.items()
+        },
+        # Only a complete, validated tree reaches this line, so the store holds
+        # exactly what the manifest listed. That is the whole claim the stamp
+        # makes, and it gates nothing: two status surfaces read it. Reporting
+        # "never" for a store downloaded whole a moment ago would be the same
+        # untruth as the absent entries above.
+        last_full_sync=now,
+    )
+    try:
+        save_state(area.path, state)
+    except OSError as exc:
+        raise RecoveryError(f"Could not record the restored record's sync state: {exc}") from exc
+
+
 def _holds_complete_record(destination: Path) -> bool:
     """True when the destination already holds a complete, valid record."""
     try:
@@ -735,6 +762,13 @@ def restore_cloud_store(
             # badness, so the next run starts from nothing.
             area.discard()
             raise
+
+        # Nothing enumerates the staged tree between the validation above and
+        # the rename below, so a file added here is seen by nothing but the
+        # install: _install_staged_store empties the destination and renames,
+        # and that is all. A run that fails after this point and resumes writes
+        # the state again from the ledger it rebuilds, over whatever it left.
+        _seed_sync_state(area)
 
         # The content is verified from here. An install that fails now is a
         # local filesystem fault, not a bad record, so staging survives and the
