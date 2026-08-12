@@ -58,6 +58,7 @@ from nauro.sync.collisions import (
     run_completion_pass,
 )
 from nauro.sync.corpus import DecisionCorpus, SkipReason
+from nauro.sync.etag import ContentMatch, compare_local_file
 from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, decision_lock, sync_lock
 from nauro.sync.merge import (
     SPOOL_DIR_PREFIX,
@@ -237,11 +238,17 @@ class _Worklists:
     it looked like at planning time; each one is classified again against the
     live corpus before it is written. ``skipped_permanent`` counts the entries
     triage refused outright, which no worklist carries and no rerun recovers.
+
+    ``adopted`` is the one list that needs no bytes from the server: those
+    files already hold what the server published, and only the record of it is
+    missing. It is deliberately absent from :meth:`all_files`, which is what
+    the run presigns and fetches.
     """
 
     decisions: list[_RemoteFile] = field(default_factory=list)
     pulls: list[_RemoteFile] = field(default_factory=list)
     conflicts: list[_RemoteFile] = field(default_factory=list)
+    adopted: list[_RemoteFile] = field(default_factory=list)
     skipped_permanent: int = 0
 
     def all_files(self) -> list[_RemoteFile]:
@@ -350,6 +357,7 @@ class _Route(Enum):
     unusable = auto()
     gate = auto()
     install = auto()
+    adopt = auto()
     conflict = auto()
 
 
@@ -364,6 +372,19 @@ def _route_entry(
     shortcut then applies only when the local file is still there: the remote
     store is the record for a tracked file, so an entry the user deleted
     locally is reinstalled whether or not its etag moved.
+
+    Below the decision gate sits the other question sync state cannot answer.
+    Where state has no entry for a path, it is not saying the file changed; it
+    is saying nothing at all, and the conflict route below reads that silence
+    as both sides having moved. So the run settles it from the bytes instead:
+    an ETag that carries a content MD5 is compared against the file on disk,
+    and a file that already holds what the server published is adopted rather
+    than fought over. An opaque ETag compares nothing and changes nothing.
+
+    That leg stays below the gate on purpose. A decision adopts through the
+    classifier, never here, because only the classifier can see that a sibling
+    already claims the same number - and adopting under that shape would ratify
+    a duplicate. Here there is nothing to weigh but the bytes.
     """
     rel = entry.path
     if should_skip(rel):
@@ -379,7 +400,8 @@ def _route_entry(
         reporter.warn(f"skipping manifest entry {rel!r}: it resolves outside the store")
         return _Route.unusable
 
-    local_exists = (store_path / rel).exists()
+    local_file = store_path / rel
+    local_exists = local_file.exists()
     if local_exists and not file_changed_remotely(entry.etag, rel, state):
         return _Route.ignore
 
@@ -396,6 +418,12 @@ def _route_entry(
         # A file the user deleted is not a conflict: a conflict protects local
         # content and there is none.
         return _Route.install
+    if compare_local_file(local_file, entry.etag) is ContentMatch.matches:
+        # The two sides are the same file. Recording that is the whole of the
+        # work, and it is also what makes the run converge: a store restored
+        # from the cloud, or a push that crashed before its state save, would
+        # otherwise re-answer this question on every pull forever.
+        return _Route.adopt
     if file_changed_locally(store_path, rel, state):
         # Reaching here with a local file means the remote moved too, so both
         # sides have content the other does not - whether or not sync state
@@ -437,6 +465,8 @@ def _triage(
             (contested if claimed else work.decisions).append(item)
         elif route is _Route.install:
             work.pulls.append(item)
+        elif route is _Route.adopt:
+            work.adopted.append(item)
         else:
             work.conflicts.append(item)
 
@@ -459,6 +489,10 @@ def run_pull(
     fetched and written one file at a time, outside that lock, so a store whose
     changed set is hundreds of megabytes of snapshots is never held in memory
     and a local decision writer never waits on the whole batch.
+
+    A file already holding the bytes the server published is neither, and is
+    never fetched at all: the ETag settled it during triage, so the run records
+    that and moves on.
 
     Returns a :class:`PullReport`. A transport or auth-refresh failure is
     reported through ``reporter`` and then carried in that report, in the terms
@@ -545,6 +579,15 @@ def _run_pull_locked(
                         continue
                     with _guarded_step(item.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
                         _apply_decision(corpus, transfer, state, manifest, reporter, tally)
+
+        for item in work.adopted:
+            # Nothing is fetched and nothing lands on disk: these files already
+            # hold the bytes the server published, and only the record of it
+            # was missing. The guard still applies, because the digest this
+            # records is read from the file.
+            with _guarded_step(item.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
+                update_file_state(state, item.rel, compute_sha256(store_path / item.rel), item.etag)
+                tally.adopted += 1
 
         for transfer in _stream(urls, work.pulls, reporter, tally):
             with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):

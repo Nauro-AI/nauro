@@ -11,6 +11,7 @@ from nauro.store import recovery
 from nauro.store.recovery import RecoveryError, bind_local_store, restore_cloud_store
 from nauro.store.registry import get_project_v2, get_store_path_v2
 from nauro.store.repo_config import save_repo_config
+from nauro.sync.state import SYNC_STATE_FILE
 from nauro.templates.scaffolds import scaffold_project_store
 
 PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
@@ -88,11 +89,16 @@ def test_restore_cloud_store_installs_complete_record_atomically(tmp_path, monke
     restored = restore_cloud_store(PID, destination)
 
     assert restored == destination
-    assert {
+    installed = {
         path.relative_to(destination).as_posix(): path.read_bytes()
         for path in destination.rglob("*")
         if path.is_file()
-    } == files
+    }
+    # The restore adds exactly one file to the record it downloaded: the sync
+    # state saying the store is level with the server. Popping it keeps this
+    # assertion as strict as it was about everything else.
+    assert installed.pop(SYNC_STATE_FILE)
+    assert installed == files
     # A completed install consumes its staging directory.
     assert not _staging(destination).exists()
     assert _legacy_staging(destination) == []
@@ -161,6 +167,7 @@ def test_restore_cloud_store_skips_hash_check_for_opaque_etag(tmp_path, monkeypa
         for path in destination.rglob("*")
         if path.is_file()
     }
+    assert restored.pop(SYNC_STATE_FILE)
     assert restored == files
 
 

@@ -14,6 +14,7 @@ from nauro.store import recovery
 from nauro.store.recovery import RecoveryError, RestoreBusyError, restore_cloud_store
 from nauro.sync import transfer
 from nauro.sync.remote import PresignTransferError
+from nauro.sync.state import SYNC_STATE_FILE
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.test_recovery import PID, _decision_bytes, _store_files
 
@@ -478,7 +479,7 @@ def test_resume_removes_a_tmp_sibling_a_kill_stranded(tmp_path, monkeypatch):
         path.relative_to(destination).as_posix()
         for path in destination.rglob("*")
         if path.is_file()
-    ) == sorted(files)
+    ) == sorted([*files, SYNC_STATE_FILE])
 
 
 def test_a_file_squatting_on_the_staging_path_is_cleared(tmp_path, monkeypatch):

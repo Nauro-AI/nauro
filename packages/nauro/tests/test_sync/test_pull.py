@@ -12,6 +12,7 @@ classifier and its crash windows are unit-tested in ``test_collisions.py``.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from pathlib import Path
@@ -29,7 +30,7 @@ from nauro.sync import pull as pull_module
 from nauro.sync.corpus import DecisionCorpus
 from nauro.sync.lock import SyncLockTimeoutError, decision_lock
 from nauro.sync.merge import CONFLICT_BACKUP_DIR, SPOOL_DIR_PREFIX, should_skip
-from nauro.sync.pull import _Transfer, run_pull
+from nauro.sync.pull import PullReport, _Transfer, run_pull
 from nauro.sync.quarantine import (
     list_quarantine_backups,
     save_quarantine_backup,
@@ -1650,6 +1651,82 @@ class TestUntrackedLocalFiles:
         assert (collision_store / "stack.md").read_bytes() == b"# Stack\n\nlocal rewrite\n"
         backups = list((collision_store / CONFLICT_BACKUP_DIR).iterdir())
         assert [path.read_bytes() for path in backups] == [b"# Stack\n\nremote rewrite\n"]
+
+
+class TestUntrackedLocalFilesAlreadyLevel:
+    """An untracked file the server already holds is adopted, not fought over.
+
+    Absent sync state says nothing about a file's content, and the conflict
+    route treats it as though it said the file changed. Where the manifest ETag
+    is a content MD5 the run can settle the question outright, so it does: a
+    file whose bytes are the server's bytes is recorded and left alone, with no
+    fetch and no backup. Where the ETag is opaque nothing was compared, and the
+    run keeps the conflict it would have had.
+    """
+
+    @staticmethod
+    def _md5_etag(body: bytes) -> str:
+        return f'"{hashlib.md5(body, usedforsecurity=False).hexdigest()}"'
+
+    def _pull_counting_fetches(self, store, entries, *, etags=None):
+        with patch.object(
+            pull_module, "fetch_via_presigned_url", wraps=pull_module.fetch_via_presigned_url
+        ) as fetch:
+            report, reporter = pull_report(store, entries, etags=etags)
+        return report, reporter, fetch.call_count
+
+    def test_a_matching_untracked_file_is_adopted_without_a_fetch(self, collision_store):
+        body = b"# Stack\n\nthe same bytes the server holds\n"
+        (collision_store / "stack.md").write_bytes(body)
+
+        report, reporter, fetches = self._pull_counting_fetches(
+            collision_store, [("stack.md", body)], etags={"stack.md": self._md5_etag(body)}
+        )
+
+        assert fetches == 0
+        assert report == PullReport()
+        assert (collision_store / "stack.md").read_bytes() == body
+        assert entry_names(collision_store / CONFLICT_BACKUP_DIR) == set()
+        assert reporter.infos == ["Adopted 1 local file(s) already on the server"]
+        # Recording it is what makes the next pull cheap: without the entry the
+        # run would re-hash the same file forever.
+        state = load_state(collision_store)
+        assert state.files["stack.md"].remote_etag == self._md5_etag(body)
+        assert state.files["stack.md"].local_sha256 == compute_sha256(collision_store / "stack.md")
+
+    def test_a_differing_untracked_file_still_conflicts(self, collision_store):
+        (collision_store / "stack.md").write_bytes(b"# Stack\n\nlocal only\n")
+        remote = b"# Stack\n\nremote\n"
+
+        report, _reporter, fetches = self._pull_counting_fetches(
+            collision_store, [("stack.md", remote)], etags={"stack.md": self._md5_etag(remote)}
+        )
+
+        assert fetches == 1
+        assert report.merged == 1
+        assert (collision_store / "stack.md").read_bytes() == remote
+        backups = list((collision_store / CONFLICT_BACKUP_DIR).iterdir())
+        assert [path.read_bytes() for path in backups] == [b"# Stack\n\nlocal only\n"]
+
+    def test_an_opaque_etag_never_skips_a_file(self, collision_store):
+        """A multipart ETag answers nothing, and nothing is what it is read as.
+
+        The local bytes here are the remote bytes, so a run that mistook an
+        opaque ETag for a mismatch-free comparison would skip the file. One
+        that mistakes it for evidence of anything at all would be guessing, and
+        the conflict it would otherwise have had is the honest outcome.
+        """
+        body = b"# Stack\n\nthe same bytes the server holds\n"
+        (collision_store / "stack.md").write_bytes(body)
+        multipart = f'"{hashlib.md5(body, usedforsecurity=False).hexdigest()}-2"'
+
+        report, _reporter, fetches = self._pull_counting_fetches(
+            collision_store, [("stack.md", body)], etags={"stack.md": multipart}
+        )
+
+        assert fetches == 1
+        assert report.merged == 1
+        assert entry_names(collision_store / CONFLICT_BACKUP_DIR) != set()
 
 
 class TestLocalWriteFailures:
