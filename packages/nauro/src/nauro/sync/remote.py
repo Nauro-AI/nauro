@@ -25,8 +25,37 @@ _DEFAULT_API_TIMEOUT = 15.0
 _DEFAULT_TRANSFER_TIMEOUT = 60.0
 
 
+# Enough of an error body to name the fault, never enough to flood a terminal.
+_BODY_EXCERPT_LIMIT = 200
+
+
 class PresignError(Exception):
     """Raised for unrecoverable failures hitting the manifest/presign endpoints."""
+
+
+class PresignTransferError(PresignError):
+    """A presigned object transfer failed against object storage.
+
+    Subclasses :class:`PresignError`, so every existing handler keeps catching
+    it, and carries the two facts a retry policy needs: the HTTP status when
+    the server answered, and whether the request failed at the transport layer
+    before any response existed. :mod:`nauro.sync.transfer` owns the policy
+    that reads them; this class states facts only.
+    """
+
+    def __init__(
+        self,
+        action: str,
+        *,
+        status: int | None = None,
+        transport: bool = False,
+        detail: str = "",
+    ) -> None:
+        answered = f"({status})" if status is not None else "(no response)"
+        super().__init__(f"{action} failed {answered}{f': {detail}' if detail else ''}")
+        self.status = status
+        self.transport = transport
+        self.detail = detail
 
 
 def resolve_api_url() -> str:
@@ -43,7 +72,7 @@ def resolve_api_url() -> str:
 
 # The server batches up to 200 ops per /sync/presign call (see mcp-server
 # _PRESIGN_OPS_BATCH_LIMIT); the CLI chunks larger diffs to match.
-_PRESIGN_BATCH_LIMIT = 200
+PRESIGN_BATCH_LIMIT = 200
 
 
 def fetch_manifest(project_id: str) -> list[dict]:
@@ -107,8 +136,8 @@ def request_presigned_urls(
     api_url = resolve_api_url()
     all_urls: list[dict[str, Any]] = []
 
-    for start in range(0, len(operations), _PRESIGN_BATCH_LIMIT):
-        chunk = operations[start : start + _PRESIGN_BATCH_LIMIT]
+    for start in range(0, len(operations), PRESIGN_BATCH_LIMIT):
+        chunk = operations[start : start + PRESIGN_BATCH_LIMIT]
 
         def _call(token: str, chunk=chunk) -> httpx.Response:
             return httpx.post(
@@ -168,11 +197,33 @@ def urls_by_path(entries: list[Any], verb: str) -> tuple[dict[str, str], tuple[s
     return usable, tuple(skipped)
 
 
+def _body_excerpt(response: httpx.Response) -> str:
+    """Collapse an error body to one short line."""
+    return " ".join(response.text.split())[:_BODY_EXCERPT_LIMIT]
+
+
 def fetch_via_presigned_url(url: str) -> bytes:
-    """GET ``url`` and return the body bytes (no local write)."""
-    response = httpx.get(url, timeout=_DEFAULT_TRANSFER_TIMEOUT)
+    """GET ``url`` and return the body bytes (no local write).
+
+    Every failure surfaces as :class:`PresignTransferError`, transport faults
+    included: a caller guarding against ``PresignError`` must not have a bare
+    ``httpx.ConnectError`` escape past it, and a retry policy must classify on
+    the status rather than on the message text.
+    """
+    try:
+        response = httpx.get(url, timeout=_DEFAULT_TRANSFER_TIMEOUT)
+    except httpx.TransportError as exc:
+        # UnsupportedProtocol sits in the transport hierarchy but is not a
+        # transport fault: the client refused to send a URL it cannot read, so
+        # nothing was attempted and a retry cannot change the outcome.
+        attempted = not isinstance(exc, httpx.UnsupportedProtocol)
+        raise PresignTransferError("Presigned GET", transport=attempted, detail=str(exc)) from exc
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
+        raise PresignTransferError("Presigned GET", detail=str(exc)) from exc
     if response.status_code != 200:
-        raise PresignError(f"Presigned GET failed ({response.status_code})")
+        raise PresignTransferError(
+            "Presigned GET", status=response.status_code, detail=_body_excerpt(response)
+        )
     return response.content
 
 
@@ -186,7 +237,9 @@ def put_via_presigned_url(url: str, local_path: Path) -> str:
 
 
 __all__ = [
+    "PRESIGN_BATCH_LIMIT",
     "PresignError",
+    "PresignTransferError",
     "PresignedUrl",
     "fetch_manifest",
     "fetch_via_presigned_url",

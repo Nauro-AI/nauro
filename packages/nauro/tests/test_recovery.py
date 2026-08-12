@@ -16,6 +16,20 @@ from nauro.templates.scaffolds import scaffold_project_store
 PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 
 
+def _staging(destination: Path) -> Path:
+    """The fixed staging directory a restore of ``destination`` resumes from.
+
+    Asserted against by path rather than by a ``.restore*`` glob, because the
+    lock file the restore leaves beside it wears the same prefix.
+    """
+    return destination.parent / f".{PID}.restore"
+
+
+def _legacy_staging(destination: Path) -> list[Path]:
+    """Staging directories under the pre-resume random-suffix pattern."""
+    return list(destination.parent.glob(f".{PID}.restore-*"))
+
+
 def _store_files(root: Path) -> dict[str, bytes]:
     scaffold_project_store("nauro", root)
     files: dict[str, bytes] = {}
@@ -79,7 +93,9 @@ def test_restore_cloud_store_installs_complete_record_atomically(tmp_path, monke
         for path in destination.rglob("*")
         if path.is_file()
     } == files
-    assert not list(destination.parent.glob(f".{PID}.restore-*"))
+    # A completed install consumes its staging directory.
+    assert not _staging(destination).exists()
+    assert _legacy_staging(destination) == []
 
 
 def test_restore_cloud_store_refuses_nonempty_destination_before_network(tmp_path, monkeypatch):
@@ -98,7 +114,13 @@ def test_restore_cloud_store_refuses_nonempty_destination_before_network(tmp_pat
     assert (destination / "keep.txt").read_text() == "keep"
 
 
-def test_restore_cloud_store_cleans_staging_on_hash_mismatch(tmp_path, monkeypatch):
+def test_restore_cloud_store_installs_nothing_on_hash_mismatch(tmp_path, monkeypatch):
+    """A corrupt download stops the restore and installs nothing.
+
+    Staging survives, because a hash mismatch is a download-phase failure: the
+    file that failed is never written, and the resume re-fetches it against a
+    fresh manifest rather than making the user download the record again.
+    """
     source = tmp_path / "source"
     files = _store_files(source)
     _mock_remote(monkeypatch, files)
@@ -111,7 +133,10 @@ def test_restore_cloud_store_cleans_staging_on_hash_mismatch(tmp_path, monkeypat
         restore_cloud_store(PID, destination)
 
     assert not destination.exists()
-    assert not list(destination.parent.glob(f".{PID}.restore-*"))
+    staging = _staging(destination)
+    assert staging.is_dir()
+    assert not (staging / manifest[0]["path"]).exists()
+    assert _legacy_staging(destination) == []
 
 
 def test_restore_cloud_store_skips_hash_check_for_opaque_etag(tmp_path, monkeypatch):
@@ -155,7 +180,7 @@ def test_restore_cloud_store_still_catches_corruption_behind_opaque_etag(tmp_pat
         restore_cloud_store(PID, destination)
 
     assert not destination.exists()
-    assert not list(destination.parent.glob(f".{PID}.restore-*"))
+    assert not (_staging(destination) / manifest[0]["path"]).exists()
 
 
 def test_restore_accepts_default_store_path_under_symlinked_home(tmp_path, monkeypatch):
@@ -237,10 +262,18 @@ def test_restore_cloud_store_rejects_malformed_manifest_types(entry, tmp_path, m
         restore_cloud_store(PID, destination)
 
     assert not destination.exists()
-    assert not list(destination.parent.glob(f".{PID}.restore-*"))
+    # An unreadable manifest is refused before staging opens.
+    assert not _staging(destination).exists()
+    assert _legacy_staging(destination) == []
 
 
 def test_restore_cloud_store_rejects_malformed_presign_result(tmp_path, monkeypatch):
+    """An unreadable presign response stops the restore with nothing staged.
+
+    Staging is already open by then, so it stays: a bad server response says
+    nothing about the files already on disk, and the next run re-verifies them
+    anyway. Nothing was downloaded under it here, so it stays empty.
+    """
     source = tmp_path / "source"
     files = _store_files(source)
     _mock_remote(monkeypatch, files)
@@ -255,7 +288,9 @@ def test_restore_cloud_store_rejects_malformed_presign_result(tmp_path, monkeypa
         restore_cloud_store(PID, destination)
 
     assert not destination.exists()
-    assert not list(destination.parent.glob(f".{PID}.restore-*"))
+    staging = _staging(destination)
+    assert staging.is_dir()
+    assert list(staging.iterdir()) == []
 
 
 def _decision_bytes(num: int, *, supersedes: str | None = None) -> bytes:
@@ -305,3 +340,6 @@ def test_restore_cloud_store_rejects_damaged_decision_graph(tmp_path, monkeypatc
         restore_cloud_store(PID, destination)
 
     assert not destination.exists()
+    # The whole record downloaded and still failed validation. Resuming would
+    # rebuild the same bad store, so staging is discarded for a clean restart.
+    assert not _staging(destination).exists()

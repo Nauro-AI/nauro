@@ -8,8 +8,9 @@ decision file before it lands and merge conflicting append-only files.
 
 The two callers differ only in how they surface progress: the CLI echoes
 to the terminal; the hook logs quietly and must never raise. That
-asymmetry is injected through the :class:`Reporter` protocol rather than
-branched inside the pull core, so the two paths cannot drift again.
+asymmetry is injected through the shared
+:class:`~nauro.sync.transfer.Reporter` protocol rather than branched inside
+the pull core, so the two paths cannot drift again.
 
 A run has two phases. It plans and fetches under the store's sync lock, which
 keeps two syncs off one store; then it writes everything under the decision
@@ -38,7 +39,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
-from typing import Protocol
 
 from nauro_core import extract_decision_number
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -83,20 +83,7 @@ from nauro.sync.state import (
     save_state,
     update_file_state,
 )
-
-
-class Reporter(Protocol):
-    """Surface for pull progress.
-
-    The CLI implementation echoes to the terminal; the hook implementation
-    logs quietly (session startup must never crash).
-    """
-
-    def info(self, msg: str) -> None:
-        """Report routine progress (file written, nothing to pull)."""
-
-    def warn(self, msg: str) -> None:
-        """Report a recoverable anomaly (presign URL shortfall, bad manifest)."""
+from nauro.sync.transfer import Reporter
 
 
 class _ManifestEntry(BaseModel):
@@ -1039,4 +1026,4 @@ def _quarantine(
     )
 
 
-__all__ = ["PullReport", "Reporter", "run_pull"]
+__all__ = ["PullReport", "run_pull"]

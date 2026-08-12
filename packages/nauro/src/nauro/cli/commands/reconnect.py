@@ -6,6 +6,7 @@ from pathlib import Path
 
 import typer
 
+from nauro.cli._reporters import StderrReporter
 from nauro.cli.integrations.json_mcp import recorded_mcp_commands
 from nauro.store.recovery import (
     RecoveryError,
@@ -95,7 +96,9 @@ def reconnect() -> None:
             return
 
         remote_name = require_cloud_membership(connection.project_id)
-        store_path = restore_cloud_store(connection.project_id, connection.store_path)
+        store_path = restore_cloud_store(
+            connection.project_id, connection.store_path, StderrReporter()
+        )
         config = load_repo_config(repo_root)
         # Membership was just verified, so the cloud name is authoritative:
         # a server-side rename reconciles the registry and repo config here
