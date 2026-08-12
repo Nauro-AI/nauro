@@ -80,7 +80,7 @@ def test_pull_skips_remote_journal_path(tmp_path):
 
     reporter = _RecordingReporter()
     with patch("nauro.sync.remote.httpx.get", side_effect=fake_get):
-        merged = run_pull(CLOUD_PID, store, reporter)
+        merged = run_pull(CLOUD_PID, store, reporter).merged
 
     assert merged == 0
     assert not (store / rel).exists()

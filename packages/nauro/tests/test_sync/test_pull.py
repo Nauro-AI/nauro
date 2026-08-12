@@ -13,6 +13,7 @@ classifier and its crash windows are unit-tested in ``test_collisions.py``.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,17 +21,21 @@ import httpx
 import pytest
 from nauro_core.operations.propose_decision import _next_decision_num
 
+from nauro.cli.commands.auth import AuthRefreshError
+from nauro.store import _atomic
+from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.sync import pull as pull_module
 from nauro.sync.corpus import DecisionCorpus
 from nauro.sync.lock import SyncLockTimeoutError, decision_lock
-from nauro.sync.merge import SPOOL_DIR_PREFIX, should_skip
+from nauro.sync.merge import CONFLICT_BACKUP_DIR, SPOOL_DIR_PREFIX, should_skip
 from nauro.sync.pull import _Transfer, run_pull
 from nauro.sync.quarantine import (
     list_quarantine_backups,
     save_quarantine_backup,
     unresolved_quarantines,
 )
+from nauro.sync.remote import PresignError
 from nauro.sync.state import (
     FileState,
     SyncState,
@@ -49,6 +54,7 @@ from tests.test_sync.conftest import (
     decision_bytes,
     entry_names,
     pull,
+    pull_report,
     track,
     write_local_decision,
 )
@@ -78,7 +84,7 @@ class TestRunPullCleanPull:
             patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
             patch("nauro.sync.remote.httpx.post", return_value=presign),
         ):
-            merged = run_pull(CLOUD_PID, cloud_store, reporter)
+            merged = run_pull(CLOUD_PID, cloud_store, reporter).merged
 
         assert merged == 1
         assert (cloud_store / rel).read_bytes() == b"# 099\nfresh remote body\n"
@@ -101,7 +107,7 @@ class TestRunPullCleanPull:
             patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
             patch("nauro.sync.remote.httpx.post", return_value=presign),
         ):
-            merged = run_pull(CLOUD_PID, cloud_store, _RecordingReporter())
+            merged = run_pull(CLOUD_PID, cloud_store, _RecordingReporter()).merged
 
         assert merged == 1
         assert (cloud_store / rel).read_bytes() == _STAMPED_DECISION
@@ -134,7 +140,7 @@ class TestRunPullCleanPull:
             patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
             patch("nauro.sync.remote.httpx.post", return_value=presign),
         ):
-            merged = run_pull(CLOUD_PID, cloud_store, reporter)
+            merged = run_pull(CLOUD_PID, cloud_store, reporter).merged
 
         assert merged == 1
         merged_bytes = local.read_bytes()
@@ -1496,6 +1502,155 @@ class TestLocallyDeletedFiles:
         assert "decisions/009-remote.md" in state.files
         assert "stack.md" in state.files
 
+    def test_a_deleted_file_comes_back_when_the_remote_never_moved(self, collision_store):
+        """Deleting a local file changes nothing on the server.
+
+        The etag comparison ran first and matched, so the entry was dropped
+        before anything looked at the disk - on that sync and on every sync
+        after it. The remote store is the record for a file it holds, so a
+        missing local copy asks for the file whatever the etag says.
+        """
+        (collision_store / "stack.md").write_text("# Stack\n\nshared\n")
+        track(collision_store, "stack.md")
+        (collision_store / "stack.md").unlink()
+
+        merged, reporter = pull(
+            collision_store,
+            [("stack.md", b"# Stack\n\nshared\n")],
+            etags={"stack.md": '"pushed"'},
+        )
+
+        assert merged == 1
+        assert (collision_store / "stack.md").read_bytes() == b"# Stack\n\nshared\n"
+        assert reporter.warns == []
+
+    def test_a_deleted_decision_comes_back_when_the_remote_never_moved(self, collision_store):
+        rel = "decisions/004-shared.md"
+        body = decision_bytes(4, "Shared")
+        write_local_decision(collision_store, "004-shared.md", body)
+        track(collision_store, rel)
+        (collision_store / rel).unlink()
+
+        merged, reporter = pull(collision_store, [(rel, body)], etags={rel: '"pushed"'})
+
+        assert merged == 1
+        assert (collision_store / rel).read_bytes() == body
+        assert reporter.warns == []
+
+    def test_an_unchanged_entry_whose_local_copy_is_there_is_still_skipped(self, collision_store):
+        """The shortcut still holds where it was right: no file, no fetch."""
+        (collision_store / "stack.md").write_text("# Stack\n\nshared\n")
+        track(collision_store, "stack.md")
+
+        merged, reporter = pull(
+            collision_store,
+            [("stack.md", b"# Stack\n\nshared\n")],
+            etags={"stack.md": '"pushed"'},
+        )
+
+        assert merged == 0
+        assert reporter.infos == ["No remote changes"]
+
+    def test_a_locally_modified_file_with_an_unchanged_remote_is_left_alone(self, collision_store):
+        """An unmoved remote has nothing to say about a local edit.
+
+        The shortcut is what protects work in progress. Moving the local-change
+        probe above it would fetch the entry, call the edit a conflict, and
+        rewrite or back up a file the server never changed.
+        """
+        (collision_store / "stack.md").write_text("# Stack\n\npushed\n")
+        track(collision_store, "stack.md")
+        recorded = load_state(collision_store).files["stack.md"].local_sha256
+        (collision_store / "stack.md").write_text("# Stack\n\nlocal edit\n")
+
+        merged, reporter = pull(
+            collision_store,
+            [("stack.md", b"# Stack\n\npushed\n")],
+            etags={"stack.md": '"pushed"'},
+        )
+
+        assert merged == 0
+        assert (collision_store / "stack.md").read_text() == "# Stack\n\nlocal edit\n"
+        assert not (collision_store / CONFLICT_BACKUP_DIR).exists()
+        assert load_state(collision_store).files["stack.md"].local_sha256 == recorded
+        assert reporter.infos == ["No remote changes"]
+
+    def test_a_deleted_decision_is_classified_before_it_is_reinstalled(self, collision_store):
+        """Deleting a decision frees the number a local writer can then mint.
+
+        Sync state still tracks the path, and a tracked canonical decision is
+        exempt from the classifier as an ordinary same-path update. That holds
+        only while the file is there: reinstalling it without a verdict would
+        put two files on one number and push the duplicate.
+        """
+        rel = "decisions/004-foo.md"
+        body = decision_bytes(4, "Foo")
+        write_local_decision(collision_store, "004-foo.md", body)
+        track(collision_store, rel)
+        (collision_store / rel).unlink()
+        # A local writer takes the freed number before the next sync.
+        write_local_decision(collision_store, "004-bar.md", decision_bytes(4, "Bar", "Chose B."))
+
+        merged, reporter = pull(collision_store, [(rel, body)], etags={rel: '"pushed"'})
+
+        names = entry_names(collision_store / "decisions")
+        assert merged == 1
+        assert (collision_store / rel).read_bytes() == body
+        assert "004-bar.md" not in names
+        assert [name for name in names if name.startswith("004-")] == ["004-foo.md"]
+        assert any(name.endswith("-bar.md") for name in names)
+        assert any("Renumbered" in line for line in reporter.infos)
+
+
+class TestUntrackedLocalFiles:
+    """A file sync state never recorded still has bytes worth keeping.
+
+    The local-change probe reads an untracked file as changed and the conflict
+    probe read it as unchanged, so an entry with local content and a changed
+    remote matched no worklist at all: nothing was written, nothing was warned
+    about, and the remote version was never seen again.
+    """
+
+    def test_the_remote_lands_and_the_local_bytes_go_to_the_backup(self, collision_store):
+        (collision_store / "stack.md").write_bytes(b"# Stack\n\nnever pushed\n")
+
+        merged, _reporter = pull(collision_store, [("stack.md", b"# Stack\n\nremote\n")])
+
+        assert merged == 1
+        assert (collision_store / "stack.md").read_bytes() == b"# Stack\n\nremote\n"
+        backups = list((collision_store / CONFLICT_BACKUP_DIR).iterdir())
+        assert [path.read_bytes() for path in backups] == [b"# Stack\n\nnever pushed\n"]
+        assert load_state(collision_store).files["stack.md"].remote_etag == '"stack.md-v1"'
+
+    def test_an_append_only_file_merges_both_sides_instead(self, collision_store):
+        (collision_store / "open-questions.md").write_text("## Open\n\n- local question\n")
+
+        merged, _reporter = pull(
+            collision_store, [("open-questions.md", b"## Open\n\n- remote question\n")]
+        )
+
+        assert merged == 1
+        text = (collision_store / "open-questions.md").read_text()
+        assert "- local question" in text
+        assert "- remote question" in text
+
+    def test_a_tracked_file_still_keeps_its_local_side(self, collision_store):
+        """A published path's policy is unchanged: the local rewrite wins."""
+        (collision_store / "stack.md").write_bytes(b"# Stack\n\npushed\n")
+        track(collision_store, "stack.md")
+        (collision_store / "stack.md").write_bytes(b"# Stack\n\nlocal rewrite\n")
+
+        merged, _reporter = pull(
+            collision_store,
+            [("stack.md", b"# Stack\n\nremote rewrite\n")],
+            etags={"stack.md": '"v2"'},
+        )
+
+        assert merged == 1
+        assert (collision_store / "stack.md").read_bytes() == b"# Stack\n\nlocal rewrite\n"
+        backups = list((collision_store / CONFLICT_BACKUP_DIR).iterdir())
+        assert [path.read_bytes() for path in backups] == [b"# Stack\n\nremote rewrite\n"]
+
 
 class TestLocalWriteFailures:
     """A local filesystem error stops one file, not the run.
@@ -1597,6 +1752,63 @@ class TestLocalWriteFailures:
         assert "No remote changes" not in reporter.infos
         assert any("next sync" in line for line in reporter.infos)
 
+    def test_a_failed_transfer_holds_back_the_full_sync_timestamp(
+        self, collision_store, monkeypatch
+    ):
+        """A fetch that never arrived is a file the next sync still owes.
+
+        Only a local write error was counted, so a transport failure left the
+        store short of the server while the stamp said the two agreed.
+        """
+
+        def refuse(_url):
+            raise PresignError("connection reset by peer")
+
+        monkeypatch.setattr(pull_module, "fetch_via_presigned_url", refuse)
+
+        merged, reporter = pull(collision_store, [("stack.md", b"# Stack\n\nremote\n")])
+
+        assert merged == 0
+        assert load_state(collision_store).last_full_sync == ""
+        assert any("next sync" in line for line in reporter.infos)
+
+    def test_a_presign_shortfall_holds_back_the_full_sync_timestamp(
+        self, collision_store, monkeypatch
+    ):
+        """A URL the server never minted leaves its file unfetched."""
+        monkeypatch.setattr(pull_module, "request_presigned_urls", lambda *_args: [])
+
+        merged, reporter = pull(
+            collision_store, [("decisions/016-remote.md", decision_bytes(16, "Unfetched"))]
+        )
+
+        assert merged == 0
+        assert not (collision_store / "decisions/016-remote.md").exists()
+        assert load_state(collision_store).last_full_sync == ""
+        assert any("next sync" in line for line in reporter.infos)
+
+    def test_a_quarantine_does_not_hold_back_the_full_sync_timestamp(self, collision_store):
+        """A collision no rerun resolves must not freeze the stamp for good.
+
+        The quarantined decision is reported on its own and surfaced by
+        ``nauro sync --status`` until a person settles the number. Holding the
+        stamp until then would say nothing about the rest of the store, which
+        this run did write in full.
+        """
+        write_local_decision(collision_store, "003-local.md", decision_bytes(3, "Local decision"))
+        track(collision_store, "decisions/003-local.md")
+
+        report, reporter = pull_report(
+            collision_store,
+            [("decisions/003-remote.md", decision_bytes(3, "Remote decision", "Chose B."))],
+        )
+
+        assert report.merged == 0
+        assert report.refused == 0
+        assert report.skipped_permanent == 1
+        assert load_state(collision_store).last_full_sync
+        assert any("cannot install" in line for line in reporter.infos)
+
     def test_a_lock_timeout_leaves_an_unreadable_state_file_alone(
         self, collision_store, monkeypatch
     ):
@@ -1618,6 +1830,73 @@ class TestLocalWriteFailures:
             pull(collision_store, [("decisions/015-remote.md", decision_bytes(15, "Remote"))])
 
         assert (collision_store / ".sync-state.json").read_bytes() == corrupt
+
+
+class TestServerOutOfReach:
+    """A run that fetched nothing must not read as a store already in step.
+
+    Both legs returned an empty report, which counts zero refusals and says
+    zero files are owed. The command then exited 0 and pushed over a pull that
+    never happened.
+    """
+
+    def test_a_manifest_failure_says_the_run_never_saw_the_server(
+        self, collision_store, monkeypatch
+    ):
+        def refuse(_project_id):
+            raise PresignError("503 service unavailable")
+
+        monkeypatch.setattr(pull_module, "fetch_manifest", refuse)
+        reporter = _RecordingReporter()
+
+        report = run_pull(CLOUD_PID, collision_store, reporter)
+
+        assert report.manifest_read is False
+        assert report.left_work_behind is True
+        assert load_state(collision_store).last_full_sync == ""
+        assert any("manifest fetch failed" in warning for warning in reporter.warns)
+
+    def test_an_auth_failure_on_the_manifest_reads_the_same_way(self, collision_store, monkeypatch):
+        def refuse(_project_id):
+            raise AuthRefreshError("session expired; run 'nauro auth login'")
+
+        monkeypatch.setattr(pull_module, "fetch_manifest", refuse)
+
+        report = run_pull(CLOUD_PID, collision_store, _RecordingReporter())
+
+        assert report.manifest_read is False
+        assert report.left_work_behind is True
+
+    def test_a_total_presign_failure_counts_every_planned_file(self, collision_store, monkeypatch):
+        """Here the run does know what it missed, so it says how much."""
+
+        def refuse(*_args):
+            raise PresignError("403 forbidden")
+
+        monkeypatch.setattr(pull_module, "request_presigned_urls", refuse)
+
+        report, reporter = pull_report(
+            collision_store,
+            [
+                ("decisions/018-remote.md", decision_bytes(18, "Unfetched")),
+                ("stack.md", b"# Stack\n\nremote\n"),
+            ],
+        )
+
+        assert report.refused == 2
+        assert report.merged == 0
+        assert report.manifest_read is True
+        assert report.left_work_behind is True
+        assert not (collision_store / "decisions/018-remote.md").exists()
+        assert load_state(collision_store).last_full_sync == ""
+        assert any("presign request failed" in warning for warning in reporter.warns)
+        assert any("Left 2 item(s) for the next sync" in line for line in reporter.infos)
+
+    def test_a_clean_run_says_it_read_the_server(self, collision_store):
+        report, _reporter = pull_report(collision_store, [])
+
+        assert report.manifest_read is True
+        assert report.left_work_behind is False
 
 
 class TestPartialWrites:
@@ -1695,3 +1974,95 @@ class TestPartialWrites:
         assert merged == 1
         assert (collision_store / rel).read_bytes() == body
         assert rel in load_state(collision_store).files
+
+
+class TestStrandedTmpSiblings:
+    """A kill between an atomic write and its rename strands a full copy.
+
+    Nothing reads the file and both sync directions exclude it, so no command
+    counted or removed one and a store kept them for its whole life. The pull
+    sweeps them because it already holds the sync lock and already walks the
+    store.
+    """
+
+    @staticmethod
+    def _strand(path: Path, content: bytes, *, age_seconds: float) -> Path:
+        """Leave a tmp sibling of ``path`` behind, as a killed write would."""
+        with patch.object(_atomic.os, "replace", lambda src, dst: None):
+            atomic_write_bytes(path, content)
+        orphan = next(entry for entry in path.parent.iterdir() if is_tmp_sibling(entry.name))
+        stranded_at = time.time() - age_seconds
+        os.utime(orphan, (stranded_at, stranded_at))
+        return orphan
+
+    def test_old_siblings_anywhere_in_the_store_are_swept_and_reported(self, collision_store):
+        backup_dir = collision_store / CONFLICT_BACKUP_DIR
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        in_backups = self._strand(backup_dir / "losing-side.md", b"a backup\n", age_seconds=600)
+        in_store = self._strand(collision_store / "stack.md", b"# Stack\n", age_seconds=600)
+
+        _merged, reporter = pull(collision_store, [])
+
+        assert not in_backups.exists()
+        assert not in_store.exists()
+        assert "Cleaned 2 interrupted write(s)" in reporter.infos
+
+    def test_a_fresh_sibling_is_left_alone(self, collision_store):
+        """The age floor is what keeps the sweep off a write in progress."""
+        live = self._strand(collision_store / "stack.md", b"# Stack\n", age_seconds=0)
+
+        _merged, reporter = pull(collision_store, [])
+
+        assert live.exists()
+        assert not any("interrupted write" in line for line in reporter.infos)
+
+    def test_a_sibling_it_cannot_remove_warns_and_the_pull_carries_on(
+        self, collision_store, monkeypatch
+    ):
+        stranded = self._strand(collision_store / "stack.md", b"# Stack\n", age_seconds=600)
+        real_unlink = Path.unlink
+
+        def refuse(self, *args, **kwargs):
+            if is_tmp_sibling(self.name):
+                raise PermissionError(13, "Permission denied")
+            return real_unlink(self, *args, **kwargs)
+
+        monkeypatch.setattr(pull_module.Path, "unlink", refuse)
+
+        merged, reporter = pull(
+            collision_store, [("decisions/017-remote.md", decision_bytes(17, "Remote"))]
+        )
+
+        assert merged == 1
+        assert stranded.exists()
+        assert any("interrupted write" in warning for warning in reporter.warns)
+
+    def test_a_walk_that_breaks_partway_still_lets_the_pull_run(self, collision_store, monkeypatch):
+        """The sweep is best-effort hygiene, not a gate on the sync.
+
+        It runs before the manifest fetch, so an error escaping the traversal
+        aborts a pull that never started, and the session-start hook swallows
+        that into a silently skipped sync. A directory can vanish underneath
+        the walk at any time: the store is one other processes write into.
+        """
+        stranded = self._strand(collision_store / "stack.md", b"# Stack\n", age_seconds=600)
+        real_rglob = Path.rglob
+
+        def break_partway(self, *args, **kwargs):
+            if self != collision_store:
+                yield from real_rglob(self, *args, **kwargs)
+                return
+            yield stranded
+            raise OSError(5, "Input/output error")
+
+        monkeypatch.setattr(pull_module.Path, "rglob", break_partway)
+
+        merged, reporter = pull(
+            collision_store, [("decisions/020-remote.md", decision_bytes(20, "Remote"))]
+        )
+
+        assert merged == 1
+        assert (collision_store / "decisions/020-remote.md").exists()
+        # What the walk reached before it broke was still cleaned up.
+        assert not stranded.exists()
+        assert any("could not finish looking" in warning for warning in reporter.warns)

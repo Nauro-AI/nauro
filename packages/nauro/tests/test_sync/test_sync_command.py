@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
+from nauro.sync.pull import PullReport
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import _scaffolded_cloud_project
@@ -36,7 +37,7 @@ class TestSyncPullBeforePush:
 
         def mock_pull(project_name, store_path):
             call_order.append("pull")
-            return 0
+            return PullReport()
 
         def mock_push(project_name, store_path):
             call_order.append("push")
@@ -56,6 +57,87 @@ class TestSyncPullBeforePush:
         assert "local-only project; nothing to upload" in result.output
         # No "Pulling from remote" because sync is not configured
         assert "Pulling from remote" not in result.output
+
+
+class TestSyncExitCode:
+    """The exit code says whether the store now holds what the server has.
+
+    A pull that could not write a file used to exit 0, so a script that syncs
+    and then reads the store had no way to know it was reading a store the run
+    itself knew was short.
+    """
+
+    @staticmethod
+    def _stub_pull(monkeypatch, report: PullReport) -> None:
+        from nauro.cli.commands import sync as sync_mod
+
+        monkeypatch.setattr(sync_mod, "_pull_from_cloud", lambda *_args: report)
+
+    def test_a_clean_pull_exits_zero(self, project_store, monkeypatch):
+        self._stub_pull(monkeypatch, PullReport(merged=3))
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+
+    def test_a_refused_file_exits_two(self, project_store, monkeypatch):
+        self._stub_pull(monkeypatch, PullReport(merged=1, refused=2))
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 2, result.output
+        assert "2 remote file(s) were not written" in result.output
+
+    def test_a_pull_that_never_read_the_server_exits_two(self, project_store, monkeypatch):
+        """An empty report used to say the same thing as a store in step."""
+        self._stub_pull(monkeypatch, PullReport(manifest_read=False))
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 2, result.output
+        assert "could not read the server's file list" in result.output
+
+    def test_the_push_still_runs_before_that_exit(self, project_store, monkeypatch):
+        """The push order is unchanged: the snapshot is local work worth keeping."""
+        from nauro.cli.commands import sync as sync_mod
+
+        call_order = []
+
+        def mock_pull(_project_name, _store_path):
+            call_order.append("pull")
+            return PullReport(manifest_read=False)
+
+        def mock_push(_project_name, _store_path):
+            call_order.append("push")
+            return True
+
+        monkeypatch.setattr(sync_mod, "_pull_from_cloud", mock_pull)
+        monkeypatch.setattr(sync_mod, "_push_to_cloud", mock_push)
+
+        result = runner.invoke(app, ["sync"])
+
+        assert call_order == ["pull", "push"]
+        assert result.exit_code == 2, result.output
+
+    def test_a_permanent_skip_alone_exits_zero(self, project_store, monkeypatch):
+        """A quarantined collision has its own surface and no retry to offer."""
+        self._stub_pull(monkeypatch, PullReport(skipped_permanent=1))
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 0, result.output
+
+    def test_a_push_failure_still_exits_one(self, project_store, monkeypatch):
+        from nauro.cli.commands import sync as sync_mod
+
+        self._stub_pull(monkeypatch, PullReport(refused=1))
+        monkeypatch.setattr(sync_mod, "_push_to_cloud", lambda *_args: False)
+
+        result = runner.invoke(app, ["sync"])
+
+        # The command's own failure outranks the pull's unfinished business.
+        assert result.exit_code == 1, result.output
+        assert "cloud push failed" in result.output
 
 
 class TestSyncSnapshotIsPrimaryWork:
@@ -80,12 +162,11 @@ class TestSyncSnapshotIsPrimaryWork:
 class TestSyncPullNoConfig:
     """Verify pull is a no-op when S3 is not configured."""
 
-    def test_pull_returns_zero_when_not_configured(self, project_store):
-        """_pull_from_cloud should return 0 when sync is not configured."""
+    def test_pull_returns_an_empty_report_when_not_configured(self, project_store):
+        """_pull_from_cloud reports nothing done when sync is not configured."""
         from nauro.cli.commands.sync import _pull_from_cloud
 
-        result = _pull_from_cloud("testproj", project_store)
-        assert result == 0
+        assert _pull_from_cloud("testproj", project_store) == PullReport()
 
 
 class TestSyncPreservesState:

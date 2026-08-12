@@ -99,7 +99,7 @@ def push_changed_files(
 
 
 def _push_changed_files_locked(project_id: str, store_path: Path) -> int:
-    from nauro.sync.merge import should_skip
+    from nauro.sync.merge import CONFLICT_BACKUP_DIR, should_skip
     from nauro.sync.remote import (
         PresignError,
         put_via_presigned_url,
@@ -118,7 +118,7 @@ def _push_changed_files_locked(project_id: str, store_path: Path) -> int:
             rel = str(local_file.relative_to(store_path))
         except ValueError:
             continue
-        if should_skip(rel) or rel.startswith(".conflict-backup") or rel.startswith("__pycache__"):
+        if should_skip(rel) or rel.startswith(CONFLICT_BACKUP_DIR) or rel.startswith("__pycache__"):
             continue
 
         # Shared briefs (context/*.md) are written via the agent's filesystem

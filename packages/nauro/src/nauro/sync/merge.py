@@ -6,13 +6,13 @@ how to merge or which version wins.
 
 import logging
 from datetime import datetime, timezone
+from enum import Enum, auto
 from pathlib import Path
 
 from nauro.graph import DEFAULT_GRAPH_FILENAME
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.store.journal import JOURNAL_DIR
 from nauro.store.store_lock import DIR_LOCK_NAME, RMW_LOCK_SUFFIX
-from nauro.sync.state import SyncState
 
 logger = logging.getLogger("nauro.sync")
 
@@ -85,18 +85,6 @@ def should_skip(relative_path: str) -> bool:
     return basename == DIR_LOCK_NAME or normalized.endswith(LOCK_ARTIFACT_SUFFIXES)
 
 
-def detect_conflict(
-    relative_path: str, state: SyncState, local_sha256: str, remote_etag: str
-) -> bool:
-    """Conflict = local SHA256 differs from state AND remote ETag differs from state."""
-    fs = state.files.get(relative_path)
-    if fs is None:
-        return False
-    local_changed = local_sha256 != fs.local_sha256
-    remote_changed = remote_etag != fs.remote_etag
-    return local_changed and remote_changed
-
-
 def write_backup(project_path: Path, backup_name: str, content: bytes) -> Path:
     """Write ``content`` into ``.conflict-backup/`` under ``backup_name``.
 
@@ -125,30 +113,49 @@ def _save_conflict_backup(project_path: Path, relative_path: str, content: bytes
     return write_backup(project_path, f"{timestamp}-{filename}", content)
 
 
+class Side(Enum):
+    """Which copy of a file survives on disk when no merge is defined.
+
+    The caller decides, because the answer is about the path's history rather
+    than its content: a version this store published has an ancestor the two
+    sides share, and one it never published does not.
+    """
+
+    local = auto()
+    remote = auto()
+
+
 def resolve_conflict(
     project_path: Path,
     local_path: Path,
     remote_content: bytes,
     relative_path: str,
+    *,
+    keeps: Side,
 ) -> bytes:
     """Resolve a conflict between local and remote versions.
 
-    Files in ``_SET_UNION_PATHS`` merge by section-aware set-union.
-    Everything else: last-write-wins with backup of the losing version.
+    Files in ``_SET_UNION_PATHS`` merge by section-aware set-union, whatever
+    ``keeps`` asks for: a union drops nothing, so there is no losing side to
+    back up. Everything else keeps the side named and writes the other one to
+    ``.conflict-backup/``, so both versions survive either way.
     """
     local_content = local_path.read_bytes()
 
     if relative_path in _SET_UNION_PATHS:
         return _set_union_markdown(local_content, remote_content)
 
-    # Last-write-wins: keep local, back up remote
-    _save_conflict_backup(project_path, relative_path, remote_content)
-    logger.warning(
-        "Conflict on %s resolved by last-write-wins (kept local). "
-        "Remote version saved to .conflict-backup/",
-        relative_path,
+    loser, winner = (
+        (remote_content, local_content) if keeps is Side.local else (local_content, remote_content)
     )
-    return local_content
+    _save_conflict_backup(project_path, relative_path, loser)
+    logger.warning(
+        "Conflict on %s resolved by last-write-wins (kept %s). "
+        "The other version was saved to .conflict-backup/",
+        relative_path,
+        keeps.name,
+    )
+    return winner
 
 
 def _parse_sections(lines: list[str]) -> tuple[list[str], list[tuple[str, list[str]]]]:
