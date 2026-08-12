@@ -766,8 +766,8 @@ def restore_cloud_store(
         # Nothing enumerates the staged tree between the validation above and
         # the rename below, so a file added here is seen by nothing but the
         # install: _install_staged_store empties the destination and renames,
-        # and that is all. A resume never inherits this file either, because
-        # the audit deletes every staged path the manifest does not name.
+        # and that is all. A run that fails after this point and resumes writes
+        # the state again from the ledger it rebuilds, over whatever it left.
         _seed_sync_state(area)
 
         # The content is verified from here. An install that fails now is a

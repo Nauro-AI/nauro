@@ -20,9 +20,11 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from nauro_core import extract_decision_number
 from nauro_core.operations.propose_decision import _next_decision_num
 
 from nauro.cli.commands.auth import AuthRefreshError
+from nauro.constants import DECISIONS_DIR
 from nauro.store import _atomic
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.store.filesystem_store import FilesystemStore
@@ -1707,6 +1709,45 @@ class TestUntrackedLocalFilesAlreadyLevel:
         assert (collision_store / "stack.md").read_bytes() == remote
         backups = list((collision_store / CONFLICT_BACKUP_DIR).iterdir())
         assert [path.read_bytes() for path in backups] == [b"# Stack\n\nlocal only\n"]
+
+    def test_a_sibling_claiming_the_number_is_moved_before_the_adoption(self, collision_store):
+        """The adoption leg stays below the decision gate, and this proves it.
+
+        Adoption records a state entry, and a state entry on a decision is what
+        marks its number as taken. Where a second local file claims that number,
+        recording the entry ratifies the duplicate, and the store then pushes
+        two files for one number. Only the classifier can see the sibling, so
+        only the classifier may adopt a decision.
+
+        Read from the top of ``_route_entry``, the ordering is what routes this
+        entry to the gate rather than to the adoption leg, and the gate then
+        moves the sibling out of the way before the record is adopted. Lift the
+        adoption leg above the gate and this test fails on both assertions.
+        """
+        body = decision_bytes(42, "A ruling")
+        write_local_decision(collision_store, "042-a-ruling.md", body)
+        write_local_decision(collision_store, "042-other.md", decision_bytes(42, "Another ruling"))
+
+        _report, reporter, _fetches = self._pull_counting_fetches(
+            collision_store,
+            [("decisions/042-a-ruling.md", body)],
+            etags={"decisions/042-a-ruling.md": self._md5_etag(body)},
+        )
+
+        # The index file the writer keeps alongside the decisions claims no
+        # number, so it is dropped rather than counted as a second nameless one.
+        numbers = [
+            number
+            for number in (
+                extract_decision_number(name)
+                for name in entry_names(collision_store / DECISIONS_DIR)
+            )
+            if number is not None
+        ]
+        assert sorted(numbers) == [1, 42, 43]
+        assert any(
+            "Renumbered unpublished local decision 042 -> 043" in line for line in reporter.infos
+        )
 
     def test_an_opaque_etag_never_skips_a_file(self, collision_store):
         """A multipart ETag answers nothing, and nothing is what it is read as.
