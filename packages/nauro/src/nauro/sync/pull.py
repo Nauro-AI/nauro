@@ -44,7 +44,7 @@ from nauro_core import extract_decision_number
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from nauro.cli.commands.auth import AuthRefreshError
-from nauro.constants import DECISIONS_DIR
+from nauro.constants import DECISIONS_DIR, SNAPSHOTS_DIR
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.sync.collisions import (
     DecisionOutcome,
@@ -376,6 +376,16 @@ class _Route(Enum):
     conflict = auto()
 
 
+def _is_canonical_snapshot_path(rel: str) -> bool:
+    head, slash, tail = rel.partition("/")
+    return bool(
+        slash
+        and tail
+        and head == SNAPSHOTS_DIR
+        and all(part not in {"", ".", ".."} for part in tail.split("/"))
+    )
+
+
 @dataclass(frozen=True)
 class _Routing:
     """What one entry needs, plus whatever deciding that already established.
@@ -427,6 +437,8 @@ def _route_entry(
     if not destination.inside_store:
         reporter.warn(f"skipping manifest entry {rel!r}: it resolves outside the store")
         return _Routing(_Route.unusable)
+    if _is_canonical_snapshot_path(rel):
+        return _Routing(_Route.ignore)
 
     local_file = store_path / rel
     local_exists = local_file.exists()
@@ -517,10 +529,10 @@ def run_pull(
 
     Walks the server manifest, then applies it in two phases. Untracked
     decision files are fetched together and written under the decision lock,
-    each classified immediately before its own write. Everything else streams:
-    fetched and written one file at a time, outside that lock, so a store whose
-    changed set is hundreds of megabytes of snapshots is never held in memory
-    and a local decision writer never waits on the whole batch.
+    each classified immediately before its own write. Everything else streams.
+    Large ordinary files are fetched and written one at a time, outside that
+    lock, so the batch is never held in memory and a local decision writer
+    never waits on the whole transfer.
 
     A file already holding the bytes the server published is neither, and is
     never fetched at all: the ETag settled it during triage, so the run records
