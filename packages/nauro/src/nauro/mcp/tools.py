@@ -12,7 +12,7 @@ import inspect
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nauro_core.constants import (
     DECISIONS_DIR,
@@ -78,6 +78,9 @@ from nauro.store.snapshot import (
     resolve_diff_snapshots,
 )
 from nauro.store.store_lock import store_write_lock
+
+if TYPE_CHECKING:
+    from nauro.sync.push import PushReport
 
 logger = logging.getLogger("nauro.mcp.tools")
 
@@ -261,15 +264,18 @@ def _has_decisions(store_path: Path) -> bool:
     return any(decisions_dir.glob("*.md"))
 
 
-def _try_push(store_path: Path) -> None:
+def _try_push(store_path: Path) -> PushReport:
     """Best-effort push to S3 after a local write. Never raises."""
     try:
         from nauro.sync.hooks import push_after_write
 
         project_name = store_path.name
-        push_after_write(project_name, store_path)
+        return push_after_write(project_name, store_path)
     except Exception:
         logger.debug("sync push after write failed for %s", store_path.name, exc_info=True)
+        from nauro.sync.push import PushReport
+
+        return PushReport(failed=("unexpected failure",))
 
 
 def _coerce_level(level: int | str) -> int:

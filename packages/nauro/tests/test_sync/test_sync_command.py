@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
 from nauro.sync.pull import PullReport
+from nauro.sync.push import PushReport
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import _scaffolded_cloud_project
@@ -31,17 +32,20 @@ class TestSyncPullBeforePush:
     def test_sync_with_s3_calls_pull_before_push(self, project_store, monkeypatch):
         """When S3 is configured, sync should pull then push."""
         call_order = []
+        sessions = []
 
         # We need to patch at the module level where they're defined
         from nauro.cli.commands import sync as sync_mod
 
-        def mock_pull(project_name, store_path):
+        def mock_pull(project_name, store_path, **kwargs):
             call_order.append("pull")
+            sessions.append(kwargs["session"])
             return PullReport()
 
-        def mock_push(project_name, store_path):
+        def mock_push(project_name, store_path, **kwargs):
             call_order.append("push")
-            return True
+            sessions.append(kwargs["session"])
+            return PushReport()
 
         monkeypatch.setattr(sync_mod, "_pull_from_cloud", mock_pull)
         monkeypatch.setattr(sync_mod, "_push_to_cloud", mock_push)
@@ -49,6 +53,7 @@ class TestSyncPullBeforePush:
         result = runner.invoke(app, ["sync"])
         assert result.exit_code == 0
         assert call_order == ["pull", "push"]
+        assert sessions[0] is sessions[1]
 
     def test_sync_without_s3_unchanged(self, project_store, monkeypatch):
         """When S3 is not configured, sync should still work (pull is a no-op)."""
@@ -71,7 +76,7 @@ class TestSyncExitCode:
     def _stub_pull(monkeypatch, report: PullReport) -> None:
         from nauro.cli.commands import sync as sync_mod
 
-        monkeypatch.setattr(sync_mod, "_pull_from_cloud", lambda *_args: report)
+        monkeypatch.setattr(sync_mod, "_pull_from_cloud", lambda *_args, **_kwargs: report)
 
     def test_a_clean_pull_exits_zero(self, project_store, monkeypatch):
         self._stub_pull(monkeypatch, PullReport(merged=3))
@@ -97,19 +102,40 @@ class TestSyncExitCode:
         assert result.exit_code == 2, result.output
         assert "could not read the server's file list" in result.output
 
+    def test_a_permanent_pull_origin_abort_exits_one_without_success(
+        self, project_store, monkeypatch
+    ):
+        from nauro.cli.commands import sync as sync_mod
+
+        self._stub_pull(
+            monkeypatch,
+            PullReport(
+                manifest_read=False,
+                origin_aborted=("https://api.example:443",),
+            ),
+        )
+        monkeypatch.setattr(sync_mod, "is_cloud_project", lambda _project: True)
+        monkeypatch.setattr(sync_mod, "_push_to_cloud", lambda *_args, **_kwargs: PushReport())
+
+        result = runner.invoke(app, ["sync"])
+
+        assert result.exit_code == 1, result.output
+        assert "permanent remote origin failure" in result.output
+        assert "Synced testproj" not in result.output
+
     def test_the_push_still_runs_before_that_exit(self, project_store, monkeypatch):
         """The push order is unchanged: the snapshot is local work worth keeping."""
         from nauro.cli.commands import sync as sync_mod
 
         call_order = []
 
-        def mock_pull(_project_name, _store_path):
+        def mock_pull(_project_name, _store_path, **_kwargs):
             call_order.append("pull")
             return PullReport(manifest_read=False)
 
-        def mock_push(_project_name, _store_path):
+        def mock_push(_project_name, _store_path, **_kwargs):
             call_order.append("push")
-            return True
+            return PushReport()
 
         monkeypatch.setattr(sync_mod, "_pull_from_cloud", mock_pull)
         monkeypatch.setattr(sync_mod, "_push_to_cloud", mock_push)
@@ -131,13 +157,18 @@ class TestSyncExitCode:
         from nauro.cli.commands import sync as sync_mod
 
         self._stub_pull(monkeypatch, PullReport(refused=1))
-        monkeypatch.setattr(sync_mod, "_push_to_cloud", lambda *_args: False)
+        monkeypatch.setattr(
+            sync_mod,
+            "_push_to_cloud",
+            lambda *_args, **_kwargs: PushReport(failed=("transport",)),
+        )
 
         result = runner.invoke(app, ["sync"])
 
         # The command's own failure outranks the pull's unfinished business.
         assert result.exit_code == 1, result.output
         assert "cloud push failed" in result.output
+        assert "Synced testproj" not in result.output
 
 
 class TestSyncSnapshotIsPrimaryWork:
@@ -346,11 +377,11 @@ class TestSyncHonesty:
 
         with (
             patch(
-                "nauro.sync.remote.httpx.get",
+                "nauro.sync.remote.httpx.Client.get",
                 return_value=ok({"files": [], "next_cursor": None}),
             ),
-            patch("nauro.sync.remote.httpx.post", side_effect=fake_post),
-            patch("nauro.sync.remote.httpx.put", return_value=put_response),
+            patch("nauro.sync.remote.httpx.Client.post", side_effect=fake_post),
+            patch("nauro.sync.remote.httpx.Client.put", return_value=put_response),
         ):
             result = runner.invoke(app, ["sync", "--project", "cloudwithauth"])
 
@@ -358,6 +389,75 @@ class TestSyncHonesty:
         assert result.exit_code == 0, combined
         assert "Synced cloudwithauth" in result.output
         assert "Warning: this is a cloud-mode project" not in combined
+
+    @pytest.mark.parametrize(
+        ("failure", "expected_pull_posts"),
+        [
+            ("manifest-malformed-json", 0),
+            ("presign-invalid-shape", 1),
+        ],
+    )
+    def test_invalid_pull_api_response_blocks_same_origin_push_and_success(
+        self,
+        failure,
+        expected_pull_posts,
+        tmp_path,
+        monkeypatch,
+    ):
+        import httpx
+
+        _scaffolded_cloud_project("invalidpull", tmp_path)
+        seed_auth_config(variant="sync")
+        monkeypatch.setenv("NAURO_API_URL", "https://api.test")
+        manifest = httpx.Response(
+            200,
+            json={
+                "files": [{"path": "project.md", "etag": '"remote"'}],
+                "next_cursor": None,
+            },
+        )
+        invalid_manifest = httpx.Response(200, content=b"{not json")
+        invalid_presign = httpx.Response(200, json={"urls": {}})
+
+        def fake_get(url, **_kwargs):
+            assert "/sync/manifest" in url
+            return invalid_manifest if failure == "manifest-malformed-json" else manifest
+
+        post_calls = 0
+
+        def fake_post(_url, **kwargs):
+            nonlocal post_calls
+            post_calls += 1
+            if failure == "presign-invalid-shape" and post_calls == 1:
+                return invalid_presign
+            operations = kwargs["json"]["operations"]
+            return httpx.Response(
+                200,
+                json={
+                    "urls": [
+                        {
+                            "verb": operation["verb"],
+                            "path": operation["path"],
+                            "url": f"https://objects.test/{operation['path']}",
+                        }
+                        for operation in operations
+                    ]
+                },
+            )
+
+        put_response = httpx.Response(200, headers={"ETag": '"uploaded"'})
+        with (
+            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.Client.post", side_effect=fake_post) as mock_post,
+            patch("nauro.sync.remote.httpx.Client.put", return_value=put_response) as mock_put,
+        ):
+            result = runner.invoke(app, ["sync", "--project", "invalidpull"])
+
+        assert result.exit_code == 1, result.output
+        assert "permanent remote origin failure" in result.output
+        assert "Synced invalidpull" not in result.output
+        assert mock_post.call_count == expected_pull_posts
+        mock_put.assert_not_called()
 
 
 class TestSyncPullSurfacesAndMerges:
@@ -425,9 +525,9 @@ class TestSyncPullSurfacesAndMerges:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", side_effect=fake_post),
-            patch("nauro.sync.remote.httpx.put", return_value=put_response),
+            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.Client.post", side_effect=fake_post),
+            patch("nauro.sync.remote.httpx.Client.put", return_value=put_response),
         ):
             result = runner.invoke(app, ["sync", "--project", "mergedcount"])
 

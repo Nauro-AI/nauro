@@ -106,8 +106,8 @@ def test_link_cloud_promotes_and_pushes_in_one_command(tmp_path, monkeypatch):
 
     with (
         patch.object(cloud_projects.httpx, "request", side_effect=_create_response()),
-        patch.object(remote.httpx, "post", side_effect=_presign_post),
-        patch.object(remote.httpx, "put", return_value=_ok_put()) as mock_put,
+        patch.object(remote.httpx.Client, "post", side_effect=_presign_post),
+        patch.object(remote.httpx.Client, "put", return_value=_ok_put()) as mock_put,
     ):
         result = runner.invoke(app, ["link", "--cloud"])
     assert result.exit_code == 0, result.output
@@ -154,8 +154,8 @@ def test_link_cloud_rekeys_external_store_binding(tmp_path, monkeypatch):
 
     with (
         patch.object(cloud_projects.httpx, "request", side_effect=_create_response()),
-        patch.object(remote.httpx, "post", side_effect=_presign_post),
-        patch.object(remote.httpx, "put", return_value=_ok_put()),
+        patch.object(remote.httpx.Client, "post", side_effect=_presign_post),
+        patch.object(remote.httpx.Client, "put", return_value=_ok_put()),
     ):
         result = runner.invoke(app, ["link", "--cloud"])
 
@@ -202,6 +202,27 @@ def test_link_cloud_push_failure_keeps_rekey(tmp_path, monkeypatch):
     assert cfg["id"] == CLOUD_PID
 
 
+def test_link_cloud_incomplete_push_warns_and_exits_zero(tmp_path, monkeypatch):
+    from nauro.sync.push import PushReport
+
+    _seed_token(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("NAURO_API_URL", "https://example.test")
+    assert runner.invoke(app, ["init", "linkproj"]).exit_code == 0
+    report = PushReport(planned=("stack.md",), ambiguous=("stack.md",))
+
+    with (
+        patch.object(cloud_projects.httpx, "request", side_effect=_create_response()),
+        patch("nauro.cli.commands.link.push_changed_files", return_value=report),
+    ):
+        result = runner.invoke(app, ["link", "--cloud"])
+
+    assert result.exit_code == 0, result.output
+    assert "initial cloud push was incomplete" in result.output
+    assert "nauro sync" in result.output
+    assert registry.get_project_v2(CLOUD_PID)["mode"] == "cloud"
+
+
 def test_link_cloud_on_already_cloud_repo_errors(tmp_path, monkeypatch):
     """A cloud-mode repo cannot be linked again."""
     _seed_token(monkeypatch, tmp_path)
@@ -238,8 +259,8 @@ def test_link_cloud_succeeds_with_only_auth_token(tmp_path, monkeypatch):
         patch.object(
             cloud_projects.httpx, "request", side_effect=_create_response("auth-only-link")
         ),
-        patch.object(remote.httpx, "post", side_effect=_presign_post),
-        patch.object(remote.httpx, "put", return_value=_ok_put()),
+        patch.object(remote.httpx.Client, "post", side_effect=_presign_post),
+        patch.object(remote.httpx.Client, "put", return_value=_ok_put()),
     ):
         result = runner.invoke(app, ["link", "--cloud"])
 
@@ -271,8 +292,8 @@ def test_link_cloud_warns_for_repo_config_git_hygiene(
 
     with (
         patch.object(cloud_projects.httpx, "request", side_effect=_create_response()),
-        patch.object(remote.httpx, "post", side_effect=_presign_post),
-        patch.object(remote.httpx, "put", return_value=_ok_put()),
+        patch.object(remote.httpx.Client, "post", side_effect=_presign_post),
+        patch.object(remote.httpx.Client, "put", return_value=_ok_put()),
     ):
         result = runner.invoke(app, ["link", "--cloud"])
 

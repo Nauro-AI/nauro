@@ -13,7 +13,7 @@ from filelock import FileLock
 from nauro.store import recovery
 from nauro.store.recovery import RecoveryError, RestoreBusyError, restore_cloud_store
 from nauro.sync import transfer
-from nauro.sync.remote import PresignTransferError
+from nauro.sync.remote import FetchedObject, PresignTransferError
 from nauro.sync.state import SYNC_STATE_FILE
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.test_recovery import PID, _decision_bytes, _store_files
@@ -59,7 +59,7 @@ class _Cloud:
         monkeypatch.setattr(recovery, "fetch_via_presigned_url", self.fetch)
         monkeypatch.setattr(transfer, "pause", self.waits.append)
 
-    def manifest(self, _project_id: str) -> list[dict]:
+    def manifest(self, _project_id: str, **_kwargs) -> list[dict]:
         rows = []
         for path, content in sorted(self.files.items()):
             if path in self.opaque:
@@ -76,7 +76,7 @@ class _Cloud:
             )
         return rows
 
-    def presign(self, _project_id: str, operations: list[dict[str, str]]) -> list[dict]:
+    def presign(self, _project_id: str, operations: list[dict[str, str]], **_kwargs) -> list[dict]:
         self.generation += 1
         self.mints.append([operation["path"] for operation in operations])
         row: dict[str, str] = {}
@@ -93,7 +93,7 @@ class _Cloud:
             for operation in operations
         ]
 
-    def fetch(self, url: str) -> bytes:
+    def fetch(self, url: str, **_kwargs) -> FetchedObject:
         _generation, _, path = url.removeprefix("memory://").partition("/")
         self.fetched.append(path)
         queued = self.faults.get(path)
@@ -102,7 +102,7 @@ class _Cloud:
         standing = self.always_fail.get(path)
         if standing is not None:
             raise standing
-        return self.files[path]
+        return FetchedObject(self.files[path], f'"{hashlib.md5(self.files[path]).hexdigest()}"')
 
 
 class _RecordingReporter:

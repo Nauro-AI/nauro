@@ -183,8 +183,8 @@ def pull_report(store, entries, *, reporter=None, etags=None):
         return httpx.Response(200, content=bodies[url.split("/GET/", 1)[1]])
 
     with (
-        patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-        patch("nauro.sync.remote.httpx.post", return_value=presign),
+        patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+        patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
     ):
         report = run_pull(CLOUD_PID, store, reporter)
     return report, reporter

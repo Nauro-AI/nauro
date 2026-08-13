@@ -17,18 +17,13 @@ import random
 import time
 from collections.abc import Callable
 from enum import Enum
-from typing import Protocol
+from typing import Protocol, TypeVar
 
-from nauro.sync.remote import PresignError, PresignTransferError
-
-# Object storage and the API edge answer overload and their own faults with
-# these; every other status names something the same request will not fix.
-_TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
-
-# A presigned URL past its TTL answers 403, and so does a URL the caller was
-# never entitled to. The response cannot tell them apart, so the first 403
-# buys one fresh mint and a second 403 settles which one it was.
-_EXPIRED_STATUS = 403
+from nauro.sync.remote import (
+    PresignError,
+    RetryClassification,
+    TransferBoundaryError,
+)
 
 # Four attempts spans a few seconds of packet loss without holding a restore
 # open against a network that is simply down.
@@ -83,13 +78,11 @@ class UrlSource(Protocol):
 
 def classify_fault(error: PresignError) -> TransferFault:
     """Judge whether a failed download is worth another attempt."""
-    if not isinstance(error, PresignTransferError):
+    if not isinstance(error, TransferBoundaryError):
         return TransferFault.PERMANENT
-    if error.status is None:
-        return TransferFault.TRANSIENT if error.transport else TransferFault.PERMANENT
-    if error.status in _TRANSIENT_STATUSES:
+    if error.retry is RetryClassification.TRANSIENT:
         return TransferFault.TRANSIENT
-    if error.status == _EXPIRED_STATUS:
+    if error.retry is RetryClassification.EXPIRED_CANDIDATE:
         return TransferFault.EXPIRED_CANDIDATE
     return TransferFault.PERMANENT
 
@@ -110,7 +103,10 @@ def pause(seconds: float) -> None:
     time.sleep(seconds)
 
 
-def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], bytes]) -> bytes:
+_T = TypeVar("_T")
+
+
+def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], _T]) -> _T:
     """Download one object, retrying transient faults and one stale URL.
 
     A re-mint is a credential refresh, not a network fault, so it resets the

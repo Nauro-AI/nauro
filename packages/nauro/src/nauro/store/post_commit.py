@@ -29,11 +29,15 @@ import logging
 from collections.abc import Callable, Sequence
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
 from nauro.store.snapshot import capture_snapshot
 from nauro.templates.agents_md_regen import warn_then_regen
+
+if TYPE_CHECKING:
+    from nauro.sync.push import PushReport
 
 logger = logging.getLogger("nauro.store.post_commit")
 
@@ -88,7 +92,7 @@ def run_post_commit(
     regenerate_agents_md: bool = False,
     warn: Callable[[str], None] | None = None,
     surface_bridge_notices: bool = True,
-    push: Callable[[Path], None] | None = None,
+    push: Callable[[Path], PushReport | None] | None = None,
 ) -> PostCommitOutcome:
     """Run the ancillary steps for a write that already committed.
 
@@ -138,12 +142,15 @@ def run_post_commit(
 
     if push is not None:
         try:
-            push(store_path)
+            push_report = push(store_path)
         except Exception as exc:
             logger.debug("cloud push failed for %s", store_path.name, exc_info=True)
             degraded.append(
                 DegradedStep(step=AncillaryStep.PUSH, reason=f"{type(exc).__name__}: {exc}")
             )
+        else:
+            if push_report is not None and not push_report.is_complete:
+                degraded.append(DegradedStep(step=AncillaryStep.PUSH, reason=push_report.warning))
 
     return PostCommitOutcome(degraded=tuple(degraded), updated_repos=tuple(updated_repos))
 

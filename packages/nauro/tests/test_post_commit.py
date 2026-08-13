@@ -19,6 +19,7 @@ from nauro.mcp.tools import tool_flag_question, tool_propose_decision, tool_upda
 from nauro.store.journal import read_events
 from nauro.store.post_commit import AncillaryStep, run_post_commit
 from nauro.store.registry import register_project_v2
+from nauro.sync.push import PushReport
 from nauro.templates.scaffolds import scaffold_project_store
 
 SNAPSHOTS = "snapshots"
@@ -325,3 +326,20 @@ def test_a_clean_run_adds_no_assessment_to_the_short_envelopes(
 
     assert "assessment" not in flagged
     assert "assessment" not in updated
+
+
+def test_an_incomplete_nonraising_push_reaches_the_mcp_assessment(
+    adapter_store: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = PushReport(
+        planned=("stack.md",),
+        ambiguous=("stack.md",),
+    )
+    monkeypatch.setattr(mcp_tools, "_try_push", lambda _store: report)
+
+    envelope = tool_update_state(adapter_store, delta="Shipped the caching layer.")
+
+    assert envelope["status"] == "ok"
+    assert "cloud push failed" in envelope["assessment"]
+    assert "pending observation" in envelope["assessment"]
+    assert "stack.md" not in envelope["assessment"]

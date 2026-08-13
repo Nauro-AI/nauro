@@ -24,6 +24,7 @@ from nauro.sync.hooks import (
     pull_before_session,
     push_after_write,
 )
+from nauro.sync.push import PushReport
 from nauro.sync.state import (
     FileState,
     SyncState,
@@ -61,7 +62,7 @@ class TestSilentNoOpGating:
         store = _scaffolded_cloud_project("noauth", tmp_path, project_id=CLOUD_PID)
         # no _seed_token() — load_access_token() returns None
 
-        with patch("nauro.sync.remote.httpx.get") as mock_get:
+        with patch("nauro.sync.remote.httpx.Client.get") as mock_get:
             result = pull_before_session(CLOUD_PID, store)
 
         assert result == 0
@@ -71,10 +72,10 @@ class TestSilentNoOpGating:
         store = _scaffolded_cloud_project("noauth", tmp_path, project_id=CLOUD_PID)
         # no _seed_token()
 
-        with patch("nauro.sync.remote.httpx.post") as mock_post:
+        with patch("nauro.sync.remote.httpx.Client.post") as mock_post:
             result = push_after_write(CLOUD_PID, store)
 
-        assert result == 0
+        assert result == PushReport()
         mock_post.assert_not_called()
 
     def _seed_v1_shaped_registry(self, tmp_path) -> Path:
@@ -97,7 +98,7 @@ class TestSilentNoOpGating:
         store = self._seed_v1_shaped_registry(tmp_path)
         _seed_token()
 
-        with patch("nauro.sync.remote.httpx.get") as mock_get:
+        with patch("nauro.sync.remote.httpx.Client.get") as mock_get:
             result = pull_before_session("v1proj", store)
 
         assert result == 0
@@ -107,10 +108,10 @@ class TestSilentNoOpGating:
         store = self._seed_v1_shaped_registry(tmp_path)
         _seed_token()
 
-        with patch("nauro.sync.remote.httpx.post") as mock_post:
+        with patch("nauro.sync.remote.httpx.Client.post") as mock_post:
             result = push_after_write("v1proj", store)
 
-        assert result == 0
+        assert result == PushReport()
         mock_post.assert_not_called()
 
     def test_pull_silent_for_v2_local_mode(self, tmp_path):
@@ -127,7 +128,7 @@ class TestSilentNoOpGating:
         scaffold_project_store("localproj", store)
         _seed_token()
 
-        with patch("nauro.sync.remote.httpx.get") as mock_get:
+        with patch("nauro.sync.remote.httpx.Client.get") as mock_get:
             result = pull_before_session(local_pid, store)
 
         assert result == 0
@@ -146,10 +147,10 @@ class TestSilentNoOpGating:
         scaffold_project_store("localproj", store)
         _seed_token()
 
-        with patch("nauro.sync.remote.httpx.post") as mock_post:
+        with patch("nauro.sync.remote.httpx.Client.post") as mock_post:
             result = push_after_write(local_pid, store)
 
-        assert result == 0
+        assert result == PushReport()
         mock_post.assert_not_called()
 
 
@@ -186,8 +187,8 @@ class TestPullBeforeSessionPresign:
         empty = self._manifest([])
 
         with (
-            patch("nauro.sync.remote.httpx.get", return_value=empty),
-            patch("nauro.sync.remote.httpx.post") as mock_post,
+            patch("nauro.sync.remote.httpx.Client.get", return_value=empty),
+            patch("nauro.sync.remote.httpx.Client.post") as mock_post,
         ):
             result = pull_before_session(CLOUD_PID, cloud_store)
 
@@ -209,8 +210,8 @@ class TestPullBeforeSessionPresign:
             return httpx.Response(200, content=b"# 099\nfresh remote body\n")
 
         with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", return_value=presign),
+            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
         ):
             result = pull_before_session(CLOUD_PID, cloud_store)
 
@@ -222,7 +223,7 @@ class TestPullBeforeSessionPresign:
     def test_pull_swallows_presign_error(self, cloud_store):
         """A failed manifest fetch logs and returns 0, never raises."""
         bad_manifest = httpx.Response(500, content=b"server error")
-        with patch("nauro.sync.remote.httpx.get", return_value=bad_manifest):
+        with patch("nauro.sync.remote.httpx.Client.get", return_value=bad_manifest):
             result = pull_before_session(CLOUD_PID, cloud_store)
         assert result == 0
 
@@ -231,7 +232,7 @@ class TestPullBeforeSessionPresign:
         unauthorized = httpx.Response(401, content=b'{"error":"unauthorized"}')
         save_config({"auth": {"access_token": "tok", "sub": "x"}})
 
-        with patch("nauro.sync.remote.httpx.get", return_value=unauthorized):
+        with patch("nauro.sync.remote.httpx.Client.get", return_value=unauthorized):
             result = pull_before_session(CLOUD_PID, cloud_store)
 
         assert result == 0
@@ -280,12 +281,12 @@ class TestPushAfterWritePresign:
         self._seed_synced_state(cloud_store)
 
         with (
-            patch("nauro.sync.remote.httpx.post") as mock_post,
-            patch("nauro.sync.remote.httpx.put") as mock_put,
+            patch("nauro.sync.remote.httpx.Client.post") as mock_post,
+            patch("nauro.sync.remote.httpx.Client.put") as mock_put,
         ):
             result = push_after_write(CLOUD_PID, cloud_store)
 
-        assert result == 0
+        assert result == PushReport()
         mock_post.assert_not_called()
         mock_put.assert_not_called()
 
@@ -301,12 +302,12 @@ class TestPushAfterWritePresign:
             return self._presign(kwargs["json"]["operations"])
 
         with (
-            patch("nauro.sync.remote.httpx.post", side_effect=fake_post) as mock_post,
-            patch("nauro.sync.remote.httpx.put", return_value=put_response) as mock_put,
+            patch("nauro.sync.remote.httpx.Client.post", side_effect=fake_post) as mock_post,
+            patch("nauro.sync.remote.httpx.Client.put", return_value=put_response) as mock_put,
         ):
             result = push_after_write(CLOUD_PID, cloud_store)
 
-        assert result == 1
+        assert result.verified == ("stack.md",)
         body = mock_post.call_args.kwargs["json"]
         assert body["project_id"] == CLOUD_PID
         assert body["operations"] == [{"verb": "PUT", "path": "stack.md"}]
@@ -320,10 +321,10 @@ class TestPushAfterWritePresign:
         (cloud_store / "stack.md").write_text("modified\n")
 
         bad = httpx.Response(500, content=b"server error")
-        with patch("nauro.sync.remote.httpx.post", return_value=bad):
+        with patch("nauro.sync.remote.httpx.Client.post", return_value=bad):
             result = push_after_write(CLOUD_PID, cloud_store)
 
-        assert result == 0
+        assert result.is_complete is False
 
     def test_push_swallows_auth_refresh_error(self, cloud_store):
         self._seed_synced_state(cloud_store)
@@ -332,10 +333,10 @@ class TestPushAfterWritePresign:
         unauthorized = httpx.Response(401, content=b'{"error":"unauthorized"}')
         save_config({"auth": {"access_token": "tok", "sub": "x"}})
 
-        with patch("nauro.sync.remote.httpx.post", return_value=unauthorized):
+        with patch("nauro.sync.remote.httpx.Client.post", return_value=unauthorized):
             result = push_after_write(CLOUD_PID, cloud_store)
 
-        assert result == 0
+        assert result.is_complete is False
 
     def test_push_after_write_delegates_to_push_changed_files(self, cloud_store):
         """The hook is a thin wrapper over the shared push module — it must
@@ -344,10 +345,11 @@ class TestPushAfterWritePresign:
         self._seed_synced_state(cloud_store)
         (cloud_store / "stack.md").write_text("changed\n")
 
-        with patch("nauro.sync.push.push_changed_files", return_value=2) as mock_push:
+        report = PushReport(planned=("a", "b"), verified=("a", "b"))
+        with patch("nauro.sync.push.push_changed_files", return_value=report) as mock_push:
             result = push_after_write(CLOUD_PID, cloud_store)
 
-        assert result == 2
+        assert result == report
         assert mock_push.call_count == 1
         assert mock_push.call_args.args == (CLOUD_PID, cloud_store)
 

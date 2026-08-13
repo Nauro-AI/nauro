@@ -142,15 +142,13 @@ def link(
     # persisted. Pushing the store is best-effort: a transient presign/S3
     # failure must not roll back the promotion, so we warn and exit 0 and
     # let the user retry the upload with 'nauro sync'.
-    import httpx
-
     from nauro.cli.commands.auth import AuthRefreshError
     from nauro.sync.lock import SyncLockTimeoutError
     from nauro.sync.remote import PresignError
 
     try:
         pushed = push_changed_files(cloud_id, new_store)
-    except (AuthRefreshError, PresignError, SyncLockTimeoutError, httpx.HTTPError) as exc:
+    except (AuthRefreshError, PresignError, SyncLockTimeoutError) as exc:
         typer.echo(
             f"  Warning: linked, but the initial cloud push failed ({exc}).\n"
             "  Run 'nauro sync' to upload the project store.",
@@ -158,4 +156,13 @@ def link(
         )
         return
 
-    typer.echo(f"  Pushed {pushed} file(s) to cloud")
+    if not pushed.is_complete:
+        typer.echo(
+            f"  Warning: linked, but the initial cloud push was incomplete "
+            f"({pushed.warning}).\n"
+            "  Run 'nauro sync' to upload the project store.",
+            err=True,
+        )
+        return
+
+    typer.echo(f"  Pushed {len(pushed.verified)} file(s) to cloud")

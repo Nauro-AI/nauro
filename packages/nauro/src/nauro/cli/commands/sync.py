@@ -16,9 +16,10 @@ from nauro.store.registry import is_cloud_project
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
 from nauro.sync.push import push_store_to_cloud
+from nauro.sync.remote import TransferSession, operation_session
 from nauro.templates.agents_md_regen import warn_then_regen
 
-if TYPE_CHECKING:  # the pull core pulls in httpx, so it stays off the CLI's import path
+if TYPE_CHECKING:
     from nauro.sync.pull import PullReport
 
 # Names retained for callers/tests that import the push helper from this
@@ -61,25 +62,35 @@ def sync(
     project_key = store_path.name
     trigger = message or "manual sync"
 
-    pulled = _pull_from_cloud(project_key, store_path)
+    with operation_session() as session:
+        pulled = _pull_from_cloud(project_key, store_path, session=session)
 
-    version = capture_snapshot(store_path, trigger=trigger)
+        version = capture_snapshot(store_path, trigger=trigger)
 
-    # The regen seam ensures the Claude Code bridge wherever AGENTS.md is
-    # written (before push, so local artifacts stay consistent even if the push
-    # fails); the sink collects those outcomes to echo on the success path.
-    bridge_outcomes: list[BridgeOutcome] = []
-    updated_repos = warn_then_regen(
-        project_key,
-        store_path,
-        warn=lambda msg: typer.echo(msg, err=True),
-        overwrite_unmanaged=True,
-        bridge_sink=bridge_outcomes,
-    )
+        # The regen seam ensures the Claude Code bridge wherever AGENTS.md is
+        # written (before push, so local artifacts stay consistent even if the push
+        # fails); the sink collects those outcomes to echo on the success path.
+        bridge_outcomes: list[BridgeOutcome] = []
+        updated_repos = warn_then_regen(
+            project_key,
+            store_path,
+            warn=lambda msg: typer.echo(msg, err=True),
+            overwrite_unmanaged=True,
+            bridge_sink=bridge_outcomes,
+        )
 
-    pushed = _push_to_cloud(project_key, store_path)
+        pushed = _push_to_cloud(project_key, store_path, session=session)
 
-    if pushed:
+    if pulled.origin_aborted:
+        typer.echo(
+            f"Error: sync stopped after a permanent remote origin failure for "
+            f"{project_name}; snapshot v{version:03d} was captured locally. "
+            "Fix the remote connection and run 'nauro sync' again.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if pushed.is_complete:
         if is_cloud_project(project_key):
             typer.echo(f"Synced {project_name} - snapshot v{version:03d}")
         else:
@@ -128,7 +139,12 @@ def _unfinished_pull_detail(report: PullReport) -> str:
     return f"{report.refused} remote file(s) were not written this sync"
 
 
-def _pull_from_cloud(project_id: str, store_path: Path) -> PullReport:
+def _pull_from_cloud(
+    project_id: str,
+    store_path: Path,
+    *,
+    session: TransferSession | None = None,
+) -> PullReport:
     """Pull remote changes via the manifest + presign endpoints.
 
     No-op when the project is not v2 cloud-mode (local-mode has no
@@ -141,7 +157,7 @@ def _pull_from_cloud(project_id: str, store_path: Path) -> PullReport:
         return PullReport()
     if not load_access_token():
         return PullReport()
-    return _pull_via_presign(project_id, store_path)
+    return _pull_via_presign(project_id, store_path, session=session)
 
 
 class _EchoReporter:
@@ -157,7 +173,12 @@ class _EchoReporter:
         typer.echo(f"  {msg}", err=True)
 
 
-def _pull_via_presign(project_id: str, store_path: Path) -> PullReport:
+def _pull_via_presign(
+    project_id: str,
+    store_path: Path,
+    *,
+    session: TransferSession | None = None,
+) -> PullReport:
     """GET /sync/manifest → POST /sync/presign → S3 GETs.
 
     Delegates to the shared pull core with an echo reporter. An explicit sync
@@ -169,7 +190,7 @@ def _pull_via_presign(project_id: str, store_path: Path) -> PullReport:
 
     typer.echo("Pulling from remote...")
     try:
-        return run_pull(project_id, store_path, _EchoReporter())
+        return run_pull(project_id, store_path, _EchoReporter(), session=session)
     except SyncLockTimeoutError as exc:
         typer.echo(f"Error: {exc}. Try again once it finishes.", err=True)
         raise typer.Exit(code=1) from exc
