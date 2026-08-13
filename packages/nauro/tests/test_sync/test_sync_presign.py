@@ -468,6 +468,60 @@ class TestPushViaPresign:
         assert state.files["stack.md"].local_sha256 == new_sha
         assert state.files["stack.md"].remote_etag == '"e_pushed"'
 
+    def test_new_and_modified_local_snapshots_are_in_the_push_plan(self, cloud_store):
+        from nauro.sync.push import plan_push
+
+        modified = cloud_store / "snapshots/v001.json"
+        modified.write_text('{"version": 1}\n')
+        self._seed_synced_state(cloud_store)
+        modified.write_text('{"version": 1, "updated": true}\n')
+        (cloud_store / "snapshots/v002.json").write_text('{"version": 2}\n')
+
+        plan = plan_push(cloud_store, load_state(cloud_store))
+
+        assert sorted(candidate.relative_path for candidate in plan.candidates) == [
+            "snapshots/v001.json",
+            "snapshots/v002.json",
+        ]
+        assert plan.oversized_briefs == ()
+
+    def test_presign_candidates_match_the_push_plan(self, cloud_store, capsys):
+        from nauro.sync.push import plan_push, push_changed_files
+
+        self._seed_synced_state(cloud_store)
+        (cloud_store / "stack.md").write_text("modified\n")
+        (cloud_store / "snapshots/v001.json").write_text('{"version": 1}\n')
+        context_dir = cloud_store / "context"
+        context_dir.mkdir()
+        oversized = context_dir / "too-large.md"
+        oversized.write_text("x" * (MAX_BRIEF_BYTES + 1))
+
+        plan = plan_push(cloud_store, load_state(cloud_store))
+
+        assert capsys.readouterr().err == ""
+        assert [brief.relative_path for brief in plan.oversized_briefs] == ["context/too-large.md"]
+
+        put_response = MagicMock(spec=httpx.Response)
+        put_response.status_code = 200
+        put_response.headers = {"ETag": '"e_pushed"'}
+
+        def fake_post(url, **kwargs):
+            return self._presign_response(kwargs["json"]["operations"])
+
+        from nauro.sync import remote
+
+        with (
+            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx, "put", return_value=put_response),
+        ):
+            pushed = push_changed_files(CLOUD_PID, cloud_store)
+
+        assert pushed == len(plan.candidates)
+        assert mock_post.call_args.kwargs["json"]["operations"] == [
+            {"verb": "PUT", "path": candidate.relative_path} for candidate in plan.candidates
+        ]
+        assert "too-large.md" in capsys.readouterr().err
+
     def test_stamped_decision_pushed_byte_identical(self, cloud_store):
         """A decision carrying the base_commit stamp uploads verbatim; the
         push path never rewrites decision bytes."""

@@ -203,7 +203,8 @@ def _show_status(project_flag: str | None) -> None:
             raise
         return
 
-    from nauro.sync.state import file_changed_locally, load_state
+    from nauro.sync.push import plan_push
+    from nauro.sync.state import load_state
 
     state = load_state(store_path)
 
@@ -211,15 +212,21 @@ def _show_status(project_flag: str | None) -> None:
     typer.echo(f"  Files tracked: {len(state.files)}")
     typer.echo(f"  Last successful sync: {state.last_full_sync or 'never'}")
 
-    pending_local = [rel for rel in state.files if file_changed_locally(store_path, rel, state)]
-    if pending_local:
-        typer.echo(f"  Pending local changes: {len(pending_local)}")
-        for p in pending_local[:5]:
-            typer.echo(f"    - {p}")
-        if len(pending_local) > 5:
-            typer.echo(f"    ... and {len(pending_local) - 5} more")
+    try:
+        pending_local = [
+            candidate.relative_path for candidate in plan_push(store_path, state).candidates
+        ]
+    except OSError as exc:
+        typer.echo(f"  Pending local changes: unknown (store scan failed: {exc})")
     else:
-        typer.echo("  Pending local changes: none")
+        if pending_local:
+            typer.echo(f"  Pending local changes: {len(pending_local)}")
+            for p in pending_local[:5]:
+                typer.echo(f"    - {p}")
+            if len(pending_local) > 5:
+                typer.echo(f"    ... and {len(pending_local) - 5} more")
+        else:
+            typer.echo("  Pending local changes: none")
 
     from nauro.sync.merge import CONFLICT_BACKUP_DIR
     from nauro.sync.quarantine import list_quarantine_backups, unresolved_quarantines

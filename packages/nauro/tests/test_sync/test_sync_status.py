@@ -10,12 +10,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+from nauro_core.constants import MAX_BRIEF_BYTES
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store.config import save_config
 from nauro.store.registry import register_project_v2
-from nauro.sync.state import SyncState, save_state
+from nauro.sync.state import FileState, SyncState, compute_sha256, save_state
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -134,6 +135,107 @@ class TestLastSyncTime:
         result = runner.invoke(app, ["sync", "--status"])
         assert result.exit_code == 0, result.output
         assert "Last successful sync: never" in result.output
+
+
+class TestPendingLocalChanges:
+    def test_status_matches_push_eligible_existing_files(self, tmp_path, monkeypatch):
+        store = _scaffold(repo=tmp_path)
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+
+        state = SyncState()
+        for path in store.rglob("*"):
+            if path.is_file():
+                relative_path = str(path.relative_to(store))
+                state.files[relative_path] = FileState(
+                    local_sha256=compute_sha256(path),
+                    remote_etag='"synced"',
+                    last_sync="2026-05-16T00:00:00Z",
+                )
+
+        deleted = store / "deleted.md"
+        deleted.write_text("gone\n")
+        state.files["deleted.md"] = FileState(
+            local_sha256=compute_sha256(deleted),
+            remote_etag='"synced"',
+            last_sync="2026-05-16T00:00:00Z",
+        )
+        deleted.unlink()
+        save_state(store, state)
+
+        (store / "stack.md").write_text("modified\n")
+        context_dir = store / "context"
+        context_dir.mkdir()
+        (context_dir / "new.md").write_text("new\n")
+        (context_dir / "too-large.md").write_text("x" * (MAX_BRIEF_BYTES + 1))
+        (context_dir / "draft.md.lock").write_text("local lock\n")
+        journal_dir = store / "journal"
+        journal_dir.mkdir()
+        (journal_dir / "events.jsonl").write_text("{}\n")
+        scratch_dir = store / ".pull-spool-dead"
+        scratch_dir.mkdir()
+        (scratch_dir / "000000").write_text("scratch\n")
+        backup_dir = store / ".conflict-backup"
+        backup_dir.mkdir()
+        (backup_dir / "loser.md").write_text("backup\n")
+        (store / "nauro-graph.html").write_text("generated\n")
+
+        result = runner.invoke(app, ["sync", "--status"])
+
+        assert result.exit_code == 0, result.output
+        assert "Pending local changes: 2" in result.output
+        assert "    - stack.md" in result.output
+        assert "    - context/new.md" in result.output
+        for excluded in (
+            "deleted.md",
+            "context/too-large.md",
+            "context/draft.md.lock",
+            "journal/events.jsonl",
+            ".pull-spool-dead/000000",
+            ".conflict-backup/loser.md",
+            "nauro-graph.html",
+        ):
+            assert excluded not in result.output
+        assert "not pushed" not in result.output
+
+    def test_status_reports_unknown_and_continues_when_store_scan_fails(
+        self, tmp_path, monkeypatch
+    ):
+        store = _scaffold(repo=tmp_path)
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+        backup_dir = store / ".conflict-backup"
+        backup_dir.mkdir()
+        (backup_dir / "loser.md").write_text("backup\n")
+
+        with patch(
+            "nauro.sync.push.compute_sha256",
+            side_effect=FileNotFoundError("file disappeared during scan"),
+        ):
+            result = runner.invoke(app, ["sync", "--status"])
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "Pending local changes: unknown "
+            "(store scan failed: file disappeared during scan)" in result.output
+        )
+        assert "Conflict backups: 1" in result.output
 
 
 class TestQuarantinedCollisions:

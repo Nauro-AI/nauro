@@ -13,6 +13,7 @@ network here.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
@@ -21,8 +22,59 @@ from nauro_core.constants import MAX_BRIEF_BYTES
 from nauro.cli.commands.auth import load_access_token
 from nauro.store.registry import is_cloud_project
 from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, sync_lock
+from nauro.sync.merge import CONFLICT_BACKUP_DIR, should_skip
+from nauro.sync.state import SyncState, compute_sha256
 
 logger = logging.getLogger("nauro.sync")
+
+
+@dataclass(frozen=True)
+class PushCandidate:
+    relative_path: str
+    local_sha256: str
+    local_file: Path
+
+
+@dataclass(frozen=True)
+class OversizedBrief:
+    relative_path: str
+    size: int
+
+
+@dataclass(frozen=True)
+class PushPlan:
+    candidates: tuple[PushCandidate, ...]
+    oversized_briefs: tuple[OversizedBrief, ...]
+
+
+def plan_push(store_path: Path, state: SyncState) -> PushPlan:
+    """Select existing local files that the legacy PUT path can send."""
+    candidates: list[PushCandidate] = []
+    oversized_briefs: list[OversizedBrief] = []
+    for local_file in store_path.rglob("*"):
+        if not local_file.is_file():
+            continue
+        try:
+            rel = str(local_file.relative_to(store_path))
+        except ValueError:
+            continue
+        if should_skip(rel) or rel.startswith(CONFLICT_BACKUP_DIR) or rel.startswith("__pycache__"):
+            continue
+
+        # Filesystem-authored briefs bypass the MCP write size limit, so sync
+        # applies the same limit before they enter the upload plan.
+        if rel.startswith("context/") and rel.endswith(".md"):
+            size = local_file.stat().st_size
+            if size > MAX_BRIEF_BYTES:
+                oversized_briefs.append(OversizedBrief(rel, size))
+                continue
+
+        local_sha = compute_sha256(local_file)
+        fs = state.files.get(rel)
+        if fs is None or fs.local_sha256 != local_sha:
+            candidates.append(PushCandidate(rel, local_sha, local_file))
+
+    return PushPlan(tuple(candidates), tuple(oversized_briefs))
 
 
 def push_store_to_cloud(project_id: str, store_path: Path) -> bool:
@@ -99,60 +151,29 @@ def push_changed_files(
 
 
 def _push_changed_files_locked(project_id: str, store_path: Path) -> int:
-    from nauro.sync.merge import CONFLICT_BACKUP_DIR, should_skip
     from nauro.sync.remote import (
         PresignError,
         put_via_presigned_url,
         request_presigned_urls,
         urls_by_path,
     )
-    from nauro.sync.state import compute_sha256, load_state, save_state, update_file_state
+    from nauro.sync.state import load_state, save_state, update_file_state
 
     state = load_state(store_path)
+    plan = plan_push(store_path, state)
+    for brief in plan.oversized_briefs:
+        typer.echo(
+            f"  Warning: brief {brief.relative_path} is {brief.size:,} bytes, over the "
+            f"{MAX_BRIEF_BYTES:,}-byte limit, and was not pushed. "
+            "It stays on your machine; trim it under the cap and re-sync to share it.",
+            err=True,
+        )
 
-    changed: list[tuple[str, str, Path]] = []
-    for local_file in store_path.rglob("*"):
-        if not local_file.is_file():
-            continue
-        try:
-            rel = str(local_file.relative_to(store_path))
-        except ValueError:
-            continue
-        if should_skip(rel) or rel.startswith(CONFLICT_BACKUP_DIR) or rel.startswith("__pycache__"):
-            continue
-
-        # Shared briefs (context/*.md) are written via the agent's filesystem
-        # tool + sync, bypassing the MCP write-tool size caps, so the push path
-        # is the only place MAX_BRIEF_BYTES can be enforced. An over-cap brief is
-        # skipped loudly and left on disk (never silently dropped, never recorded
-        # in sync-state) so it keeps warning until trimmed, and so it cannot make
-        # the agent believe it shared context that never propagated. The skip is
-        # per-file: other store files still sync. Scoped to ``.md`` because the
-        # skill writes briefs only as ``<slug>.md``; non-``.md`` content under
-        # ``context/`` falls back to the (uncapped) general store behavior, same
-        # as every other store file — it is not a new storage-bomb surface.
-        if rel.startswith("context/") and rel.endswith(".md"):
-            size = local_file.stat().st_size
-            if size > MAX_BRIEF_BYTES:
-                typer.echo(
-                    f"  Warning: brief {rel} is {size:,} bytes, over the "
-                    f"{MAX_BRIEF_BYTES:,}-byte limit, and was not pushed. "
-                    "It stays on your machine; trim it under the cap and "
-                    "re-sync to share it.",
-                    err=True,
-                )
-                continue
-
-        local_sha = compute_sha256(local_file)
-        fs = state.files.get(rel)
-        if fs is None or fs.local_sha256 != local_sha:
-            changed.append((rel, local_sha, local_file))
-
-    if not changed:
+    if not plan.candidates:
         save_state(store_path, state)
         return 0
 
-    operations = [{"verb": "PUT", "path": rel} for rel, _sha, _path in changed]
+    operations = [{"verb": "PUT", "path": candidate.relative_path} for candidate in plan.candidates]
     urls = request_presigned_urls(project_id, operations)
 
     if len(urls) < len(operations):
@@ -163,20 +184,32 @@ def _push_changed_files_locked(project_id: str, store_path: Path) -> int:
         logger.warning("Skipping unreadable presign entry %s", entry)
 
     pushed = 0
-    for rel, local_sha, local_file in changed:
-        url = url_by_path.get(rel)
+    for candidate in plan.candidates:
+        url = url_by_path.get(candidate.relative_path)
         if not url:
             continue
         try:
-            new_etag = put_via_presigned_url(url, local_file)
+            new_etag = put_via_presigned_url(url, candidate.local_file)
             if new_etag:
-                update_file_state(state, rel, local_sha, new_etag)
+                update_file_state(
+                    state,
+                    candidate.relative_path,
+                    candidate.local_sha256,
+                    new_etag,
+                )
                 pushed += 1
         except PresignError:
-            logger.exception("Failed to push %s", rel)
+            logger.exception("Failed to push %s", candidate.relative_path)
 
     save_state(store_path, state)
     return pushed
 
 
-__all__ = ["push_changed_files", "push_store_to_cloud"]
+__all__ = [
+    "OversizedBrief",
+    "PushCandidate",
+    "PushPlan",
+    "plan_push",
+    "push_changed_files",
+    "push_store_to_cloud",
+]

@@ -115,6 +115,46 @@ class TestRunPullCleanPull:
         assert merged == 1
         assert (cloud_store / rel).read_bytes() == _STAMPED_DECISION
 
+    def test_remote_snapshot_is_ignored_before_presign(self, cloud_store):
+        rel = "snapshots/v001.json"
+        original = FileState(
+            local_sha256="pruned-local-sha",
+            remote_etag='"old"',
+            last_sync="2026-05-16T00:00:00Z",
+        )
+        state = SyncState(files={rel: original})
+        save_state(cloud_store, state)
+        manifest = _manifest([{"path": rel, "etag": '"new"', "size": 1, "last_modified": "x"}])
+
+        reporter = _RecordingReporter()
+        with (
+            patch("nauro.sync.remote.httpx.get", return_value=manifest),
+            patch("nauro.sync.remote.httpx.post") as mock_post,
+        ):
+            report = run_pull(CLOUD_PID, cloud_store, reporter)
+
+        assert report == PullReport()
+        mock_post.assert_not_called()
+        assert not (cloud_store / rel).exists()
+        assert load_state(cloud_store).files[rel] == original
+        assert reporter.infos == ["No remote changes"]
+        assert reporter.warns == []
+
+    def test_unsafe_snapshot_path_is_still_refused(self, cloud_store):
+        rel = "snapshots/../../outside.json"
+        manifest = _manifest([{"path": rel, "etag": '"new"', "size": 1, "last_modified": "x"}])
+
+        reporter = _RecordingReporter()
+        with (
+            patch("nauro.sync.remote.httpx.get", return_value=manifest),
+            patch("nauro.sync.remote.httpx.post") as mock_post,
+        ):
+            report = run_pull(CLOUD_PID, cloud_store, reporter)
+
+        assert report == PullReport(skipped_permanent=1)
+        mock_post.assert_not_called()
+        assert any("suspicious manifest entry" in warning for warning in reporter.warns)
+
     def test_append_only_conflict_invokes_resolve_and_writes_merge(self, cloud_store):
         # state_history.md is append-only with section-aware set-union merge.
         rel = "state_history.md"
@@ -732,22 +772,21 @@ class TestTransferShape:
     """Decision files are batched; everything else streams.
 
     The gate needs the fetched bytes of every decision file it will judge, so
-    those are held together for the length of one lock hold. Snapshots and
-    briefs have no such requirement, and a first pull of a real store is
-    hundreds of megabytes of them: they are fetched and written one at a time,
+    those are held together for the length of one lock hold. Other store files
+    have no such requirement. They are fetched and written one at a time,
     outside the lock, so neither memory nor a local writer pays for the batch.
     """
 
-    def _snapshots(self, count: int) -> list[tuple[str, bytes]]:
-        return [(f"snapshots/v{n:03d}.json", f'{{"v": {n}}}'.encode()) for n in range(1, count + 1)]
+    def _ordinary_files(self, count: int) -> list[tuple[str, bytes]]:
+        return [(f"stream-{n:03d}.json", f'{{"v": {n}}}'.encode()) for n in range(1, count + 1)]
 
     def test_non_decision_transfers_are_written_before_the_next_is_fetched(self, collision_store):
-        entries = self._snapshots(3)
+        entries = self._ordinary_files(3)
         seen_on_disk: list[int] = []
         real_fetch = pull_module.fetch_via_presigned_url
 
         def counting_fetch(url):
-            seen_on_disk.append(len(list((collision_store / "snapshots").glob("*.json"))))
+            seen_on_disk.append(len(list(collision_store.glob("stream-*.json"))))
             return real_fetch(url)
 
         with patch.object(pull_module, "fetch_via_presigned_url", counting_fetch):
@@ -771,7 +810,7 @@ class TestTransferShape:
             return real_fetch(url)
 
         with patch.object(pull_module, "fetch_via_presigned_url", probing_fetch):
-            merged, _reporter = pull(collision_store, self._snapshots(2))
+            merged, _reporter = pull(collision_store, self._ordinary_files(2))
 
         assert merged == 2
         assert acquired == [True, True]
@@ -1162,11 +1201,11 @@ class TestWriteBarrier:
     def test_ordinary_files_are_unaffected(self, collision_store):
         merged, reporter = pull(
             collision_store,
-            [("snapshots/v001.json", b'{"v": 1}'), ("context/brief.md", b"# Brief\n")],
+            [("metrics.json", b'{"v": 1}'), ("context/brief.md", b"# Brief\n")],
         )
 
         assert merged == 2
-        assert (collision_store / "snapshots/v001.json").read_bytes() == b'{"v": 1}'
+        assert (collision_store / "metrics.json").read_bytes() == b'{"v": 1}'
         assert (collision_store / "context/brief.md").read_bytes() == b"# Brief\n"
         assert reporter.warns == []
 
@@ -1189,7 +1228,7 @@ class TestWriteBarrier:
     def test_the_barrier_admits_an_ordinary_store_path(self, collision_store):
         allowed = pull_module._generic_write_allowed(
             collision_store,
-            _Transfer(rel="snapshots/v001.json", etag='"e"', _body=b""),
+            _Transfer(rel="metrics.json", etag='"e"', _body=b""),
             SyncState(),
             _RecordingReporter(),
         )
