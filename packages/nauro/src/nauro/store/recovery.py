@@ -14,7 +14,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated, Literal
 
-import httpx
 from filelock import FileLock, Timeout
 from nauro_core.doctor import diagnose_store
 from pydantic import (
@@ -40,8 +39,10 @@ from nauro.sync.etag import content_md5
 from nauro.sync.remote import (
     PRESIGN_BATCH_LIMIT,
     PresignError,
+    TransferSession,
     fetch_manifest,
     fetch_via_presigned_url,
+    operation_session,
     request_presigned_urls,
 )
 from nauro.sync.state import FileState, SyncState, save_state
@@ -283,12 +284,16 @@ class _MintedBatch:
     deadline: datetime | None
 
 
-def _mint_download_urls(project_id: str, paths: Sequence[str]) -> _MintedBatch:
+def _mint_download_urls(
+    project_id: str, paths: Sequence[str], session: TransferSession
+) -> _MintedBatch:
     """Mint one download URL per path, or refuse the batch."""
     operations = [{"verb": "GET", "path": path} for path in paths]
     try:
-        results = _parse_presign_results(request_presigned_urls(project_id, operations))
-    except (AuthRefreshError, PresignError, httpx.HTTPError) as exc:
+        results = _parse_presign_results(
+            request_presigned_urls(project_id, operations, session=session)
+        )
+    except (AuthRefreshError, PresignError) as exc:
         raise RecoveryError(f"Cloud restore presign failed: {exc}") from exc
     urls: dict[str, str] = {}
     ceilings: list[datetime] = []
@@ -313,7 +318,13 @@ class _ChunkUrls:
     finish inside the margin. A stale-URL 403 re-mints through the same door.
     """
 
-    def __init__(self, project_id: str, paths: Sequence[str], reporter: Reporter) -> None:
+    def __init__(
+        self,
+        project_id: str,
+        paths: Sequence[str],
+        reporter: Reporter,
+        session: TransferSession,
+    ) -> None:
         self._project_id = project_id
         self._paths = list(paths)
         # Everything from the cursor on is still outstanding, so a re-mint
@@ -321,11 +332,14 @@ class _ChunkUrls:
         # thing that hands a path out, which is what keeps that true.
         self._cursor = 0
         self._reporter = reporter
+        self._session = session
         self._warned_undated = False
         self._mint()
 
     def _mint(self) -> None:
-        self._batch = _mint_download_urls(self._project_id, self._paths[self._cursor :])
+        self._batch = _mint_download_urls(
+            self._project_id, self._paths[self._cursor :], self._session
+        )
         if self._batch.deadline is None and not self._warned_undated:
             # Without a ceiling the restore cannot re-mint ahead of an expiry,
             # so it falls back to reacting to a refusal. Say so: a server that
@@ -412,11 +426,13 @@ def _open_staging(staging: Path) -> None:
         raise RecoveryError(f"Could not open the restore staging area {staging}: {exc}") from exc
 
 
-def _fetch_manifest_entries(project_id: str) -> dict[str, CloudManifestEntry]:
+def _fetch_manifest_entries(
+    project_id: str, session: TransferSession
+) -> dict[str, CloudManifestEntry]:
     """Return the remote record's files, keyed by store-relative path."""
     try:
-        rows = fetch_manifest(project_id)
-    except (AuthRefreshError, PresignError, httpx.HTTPError) as exc:
+        rows = fetch_manifest(project_id, session=session)
+    except (AuthRefreshError, PresignError) as exc:
         raise RecoveryError(f"Cloud manifest fetch failed: {exc}") from exc
     entries: dict[str, CloudManifestEntry] = {}
     for entry in _parse_manifest(rows):
@@ -600,15 +616,26 @@ def _download_pending(
     pending: Sequence[str],
     reporter: Reporter,
     progress: _Progress,
+    session: TransferSession,
 ) -> None:
     """Download every outstanding file into staging, one presign chunk at a time."""
     for start in range(0, len(pending), PRESIGN_BATCH_LIMIT):
-        chunk = _ChunkUrls(project_id, pending[start : start + PRESIGN_BATCH_LIMIT], reporter)
+        chunk = _ChunkUrls(
+            project_id,
+            pending[start : start + PRESIGN_BATCH_LIMIT],
+            reporter,
+            session,
+        )
         for relative in chunk.in_order():
             try:
-                content = download_with_retry(relative, chunk, fetch_via_presigned_url)
+                fetched = download_with_retry(
+                    relative,
+                    chunk,
+                    lambda url: fetch_via_presigned_url(url, session=session),
+                )
             except PresignError as exc:
                 raise RecoveryError(f"Cloud download failed for {relative}: {exc}") from exc
+            content = fetched.body
             entry = entries[relative]
             defect = _content_defect(content, entry)
             if defect is not None:
@@ -736,24 +763,33 @@ def restore_cloud_store(
             raise RecoveryError(f"Refusing to overwrite nonempty destination: {destination}.")
 
         _sweep_legacy_staging(project_id, destination.parent)
-        entries = _fetch_manifest_entries(project_id)
-        if not entries:
-            # A record that is not there cannot complete a partial restore,
-            # so nothing is kept to resume toward.
-            _discard_restore_state(project_id, destination)
-            raise EmptyCloudRecordError("Cloud project has no stored record to restore.")
+        with operation_session() as session:
+            entries = _fetch_manifest_entries(project_id, session)
+            if not entries:
+                # A record that is not there cannot complete a partial restore,
+                # so nothing is kept to resume toward.
+                _discard_restore_state(project_id, destination)
+                raise EmptyCloudRecordError("Cloud project has no stored record to restore.")
 
-        area = _open_staging_area(project_id, destination, surface)
-        staged = area.audit(entries)
-        pending = [relative for relative in entries if relative not in staged]
-        _report_start(entries, pending, surface)
+            area = _open_staging_area(project_id, destination, surface)
+            staged = area.audit(entries)
+            pending = [relative for relative in entries if relative not in staged]
+            _report_start(entries, pending, surface)
 
-        progress = _Progress(total=len(entries), done=len(staged))
-        try:
-            _download_pending(project_id, area, entries, pending, surface, progress)
-        except (RecoveryError, KeyboardInterrupt):
-            surface.warn(_kept_message(area.path, progress))
-            raise
+            progress = _Progress(total=len(entries), done=len(staged))
+            try:
+                _download_pending(
+                    project_id,
+                    area,
+                    entries,
+                    pending,
+                    surface,
+                    progress,
+                    session,
+                )
+            except (RecoveryError, KeyboardInterrupt):
+                surface.warn(_kept_message(area.path, progress))
+                raise
 
         try:
             _validate_restored_store(area.path)

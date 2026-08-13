@@ -174,7 +174,13 @@ _REFRESH_TIMEOUT_MESSAGE = (
 )
 
 
-def _exchange_refresh_token(domain: str, client_id: str, refresh_token: str) -> tuple[str, object]:
+def _exchange_refresh_token(
+    domain: str,
+    client_id: str,
+    refresh_token: str,
+    *,
+    client: httpx.Client | None = None,
+) -> tuple[str, object]:
     """Run the /oauth/token refresh exchange.
 
     Returns ``(new_access_token, rotated_refresh)`` where ``rotated_refresh`` is
@@ -184,7 +190,7 @@ def _exchange_refresh_token(domain: str, client_id: str, refresh_token: str) -> 
     """
     try:
         response = _post_with_429_retry(
-            lambda: httpx.post(
+            lambda: (client.post if client is not None else httpx.post)(
                 f"https://{domain}/oauth/token",
                 json={
                     "grant_type": "refresh_token",
@@ -219,7 +225,9 @@ def _exchange_refresh_token(domain: str, client_id: str, refresh_token: str) -> 
     return new_access_token, body.get("refresh_token")
 
 
-def refresh_access_token(stale_access_token: str | None = None) -> str:
+def refresh_access_token(
+    stale_access_token: str | None = None, *, client: httpx.Client | None = None
+) -> str:
     """Exchange the stored refresh token for a fresh access token.
 
     Single-flighted within the process by a module-level lock: one caller runs
@@ -272,7 +280,7 @@ def refresh_access_token(stale_access_token: str | None = None) -> str:
         # serializes us). Holding the filelock across the network call would
         # block every unrelated config writer for the whole retry tail.
         new_access_token, rotated_refresh = _exchange_refresh_token(
-            domain, client_id, refresh_token
+            domain, client_id, refresh_token, client=client
         )
 
         # COMMIT: re-validate under a bounded transaction. If the stored refresh
@@ -306,7 +314,9 @@ def refresh_access_token(stale_access_token: str | None = None) -> str:
         _REFRESH_LOCK.release()
 
 
-def with_token_refresh(call: Callable[[str], httpx.Response]) -> httpx.Response:
+def with_token_refresh(
+    call: Callable[[str], httpx.Response], *, client: httpx.Client | None = None
+) -> httpx.Response:
     """Run ``call(access_token)`` and refresh once on 401.
 
     The first 401 triggers a refresh and a single retry. A second 401 (or any
@@ -322,7 +332,7 @@ def with_token_refresh(call: Callable[[str], httpx.Response]) -> httpx.Response:
     if response.status_code != 401:
         return response
 
-    new_token = refresh_access_token(stale_access_token=token)
+    new_token = refresh_access_token(stale_access_token=token, client=client)
     return call(new_token)
 
 

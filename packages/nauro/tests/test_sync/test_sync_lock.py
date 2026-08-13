@@ -26,7 +26,7 @@ from nauro.sync.lock import (
 )
 from nauro.sync.merge import should_skip
 from nauro.sync.pull import run_pull
-from nauro.sync.push import push_changed_files
+from nauro.sync.push import PushReport, push_changed_files
 from tests.test_sync.conftest import (
     CLOUD_PID,
     _ok,
@@ -82,7 +82,7 @@ class TestContendedCallers:
     def test_run_pull_raises_before_touching_the_network(self, cloud_store):
         lock = _hold(cloud_store)
         try:
-            with patch("nauro.sync.remote.httpx.get") as get:
+            with patch("nauro.sync.remote.httpx.Client.get") as get:
                 with pytest.raises(SyncLockTimeoutError):
                     run_pull(CLOUD_PID, cloud_store, _RecordingReporter(), lock_timeout=0.05)
             assert get.call_count == 0
@@ -114,7 +114,7 @@ class TestContendedCallers:
                 pushed = push_after_write(CLOUD_PID, cloud_store)
         finally:
             lock.release()
-        assert pushed == 0
+        assert pushed == PushReport(failed=("sync lock",))
         assert any("skipped" in record.getMessage() for record in caplog.records)
 
     def test_cli_sync_fails_loud(self, cloud_store, tmp_path, monkeypatch):
@@ -173,7 +173,7 @@ class TestBoundedDecisionLock:
         lock = self._hold_decisions(cloud_store)
         try:
             with (
-                patch("nauro.sync.remote.httpx.get", return_value=manifest),
+                patch("nauro.sync.remote.httpx.Client.get", return_value=manifest),
                 caplog.at_level(logging.INFO, logger="nauro.sync"),
             ):
                 pulled = pull_before_session(CLOUD_PID, cloud_store)
@@ -194,7 +194,7 @@ class TestBoundedDecisionLock:
         )
         lock = self._hold_decisions(cloud_store)
         try:
-            with patch("nauro.sync.remote.httpx.get", return_value=manifest):
+            with patch("nauro.sync.remote.httpx.Client.get", return_value=manifest):
                 result = runner.invoke(app, ["sync"])
         finally:
             lock.release()

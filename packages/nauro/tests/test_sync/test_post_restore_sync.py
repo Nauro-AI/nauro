@@ -29,7 +29,7 @@ from nauro.store.repo_config import save_repo_config
 from nauro.sync.merge import CONFLICT_BACKUP_DIR, should_skip
 from nauro.sync.pull import PullReport, run_pull
 from nauro.sync.quarantine import list_quarantine_backups
-from nauro.sync.remote import PresignTransferError
+from nauro.sync.remote import FetchedObject, PresignTransferError
 from nauro.sync.state import SYNC_STATE_FILE, load_state
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.test_sync.conftest import (
@@ -71,7 +71,7 @@ class _Remote:
 
     # --- the restore's three calls ---
 
-    def rows(self, _project_id: str | None = None) -> list[dict]:
+    def rows(self, _project_id: str | None = None, **_kwargs) -> list[dict]:
         return [
             {
                 "path": path,
@@ -82,19 +82,21 @@ class _Remote:
             for path, content in sorted(self.files.items())
         ]
 
-    def _presigned(self, _project_id: str, operations: list[dict[str, str]]) -> list[dict]:
+    def _presigned(
+        self, _project_id: str, operations: list[dict[str, str]], **_kwargs
+    ) -> list[dict]:
         return [
             {"verb": "GET", "path": op["path"], "url": f"memory://{op['path']}"}
             for op in operations
         ]
 
-    def _fetch(self, url: str) -> bytes:
+    def _fetch(self, url: str, **_kwargs) -> FetchedObject:
         path = url.removeprefix("memory://")
         self.fetched.append(path)
         fault = self.faults.get(path)
         if fault is not None:
             raise fault
-        return self.files[path]
+        return FetchedObject(self.files[path], f'"{hashlib.md5(self.files[path]).hexdigest()}"')
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(recovery, "fetch_manifest", self.rows)
@@ -116,8 +118,8 @@ class _Remote:
             return _presign(kwargs["json"]["operations"])
 
         with (
-            patch("nauro.sync.remote.httpx.get", side_effect=get),
-            patch("nauro.sync.remote.httpx.post", side_effect=post),
+            patch("nauro.sync.remote.httpx.Client.get", side_effect=get),
+            patch("nauro.sync.remote.httpx.Client.post", side_effect=post),
         ):
             yield
 

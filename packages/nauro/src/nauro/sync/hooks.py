@@ -1,8 +1,8 @@
-"""Event-driven sync hooks — pull on session start, push after writes.
+"""Event-driven sync hooks: pull on session start, push after writes.
 
 Called by the MCP server (``stdio_server._pull_on_startup`` on entry,
 ``mcp/tools._try_push`` after each write). Never block or crash —
-failures are logged only.
+failures are logged, and post-write reports return to the post-commit surface.
 
 Both hooks gate on Auth0 token presence and v2 cloud-mode at entry and
 silent-no-op when either is missing. The two no-op cases are:
@@ -25,11 +25,17 @@ Token refresh on 401 is handled inside ``request_presigned_urls`` and
 escapes here as a swallowed log line.
 """
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from nauro.cli.commands.auth import load_access_token
 from nauro.store.registry import is_cloud_project
+
+if TYPE_CHECKING:
+    from nauro.sync.push import PushReport
 
 logger = logging.getLogger("nauro.sync")
 
@@ -87,18 +93,18 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
         return 0
 
 
-def push_after_write(project_id: str, store_path: Path) -> int:
+def push_after_write(project_id: str, store_path: Path) -> PushReport:
     """Push changed local files after a write (decision, question, state).
 
     Silent no-op when not authenticated or when ``project_id`` is not a
-    v2 cloud-mode entry. Returns the number of files pushed, or 0 on any
-    swallowed failure. Never raises — auto-push must not surface errors
-    on every MCP tool call.
+    v2 cloud-mode entry. Returns a structured push report. Never raises.
     """
+    from nauro.sync.push import PushReport
+
     if not load_access_token():
-        return 0
+        return PushReport()
     if not is_cloud_project(project_id):
-        return 0
+        return PushReport()
 
     try:
         from nauro.cli.commands.auth import AuthRefreshError
@@ -106,7 +112,7 @@ def push_after_write(project_id: str, store_path: Path) -> int:
         from nauro.sync.push import push_changed_files
         from nauro.sync.remote import PresignError
     except ImportError:
-        return 0
+        return PushReport(failed=("sync import",))
 
     try:
         return push_changed_files(project_id, store_path, lock_timeout=HOOK_SYNC_LOCK_TIMEOUT)
@@ -114,13 +120,13 @@ def push_after_write(project_id: str, store_path: Path) -> int:
         # Post-write publication is a fail-open ancillary step: the changed
         # files stay changed and the next push picks them up.
         logger.info("sync push: skipped, %s", exc)
-        return 0
+        return PushReport(failed=("sync lock",))
     except AuthRefreshError as exc:
         logger.warning("sync push: %s", exc)
-        return 0
+        return PushReport(failed=("authentication",))
     except PresignError as exc:
         logger.warning("sync push: presign request failed: %s", exc)
-        return 0
+        return PushReport(failed=("transport",))
     except Exception:
         logger.exception("sync push: unexpected failure for %s", project_id)
-        return 0
+        return PushReport(failed=("unexpected failure",))

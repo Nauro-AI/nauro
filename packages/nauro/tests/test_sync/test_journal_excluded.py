@@ -53,7 +53,7 @@ def test_push_does_not_enumerate_journal(tmp_path):
 
     captured: dict[str, list] = {}
 
-    def fake_presign(project_id, operations):
+    def fake_presign(project_id, operations, **_kwargs):
         captured["ops"] = operations
         return []  # no URLs → nothing is uploaded
 
@@ -79,7 +79,7 @@ def test_pull_skips_remote_journal_path(tmp_path):
         raise AssertionError("journal path must never be fetched")
 
     reporter = _RecordingReporter()
-    with patch("nauro.sync.remote.httpx.get", side_effect=fake_get):
+    with patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get):
         merged = run_pull(CLOUD_PID, store, reporter).merged
 
     assert merged == 0

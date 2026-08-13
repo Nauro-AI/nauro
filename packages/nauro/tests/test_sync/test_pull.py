@@ -84,8 +84,8 @@ class TestRunPullCleanPull:
 
         reporter = _RecordingReporter()
         with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", return_value=presign),
+            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
         ):
             merged = run_pull(CLOUD_PID, cloud_store, reporter).merged
 
@@ -107,8 +107,8 @@ class TestRunPullCleanPull:
             return httpx.Response(200, content=_STAMPED_DECISION)
 
         with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", return_value=presign),
+            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
         ):
             merged = run_pull(CLOUD_PID, cloud_store, _RecordingReporter()).merged
 
@@ -128,8 +128,8 @@ class TestRunPullCleanPull:
 
         reporter = _RecordingReporter()
         with (
-            patch("nauro.sync.remote.httpx.get", return_value=manifest),
-            patch("nauro.sync.remote.httpx.post") as mock_post,
+            patch("nauro.sync.remote.httpx.Client.get", return_value=manifest),
+            patch("nauro.sync.remote.httpx.Client.post") as mock_post,
         ):
             report = run_pull(CLOUD_PID, cloud_store, reporter)
 
@@ -146,8 +146,8 @@ class TestRunPullCleanPull:
 
         reporter = _RecordingReporter()
         with (
-            patch("nauro.sync.remote.httpx.get", return_value=manifest),
-            patch("nauro.sync.remote.httpx.post") as mock_post,
+            patch("nauro.sync.remote.httpx.Client.get", return_value=manifest),
+            patch("nauro.sync.remote.httpx.Client.post") as mock_post,
         ):
             report = run_pull(CLOUD_PID, cloud_store, reporter)
 
@@ -180,8 +180,8 @@ class TestRunPullCleanPull:
 
         reporter = _RecordingReporter()
         with (
-            patch("nauro.sync.remote.httpx.get", side_effect=fake_get),
-            patch("nauro.sync.remote.httpx.post", return_value=presign),
+            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
         ):
             merged = run_pull(CLOUD_PID, cloud_store, reporter).merged
 
@@ -785,9 +785,9 @@ class TestTransferShape:
         seen_on_disk: list[int] = []
         real_fetch = pull_module.fetch_via_presigned_url
 
-        def counting_fetch(url):
+        def counting_fetch(url, **kwargs):
             seen_on_disk.append(len(list(collision_store.glob("stream-*.json"))))
-            return real_fetch(url)
+            return real_fetch(url, **kwargs)
 
         with patch.object(pull_module, "fetch_via_presigned_url", counting_fetch):
             merged, _reporter = pull(collision_store, entries)
@@ -801,13 +801,13 @@ class TestTransferShape:
         acquired: list[bool] = []
         real_fetch = pull_module.fetch_via_presigned_url
 
-        def probing_fetch(url):
+        def probing_fetch(url, **kwargs):
             try:
                 with decision_lock(collision_store, 0.05):
                     acquired.append(True)
             except SyncLockTimeoutError:
                 acquired.append(False)
-            return real_fetch(url)
+            return real_fetch(url, **kwargs)
 
         with patch.object(pull_module, "fetch_via_presigned_url", probing_fetch):
             merged, _reporter = pull(collision_store, self._ordinary_files(2))
@@ -929,12 +929,12 @@ class TestDecisionBatchSpool:
         spooled_before_fetch: list[int] = []
         real_fetch = pull_module.fetch_via_presigned_url
 
-        def counting_fetch(url):
+        def counting_fetch(url, **kwargs):
             spooled = self._spool_dirs(collision_store)
             spooled_before_fetch.append(
                 len(list((collision_store / spooled[0]).iterdir())) if spooled else 0
             )
-            return real_fetch(url)
+            return real_fetch(url, **kwargs)
 
         with patch.object(pull_module, "fetch_via_presigned_url", counting_fetch):
             merged, _reporter = pull(collision_store, self._entries(3))
@@ -1918,7 +1918,7 @@ class TestLocalWriteFailures:
         store short of the server while the stamp said the two agreed.
         """
 
-        def refuse(_url):
+        def refuse(_url, **_kwargs):
             raise PresignError("connection reset by peer")
 
         monkeypatch.setattr(pull_module, "fetch_via_presigned_url", refuse)
@@ -1933,7 +1933,7 @@ class TestLocalWriteFailures:
         self, collision_store, monkeypatch
     ):
         """A URL the server never minted leaves its file unfetched."""
-        monkeypatch.setattr(pull_module, "request_presigned_urls", lambda *_args: [])
+        monkeypatch.setattr(pull_module, "request_presigned_urls", lambda *_args, **_kwargs: [])
 
         merged, reporter = pull(
             collision_store, [("decisions/016-remote.md", decision_bytes(16, "Unfetched"))]
@@ -2000,7 +2000,7 @@ class TestServerOutOfReach:
     def test_a_manifest_failure_says_the_run_never_saw_the_server(
         self, collision_store, monkeypatch
     ):
-        def refuse(_project_id):
+        def refuse(_project_id, **_kwargs):
             raise PresignError("503 service unavailable")
 
         monkeypatch.setattr(pull_module, "fetch_manifest", refuse)
@@ -2014,7 +2014,7 @@ class TestServerOutOfReach:
         assert any("manifest fetch failed" in warning for warning in reporter.warns)
 
     def test_an_auth_failure_on_the_manifest_reads_the_same_way(self, collision_store, monkeypatch):
-        def refuse(_project_id):
+        def refuse(_project_id, **_kwargs):
             raise AuthRefreshError("session expired; run 'nauro auth login'")
 
         monkeypatch.setattr(pull_module, "fetch_manifest", refuse)
@@ -2027,7 +2027,7 @@ class TestServerOutOfReach:
     def test_a_total_presign_failure_counts_every_planned_file(self, collision_store, monkeypatch):
         """Here the run does know what it missed, so it says how much."""
 
-        def refuse(*_args):
+        def refuse(*_args, **_kwargs):
             raise PresignError("403 forbidden")
 
         monkeypatch.setattr(pull_module, "request_presigned_urls", refuse)

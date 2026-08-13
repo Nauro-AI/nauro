@@ -70,8 +70,11 @@ from nauro.sync.merge import (
 from nauro.sync.quarantine import save_quarantine_backup
 from nauro.sync.remote import (
     PresignError,
+    TransferBoundaryError,
+    TransferSession,
     fetch_manifest,
     fetch_via_presigned_url,
+    operation_session,
     request_presigned_urls,
     urls_by_path,
 )
@@ -165,6 +168,7 @@ class _Tally:
     adopted: int = 0
     refused: int = 0
     skipped_permanent: int = 0
+    origin_aborted: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -185,6 +189,7 @@ class PullReport:
     refused: int = 0
     skipped_permanent: int = 0
     manifest_read: bool = True
+    origin_aborted: tuple[str, ...] = ()
 
     @property
     def left_work_behind(self) -> bool:
@@ -197,6 +202,7 @@ class PullReport:
             merged=tally.merged,
             refused=tally.refused,
             skipped_permanent=tally.skipped_permanent,
+            origin_aborted=tuple(sorted(tally.origin_aborted)),
         )
 
 
@@ -524,6 +530,7 @@ def run_pull(
     reporter: Reporter,
     *,
     lock_timeout: float = CLI_SYNC_LOCK_TIMEOUT,
+    session: TransferSession | None = None,
 ) -> PullReport:
     """Pull remote changes for ``project_id`` into ``store_path``.
 
@@ -557,12 +564,17 @@ def run_pull(
             lock, or a local decision writer held the decision lock, for
             longer than ``lock_timeout``.
     """
-    with sync_lock(store_path, lock_timeout):
-        return _run_pull_locked(project_id, store_path, reporter, lock_timeout)
+    with operation_session(session) as active:
+        with sync_lock(store_path, lock_timeout):
+            return _run_pull_locked(project_id, store_path, reporter, lock_timeout, active)
 
 
 def _run_pull_locked(
-    project_id: str, store_path: Path, reporter: Reporter, lock_timeout: float
+    project_id: str,
+    store_path: Path,
+    reporter: Reporter,
+    lock_timeout: float,
+    session: TransferSession,
 ) -> PullReport:
     _sweep_interrupted_writes(store_path, reporter)
 
@@ -572,13 +584,16 @@ def _run_pull_locked(
     # server. Nothing is written on the way out, so the last-full-sync stamp
     # keeps the date of the last run that did finish.
     try:
-        rows = fetch_manifest(project_id)
+        rows = fetch_manifest(project_id, session=session)
     except AuthRefreshError as exc:
         reporter.warn(str(exc))
         return PullReport(manifest_read=False)
     except PresignError as exc:
         reporter.warn(f"manifest fetch failed: {exc}")
-        return PullReport(manifest_read=False)
+        return PullReport(
+            manifest_read=False,
+            origin_aborted=_aborted_origins(exc),
+        )
 
     manifest = _parse_manifest(rows, reporter)
     state = load_state(store_path)
@@ -586,7 +601,7 @@ def _run_pull_locked(
     tally = _Tally(skipped_permanent=manifest.unreadable_rows + work.skipped_permanent)
 
     planned = work.all_files()
-    urls = _presign(project_id, planned, reporter)
+    urls = _presign(project_id, planned, reporter, session, tally)
     if urls is None:
         # The request failed as a whole, so every file it was for stays where
         # it is. Here the denominator is known, so each one is counted: the
@@ -607,7 +622,7 @@ def _run_pull_locked(
         # held: a manifest is server-supplied input, and its total size is not a
         # number this process gets to be surprised by.
         with _spool(store_path) as spool:
-            gated = _spool_batch(urls, work.decisions, reporter, spool)
+            gated = _spool_batch(urls, work.decisions, reporter, spool, session, tally)
             with decision_lock(store_path, lock_timeout):
                 mutating = True
                 corpus = DecisionCorpus.scan(store_path)
@@ -631,7 +646,7 @@ def _run_pull_locked(
             update_file_state(state, adopted.rel, adopted.local_sha256, adopted.etag)
             tally.adopted += 1
 
-        for transfer in _stream(urls, work.pulls, reporter, tally):
+        for transfer in _stream(urls, work.pulls, reporter, tally, session):
             with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
                 if _generic_write_allowed(store_path, transfer, state, reporter):
                     target = store_path / transfer.rel
@@ -641,7 +656,7 @@ def _run_pull_locked(
                 else:
                     tally.skipped_permanent += 1
 
-        for transfer in _stream(urls, work.conflicts, reporter, tally):
+        for transfer in _stream(urls, work.conflicts, reporter, tally, session):
             with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
                 if _generic_write_allowed(store_path, transfer, state, reporter):
                     _resolve_and_record(
@@ -803,7 +818,11 @@ def _sweep_interrupted_writes(store_path: Path, reporter: Reporter) -> int:
 
 
 def _presign(
-    project_id: str, planned: list[_RemoteFile], reporter: Reporter
+    project_id: str,
+    planned: list[_RemoteFile],
+    reporter: Reporter,
+    session: TransferSession,
+    tally: _Tally,
 ) -> dict[str, str] | None:
     """Mint one GET URL per planned file, or None on a request failure.
 
@@ -816,11 +835,12 @@ def _presign(
 
     operations = [{"verb": "GET", "path": item.rel} for item in planned]
     try:
-        urls = request_presigned_urls(project_id, operations)
+        urls = request_presigned_urls(project_id, operations, session=session)
     except AuthRefreshError as exc:
         reporter.warn(str(exc))
         return None
     except PresignError as exc:
+        tally.origin_aborted.update(_aborted_origins(exc))
         reporter.warn(f"presign request failed: {exc}")
         return None
 
@@ -834,7 +854,11 @@ def _presign(
 
 
 def _stream(
-    urls: dict[str, str], items: list[_RemoteFile], reporter: Reporter, tally: _Tally
+    urls: dict[str, str],
+    items: list[_RemoteFile],
+    reporter: Reporter,
+    tally: _Tally,
+    session: TransferSession,
 ) -> Iterator[_Transfer]:
     """Yield each planned file's bytes, fetched one at a time.
 
@@ -850,12 +874,13 @@ def _stream(
             tally.refused += 1
             continue
         try:
-            content = fetch_via_presigned_url(url)
+            fetched = fetch_via_presigned_url(url, session=session)
         except PresignError as exc:
+            tally.origin_aborted.update(_aborted_origins(exc))
             reporter.warn(f"error pulling {item.rel}: {exc}")
             tally.refused += 1
             continue
-        yield _Transfer(rel=item.rel, etag=item.etag, _body=content)
+        yield _Transfer(rel=item.rel, etag=item.etag, _body=fetched.body)
 
 
 @contextmanager
@@ -874,7 +899,12 @@ def _spool(store_path: Path) -> Iterator[Path]:
 
 
 def _spool_batch(
-    urls: dict[str, str], items: list[_RemoteFile], reporter: Reporter, spool: Path
+    urls: dict[str, str],
+    items: list[_RemoteFile],
+    reporter: Reporter,
+    spool: Path,
+    session: TransferSession,
+    tally: _Tally,
 ) -> dict[str, _Transfer]:
     """Fetch a batch onto disk, keyed by store-relative path.
 
@@ -888,15 +918,25 @@ def _spool_batch(
             reporter.warn(_NO_URL_DETAIL.format(rel=item.rel))
             continue
         try:
-            content = fetch_via_presigned_url(url)
+            fetched = fetch_via_presigned_url(url, session=session)
         except PresignError as exc:
+            tally.origin_aborted.update(_aborted_origins(exc))
             reporter.warn(f"error pulling {item.rel}: {exc}")
             continue
+        content = fetched.body
         body = spool / f"{index:06d}"
         body.write_bytes(content)
         del content
         spooled[item.rel] = _Transfer(rel=item.rel, etag=item.etag, _spooled=body)
     return spooled
+
+
+def _aborted_origins(error: PresignError) -> tuple[str, ...]:
+    if not isinstance(error, TransferBoundaryError):
+        return ()
+    if not error.aborts_origin:
+        return ()
+    return (error.origin,)
 
 
 _SKIP_DETAIL: dict[SkipReason, str] = {

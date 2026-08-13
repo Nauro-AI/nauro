@@ -63,10 +63,10 @@ class TestModeDetection:
 
         with (
             patch(
-                "nauro.sync.remote.httpx.get",
+                "nauro.sync.remote.httpx.Client.get",
                 return_value=_ok(200, {"files": [], "next_cursor": None}),
             ) as mock_get,
-            patch("nauro.sync.remote.httpx.post") as mock_post,
+            patch("nauro.sync.remote.httpx.Client.post") as mock_post,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
@@ -83,7 +83,7 @@ class TestModeDetection:
         from nauro.cli.commands.sync import _push_to_cloud
 
         ok = _push_to_cloud(store.name, store)
-        assert ok is False
+        assert ok.is_complete is False
 
     def test_stale_legacy_config_keys_load_cleanly(self, tmp_path, monkeypatch):
         """A user who upgraded from the legacy direct-S3 path still has
@@ -115,7 +115,7 @@ class TestModeDetection:
 
         with (
             patch(
-                "nauro.sync.remote.httpx.get",
+                "nauro.sync.remote.httpx.Client.get",
                 return_value=_ok(200, {"files": [], "next_cursor": None}),
             ) as mock_get,
         ):
@@ -180,9 +180,9 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "get", side_effect=fake_get),
+            patch.object(remote.httpx.Client, "get", side_effect=fake_get),
             patch.object(
-                remote.httpx,
+                remote.httpx.Client,
                 "post",
                 return_value=self._presign_response(
                     [
@@ -222,8 +222,8 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "get", return_value=manifest),
-            patch.object(remote.httpx, "post") as mock_post,
+            patch.object(remote.httpx.Client, "get", return_value=manifest),
+            patch.object(remote.httpx.Client, "post") as mock_post,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
@@ -248,8 +248,8 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "get", side_effect=fake_get),
-            patch.object(remote.httpx, "post", return_value=presign) as mock_post,
+            patch.object(remote.httpx.Client, "get", side_effect=fake_get),
+            patch.object(remote.httpx.Client, "post", return_value=presign) as mock_post,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
@@ -299,8 +299,8 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "get", side_effect=fake_get),
-            patch.object(remote.httpx, "post", return_value=presign),
+            patch.object(remote.httpx.Client, "get", side_effect=fake_get),
+            patch.object(remote.httpx.Client, "post", return_value=presign),
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
@@ -337,8 +337,8 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "get", side_effect=fake_get) as mock_get,
-            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx.Client, "get", side_effect=fake_get) as mock_get,
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
@@ -375,8 +375,8 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "get", side_effect=fake_get),
-            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx.Client, "get", side_effect=fake_get),
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
 
@@ -446,14 +446,14 @@ class TestPushViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
-            patch.object(remote.httpx, "put", return_value=put_response) as mock_put,
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx.Client, "put", return_value=put_response) as mock_put,
         ):
             from nauro.cli.commands.sync import _push_to_cloud
 
             ok = _push_to_cloud(cloud_store.name, cloud_store)
 
-        assert ok is True
+        assert ok.is_complete is True
         # Presign payload carries project_id + a single PUT op for the modified path.
         body = mock_post.call_args.kwargs["json"]
         assert body["project_id"] == CLOUD_PID
@@ -511,12 +511,12 @@ class TestPushViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
-            patch.object(remote.httpx, "put", return_value=put_response),
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
             pushed = push_changed_files(CLOUD_PID, cloud_store)
 
-        assert pushed == len(plan.candidates)
+        assert len(pushed.verified) == len(plan.candidates)
         assert mock_post.call_args.kwargs["json"]["operations"] == [
             {"verb": "PUT", "path": candidate.relative_path} for candidate in plan.candidates
         ]
@@ -543,12 +543,12 @@ class TestPushViaPresign:
         from nauro.sync.push import push_changed_files
 
         with (
-            patch.object(remote.httpx, "post", side_effect=fake_post),
-            patch.object(remote.httpx, "put", return_value=put_response) as mock_put,
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post),
+            patch.object(remote.httpx.Client, "put", return_value=put_response) as mock_put,
         ):
             pushed = push_changed_files(CLOUD_PID, cloud_store)
 
-        assert pushed == 1
+        assert pushed.verified == (rel,)
         assert mock_put.call_args.kwargs["content"] == _STAMPED_DECISION
 
     def test_oversize_context_brief_skipped_loudly_and_retained(self, cloud_store, capsys):
@@ -579,14 +579,14 @@ class TestPushViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
-            patch.object(remote.httpx, "put", return_value=put_response),
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
             from nauro.cli.commands.sync import _push_to_cloud
 
             ok = _push_to_cloud(cloud_store.name, cloud_store)
 
-        assert ok is True
+        assert ok.is_complete is True
         # The in-cap brief is presigned; the over-cap one is excluded entirely.
         pushed = {op["path"] for op in mock_post.call_args.kwargs["json"]["operations"]}
         assert "context/codex-notes-20260605-c3d4.md" in pushed
@@ -625,14 +625,14 @@ class TestPushViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
-            patch.object(remote.httpx, "put", return_value=put_response),
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
             from nauro.cli.commands.sync import _push_to_cloud
 
             ok = _push_to_cloud(cloud_store.name, cloud_store)
 
-        assert ok is True
+        assert ok.is_complete is True
         pushed = {op["path"] for op in mock_post.call_args.kwargs["json"]["operations"]}
         assert "context/codex-edge-20260605-e5f6.md" in pushed
         state = load_state(cloud_store)
@@ -644,14 +644,14 @@ class TestPushViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "post") as mock_post,
-            patch.object(remote.httpx, "put") as mock_put,
+            patch.object(remote.httpx.Client, "post") as mock_post,
+            patch.object(remote.httpx.Client, "put") as mock_put,
         ):
             from nauro.cli.commands.sync import _push_to_cloud
 
             ok = _push_to_cloud(cloud_store.name, cloud_store)
 
-        assert ok is True
+        assert ok.is_complete is True
         mock_post.assert_not_called()
         mock_put.assert_not_called()
 
@@ -679,14 +679,14 @@ class TestPushViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx, "post", side_effect=fake_post) as mock_post,
-            patch.object(remote.httpx, "put", return_value=put_response),
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
             from nauro.cli.commands.sync import _push_to_cloud
 
             ok = _push_to_cloud(cloud_store.name, cloud_store)
 
-        assert ok is True
+        assert ok.is_complete is True
         # Initial 401 + retry against /sync/presign, plus one /oauth/token refresh.
         presign_calls = [c for c in mock_post.call_args_list if "/sync/presign" in c.args[0]]
         refresh_calls = [c for c in mock_post.call_args_list if "/oauth/token" in c.args[0]]
@@ -750,10 +750,10 @@ class TestPresignedGetFailures:
     """Every download fault leaves the client as one typed PresignError."""
 
     def test_a_transport_fault_never_escapes_as_a_raw_httpx_error(self):
-        from nauro.sync.remote import PresignError, PresignTransferError, fetch_via_presigned_url
+        from nauro.sync.remote import PresignError, TransferBoundaryError, fetch_via_presigned_url
 
-        with patch.object(httpx, "get", side_effect=httpx.ConnectError("no route")):
-            with pytest.raises(PresignTransferError) as caught:
+        with patch.object(httpx.Client, "get", side_effect=httpx.ConnectError("no route")):
+            with pytest.raises(TransferBoundaryError) as caught:
                 fetch_via_presigned_url("https://s3/a")
 
         # The pull core guards its transfers with `except PresignError`; a bare
@@ -762,21 +762,21 @@ class TestPresignedGetFailures:
         assert caught.value.transport is True
         assert caught.value.status is None
 
-    def test_a_refused_status_carries_the_code_and_a_body_excerpt(self):
-        from nauro.sync.remote import PresignTransferError, fetch_via_presigned_url
+    def test_a_refused_status_carries_the_code_without_the_response_body(self):
+        from nauro.sync.remote import TransferBoundaryError, fetch_via_presigned_url
 
         refusal = httpx.Response(403, content=b"<Error>\n  <Code>AccessDenied</Code>\n</Error>")
-        with patch.object(httpx, "get", return_value=refusal):
-            with pytest.raises(PresignTransferError) as caught:
+        with patch.object(httpx.Client, "get", return_value=refusal):
+            with pytest.raises(TransferBoundaryError) as caught:
                 fetch_via_presigned_url("https://s3/a")
 
         assert caught.value.status == 403
-        assert "AccessDenied" in caught.value.detail
+        assert caught.value.kind.value == "http-status"
 
     def test_an_unsendable_url_is_typed_rather_than_thrown(self):
-        from nauro.sync.remote import PresignTransferError, fetch_via_presigned_url
+        from nauro.sync.remote import TransferBoundaryError, fetch_via_presigned_url
 
-        with pytest.raises(PresignTransferError) as caught:
+        with pytest.raises(TransferBoundaryError) as caught:
             fetch_via_presigned_url("not-a-url")
 
         assert caught.value.status is None
