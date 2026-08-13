@@ -206,6 +206,37 @@ class TestPendingLocalChanges:
             assert excluded not in result.output
         assert "not pushed" not in result.output
 
+    def test_status_reports_unknown_and_continues_when_store_scan_fails(
+        self, tmp_path, monkeypatch
+    ):
+        store = _scaffold(repo=tmp_path)
+        save_config(
+            {
+                "auth": {
+                    "sub": "auth0|test",
+                    "access_token": "tok_orig",
+                    "refresh_token": "refresh_orig",
+                }
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+        backup_dir = store / ".conflict-backup"
+        backup_dir.mkdir()
+        (backup_dir / "loser.md").write_text("backup\n")
+
+        with patch(
+            "nauro.sync.push.compute_sha256",
+            side_effect=FileNotFoundError("file disappeared during scan"),
+        ):
+            result = runner.invoke(app, ["sync", "--status"])
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "Pending local changes: unknown "
+            "(store scan failed: file disappeared during scan)" in result.output
+        )
+        assert "Conflict backups: 1" in result.output
+
 
 class TestQuarantinedCollisions:
     def test_status_names_each_unresolved_collision(self, tmp_path, monkeypatch):
