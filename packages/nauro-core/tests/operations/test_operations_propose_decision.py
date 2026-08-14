@@ -548,6 +548,24 @@ def test_update_disallowed_field_rejected_loudly() -> None:
     assert "title" in result.assessment
 
 
+def test_update_disallowed_fields_reject_before_questions_are_parsed() -> None:
+    store = _store_with(
+        _seed_decision(1, "Adopt PostgreSQL", "ACID transactional semantics."),
+        **{OPEN_QUESTIONS_MD: "- [Q1] malformed without a heading\n"},
+    )
+    result = propose_decision(
+        store,
+        title="A new title",
+        rationale="A sufficiently long rationale that comfortably exceeds the minimum.",
+        operation="update",
+        affected_decision_id="decision-001",
+        resolves_questions=["Q1"],
+    )
+    assert result.status == "rejected"
+    assert result.tier == 0
+    assert "title" in result.assessment
+
+
 # ── Tier 1 structural rejection ─────────────────────────────────────────
 
 
