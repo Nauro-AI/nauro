@@ -1,10 +1,10 @@
-"""Pure preparation planning for hosted judgment commits."""
+"""Pure two-phase planning for hosted judgment commits."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Annotated, Literal, TypeAlias
 
@@ -91,6 +91,42 @@ class ProposalRejected(JudgmentCommitError):
     def __init__(self, result: ProposeDecisionResult) -> None:
         self.result = result
         super().__init__(result.assessment)
+
+
+class ClaimObservationError(JudgmentCommitError):
+    """Claim observations cannot finalize the prepared plan."""
+
+
+class MissingClaimObservation(ClaimObservationError):
+    pass
+
+
+class UnexpectedClaimObservation(ClaimObservationError):
+    pass
+
+
+class DuplicateClaimObservation(ClaimObservationError):
+    pass
+
+
+class MalformedClaimObservation(ClaimObservationError):
+    pass
+
+
+class MismatchedClaimObservation(ClaimObservationError):
+    pass
+
+
+class ClaimUnavailable(ClaimObservationError):
+    pass
+
+
+class TitleClaimConflict(ClaimObservationError):
+    pass
+
+
+class ContentClaimConflict(ClaimObservationError):
+    pass
 
 
 def _sha256(content: bytes) -> str:
@@ -446,6 +482,72 @@ ClaimProbe: TypeAlias = Annotated[
 ]
 
 
+class AbsentTitleClaimObservation(_FrozenModel):
+    kind: Literal["absent_title"] = "absent_title"
+    normalized_title: StrictStr
+
+    _normalized = field_validator("normalized_title")(_validate_normalized_title)
+
+
+class CommittedTitleClaimObservation(_FrozenModel):
+    kind: Literal["committed_title"] = "committed_title"
+    normalized_title: StrictStr
+    owner_decision_number: StrictInt = Field(gt=0)
+
+    _normalized = field_validator("normalized_title")(_validate_normalized_title)
+
+
+class UnavailableTitleClaimObservation(_FrozenModel):
+    kind: Literal["unavailable_title"] = "unavailable_title"
+    normalized_title: StrictStr
+    reason: Literal["reserved", "recovery_required"]
+
+    _normalized = field_validator("normalized_title")(_validate_normalized_title)
+
+
+class AbsentContentClaimObservation(_FrozenModel):
+    kind: Literal["absent_content"] = "absent_content"
+    content_hash: StrictStr
+
+    @field_validator("content_hash")
+    @classmethod
+    def _content_hash(cls, value: str) -> str:
+        return _validate_sha256(value, field="content_hash")
+
+
+class CommittedContentClaimObservation(_FrozenModel):
+    kind: Literal["committed_content"] = "committed_content"
+    content_hash: StrictStr
+
+    @field_validator("content_hash")
+    @classmethod
+    def _content_hash(cls, value: str) -> str:
+        return _validate_sha256(value, field="content_hash")
+
+
+class UnavailableContentClaimObservation(_FrozenModel):
+    kind: Literal["unavailable_content"] = "unavailable_content"
+    content_hash: StrictStr
+    reason: Literal["reserved", "recovery_required"]
+
+    @field_validator("content_hash")
+    @classmethod
+    def _content_hash(cls, value: str) -> str:
+        return _validate_sha256(value, field="content_hash")
+
+
+ClaimObservation: TypeAlias = Annotated[
+    AbsentTitleClaimObservation
+    | CommittedTitleClaimObservation
+    | UnavailableTitleClaimObservation
+    | AbsentContentClaimObservation
+    | CommittedContentClaimObservation
+    | UnavailableContentClaimObservation,
+    Field(discriminator="kind"),
+]
+_OBSERVATION_ADAPTER = TypeAdapter(ClaimObservation)
+
+
 class ClaimIntent(_FrozenModel):
     kind: Literal[
         "acquire_new_title",
@@ -466,6 +568,11 @@ class ClaimIntent(_FrozenModel):
 
 
 class ClaimIntents(_FrozenModel):
+    entry: tuple[ClaimIntent, ...]
+    publication: tuple[ClaimIntent, ...]
+
+
+class FinalizedClaimPlan(_FrozenModel):
     entry: tuple[ClaimIntent, ...]
     publication: tuple[ClaimIntent, ...]
 
@@ -576,6 +683,45 @@ class PreparedJudgmentCommit(_FrozenModel):
             or self.committed_result.error is not None
         ):
             raise ValueError("committed result does not match the planned transition.")
+        return self
+
+
+class JudgmentCommitPlan(_FrozenModel):
+    schema_version: Literal[1] = 1
+    prepared: PreparedJudgmentCommit
+    validated_claim_observations: tuple[ClaimObservation, ...]
+    claim_plan: FinalizedClaimPlan
+    plan_record_bytes: bytes
+
+    @computed_field
+    @property
+    def plan_record_digest(self) -> str:
+        return _sha256(self.plan_record_bytes)
+
+    @property
+    def committed_result(self) -> ProposeDecisionResult:
+        return self.prepared.committed_result
+
+    @model_validator(mode="after")
+    def _verify_record(self) -> JudgmentCommitPlan:
+        if tuple(_observation_key(value) for value in self.validated_claim_observations) != tuple(
+            _probe_key(value) for value in self.prepared.claim_probes
+        ):
+            raise ValueError("validated observations do not match prepared probe order.")
+        for probe, observation in zip(
+            self.prepared.claim_probes,
+            self.validated_claim_observations,
+            strict=True,
+        ):
+            _validate_observation(probe, observation)
+        if self.claim_plan.entry != self.prepared.claim_intents.entry or (
+            self.claim_plan.publication != self.prepared.claim_intents.publication
+        ):
+            raise ValueError("finalized claim plan does not derive from prepared intents.")
+        if self.plan_record_bytes != _plan_record(
+            self.prepared, self.validated_claim_observations
+        ):
+            raise ValueError("plan record bytes do not derive from the prepared plan.")
         return self
 
 
@@ -1109,4 +1255,153 @@ def prepare_judgment_commit(
         claim_probes=probes,
         claim_intents=intents,
         result_projection=_CommittedResultProjection.from_result(result),
+    )
+
+
+def _probe_key(probe: ClaimProbe) -> tuple[str, str]:
+    if isinstance(probe, AbsentContentClaimProbe):
+        return ("content", probe.content_hash)
+    return ("title", probe.normalized_title)
+
+
+def _observation_key(observation: ClaimObservation) -> tuple[str, str]:
+    if isinstance(
+        observation,
+        (
+            AbsentContentClaimObservation,
+            CommittedContentClaimObservation,
+            UnavailableContentClaimObservation,
+        ),
+    ):
+        return ("content", observation.content_hash)
+    return ("title", observation.normalized_title)
+
+
+def _validate_observation(probe: ClaimProbe, observation: ClaimObservation) -> None:
+    if isinstance(
+        observation, (UnavailableTitleClaimObservation, UnavailableContentClaimObservation)
+    ):
+        raise ClaimUnavailable(f"claim {_observation_key(observation)!r} is {observation.reason}.")
+    if isinstance(probe, AbsentTitleClaimProbe):
+        if isinstance(observation, AbsentTitleClaimObservation):
+            return
+        if isinstance(observation, CommittedTitleClaimObservation):
+            raise TitleClaimConflict(
+                "normalized title is already owned by decision "
+                f"{observation.owner_decision_number}."
+            )
+    elif isinstance(probe, OwnedTitleClaimProbe):
+        if isinstance(observation, CommittedTitleClaimObservation) and (
+            observation.owner_decision_number == probe.expected_owner_decision_number
+        ):
+            return
+        raise MismatchedClaimObservation(
+            "owned title claim does not match the expected committed owner."
+        )
+    elif isinstance(observation, AbsentContentClaimObservation):
+        return
+    elif isinstance(observation, CommittedContentClaimObservation):
+        raise ContentClaimConflict("content hash is already present in decision history.")
+    raise MismatchedClaimObservation("claim observation does not match its prepared probe.")
+
+
+def _artifact_inventory(prepared: PreparedJudgmentCommit) -> dict[str, object]:
+    descriptors = [
+        {"length": artifact.length, "path": artifact.path, "sha256": artifact.sha256}
+        for artifact in prepared.planned_artifacts
+    ]
+    inventory = {"artifacts": descriptors, "schema": "nauro.artifact_inventory.v1"}
+    inventory_bytes = canonical_judgment_payload_bytes(inventory)
+    return {
+        "artifact_count": len(descriptors),
+        "digest": _sha256(inventory_bytes),
+        "schema": "nauro.artifact_inventory.v1",
+        "total_byte_count": sum(descriptor["length"] for descriptor in descriptors),
+    }
+
+
+def _plan_record(
+    prepared: PreparedJudgmentCommit,
+    observations: tuple[ClaimObservation, ...],
+) -> bytes:
+    content = prepared.payload.content
+    provenance = (
+        {
+            "approved_at": prepared.decision_provenance.approved_at,
+            "approved_by": prepared.decision_provenance.approved_by,
+            "proposal_id": prepared.decision_provenance.proposal_id,
+            "proposed_base_commit": prepared.decision_provenance.proposed_base_commit,
+            "proposed_by": prepared.decision_provenance.proposed_by,
+        }
+        if prepared.decision_provenance is not None
+        else None
+    )
+    record = {
+        "affected_decision_id": content.affected_decision_id,
+        "approval_mode": prepared.payload.approval_mode,
+        "approval": prepared.approval_attestation.model_dump(mode="json"),
+        "artifact_inventory": _artifact_inventory(prepared),
+        "base": prepared.base.model_dump(mode="json"),
+        "claim_plan": {
+            "entry": [value.model_dump(mode="json") for value in prepared.claim_intents.entry],
+            "observations": [value.model_dump(mode="json") for value in observations],
+            "probes": [value.model_dump(mode="json") for value in prepared.claim_probes],
+            "publication": [
+                value.model_dump(mode="json") for value in prepared.claim_intents.publication
+            ],
+        },
+        "committed_result": prepared.committed_result.model_dump(mode="json"),
+        "decision_provenance": provenance,
+        "new_decision_counter": prepared.new_decision_counter,
+        "operation": content.operation,
+        "payload_digest": prepared.payload_digest,
+        "payload_schema": prepared.payload.payload_schema,
+        "primary_decision": prepared.primary_decision.model_dump(mode="json"),
+        "record_schema": "nauro.judgment_commit.plan_record.v1",
+        "snapshot": {
+            "length": prepared.snapshot.length,
+            "sha256": prepared.snapshot.sha256,
+        },
+        "transform_version": prepared.transformation_version,
+    }
+    return canonical_judgment_payload_bytes(record)
+
+
+def finalize_judgment_commit(
+    prepared: PreparedJudgmentCommit,
+    claim_observations: Sequence[ClaimObservation | Mapping[str, object]],
+) -> JudgmentCommitPlan:
+    """Validate claim observations and finalize the storage-neutral plan."""
+    parsed: list[ClaimObservation] = []
+    for raw in claim_observations:
+        try:
+            parsed.append(_OBSERVATION_ADAPTER.validate_python(raw))
+        except ValidationError as exc:
+            raise MalformedClaimObservation("claim observation is malformed.") from exc
+    observed_by_key: dict[tuple[str, str], ClaimObservation] = {}
+    for observation in parsed:
+        key = _observation_key(observation)
+        if key in observed_by_key:
+            raise DuplicateClaimObservation(f"duplicate claim observation for {key!r}.")
+        observed_by_key[key] = observation
+    probe_keys = {_probe_key(probe) for probe in prepared.claim_probes}
+    extra = set(observed_by_key) - probe_keys
+    if extra:
+        raise UnexpectedClaimObservation(f"unexpected claim observation(s): {sorted(extra)!r}.")
+    missing = probe_keys - set(observed_by_key)
+    if missing:
+        raise MissingClaimObservation(f"missing claim observation(s): {sorted(missing)!r}.")
+    ordered = tuple(observed_by_key[_probe_key(probe)] for probe in prepared.claim_probes)
+    for probe, observation in zip(prepared.claim_probes, ordered, strict=True):
+        _validate_observation(probe, observation)
+    claim_plan = FinalizedClaimPlan(
+        entry=prepared.claim_intents.entry,
+        publication=prepared.claim_intents.publication,
+    )
+    record_bytes = _plan_record(prepared, ordered)
+    return JudgmentCommitPlan(
+        prepared=prepared,
+        validated_claim_observations=ordered,
+        claim_plan=claim_plan,
+        plan_record_bytes=record_bytes,
     )
