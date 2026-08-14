@@ -2,14 +2,38 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from nauro_core.decision_model import Decision, DecisionStatus
+from nauro_core.decision_model import (
+    Decision,
+    DecisionConfidence,
+    DecisionSource,
+    DecisionStatus,
+    DecisionType,
+    RejectedAlternative,
+    Reversibility,
+)
 from nauro_core.questions import OpenQuestionsFile
 
 _SLUG_MAX_LENGTH = 60
+_PROVENANCE_FIELDS = (
+    "proposed_by",
+    "approved_by",
+    "approved_at",
+    "proposal_id",
+    "proposed_base_commit",
+)
+
+
+@dataclass(frozen=True)
+class DecisionProvenance:
+    proposed_by: str
+    approved_by: str
+    approved_at: str
+    proposal_id: str
+    proposed_base_commit: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +61,82 @@ def slugify_decision_title(title: str) -> str:
         trimmed = truncated.rsplit("-", 1)[0]
         slug = trimmed if len(trimmed) >= _SLUG_MAX_LENGTH // 2 else truncated
     return slug
+
+
+def build_new_decision(
+    *,
+    number: int,
+    decision_date: date,
+    title: str,
+    rationale: str,
+    confidence: DecisionConfidence,
+    decision_type: DecisionType | None,
+    reversibility: Reversibility | None,
+    source: DecisionSource | None,
+    files_affected: Sequence[str],
+    rejected: Sequence[RejectedAlternative],
+    provenance: DecisionProvenance | None,
+    extra_frontmatter: Mapping[str, object] | None = None,
+) -> Decision:
+    """Build a new current decision from explicit frozen inputs."""
+    fields: dict[str, object] = dict(extra_frontmatter or {})
+    if provenance is not None:
+        fields.update(
+            proposed_by=provenance.proposed_by,
+            approved_by=provenance.approved_by,
+            approved_at=provenance.approved_at,
+            proposal_id=provenance.proposal_id,
+            proposed_base_commit=provenance.proposed_base_commit,
+        )
+    return Decision(
+        date=decision_date,
+        version=1,
+        status=DecisionStatus.active,
+        confidence=confidence,
+        decision_type=decision_type,
+        reversibility=reversibility,
+        source=source,
+        files_affected=list(files_affected),
+        rejected=list(rejected),
+        num=number,
+        title=title,
+        rationale=rationale,
+        **fields,
+    )
+
+
+def apply_current_version_provenance(
+    decision: Decision,
+    provenance: DecisionProvenance | None,
+) -> Decision:
+    """Apply one complete approval group, or clear a group for a new local version."""
+    update = {field: None for field in _PROVENANCE_FIELDS}
+    if provenance is not None:
+        update.update(
+            proposed_by=provenance.proposed_by,
+            approved_by=provenance.approved_by,
+            approved_at=provenance.approved_at,
+            proposal_id=provenance.proposal_id,
+            proposed_base_commit=provenance.proposed_base_commit,
+        )
+    return decision.model_copy(update=update)
+
+
+def append_decision_update(
+    decision: Decision,
+    *,
+    additional_rationale: str,
+    update_date: date,
+    provenance: DecisionProvenance | None,
+) -> Decision:
+    """Append one dated rationale version and replace current-version provenance."""
+    version = decision.version + 1
+    rationale = (
+        f"{decision.rationale.strip()}\n\n"
+        f"*Update (v{version}) — {update_date.isoformat()}:* {additional_rationale.strip()}"
+    )
+    updated = decision.model_copy(update={"version": version, "rationale": rationale})
+    return apply_current_version_provenance(updated, provenance)
 
 
 def attach_supersedes(decision: Decision, target_number: int) -> Decision:
