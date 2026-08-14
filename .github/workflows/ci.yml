@@ -15,8 +15,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff==0.15.8
-      - run: ruff check packages/ benchmarks/
-      - run: ruff format --check packages/ benchmarks/
+      - run: ruff check packages/ benchmarks/ scripts/
+      - run: ruff format --check packages/ benchmarks/ scripts/
       - run: python scripts/check_single_sourced.py packages/nauro/src
       - run: python scripts/check_server_json_version.py
 
@@ -53,3 +53,63 @@ jobs:
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --locked --package nauro --all-extras --python ${{ matrix.python-version }}
       - run: uv run --no-sync --package nauro pytest packages/nauro/tests/ --ignore=packages/nauro/tests/cross_surface -v --tb=short
+
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.12
+      - run: |
+          UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/nauro-build-env" \
+            uv sync --locked --package nauro --extra dev --no-install-workspace --python 3.12
+      - name: Build wheels from locked tooling
+        run: |
+          mkdir "$RUNNER_TEMP/nauro-wheel-build"
+          uv build --package nauro-core --wheel --no-build-isolation \
+            --python "$RUNNER_TEMP/nauro-build-env/bin/python" \
+            --out-dir "$RUNNER_TEMP/nauro-wheel-build"
+          uv build --package nauro --wheel --no-build-isolation \
+            --python "$RUNNER_TEMP/nauro-build-env/bin/python" \
+            --out-dir "$RUNNER_TEMP/nauro-wheel-build"
+      - name: Smoke test the built wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheel_paths=("$RUNNER_TEMP"/nauro-wheel-build/nauro-*.whl)
+          core_wheel_paths=("$RUNNER_TEMP"/nauro-wheel-build/nauro_core-*.whl)
+          if (( ${#wheel_paths[@]} != 1 )); then
+            echo "expected one nauro wheel, found ${#wheel_paths[@]}" >&2
+            exit 1
+          fi
+          if (( ${#core_wheel_paths[@]} != 1 )); then
+            echo "expected one nauro-core wheel, found ${#core_wheel_paths[@]}" >&2
+            exit 1
+          fi
+          smoke_root="$(mktemp -d "$RUNNER_TEMP/nauro-wheel-smoke.XXXXXX")"
+          smoke_env="$smoke_root/venv"
+          requirements="$smoke_root/requirements.txt"
+          uv export --quiet --locked --package nauro --no-dev --no-emit-workspace \
+            --output-file "$requirements"
+          uv venv --python 3.12 "$smoke_env"
+          uv pip install --python "$smoke_env/bin/python" --require-hashes \
+            --requirements "$requirements"
+          uv pip install --python "$smoke_env/bin/python" --no-deps \
+            "${core_wheel_paths[0]}" "${wheel_paths[0]}"
+          wheel_name="$(basename "${wheel_paths[0]}")"
+          core_wheel_name="$(basename "${core_wheel_paths[0]}")"
+          expected_version="${wheel_name#nauro-}"
+          expected_version="${expected_version%%-*}"
+          expected_core_version="${core_wheel_name#nauro_core-}"
+          expected_core_version="${expected_core_version%%-*}"
+          mkdir "$smoke_root/home" "$smoke_root/work"
+          cd "$smoke_root/work"
+          EXPECTED_NAURO_VERSION="$expected_version" \
+            EXPECTED_CORE_VERSION="$expected_core_version" \
+            "$smoke_env/bin/python" -c \
+            'import nauro, nauro_core, os; from importlib.metadata import version; from pathlib import Path; checkout = Path(os.environ["GITHUB_WORKSPACE"]).resolve(); sources = [Path(module.__file__).resolve() for module in (nauro, nauro_core)]; assert all(checkout not in source.parents for source in sources), sources; assert version("nauro") == os.environ["EXPECTED_NAURO_VERSION"]; assert version("nauro-core") == os.environ["EXPECTED_CORE_VERSION"]'
+          env -u PYTHONPATH NAURO_HOME="$smoke_root/home" \
+            "$smoke_env/bin/python" \
+            "$GITHUB_WORKSPACE/scripts/smoke_nauro_wheel_stdio.py" \
+            "$smoke_env/bin/nauro"
