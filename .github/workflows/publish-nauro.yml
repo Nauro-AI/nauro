@@ -12,11 +12,30 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-      - run: pip install build
-      - run: python -m build packages/nauro/
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.12
+      - run: uv build --package nauro --python 3.12 --out-dir packages/nauro/dist
+      - name: Smoke test the built wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheel_paths=("$GITHUB_WORKSPACE"/packages/nauro/dist/nauro-*.whl)
+          if (( ${#wheel_paths[@]} != 1 )); then
+            echo "expected one nauro wheel, found ${#wheel_paths[@]}" >&2
+            exit 1
+          fi
+          smoke_root="$(mktemp -d "$RUNNER_TEMP/nauro-wheel-smoke.XXXXXX")"
+          uv venv --python 3.12 "$smoke_root/venv"
+          uv pip install --python "$smoke_root/venv/bin/python" "${wheel_paths[0]}"
+          mkdir "$smoke_root/home" "$smoke_root/work"
+          cd "$smoke_root/work"
+          "$smoke_root/venv/bin/python" -c \
+            'import nauro, os; from pathlib import Path; source = Path(nauro.__file__).resolve(); checkout = Path(os.environ["GITHUB_WORKSPACE"]).resolve(); assert checkout not in source.parents, source'
+          env -u PYTHONPATH NAURO_HOME="$smoke_root/home" \
+            "$smoke_root/venv/bin/python" \
+            "$GITHUB_WORKSPACE/scripts/smoke_nauro_wheel_stdio.py" \
+            "$smoke_root/venv/bin/nauro"
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/nauro/dist/
