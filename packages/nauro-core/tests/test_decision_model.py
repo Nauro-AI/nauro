@@ -1005,3 +1005,38 @@ class TestEnumValueBytes:
 
     def test_confidence_medium_value(self) -> None:
         assert DecisionConfidence.medium.value == "medium"
+
+
+class TestApprovalProvenance:
+    def test_complete_group_serializes_after_existing_frontmatter(self) -> None:
+        decision = _minimal_decision(
+            proposed_by="01K00000000000000000000002",
+            approved_by="01K00000000000000000000003",
+            approved_at="2026-08-14T09:10:11.123456Z",
+            proposal_id="01K00000000000000000000001",
+            proposed_base_commit="a" * 40,
+        )
+        formatted = format_decision(decision)
+        assert formatted.index("superseded_by:") < formatted.index("proposed_by:")
+        assert formatted.index("proposed_by:") < formatted.index("approved_by:")
+        assert formatted.index("approved_by:") < formatted.index("approved_at:")
+        assert formatted.index("approved_at:") < formatted.index("proposal_id:")
+        assert formatted.index("proposal_id:") < formatted.index("proposed_base_commit:")
+        assert format_decision(parse_decision(formatted, "001-test.md")) == formatted
+
+    def test_absent_group_omits_only_new_fields(self) -> None:
+        formatted = format_decision(_minimal_decision())
+        for field in (
+            "proposed_by",
+            "approved_by",
+            "approved_at",
+            "proposal_id",
+            "proposed_base_commit",
+        ):
+            assert f"{field}:" not in formatted
+        assert "decision_type: null" in formatted
+        assert "files_affected: []" in formatted
+
+    def test_partial_group_rejects(self) -> None:
+        with pytest.raises(ValidationError, match="partial approval provenance"):
+            _minimal_decision(proposed_by="01K00000000000000000000002")
