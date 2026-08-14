@@ -24,12 +24,14 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from nauro_core.constants import L0_QUESTIONS_LIMIT
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
     DecisionStatus,
     format_decision,
 )
+from nauro_core.questions import OpenQuestionsFile
 from nauro_core.renderers import RENDERERS
 
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
@@ -243,5 +245,8 @@ def _seed_baseline_store(store_path: Path) -> None:
 def test_l0_content_matches_main_byte_for_byte(tmp_path):
     store_path = tmp_path / "store"
     _seed_baseline_store(store_path)
+    questions = OpenQuestionsFile.parse((store_path / "open-questions.md").read_text())
+
+    assert len(questions.genuine_open_entries) < L0_QUESTIONS_LIMIT
     envelope = tool_get_context(store_path, 0)
     assert envelope["content"] == _BASELINE_L0
