@@ -15,20 +15,34 @@ from nauro_core.decision_model import (
     parse_decision,
 )
 from nauro_core.operations.commit_plan import (
+    AbsentContentClaimObservation,
+    AbsentTitleClaimObservation,
     AbsentTitleClaimProbe,
     ApprovalAttestationRejected,
     ApprovedBaseStale,
     ApprovedPayloadDigestMismatch,
     CanonicalPayloadRejected,
+    ClaimUnavailable,
     CommittedArtifact,
+    CommittedContentClaimObservation,
     CommittedGeneration,
     CommittedGenerationCorrupt,
+    CommittedTitleClaimObservation,
+    ContentClaimConflict,
+    DuplicateClaimObservation,
+    MalformedClaimObservation,
+    MismatchedClaimObservation,
+    MissingClaimObservation,
     PlannedSnapshot,
     PreparedJudgmentCommit,
     PreTeamApprovalAttestation,
     ProposalRejected,
     TeamRatificationAttestation,
+    TitleClaimConflict,
+    UnavailableContentClaimObservation,
+    UnexpectedClaimObservation,
     canonical_judgment_payload_bytes,
+    finalize_judgment_commit,
     prepare_judgment_commit,
 )
 from nauro_core.operations.results import ProposeDecisionResult
@@ -174,7 +188,7 @@ def _team_attestation() -> TeamRatificationAttestation:
     )
 
 
-def test_prepare_add_is_deterministic_and_storage_neutral() -> None:
+def test_prepare_and_finalize_add_are_deterministic_and_storage_neutral() -> None:
     generation = _generation(("project.md", b"# Test\n"), counter=4)
     payload = _preteam_payload(generation)
 
@@ -190,21 +204,25 @@ def test_prepare_add_is_deterministic_and_storage_neutral() -> None:
         "absent_title",
         "absent_content",
     ]
-    result = first.committed_result
-    assert type(result) is ProposeDecisionResult
-    assert result.model_dump(mode="json") == {
-        "assessment": "No similar existing decisions found.",
-        "decision_id": "005-use-sqlite-for-durable-local-state",
-        "error": None,
-        "operation": "add",
-        "relocated_ids": None,
-        "resolved_questions": [],
-        "similar_decisions": [],
-        "skipped_prose_ids": None,
-        "status": "confirmed",
-        "tier": 2,
-        "touched_decisions": ["005-use-sqlite-for-durable-local-state"],
-    }
+    observations = [
+        AbsentContentClaimObservation(content_hash=first.claim_probes[1].content_hash),
+        AbsentTitleClaimObservation(normalized_title=first.claim_probes[0].normalized_title),
+    ]
+    plan = finalize_judgment_commit(first, observations)
+    replay = finalize_judgment_commit(second, list(reversed(observations)))
+    assert plan.plan_record_bytes == replay.plan_record_bytes
+    assert plan.plan_record_digest == hashlib.sha256(plan.plan_record_bytes).hexdigest()
+    assert json.loads(plan.plan_record_bytes)["transform_version"] == first.transformation_version
+    expected_result = ProposeDecisionResult(
+        status="confirmed",
+        tier=2,
+        operation="add",
+        assessment="No similar existing decisions found.",
+        decision_id="005-use-sqlite-for-durable-local-state",
+        touched_decisions=["005-use-sqlite-for-durable-local-state"],
+    )
+    assert first.committed_result == expected_result
+    assert plan.committed_result == expected_result
 
 
 def test_prepare_rejects_noncanonical_payload_and_digest_mismatch() -> None:
@@ -591,9 +609,129 @@ def test_update_claim_contract_keeps_counter_and_title_owner() -> None:
     ]
 
 
-def test_title_claim_models_require_canonical_normalized_text() -> None:
+def test_finalize_rejects_missing_extra_duplicate_malformed_and_unavailable() -> None:
+    generation = _generation(("project.md", b"# Test\n"))
+    prepared = prepare_judgment_commit(
+        _preteam_payload(generation), _preteam_attestation(), generation
+    )
+    title = prepared.claim_probes[0].normalized_title
+    content_hash = prepared.claim_probes[1].content_hash
+    title_observation = AbsentTitleClaimObservation(normalized_title=title)
+    content_observation = AbsentContentClaimObservation(content_hash=content_hash)
+
+    with pytest.raises(MissingClaimObservation):
+        finalize_judgment_commit(prepared, [title_observation])
+    with pytest.raises(UnexpectedClaimObservation):
+        finalize_judgment_commit(
+            prepared,
+            [
+                title_observation,
+                content_observation,
+                AbsentTitleClaimObservation(normalized_title="other"),
+            ],
+        )
+    with pytest.raises(DuplicateClaimObservation):
+        finalize_judgment_commit(
+            prepared, [title_observation, title_observation, content_observation]
+        )
+    with pytest.raises(MalformedClaimObservation):
+        finalize_judgment_commit(prepared, [{"kind": "wrong"}])
+    with pytest.raises(ClaimUnavailable):
+        finalize_judgment_commit(
+            prepared,
+            [
+                title_observation,
+                UnavailableContentClaimObservation(
+                    content_hash=content_hash,
+                    reason="reserved",
+                ),
+            ],
+        )
+
+
+def test_finalize_rejects_committed_title_conflict() -> None:
+    generation = _generation(("project.md", b"# Test\n"))
+    prepared = prepare_judgment_commit(
+        _preteam_payload(generation), _preteam_attestation(), generation
+    )
+    with pytest.raises(TitleClaimConflict):
+        finalize_judgment_commit(
+            prepared,
+            [
+                CommittedTitleClaimObservation(
+                    normalized_title=prepared.claim_probes[0].normalized_title,
+                    owner_decision_number=7,
+                ),
+                AbsentContentClaimObservation(content_hash=prepared.claim_probes[1].content_hash),
+            ],
+        )
+
+
+def test_finalize_rejects_historical_content_and_wrong_owned_title() -> None:
+    existing = _decision(1, "Existing decision")
+    generation = _generation(existing, counter=1)
+    target = existing[0].removeprefix("decisions/").removesuffix(".md")
+    prepared = prepare_judgment_commit(
+        _preteam_payload(generation, operation="update", target=target),
+        _preteam_attestation(),
+        generation,
+    )
+    title_probe, content_probe = prepared.claim_probes
+    with pytest.raises(MismatchedClaimObservation):
+        finalize_judgment_commit(
+            prepared,
+            [
+                CommittedTitleClaimObservation(
+                    normalized_title=title_probe.normalized_title,
+                    owner_decision_number=2,
+                ),
+                AbsentContentClaimObservation(content_hash=content_probe.content_hash),
+            ],
+        )
+    with pytest.raises(ContentClaimConflict, match="history"):
+        finalize_judgment_commit(
+            prepared,
+            [
+                CommittedTitleClaimObservation(
+                    normalized_title=title_probe.normalized_title,
+                    owner_decision_number=1,
+                ),
+                CommittedContentClaimObservation(content_hash=content_probe.content_hash),
+            ],
+        )
+
+
+def test_plan_record_is_bounded_and_excludes_transient_bytes() -> None:
+    generation = _generation(("project.md", b"# Test\n"))
+    prepared = prepare_judgment_commit(
+        _preteam_payload(generation), _preteam_attestation(), generation
+    )
+    plan = finalize_judgment_commit(
+        prepared,
+        [
+            AbsentTitleClaimObservation(
+                normalized_title=prepared.claim_probes[0].normalized_title
+            ),
+            AbsentContentClaimObservation(content_hash=prepared.claim_probes[1].content_hash),
+        ],
+    )
+    record = json.loads(plan.plan_record_bytes)
+    assert record["record_schema"] == "nauro.judgment_commit.plan_record.v1"
+    assert record["approval_mode"] == "pre_team_session"
+    assert "artifacts" not in record["artifact_inventory"]
+    assert "payload_bytes" not in record
+    assert "generation_id" not in record.get("primary_decision", {})
+    assert prepared.payload_bytes not in plan.plan_record_bytes
+
+
+def test_title_claim_probe_requires_canonical_normalized_text() -> None:
     with pytest.raises(ValidationError, match="normalized_title"):
         AbsentTitleClaimProbe(normalized_title="  Existing  Decision ")
+
+
+def test_title_claim_observation_requires_canonical_normalized_text() -> None:
+    with pytest.raises(ValidationError, match="normalized_title"):
+        AbsentTitleClaimObservation(normalized_title="  Existing  Decision ")
 
 
 def test_models_are_deeply_immutable_at_collection_boundaries() -> None:
@@ -606,23 +744,35 @@ def test_models_are_deeply_immutable_at_collection_boundaries() -> None:
         prepared.new_decision_counter = 99
 
 
-def test_result_materialization_cannot_diverge_from_prepared_plan() -> None:
+def test_result_materialization_cannot_diverge_from_prepared_or_final_plan() -> None:
     generation = _generation(("project.md", b"# Test\n"))
     prepared = prepare_judgment_commit(
         _preteam_payload(generation), _preteam_attestation(), generation
     )
+    plan = finalize_judgment_commit(
+        prepared,
+        [
+            AbsentTitleClaimObservation(
+                normalized_title=prepared.claim_probes[0].normalized_title
+            ),
+            AbsentContentClaimObservation(content_hash=prepared.claim_probes[1].content_hash),
+        ],
+    )
     artifacts_before = prepared.planned_artifacts
-    payload_digest_before = prepared.payload_digest
-    result_before = prepared.committed_result.model_dump(mode="json")
+    record_before = plan.plan_record_bytes
+    digest_before = plan.plan_record_digest
+    result_before = plan.committed_result.model_dump(mode="json")
 
     for field in ("similar_decisions", "touched_decisions", "resolved_questions"):
-        sequence = getattr(prepared.committed_result, field)
+        sequence = getattr(plan.committed_result, field)
         with pytest.raises(TypeError, match="immutable"):
             sequence.append("tamper")
 
     assert prepared.planned_artifacts == artifacts_before
-    assert prepared.payload_digest == payload_digest_before
+    assert plan.plan_record_bytes == record_before
+    assert plan.plan_record_digest == digest_before
     assert prepared.committed_result.model_dump(mode="json") == result_before
+    assert plan.committed_result.model_dump(mode="json") == result_before
 
 
 def test_prepared_constructor_rejects_divergent_derived_snapshot() -> None:
@@ -645,3 +795,23 @@ def test_prepared_constructor_rejects_unknown_transformation_version() -> None:
     fields["transformation_version"] = 2
     with pytest.raises(ValidationError, match="transformation_version"):
         PreparedJudgmentCommit(**fields)
+
+
+def test_final_plan_constructor_rejects_tampered_record_bytes() -> None:
+    generation = _generation(("project.md", b"# Test\n"))
+    prepared = prepare_judgment_commit(
+        _preteam_payload(generation), _preteam_attestation(), generation
+    )
+    plan = finalize_judgment_commit(
+        prepared,
+        [
+            AbsentTitleClaimObservation(
+                normalized_title=prepared.claim_probes[0].normalized_title
+            ),
+            AbsentContentClaimObservation(content_hash=prepared.claim_probes[1].content_hash),
+        ],
+    )
+    fields = {name: getattr(plan, name) for name in plan.__class__.model_fields}
+    fields["plan_record_bytes"] = b"{}"
+    with pytest.raises(ValidationError, match="plan record bytes"):
+        plan.__class__(**fields)
