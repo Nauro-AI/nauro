@@ -42,7 +42,8 @@ Field model:
     Required frontmatter: date, confidence.
     Defaulted frontmatter: version (1), status (active).
     Optional frontmatter: decision_type, reversibility, source, files_affected,
-                          supersedes, superseded_by.
+                          supersedes, superseded_by, and the selectively omitted
+                          approval-provenance group.
     Body-rendered: rejected (rendered as `## Rejected Alternatives` + `### name`
                    subsections, not in frontmatter).
     Derived (set by parse_decision): num, title, rationale, body, content.
@@ -57,7 +58,9 @@ from enum import Enum
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from nauro_core.identifiers import IdentifierKind, validate_identifier
 from nauro_core.parsing import extract_decision_number, is_ascii_decimal
+from nauro_core.provenance import validate_commit_sha, validate_utc_timestamp
 
 # ── Enums (values match on-disk lowercase tokens verbatim) ──
 
@@ -154,6 +157,13 @@ class Decision(BaseModel):
     supersedes: str | None = None
     superseded_by: str | None = None
 
+    # ── Frontmatter: current-version approval provenance ──
+    proposed_by: str | None = None
+    approved_by: str | None = None
+    approved_at: str | None = None
+    proposal_id: str | None = None
+    proposed_base_commit: str | None = None
+
     # ── Body-rendered ──
     rejected: list[RejectedAlternative] = Field(default_factory=list)
 
@@ -183,6 +193,49 @@ class Decision(BaseModel):
                 f"supersession ref must not have leading zeros, got {v!r}; expected {canonical!r}"
             )
         return v
+
+    @field_validator("proposed_by", "approved_by", "proposal_id")
+    @classmethod
+    def _validate_provenance_identifier(cls, v: str | None, info) -> str | None:
+        if v is None:
+            return None
+        return validate_identifier(IdentifierKind.ulid, v, field=info.field_name)
+
+    @field_validator("approved_at")
+    @classmethod
+    def _validate_approved_at(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return validate_utc_timestamp(v, field="approved_at")
+
+    @field_validator("proposed_base_commit")
+    @classmethod
+    def _validate_proposed_base_commit(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return validate_commit_sha(v, field="proposed_base_commit")
+
+    @model_validator(mode="after")
+    def require_complete_approval_provenance(self) -> Decision:
+        values = (
+            self.proposed_by,
+            self.approved_by,
+            self.approved_at,
+            self.proposal_id,
+            self.proposed_base_commit,
+        )
+        if not any(value is not None for value in values):
+            return self
+        missing = [
+            field
+            for field in ("proposed_by", "approved_by", "approved_at", "proposal_id")
+            if getattr(self, field) is None
+        ]
+        if missing:
+            raise ValueError(
+                "partial approval provenance is invalid; missing " + ", ".join(missing) + "."
+            )
+        return self
 
     @model_validator(mode="after")
     def require_reasons_on_active(self) -> Decision:
@@ -228,6 +281,19 @@ _FRONTMATTER_ORDER: tuple[str, ...] = (
     "files_affected",
     "supersedes",
     "superseded_by",
+    "proposed_by",
+    "approved_by",
+    "approved_at",
+    "proposal_id",
+    "proposed_base_commit",
+)
+
+_PROVENANCE_FIELDS: tuple[str, ...] = (
+    "proposed_by",
+    "approved_by",
+    "approved_at",
+    "proposal_id",
+    "proposed_base_commit",
 )
 
 
@@ -469,6 +535,10 @@ def format_decision(decision: Decision) -> str:
     already-canonical file. See the module docstring for the full bound.
     """
     dumped = decision.model_dump(mode="json", exclude=_DERIVED_FIELDS)
+
+    for key in _PROVENANCE_FIELDS:
+        if dumped.get(key) is None:
+            dumped.pop(key, None)
 
     # Rejected is body-rendered, not frontmatter.
     dumped.pop("rejected", None)

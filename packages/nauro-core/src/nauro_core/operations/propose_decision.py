@@ -38,10 +38,8 @@ from nauro_core.constants import (
     OPEN_QUESTIONS_MD,
 )
 from nauro_core.decision_model import (
-    Decision,
     DecisionConfidence,
     DecisionSource,
-    DecisionStatus,
     DecisionType,
     RejectedAlternative,
     Reversibility,
@@ -49,7 +47,9 @@ from nauro_core.decision_model import (
     parse_decision,
 )
 from nauro_core.operations._decision_transitions import (
+    append_decision_update,
     attach_supersedes,
+    build_new_decision,
     mark_superseded,
     resolve_questions_content,
     slugify_decision_title,
@@ -221,10 +221,11 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
     if base_commit:
         provenance_kwargs["base_commit"] = base_commit
 
-    decision = Decision(
-        date=datetime.now(timezone.utc).date(),
-        version=1,
-        status=DecisionStatus.active,
+    decision = build_new_decision(
+        number=next_num,
+        decision_date=datetime.now(timezone.utc).date(),
+        title=title,
+        rationale=rationale,
         confidence=DecisionConfidence(
             proposal.get("confidence") or DecisionConfidence.medium.value
         ),
@@ -233,10 +234,8 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
         source=_optional_enum(proposal.get("source"), DecisionSource),
         files_affected=_coerce_files_affected(proposal.get("files_affected")),
         rejected=_coerce_rejected(proposal.get("rejected")),
-        num=next_num,
-        title=title,
-        rationale=rationale,
-        **provenance_kwargs,
+        provenance=None,
+        extra_frontmatter=provenance_kwargs,
     )
     store.write_file(_decision_path(filename), format_decision(decision))
 
@@ -441,17 +440,11 @@ def _do_update(
             ),
         )
     target = parse_decision(body, _decision_filename(target_stem))
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    additional = (proposal.get("rationale") or "").strip()
-    appended_rationale = (
-        f"{target.rationale.strip()}\n\n"
-        f"*Update (v{target.version + 1}) — {date_str}:* {additional}"
-    )
-    updated = target.model_copy(
-        update={
-            "version": target.version + 1,
-            "rationale": appended_rationale,
-        }
+    updated = append_decision_update(
+        target,
+        additional_rationale=proposal.get("rationale") or "",
+        update_date=datetime.now(timezone.utc).date(),
+        provenance=None,
     )
     store.write_file(_decision_path(target_stem), format_decision(updated))
 

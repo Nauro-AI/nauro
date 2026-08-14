@@ -11,13 +11,11 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from nauro_core.provenance import InvalidCommitSha, validate_commit_sha
+
 # Bounds the capture cost on every decision write; a repository that cannot
 # answer rev-parse within this window resolves to absence.
 _GIT_TIMEOUT_SECONDS = 2
-
-# Full object names only: 40 hex chars (SHA-1) or 64 (SHA-256 repositories).
-_SHA_LENGTHS = frozenset({40, 64})
-_HEX_DIGITS = frozenset("0123456789abcdef")
 
 
 def resolve_repo_head(cwd: str | Path | None) -> str | None:
@@ -44,9 +42,10 @@ def resolve_repo_head(cwd: str | Path | None) -> str | None:
     if completed.returncode != 0:
         return None
     sha = completed.stdout.strip()
-    if len(sha) not in _SHA_LENGTHS or not set(sha) <= _HEX_DIGITS:
+    try:
+        return validate_commit_sha(sha, field="HEAD")
+    except InvalidCommitSha:
         return None
-    return sha
 
 
 def resolve_process_repo_head() -> str | None:

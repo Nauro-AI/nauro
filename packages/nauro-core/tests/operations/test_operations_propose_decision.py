@@ -26,8 +26,10 @@ from pydantic import ValidationError
 from nauro_core.constants import OPEN_QUESTIONS_MD
 from nauro_core.decision_model import (
     DECISION_TYPE_VALUES,
+    Decision,
     DecisionStatus,
     Reversibility,
+    format_decision,
 )
 from nauro_core.operations import (
     InMemoryStore,
@@ -564,6 +566,39 @@ def test_update_disallowed_fields_reject_before_questions_are_parsed() -> None:
     assert result.status == "rejected"
     assert result.tier == 0
     assert "title" in result.assessment
+
+
+def test_local_update_clears_team_provenance_but_preserves_legacy_extra() -> None:
+    decision = Decision(
+        date=date(2026, 1, 1),
+        confidence="medium",
+        num=1,
+        title="Adopt PostgreSQL",
+        rationale="Mature ecosystem with strong JSON support and excellent tooling.",
+        proposed_by="01K00000000000000000000002",
+        approved_by="01K00000000000000000000003",
+        approved_at="2026-08-14T09:10:11.123456Z",
+        proposal_id="01K00000000000000000000001",
+        proposed_base_commit="a" * 40,
+        base_commit="b" * 40,
+    )
+    store = InMemoryStore(decisions={"001-adopt-postgresql": format_decision(decision)})
+    result = propose_decision(
+        store,
+        title=None,
+        rationale="Add a managed-extensions clause after production evidence.",
+        operation="update",
+        affected_decision_id="decision-001",
+    )
+    assert result.status == "confirmed"
+    body = store.read_decision("001-adopt-postgresql")
+    assert body is not None
+    assert "proposed_by:" not in body
+    assert "approved_by:" not in body
+    assert "approved_at:" not in body
+    assert "proposal_id:" not in body
+    assert "proposed_base_commit:" not in body
+    assert f"base_commit: {'b' * 40}" in body
 
 
 # ── Tier 1 structural rejection ─────────────────────────────────────────
