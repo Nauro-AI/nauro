@@ -4,6 +4,7 @@ from datetime import date as _date
 from datetime import datetime, timedelta, timezone
 
 from nauro_core.constants import (
+    L0_QUESTIONS_LIMIT,
     PROJECT_MD_SCAFFOLD_BODY,
     QUESTION_ENTRY_CHAR_BUDGET,
     STACK_AUTO_CHAR_BUDGET,
@@ -354,8 +355,8 @@ class TestBuildL2:
         # Every project/stack/questions string L1 surfaces must also appear in
         # the full dump, and L2 must additionally carry superseded decisions
         # and the nested stack rationale L1's bounded projection drops.
-        # L1's omission trailer and age-nudge lines are projection annotations,
-        # not store content, so they are absent from L2 (same as L0's today).
+        # L0/L1 omission trailers and age-nudge lines are projection annotations,
+        # not store content, so they are absent from L2.
         l1 = build_l1(FULL_FILES, DECISIONS)
         l2 = build_l2(FULL_FILES, DECISIONS)
         for marker in (
@@ -438,7 +439,7 @@ class TestBuildL0OpenQuestionsAgeProjection:
         assert self._PROJECTION_PREFIX not in result
 
     def test_only_first_three_open_entries_render(self):
-        # Honours L0_QUESTIONS_LIMIT (3). The fourth open entry is dropped
+        # Honours L0_QUESTIONS_LIMIT (3). The fourth open entry is omitted
         # even when older than 30 days; the projection doesn't expand the cap.
         today = self._today()
         content = (
@@ -454,6 +455,10 @@ class TestBuildL0OpenQuestionsAgeProjection:
         assert "second?" in result
         assert "third?" in result
         assert "fourth?" not in result
+        assert (
+            '(+1 more open questions — see get_raw_file("open-questions.md") '
+            "for the full file, including resolved history)"
+        ) in result
 
     def test_resolved_entries_skipped_in_l0(self):
         # Entries physically under ## Resolved (position-based partition)
@@ -551,8 +556,8 @@ class TestBuildL0DiscoveryPointerExclusion:
         assert "SELECT:" not in result
 
     def test_pointer_does_not_consume_limit_slot(self):
-        # With limit = 3, three genuine questions plus two pointers should all
-        # three genuine questions appear (pointers do not count toward the cap).
+        # The three pointers consume no slots, and the trailer counts only the
+        # fourth genuine question omitted beyond the cap.
         content = (
             "# Open Questions\n"
             "\n"
@@ -562,6 +567,7 @@ class TestBuildL0DiscoveryPointerExclusion:
             "- [Q4] RESUME: context/b.md — pointer two\n"
             "- [Q5] Third genuine question?\n"
             "- [Q6] Fourth genuine question — should be cut by limit?\n"
+            "- [Q7] SELECT: context/c.md — pointer three\n"
         )
         result = build_l0(self._files(content), [])
         assert "First genuine question?" in result
@@ -570,6 +576,11 @@ class TestBuildL0DiscoveryPointerExclusion:
         assert "Fourth genuine question" not in result
         assert "BRIEF:" not in result
         assert "RESUME:" not in result
+        assert "SELECT:" not in result
+        assert (
+            '(+1 more open questions — see get_raw_file("open-questions.md") '
+            "for the full file, including resolved history)"
+        ) in result
 
     def test_pointer_free_file_unaffected(self):
         content = (
@@ -732,12 +743,36 @@ class TestBuildL1OpenQuestionsProjection:
         assert "(open 45 days; consider closing or deferring)" in result
         assert "Stale at L1?" in result
 
-    def test_l0_never_carries_trailer(self):
-        # The trailer is an L1 annotation only; L0 output stays byte-stable
-        # (the surface parity baseline pins L0 bytes).
-        content = "# Open Questions\n\n" + self._genuine(12)
+    def test_l0_cap_enforced_with_exact_trailer(self):
+        content = "# Open Questions\n\n" + self._genuine(5)
         result = build_l0(self._files(content), [])
-        assert "more open questions" not in result
+
+        assert L0_QUESTIONS_LIMIT == 3
+        for i in range(1, 4):
+            assert f"Genuine question {i}?" in result
+        assert "Genuine question 4?" not in result
+        assert "Genuine question 5?" not in result
+        assert self._TRAILER_2 in result
+        assert result.count("more open questions") == 1
+
+    def test_l0_trailer_absent_at_or_below_cap(self):
+        for count in (L0_QUESTIONS_LIMIT - 1, L0_QUESTIONS_LIMIT):
+            content = "# Open Questions\n\n" + self._genuine(count)
+            result = build_l0(self._files(content), [])
+
+            assert f"Genuine question {count}?" in result
+            assert "more open questions" not in result
+
+    def test_l0_and_l1_use_identical_trailer_for_same_omitted_count(self):
+        l0 = build_l0(
+            self._files("# Open Questions\n\n" + self._genuine(L0_QUESTIONS_LIMIT + 2)),
+            [],
+        )
+        l1 = build_l1(self._files("# Open Questions\n\n" + self._genuine(12)), [])
+
+        l0_trailer = next(line for line in l0.splitlines() if line.startswith("(+"))
+        l1_trailer = next(line for line in l1.splitlines() if line.startswith("(+"))
+        assert l0_trailer == l1_trailer == self._TRAILER_2
 
 
 class TestQuestionEntryCharBudget:

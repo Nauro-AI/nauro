@@ -333,6 +333,31 @@ def test_sync_agents_md_truncates_over_budget_question_like_l0(tmp_path: Path, m
     assert "UNIQUE-TAIL-MARKER" not in content
 
 
+def test_sync_agents_md_carries_l0_question_omission_trailer(tmp_path: Path, monkeypatch):
+    from nauro.store.registry import register_project_v2
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _pid, store = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    questions = "".join(f"- [Q{i}] Genuine question {i}?\n" for i in range(1, 6))
+    (store / "open-questions.md").write_text("# Open Questions\n\n" + questions)
+    monkeypatch.chdir(repo)
+
+    result = runner.invoke(app, ["sync"])
+    assert result.exit_code == 0
+
+    content = (repo / "AGENTS.md").read_text()
+    assert "Genuine question 1?" in content
+    assert "Genuine question 3?" in content
+    assert "Genuine question 4?" not in content
+    assert "Genuine question 5?" not in content
+    assert (
+        '(+2 more open questions — see get_raw_file("open-questions.md") '
+        "for the full file, including resolved history)"
+    ) in content
+
+
 def test_sync_multi_repo(tmp_path: Path, monkeypatch):
     from nauro.store.registry import register_project_v2
 

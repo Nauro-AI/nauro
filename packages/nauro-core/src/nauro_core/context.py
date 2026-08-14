@@ -280,13 +280,13 @@ def _render_open_questions(
 
 
 def _render_l0_open_questions(content: str) -> str:
-    """Render the L0 open-questions body: top 3 genuine entries, no trailer."""
+    """Render the L0 open-questions body with its capped omission report."""
     if not content.strip():
         return ""
     return _render_open_questions(
         OpenQuestionsFile.parse(content),
         L0_QUESTIONS_LIMIT,
-        include_omission_trailer=False,
+        include_omission_trailer=True,
     )
 
 
