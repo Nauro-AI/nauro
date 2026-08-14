@@ -35,7 +35,6 @@ from typing import Literal
 
 from nauro_core.constants import (
     DECISION_HASHES_FILE,
-    MIN_RATIONALE_LENGTH,
     OPEN_QUESTIONS_MD,
 )
 from nauro_core.decision_model import (
@@ -49,12 +48,23 @@ from nauro_core.decision_model import (
     format_decision,
     parse_decision,
 )
+from nauro_core.operations._decision_transitions import (
+    attach_supersedes,
+    mark_superseded,
+    resolve_questions_content,
+    slugify_decision_title,
+)
+from nauro_core.operations._proposal_evaluation import (
+    evaluate_parsed_proposal,
+    validate_question_resolves,
+    validate_update_metadata,
+    validate_update_rationale,
+)
 from nauro_core.operations.decision_lookup import (
     find_decision_stem_by_id,
     find_decision_stem_by_num,
     parse_all_decisions,
 )
-from nauro_core.operations.related_hits import to_related_decisions
 from nauro_core.operations.results import (
     ErrorPayload,
     ProposeDecisionResult,
@@ -66,29 +76,11 @@ from nauro_core.parsing import (
     _decision_path,
     extract_decision_number,
 )
-from nauro_core.questions import EntryBlock, OpenQuestionsFile
+from nauro_core.questions import OpenQuestionsFile
 from nauro_core.validation import (
-    check_bm25_similarity,
     compute_hash,
     rejected_item_label,
-    screen_structural,
 )
-
-# operation="update" appends rationale only — update_decision reads only
-# affected_decision_id + rationale. Any value in these fields would be
-# silently dropped on local stdio (and rejected on remote MCP); reject
-# loudly at the boundary so the wording in PROPOSE_DECISION_OPERATIONS holds
-# on both transports.
-_UPDATE_DISALLOWED_FIELDS: tuple[str, ...] = (
-    "title",
-    "rejected",
-    "files_affected",
-    "decision_type",
-    "reversibility",
-    "confidence",
-)
-
-_SLUG_MAX_LENGTH = 60
 
 
 @dataclass(frozen=True)
@@ -146,93 +138,37 @@ def propose_decision(
         "base_commit": base_commit,
     }
 
-    # --- operation="update": reject metadata fields up front ---
-    if operation == "update":
-        disallowed = [
-            name
-            for name in _UPDATE_DISALLOWED_FIELDS
-            if proposal.get(name)
-            and (not isinstance(proposal.get(name), str) or proposal.get(name).strip())
-        ]
-        if disallowed:
-            return ProposeDecisionResult(
-                status="rejected",
-                tier=0,
-                operation="update",
-                assessment=(
-                    'operation="update" appends rationale only; cannot change '
-                    f"{', '.join(disallowed)}. "
-                    'Use operation="supersede" to replace the decision with new metadata.'
-                ),
-            )
-
-    # --- resolves_questions: unknown / ambiguous ids reject at boundary ---
     requested_resolves = list(proposal.get("resolves_questions") or [])
-    if requested_resolves:
-        questions_file = _load_questions_file(store)
-        unknown = _unknown_question_ids(requested_resolves, questions_file)
-        if unknown:
-            return ProposeDecisionResult(
-                status="rejected",
-                tier=0,
-                operation=operation,
-                assessment=(
-                    "resolves_questions contains unknown id(s): "
-                    + ", ".join(repr(x) for x in unknown)
-                    + ". Call get_context (L0 lists every open question) to "
-                    "see the canonical ids in open-questions.md."
-                ),
-            )
-        ambiguous = _ambiguous_question_ids(requested_resolves, questions_file)
-        if ambiguous:
-            offenders = "; ".join(
-                f"{requested!r} matches {len(counterparts)} entries — disambiguate "
-                f"to one of: {', '.join(counterparts)}"
-                for requested, counterparts in ambiguous.items()
-            )
-            return ProposeDecisionResult(
-                status="rejected",
-                tier=0,
-                operation=operation,
-                assessment="resolves_questions contains ambiguous id(s): " + offenders + ".",
-            )
+    request_rejection = validate_update_metadata(proposal, operation=operation)
+    if request_rejection is not None:
+        return request_rejection
+    request_rejection = validate_question_resolves(
+        proposal,
+        operation=operation,
+        questions_file=_load_questions_file(store) if requested_resolves else None,
+    )
+    if request_rejection is not None:
+        return request_rejection
+    request_rejection = validate_update_rationale(proposal, operation=operation)
+    if request_rejection is not None:
+        return request_rejection
 
-    # --- Tier 1: structural screening ---
-    # ``parsed`` is the single corpus scan shared between Tier 1 active-title
-    # dedup and Tier 2 BM25. It stays None on the update early-reject path so a
-    # short-rationale update rejects without scanning the corpus at all.
-    parsed: list[Decision] | None = None
-    if operation == "update":
-        rationale_stripped = (proposal.get("rationale") or "").strip()
-        if not rationale_stripped:
-            action, reason = "reject", "Rationale is empty."
-        elif len(rationale_stripped) < MIN_RATIONALE_LENGTH:
-            action, reason = (
-                "reject",
-                f"Rationale too short ({len(rationale_stripped)} chars). "
-                f"Minimum {MIN_RATIONALE_LENGTH}.",
-            )
-        else:
-            action, reason = "pass", None
-    else:
-        parsed = parse_all_decisions(store)
-        action, reason = _screen_structural(store, proposal, parsed, affected_decision_id)
+    parsed = parse_all_decisions(store)
+    evaluation = evaluate_parsed_proposal(
+        proposal,
+        operation=operation,
+        decisions=parsed,
+        existing_hashes=set(_load_hash_index(store)) if operation != "update" else set(),
+        affected_number=(
+            extract_decision_number(affected_decision_id) if affected_decision_id else None
+        ),
+        enforce_claim_conflicts=True,
+    )
+    if isinstance(evaluation, ProposeDecisionResult):
+        return evaluation
 
-    if action == "reject":
-        return ProposeDecisionResult(
-            status="rejected",
-            tier=1,
-            operation="reject",
-            assessment=reason or "Structural validation failed.",
-        )
+    similar_models = list(evaluation.similar_decisions)
 
-    # --- Tier 2: BM25 similarity (advisory only — does not gate the write) ---
-    if parsed is None:
-        parsed = parse_all_decisions(store)
-    _t2_action, similar_raw = check_bm25_similarity(proposal, parsed)
-    similar_models = to_related_decisions(similar_raw, parsed)
-
-    # --- Commit ---
     decision_id, actual_operation, touched, resolve_outcome, error = _execute_operation(
         store, operation, proposal, affected_decision_id
     )
@@ -247,19 +183,11 @@ def propose_decision(
             similar_decisions=similar_models,
         )
 
-    if similar_models:
-        assessment = (
-            "Tier 2 surfaced similar decisions; review them and confirm with the "
-            "user before proposing further related writes."
-        )
-    else:
-        assessment = "No similar existing decisions found."
-
     return ProposeDecisionResult(
         status="confirmed",
         tier=2,
         operation=actual_operation,
-        assessment=assessment,
+        assessment=evaluation.assessment,
         similar_decisions=similar_models,
         decision_id=decision_id,
         touched_decisions=list(touched),
@@ -279,7 +207,7 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
     """
     next_num = _next_decision_num(store)
     title = proposal.get("title", "Untitled")
-    slug = _slugify(title)
+    slug = slugify_decision_title(title)
     filename = f"{_decision_number_prefix(next_num)}{slug}"
     rationale = proposal.get("rationale") or title
 
@@ -314,37 +242,6 @@ def _write_decision_direct(store: Store, proposal: dict) -> str:
 
     _update_hash_index(store, title, rationale, filename)
     return filename
-
-
-# ── Tier 1 helpers ────────────────────────────────────────────────────────
-
-
-def _screen_structural(
-    store: Store,
-    proposal: dict,
-    parsed: list[Decision],
-    affected_decision_id: str | None,
-) -> tuple[str, str | None]:
-    """Run Tier 1 structural screening with hashes + active-title dedup.
-
-    Title dedup keys on active status, not recency: an add or supersede whose
-    normalized title matches any active decision is rejected regardless of the
-    matched decision's age. ``parsed`` is the shared corpus scan reused for
-    Tier 2 BM25, so this does not re-read the store.
-
-    The supersede target is excluded from the dedup set. Screening runs before
-    the supersede flip, so the target is still active at this point; without
-    the exclusion a same-title supersede of an established decision would
-    self-reject. A supersede whose new title collides with a *different* active
-    decision still rejects.
-    """
-    hash_index = _load_hash_index(store)
-    existing_hashes = set(hash_index.keys())
-    affected_num = extract_decision_number(affected_decision_id) if affected_decision_id else None
-    dedup_decisions = [
-        d for d in parsed if d.status is DecisionStatus.active and d.num != affected_num
-    ]
-    return screen_structural(proposal, existing_hashes, dedup_decisions)
 
 
 def _load_hash_index(store: Store) -> dict:
@@ -440,7 +337,7 @@ def _do_supersede(
             ),
         )
     new_decision = parse_decision(new_body, _decision_filename(new_decision_id))
-    new_decision_rewritten = new_decision.model_copy(update={"supersedes": str(old_num)})
+    new_decision_rewritten = attach_supersedes(new_decision, old_num)
     store.write_file(
         _decision_path(new_decision_id),
         format_decision(new_decision_rewritten),
@@ -481,12 +378,7 @@ def _do_supersede(
         )
     try:
         old_decision = parse_decision(old_body, _decision_filename(old_stem))
-        old_rewritten = old_decision.model_copy(
-            update={
-                "status": DecisionStatus.superseded,
-                "superseded_by": str(new_num),
-            }
-        )
+        old_rewritten = mark_superseded(old_decision, new_num)
         store.write_file(
             _decision_path(old_stem),
             format_decision(old_rewritten),
@@ -595,10 +487,13 @@ def _apply_question_resolves(
         return _QuestionResolveOutcome(), None
     try:
         content = store.read_file(OPEN_QUESTIONS_MD) or ""
-        questions_file = OpenQuestionsFile.parse(content)
-        result = questions_file.resolve(ids, num, datetime.now(timezone.utc).date())
-        normalized = result.file.normalize()
-        store.write_file(OPEN_QUESTIONS_MD, normalized.file.format())
+        transition = resolve_questions_content(
+            content,
+            question_ids=ids,
+            decision_number=num,
+            resolved_date=datetime.now(timezone.utc).date(),
+        )
+        store.write_file(OPEN_QUESTIONS_MD, transition.content)
     except Exception as exc:
         return _QuestionResolveOutcome(), ErrorPayload(
             kind="error",
@@ -609,15 +504,12 @@ def _apply_question_resolves(
         )
     return (
         _QuestionResolveOutcome(
-            resolved_ids=result.moved_ids,
-            relocated_ids=normalized.relocated_ids,
-            skipped_prose_ids=normalized.skipped_prose_ids,
+            resolved_ids=transition.resolved_ids,
+            relocated_ids=transition.relocated_ids,
+            skipped_prose_ids=transition.skipped_prose_ids,
         ),
         None,
     )
-
-
-# ── Question-id boundary helpers ──────────────────────────────────────────
 
 
 def _load_questions_file(store: Store) -> OpenQuestionsFile | None:
@@ -625,38 +517,6 @@ def _load_questions_file(store: Store) -> OpenQuestionsFile | None:
     if content is None:
         return None
     return OpenQuestionsFile.parse(content)
-
-
-def _unknown_question_ids(
-    ids: list[str],
-    questions_file: OpenQuestionsFile | None,
-) -> list[str]:
-    if questions_file is None:
-        return list(ids)
-    known = questions_file.known_question_ids
-    return [tid for tid in ids if tid not in known]
-
-
-def _ambiguous_question_ids(
-    ids: list[str],
-    questions_file: OpenQuestionsFile | None,
-) -> dict[str, list[str]]:
-    if questions_file is None:
-        return {}
-    collisions = questions_file.ambiguous_ids
-    requested_ambiguous = [tid for tid in ids if tid in collisions]
-    if not requested_ambiguous:
-        return {}
-
-    counterparts: dict[str, list[str]] = {tid: [] for tid in requested_ambiguous}
-    for block in questions_file.blocks:
-        if not isinstance(block, EntryBlock):
-            continue
-        eid = block.entry.id
-        if eid in counterparts:
-            slot = f"Q{block.entry.num}" if block.entry.num is not None else "<no-Q-id>"
-            counterparts[eid].append(slot)
-    return counterparts
 
 
 # ── Decision write plumbing ───────────────────────────────────────────────
@@ -670,27 +530,6 @@ def _next_decision_num(store: Store) -> int:
         if n is not None:
             nums.append(n)
     return max(nums, default=0) + 1
-
-
-def _slugify(title: str) -> str:
-    out_chars: list[str] = []
-    prev_dash = False
-    for ch in title.lower():
-        if ch.isalnum():
-            out_chars.append(ch)
-            prev_dash = False
-        elif not prev_dash:
-            out_chars.append("-")
-            prev_dash = True
-    slug = "".join(out_chars).strip("-")
-    if len(slug) > _SLUG_MAX_LENGTH:
-        truncated = slug[:_SLUG_MAX_LENGTH]
-        # Prefer cutting at a word boundary, but only while that keeps at
-        # least half the cap: a title whose only dash sits early would
-        # otherwise collapse to a near-empty slug (and filename).
-        trimmed = truncated.rsplit("-", 1)[0]
-        slug = trimmed if len(trimmed) >= _SLUG_MAX_LENGTH // 2 else truncated
-    return slug
 
 
 def _optional_enum(raw, enum_cls):
