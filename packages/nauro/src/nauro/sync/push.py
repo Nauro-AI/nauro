@@ -21,7 +21,7 @@ from pathlib import Path
 import typer
 from nauro_core.constants import MAX_BRIEF_BYTES
 
-from nauro.cli.commands.auth import AuthRefreshError, load_access_token
+from nauro.auth import AuthRefreshError, load_access_token
 from nauro.store.registry import is_cloud_project
 from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError, sync_lock
 from nauro.sync.merge import CONFLICT_BACKUP_DIR, should_skip

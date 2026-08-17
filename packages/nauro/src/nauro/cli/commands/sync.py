@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import typer
 
-from nauro.cli.commands.auth import load_access_token
+from nauro.auth import load_access_token
 from nauro.cli.integrations.outcomes import BridgeOutcome
 from nauro.cli.integrations.render import render
 from nauro.cli.utils import resolve_target_project

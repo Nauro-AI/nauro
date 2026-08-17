@@ -18,8 +18,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-import nauro.cli.commands.auth as auth_mod
-from nauro.cli.commands.auth import (
+import nauro.auth as auth_mod
+from nauro.auth import (
     AuthRefreshError,
     refresh_access_token,
     with_token_refresh,
@@ -51,7 +51,7 @@ class TestRefreshAccessToken:
         _seed_auth(refresh_token="refresh_orig", access_token="access_orig")
 
         with patch(
-            "nauro.cli.commands.auth.httpx.post",
+            "nauro.auth.httpx.post",
             return_value=_mock_post(200, {"access_token": "access_new"}),
         ):
             new_token = refresh_access_token()
@@ -66,7 +66,7 @@ class TestRefreshAccessToken:
         _seed_auth(refresh_token="refresh_orig")
 
         with patch(
-            "nauro.cli.commands.auth.httpx.post",
+            "nauro.auth.httpx.post",
             return_value=_mock_post(
                 200, {"access_token": "access_new", "refresh_token": "refresh_rotated"}
             ),
@@ -81,7 +81,7 @@ class TestRefreshAccessToken:
         _seed_auth(refresh_token="refresh_orig")
 
         with patch(
-            "nauro.cli.commands.auth.httpx.post",
+            "nauro.auth.httpx.post",
             return_value=_mock_post(200, {"access_token": "access_new"}),
         ):
             refresh_access_token()
@@ -97,7 +97,7 @@ class TestRefreshAccessToken:
             {"error": "invalid_grant", "error_description": "refresh token expired"},
         )
         with (
-            patch("nauro.cli.commands.auth.httpx.post", return_value=bad),
+            patch("nauro.auth.httpx.post", return_value=bad),
             pytest.raises(AuthRefreshError),
         ):
             refresh_access_token()
@@ -112,7 +112,7 @@ class TestRefreshAccessToken:
 
         with (
             patch(
-                "nauro.cli.commands.auth.httpx.post",
+                "nauro.auth.httpx.post",
                 side_effect=httpx.ConnectError("dns failure"),
             ),
             pytest.raises(AuthRefreshError),
@@ -142,8 +142,8 @@ class TestRefreshRateLimitBackoff:
         post = MagicMock(side_effect=[rate_limited, ok])
 
         with (
-            patch("nauro.cli.commands.auth.httpx.post", post),
-            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+            patch("nauro.auth.httpx.post", post),
+            patch("nauro.auth.time.sleep") as sleep,
         ):
             new_token = refresh_access_token()
 
@@ -159,8 +159,8 @@ class TestRefreshRateLimitBackoff:
         post = MagicMock(return_value=rate_limited)
 
         with (
-            patch("nauro.cli.commands.auth.httpx.post", post),
-            patch("nauro.cli.commands.auth.time.sleep"),
+            patch("nauro.auth.httpx.post", post),
+            patch("nauro.auth.time.sleep"),
             pytest.raises(AuthRefreshError, match="rate-limiting"),
         ):
             refresh_access_token()
@@ -180,8 +180,8 @@ class TestRefreshRateLimitBackoff:
         post = MagicMock(return_value=bad)
 
         with (
-            patch("nauro.cli.commands.auth.httpx.post", post),
-            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+            patch("nauro.auth.httpx.post", post),
+            patch("nauro.auth.time.sleep") as sleep,
             pytest.raises(AuthRefreshError),
         ):
             refresh_access_token()
@@ -197,8 +197,8 @@ class TestRefreshRateLimitBackoff:
         post = MagicMock(side_effect=[rate_limited, ok])
 
         with (
-            patch("nauro.cli.commands.auth.httpx.post", post),
-            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+            patch("nauro.auth.httpx.post", post),
+            patch("nauro.auth.time.sleep") as sleep,
         ):
             refresh_access_token()
 
@@ -214,8 +214,8 @@ class TestRefreshRateLimitBackoff:
         post = MagicMock(side_effect=[rate_limited, ok])
 
         with (
-            patch("nauro.cli.commands.auth.httpx.post", post),
-            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+            patch("nauro.auth.httpx.post", post),
+            patch("nauro.auth.time.sleep") as sleep,
         ):
             new_token = refresh_access_token()
 
@@ -253,7 +253,7 @@ class TestRefreshSingleFlight:
             with collect:
                 results.append(token)
 
-        with patch("nauro.cli.commands.auth.httpx.post", post):
+        with patch("nauro.auth.httpx.post", post):
             threads = [threading.Thread(target=worker) for _ in range(n)]
             for thread in threads:
                 thread.start()
@@ -271,7 +271,7 @@ class TestRefreshSingleFlight:
         _seed_auth(refresh_token="refresh_orig", access_token="access_fresh")
 
         post = MagicMock()
-        with patch("nauro.cli.commands.auth.httpx.post", post):
+        with patch("nauro.auth.httpx.post", post):
             token = refresh_access_token(stale_access_token="access_stale")
 
         assert token == "access_fresh"
@@ -286,7 +286,7 @@ class TestRefreshSingleFlight:
         auth_mod._REFRESH_LOCK.acquire()
         try:
             with (
-                patch("nauro.cli.commands.auth.httpx.post", post),
+                patch("nauro.auth.httpx.post", post),
                 patch.object(auth_mod, "_REFRESH_LOCK_TIMEOUT_SECONDS", 0.05),
                 pytest.raises(AuthRefreshError),
             ):
@@ -314,7 +314,7 @@ class TestRefreshSingleFlight:
             )
             return _mock_post(200, {"access_token": "access_new"})
 
-        with patch("nauro.cli.commands.auth.httpx.post", side_effect=concurrent_then_ok):
+        with patch("nauro.auth.httpx.post", side_effect=concurrent_then_ok):
             token = refresh_access_token(stale_access_token="access_orig")
 
         assert token == "access_other"
@@ -333,7 +333,7 @@ class TestRefreshSingleFlight:
             return _mock_post(200, {"access_token": "access_new"})
 
         with (
-            patch("nauro.cli.commands.auth.httpx.post", side_effect=logout_then_ok),
+            patch("nauro.auth.httpx.post", side_effect=logout_then_ok),
             pytest.raises(AuthRefreshError, match="cleared during refresh"),
         ):
             refresh_access_token(stale_access_token="access_orig")
@@ -353,7 +353,7 @@ class TestWithTokenRefresh:
         ok.status_code = 200
         call = MagicMock(return_value=ok)
 
-        with patch("nauro.cli.commands.auth.httpx.post") as mock_post:
+        with patch("nauro.auth.httpx.post") as mock_post:
             result = with_token_refresh(call)
 
         assert result.status_code == 200
@@ -371,7 +371,7 @@ class TestWithTokenRefresh:
         call = MagicMock(side_effect=[unauthorized, ok])
 
         refresh_response = _mock_post(200, {"access_token": "access_new"})
-        with patch("nauro.cli.commands.auth.httpx.post", return_value=refresh_response):
+        with patch("nauro.auth.httpx.post", return_value=refresh_response):
             result = with_token_refresh(call)
 
         assert result is ok
@@ -389,7 +389,7 @@ class TestWithTokenRefresh:
 
         bad_refresh = _mock_post(400, {"error": "invalid_grant"})
         with (
-            patch("nauro.cli.commands.auth.httpx.post", return_value=bad_refresh),
+            patch("nauro.auth.httpx.post", return_value=bad_refresh),
             pytest.raises(AuthRefreshError),
         ):
             with_token_refresh(call)
@@ -407,7 +407,7 @@ class TestWithTokenRefresh:
         call = MagicMock(return_value=unauthorized)
 
         refresh_response = _mock_post(200, {"access_token": "access_new"})
-        with patch("nauro.cli.commands.auth.httpx.post", return_value=refresh_response):
+        with patch("nauro.auth.httpx.post", return_value=refresh_response):
             result = with_token_refresh(call)
 
         assert result.status_code == 401

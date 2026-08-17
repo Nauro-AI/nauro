@@ -15,8 +15,8 @@ from pathlib import Path
 
 import typer
 
+from nauro.auth import DEFAULT_API_URL
 from nauro.cli._reporters import StderrReporter
-from nauro.cli.commands.auth import DEFAULT_API_URL
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REPO_CONFIG_MODE_CLOUD

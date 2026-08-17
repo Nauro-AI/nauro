@@ -131,7 +131,7 @@ def test_create_project_stale_token_refreshed_transparently(tmp_path, monkeypatc
 
     with (
         _stub_request(handler),
-        patch("nauro.cli.commands.auth.httpx.post", return_value=auth0_response),
+        patch("nauro.auth.httpx.post", return_value=auth0_response),
     ):
         view = create_project("demo")
 
@@ -166,7 +166,7 @@ def test_create_project_persistent_401_after_refresh_raises_distinct_message(tmp
 
     with (
         _stub_request(handler),
-        patch("nauro.cli.commands.auth.httpx.post", return_value=auth0_response),
+        patch("nauro.auth.httpx.post", return_value=auth0_response),
         pytest.raises(CloudProjectError) as exc,
     ):
         create_project("demo")

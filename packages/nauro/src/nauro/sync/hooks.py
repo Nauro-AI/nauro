@@ -31,7 +31,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from nauro.cli.commands.auth import load_access_token
+from nauro.auth import load_access_token
 from nauro.store.registry import is_cloud_project
 
 if TYPE_CHECKING:
@@ -107,7 +107,7 @@ def push_after_write(project_id: str, store_path: Path) -> PushReport:
         return PushReport()
 
     try:
-        from nauro.cli.commands.auth import AuthRefreshError
+        from nauro.auth import AuthRefreshError
         from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
         from nauro.sync.push import push_changed_files
         from nauro.sync.remote import PresignError
