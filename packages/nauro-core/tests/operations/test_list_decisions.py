@@ -145,3 +145,9 @@ def test_store_field_absent_from_result_model_dump() -> None:
     result = list_decisions(InMemoryStore())
     dumped = result.model_dump(mode="json")
     assert "store" not in dumped
+
+
+def test_rows_lead_with_the_newest_decision_past_999() -> None:
+    seeds = (_seed_decision(num, f"Decision {num}") for num in (998, 999, 1000, 1001))
+    result = list_decisions(_store_with(*seeds))
+    assert [row.number for row in result.decisions] == [1001, 1000, 999, 998]

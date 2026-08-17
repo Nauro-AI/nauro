@@ -42,6 +42,10 @@ class Store(Protocol):
         The list is sorted in lexicographic order. Stems map 1:1 to decision
         files under the canonical ``decisions/`` directory; callers reach
         the body via :meth:`read_decision`.
+
+        Lexicographic order is not chronological order: a caller that reads
+        list position as recency orders the stems through
+        :func:`~nauro_core.parsing.sort_stems_by_number` first.
         """
         ...
 

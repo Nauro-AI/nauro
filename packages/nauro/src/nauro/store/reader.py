@@ -7,6 +7,7 @@ from pathlib import Path
 
 from nauro_core import parse_decision
 from nauro_core.decision_model import Decision
+from nauro_core.parsing import sort_stems_by_number
 
 from nauro.constants import DECISIONS_DIR
 
@@ -24,13 +25,17 @@ def read_text_lenient(path: Path) -> str:
 
 
 def _list_decisions(store_path: Path) -> list[Decision]:
-    """Parse all decision files, return ``Decision`` objects sorted by number."""
+    """Parse all decision files, return ``Decision`` objects sorted by number.
+
+    The order is :func:`sort_stems_by_number`, not a sort on the filenames.
+    """
     decisions_dir = store_path / DECISIONS_DIR
     if not decisions_dir.exists():
         return []
 
+    by_stem = {f.stem: f for f in decisions_dir.glob("*.md")}
     results: list[Decision] = []
-    for f in sorted(decisions_dir.glob("*.md")):
-        content = read_text_lenient(f)
-        results.append(parse_decision(content, f.name))
+    for stem in sort_stems_by_number(by_stem):
+        path = by_stem[stem]
+        results.append(parse_decision(read_text_lenient(path), path.name))
     return results

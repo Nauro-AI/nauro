@@ -19,6 +19,7 @@ from nauro_core.parsing import (
     _decision_filename,
     _decision_number_prefix,
     extract_decision_number,
+    sort_stems_by_number,
 )
 
 logger = logging.getLogger("nauro_core.operations.decision_lookup")
@@ -47,17 +48,16 @@ def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
     than raising. :func:`parse_all_decisions` consumes only the parsed list;
     ``doctor`` consumes both.
 
-    Bodies are fetched in one bulk :meth:`Store.read_decisions` call, but the
-    scan still reasserts :meth:`Store.list_decisions` order: it iterates the
-    stem list (not the returned mapping, which carries no ordering guarantee)
-    so the parsed list follows ``list_decisions`` verbatim. That ordering is
-    load-bearing — BM25 ranking breaks ties by corpus position, so a stable
-    parse order keeps retrieval byte-identical. No filtering is applied here;
-    callers that need a status or seed filter apply it after the scan returns.
+    The parsed list is ordered by :func:`sort_stems_by_number`, not by the
+    lexicographic order :meth:`Store.list_decisions` returns and not by the
+    bulk-read mapping, which carries no ordering guarantee. Callers downstream
+    read list position as chronology and BM25 breaks ranking ties by corpus
+    position, so this is the one place that order is set. No filtering is
+    applied here; callers that need a status or seed filter apply it after.
     """
     parsed: list[Decision] = []
     failures: list[ParseFailure] = []
-    stems = store.list_decisions()
+    stems = sort_stems_by_number(store.list_decisions())
     bodies = store.read_decisions(stems)
     for stem in stems:
         body = bodies.get(stem)

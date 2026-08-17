@@ -18,6 +18,7 @@ from nauro_core.parsing import (
     is_ascii_decimal,
     is_scaffold_project_md,
     scan_decision_references,
+    sort_stems_by_number,
     strip_leading_h1,
 )
 
@@ -284,6 +285,34 @@ class TestDecisionNumberFormatters:
     @pytest.mark.parametrize("num", _FORMATTER_NUMBERS)
     def test_decision_number_prefix_matches_inline(self, num: int) -> None:
         assert _decision_number_prefix(num) == f"{num:03d}-"
+
+
+class TestSortStemsByNumber:
+    def test_four_digit_stem_sorts_after_three_digit_stems(self) -> None:
+        stems = ["100-a", "1000-d", "101-b", "999-c"]
+        assert sort_stems_by_number(stems) == ["100-a", "101-b", "999-c", "1000-d"]
+
+    def test_three_digit_store_keeps_lexicographic_order(self) -> None:
+        stems = ["007-g", "001-a", "042-e", "999-z", "003-c"]
+        assert sort_stems_by_number(stems) == sorted(stems)
+
+    def test_stems_sharing_a_number_keep_lexicographic_order(self) -> None:
+        stems = ["005-zulu", "005-alpha", "004-x"]
+        assert sort_stems_by_number(stems) == ["004-x", "005-alpha", "005-zulu"]
+
+    def test_unnumbered_stems_sort_after_numbered_ones(self) -> None:
+        stems = ["notes", "-orphan", "0100-a", "010-b"]
+        assert sort_stems_by_number(stems) == ["010-b", "0100-a", "-orphan", "notes"]
+
+    def test_repeated_stem_is_stable(self) -> None:
+        stems = ["002-b", "001-a", "002-b"]
+        assert sort_stems_by_number(stems) == ["001-a", "002-b", "002-b"]
+
+    def test_accepts_any_iterable(self) -> None:
+        assert sort_stems_by_number(s for s in ("1000-d", "999-c")) == ["999-c", "1000-d"]
+
+    def test_empty_input_returns_empty_list(self) -> None:
+        assert sort_stems_by_number([]) == []
 
 
 class TestDecisionFilenameFormatters:
