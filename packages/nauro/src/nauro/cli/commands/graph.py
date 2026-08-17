@@ -1,26 +1,17 @@
 """nauro graph — render the decision graph to a self-contained HTML file.
 
-Reads the local store, builds the versioned graph payload in nauro-core, and
-writes one read-only HTML document with four views (Graph by default, then
-Lineage, Timeline, and Browse) and an integrated open-questions list. The output
-lands in the store directory by default because the HTML embeds the decision
-store (titles, metadata, open-question summaries, and full bodies by default); a
-current-directory default would invite committing that store extract into a
-repo. ``--output`` overrides the location, and ``--open`` (default on) opens the
-file in a browser.
+Reads the local store, builds the versioned graph payload in nauro-core, and writes
+one read-only HTML document with four views (Graph, Lineage, Timeline, Browse) and
+an integrated open-questions list. ``--open`` (default on) opens it in a browser.
 
-The full bodies are rendered as structured HTML in the detail panel so the
-background context reads at a glance. ``--no-include-bodies`` drops the bodies
-for a redacted artifact (titles and metadata only) that is safe to share more
-widely. The store-directory output default still keeps the file out of git
-working trees in both modes.
+The output lands in the store directory by default because the HTML embeds a store
+extract — titles, metadata, question summaries, and full bodies unless
+``--no-include-bodies`` — and a current-directory default would invite committing
+that into a repo. ``--output`` overrides the location.
 
-``--format json`` emits the graph payload as a JSON document on stdout instead
-of writing an HTML file: it builds the same payload, creates no file, and never
-opens a browser (``--open`` is inapplicable and unconditionally skipped). It is
-the machine-read the desktop viewer consumes. ``--output`` is not honored
-in JSON mode and errors, because JSON is a stdout contract; shell redirection
-covers a human who wants a file.
+``--format json`` emits the same payload on stdout instead: no file is written and
+no browser opens. It is the machine-read the desktop viewer consumes. ``--output``
+is not honored in JSON mode and errors, because JSON is a stdout contract.
 """
 
 from __future__ import annotations
@@ -52,15 +43,9 @@ class GraphFormat(str, enum.Enum):
 
 
 def _read_decisions_lenient(store_path: Path) -> list[Decision]:
-    """Parse every decision file, skipping unreadable or malformed ones.
-
-    The kernel's ``parse_all_decisions`` skips parse failures but logs them at
-    debug with no per-file user-facing warning, and it reads through the Store
-    protocol rather than tolerating on-disk surprises (a subdirectory named
-    ``*.md``, a dangling symlink, an unreadable file). The graph command needs
-    both a named stderr warning and that I/O tolerance so one bad entry does not
-    deny the user the whole graph, so it keeps its own per-file loop with the
-    read inside the guard.
+    """Parse every decision file, skipping unreadable or malformed ones with a warning.
+    The read sits inside the guard, so a subdirectory named ``*.md``, a dangling symlink or
+    an unreadable file costs one entry rather than the whole graph.
     """
     decisions_dir = store_path / DECISIONS_DIR
     if not decisions_dir.exists():
@@ -77,11 +62,9 @@ def _read_decisions_lenient(store_path: Path) -> list[Decision]:
 
 
 def _read_open_questions(store_path: Path) -> OpenQuestionsFile | None:
-    """Parse the open-questions file when present and readable, else None.
-
-    The read and parse sit inside the guard so a directory shadowing the
-    open-questions path, or an unparseable file, drops the questions section
-    with a warning rather than aborting the whole render.
+    """Parse the open-questions file when present and readable, else ``None``.
+    The read and parse sit inside the guard, so a shadowing directory or an unparseable file
+    drops the questions section with a warning rather than aborting the render.
     """
     questions_path = store_path / OPEN_QUESTIONS_MD
     if not questions_path.exists():
@@ -95,10 +78,8 @@ def _read_open_questions(store_path: Path) -> OpenQuestionsFile | None:
 
 def _resolve_output_path(output: Path | None, store_path: Path) -> Path:
     """Resolve where the HTML is written.
-
-    With no ``--output`` the file lands at ``<store>/nauro-graph.html``. An
-    explicit ``--output`` that names an existing directory writes the default
-    filename inside it; otherwise the path is taken as the full file path.
+    With no ``--output`` the file lands at ``<store>/nauro-graph.html``. An ``--output`` naming
+    an existing directory writes the default filename inside it; otherwise it is the file path.
     """
     if output is None:
         return store_path / DEFAULT_GRAPH_FILENAME

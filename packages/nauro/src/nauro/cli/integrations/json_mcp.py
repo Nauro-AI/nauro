@@ -23,14 +23,9 @@ from nauro.store.write_safety import find_symlink
 class McpConfigDocument(BaseModel):
     """Boundary view of a hand-editable ``.mcp.json`` / ``.cursor/mcp.json``.
 
-    Only the container shape Nauro owns is validated: ``mcpServers`` is optional
-    and, when present, must be a JSON object. Its entry *values* stay opaque
-    (``dict[str, object]``) so a malformed sibling server the user wrote never
-    blocks Nauro from wiring or reading its own entry — Nauro does not own those
-    entries and must not reject the file over them. Unknown top-level keys are
-    preserved. The document validates shape and reads the entry set; writes go
-    back into the raw ``json.loads`` dict so key order and untouched content are
-    byte-preserved.
+    Only the container Nauro owns is validated: ``mcpServers`` is optional and, when present, a
+    JSON object. Entry values stay opaque, so a malformed sibling never blocks Nauro's own entry.
+    Writes go back into the raw ``json.loads`` dict, so key order and content are byte-preserved.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -59,11 +54,9 @@ class McpShapeError(ValueError):
 
 
 def _parse_mcp_document(raw: object) -> McpConfigDocument:
-    """Validate ``raw`` into an :class:`McpConfigDocument` or raise typed.
-
-    The only shape violation the model surfaces is a present-but-non-object
-    ``mcpServers`` (null or scalar); its entry values are opaque, so a malformed
-    sibling entry parses cleanly and never routes to the skip.
+    """Validate ``raw`` into an :class:`McpConfigDocument`, or raise a typed error.
+    The only violation surfaced is a present-but-non-object ``mcpServers``; entry values are
+    opaque, so a malformed sibling entry parses cleanly.
     """
     if not isinstance(raw, dict):
         raise McpShapeError(McpShape.TOP_LEVEL_NOT_OBJECT)
@@ -80,17 +73,9 @@ def _configure_json_mcp(
     label: str,
     remove: bool,
 ) -> JsonMcpOutcome:
-    """Add or remove the Nauro MCP entry in a JSON config file at ``repo_path / config_rel_path``.
-
-    Shared shape behind ``_configure_mcp`` (``.mcp.json``) and
-    ``_configure_cursor_for_repo`` (``.cursor/mcp.json``): load → parse →
-    mutate ``mcpServers["nauro"]`` → write. Both surfaces use the same key
-    name and entry shape, so the only per-surface variation is the relative
-    path and the human-readable ``label`` used in status messages.
-
-    Shape validation runs through :class:`McpConfigDocument`, but the write
-    mutates the raw ``json.loads`` dict so key order and sibling entries stay
-    byte-identical.
+    """Add or remove the Nauro MCP entry in the JSON config at ``repo_path / config_rel_path``.
+    Shared shape behind ``.mcp.json`` and ``.cursor/mcp.json``: only the relative path and the
+    status ``label`` vary. Writes mutate the raw dict, so key order and siblings stay identical.
     """
     refusal = find_symlink(repo_path, config_rel_path)
     if refusal is not None:
@@ -168,10 +153,7 @@ def _configure_json_mcp(
 
 def _configure_mcp(repo_path: Path, *, remove: bool = False) -> JsonMcpOutcome:
     """Add or remove the Nauro MCP entry in the repo's project-scope ``.mcp.json``.
-
-    Writes the file directly. Mirrors how ``_configure_cursor_for_repo``
-    handles ``.cursor/mcp.json`` and ``_configure_codex`` handles
-    ``~/.codex/config.toml``, so all three surface handlers share one shape.
+    Writes the file directly, through the shape shared with the Cursor and Codex handlers.
     """
     return _configure_json_mcp(
         repo_path,
@@ -192,18 +174,9 @@ def _configure_cursor_for_repo(repo_path: Path, *, remove: bool) -> JsonMcpOutco
 
 
 def recorded_mcp_commands(repo: Path) -> list[str | None]:
-    """Recorded nauro MCP commands in this repo's configs, one entry per wired config.
-
-    Single read of ``.mcp.json`` and ``.cursor/mcp.json`` each — presence
-    ("the repo is wired" iff the list is non-empty) and the recorded command
-    both derive from the same parse via :class:`McpConfigDocument`. A wired
-    config whose nauro entry carries a missing, empty, or non-string command
-    contributes ``None``: it still counts as wired, but there is nothing to
-    probe. Read-only and soft-failing: a missing, unreadable, or off-container
-    config contributes nothing — status must never crash on someone else's
-    config. Only the entry's ``command`` is read: a malformed sibling entry, or
-    a malformed ``args`` on the nauro entry itself, never suppresses a usable
-    command, since Nauro does not act on that content here.
+    """Return the recorded nauro MCP command per wired repo config; wired iff the list is non-empty.
+    A wired config whose nauro entry has no usable ``command`` string contributes ``None``: wired,
+    but nothing to probe. Read-only and soft-failing: an unreadable config contributes nothing.
     """
     commands: list[str | None] = []
     for rel in (".mcp.json", ".cursor/mcp.json"):

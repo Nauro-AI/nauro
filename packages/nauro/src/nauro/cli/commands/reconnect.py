@@ -41,11 +41,9 @@ def _finish_connection(repo_root: Path, store_path: Path, project_id: str) -> No
 
 
 def _echo_setup_hint_if_unwired(repo_root: Path) -> None:
-    """One next step when the connected repo has no MCP wiring on this machine.
-
-    Connection restores the project record; MCP wiring is machine-local and
-    regenerated per machine, so a fresh clone lands here connected but not
-    wired. The probe is read-only and soft-failing; wired repos stay silent.
+    """Echo one next step when the connected repo has no MCP wiring on this machine.
+    Wiring is machine-local, so a fresh clone lands connected but unwired. The probe is
+    read-only and soft-failing, and a wired repo stays silent.
     """
     if recorded_mcp_commands(repo_root):
         return

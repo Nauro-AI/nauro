@@ -1,23 +1,18 @@
 """nauro repair — flip one supersede backref after the user confirms it.
 
-`nauro doctor` detects and names; this command is the only place that acts on
-what it names, and it acts on exactly one shape: a decision that records
-`supersedes: N` where decision N is still active with no reciprocal
-`superseded_by`. Everything else the planner sees comes back as guidance with
+``nauro doctor`` detects and names; this command acts, on exactly one shape: a
+decision recording ``supersedes: N`` where decision N is still active with no
+reciprocal ``superseded_by``. Every other shape comes back as guidance with
 nothing written.
 
-The gate is the point. A repair rewrites canonical decision history, so it
-needs a human's word every time: the prompt names both decisions, states the
-exact field change, and shows each side's version, date, and status so the user
-can judge whether the newer decision really does retire the older one before
-answering. There is deliberately no flag to skip it — a bypass would leave the
-command's whole justification behind.
+The gate is the point. A repair rewrites canonical decision history, so the prompt
+names both decisions, the exact field change, and each side's version, date and
+status, and there is deliberately no flag to skip it.
 
-Ordering, and why: the plan is computed, shown, and confirmed outside any lock,
-then recomputed and compared inside the decision write lock before the single
-write. Confirming against a stale plan is the failure this closes. The journal
-append happens only after the lock releases, keeping the store-wide invariant
-that the journal lock never nests inside a resource lock.
+Ordering: the plan is computed, shown and confirmed outside any lock, then
+recomputed and compared inside the decision write lock before the single write, so
+a stale plan cannot be confirmed. The journal append happens after the lock
+releases, keeping the journal lock from nesting inside a resource lock.
 """
 
 from __future__ import annotations
@@ -63,17 +58,8 @@ class RepairEligibility(BaseModel):
 
 def classify_repair_eligibility(entry: RegistryEntryV2 | None) -> RepairEligibility:
     """Decide from the registry entry whether the local command may write.
-
-    Both registered modes proceed today. A local project owns its store
-    outright, and a cloud project's decisions are still plain markdown in the
-    same local store, which `nauro sync` publishes afterwards, so neither has a
-    store this command cannot legitimately rewrite.
-
-    The refusal covers a project this machine cannot identify: repair rewrites
-    canonical history, so it will not touch a store with no readable registry
-    entry behind it. A hosted project whose store stops being locally
-    authoritative attaches its refusal at the same point, routed to the hosted
-    owner session rather than to a local write.
+    Both registered modes proceed: a cloud project's decisions are plain markdown in the same
+    local store. A project with no readable registry entry is refused.
     """
     if entry is None:
         return RepairEligibility(
@@ -197,12 +183,9 @@ def repair(
         help="Target project name.",
     ),
 ) -> None:
-    """Repair a supersede backref orphan after confirming it.
-
-    Offers the single unambiguous case: one decision records 'supersedes: N'
-    while decision N is still active with no 'superseded_by' pointing back.
-    Every other shape is reported with guidance and left alone. Run
-    'nauro doctor' first to see the full store diagnosis.
+    """Repair a supersede backref orphan after confirming it; run 'nauro doctor' first.
+    Offers the single unambiguous case: one decision records 'supersedes: N' while decision N
+    is still active with no 'superseded_by'. Every other shape is reported and left alone.
     """
     project_name, store_path = resolve_target_project(project)
     typer.echo(f"Project: {project_name}\n")

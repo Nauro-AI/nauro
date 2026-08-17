@@ -16,12 +16,8 @@ def _registered_project_keys() -> set[str]:
 
 def _user_scope_safe_to_clear(current_project_key: str | None) -> bool:
     """Return True iff no other nauro projects remain in the registry.
-
-    User-scope artifacts (``~/.claude/skills/nauro-adopt``,
-    ``~/.agents/skills/nauro-adopt``, and the ``nauro`` entry in
-    ``~/.codex/config.toml``) are shared by every registered project on the
-    machine, so a per-project teardown must not strip them while other
-    projects still depend on them.
+    The user-scope skills and the ``nauro`` entry in ``~/.codex/config.toml`` are shared by every
+    registered project, so a per-project teardown must not strip them while others remain.
     """
     keys = _registered_project_keys()
     if current_project_key is not None:

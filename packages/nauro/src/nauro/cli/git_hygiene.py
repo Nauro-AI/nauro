@@ -66,10 +66,7 @@ class GitIgnoreResult:
 
 def wiring_path_is_tracked(repo_root: Path, rel_path: str) -> bool:
     """True iff ``rel_path`` under ``repo_root`` is tracked by git.
-
-    Wiring codecs use this to refuse writing a machine-local absolute path
-    into a file whose next commit would ship that path to every clone.
-    Soft-fails to False (non-git dir, git missing) so bare setup keeps working.
+    Soft-fails to False (non-git directory, git missing) so bare setup keeps working.
     """
     git_root = _git_root(repo_root)
     if git_root is None:
@@ -82,11 +79,8 @@ def wiring_path_is_tracked(repo_root: Path, rel_path: str) -> bool:
 
 def ensure_wiring_ignored(repo_root: Path, rel_path: str) -> GitIgnoreResult:
     """Ensure ``rel_path`` is git-ignored via the managed block in ``.gitignore``.
-
-    No-ops when the path is already effectively ignored (a user rule or an
-    existing block entry), so user ignore rules are never duplicated. Entries
-    are written with a leading slash so they anchor to the repo root instead of
-    matching in every subdirectory.
+    A no-op when the path is already effectively ignored, so user rules are never duplicated.
+    Entries carry a leading slash so they anchor to the repo root.
     """
     git_root = _git_root(repo_root)
     if git_root is None:
@@ -134,11 +128,8 @@ def ensure_wiring_ignored(repo_root: Path, rel_path: str) -> GitIgnoreResult:
 
 
 def remove_wiring_ignore_entry(repo_root: Path, rel_path: str) -> GitIgnoreResult:
-    """Drop ``rel_path`` from the managed block; drop the block when it empties.
-
-    User lines outside the markers are never touched. When removing the block
-    leaves ``.gitignore`` empty, the file is deleted (mirroring codecs that
-    unlink a config emptied of its last entry).
+    """Drop ``rel_path`` from the managed block, and drop the block when it empties.
+    User lines outside the markers are never touched. A ``.gitignore`` left empty is deleted.
     """
     git_root = _git_root(repo_root)
     if git_root is None:

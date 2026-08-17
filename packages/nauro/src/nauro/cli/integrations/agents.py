@@ -45,27 +45,9 @@ def materialize_agents(
     force_overwrite: bool = False,
     clear_user_scope: bool = True,
 ) -> list[AgentOutcome]:
-    """Install or remove the bundled ``nauro-*`` subagent files.
-
-    Claude Code and Codex are implemented. Cursor emits a single "skipped"
-    line rather than crashing.
-
-    Add path (per agent):
-      - file absent → write bundled body.
-      - file present and byte-equal → no-op.
-      - file present and differs → refresh from the bundle, stashing the prior
-        content to a sibling ``.bak`` (the nauro-* namespace is bundle-owned,
-        so a differing file is almost always a stale earlier bundle). Pass
-        ``force_overwrite=True`` to overwrite in place without the backup.
-
-    Remove path (per agent):
-      - file absent → skip.
-      - file byte-equals bundled body → unlink.
-      - file differs → preserve (locally modified).
-
-    ``clear_user_scope`` mirrors the skill helpers: when False on the
-    remove path, agents are preserved because other registered nauro
-    projects still rely on them.
+    """Install or remove the bundled ``nauro-*`` subagent files. Cursor emits one skip line.
+    Add writes an absent file and stashes a differing one to ``.bak``, unless ``force_overwrite``.
+    Remove unlinks byte-equal files only; without ``clear_user_scope`` it preserves them all.
     """
     from nauro.agents import AGENT_NAMES, render_agent
 
@@ -105,11 +87,8 @@ def materialize_agents(
 
 def _install_bundled_agent(target: Path, bundled: str, *, force_overwrite: bool) -> AgentOutcome:
     """Install or refresh one bundled agent file, returning its outcome.
-
-    Absent → write the bundled body. Byte-equal → no-op. ``force_overwrite`` →
-    overwrite in place. Otherwise the differing file is refreshed and its prior
-    content stashed to a sibling ``.bak`` (unless that backup path is a refused
-    symlink).
+    Absent writes the body, byte-equal is a no-op, ``force_overwrite`` overwrites in place, and a
+    differing file is refreshed with its prior content stashed to a sibling ``.bak``.
     """
     if target.is_file():
         current = target.read_text(encoding="utf-8")
@@ -132,9 +111,7 @@ def _install_bundled_agent(target: Path, bundled: str, *, force_overwrite: bool)
 
 def _remove_bundled_agent(target: Path, bundled: str) -> AgentOutcome:
     """Remove one bundled agent file, returning its outcome.
-
-    Absent → skip note. Byte-equal to the bundle → unlink. Differs → preserve
-    (locally modified).
+    Absent skips, byte-equal to the bundle unlinks, and a differing file is preserved.
     """
     if not target.is_file():
         return AgentOutcome(AgentKind.ABSENT, target=target)

@@ -187,11 +187,8 @@ def _embed_payload(payload: dict) -> str:
 
 def _esc(text: str) -> str:
     """Escape text for HTML markup or a double-quoted attribute value.
-
-    ``html.escape`` with ``quote=True`` escapes both quote styles, so this is
-    safe in attribute values regardless of the surrounding quote character.
-    Every payload-derived string rendered into markup or an attribute passes
-    through here.
+    ``quote=True`` escapes both quote styles, so the result is safe in either quoting. Every
+    payload-derived string rendered into markup or an attribute passes through here.
     """
     return _html_escape(text, quote=True)
 
@@ -580,10 +577,8 @@ def build_graph_layout(payload: dict, priority_center: int | None = None) -> dic
 
 def _render_header_strip(payload: dict) -> str:
     """Render the always-visible header strip: counts, search box, filters.
-
-    Confidence stands in for the founder spec's "priority" filter because the
-    Decision model has no priority field; it is rendered as the secondary
-    metadata and drives that filter. The view tabs switch the four views.
+    Confidence stands in for a priority filter, because the Decision model has no priority field.
+    The view tabs switch the four views.
     """
     nodes = payload.get("nodes", [])
     project = payload.get("project") or "this project"
@@ -790,11 +785,8 @@ def _compute_insights(
 
 def _render_story_strip(insights: list[dict]) -> str:
     """Render the docent strip as connected chips.
-
-    The strip reads as part of the graph's control surface (connected chips, not
-    boxed cards). No chip ships selected: the default state is even emphasis, and
-    selecting a chip is what applies the spotlight. Each chip carries the jump
-    action the script wires up.
+    No chip ships selected: the default state is even emphasis, and selecting a chip applies the
+    spotlight. Each chip carries the jump action the script wires up.
     """
     if not insights:
         return ""
@@ -822,16 +814,8 @@ def _render_graph_view(
     question_refs: dict[int, list[str]],
 ) -> str:
     """Render the default Graph view: a deterministic node-link canvas.
-
-    Decisions are nodes (radius by degree, hue by category, filled when active /
-    hollow ring when superseded, opacity by confidence). Supersession edges are
-    always drawn and stronger; consolidation fan-ins are heaviest. Citation
-    edges are a faint always-on web. Only hubs are labelled at the default zoom,
-    and a hub whose label box would collide with a higher-priority label is
-    suppressed so no two visible labels overlap; every node still carries its
-    label in a data attribute for hover and search, so a suppressed hub loses
-    nothing permanently. The SVG viewBox is fit to content so the initial view
-    frames the whole map.
+    Radius by degree, hue by category, hollow when superseded, opacity by confidence. Only
+    non-colliding hubs are labelled; every node keeps its label in a data attribute regardless.
     """
     nodes = payload.get("nodes", [])
     node_by_number = {n["number"]: n for n in nodes}
@@ -902,11 +886,8 @@ def _render_graph_view(
 
 def _graph_citation_edges(payload: dict, positions: dict[int, tuple[float, float]]) -> str:
     """Render the faint always-on citation web as straight SVG lines.
-
-    Each citation edge connects two node centers. The whole layer is faint by
-    default (CSS opacity in the 0.06-0.12 range) and brightens for edges
-    incident to the hovered or selected node via the ``data-from``/``data-to``
-    hooks the script keys on.
+    Each edge connects two node centers and carries ``data-from``/``data-to`` so the script can
+    brighten the edges incident to the hovered or selected node.
     """
     lines: list[str] = []
     for edge in payload.get("citation_edges", []):
@@ -929,11 +910,8 @@ def _graph_supersession_edges(
     node_by_number: dict[int, dict],
 ) -> str:
     """Render supersession edges as strong SVG lines, heaviest into a fan-in.
-
-    An edge ``(from, to)`` means ``from`` supersedes ``to``; the line runs
-    between the two node centers. Edges whose retirer is a consolidation target
-    (active fan-in of three or more) carry the emphasis class so the converging
-    bundle reads as the most prominent drawn structure on the canvas.
+    An edge ``(from, to)`` means ``from`` supersedes ``to``. An edge whose retirer is a
+    consolidation target (active fan-in of three or more) carries the emphasis class.
     """
     consolidation = {
         num
@@ -1080,13 +1058,8 @@ def _graph_nodes_and_labels(
     insights: list[dict],
 ) -> tuple[str, str]:
     """Render node circles, category labels, and pinned insight labels.
-
-    Each node is a circle whose fill is the category hue, drawn filled for
-    active and as a hollow ring for superseded, at the confidence opacity tier.
-    Nodes carry the data attributes the script needs for search, filter, hover
-    label, spotlight, and detail open. The label layer sits above every node and
-    holds the understated category labels plus a small pinned label on each
-    insight target node (the selected insight gets the stronger form).
+    Each node carries the data attributes the script needs for search, filter, hover label,
+    spotlight and detail open. The label layer sits above every node.
     """
     hubs = _graph_hub_numbers(payload, degree, relations, node_by_number)
     # Insight target numbers, with the named top story (index 0) flagged primary
@@ -1189,15 +1162,8 @@ def _render_insight_labels(
     radii: dict[int, float],
 ) -> str:
     """Render a small pinned label on each insight target node.
-
-    A label is a dark rounded pill behind stroked text so it reads on the dark
-    canvas without bulk. The named top story (the largest consolidation, flagged
-    ``primary``) gets the stronger ``short`` form ("D42 · retires 13") as its
-    at-rest headline; the others get the compact "D<n>" form. This is
-    informational labelling, not a selection state, so the default view stays
-    even-emphasis. The whole group is ``pointer-events: none`` in CSS so labels
-    never block node clicks. Width is estimated from the character count (no DOM
-    measurement available at render time), which is enough to size the pill.
+    The primary story gets the stronger "D42 · retires 13" form, the others the compact "D<n>".
+    The group is ``pointer-events: none``, and pill width is estimated from the character count.
     """
     parts: list[str] = []
     for num, meta in sorted(insight_target.items()):
@@ -1231,13 +1197,8 @@ def _render_browse_view(
     question_refs: dict[int, list[str]],
 ) -> str:
     """Render the Browse view: every decision grouped by category.
-
-    All decisions render (active and superseded), so the status filter has real
-    cards to act on in every state. Superseded cards are visibly distinct
-    (dimmed, hollow status mark, status text). Per-group counts are truthful
-    ("N active" or "N active · M superseded"). Titles wrap in full. Each card
-    expands in place to its detail panel. Demoted from the default to a tab
-    behind the Graph view.
+    Active and superseded both render, so the status filter has cards in every state; a superseded
+    card is visibly distinct. Each card expands in place to the shared detail panel.
     """
     nodes = payload.get("nodes", [])
     by_category: dict[str, list[dict]] = {}
@@ -1274,9 +1235,7 @@ def _render_browse_view(
 
 def _category_count_badge(active: int, superseded: int) -> str:
     """Truthful per-group count badge: active alone, or active and superseded.
-
-    The badge carries data attributes so the script can rewrite it to the
-    filtered counts when the status filter narrows the group.
+    The badge carries data attributes so the script can rewrite it to the filtered counts.
     """
     if superseded:
         text = f"{active} active · {superseded} superseded"
@@ -1290,10 +1249,8 @@ def _category_count_badge(active: int, superseded: int) -> str:
 
 def _render_browse_card(node: dict, question_refs: dict[int, list[str]]) -> str:
     """Render one decision as an expandable Browse card.
-
-    The title wraps in full. Date, status, and confidence render quietly as
-    secondary metadata; a superseded card is visibly distinct. The card toggles
-    the shared detail panel for this node.
+    The title wraps in full, date, status and confidence render as secondary metadata, and the
+    card toggles the shared detail panel for this node.
     """
     number = node["number"]
     title = node.get("title", "")
@@ -1316,10 +1273,8 @@ def _render_browse_card(node: dict, question_refs: dict[int, list[str]]) -> str:
 
 
 def _question_badge(number: int, question_refs: dict[int, list[str]]) -> str:
-    """Render the open-question badge for a decision, or empty when none.
-
-    The badge links back to the questions section and names the count, so a
-    referenced decision visibly carries its open threads.
+    """Render the open-question badge for a decision, or empty when it has none.
+    The badge links back to the questions section and names the count.
     """
     qids = question_refs.get(number)
     if not qids:
@@ -1336,9 +1291,8 @@ def _question_badge(number: int, question_refs: dict[int, list[str]]) -> str:
 
 def _render_lineage_view(payload: dict, relations: dict[int, dict[str, list[int]]]) -> str:
     """Render the Lineage view: one drawn DAG per supersession component.
-
-    Components sort by size (largest first) then recency (latest member date).
-    Singletons never reach here (the builder only emits components with edges).
+    Components sort by size, largest first, then by latest member date. Singletons never arrive:
+    the builder only emits components with edges.
     """
     components = payload.get("components", [])
     if not components:
@@ -1501,14 +1455,8 @@ def _render_lineage_component(
     relations: dict[int, dict[str, list[int]]],
 ) -> str:
     """Render one component as an inline SVG DAG with drawn edges.
-
-    Column index is the longest distance from the root(s). Rows use barycentric
-    placement: column-0 leaves ascend by number, and every retirer sits at the
-    mean row of the children it supersedes, so a fan-in radiates into its
-    retirer rather than running as parallel hairlines. Edges are drawn as SVG
-    paths from each retired node to its retirer; edges into a consolidation
-    target carry heavier weight and the emphasis color so the fan is the most
-    prominent drawn object.
+    Column index is the longest distance from the roots; rows use barycentric placement, so a
+    retirer sits at the mean row of what it supersedes and a fan-in radiates into it.
     """
     columns = _lineage_columns(component)
     nodes = component["nodes"]
@@ -1615,12 +1563,8 @@ def _component_headline(
 
 def _render_timeline_view(payload: dict) -> str:
     """Render the Timeline view: marks positioned by real date on a date axis.
-
-    The X axis runs from the earliest to the latest decision date. Category
-    lanes stack vertically. Marks are positioned by their date's fraction of the
-    full span, so a cluster of dates reads as a visible cluster and a single
-    busy date reads as a stack. Active and superseded differ by color and
-    weight. This is a real axis, never a grid pretending to be one.
+    The X axis spans earliest to latest date and category lanes stack vertically; a mark's
+    position is its date's fraction of the span, so clusters and stacks are real.
     """
     nodes = payload.get("nodes", [])
     dates = sorted(_to_ordinal(n.get("date", "")) for n in nodes if n.get("date"))
@@ -1727,11 +1671,9 @@ def _lane_stack_depth(nodes: list[dict], categories: list[str]) -> dict[str, int
 
 
 def _timeline_axis(first: int, last: int, span: int, plot_height: float, single_day: bool) -> str:
-    """Build axis baseline and date tick labels for the timeline.
-
-    A single-day store gets exactly one centered tick at its only date; it never
-    invents a second date. Otherwise ticks are first, last, and evenly spaced
-    interior dates.
+    """Build the axis baseline and date tick labels for the timeline.
+    A single-day store gets exactly one centered tick and never invents a second date. Otherwise
+    ticks are first, last, and evenly spaced interior dates.
     """
     baseline_y = plot_height - 14
     if single_day:
@@ -1810,12 +1752,8 @@ def _render_detail_store(
     question_refs: dict[int, list[str]],
 ) -> str:
     """Render one hidden detail block per node, reused by every view.
-
-    Each block holds the node's relations (supersedes, superseded by, cited by)
-    as chips that jump to the related node in the Graph view (falling back to its
-    detail panel), plus the open questions that reference the node. The floating
-    panel surfaces the matching block when a node is selected, so Graph, Lineage,
-    Timeline, and Browse open the same panel.
+    Each block holds the node's relations as chips that jump to the related node, plus the open
+    questions referencing it. The floating panel surfaces the matching block on selection.
     """
     cited_by = _citation_map(payload)
     bodies_present = any("body" in n for n in payload.get("nodes", []))
@@ -1880,13 +1818,8 @@ def _detail_question_links(number: int, question_refs: dict[int, list[str]]) -> 
 
 def _detail_body(node: dict) -> str:
     """Render the decision body as structured HTML when bodies are included.
-
-    Bodies are on by default, so the rationale is the panel's primary
-    content rather than an opt-in dump. The markdown body is rendered into headed
-    blocks (Decision, Rejected Alternatives, and their subsections) so the
-    background context reads at a glance instead of as raw markdown. The block
-    stays a ``<details open>`` so a long body can be collapsed without losing the
-    default-visible posture.
+    The markdown becomes headed blocks (Decision, Rejected Alternatives, subsections) inside a
+    ``<details open>``, so a long body can collapse without losing the default-visible posture.
     """
     body = node.get("body")
     if not body:
@@ -1922,12 +1855,8 @@ def _inline_md(escaped: str) -> str:
 
 def _render_body_markdown(body: str) -> str:
     """Render a decision body's markdown into a small, safe HTML subset.
-
-    Supports ATX headings, ordered and unordered lists, blank-line-separated
-    paragraphs, and inline emphasis/code. The leading ``# N — title`` H1 is
-    dropped because the panel already shows the title above this block. Every
-    text fragment is escaped before any markup is added, so the output is safe to
-    embed directly in the self-contained file.
+    ATX headings, ordered and unordered lists, paragraphs and inline emphasis or code; the leading
+    ``# N — title`` H1 is dropped. Every fragment is escaped before any markup is added.
     """
     parts: list[str] = []
     para: list[str] = []
@@ -1992,11 +1921,8 @@ def _render_body_markdown(body: str) -> str:
 
 def _render_questions_section(payload: dict) -> str:
     """Render the integrated open-questions list.
-
-    Open questions sort first (the builder already filters to unresolved). Long
-    bodies collapse behind an expander. Decision references render as links into
-    the detail panel; the inverse badge sits on each referenced decision's
-    detail and Browse card.
+    Long bodies collapse behind an expander, and decision references render as links into the
+    detail panel. The builder has already filtered to unresolved questions.
     """
     questions = payload.get("open_questions", [])
     if not questions:
@@ -2041,9 +1967,7 @@ def _render_questions_section(payload: dict) -> str:
 
 def _render_empty_state() -> str:
     """Render the intentional empty state for a store with no decisions.
-
-    Sits in the Graph view container so the default tab is consistent with a
-    populated store; there is simply nothing to draw yet.
+    Sits in the Graph view container so the default tab is consistent with a populated store.
     """
     return (
         '<main class="view view-graph is-active" data-view="graph">'

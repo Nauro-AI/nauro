@@ -36,12 +36,8 @@ from nauro.templates.agents_md_regen import warn_then_regen
 
 def _every_repo_mcp_wired(outcomes: list[ArtifactOutcome]) -> bool:
     """True iff every per-repo ``.mcp.json`` write landed.
-
-    The user-scope HTTP prune treats the user-global entry as redundant
-    because project-scope stdio is canonical — a premise that only holds when
-    the project files were actually written. A refused or failed repo write
-    (tracked file, symlink, parse error) must keep the user-scope entry, or
-    the prune would delete the repo's only working connection.
+    The user-scope HTTP prune assumes project-scope stdio is canonical, so a refused or failed
+    repo write must keep the user-scope entry rather than delete the only working connection.
     """
     if any(isinstance(o, HandlerErrorOutcome) for o in outcomes):
         return False
@@ -58,14 +54,9 @@ def claude_code_surfaces(
     store_path: Path,
     warn: Callable[[str], None],
 ) -> list[ArtifactOutcome]:
-    """Wire Claude Code MCP + hooks per repo and regenerate AGENTS.md.
-
-    Returns the flat status lines the command echoes to stdout, in order:
-    the per-repo MCP lines (plus the user-scope prune note on add), then a
-    ``Hooks:`` section, a ``Legacy cleanup:`` section, and an ``AGENTS.md:``
-    section when each has data. Skip and git-hygiene warnings from
-    ``warn_then_regen`` route through ``warn`` (stderr), never the returned
-    list.
+    """Wire Claude Code MCP and hooks per repo and regenerate AGENTS.md.
+    Returns the flat status lines in echo order: per-repo MCP with the add-path prune note, then
+    the ``Hooks:``, ``Legacy cleanup:`` and ``AGENTS.md:`` sections. Warnings go only to ``warn``.
     """
     legacy_results: list[ArtifactOutcome] = []
     mcp_results: list[ArtifactOutcome] = []
@@ -136,11 +127,8 @@ def cursor_surfaces(project_repos: list[Path], *, remove: bool) -> list[Artifact
 
 def codex_surfaces(*, remove: bool, with_hooks: bool) -> list[ArtifactOutcome]:
     """Wire the user-global Codex MCP entry and per-repo Codex hooks.
-
-    Resolves the project internally (Codex config is user-global and shared by
-    every registered project). Returns the flat status lines the command
-    echoes: the config line, then a ``Hooks:`` section when hooks are wired or
-    torn down.
+    Resolves the project internally, since the Codex config is shared by every registered
+    project. Returns the config line, then a ``Hooks:`` section when hooks changed.
     """
     hook_repos: list[Path] = []
     if with_hooks and not remove:
@@ -221,9 +209,8 @@ def _all_claude_code_lines(
     with_hooks: bool,
 ) -> list[ArtifactOutcome]:
     """Claude Code surface lines for ``setup_all_surfaces``.
-
-    MCP per-repo (direct ``.mcp.json`` write), user-scope prune on add, skills
-    global, optional subagents, then the per-repo advisory hook.
+    MCP per-repo, user-scope prune on add, global skills, optional subagents, then the per-repo
+    advisory hook.
     """
     outcomes: list[ArtifactOutcome] = []
     for repo in project_repos:
@@ -365,11 +352,8 @@ def _all_agents_md_lines(
     store_path: Path | None,
 ) -> list[ArtifactOutcome]:
     """AGENTS.md regen (add) and teardown (remove) lines for ``setup_all_surfaces``.
-
-    On the add path ``warn_then_regen`` routes missing-repo, symlink-refusal,
-    and git-hygiene warnings into ``warn``; the callback appends into this
-    helper's own returned list so those warnings surface on stdout in the same
-    position the inline code produced them.
+    On the add path the ``warn_then_regen`` callback appends into the returned list, so
+    missing-repo, symlink-refusal and git-hygiene warnings land on stdout in position.
     """
     outcomes: list[ArtifactOutcome] = []
     # Regenerate AGENTS.md once so context is fresh from the start on every

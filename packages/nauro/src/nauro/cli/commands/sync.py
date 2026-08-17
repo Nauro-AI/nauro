@@ -36,22 +36,9 @@ def sync(
     ),
     status: bool = typer.Option(False, "--status", help="Show sync status."),
 ) -> None:
-    """Capture a snapshot and regenerate AGENTS.md in each associated repo.
-
-    This is the one command that overwrites an existing AGENTS.md even when
-    Nauro did not generate it; a # Manual section survives the rewrite. Every
-    other command (setup, adopt, init, attach, note, propose_decision)
-    preserves a non-Nauro AGENTS.md and warns instead.
-
-    With cloud sync configured, pulls from the server first (git-style
-    pull-then-push), then pushes the updated store back. Project state in
-    state_current.md is not touched — use the MCP 'update_state' tool to
-    record what changed. After a successful sync, structural store
-    validation runs and any warnings are printed at the end.
-
-    Exit codes: 1 for a failure of the command itself (the snapshot, the push,
-    a store lock another sync holds), 2 when everything ran but the pull left
-    files it could not write for the next sync, 0 otherwise.
+    """Capture a snapshot and regenerate AGENTS.md in each associated repo, pulling before pushing
+    when cloud sync is configured. The only command that overwrites an unmanaged AGENTS.md, and
+    a # Manual section survives. Exits 1 on failure, 2 when the pull left files unwritten.
     """
     if status:
         _show_status(project)
@@ -129,10 +116,8 @@ def sync(
 
 def _unfinished_pull_detail(report: PullReport) -> str:
     """Name what the pull left undone, in the terms that run knows it.
-
-    A run that never read the server's file list has no count to give: saying
-    zero files were missed would describe a store that is level with the
-    server, which is the one thing this run cannot claim.
+    A run that never read the server's file list has no count to give: zero would claim a store
+    level with the server.
     """
     if not report.manifest_read:
         return "this sync could not read the server's file list, so it pulled nothing"
@@ -145,11 +130,9 @@ def _pull_from_cloud(
     *,
     session: TransferSession | None = None,
 ) -> PullReport:
-    """Pull remote changes via the manifest + presign endpoints.
-
-    No-op when the project is not v2 cloud-mode (local-mode has no
-    presign target) or when no Auth0 token is configured; an empty report
-    says the same thing as a run that found nothing.
+    """Pull remote changes via the manifest and presign endpoints.
+    A no-op for a non-cloud project or with no Auth0 token: an empty report says the same as a
+    run that found nothing.
     """
     from nauro.sync.pull import PullReport
 
@@ -179,11 +162,9 @@ def _pull_via_presign(
     *,
     session: TransferSession | None = None,
 ) -> PullReport:
-    """GET /sync/manifest → POST /sync/presign → S3 GETs.
-
-    Delegates to the shared pull core with an echo reporter. An explicit sync
-    fails loud when another sync holds the store lock: silently skipping the
-    pull would push stale content over whatever the other run is landing.
+    """GET /sync/manifest → POST /sync/presign → S3 GETs, via the shared pull core.
+    Fails loud when another sync holds the store lock: skipping the pull would push stale
+    content over whatever the other run is landing.
     """
     from nauro.sync.lock import SyncLockTimeoutError
     from nauro.sync.pull import run_pull
@@ -198,9 +179,8 @@ def _pull_via_presign(
 
 def _show_status(project_flag: str | None) -> None:
     """Show cloud sync status — two states only.
-
-    Authenticated → server URL + project-specific last-sync info.
-    Not authenticated → guidance to run ``nauro auth login``.
+    Authenticated prints the server URL and this project's last-sync info; otherwise it points at
+    ``nauro auth login``.
     """
     from nauro.sync.remote import resolve_api_url
 

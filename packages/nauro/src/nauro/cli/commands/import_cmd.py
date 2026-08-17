@@ -25,11 +25,8 @@ from nauro.store.store_lock import store_write_lock
 
 def _read(path: Path) -> str:
     """Read an import source file, replacing any undecodable bytes.
-
-    ADR and Memory-Bank sources are often legacy docs (cp1252/latin-1), or a
-    directory carries a stray binary file. Strict UTF-8 would abort the whole
-    migration with a traceback on the first bad byte; errors="replace" lets the
-    import proceed and the user see what came through.
+    Legacy ADR and Memory-Bank sources are often cp1252 or latin-1, and strict UTF-8 would
+    abort the whole migration on the first bad byte.
     """
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -65,12 +62,8 @@ def _import_append_decision(
 
 
 def _journal_import_merge(store_path: Path, target: str, content: str) -> None:
-    """Record a committed write-path event for a Memory Bank file merge.
-
-    projectBrief.md → project.md and techContext.md → stack.md mutate store
-    content, so they carry provenance like every other write path. The
-    ``import_merge`` operation names the action; ``target`` names the file
-    touched.
+    """Record a committed ``import_merge`` write-path event for one Memory Bank file merge.
+    ``target`` names the store file touched.
     """
     record_event(
         store_path,
@@ -83,21 +76,9 @@ def _journal_import_merge(store_path: Path, target: str, content: str) -> None:
 
 
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
-    """Import a Cline/Roo Code Memory Bank (.context/ directory) into the store.
-
-    Maps Memory Bank files to Nauro store files:
-      projectBrief.md  → project.md           (appended under ## Imported from Memory Bank)
-      techContext.md   → stack.md             (appended under ## Imported from Memory Bank)
-      decisionLog.md   → decisions/NNN-title.md (one file per ## Decision block)
-      activeContext.md + progress.md → state_current.md (single composed update_state call)
-
-    activeContext.md and progress.md are composed into one delta and written via
-    a single update_state() call. Calling update_state per progress item would
-    archive all but the last to state_history.md, which build_l0 ignores
-    (include_history=False), making the imported state invisible to L0.
-
-    Returns:
-        Dict with counts of imported items by type.
+    """Import a Cline/Roo Code Memory Bank directory into the store; returns per-type counts.
+    projectBrief and techContext append to project.md and stack.md, decisionLog becomes one
+    file per decision, and activeContext plus progress compose into a single ``update_state``.
     """
     counts: dict[str, int] = {
         "files_merged": 0,
@@ -167,11 +148,9 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
 
 
 def _strip_h1_prefix(content: str) -> str:
-    """Strip a leading H1 header (and trailing blank lines), then strip whitespace.
-
-    activeContext.md typically opens with `# Active Context`, which becomes
-    redundant once composed into a state delta — prepare_state_update wraps
-    the delta in `# Current State` already.
+    """Strip a leading H1 header and the surrounding whitespace from ``text``.
+    ``prepare_state_update`` already wraps a delta in ``# Current State``, so the source's own
+    H1 would be redundant.
     """
     lines = content.split("\n")
     first = lines[0].strip() if lines else ""
@@ -201,12 +180,9 @@ def _compose_state_delta(active_body: str | None, progress_items: list[str]) -> 
 
 
 def _append_to_store_file(target: Path, content: str) -> bool:
-    """Append imported content to an existing store markdown file.
-
-    Adds a ## Imported from Memory Bank header before the content.
-    If the file doesn't exist, creates it with just the imported content.
-    Returns True when a write occurred, False when the content was empty and
-    the file was left untouched.
+    """Append imported content under a ``## Imported from Memory Bank`` header.
+    Creates the file when absent. Returns True when a write occurred, False when the content
+    was empty and the file was left untouched.
     """
     header = "\n\n## Imported from Memory Bank\n\n"
     stripped = content.strip()
@@ -607,8 +583,7 @@ def import_cmd(
 ) -> None:
     """Import context from an external source into the project store.
 
-    Each import captures a snapshot; AGENTS.md in the associated repos is
-    not refreshed here — run 'nauro sync' afterwards.
+    Each import captures a snapshot. AGENTS.md is not refreshed here — run 'nauro sync'.
     """
     if memory_bank is None and adr is None:
         typer.echo(

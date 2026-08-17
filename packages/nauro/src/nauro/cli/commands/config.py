@@ -25,12 +25,9 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 def _mask(key: str, value: object) -> object:
-    """Mask sensitive values (keys/tokens) for display.
-
-    Recurses into dicts so nested credentials — notably the bearer and refresh
-    tokens under the ``auth`` block — are never printed in full. A sensitive
-    string is shown as ``abcd...wxyz``; a short sensitive string is fully
-    redacted; non-sensitive values pass through unchanged.
+    """Return ``value`` with sensitive keys and tokens masked for display.
+    Recurses into dicts so nested credentials never print in full: a sensitive string shows
+    as ``abcd...wxyz``, a short one is fully redacted, and other values pass through.
     """
     if isinstance(value, dict):
         return {k: _mask(k, v) for k, v in value.items()}

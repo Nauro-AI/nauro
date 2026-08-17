@@ -1,21 +1,14 @@
 """Internal CLI helper for parsing ``list[dict]`` arguments.
 
-The auto-gen framework uses this to translate a single Typer flag into
-the structured value the matching MCP adapter expects. Three input
-sources are supported behind one flag:
+The auto-gen framework uses this to turn a single Typer flag into the structured
+value the matching MCP adapter expects. Three input sources sit behind one flag:
+literal JSON (``--rejected '[{"alternative": "X"}]'``), ``@path`` reading a JSON
+file, and ``-`` reading stdin.
 
-- literal JSON on the command line:
-  ``--rejected '[{"alternative": "X", "reason": "Y"}]'``
-- ``@path`` sigil reading a JSON file:
-  ``--rejected @rejected.json``
-- ``-`` sigil reading stdin:
-  ``echo '[...]' | nauro propose-decision ... --rejected -``
-
-All parse failures raise ``typer.BadParameter``. Typer renders that to
-stderr with exit code 2; the adapter is never invoked. This keeps the
-semantic split clean: kernel-side rejections flow through the JSON
-envelope on stdout at exit 0, CLI argument-parse failures stay on
-stderr at exit 2.
+All parse failures raise ``typer.BadParameter``, which Typer renders to stderr at
+exit 2 without invoking the adapter. That keeps the split clean: kernel-side
+rejections flow through the JSON envelope on stdout at exit 0, CLI argument-parse
+failures stay on stderr at exit 2.
 """
 
 from __future__ import annotations
@@ -28,20 +21,9 @@ import typer
 
 
 def parse_json_list_of_dicts(raw: str, flag_name: str) -> list[dict]:
-    """Parse a CLI argument that accepts inline JSON, ``@file``, or stdin.
-
-    Args:
-        raw: The literal value passed to the flag.
-        flag_name: The long-form flag name (e.g. ``"--rejected"``) used
-            verbatim in the error message so the user sees which flag
-            failed.
-
-    Returns:
-        The parsed JSON value, guaranteed to be a ``list[dict]``.
-
-    Raises:
-        typer.BadParameter: When the value cannot be read, is not valid
-            JSON, or is not a list of objects.
+    """Parse a flag value that accepts inline JSON, ``@file``, or ``-`` for stdin.
+    Returns a ``list[dict]``; anything unreadable, non-JSON, or not a list of objects
+    raises ``typer.BadParameter`` naming ``flag_name``.
     """
     if raw == "-":
         text = sys.stdin.read()

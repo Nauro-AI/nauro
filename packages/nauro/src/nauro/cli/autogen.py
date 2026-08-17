@@ -1,25 +1,18 @@
 """Auto-generate Typer CLI commands from the ToolSpec registry.
 
-Walks ``nauro_core.mcp_tools.ALL_TOOLS`` and, for each tool name in the
-allowlist, registers a Typer command that calls the matching
-``tool_<name>`` adapter in ``nauro.mcp.tools`` and prints the resulting
-envelope as JSON (the default) or, under ``--format text``, renders it
-through the shared read-tool renderers with a JSON fallback.
-Auto-generation keeps the CLI surface in lockstep with the MCP surface.
+Walks ``nauro_core.mcp_tools.ALL_TOOLS`` and, for each allowlisted tool name,
+registers a command that calls the matching ``tool_<name>`` adapter in
+``nauro.mcp.tools`` and prints the envelope as JSON, or renders it through the
+shared read-tool renderers under ``--format text`` with a JSON fallback.
 
-The allowlist is explicit (not derived from the ``readOnlyHint``
-annotation) so future additions to the registry — read or write —
-surface through this generator only when the maintainer opts them in.
+The allowlist is explicit rather than derived from ``readOnlyHint``, so a new
+registry entry surfaces here only when the maintainer opts it in.
 
-``list[str]`` properties map to repeated Typer flags (Typer aggregates
-them natively). ``list[dict]`` properties map to a single JSON-valued
-flag parsed at dispatch time by ``cli._json_input``; that helper raises
-``typer.BadParameter`` on malformed input so Typer renders to stderr at
-exit 2 without ever invoking the adapter.
-
-Tools in ``AUTOGEN_PRIMARY_POSITIONAL`` additionally surface one declared
-optional string property as a positional argument alongside its option
-flag; the two spellings merge at dispatch.
+``list[str]`` properties map to repeated Typer flags; ``list[dict]`` properties
+map to one JSON-valued flag parsed by ``cli._json_input``, which raises
+``typer.BadParameter`` so Typer exits 2 on stderr without invoking the adapter.
+Tools in ``AUTOGEN_PRIMARY_POSITIONAL`` also surface one declared optional string
+property as a positional argument beside its option flag; the two merge at dispatch.
 """
 
 from __future__ import annotations
@@ -103,12 +96,9 @@ def _bool_option_flag(property_name: str) -> str:
 
 
 def _primary_option_alias(property_name: str) -> str:
-    """Signature name for the option spelling of a primary positional.
-
-    The rendered flag keeps the property's own name (``--question``); only
-    the Python parameter name is aliased so the positional and option
-    spellings can coexist in one signature. Dispatch merges the alias back
-    into the schema property.
+    """Return the signature name for the option spelling of a primary positional.
+    Only the Python parameter name is aliased; the rendered flag keeps the property's own
+    name, and dispatch merges the alias back into the schema property.
     """
     return f"{property_name}_option"
 
@@ -137,10 +127,8 @@ def _primary_positional_params(name: str, prop: dict[str, Any]) -> list[inspect.
 
 def _schema_to_typer_params(spec: ToolSpec) -> list[inspect.Parameter]:
     """Translate an input_schema into ordered Typer parameters.
-
-    Required string/integer properties become positional arguments;
-    everything else becomes an option, except a declared primary positional,
-    which surfaces as both. project_id and cwd are dropped.
+    Required string and integer properties become positional arguments, the rest options;
+    a declared primary positional surfaces as both. ``project_id`` and ``cwd`` are dropped.
     """
     schema = spec["input_schema"]
     properties: dict[str, Any] = schema.get("properties", {}) or {}
@@ -261,14 +249,9 @@ _ENUM_CACHE: dict[tuple[str, tuple[str, ...]], type[enum.Enum]] = {}
 
 
 def _enum_for_property(name: str, enum_values: list[str]) -> type[enum.Enum]:
-    """Build a ``str``-mixed Enum whose members carry the wire strings.
-
-    Used as the Typer annotation for an enum-valued property so Typer maps it
-    to a native Choice. A bad value then exits 2 with a choices-naming message
-    across typer/click versions, where ``click.Choice`` exits 1 without one
-    under typer>=0.26 / click>=8.4. Each member's ``.value`` is its wire
-    string, so the valid value reaches the adapter byte-identically once the
-    dispatch converts the member back to its ``.value``.
+    """Return a ``str``-mixed Enum whose members carry the wire strings.
+    Typer maps it to a native Choice, so a bad value exits 2 naming the choices; dispatch
+    converts a member back to ``.value`` so the adapter sees the wire string unchanged.
     """
     key = (name, tuple(enum_values))
     cached = _ENUM_CACHE.get(key)
@@ -359,10 +342,7 @@ def _emit_envelope(envelope: dict) -> None:
 
 def _exit_code_for_envelope(envelope: dict) -> int:
     """Map an envelope to its exit code, independent of output format.
-
-    Caller-fixable rejections (``status: "rejected"``) carry a structured
-    ``error`` payload but stay exit 0 — they are not transport-level errors
-    and the envelope on stdout already carries the reason.
+    A ``rejected`` status stays exit 0: it is caller-fixable, not a transport-level error.
     """
     if envelope.get("status") == "error":
         return 1
@@ -374,11 +354,8 @@ def _exit_code_for_envelope(envelope: dict) -> int:
 
 
 def _error_guidance(envelope: dict) -> str:
-    """The stderr guidance text an error envelope carries, or an empty string.
-
-    Emitted only in json mode — in text mode the rendered stdout is the sole
-    carrier of the error prose, so echoing it again on stderr would duplicate
-    the message.
+    """Return the stderr guidance text an error envelope carries, else an empty string.
+    Emitted in json mode only: text mode already carries the error prose on stdout.
     """
     if envelope.get("status") == "error":
         return envelope.get("guidance") or ""
@@ -392,11 +369,8 @@ def _error_guidance(envelope: dict) -> str:
 
 
 def _emit_json_mode(envelope: dict) -> None:
-    """Emit the envelope with json-mode streams and raise on error exit codes.
-
-    Also the fallback for text mode when no renderer applies (write tools)
-    or the renderer raised: envelope on stdout, guidance on stderr,
-    format-independent exit code.
+    """Emit the envelope on stdout with guidance on stderr, raising on error exit codes.
+    Also the text-mode fallback when no renderer applies or the renderer raised.
     """
     _emit_envelope(envelope)
     guidance = _error_guidance(envelope)
@@ -523,9 +497,7 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
 
 def register_autogen_commands(app: typer.Typer) -> None:
     """Register one Typer command per allowlisted tool on ``app``.
-
-    The allowlist is verified against ``ALL_TOOLS`` so a typo in either
-    surface fails loudly at import time.
+    The allowlist is verified against ``ALL_TOOLS``, so a typo on either side fails at import.
     """
     registry_names = {spec["name"] for spec in ALL_TOOLS}
     unknown = AUTOGEN_ALLOWLIST - registry_names

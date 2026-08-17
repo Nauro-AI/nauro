@@ -76,19 +76,15 @@ def _probe_distinct_commands(
     commands: set[str], *, args: tuple[str, ...] = ("--version",)
 ) -> dict[str, bool]:
     """Probe each distinct recorded command once for liveness.
-
-    Sequential: N repos usually share one recorded path, so the common case is
-    a single short probe. ``probe_nauro_command`` soft-fails by contract, so a
-    dead command costs at most its timeout, never an exception.
+    Sequential, since N repos usually share one recorded path. ``probe_nauro_command`` soft-fails,
+    so a dead command costs its timeout and never raises.
     """
     return {cmd: nauro_command.probe_nauro_command(cmd, args=args) for cmd in commands}
 
 
 def _repo_has_generated_agents_md(repo: Path) -> bool:
     """True when the repo's AGENTS.md carries the Nauro generation footer.
-
-    A file without the footer is hand-written (or stale beyond recognition)
-    and counts as not generated. Unreadable files count as not generated.
+    A file without the footer, and an unreadable file, both count as not generated.
     """
     from nauro.templates.agents_md import FOOTER_MARKER
 
@@ -394,10 +390,8 @@ _SKILLS_INACTIVE_LINE = (
 
 def _skills_status_line(snapshot: _WiringSnapshot) -> str:
     """Render the Skills row.
-
-    Core skills install unconditionally, so a gap there is a wiring defect;
-    opt-in skills absent in full is a chosen state and stays inside an
-    "active" row. Stale files and legacy ~/.codex/skills copies are BROKEN.
+    Missing core skills are a wiring defect; opt-in skills absent in full stay inside an "active"
+    row. Stale files and legacy ``~/.codex/skills`` copies are BROKEN.
     """
     workflow = snapshot.workflow
     core, opt_in = workflow.core_skills, workflow.opt_in_skills
@@ -554,13 +548,9 @@ def _collect_status(project_name: str, store_path: Path, *, no_probe: bool) -> _
 
 
 def _quarantined_collisions(store_path: Path) -> _QuarantineReport:
-    """Remote decisions a pull quarantined and no later pull installed.
-
-    A quarantine records no sync state by design, so the pull warning scrolls
-    away with the session that saw it; naming the collisions here is what keeps
-    an unresolved one visible until someone acts on it. A failure to list them
-    is reported as such rather than as "none": a corrupt sync-state file would
-    otherwise hide exactly the collisions this line exists to surface.
+    """Return the remote decisions a pull quarantined and no later pull installed.
+    A quarantine records no sync state, so this line is what keeps an unresolved collision
+    visible. A failure to list them is reported as a failure, never as "none".
     """
     try:
         from nauro.sync.quarantine import unresolved_quarantines

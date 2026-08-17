@@ -23,11 +23,9 @@ def codex_config_path() -> Path:
 class _CodexNauroEntry:
     """Typed view of the ``[mcp_servers.nauro]`` keys Nauro owns.
 
-    Only ``command`` and ``args`` belong to Nauro; any other keys the user
-    added to the entry (timeouts, env, ...) are never touched. A field is
-    None when the underlying key is missing or off-shape, so each owned key
-    is compared and rewritten independently: a key whose value already
-    matches stays untouched, preserving its formatting and comments.
+    Only ``command`` and ``args`` belong to Nauro; other keys the user added are never
+    touched. A field is ``None`` when its key is missing or off-shape, so each owned key
+    is compared and rewritten independently and a matching key keeps its formatting.
     """
 
     command: str | None
@@ -56,11 +54,8 @@ def _apply_nauro_entry(
     desired: _CodexNauroEntry,
 ) -> None:
     """Write ``desired`` into the ``mcp_servers.nauro`` value, in place.
-
-    Three shapes, matching the existing entry: a present table gets a per-key
-    update so a key whose value already matches keeps its formatting and
-    comments; an inline parent gets an inline child; otherwise a fresh block
-    table appended without a leading blank line.
+    A present table gets a per-key update so a matching key keeps its formatting and comments;
+    an inline parent gets an inline child; otherwise a fresh block table is appended.
     """
     if isinstance(entry, dict):
         # Per-key update: a key whose value already matches keeps its
@@ -93,19 +88,9 @@ def _configure_codex(
     config_path: Path | None = None,
     clear_user_scope: bool = True,
 ) -> CodexConfigOutcome:
-    """Add or remove the Nauro MCP entry in ``~/.codex/config.toml``.
-
-    The file is hand-maintained user config, so edits go through tomlkit:
-    comments, formatting, and user-added keys inside the nauro entry survive,
-    and only the ``command``/``args`` keys Nauro owns are rewritten. A
-    config.toml that is itself a symlink is refused (a dotfile manager may
-    own the real file); a symlinked parent directory works. Writes are
-    atomic, preserve permission bits, and are skipped when nothing changes.
-
-    ``clear_user_scope`` gates the remove path: when False, the codex MCP
-    entry is preserved because other registered nauro projects still depend
-    on it. Defaults to True so direct unit callers and the add path retain
-    their previous behavior.
+    """Add or remove the Nauro MCP entry in ``~/.codex/config.toml``; a symlinked file is refused.
+    Edits go through tomlkit, so comments and user-added keys survive and only ``command`` and
+    ``args`` are rewritten. The remove path preserves the entry unless ``clear_user_scope``.
     """
     config_path = config_path or codex_config_path()
 
@@ -171,10 +156,8 @@ def _configure_codex(
 
 def recorded_codex_command() -> tuple[bool, str | None]:
     """Return ``(wired, recorded command)`` for the user-global Codex config.
-
-    Single read of ``~/.codex/config.toml``. ``(True, None)`` means a nauro
-    entry exists but records no usable command — wired for presence, nothing
-    to probe. Any read or parse failure counts as not wired.
+    ``(True, None)`` means a nauro entry exists but records no usable command. Any read or parse
+    failure counts as not wired.
     """
     import sys
 

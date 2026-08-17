@@ -33,11 +33,8 @@ def _render_and_exit(exc: OSError) -> None:
 
 
 def friendly_fs_errors(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap a command callback to convert an uncaught ``OSError`` into a clean exit.
-
-    Idempotent. Control-flow exceptions (``typer.Exit``/``Abort``/``SystemExit``)
-    pass through untouched; only a genuine filesystem ``OSError`` that no command
-    handled is rendered.
+    """Wrap a command callback so an uncaught ``OSError`` becomes a clean exit.
+    Idempotent. ``typer.Exit``, ``Abort`` and ``SystemExit`` pass through untouched.
     """
     if getattr(func, "_nauro_fs_wrapped", False):
         return func
