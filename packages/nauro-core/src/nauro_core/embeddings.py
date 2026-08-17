@@ -28,11 +28,9 @@ _load_failed = False
 
 
 def _get_model():
-    """Load and memoize the Model2Vec model, or return None if unavailable.
+    """Load and memoize the Model2Vec model, or return ``None`` when unavailable.
 
-    A failed load (missing dependency or model fetch failure) is recorded so
-    the import/instantiation is attempted at most once per process; subsequent
-    calls short-circuit to None without re-raising.
+    A failed load is recorded, so loading is attempted at most once per process.
     """
     global _model, _load_failed
     if _model is not None:
@@ -59,16 +57,9 @@ def embedding_pool(
     query: str,
     top_k: int,
 ) -> list[int]:
-    """Return the decision numbers of the top-k embedding matches for ``query``.
-
-    Encodes the ``title + rationale`` of each decision and the query with the
-    static model, ranks by cosine similarity (vectors are L2-normalized so a
-    dot product is cosine), and returns the ``top_k`` decision numbers in
-    descending similarity order.
-
-    Returns an empty list when the dependency is absent, the model fails to
-    load, or there is nothing to rank. Never raises — the caller treats an
-    empty result as "no embedding contribution" and proceeds with BM25 only.
+    """Return the ``top_k`` decision numbers whose embeddings match ``query`` best,
+    ranked by cosine similarity over ``title + rationale``, descending. Returns an
+    empty list and never raises when the dependency, model, or corpus is missing.
     """
     if not decisions or not query or not query.strip() or top_k <= 0:
         return []

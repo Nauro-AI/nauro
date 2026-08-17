@@ -132,14 +132,9 @@ def _lines_outside_fences(lines: list[str]) -> list[str]:
 
 
 def _stack_projection_items(stack: str) -> tuple[list[str], str]:
-    """Deterministic walk of stack.md into projection items, in file order.
-
-    Fenced code blocks are excluded first — their lines are never items. A
-    structured file (any top-level heading or first-level list item outside
-    fences) projects exactly those lines; everything nested or loose is
-    excluded. An unstructured file projects its nonblank Markdown
-    paragraphs instead. Returns ``(items, joiner)`` — structured items join
-    line-by-line, unstructured paragraphs keep a blank line between them.
+    """Walk stack.md into projection items in file order, returning ``(items, joiner)``.
+    Fenced code is excluded first. A structured file (top-level heading or
+    first-level list item) projects those lines; otherwise, nonblank paragraphs.
     """
     lines = _lines_outside_fences(stack.split("\n"))
     structured = [
@@ -164,19 +159,9 @@ def _stack_projection_items(stack: str) -> tuple[list[str], str]:
 
 
 def _render_stack_projection(stack: str) -> str:
-    """Render the bounded L1 stack projection block.
-
-    Walks the projection items in file order, truncating overlong items at
-    :data:`~nauro_core.constants.STACK_AUTO_ITEM_CHAR_LIMIT` retained
-    characters with an explicit marker, and stops before rendering more than
-    :data:`~nauro_core.constants.STACK_AUTO_ITEM_LIMIT` items or exceeding
-    :data:`~nauro_core.constants.STACK_AUTO_CHAR_BUDGET` characters across
-    the joined projection body — retained item text plus the inter-item
-    separators the join emits. The framing line, per-item truncation
-    markers, and the omitted-count trailer are bounded-constant annotations
-    outside that budget. The block opens with the non-authoritative framing
-    line and, when the walk stopped early, closes with the omitted-item
-    count and the ``get_raw_file("stack.md")`` route to the full file.
+    """Render the bounded L1 stack projection block: items in file order under the
+    item-count and character budgets, overlong items truncated with a marker. The
+    framing line, markers, and omitted-count trailer sit outside those budgets.
     """
     items, joiner = _stack_projection_items(stack)
 
@@ -221,28 +206,9 @@ def _render_open_questions(
     limit: int,
     include_omission_trailer: bool,
 ) -> str:
-    """Render the first ``limit`` genuine open ``EntryBlock``s.
-
-    Walks the parsed block list so the entry's ``timestamp`` survives for
-    the age projection. Entries
-    physically under ``## Resolved`` are skipped via the divider index, as
-    are entries annotated ``resolved_by`` above it.
-    Discovery-pointer entries (body starts with ``BRIEF:``, ``RESUME:`` or
-    ``SELECT:``) are excluded entirely and do not consume a slot in the limit.
-    A ``(open NN days; consider closing or deferring)`` line is prepended
-    when ``entry.timestamp`` is set and the entry is older than
-    :data:`_AGE_PROJECTION_DAYS`. Q-form entries without a timestamp
-    render without the projection. The limit never cuts mid-entry, but
-    each entry's joined rendered text is capped at
-    :data:`~nauro_core.constants.QUESTION_ENTRY_CHAR_BUDGET` characters
-    via :func:`~nauro_core.questions.truncate_entry_text`; entries at or
-    under the budget render byte-unchanged, over-budget entries end with
-    an explicit pointer at ``get_raw_file("open-questions.md")``.
-
-    When ``include_omission_trailer`` is set and genuine entries were
-    omitted beyond the limit, one trailer line reports the omitted count
-    and points at ``get_raw_file`` for the full file. Pointers never count
-    toward the omitted total.
+    """Render the first ``limit`` genuine open entries in file order; resolved and
+    pointer entries never consume a slot. The limit never cuts mid-entry, each
+    entry's text is capped, and ``include_omission_trailer`` reports the omitted count.
     """
     divider = parsed.resolved_divider_idx
     today = datetime.now(timezone.utc).date()
@@ -291,11 +257,9 @@ def _render_l0_open_questions(content: str) -> str:
 
 
 def _resolve_state(files: dict[str, str]) -> str | None:
-    """Resolve state content from files dict, preferring state_current.md.
+    """Resolve state content from ``files``, preferring ``state_current.md``.
 
-    Falls back to state.md for pre-upgrade stores. When falling back,
-    uses extract_current_state() to parse out only the current section
-    (legacy format may have ## Current / ## History sections).
+    Falls back to legacy ``state.md``, parsing out only its ``## Current`` section.
     """
     current = files.get(STATE_CURRENT_FILENAME)
     if current is not None and current.strip():
@@ -326,21 +290,9 @@ def _strip_leading_current_header(assembled: str) -> str:
 
 
 def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
-    """Build L0 payload (concise summary).
-
-    Section order: project scope preamble → state → stack summary →
-    open questions (top 3) → recent decisions summary (last 10 active).
-
-    project.md leads the payload as a stable-scope preamble, with its leading
-    H1 stripped (the surrounding surface supplies the title heading). An
-    unedited ``nauro init`` scaffold is skipped entirely — placeholder
-    prompts are not project scope.
-
-    Args:
-        files: Dict of store-relative keys to file contents.
-            Recognized keys: "project.md", "state_current.md" (preferred;
-            legacy "state.md"), "stack.md", "open-questions.md".
-        decisions: List of parsed decision dicts (from parse_decision).
+    """Build the L0 payload: project scope, state, stack summary, top 3 open
+    questions, then the last 10 active decisions. project.md leads with its H1
+    stripped, and is skipped while still in unedited ``nauro init`` scaffold form.
     """
     sections: list[str] = []
 
@@ -387,27 +339,9 @@ def build_l0(files: dict[str, str], decisions: list[Decision]) -> str:
 
 
 def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
-    """Build L1 payload (bounded working set).
-
-    Canonical section order: project → state → stack → questions →
-    full decisions (last N active) → earlier decisions summary.
-
-    The stack section is a bounded projection of stack.md, not the raw
-    file: the deterministic walk in :func:`_render_stack_projection` keeps
-    the inventory skeleton under its own item and character budgets, opens
-    with the non-authoritative framing line, and points at
-    ``get_raw_file("stack.md")`` for anything omitted. The full file stays
-    reachable via get_raw_file and L2.
-
-    The questions section is a capped projection of genuine open entries,
-    not the raw file: resolved history and discovery pointers drop out,
-    the first ``L1_QUESTIONS_LIMIT`` genuine entries render in file order,
-    and a single trailer line reports how many genuine entries were
-    omitted. The full file stays reachable via get_raw_file and L2.
-
-    Args:
-        files: Dict of store-relative keys to file contents.
-        decisions: List of parsed decision dicts.
+    """Build the L1 payload: project, state, stack, questions, full recent active
+    decisions, then an earlier-decisions summary. The stack and questions sections
+    are bounded projections; the full files stay reachable via get_raw_file and L2.
     """
     sections: list[str] = []
 
@@ -457,18 +391,9 @@ def build_l1(files: dict[str, str], decisions: list[Decision]) -> str:
 
 
 def build_l2(files: dict[str, str], decisions: list[Decision]) -> str:
-    """Build L2 payload (the full dump).
-
-    Canonical section order mirrors L1: project → state (with history) →
-    stack → questions → all decisions. L2 is a superset of L1: it carries
-    project.md verbatim and the complete stack.md body under the same
-    non-authoritative framing line L1's bounded projection opens with,
-    the appended state history that L1 omits, and every decision including
-    superseded ones rather than L1's recent-active cap.
-
-    Args:
-        files: Dict of store-relative keys to file contents.
-        decisions: List of parsed decision dicts.
+    """Build the L2 payload: project, state with history, stack, questions, all
+    decisions. A superset of L1: project.md and stack.md verbatim, the appended
+    state history L1 omits, and superseded decisions included.
     """
     sections: list[str] = []
 

@@ -1,52 +1,18 @@
-"""Pydantic Decision model + canonical YAML-frontmatter round-trip.
+"""Pydantic Decision model plus the canonical YAML-frontmatter round-trip:
+``parse_decision`` reads a markdown file with frontmatter into a validated
+``Decision``, ``format_decision`` writes it back.
 
-The authoritative shape for a parsed decision. `parse_decision` reads a
-markdown file with YAML frontmatter and returns a validated `Decision`.
-`format_decision` goes the other way.
+Tolerant reader, known-key writer. Malformed YAML, missing required fields,
+non-ISO dates, unknown enum values, reasonless rejected alternatives on an
+active decision, and a superseded decision without ``superseded_by`` all raise.
+An unknown frontmatter key is preserved instead of rejected, so a
+read-modify-write cycle such as supersession never strips a field a newer
+writer authored. Supersession refs validate as plain integer strings: "70",
+never "070", "070-some-slug" or "D70".
 
-Tolerant reader, known-key writer. Unknown enum values, missing required
-fields, malformed YAML, non-ISO dates, reasonless rejected alternatives on
-active decisions, and superseded decisions without a `superseded_by` ref all
-still raise. But an *unknown* frontmatter key (one this version has no field
-for) is accepted and preserved rather than rejected: a newer writer may have
-authored a key this reader does not model, and dropping it on a read-modify-
-write cycle would silently strip fields the newer version depends on — a
-worse failure than rejection, landing far from its cause. Supersession is
-exactly such a rewrite path, so preservation is load-bearing, not cosmetic.
-Typos on required keys still fail loudly: omitting `confidence` while adding
-`confidance` is a missing-required error, not a tolerated unknown key.
-
-Round-trip bound (precise):
-
-- Unknown keys are never silently dropped. Their values pass back through
-  `format_decision` subject to PyYAML safe-load/safe-dump normalization —
-  scalar representation, quoting style, key ordering within a mapping, and
-  specialty-tag containers may be normalized, and unordered containers may
-  serialize nondeterministically. Semantic value is preserved; exact bytes
-  of an arbitrary value are not promised.
-- A value the JSON-mode dump gate cannot process fails loudly at rewrite
-  rather than being dropped: `model_dump(mode="json")` raises on such a value
-  (e.g. non-UTF-8 bytes from a `!!binary`) *before* YAML serialization is
-  reached. YAML itself could represent those bytes, so the gate, not the YAML
-  writer, is the failing layer.
-- Byte-identity is guaranteed only for a *trailing* unknown key whose value
-  has a deterministic representation, in an already-canonical nauro-authored
-  file. An unknown key interleaved among known keys migrates to the end of
-  the frontmatter block on rewrite (the writer emits known keys in canonical
-  order, then unknown keys in first-seen order).
-
-Supersession refs (`supersedes`, `superseded_by`) are validated as plain
-integer strings: "70", not "070" or "070-some-slug" or "D70".
-
-Field model:
-    Required frontmatter: date, confidence.
-    Defaulted frontmatter: version (1), status (active).
-    Optional frontmatter: decision_type, reversibility, source, files_affected,
-                          supersedes, superseded_by, and the selectively omitted
-                          approval-provenance group.
-    Body-rendered: rejected (rendered as `## Rejected Alternatives` + `### name`
-                   subsections, not in frontmatter).
-    Derived (set by parse_decision): num, title, rationale, body, content.
+Round-trip bound: unknown values pass through PyYAML normalization, so semantic
+value survives but exact bytes hold only for a trailing unknown key with a
+deterministic representation in an already-canonical file.
 """
 
 from __future__ import annotations
@@ -130,13 +96,9 @@ class RejectedAlternative(BaseModel):
 class Decision(BaseModel):
     """Parsed, validated representation of a decision markdown file.
 
-    Frontmatter fields round-trip through YAML. Derived fields (``num``,
-    ``title``, ``rationale``, ``body``, ``content``) are populated by the
-    parser from the markdown body and the filename.
-
-    ``extra="allow"``: unknown frontmatter keys are captured in
-    ``model_extra`` and preserved through ``format_decision`` rather than
-    rejected. See the module docstring for the tolerant-reader contract.
+    Frontmatter fields round-trip through YAML; ``num``, ``title``, ``rationale``,
+    ``body`` and ``content`` are derived by the parser. ``extra="allow"`` captures
+    unknown frontmatter keys in ``model_extra`` and preserves them on format.
     """
 
     model_config = ConfigDict(extra="allow", validate_assignment=True)
@@ -319,19 +281,9 @@ _H1_FORMAT = "# {num:03d} \u2014 {title}"
 
 
 def parse_decision(text: str, filename: str) -> Decision:
-    """Parse a decision markdown file into a validated ``Decision``.
-
-    Strict on structure, tolerant on unknown frontmatter keys: raises
-    ``ValueError`` (and propagates ``pydantic.ValidationError``) on any
-    deviation from the canonical v2 format, but an unknown frontmatter key is
-    captured by ``Decision``'s ``extra="allow"`` config — the
-    ``Decision(**metadata, ...)`` call below absorbs it into ``model_extra``
-    automatically — and preserved on rewrite instead of rejected.
-
-    Raises:
-        ValueError: missing/unterminated frontmatter, missing H1, missing
-            `## Decision` section, malformed YAML, frontmatter not a mapping.
-        pydantic.ValidationError: any field-level validation failure.
+    """Parse a decision markdown file into a validated ``Decision``: strict on
+    structure, tolerant on unknown frontmatter keys. Raises ``ValueError`` on any
+    deviation from canonical v2 and ``pydantic.ValidationError`` on a field failure.
     """
     frontmatter_block, body = _split_frontmatter(text, filename)
 
@@ -380,11 +332,9 @@ def parse_decision(text: str, filename: str) -> Decision:
 
 
 def _split_frontmatter(text: str, filename: str) -> tuple[str, str]:
-    """Split a decision file into ``(frontmatter_block, body)`` on the fences.
-
-    The frontmatter is the text between the leading open fence and the first
-    following close fence. Raises ``ValueError`` when the open fence is absent
-    or the close fence is never found.
+    """Split a decision file into ``(frontmatter_block, body)`` on the fences: the text
+    between the leading open fence and the first close fence. Raises ``ValueError``
+    when either fence is missing.
     """
     if not text.startswith(_FM_OPEN_FENCE):
         raise ValueError(
@@ -503,36 +453,9 @@ def _parse_rejected_subsections(section_text: str) -> list[RejectedAlternative]:
 
 
 def format_decision(decision: Decision) -> str:
-    """Serialize a ``Decision`` to canonical v2 markdown.
-
-    Output shape:
-        ---
-        <ordered YAML frontmatter>
-        ---
-
-        # NNN — Title
-
-        ## Decision
-
-        {rationale}
-
-        ## Rejected Alternatives   (only if any)
-
-        ### name
-
-        {reason}
-
-    Idempotent with ``parse_decision``: format → parse → format is byte-identical.
-
-    Known keys are emitted in canonical ``_FRONTMATTER_ORDER``. Unknown keys
-    captured on the tolerant reader (``model_extra``) are appended after the
-    known block in first-seen order, so their values are never dropped; an
-    interleaved unknown key migrates to the end on reformat. Value fidelity is
-    bounded by PyYAML safe-dump normalization, and a value the JSON-mode dump
-    gate cannot process (e.g. non-UTF-8 bytes) raises there — before YAML
-    emission — rather than being silently lost. Byte-identity holds only for a
-    trailing unknown key with a deterministic representation in an
-    already-canonical file. See the module docstring for the full bound.
+    """Serialize a ``Decision`` to canonical v2 markdown; format-parse-format is
+    byte-identical. Known keys are emitted in ``_FRONTMATTER_ORDER``, unknown keys
+    after them in first-seen order. See the module docstring for the value bound.
     """
     dumped = decision.model_dump(mode="json", exclude=_DERIVED_FIELDS)
 

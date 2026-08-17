@@ -24,8 +24,7 @@ LEDE_MAX_CHARS = 300
 def decision_lede(rationale: str) -> str:
     """Return the first paragraph of the rationale, truncated to the budget.
 
-    Returns ``""`` when the rationale is empty or opens with whitespace
-    only, so triage surfaces omit the lede block entirely.
+    ``""`` for an empty or whitespace-only rationale, so triage omits the lede block.
     """
     stripped = rationale.strip()
     if not stripped:
@@ -41,9 +40,7 @@ def decision_lede(rationale: str) -> str:
 def frontmatter_value(decision: Decision, field: str) -> str:
     """Return the on-disk string for a triage frontmatter field, or ``""``.
 
-    Enum-valued fields (``status``, ``decision_type``, ``confidence``)
-    serialize to their underlying token; ``date`` to ISO format;
-    supersession refs are already plain integer strings.
+    Enum fields serialize to their token and ``date`` to ISO; refs are plain integers.
     """
     raw = getattr(decision, field, None)
     if raw is None:
@@ -58,13 +55,9 @@ def to_related_decisions(
     hits: list[Bm25Hit],
     decisions: list[Decision],
 ) -> list[RelatedDecision]:
-    """Lift ``bm25_retrieve``/``union_retrieve`` hits into :class:`RelatedDecision`.
-
-    The single hit-lifting path shared by ``check_decision`` and
-    ``propose_decision``: both call sites already hold the parsed corpus, so
-    the enrichment (status, date, type, confidence, supersession refs, lede)
-    costs no extra I/O. The BM25 row dict is normalized at the kernel
-    boundary so every transport renders the same hit.
+    """Lift ``bm25_retrieve``/``union_retrieve`` hits into :class:`RelatedDecision`, the
+    one path shared by ``check_decision`` and ``propose_decision``. Enrichment reads
+    the parsed corpus the caller already holds, so it costs no extra I/O.
     """
     by_num: dict[int, Decision] = {d.num: d for d in decisions}
     return [_hit_to_related(hit, by_num) for hit in hits]
@@ -100,8 +93,7 @@ def _hit_to_related(hit: Bm25Hit, by_num: dict[int, Decision]) -> RelatedDecisio
 def _optional_frontmatter(decision: Decision | None, field: str) -> str | None:
     """Frontmatter string for enrichment fields; ``None`` when absent.
 
-    ``None`` (rather than ``""``) keeps unset fields out of serialized
-    envelopes via the adapters' ``exclude_none=True`` dumps.
+    ``None`` rather than ``""`` keeps unset fields out of ``exclude_none=True`` dumps.
     """
     if decision is None:
         return None

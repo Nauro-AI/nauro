@@ -1,29 +1,18 @@
 """``propose_decision`` — run the validation pipeline and write decisions.
 
-Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
-all call this function with the same arguments and receive the same
-:class:`ProposeDecisionResult`. The kernel owns:
+Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP all
+call this function and receive the same :class:`ProposeDecisionResult`. The
+kernel owns Tier 1 structural screening, the ``operation="update"`` rejection,
+``resolves_questions`` validation, Tier 2 BM25 similarity, the supersede and
+question-resolve writes, and the ``touched_decisions`` enumeration.
 
-* Tier 1 structural screening (rejects empty fields, short rationale,
-  exact-hash duplicates, and titles that match a decision still in force).
-* ``operation="update"`` disallowed-fields rejection.
-* ``resolves_questions`` boundary validation (unknown ids, ambiguous
-  ids).
-* Tier 2 BM25 similarity over the in-store decision corpus. Hits surface
-  as advisory ``similar_decisions`` on the same response; they do not
-  block the write. The human approval gate is enforced at the
-  chat-session layer before the agent fires this call.
-* Multi-object writes on supersede (new decision then flipped old) and
-  ``resolves_questions`` ingestion. The writes are sequential and
-  best-effort: a failure on the second write returns a structured
-  half-state error and leaves the first write intact so sync-repair can
-  reconcile on the next pull.
-* ``touched_decisions`` enumeration so the adapter knows which files to
-  regenerate AGENTS.md against.
+Tier 2 hits are advisory ``similar_decisions`` on the same response and never
+block the write; the human approval gate lives at the chat-session layer.
+Multi-object writes are sequential and best-effort: a failure on the second
+write returns a structured half-state error and leaves the first write intact.
 
-Length validation, envelope-token rejection, ``affected_decision_id``
-resolution, snapshot capture, AGENTS.md regen, and the best-effort cloud
-push stay on the adapter side per the locked Store Protocol boundary.
+Length validation, envelope-token rejection, ``affected_decision_id`` resolution,
+snapshot capture, AGENTS.md regen, and the cloud push are adapter-side.
 """
 
 from __future__ import annotations
@@ -116,14 +105,8 @@ def propose_decision(
     base_commit: str | None = None,
 ) -> ProposeDecisionResult:
     """Run the proposal through the validation pipeline and commit on Tier 1 clean.
-
-    Returns:
-        :class:`ProposeDecisionResult` with ``status`` of ``confirmed`` or
-        ``rejected``. On the confirmed path ``decision_id`` and
-        ``touched_decisions`` are set; ``similar_decisions`` carries any
-        Tier 2 BM25 advisory hits for the agent to surface alongside the
-        write. On the rejected path ``assessment`` names the reason and
-        ``error`` carries the structured payload.
+    ``confirmed`` sets ``decision_id``, ``touched_decisions``, and advisory
+    ``similar_decisions``; ``rejected`` names the offending field in ``assessment``.
     """
     proposal: dict = {
         "title": title,
@@ -462,15 +445,9 @@ def _apply_question_resolves(
     proposal: dict,
     decision_id: str,
 ) -> tuple[_QuestionResolveOutcome, ErrorPayload | None]:
-    """Stamp named open questions resolved, then self-heal the file layout.
-
-    ``resolve`` flips ``resolved_by`` in place; the following ``normalize``
-    relocates every prose-safe stamped entry below ``## Resolved`` (whole-file
-    scope, so pre-existing strays heal on the same write) and reports what a
-    detached body paragraph held back. The boundary already rejected unknown /
-    ambiguous ids, so a failure here can only come from a read/write fault. The
-    decision write stands in either case; the error payload names the
-    half-state.
+    """Stamp named open questions resolved, then ``normalize`` the file layout,
+    relocating prose-safe stamped entries below ``## Resolved``. The decision write
+    stands even when this step faults; the error payload names the half-state.
     """
     ids = list(proposal.get("resolves_questions") or [])
     if not ids:

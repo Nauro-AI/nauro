@@ -40,11 +40,7 @@ _BUILDERS = {
 def _load_context_files(store: Store, level: int) -> dict[str, str]:
     """Load the markdown files the context builders consume.
 
-    ``project.md`` is loaded at every level: L0 carries it as a stable-scope
-    preamble (``build_l0`` skips content still in unedited scaffold form at
-    composition time), and L1/L2 carry it verbatim. Each builder ignores keys
-    it does not use, so files other than the state history are loaded
-    unconditionally.
+    ``project.md`` loads at every level, so all files but the state history load unconditionally.
     """
     files: dict[str, str] = {}
     project = store.read_file(PROJECT_MD)
@@ -81,17 +77,9 @@ def _load_context_files(store: Store, level: int) -> dict[str, str]:
 
 
 def get_context(store: Store, level: int) -> GetContextResult:
-    """Return assembled project context at the requested level.
-
-    Args:
-        store: Storage adapter providing the five locked primitives.
-        level: Context tier — ``0`` (concise), ``1`` (working set), or
-            ``2`` (full dump).
-
-    Returns:
-        :class:`GetContextResult`. On the success path ``content`` carries
-        the assembled markdown. On the rejection path ``error`` is
-        populated with ``kind="rejected"`` naming the offending level.
+    """Return assembled project context at ``level``: ``0`` concise, ``1`` working
+    set, ``2`` full dump. On success ``content`` carries the markdown; on rejection
+    ``error`` is populated with ``kind="rejected"`` naming the offending level.
     """
     builder = _BUILDERS.get(level)
     if builder is None:

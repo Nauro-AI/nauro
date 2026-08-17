@@ -1,24 +1,18 @@
 """Canonical wording for Nauro protocol claims used across instruction surfaces.
 
-Six claims about Nauro's MCP tools recur in multiple surfaces:
-``MCP_INSTRUCTIONS_STATIC`` (delivered via the MCP ``initialize.instructions``
-field) and the ``/nauro-adopt`` skill body. Restating them in each surface
-produced paraphrase-level drift that gave agents slightly different rules
-depending on which surface they read.
+Six claims about Nauro's MCP tools recur in ``MCP_INSTRUCTIONS_STATIC``
+(delivered via the MCP ``initialize.instructions`` field) and the
+``/nauro-adopt`` skill body. This module owns the wording so the surfaces
+cannot drift into paraphrase.
 
-This module owns the canonical wording. Surfaces compose by either:
+Surfaces compose either by importing the named fragment constants into
+f-strings (as ``constants.py`` does), or by embedding ``<!-- protocol:NAME -->``
+HTML-comment tokens in markdown templates that ``substitute_protocol_fragments``
+resolves at load time. The comment shape is invisible in rendered markdown and
+is interpreted by no templating engine in this repo.
 
-* Importing the named fragment constants (e.g. ``CHECK_DECISION_RETURNS``) and
-  splicing them into Python f-strings. Used by ``constants.py`` for
-  ``MCP_INSTRUCTIONS_STATIC``.
-* Embedding ``<!-- protocol:NAME -->`` HTML-comment tokens in markdown source
-  templates. ``substitute_protocol_fragments`` resolves the tokens at load time
-  in ``nauro.skills``. The HTML-comment shape is invisible in rendered markdown
-  and not interpreted by any templating engine in this repo (which is
-  deliberately f-string-only — see CLAUDE.md).
-
-Voice is impersonal so the same string reads naturally in both 2nd-person MCP
-instruction framing and 3rd-person skill-body framing.
+Voice is impersonal so the same string reads naturally in 2nd-person MCP
+instructions and 3rd-person skill bodies.
 """
 
 from __future__ import annotations
@@ -107,11 +101,9 @@ for _name, _value in CANONICAL_FRAGMENTS.items():
 
 
 def substitute_protocol_fragments(text: str) -> str:
-    """Resolve every ``<!-- protocol:NAME -->`` token in ``text``.
+    """Resolve every ``<!-- protocol:NAME -->`` token in ``text``, single-pass.
 
-    Single-pass: each known token is replaced exactly once per occurrence.
-    Unknown tokens (``<!-- protocol:NOT_A_FRAGMENT -->``) are left intact so a
-    typo surfaces via :func:`protocol_tokens_in` rather than silently vanishing.
+    An unknown token is left intact so a typo surfaces instead of vanishing.
     """
     for token, value in _TOKENS.items():
         text = text.replace(token, value)
@@ -121,9 +113,7 @@ def substitute_protocol_fragments(text: str) -> str:
 def protocol_tokens_in(text: str, *, only_unknown: bool = False) -> list[str]:
     """Return the fragment names of every ``<!-- protocol:NAME -->`` in ``text``.
 
-    With ``only_unknown=True``, returns names that are not registered in
-    :data:`CANONICAL_FRAGMENTS` — typos surface against the source file
-    rather than against the rendered output.
+    ``only_unknown=True`` keeps only names missing from :data:`CANONICAL_FRAGMENTS`.
     """
     names: list[str] = []
     cursor = 0

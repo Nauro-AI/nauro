@@ -329,13 +329,9 @@ def strip_leading_h1(content: str) -> str:
 
 
 def is_scaffold_project_md(content: str) -> bool:
-    """Whether ``content`` is an unedited ``nauro init`` project.md scaffold.
-
-    The scaffold interpolates only the ``# {project_name}`` heading, so the
-    check strips a leading H1 and compares the remainder against
-    ``PROJECT_MD_SCAFFOLD_BODY`` exactly (trailing whitespace stripped on both
-    sides). Any edit to the body — even one character — means the user has
-    started filling in real scope and the content is no longer scaffold-form.
+    """Whether ``content`` is an unedited ``nauro init`` project.md scaffold: a leading
+    H1 is stripped and the remainder compared to ``PROJECT_MD_SCAFFOLD_BODY``
+    exactly, so any edit to the body means the content is no longer scaffold-form.
     """
     return strip_leading_h1(content) == PROJECT_MD_SCAFFOLD_BODY.strip()
 
@@ -343,9 +339,7 @@ def is_scaffold_project_md(content: str) -> bool:
 def extract_current_state(state_content: str) -> str:
     """Extract only the ``## Current`` section from state.md content.
 
-    Legacy fallback only — used when reading pre-upgrade state.md files
-    that contain both ``## Current`` and ``## History`` sections. New-format
-    stores use state_current.md directly.
+    Legacy fallback for pre-upgrade files; new stores read state_current.md directly.
     """
     lines = state_content.split("\n")
     in_current = False

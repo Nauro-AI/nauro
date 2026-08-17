@@ -20,16 +20,9 @@ from nauro_core.operations.store import Store
 
 
 def get_raw_file(store: Store, path: str) -> GetRawFileResult:
-    """Return the text body at ``path``, or a not-found error.
+    """Return the text body at store-relative ``path``.
 
-    Args:
-        store: Storage adapter providing ``read_file``.
-        path: Store-relative path to the file.
-
-    Returns:
-        :class:`GetRawFileResult`. On a hit ``content`` holds the file's
-        text body. On a miss ``error`` is populated with ``kind="error"``
-        and a reason that names the requested path.
+    On a miss ``content`` stays unset and ``error`` names the requested path.
     """
     body = store.read_file(path)
     if body is None:

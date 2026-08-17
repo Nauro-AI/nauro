@@ -13,15 +13,9 @@ from nauro_core.parsing import _stem_from_decision_path
 class InMemoryStore:
     """Test double for :class:`~nauro_core.operations.store.Store`.
 
-    Decisions are passed in keyed by file stem and exposed via
-    :meth:`list_decisions` / :meth:`read_decision`. Other files live in a
-    separate dict so write/read/delete round-trip without polluting the
-    decision view.
-
-    Writes whose path is under ``decisions/*.md`` are mirrored into the
-    decision view so kernels that write a decision and then re-read it
-    via :meth:`read_decision` round-trip the same way they do against
-    ``FilesystemStore``.
+    Decisions are keyed by file stem; other files live in a separate dict so
+    write/read/delete round-trip without polluting the decision view. A write under
+    ``decisions/*.md`` is mirrored there, so write-then-read matches ``FilesystemStore``.
     """
 
     def __init__(

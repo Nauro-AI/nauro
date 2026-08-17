@@ -44,26 +44,9 @@ def build_remote_instructions(
     static_block: str,
     projects: list[ProjectRef],
 ) -> str:
-    """Combine static instructions with a per-user project section.
-
-    `projects` is a list of dicts each with at least 'project_id' (str, ULID)
-    and 'name' (str).
-
-    The per-user section is prepended before ``static_block`` so it survives
-    client-side truncation of the MCP ``initialize.instructions`` field. The
-    project section is the load-bearing payload for multi-project users (it
-    carries the project_id they must pass); the static block is repeated
-    project-agnostic guidance the agent can recover from other surfaces.
-
-    - Empty list: prepend WELCOME_NO_PROJECT.
-    - Exactly 1 project: prepend one orientation line with the project name.
-      No project_id is rendered — tools auto-resolve to the only project.
-    - 2..MAX_INLINE_PROJECTS: prepend a "You have N projects:" list with each
-      project rendered as `name — {full project_id}`, sorted by
-      (name.lower(), project_id). Tools require an explicit project_id when
-      multiple exist.
-    - More than MAX_INLINE_PROJECTS: prepend a count + hint to call
-      list_projects, without enumerating each one.
+    """Prepend a per-user project section to ``static_block`` so it survives client
+    truncation: no projects give a welcome, one a name-only line, up to
+    ``MAX_INLINE_PROJECTS`` a sorted list carrying each id, more a count and hint.
     """
     if not projects:
         return f"{WELCOME_NO_PROJECT}\n\n{static_block}"

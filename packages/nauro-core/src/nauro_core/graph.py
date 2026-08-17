@@ -1,26 +1,18 @@
 """Pure builder for the decision-graph payload.
 
-``build_graph_payload`` takes already-parsed ``Decision`` objects and an
-optional parsed ``OpenQuestionsFile`` and returns one versioned JSON-shaped
-dict: nodes, supersession edges, citation edges, connected supersession
-components with explicit branch points, filtered open questions, and summary
-stats. Every renderer (the CLI HTML writer today, a hosted view later)
-consumes this one shape.
+``build_graph_payload`` takes parsed ``Decision`` objects and an optional parsed
+``OpenQuestionsFile`` and returns one versioned JSON-shaped dict: nodes,
+supersession edges, citation edges, connected components with branch points,
+filtered open questions, and summary stats. Every renderer consumes this shape.
 
-The builder is pure: no I/O, no clock read, no randomness. Ordering is fully
-deterministic so two builds over the same input produce byte-identical JSON.
+The builder is pure: no I/O, no clock, no randomness, and plain string
+operations only. Ordering is fully deterministic, so two builds over the same
+input produce byte-identical JSON.
 
-Edge semantics. Supersession edges are the union of both frontmatter
-directions. The recorded store convention is a scalar ``supersedes`` carrying
-one forward edge per retirement and back-only ``superseded_by`` refs for the
-rest of a one-to-many retirement, with refs in the canonical plain-integer
-form enforced at the model boundary. The union reconstructs every retirement
-relationship as a directed edge ``(from, to)`` where ``from`` supersedes
-``to``. Citation edges come from string-scanning decision bodies for
-D-references (the shared ``parsing.scan_decision_references`` grammar) and are
-a separate, lower-signal layer.
-
-Plain string operations only; no regex.
+Supersession edges are the union of both frontmatter directions, reconstructing
+each retirement as a directed edge ``(from, to)`` where ``from`` supersedes
+``to``. Citation edges come from scanning bodies with the shared
+``parsing.scan_decision_references`` grammar and are a lower-signal layer.
 """
 
 from __future__ import annotations
@@ -108,29 +100,9 @@ def build_graph_payload(
     project: str = "",
     include_bodies: bool = False,
 ) -> GraphPayload:
-    """Build the decision-graph payload from parsed inputs. Pure; no I/O.
-
-    Args:
-        decisions: Parsed ``Decision`` objects. The scaffold seed (num 1 with
-            the scaffold title) is excluded. When two files resolve to the same
-            number one is kept (see ``_collect_nodes`` for the ordering rule)
-            and the dropped number is recorded in ``stats.duplicate_numbers``.
-            Only the kept decisions contribute edges and citations, so a dropped
-            duplicate never fabricates an edge attributed to the kept node.
-        questions: Parsed open-questions file, or None. Only genuinely-open
-            entries appear in the payload (unresolved and not a discovery-pointer
-            breadcrumb); each body is capped to its first line or sentence, and
-            each entry carries the in-range decision numbers its full body
-            references.
-        project: Display name for the rendered title. Carried through verbatim.
-        include_bodies: When True, each node dict gains a ``"body"`` key holding
-            the decision's full body markdown. Default False keeps the artifact
-            titles-and-metadata-only so the rendered file carries no decision
-            prose unless the caller asks for it (sensitivity posture). The key
-            is omitted entirely when False rather than emitted empty.
-
-    Returns:
-        A JSON-shaped dict matching the v2 payload schema.
+    """Build the graph payload from parsed ``decisions`` and optional ``questions``;
+    ``project`` is a display name carried verbatim. The scaffold seed drops out,
+    duplicates collapse into ``stats.duplicate_numbers``, ``include_bodies`` adds prose.
     """
     kept, duplicate_numbers = _collect_nodes(decisions)
     nodes = [_node_dict(d, include_bodies) for d in kept]
@@ -168,25 +140,9 @@ def build_graph_payload(
 
 
 def _collect_nodes(decisions: list[Decision]) -> tuple[list[Decision], list[int]]:
-    """Return ``(kept_decisions, duplicate_numbers)`` after scaffold and dedup.
-
-    The scaffold seed is dropped via the shared ``is_scaffold_seed`` predicate.
-    Decisions are then ordered by a total deterministic key so duplicate-number
-    resolution does not depend on input order: the first decision for each
-    number is kept, every later file resolving to that number is recorded in
-    ``duplicate_numbers``.
-
-    The dedup key is ``(num, title, date, status, confidence, body)``. This is
-    a total order over the parsed fields, so two files sharing a number (even
-    with identical titles) resolve identically regardless of input order. It
-    does NOT match the store layer's duplicate resolution: ``get_decision``
-    resolves a number to the first matching on-disk file stem
-    (``operations/decision_lookup.find_decision_stem_by_num``), and the parsed
-    ``Decision`` model does not retain its source stem, so the graph cannot
-    reproduce stem order. For a store with duplicate numbers the graph and
-    ``get_decision`` can therefore disagree on which file is "D5". Duplicate
-    numbers are a local-only anomaly the payload surfaces in
-    ``stats.duplicate_numbers`` rather than hides.
+    """Return ``(kept_decisions, duplicate_numbers)``: the scaffold seed drops out and
+    duplicates resolve by a total order over parsed fields, not by input order and
+    not the way ``get_decision`` resolves a number to the first on-disk stem.
     """
     ordered = sorted(
         (d for d in decisions if not is_scaffold_seed(d)),
@@ -217,14 +173,7 @@ def _collect_nodes(decisions: list[Decision]) -> tuple[list[Decision], list[int]
 def _node_dict(d: Decision, include_bodies: bool) -> GraphNode:
     """Project a ``Decision`` onto the node schema.
 
-    Parallel to ``operations/results.DecisionSummary`` (the list_decisions row
-    projection); the two differ only in the type key name (``decision_type``
-    here, ``type`` there) and the date being required here. Kept separate so a
-    renderer change does not perturb the tool envelope.
-
-    When ``include_bodies`` is True the full body markdown is carried under a
-    ``"body"`` key; when False the key is omitted entirely (no empty string), so
-    the default artifact stays titles-and-metadata-only.
+    ``include_bodies`` adds the body markdown under ``"body"``; otherwise the key is omitted.
     """
     decision_type = d.decision_type.value if d.decision_type is not None else None
     node = {
@@ -243,19 +192,9 @@ def _node_dict(d: Decision, include_bodies: bool) -> GraphNode:
 def _collect_supersession_edges(
     kept: list[Decision], node_numbers: set[int]
 ) -> tuple[list[GraphEdge], set[tuple[int, int]]]:
-    """Collect supersession edges as the deduped union of both directions.
-
-    Iterates only the kept decisions, so a decision dropped during dedup never
-    contributes an edge attributed to the node that survived under its number.
-
-    ``supersedes: X`` on decision N yields the forward edge ``(N, X)``;
-    ``superseded_by: X`` on decision N yields ``(X, N)`` (X is newer, so X
-    supersedes N). Both refs are canonical plain-integer strings per the model
-    boundary. An edge is kept only when both endpoints are live nodes and the
-    two endpoints differ.
-
-    Returns ``(edges, pairs)`` where ``pairs`` is the set the caller reuses to
-    exclude already-superseded relationships from the citation layer.
+    """Return ``(edges, pairs)``, the deduped union of both ref directions:
+    ``supersedes: X`` on N yields ``(N, X)``, ``superseded_by: X`` yields ``(X, N)``.
+    Only kept decisions contribute, and both endpoints must be distinct live nodes.
     """
     pairs: set[tuple[int, int]] = set()
     for d in kept:
@@ -277,19 +216,9 @@ def _scan_citation_pairs(
     max_decision_number: int,
     supersession_pairs: set[tuple[int, int]],
 ) -> list[GraphEdge]:
-    """Scan kept decisions' bodies for D-references and emit citation edges.
-
-    Iterates only the kept decisions, so a dropped duplicate contributes no
-    citation attributed to the surviving node. Reference parsing is delegated
-    to the shared ``parsing.scan_decision_references`` grammar (forms ``D70`` /
-    ``D070`` / ``decision-70``, case-insensitive, alphanumeric-left-boundary
-    guarded, bounded to ``1..max_decision_number``).
-
-    A pair is excluded when it points at a non-node, is a self-reference, or is
-    already a supersession relationship. The supersession exclusion is on the
-    unordered pair: ``A`` citing ``B`` is dropped whenever ``A`` supersedes
-    ``B`` OR ``B`` supersedes ``A``, so a back-reference body citation never
-    mirrors the supersession edge in the opposite direction.
+    """Scan kept decisions' bodies for D-references and emit citation edges through the
+    shared ``parsing.scan_decision_references`` grammar, bounded to
+    ``1..max_decision_number``. Drops non-nodes, self-references, and supersessions.
     """
     pairs: set[tuple[int, int]] = set()
     for d in kept:
@@ -306,20 +235,9 @@ def _scan_citation_pairs(
 def _build_components(
     supersession_edges: list[GraphEdge],
 ) -> tuple[list[GraphComponent], set[int], int]:
-    """Group nodes into connected components with branch points.
-
-    Returns ``(components, incident_nodes, branch_point_count)`` so the caller
-    derives the isolated-node count from the adjacency built here rather than
-    re-walking the edge list.
-
-    Connectivity is undirected over the supersession edges, so a one-to-many
-    fan (one retiring decision linked to many retired ones) lands in a single
-    component. Only nodes touched by at least one edge form components; fully
-    isolated nodes are omitted (they carry no thread). A branch point is any
-    node incident to more than one edge in the same direction (fan-in on the
-    ``to`` side or fan-out on the ``from`` side). Components sort by node count
-    descending then by smallest member; within a component, nodes sort
-    ascending and edges sort by ``(from, to)``.
+    """Return ``(components, incident_nodes, branch_point_count)``. Connectivity is
+    undirected over supersession edges, so a one-to-many fan is one component;
+    isolated nodes are omitted. A branch point has two or more edges in one direction.
     """
     adjacency: dict[int, set[int]] = {}
     out_degree: dict[int, int] = {}
@@ -383,23 +301,9 @@ def _filter_open_questions(
     node_numbers: set[int],
     max_decision_number: int,
 ) -> list[GraphOpenQuestion]:
-    """Return genuinely-open question entries with capped bodies and references.
-
-    Openness is annotation-authoritative via ``OpenQuestionsFile``'s public
-    ``genuine_open_entries`` (``resolved_by`` unset AND not a discovery-pointer
-    breadcrumb), regardless of where the entry sits relative to the
-    ``## Resolved`` divider. Discovery pointers (``BRIEF:``/``RESUME:``/``SELECT:``
-    body prefix) are breadcrumbs for other agents, not questions for the graph
-    surface, so they are excluded from the count and the listing. Each included
-    body is capped to its first sentence or line for display.
-
-    ``references`` holds the decision numbers the entry's FULL body cites (body
-    plus every continuation line), not just the capped display body, scanned via
-    the shared ``scan_decision_references`` grammar and bounded to live nodes.
-    A reference to a number with no node (out of range, or no decision file)
-    is dropped. The list is sorted ascending. The renderer derives the reverse
-    direction (which decision a question points at) from this field, so the
-    payload carries only the question-to-decision direction.
+    """Return genuinely-open entries (``resolved_by`` unset, discovery pointers
+    excluded) with each body capped to its first sentence or line. ``references``
+    holds the ascending live-node decision numbers the entry's full body cites.
     """
     if questions is None:
         return []

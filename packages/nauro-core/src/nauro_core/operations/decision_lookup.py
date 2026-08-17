@@ -38,22 +38,9 @@ class ParseFailure(NamedTuple):
 
 
 def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
-    """Read every decision, capturing the parsed set and the parse failures.
-
-    The single guarded scan: one place reads every stem, parses each body, and
-    routes the outcome to one of two lists. A malformed file on disk (a
-    half-written body, a pre-v2 file left during a migration) must not take
-    down the read path, so a file that does not round-trip through the v2
-    parser is logged at debug and recorded as a :class:`ParseFailure` rather
-    than raising. :func:`parse_all_decisions` consumes only the parsed list;
-    ``doctor`` consumes both.
-
-    The parsed list is ordered by :func:`sort_stems_by_number`, not by the
-    lexicographic order :meth:`Store.list_decisions` returns and not by the
-    bulk-read mapping, which carries no ordering guarantee. Callers downstream
-    read list position as chronology and BM25 breaks ranking ties by corpus
-    position, so this is the one place that order is set. No filtering is
-    applied here; callers that need a status or seed filter apply it after.
+    """Read every decision, returning the parsed set and the parse failures: a body
+    that fails the v2 parser is recorded as a :class:`ParseFailure`, never raised.
+    The parsed list is ordered by :func:`sort_stems_by_number` and is unfiltered.
     """
     parsed: list[Decision] = []
     failures: list[ParseFailure] = []
@@ -72,12 +59,9 @@ def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
 
 
 def parse_all_decisions(store: Store) -> list[Decision]:
-    """Read and parse every decision in the store, skipping unparseable files.
+    """Read and parse every decision in the store, discarding unparseable files.
 
-    Thin wrapper over :func:`scan_decisions` that discards the parse failures.
-    The retrieval hot path only needs the decisions it could parse, so this
-    keeps the historical return shape while the capturing scan lives in one
-    place.
+    Thin wrapper over :func:`scan_decisions` that drops the parse failures.
     """
     parsed, _ = scan_decisions(store)
     return parsed
@@ -86,9 +70,7 @@ def parse_all_decisions(store: Store) -> list[Decision]:
 def parse_decision_or_none(body: str, filename: str) -> Decision | None:
     """Parse a single decision body, returning ``None`` if it does not parse.
 
-    The single-file analogue of :func:`parse_all_decisions`: a targeted
-    lookup of a known file that fails to parse is logged at debug and
-    surfaces as ``None`` so the caller can decide how to report it.
+    A file that fails to parse is logged at debug; the caller decides how to report.
     """
     try:
         return parse_decision(body, filename)

@@ -50,12 +50,9 @@ class Bm25Hit(TypedDict):
 
 
 def _index_text(d: Decision) -> str:
-    """The BM25 corpus document for one decision.
-
-    Title + rationale + rejected-alternative names (names only — see the
-    module docstring for why reasons are excluded). Shared by
-    :func:`bm25_search` and :func:`bm25_retrieve` so the two retrieval
-    paths rank over the same corpus by construction.
+    """The BM25 corpus document for one decision: title, rationale, and
+    rejected-alternative names only. Shared by :func:`bm25_search` and
+    :func:`bm25_retrieve`, so both retrieval paths rank the same corpus.
     """
     names = " ".join(r.name for r in d.rejected)
     return f"{d.title} {d.rationale} {names}" if names else f"{d.title} {d.rationale}"
@@ -66,10 +63,9 @@ def bm25_search(
     query: str,
     limit: int = 10,
 ) -> list[Bm25SearchRow]:
-    """Rank decisions by BM25 relevance to query.
+    """Rank decisions by BM25 relevance to ``query``.
 
-    Returns list of result dicts sorted by BM25 score descending.
-    Only results with score > 0 are included.
+    Returns result dicts sorted by score descending, score > 0 only.
     """
     if not decisions or not query or not query.strip():
         return []
@@ -123,15 +119,9 @@ def bm25_retrieve(
     top_k: int = 5,
     stopwords: str | list[str] = "en",
 ) -> list[Bm25Hit]:
-    """Retrieve top-k related active decisions for agent assessment.
-
-    Returns list of dicts sorted by BM25 score descending.
-    Only active decisions are considered; results with score <= 0 are excluded.
-
-    ``stopwords`` is passed through to ``bm25s.tokenize`` and applies to both
-    the corpus and query tokenization. Callers (e.g. tier-2 validation) may
-    pass an extended list to filter domain-generic tokens that bm25s's
-    default English list doesn't cover.
+    """Retrieve top-k related active decisions for agent assessment, as dicts sorted
+    by BM25 score descending. Only active decisions rank and score <= 0 is excluded.
+    ``stopwords`` applies to both corpus and query tokenization.
     """
     active = [d for d in decisions if d.status is DecisionStatus.active]
     if not active or not query_text or not query_text.strip():
@@ -178,22 +168,9 @@ def union_retrieve(
     stopwords: str | list[str] = "en",
     use_embeddings: bool = False,
 ) -> list[Bm25Hit]:
-    """Retrieve a BM25 ∪ embedding candidate pool of related active decisions.
-
-    With ``use_embeddings`` False this is exactly :func:`bm25_retrieve` — same
-    arguments, same result list, byte-identical to the BM25-only path.
-
-    With ``use_embeddings`` True the BM25 top-k results are returned first, in
-    their existing order and shape, and any decision in the embedding top-k
-    that BM25 did not already surface is appended as an embedding-sourced hit.
-    Embedding-sourced hits carry ``similarity: None`` (the static-embedding
-    cosine is not on the BM25 score scale, so it is not reported as a BM25
-    score) and the same ``number`` / ``title`` / ``rationale_preview`` shape.
-
-    The augmenter is fail-open: when the optional embedding dependency is
-    absent or the model fails to load, the embedding pool is empty and the
-    result is the BM25-only list. Importing the augmenter here keeps the
-    optional dependency out of the module-level import graph.
+    """Retrieve related active decisions as a BM25 union embedding candidate pool.
+    ``use_embeddings`` False is exactly :func:`bm25_retrieve`; True keeps the BM25
+    hits first, then appends embedding-only hits with ``similarity: None``, fail-open.
     """
     bm25_hits = bm25_retrieve(decisions, query_text, top_k=top_k, stopwords=stopwords)
     if not use_embeddings:

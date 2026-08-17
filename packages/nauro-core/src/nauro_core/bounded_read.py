@@ -1,31 +1,16 @@
 """Bounded rendering of raw store file reads.
 
-Pure, total helpers behind :mod:`nauro_core.renderers`: given a file's
-content and its canonical store-relative path, produce the bounded form the
-rendered agent channel emits (the stdio MCP ``content[0]`` block and the CLI
-``--format text`` mode). The CLI's default json output never routes through
-here - it stays the uncapped local recovery channel.
+Pure, total helpers behind :mod:`nauro_core.renderers`: given a file's content
+and its canonical store-relative path, produce the bounded form the rendered
+agent channel emits. The CLI's default json output stays uncapped.
 
-Guarantees:
-
-* Content at or under its budget passes through byte-verbatim.
-* Budgets bound retained file content only; elision markers are additional
-  bounded-constant annotations naming the exact omitted char count and the
-  recovery paths.
-* Cuts land on the nearest newline inside the retained window (last newline
-  for head windows, first for tail windows), with a hard cut at exactly the
-  budget when the window contains no newline.
-* An extraction-eligible discovery-pointer entry is either fully retained in
-  a window or fully omitted, never split: when one intersects a retained
-  window's cut, the cut shifts to exclude the entire entry.
-* Total: never raises. Content that defeats the structure-aware
-  open-questions split falls back to the plain head-keep rule.
-
-``open-questions.md`` gets a structure-aware split driven by the parsed
-:class:`~nauro_core.questions.OpenQuestionsFile` block model, with a local
-exact-header scan (a header line whose stripped text equals ``## Resolved``)
-instead of the parser's "contains resolved" divider heuristic - so a header
-like ``## Unresolved threads`` never classifies content as resolved history.
+Content at or under its budget passes through byte-verbatim. Budgets bound
+retained content only; elision markers are bounded-constant annotations naming
+the omitted char count and the recovery path. Cuts land on the nearest newline
+inside the retained window, with a hard cut at the budget when the window holds
+no newline. An extraction-eligible discovery-pointer entry is retained or
+omitted whole, never split. ``open-questions.md`` gets a structure-aware split;
+content that defeats it falls back to the plain head-keep rule. Never raises.
 """
 
 from __future__ import annotations
@@ -63,11 +48,9 @@ _CONTEXT_DIR_PREFIX = "context/"
 
 
 def render_bounded_file(content: str, path: str | None) -> str:
-    """Bounded render of one raw-file read, classified by canonical path.
-
-    ``path`` is the canonical store-relative path (or ``None`` when the
-    calling surface did not thread one, in which case the generic head-keep
-    rule applies). Content at or under its budget returns byte-verbatim.
+    """Bounded render of one raw-file read, classified by canonical path. ``path`` is
+    the canonical store-relative path, or ``None`` to force the generic head-keep
+    rule; content at or under its budget returns byte-verbatim.
     """
     budget = _budget_for(path)
     if len(content) <= budget:
@@ -168,10 +151,9 @@ class _LocatedPointer:
 class _Layout:
     """Region map of open-questions.md content under the exact-header rule.
 
-    ``preamble`` is the open content before the ``## Resolved`` header (the
-    whole file when no exact header exists). ``resolved`` runs from that
-    header to the next section header, exclusive. ``post`` is everything
-    after the resolved section. The three spans tile the source text.
+    ``preamble`` is the open content before the ``## Resolved`` header (the whole
+    file when no exact header exists). ``resolved`` runs from that header to the
+    next section header, exclusive. ``post`` is the rest; the spans tile the source.
     """
 
     preamble: _Span
@@ -271,12 +253,9 @@ def _bounded_open_questions(content: str, path: str) -> str:
 
 
 def _locate_layout(content: str) -> _Layout | None:
-    """Map the parsed block model back onto character spans of the source.
+    """Map the parsed block model onto character spans of the source.
 
-    Alignment relies on every block covering exactly ``len(render_lines())``
-    source lines (the parser consumes lines one-to-one). When the model does
-    not tile the source, return ``None`` and let the caller fall back to the
-    plain head-keep rule.
+    Returns ``None`` unless every block covers exactly ``len(render_lines())`` lines.
     """
     lines = content.split("\n")
     parsed = OpenQuestionsFile.parse(content)
@@ -404,8 +383,7 @@ def _tail_window(
 def _assemble(pieces: list[str | _ElidedSpan], recovery: str) -> str:
     """Join retained text, markers, and per-span pointer blocks in file order.
 
-    The global :data:`POINTER_EXTRACT_LIMIT` is allocated across spans in
-    file order; a single trailer line reports any overflow.
+    :data:`POINTER_EXTRACT_LIMIT` is allocated across spans; one trailer reports overflow.
     """
     parts: list[str] = []
     slots = POINTER_EXTRACT_LIMIT
