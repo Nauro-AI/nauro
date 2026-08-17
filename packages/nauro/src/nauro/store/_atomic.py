@@ -2,10 +2,11 @@
 
 The single tmp-write-then-``os.replace`` primitive used by the control-plane
 JSON writers (``registry.json``, ``config.json``, per-repo ``config.json``), by
-the graph command for its rendered HTML, and by the sync pull for the remote
-bytes it lands. Durability scope is atomic-replace only: the rename is atomic on
-a single filesystem, so a reader never observes a partially written target.
-There is deliberately no ``fsync`` — that matches every existing call site, and
+``FilesystemStore.write_file`` for every store file, by the graph command for
+its rendered HTML, and by the sync pull for the remote bytes it lands.
+Durability scope is atomic-replace only: the rename is atomic on a single
+filesystem, so a reader never observes a partially written target. There is
+deliberately no ``fsync`` — that matches every existing call site, and
 crash-durability is an explicit non-goal here.
 
 The text and bytes entry points differ only in how they fill the tmp file. Both
