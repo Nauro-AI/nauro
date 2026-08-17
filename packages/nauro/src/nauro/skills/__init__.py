@@ -131,11 +131,9 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
 
 
 def _strip_template_header(text: str) -> str:
-    """Drop the leading ``<!-- Source template ... -->`` editor hint, if any.
+    """Return ``text`` without its leading ``<!-- Source template ... -->`` hint.
 
-    The hint marks the file as a source template for engineers opening the
-    ``.md`` file directly. It is meaningless once the body is rendered into a
-    distribution surface, so it is removed before substitution.
+    Any other leading comment is left in place.
     """
     stripped = text.lstrip()
     if stripped.startswith("<!--"):
@@ -156,10 +154,9 @@ def load_adopt_body() -> str:
 
 
 def load_ship_task_body(surface: str = "claude_code") -> str:
-    """Return the canonical ``/nauro-ship-task`` skill body (no frontmatter).
+    """Return the ``/nauro-ship-task`` skill body (no frontmatter) for ``surface``.
 
-    The body has no protocol-fragment tokens today, but goes through the same
-    substitution pass so future canonical claims can be added at the source.
+    The prerequisites token resolves per surface; an unknown surface raises ``ValueError``.
     """
     raw = resources.files(__package__).joinpath("ship_task_body.md").read_text(encoding="utf-8")
     body = substitute_protocol_fragments(_strip_template_header(raw))
@@ -173,21 +170,13 @@ def load_ship_task_body(surface: str = "claude_code") -> str:
 
 
 def load_context_body() -> str:
-    """Return the canonical ``/nauro-context`` skill body (no frontmatter).
-
-    The body has no protocol-fragment tokens today, but goes through the same
-    substitution pass so future canonical claims can be added at the source.
-    """
+    """Return the ``/nauro-context`` skill body (no frontmatter), protocol fragments resolved."""
     raw = resources.files(__package__).joinpath("context_body.md").read_text(encoding="utf-8")
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
 def load_loop_body() -> str:
-    """Return the canonical ``/nauro-loop`` skill body (no frontmatter).
-
-    The body has no protocol-fragment tokens today, but goes through the same
-    substitution pass so future canonical claims can be added at the source.
-    """
+    """Return the ``/nauro-loop`` skill body (no frontmatter), protocol fragments resolved."""
     raw = resources.files(__package__).joinpath("loop_body.md").read_text(encoding="utf-8")
     return substitute_protocol_fragments(_strip_template_header(raw))
 
@@ -219,9 +208,7 @@ def _frontmatter(surface: str, skill_name: str) -> str:
 def render_skill(surface: str, skill_name: str) -> str:
     """Return the full per-surface skill file content (frontmatter + body).
 
-    This is the single source of truth for both materialized skills and the
-    committed dogfood files at the repo root — drift tests assert each
-    dogfood file equals ``render_skill(...)`` byte-for-byte.
+    Single render path: drift tests byte-compare the committed dogfood files against it.
     """
     return _frontmatter(surface, skill_name) + _load_body(surface, skill_name)
 

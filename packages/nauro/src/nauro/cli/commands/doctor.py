@@ -2,22 +2,16 @@
 
 Reads the local store and reports structural defects in the decision set:
 unparseable decision files, dangling or cyclic supersession refs, and status
-contradictions. Report-only — it never edits the store — and it exits 0
-whether or not it finds defects, because a defect is information for the user,
-not a failed command.
+contradictions. Report-only, and it exits 0 whether or not it finds defects,
+because a defect is information for the user, not a failed command.
 
-Supersede backref orphans are reported in their own section and counted
-separately: they are repairable rather than blocking, and the section names
-`nauro repair` as the remedy. Doctor still writes nothing itself — detection
-and the gated flip stay in different commands.
+Supersede backref orphans get their own section and their own count: they are
+repairable rather than blocking, and the section names ``nauro repair``.
+Detection and the gated flip stay in different commands.
 
-Scope boundary: doctor reads only the decision store, so its findings can be
-deterministic with no false positives. Everything else that can be "off" on a
-machine — not connected, missing or dead wiring — is `nauro status`'s job;
-status names the remedy for each state (`nauro reconnect`, `nauro setup all`).
-On a machine where the project has never been connected, doctor itself exits
-through the shared resolution guidance rather than reporting on a store it
-cannot read.
+Scope boundary: doctor reads only the decision store, so its findings are
+deterministic with no false positives. Everything else that can be off on a
+machine — not connected, missing or dead wiring — belongs to ``nauro status``.
 """
 
 from __future__ import annotations
@@ -147,9 +141,7 @@ def doctor(
 ) -> None:
     """Report deterministic integrity defects in the project's decision store.
 
-    Checks only the store itself. For connection or wiring problems
-    (not connected on this machine, missing or broken MCP wiring), run
-    'nauro status', which names the remedy for each state.
+    Checks the store only. For connection or wiring problems, run 'nauro status'.
     """
     project_name, store_path = resolve_target_project(project)
 

@@ -20,10 +20,7 @@ def serve(
     ),
 ) -> None:
     """Start the Nauro MCP server over stdio.
-
-    '--stdio' is accepted for backward compatibility with installed client
-    configurations that spawn 'nauro serve --stdio'; stdio is now the only
-    transport, so the flag is a no-op.
+    '--stdio' is a no-op, accepted for client configs that still spawn 'nauro serve --stdio'.
     """
     from nauro.mcp.stdio_server import run_stdio
 

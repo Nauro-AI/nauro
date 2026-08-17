@@ -519,11 +519,9 @@ _DEMO_SLUGS = {
 
 
 def create_demo_project(store_path: Path) -> None:
-    """Write all demo project files to the store directory.
+    """Write the demo project store under ``store_path``.
 
-    Creates the same structure as a real project: project.md, state.md,
-    stack.md, open-questions.md, the demo decisions (v2 format) including the
-    supersession structures, and a snapshot.
+    Creates the same file set as a real project, including superseded decisions and a snapshot.
     """
     store_path.mkdir(parents=True, exist_ok=True)
     decisions_dir = store_path / constants.DECISIONS_DIR

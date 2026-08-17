@@ -20,14 +20,8 @@ def probe_nauro_command(
     timeout: float = 1.5,
 ) -> bool:
     """Return True iff ``[cmd, *args]`` launches and exits 0.
-
-    The single subprocess seam for validating a recorded MCP/hook command: the
-    setup resolver calls it before recording a command, and ``nauro status``
-    calls it to probe wired commands for liveness. A launch failure (missing
-    binary or permission error), a hang past ``timeout``, or a non-zero exit
-    all count as "won't run". Soft-fails and never raises, so callers can treat
-    the boolean as authoritative. Centralized here so tests mock exactly one
-    function and no test ever spawns a real binary.
+    A launch failure, a hang past ``timeout``, and a non-zero exit all count as "won't run".
+    Soft-fails and never raises, so callers can treat the boolean as authoritative.
     """
     try:
         proc = subprocess.run(
@@ -47,16 +41,8 @@ _FRAGILE_VENV_DIRS = frozenset({".venv", "venv", "env"})
 
 def _is_durable_install_path(path: str) -> bool:
     """Heuristic: does ``path`` look like a durable, tool-managed install?
-
-    Separator-agnostic via ``Path.parts`` so Windows ``Scripts\\nauro.exe``
-    layouts read the same as POSIX ``bin/nauro``. pipx (``.../pipx/venvs/...``)
-    and uv-tool (``.../uv/tools/...``) installs live outside any single repo and
-    survive that repo's virtualenv being rebuilt or corrupted, so they count as
-    durable. A path whose grandparent directory is a bare ``.venv``/``venv``/
-    ``env`` is a project-local virtualenv that dies with the checkout, so it
-    counts as fragile. Any other shape (system, Homebrew, conda) is treated as
-    durable. This is only a resolver tiebreaker — a fragile path that still runs
-    is recorded with a warning, never dropped.
+    pipx and uv-tool layouts are durable, a project-local ``.venv``/``venv``/``env`` is fragile,
+    and every other shape counts as durable. A tiebreaker only: a fragile path is still used.
     """
     parts = [p.lower() for p in Path(path).parts]
     for first, second in _DURABLE_PATH_MARKERS:
@@ -69,13 +55,9 @@ def _is_durable_install_path(path: str) -> bool:
 
 
 def _interpreter_sibling_candidate() -> str | None:
-    """Return the absolute path to a ``nauro`` console script next to the running
-    interpreter, or None when there isn't one.
-
-    This is the install the user actually invoked, which pipx/uv-tool layouts
-    keep off the PATH that GUI-launched agents see — recording its absolute path
-    is what makes the spawned stdio server and per-turn hook independent of the
-    agent's launch environment.
+    """Return the absolute path to a ``nauro`` console script beside the running interpreter.
+    ``None`` when there is none. The absolute path keeps the spawned stdio server and the
+    per-turn hook independent of the agent's launch PATH, which GUI launches leave bare.
     """
     bindir = Path(sys.executable).parent
     for name in ("nauro", "nauro.exe"):
@@ -103,38 +85,17 @@ _UNRESOLVED_COMMAND_WARNING = (
 
 @functools.cache
 def _find_nauro_command() -> str:
-    """Resolve — and cache for the process — the nauro entrypoint recorded into
-    MCP and hook configs.
-
-    Cached so `setup all` validates the entrypoint once rather than once per
-    sink (five subprocess probes collapse to one). Warnings surface on the
-    cache-miss resolution only; tests reset via
-    ``_find_nauro_command.cache_clear()``.
+    """Resolve and process-cache the nauro entrypoint recorded into MCP and hook configs.
+    Cached so ``setup all`` probes once rather than once per sink; warnings surface only on the
+    cache-miss resolution. Tests reset with ``_find_nauro_command.cache_clear()``.
     """
     return _resolve_nauro_command()
 
 
 def _resolve_nauro_command() -> str:
-    """Pick the nauro entrypoint to record into MCP/hook configs.
-
-    Prefers a validated, durable install so the recorded command keeps working
-    after a project virtualenv is rebuilt, moved, or corrupted (the observed
-    failure: a ``uv run`` / ``.venv``-invoked setup recorded a fragile
-    repo-venv path that later died). Resolution order:
-
-      1. Interpreter-sibling that both runs and looks durable — the fast path,
-         byte-identical to the historical behavior for pipx/uv-tool/desktop.
-      2. Otherwise a PATH-resolved absolute shim that runs and looks durable —
-         diverts away from a dead or fragile project venv.
-      3. Otherwise the sibling if it merely runs (fragile but working) —
-         recorded with a loud warning naming the project-venv fragility.
-      4. Otherwise the best absolute path we have (else bare ``nauro``), with a
-         loud warning that MCP will not work until nauro is on a durable PATH.
-
-    An absolute path is always preferred over bare ``nauro``; bare ``nauro`` is
-    only the terminal fallback, because GUI-launched agents start with an empty
-    PATH. Durability checks run before the (subprocess) probe so a non-durable
-    candidate short-circuits without spawning.
+    """Pick the nauro entrypoint to record into MCP and hook configs.
+    Prefers an interpreter-sibling that runs and looks durable, else a durable PATH shim, else
+    the sibling with a fragility warning, else the best absolute path or bare ``nauro``.
     """
     sibling = _interpreter_sibling_candidate()
     which = shutil.which("nauro")

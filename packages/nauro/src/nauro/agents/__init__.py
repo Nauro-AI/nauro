@@ -39,12 +39,9 @@ _CODEX_READ_ONLY_AGENTS: frozenset[str] = frozenset(
 
 
 def load_agent_body(name: str) -> str:
-    """Return the canonical bundled body for an agent (frontmatter + prose).
+    """Return the bundled agent file verbatim, YAML frontmatter included.
 
-    Unlike ``nauro.skills.load_adopt_body``, the body returned here is the
-    full file content including YAML frontmatter — Claude Code subagents
-    expect ``name``/``description``/``tools``/``model`` inline at the top
-    of the materialized file, so no per-surface wrapping is added.
+    A name outside ``AGENT_NAMES`` raises ``ValueError``.
     """
     if name not in AGENT_NAMES:
         raise ValueError(f"unknown agent: {name!r}")
@@ -52,11 +49,9 @@ def load_agent_body(name: str) -> str:
 
 
 def render_agent(surface: str, name: str) -> str:
-    """Return the per-surface file content for an agent.
-
-    Claude Code returns the body verbatim. Codex renders the same description
-    and instruction body as a standalone custom-agent TOML file. Cursor has no
-    bundled subagent format and remains unsupported.
+    """Return the file content for ``name`` on ``surface``.
+    Claude Code gets the body verbatim and Codex a custom-agent TOML; Cursor raises
+    ``NotImplementedError``.
     """
     body = load_agent_body(name)
     if surface == "claude_code":
@@ -96,16 +91,9 @@ def _render_codex_agent(name: str, claude_body: str) -> str:
 
 
 def emit_plugin_agents(dest: Path) -> list[Path]:
-    """Render the bundled Claude Code subagents into ``dest/agents/``.
+    """Render every ``AGENT_NAMES`` subagent into ``dest/agents/<name>.md``.
 
-    Writes ``dest/agents/<name>.md`` for every name in ``AGENT_NAMES``,
-    using the same ``render_agent("claude_code", name)`` that the installer
-    materializes into the user's surface directory. This is the single
-    canonical source the cross-repo byte-identity gate verifies against:
-    a separate plugin repo renders from here and byte-compares its committed
-    copies, so there is no second render path or plugin-specific frontmatter.
-
-    Only the ``agents/`` subtree is created. Returns the written paths.
+    Creates only the ``agents/`` subtree and returns the written paths in that order.
     """
     agents_dir = dest / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)

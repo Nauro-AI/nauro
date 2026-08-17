@@ -66,14 +66,9 @@ class DisconnectedProjectExit(ProjectResolutionExit):
 
 
 def cli_origin() -> OriginDescriptor | None:
-    """Origin descriptor stamped on every write-path event from the CLI surface.
-
-    Shared by the auto-generated write commands and the hand-written direct-write
-    commands (``note``, ``import``) so the transport attribution is identical
-    across both. Total by construction: origin is provenance, never load-bearing
-    for the write, so any failure yields ``None`` rather than raising. The direct
-    commands additionally pass this as an ``origin_factory`` so even a defective
-    override is caught inside the journal's fail-open guard.
+    """Return the origin descriptor stamped on every write-path event from the CLI surface.
+    Total by construction: origin is provenance, never load-bearing for the write, so any
+    failure yields ``None`` rather than raising.
     """
     try:
         return OriginDescriptor(
@@ -86,18 +81,9 @@ def cli_origin() -> OriginDescriptor | None:
 
 
 def refuse_global_config_collision(repo_root: Path) -> None:
-    """Abort when ``repo_root``'s ``.nauro/config.json`` is the global config.
-
-    With the default home layout that is exactly the home directory:
-    ``~/.nauro/config.json`` holds credentials and user-level settings, and a
-    repo config written there replaces them. Commands that take a repo root
-    call this before any registry or store mutation. The refusal is
-    deliberately independent of ``--force`` — there is no situation where
-    overwriting the global config with a project pointer is what the user
-    wanted.
-
-    Raises:
-        typer.Exit: code 1 when ``repo_root`` collides with the global config.
+    """Abort with ``typer.Exit`` 1 when ``repo_root``'s ``.nauro/config.json`` is the global one.
+    Callers taking a repo root call this before any registry or store mutation. The refusal is
+    independent of ``--force``: a project pointer must never replace the user's credentials.
     """
     if not collides_with_global_config(repo_root):
         return
@@ -113,16 +99,9 @@ def refuse_global_config_collision(repo_root: Path) -> None:
 
 
 def refuse_repo_config_symlink(repo_root: Path) -> None:
-    """Abort when ``repo_root``'s ``.nauro/config.json`` path traverses a symlink.
-
-    A cloned repo is untrusted content: a pre-planted symlink at ``.nauro`` or
-    ``.nauro/config.json`` would redirect the registration write outside the
-    checkout. Commands that register a repo call this before any registry,
-    cloud, or store mutation so a refusal leaves no partial state.
+    """Abort with ``typer.Exit`` 1 when ``.nauro/config.json`` traverses a symlink.
+    Called before any registry, cloud or store mutation so a refusal leaves no partial state.
     ``save_repo_config`` enforces the same rule as the last line of defense.
-
-    Raises:
-        typer.Exit: code 1 when a symlink component is found.
     """
     refusal = find_symlink(repo_root, ".nauro/config.json")
     if refusal is None:
@@ -155,17 +134,9 @@ def _available_project_names() -> list[str]:
 
 
 def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
-    """Resolve the target project from --project flag or cwd.
-
-    Args:
-        project_flag: Explicit project name from --project, or None.
-
-    Returns:
-        (project_display_name, store_path) tuple.
-
-    Raises:
-        ProjectResolutionExit: If no project can be resolved. The exception
-        carries the pinned reason value and the printed guidance.
+    """Resolve the target project from ``--project`` or the cwd, as ``(display_name, store_path)``.
+    Raises ``ProjectResolutionExit`` carrying the pinned reason and the printed guidance when
+    nothing resolves.
     """
     if project_flag is not None:
         # 1 — registry lookup by name

@@ -71,12 +71,8 @@ _CODEX_L0_HEADING = "## Nauro project context (L0)"
 @hook_app.command(name="user-prompt-submit")
 def user_prompt_submit() -> None:
     """Claude Code UserPromptSubmit hook: surface related decisions as context.
-
-    Reads the hook payload JSON from stdin, resolves the project from the
-    payload's ``cwd``, runs ``check_decision`` against the local store, and
-    prints a ``hookSpecificOutput`` envelope with an advisory block when a
-    decision clears the relevance floor and has not already surfaced this
-    session. On any failure prints nothing and exits 0.
+    Reads the hook payload from stdin, resolves the project from its ``cwd``, and prints a
+    ``hookSpecificOutput`` advisory for new hits above the floor. Any failure exits 0, silent.
     """
     try:
         _run_user_prompt_submit()
@@ -240,14 +236,9 @@ def _corpus_size(store_path: Path) -> int:
 
 
 def _effective_floor(corpus_size: int) -> float:
-    """Relevance floor adjusted for corpus size.
-
-    An explicit ``NAURO_HOOK_RELEVANCE_FLOOR`` env value always wins. Otherwise
-    the floor scales with ``log10(corpus_size)`` up to the reference corpus, so a
-    small store (including the 7-decision ``--demo``) still surfaces a genuine
-    conflict instead of clearing every hit, while a large store keeps the full
-    floor that trims the weak tail. A single absolute floor cannot fit both
-    because BM25 scores grow with corpus size.
+    """Return the relevance floor adjusted for corpus size.
+    ``NAURO_HOOK_RELEVANCE_FLOOR`` always wins. Otherwise the floor scales with
+    ``log10(corpus_size)`` up to the reference corpus, because BM25 scores grow with it.
     """
     override = os.environ.get(RELEVANCE_FLOOR_ENV)
     if override is not None:
@@ -385,11 +376,8 @@ def _shipped_line(h: dict) -> str:
 
 
 def _explicit_line(h: dict, ref: dict) -> str:
-    """Render a hit line that states the rejection of the superseded decision.
-
-    Extends the shipped line's relation clause: instead of the bare preview, the
-    line names the superseded decision and states that this decision rejected it
-    in favor of the surfaced one, then appends the same trimmed preview.
+    """Render a hit line that names the superseded decision and states its rejection.
+    Extends the shipped line's relation clause, then appends the same trimmed preview.
     """
     old_title = ref["title"]
     new_title = h["title"]
@@ -406,10 +394,8 @@ def _explicit_line(h: dict, ref: dict) -> str:
 
 def _format_block(hits: list[dict]) -> str:
     """Render the advisory block: a preamble, one line per hit, an instruction.
-
-    A hit whose enrichment resolved a structural ``supersedes`` ref renders the
-    explicit rejection line; every other hit renders the shipped line, byte for
-    byte as before, so no get_decision call is needed.
+    A hit whose enrichment resolved a structural ``supersedes`` ref renders the explicit
+    rejection line; every other hit renders the shipped line, with no ``get_decision`` call.
     """
     lines = [_PREAMBLE]
     for h in hits:

@@ -55,11 +55,9 @@ def _generate_pkce() -> tuple[str, str]:
 
 
 def _callback_page(message: str) -> str:
-    """Render the loopback callback page, escaping the message.
-
-    ``message`` can carry an Auth0-supplied ``error_description`` reflected from
-    the redirect query, so it is HTML-escaped to keep an attacker-influenced
-    error string from injecting markup into the page the browser renders.
+    """Render the loopback callback page with ``message`` HTML-escaped.
+    ``message`` can reflect an Auth0 ``error_description`` from the redirect query, so it is
+    escaped to keep an attacker-influenced string out of the page's markup.
     """
     return f"<html><body><h2>{html.escape(message)}</h2></body></html>"
 
@@ -96,12 +94,9 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
 
 def _run_callback_flow(domain: str, client_id: str, audience: str) -> tuple[str, str]:
-    """Drive the browser-based Auth0 callback flow and return ``(auth_code, code_verifier)``.
-
-    Generates PKCE material, starts a localhost server to receive the redirect,
-    opens the browser, and waits up to 120 seconds for Auth0 to deliver an
-    authorization code. The local server is always closed before returning,
-    even on the timeout/error paths.
+    """Drive the browser Auth0 callback flow and return ``(auth_code, code_verifier)``.
+    Generates PKCE material, serves the redirect on localhost, and waits up to 120 seconds.
+    The local server is always closed before returning, timeout and error paths included.
     """
     code_verifier, code_challenge = _generate_pkce()
     state = secrets.token_urlsafe(32)

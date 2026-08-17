@@ -1,32 +1,17 @@
 """Claude Code CLAUDE.md bridge.
 
-Claude Code reads CLAUDE.md and its @-imports but never reads AGENTS.md
-natively, so Nauro's generated AGENTS.md silently never loads in an unwired
-Claude Code session. This module closes that gap with an auto-written,
-Nauro-owned, thin CLAUDE.md that does nothing but import AGENTS.md.
+Claude Code reads CLAUDE.md and its @-imports but never AGENTS.md, so a generated
+AGENTS.md silently never loads. Nauro writes a thin, owned CLAUDE.md that imports it.
 
-``ensure_claude_bridge`` rides the single AGENTS.md-write seam
-(``regenerate_agents_md_for_project``), so every path that regenerates
-AGENTS.md - setup, adopt, sync, init, attach, reconnect, note, and the MCP
-write tools - also ensures the bridge; no command has to remember to call it.
-Callers that surface AGENTS.md warnings (init, attach, reconnect, note,
-questions) surface a bridge advisory, symlink refusal, or failure through that
-same warn channel; the MCP write tools stay protocol-silent.
+``ensure_claude_bridge`` rides the single AGENTS.md-write seam, so every path that
+regenerates AGENTS.md ensures the bridge. CLI callers surface an advisory, a symlink
+refusal, or a failure through their AGENTS.md warn channel; MCP write tools stay silent.
 
-The write is additive and ownership-marked: a fresh repo gets a two-line
-bridge (an HTML-comment ownership marker plus the ``@AGENTS.md`` import). An
-existing CLAUDE.md is never modified - one that already imports AGENTS.md is
-left silent, one that does not gets a non-blocking advisory naming the
-one-line fix, and a symlinked or non-regular CLAUDE.md is refused or reported.
-There is no overwrite escape hatch.
-
-Ownership is the exact marker line at top level (not a mere substring match),
-so a hand-written file that only mentions the token is foreign and never
-touched. Teardown removes only the single validated top-level bridge span and
-rewrites the remaining bytes verbatim, so a fenced copy in user content and
-any invalid-UTF-8 user bytes survive byte-for-byte. The marker is deliberately
-distinct from the legacy NAURO:START/END block the setup cleanup strips, so
-the two writers can never oscillate.
+The write is additive and there is no overwrite hatch: an existing CLAUDE.md is never
+modified, one that already imports AGENTS.md is silent, one that does not gets a
+non-blocking advisory, and a symlinked or non-regular file is refused. Ownership is the
+exact top-level marker line, and teardown removes only that validated span, rewriting
+the rest verbatim so fenced copies and invalid-UTF-8 bytes survive.
 """
 
 from __future__ import annotations
@@ -205,10 +190,8 @@ def _classify(content: str) -> BridgeState:
 
 def detect_bridge_state(repo_path: Path) -> BridgeState:
     """Classify the repo's CLAUDE.md for bridge ownership and safety.
-
-    Raises ``OSError`` on an unreadable or non-regular CLAUDE.md; callers that
-    must not abort a loop go through ``ensure_claude_bridge`` /
-    ``remove_claude_bridge``, which wrap those errors into a typed outcome.
+    Raises ``OSError`` on an unreadable or non-regular file; the ensure and remove wrappers turn
+    that into a typed outcome so a multi-repo loop continues.
     """
     if find_symlink(repo_path, CLAUDE_MD) is not None:
         return BridgeState.SYMLINK
@@ -220,12 +203,8 @@ def detect_bridge_state(repo_path: Path) -> BridgeState:
 
 def ensure_claude_bridge(repo_path: Path) -> BridgeOutcome:
     """Write the owned bridge when absent; never modify a non-owned CLAUDE.md.
-
-    ABSENT writes the bridge; OWNED keeps it (preserving any content the user
-    appended); FOREIGN_BRIDGED is a silent no-op; FOREIGN_UNBRIDGED returns a
-    non-blocking advisory; a symlinked CLAUDE.md is refused; and any per-repo
-    filesystem error (a directory at the path, an unreadable file) is caught
-    and reported so a multi-repo loop continues.
+    OWNED is kept with any appended user content, FOREIGN_BRIDGED is silent, FOREIGN_UNBRIDGED
+    returns an advisory, a symlink is refused, and a filesystem error is reported not raised.
     """
     refusal = find_symlink(repo_path, CLAUDE_MD)
     if refusal is not None:
@@ -251,13 +230,8 @@ def ensure_claude_bridge(repo_path: Path) -> BridgeOutcome:
 
 def remove_claude_bridge(repo_path: Path) -> BridgeOutcome:
     """Remove the owned bridge on teardown, gated on the exact marker line.
-
-    A file that is only the bridge is unlinked; a bridge the user appended to
-    keeps the user's content byte-for-byte (invalid UTF-8 and CRLF included)
-    and strips only the single validated top-level marker span and its
-    associated import (tolerating blank lines between them). A CLAUDE.md
-    without the marker line is left untouched; a symlink is refused; and a
-    per-repo filesystem error is caught and reported so a loop continues.
+    A file that is only the bridge is unlinked; appended user content survives byte-for-byte with
+    just the marker span stripped. No marker means untouched, and a symlink is refused.
     """
     refusal = find_symlink(repo_path, CLAUDE_MD)
     if refusal is not None:
@@ -292,21 +266,15 @@ def remove_claude_bridge(repo_path: Path) -> BridgeOutcome:
 
 def _read_for_scan(claude_md: Path) -> str:
     """Read a CLAUDE.md for classification, tolerant of bad bytes and a BOM.
-
-    Newlines are irrelevant to classification, so text-mode reading is fine
-    here; the byte-preserving read lives in the removal path.
+    Newlines are irrelevant to classification; the byte-preserving read lives in the removal path.
     """
     return _strip_bom(claude_md.read_text(encoding="utf-8", errors="replace"))
 
 
 def _strip_bridge_region(content: str) -> str:
     """Return ``content`` with the single top-level bridge span removed.
-
-    The removed span is the first top-level marker line - the one that made the
-    file OWNED - through its associated ``@AGENTS.md`` import, tolerating blank
-    lines between them; a marker with no following import drops only the marker
-    line. A marker or import quoted inside a fenced code block is not top level
-    and survives. Line terminators are kept, so all other bytes are preserved.
+    The span runs from the first top-level marker line to its ``@AGENTS.md`` import, blank lines
+    tolerated; a marker inside a fence survives, and every other byte is kept verbatim.
     """
     segments = content.splitlines(keepends=True)
     bodies = [_body(s) for s in segments]

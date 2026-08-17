@@ -12,20 +12,8 @@ from nauro.store.write_safety import find_file_symlink
 
 def _prune_redundant_user_scope_mcp() -> ClaudeUserConfigOutcome | None:
     """Remove a redundant user-scope HTTP ``nauro`` entry from ``~/.claude.json``.
-
-    On a machine with a local working copy, the stdio server is the canonical
-    Claude Code transport: ``nauro serve --stdio`` resolves the store from the
-    repo's ``.nauro/config.json`` and pulls remote changes on startup. An HTTP
-    ``nauro`` entry in user-scope ``~/.claude.json`` collides with the
-    project-scope stdio entry under the same name, so a session can resolve to
-    the wrong store. When the project stdio entry is written, drop the
-    redundant user-scope HTTP one.
-
-    Only the HTTP-transport entry is pruned — a user-scope ``nauro`` defined as
-    a stdio command is the user's own choice and is left alone. Soft-fails
-    (never raises) so a malformed or absent file cannot break wiring. Returns a
-    status line when something was removed, when the file is not valid UTF-8, or
-    when its top level is not a JSON object, otherwise ``None``.
+    Only the HTTP-transport entry is pruned; a user's own stdio entry is left alone, and the
+    function soft-fails. Returns a status line when it acted or could not read, else ``None``.
     """
     config_path = Path.home() / ".claude.json"
     if not config_path.exists():

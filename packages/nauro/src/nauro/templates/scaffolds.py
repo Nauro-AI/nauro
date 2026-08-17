@@ -96,14 +96,9 @@ def _build_first_decision(date_str: str) -> str:
 
 
 def scaffold_project_store(project_name: str, store_path: Path) -> None:
-    """Write all template files to the project store directory.
-
-    Creates: project.md, state_current.md, stack.md, open-questions.md,
-    decisions/ directory (with 001-initial-setup.md), snapshots/ directory.
-
-    Args:
-        project_name: Name of the project.
-        store_path: Path to the project store (e.g. ~/.nauro/projects/<name>/).
+    """Write the initial store files under ``store_path`` for a new project.
+    Creates project.md, state_current.md, stack.md, open-questions.md, decisions/ with
+    ``001-initial-setup.md``, and an empty snapshots/.
     """
     store_path.mkdir(parents=True, exist_ok=True)
     (store_path / C.DECISIONS_DIR).mkdir(exist_ok=True)
@@ -129,13 +124,5 @@ def scaffold_project_store(project_name: str, store_path: Path) -> None:
 
 
 def render_scaffold(template: str, **kwargs: str) -> str:
-    """Render a scaffold template with the given variables.
-
-    Args:
-        template: One of the template strings above.
-        **kwargs: Template variable values.
-
-    Returns:
-        Rendered template string.
-    """
+    """Return ``template`` with ``kwargs`` substituted."""
     return template.format(**kwargs)

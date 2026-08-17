@@ -1,25 +1,17 @@
 """nauro adopt — Bootstrap a project from an existing repo.
 
-In one shot it:
+Detects the repo root (or takes ``--repo``), refuses an already-adopted repo and a
+same-name project, registers a v2 project, scaffolds the store, wires MCP and
+materializes skill files across Claude Code, Cursor and Codex, then tells the user
+to restart their agent.
 
-  1. Detect repo root (or use --repo).
-  2. Guard against re-adopting an already-adopted repo.
-  3. Same-name collision pre-check against the local v2 registry — calls
-     ``find_projects_by_name_v2`` directly because ``list_projects`` is not
-     registered as an MCP tool on local stdio (verified at stdio_server.py),
-     and the remote response lacks repo_paths anyway.
-  4. Register a v2 project (``register_project_v2`` + ``save_repo_config``)
-     and scaffold the store. Bypasses ``nauro init`` because init's
-     --add-repo branch silently skips ``save_repo_config`` (init.py:74-101).
-  5. Wire MCP and materialize skill files across Claude Code, Cursor, Codex
-     via ``setup_all_surfaces``.
-  6. Print the closing message instructing the user to restart their agent
-     and invoke the ``/nauro-adopt`` skill.
+Registration goes through ``register_project_v2`` plus ``save_repo_config`` rather
+than ``nauro init``, whose ``--add-repo`` branch does not write the per-repo config.
+The same-name pre-check calls ``find_projects_by_name_v2`` directly because
+``list_projects`` is not registered on the local stdio server.
 
-After the user restarts their agent and runs ``/nauro-adopt``, the markdown
-skill body (canonical at ``packages/nauro/src/nauro/skills/adopt_body.md``)
-walks the agent through reading source files, triaging decisions, and
-seeding the Nauro store via the existing MCP write tools.
+The rest of adoption is the agent's: ``/nauro-adopt`` walks it through reading source
+files, triaging decisions, and seeding the store through the MCP write tools.
 """
 
 from __future__ import annotations
@@ -71,12 +63,8 @@ def _resolve_repo_root(repo_arg: Path | None) -> Path:
 
 def _is_git_repo(repo_root: Path) -> bool:
     """Return True iff ``repo_root`` is inside a git working tree.
-
-    The /nauro-adopt skill's Step 1 runs the same ``git rev-parse`` check and
-    aborts when it fails, but its 'run git init, then re-run nauro adopt'
-    recovery only works if adopt itself refuses a non-git directory before
-    registering it. Without this precondition adopt registered the repo, and
-    the recovery then hit the already-adopted guard.
+    Adopt must refuse a non-git directory before registering it, so the skill's git-init
+    recovery path stays available.
     """
     try:
         proc = subprocess.run(
@@ -92,20 +80,9 @@ def _is_git_repo(repo_root: Path) -> bool:
 
 
 def _smoke_test_wired_binary(nauro_cmd: str, timeout: float = 1.5) -> str | None:
-    """Boot ``<nauro_cmd> serve --stdio`` briefly to verify it doesn't crash on import.
-
-    A healthy stdio server either exits cleanly on stdin EOF (returncode 0) or
-    keeps running waiting for an MCP handshake (we kill it after ``timeout``).
-    Either outcome is "healthy". The failure mode we care about is the binary
-    crashing on import — that surfaces as a non-zero exit before the timeout.
-
-    This is intentionally deeper than the shared ``probe_nauro_command``
-    liveness check (``nauro --version``) that the setup resolver and ``nauro
-    status`` use: it exercises the actual ``serve --stdio`` entrypoint the agent
-    spawns, catching import-time crashes a ``--version`` probe would miss. Kept
-    separate for that reason.
-
-    Returns a multi-line warning string on detected failure, otherwise None.
+    """Boot ``<nauro_cmd> serve --stdio`` briefly to catch an import-time crash.
+    A clean exit on stdin EOF and a process alive at ``timeout`` are both healthy; only a
+    non-zero exit before the timeout fails. Returns a multi-line warning, else ``None``.
     """
     try:
         proc = subprocess.run(
@@ -168,13 +145,9 @@ def _install_into_adopted_repo(
     with_skills: bool,
     force_overwrite: bool,
 ) -> None:
-    """Install bundled subagents/skills onto an already-adopted repo.
-
-    Mirrors the materialize step of a fresh adoption (``setup_all_surfaces``)
-    without re-registering the project or rewriting ``.nauro/config.json`` —
-    the repo is already adopted, so registration is intact and untouched.
-    Lets ``nauro adopt --with-subagents`` (or ``--with-skills``) add the
-    bundled artifacts to an existing adoption instead of aborting.
+    """Install bundled subagents and skills onto an already-adopted repo.
+    Mirrors the materialize step of a fresh adoption without re-registering the project
+    or rewriting ``.nauro/config.json``.
     """
     typer.echo("Repo already adopted. Installing requested artifacts across surfaces:\n")
     for outcome in setup_all_surfaces(
@@ -194,11 +167,9 @@ def _install_into_adopted_repo(
 
 
 def _unadopt_symlink_refusals(repo_root: Path) -> list[SymlinkRefusal]:
-    """Preflight every repo-scoped teardown target for symlink components.
-
-    Un-adopt rewrites, unlinks, or prunes these paths. A symlink pre-planted
-    in the checkout would redirect the removal outside the repo, so the whole
-    teardown is refused before anything is mutated or deregistered.
+    """Return a refusal for every repo-scoped teardown target reached through a symlink.
+    A planted symlink would redirect a removal outside the repo, so the whole teardown is
+    refused before anything is mutated or deregistered.
     """
     targets = [
         ".nauro/config.json",
@@ -220,15 +191,9 @@ def _unadopt_symlink_refusals(repo_root: Path) -> list[SymlinkRefusal]:
 
 
 def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) -> None:
-    """Inverse of adoption for one repo.
-
-    Un-wires Nauro across surfaces, removes the generated AGENTS.md and the
-    per-repo ``.nauro/config.json``, and deregisters. Only this repo is
-    affected: when the project has other associated repos, the project entry,
-    its store, and shared user-scope artifacts (codex entry, skills, subagents)
-    are preserved and only this repo is dropped. When this is the project's last
-    repo, the registry entry is removed; the store is kept unless ``purge_store``
-    (which is refused while other repos still depend on it).
+    """Undo adoption for one repo: un-wire surfaces, drop the generated AGENTS.md and the
+    per-repo config, deregister. Other repos keep the project entry, store and shared
+    artifacts; only the last repo drops the entry, and ``purge_store`` is refused before that.
     """
     config_path = repo_root / ".nauro" / "config.json"
     if not config_path.exists():

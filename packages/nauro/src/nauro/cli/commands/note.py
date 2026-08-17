@@ -15,13 +15,9 @@ from nauro.store.store_lock import store_write_lock
 
 
 def _validate_confidence(value: str) -> str:
-    """Reject an invalid ``--confidence`` at parse time with a clean exit.
-
-    Kept as a string option (not a Typer enum) so the introspected CLI
-    contract stays ``text`` under the frozen public surface; the enum is the
-    source of truth for the accepted set. Without this, an unknown value
-    reaches ``DecisionConfidence(...)`` downstream and surfaces as a raw
-    ``ValueError`` traceback rather than a usage error.
+    """Reject an invalid ``--confidence`` with a usage error instead of a traceback.
+    The option stays a plain string so the introspected CLI contract stays ``text``; the enum is
+    the source of truth for the accepted set.
     """
     try:
         DecisionConfidence(value)
@@ -69,10 +65,8 @@ def note(
     ),
 ) -> None:
     """Record a decision or question in the project store.
-
-    Decisions are written to decisions/NNN-title.md; questions are appended
-    to open-questions.md. Every note also regenerates AGENTS.md in all
-    associated repos.
+    Decisions land in decisions/NNN-title.md, questions append to open-questions.md, and every
+    note regenerates AGENTS.md in all associated repos.
     """
     if not text.strip():
         typer.echo("Note text cannot be empty.", err=True)

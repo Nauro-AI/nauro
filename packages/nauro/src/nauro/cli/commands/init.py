@@ -2,18 +2,15 @@
 
 Two modes:
 
-* ``nauro init <name>`` — local-only project. CLI mints a ULID, writes
-  ``.nauro/config.json`` in the cwd, and registers the project in the
-  v2 registry under that id. No network calls.
-* ``nauro init --cloud <name>`` — cloud-scoped project. The CLI calls
-  the remote MCP server's ``POST /projects`` to mint a server-side ULID,
-  then registers locally with ``mode=cloud`` and writes a cloud-mode
-  repo config.
+* ``nauro init <name>`` — local-only project. The CLI mints a ULID, writes
+  ``.nauro/config.json`` in the cwd, and registers it under that id. No network.
+* ``nauro init --cloud <name>`` — the CLI calls the remote MCP server's
+  ``POST /projects`` for a server-side ULID, then registers locally with
+  ``mode=cloud`` and a cloud-mode repo config.
 
-``--add-repo <path>`` (repeatable) associates an existing local project
-with one or more repo paths. Adding repos to a cloud-scoped project is
-intentionally rejected — use ``nauro attach <project_id>`` from the new
-repo instead.
+``--add-repo <path>`` (repeatable) associates an existing local project with
+more repo paths. It is rejected for a cloud-scoped project: use
+``nauro attach <project_id>`` from the new repo instead.
 """
 
 from __future__ import annotations
@@ -71,21 +68,9 @@ def _check_config_overwrite(
     expected_name: str,
     force: bool,
 ) -> None:
-    """Refuse to overwrite an existing ``.nauro/config.json`` whose project
-    differs from the one being initialized. Closes the silent-overwrite
-    footgun where ``nauro init <new-name>`` (or ``nauro init --demo``)
-    would replace a real project's cwd config without warning, breaking
-    every subsequent cwd-walk-up resolution.
-
-    No-op when no existing config is present, when the existing config
-    advertises the same project *id* as ``expected_id`` (idempotent
-    re-write — applies to ``--add-repo`` where the pid is known up front),
-    or when ``force`` is set. Aborts via :class:`typer.Exit` with a
-    diagnostic message naming the existing project otherwise. For a fresh
-    init where ``expected_id`` is ``None``, no id match can short-circuit,
-    so any existing config triggers the refusal — name match alone is not
-    a safe idempotency signal because v2 allows duplicate names with
-    distinct ids.
+    """Abort via ``typer.Exit`` when ``.nauro/config.json`` names a different project.
+    A no-op when no config exists, when the existing config carries ``expected_id``, or under
+    ``force``. An ``expected_id`` of ``None`` refuses any existing config: names may repeat.
     """
     config_file = repo_config_path(rp)
     if not config_file.is_file():
@@ -127,12 +112,9 @@ def _refuse_if_repo_already_claimed(
     *,
     allowed_project_id: str | None = None,
 ) -> None:
-    """Refuse to mint a new project for a repo an existing project already claims.
-
-    A repo path resolves to at most one project. If ``rp`` already walks up to
-    a registered project, minting a second id here would shadow that
-    association and leave a duplicate registry entry the user never intended.
-    Aborts via :class:`typer.Exit` naming the safe recovery paths.
+    """Abort when ``rp`` already walks up to a registered project.
+    A repo path resolves to at most one project, so minting a second id here would shadow that
+    association. The ``typer.Exit`` message names the safe recovery paths.
     """
     resolved = resolve_v2_from_path(rp)
     if resolved is None:
@@ -158,13 +140,8 @@ def _refuse_if_repo_already_claimed(
 
 def _warn_if_name_taken(name: str, new_pid: str, pre_existing: list) -> None:
     """Warn when a fresh init created a second project sharing an existing name.
-
-    v2 allows duplicate names, but two same-named projects are separate stores
-    that share no decisions — rarely what a user re-running ``nauro init`` from
-    another repo intends, and it silently defeats the cross-repo promise. The
-    repo-path collision is already refused by ``_refuse_if_repo_already_claimed``;
-    this surfaces the name collision and points at the association path instead
-    of failing silently. Advisory only — the project is still created.
+    Advisory only, the project still exists: duplicate names are legal but the two stores share
+    no decisions, so the warning points at the association path instead.
     """
     others = [pid for pid, _entry in pre_existing if pid != new_pid]
     if not others:
@@ -182,11 +159,9 @@ def _warn_if_name_taken(name: str, new_pid: str, pre_existing: list) -> None:
 
 
 def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
-    """Initialize (or reuse) the bundled demo project.
-
-    Demo init has its own idempotency contract that the generic new-project
-    flow does not: a single shared demo entry is reused rather than
-    duplicated, and the cwd-config overwrite message is demo-specific.
+    """Initialize or reuse the bundled demo project.
+    A single shared demo entry is reused rather than duplicated, and the cwd-config overwrite
+    message is demo-specific.
     """
     from nauro.demo import DEMO_DECISIONS, create_demo_project
 
@@ -306,9 +281,7 @@ def init(
     ),
 ) -> None:
     """Initialize a new Nauro project store and register it.
-
-    If a project with the given name already exists locally and --add-repo
-    is provided, the repos are appended to the existing local-mode entry.
+    With --add-repo, repos are appended to an existing local-mode project of the same name.
     Cloud-mode entries cannot be extended this way — use 'nauro attach'.
     """
     # --demo seeds pre-written decisions directly to disk; the --cloud path

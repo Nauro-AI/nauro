@@ -103,10 +103,8 @@ def _remove_bundled_skill(
     repo: Path | None = None,
 ) -> SkillOutcome:
     """Unlink ``target`` and prune empty parents, but never above ``stop_above``.
-
-    Without the bound the parent walk could rmdir the surface base
-    (``~/.claude/skills/``, ``<repo>/.cursor/rules/``, etc.) or — worse —
-    keep going if those happen to be empty after MCP config also got removed.
+    Without the bound the parent walk could rmdir the surface base (``~/.claude/skills/``,
+    ``<repo>/.cursor/rules/``).
     """
     refusal = _skill_refusal(target, repo)
     if refusal is not None:
@@ -127,11 +125,8 @@ def _remove_bundled_skill(
 
 
 def _remove_skill_file(target: Path, *, stop_above: Path) -> SkillOutcome:
-    """Remove an arbitrary skill file for compatibility with codec callers.
-
-    Bundle teardown uses ``_remove_bundled_skill`` so modified Nauro files are
-    preserved. This lower-level helper retains the original bounded-prune
-    contract for callers that already selected an exact disposable target.
+    """Remove an arbitrary skill file, for codec callers that already picked the target.
+    Bundle teardown uses ``_remove_bundled_skill`` instead, which preserves modified Nauro files.
     """
     refusal = find_file_symlink(target)
     if refusal is not None:
@@ -183,12 +178,8 @@ def _migrate_legacy_codex_skill(name: str) -> SkillOutcome | None:
 
 
 def _resolved_skill_names(with_skills: bool) -> tuple[str, ...]:
-    """Return the union of always-installed skills and opt-in skills.
-
-    ``with_skills=False`` (the default for callers that pre-date the flag)
-    installs only the core onboarding skills in ``SKILL_NAMES``.
-    ``with_skills=True`` extends with ``OPT_IN_SKILL_NAMES`` so future opt-in
-    skills can ride alongside ``nauro-ship-task`` under the same flag.
+    """Return the union of always-installed skills and, with ``with_skills``, the opt-in ones.
+    The default installs ``SKILL_NAMES`` only; ``with_skills=True`` adds ``OPT_IN_SKILL_NAMES``.
     """
     return SKILL_NAMES + OPT_IN_SKILL_NAMES if with_skills else SKILL_NAMES
 
@@ -200,14 +191,9 @@ def materialize_skills_claude_code(
     with_skills: bool = False,
     force_overwrite: bool = False,
 ) -> list[SkillOutcome]:
-    """Install or remove the Nauro skill(s) under ``~/.claude/skills/``.
-
-    ``clear_user_scope`` gates the remove path: when False, the skill files
-    are preserved because other registered nauro projects still depend on
-    them. Defaults to True so direct unit callers and the add path retain
-    their previous behavior. ``with_skills`` extends the install/remove set
-    with ``OPT_IN_SKILL_NAMES`` (``nauro-ship-task``, ``nauro-context``, and
-    ``nauro-loop``).
+    """Install or remove the Nauro skills under ``~/.claude/skills/``.
+    ``clear_user_scope=False`` preserves the files on the remove path, because other registered
+    projects still depend on them. ``with_skills`` extends the set with ``OPT_IN_SKILL_NAMES``.
     """
     from nauro.skills import render_skill
 
@@ -239,14 +225,9 @@ def materialize_skills_codex(
     with_skills: bool = False,
     force_overwrite: bool = False,
 ) -> list[SkillOutcome]:
-    """Install or remove the Nauro skill(s) under ``~/.agents/skills/``.
-
-    ``clear_user_scope`` gates the remove path: when False, the skill files
-    are preserved because other registered nauro projects still depend on
-    them. Defaults to True so direct unit callers and the add path retain
-    their previous behavior. ``with_skills`` extends the install/remove set
-    with ``OPT_IN_SKILL_NAMES`` (``nauro-ship-task``, ``nauro-context``, and
-    ``nauro-loop``).
+    """Install or remove the Nauro skills under ``~/.agents/skills/``.
+    ``clear_user_scope=False`` preserves the files on the remove path, because other registered
+    projects still depend on them. ``with_skills`` extends the set with ``OPT_IN_SKILL_NAMES``.
     """
     from nauro.skills import render_skill
 
