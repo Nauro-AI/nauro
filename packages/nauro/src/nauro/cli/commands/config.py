@@ -7,12 +7,8 @@ plus cleanup: list / get / unset, no generic ``set``.
 
 import typer
 
-from nauro.store.config import (
-    _config_file,
-    get_config,
-    load_config,
-    unset_config,
-)
+from nauro.store.config import get_config, load_config, unset_config
+from nauro.store.home import config_file
 
 config_app = typer.Typer(help="Inspect and remove Nauro configuration.")
 
@@ -75,7 +71,7 @@ def config_unset(
     """Remove a configuration value."""
     if unset_config(key):
         typer.echo(f"Removed {key}")
-        typer.echo(f"  Config: {_config_file()}")
+        typer.echo(f"  Config: {config_file()}")
     else:
         typer.echo(f"{key}: (not set)")
         raise typer.Exit(code=1)

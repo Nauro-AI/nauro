@@ -13,16 +13,16 @@ import pytest
 from filelock import FileLock, Timeout
 
 from nauro.store.config import (
-    _config_file,
     config_transaction,
     load_config,
     save_config,
     set_config,
 )
+from nauro.store.home import config_file
 
 
 def _lock_path():
-    return _config_file().with_suffix(".lock")
+    return config_file().with_suffix(".lock")
 
 
 def test_lock_is_held_during_body_and_released_after(tmp_path):
@@ -122,18 +122,18 @@ def test_transaction_preserves_owner_only_permissions(tmp_path):
     with config_transaction() as data:
         data["auth"] = {"access_token": "tok"}
 
-    config_path = _config_file()
+    config_path = config_file()
     assert oct(config_path.stat().st_mode & 0o777) == "0o600"
 
 
 def test_failed_body_leaves_disk_unchanged(tmp_path):
     """A body that raises skips the save — the file is byte-identical."""
     save_config({"auth": {"access_token": "tok"}})
-    before = _config_file().read_bytes()
+    before = config_file().read_bytes()
 
     with pytest.raises(RuntimeError):
         with config_transaction() as data:
             data["auth"] = {"access_token": "mutated"}
             raise RuntimeError("boom")
 
-    assert _config_file().read_bytes() == before
+    assert config_file().read_bytes() == before

@@ -17,15 +17,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import secrets
 import time
 from pathlib import Path
 
 from nauro.constants import (
-    CONFIG_FILENAME,
-    DEFAULT_NAURO_HOME,
-    NAURO_HOME_ENV,
     REPO_CONFIG_DIR,
     REPO_CONFIG_FILENAME,
     REPO_CONFIG_MODE_CLOUD,
@@ -33,6 +29,7 @@ from nauro.constants import (
     REPO_CONFIG_SCHEMA_VERSION,
 )
 from nauro.store._atomic import atomic_write_text
+from nauro.store.home import config_file
 from nauro.store.write_safety import find_symlink
 
 logger = logging.getLogger("nauro.repo_config")
@@ -67,16 +64,6 @@ class RepoConfigSymlinkError(Exception):
     """Raised when a repo config write would traverse a symlink in the checkout."""
 
 
-def _global_config_file() -> Path:
-    """Path of the global config. Mirrors ``registry._nauro_home()``.
-
-    Not imported from registry because registry imports this module;
-    the resolution must stay in lockstep with it.
-    """
-    home = Path(os.environ.get(NAURO_HOME_ENV, Path.home() / DEFAULT_NAURO_HOME))
-    return home / CONFIG_FILENAME
-
-
 def collides_with_global_config(repo_root: Path) -> bool:
     """True when ``repo_root``'s config path is Nauro's global config file.
 
@@ -85,7 +72,7 @@ def collides_with_global_config(repo_root: Path) -> bool:
     and settings. Writing a repo config there would
     replace those settings, so writers must refuse the path.
     """
-    return repo_config_path(repo_root).resolve() == _global_config_file().resolve()
+    return repo_config_path(repo_root).resolve() == config_file().resolve()
 
 
 def generate_ulid() -> str:
