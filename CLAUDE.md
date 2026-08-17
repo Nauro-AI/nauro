@@ -120,6 +120,10 @@ uv run ruff check packages/
 uv run ruff format --check packages/
 ```
 
+### Hosted-consumer symbols
+
+The nauro-core names listed in `packages/nauro-core/tests/hosted_consumer_symbols.txt` are imported directly by the private hosted MCP server, well past the curated `nauro_core.__all__`. `test_hosted_consumer_contract.py` freezes each one's shape, so renaming, moving, or re-signing any of them is a cross-repo change: coordinate the mcp-server update in the same window. Regenerate the manifest with `python scripts/hosted_consumer_symbols.py <mcp-server>/src` after the consumer's imports change, and the snapshot with `NAURO_UPDATE_CONTRACT=1 .venv/bin/python -m pytest packages/nauro-core/tests/test_hosted_consumer_contract.py`.
+
 ## Code bar
 
 Nauro holds a high code bar. These apply to every change and are enforced in review:
