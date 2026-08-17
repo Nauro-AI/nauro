@@ -11,13 +11,10 @@ The registry is keyed by project_id (ULID) and tracks ``name``, ``mode``,
 The retired name-keyed schema_version 1 shape is no longer readable:
 ``load_registry_v2`` rejects it with a manual-migration hint, and read
 paths degrade to an empty registry.
-
-Respects NAURO_HOME env var override (defaults to ~/.nauro/).
 """
 
 import json
 import logging
-import os
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
@@ -28,17 +25,14 @@ from pydantic import BaseModel, ConfigDict, StrictStr, ValidationError, model_va
 
 from nauro.constants import (
     DECISIONS_DIR,
-    DEFAULT_NAURO_HOME,
-    NAURO_HOME_ENV,
     PROJECT_MD,
-    PROJECTS_DIR,
-    REGISTRY_FILENAME,
     REGISTRY_SCHEMA_VERSION_V1,
     REGISTRY_SCHEMA_VERSION_V2,
     REPO_CONFIG_MODE_CLOUD,
     REPO_CONFIG_MODE_LOCAL,
 )
 from nauro.store._atomic import atomic_write_text
+from nauro.store.home import ensure_nauro_home, projects_dir, registry_file
 from nauro.store.repo_config import generate_ulid
 
 logger = logging.getLogger("nauro.registry")
@@ -99,44 +93,10 @@ def validate_registry_entry_v2(project_id: str, raw_entry: object) -> RegistryEn
 @contextmanager
 def _registry_lock():
     """Exclusive file lock on registry.json for atomic read-modify-write."""
-    lock_path = _registry_file().with_suffix(".lock")
-    _ensure_nauro_home()  # lock_path.parent is the home dir; create it owner-only
+    lock_path = registry_file().with_suffix(".lock")
+    ensure_nauro_home()  # lock_path.parent is the home dir; create it owner-only
     with FileLock(lock_path):
         yield
-
-
-def _nauro_home() -> Path:
-    return Path(os.environ.get(NAURO_HOME_ENV, Path.home() / DEFAULT_NAURO_HOME))
-
-
-def _registry_file() -> Path:
-    return _nauro_home() / REGISTRY_FILENAME
-
-
-def _projects_dir() -> Path:
-    return _nauro_home() / PROJECTS_DIR
-
-
-def _ensure_nauro_home() -> Path:
-    """Create the Nauro home dir (``~/.nauro`` or ``$NAURO_HOME``) owner-only.
-
-    The home holds the auth token (``config.json``) and the full project store,
-    so it must not be group/other-accessible. New installs are created at
-    ``0o700``; a home created at the umask default by an older build is tightened
-    in place. Deeper paths are created under the returned home with
-    ``parents=True`` after this call, so the home never transits a wider mode.
-    """
-    home = _nauro_home()
-    home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    try:
-        if (home.stat().st_mode & 0o077) != 0:
-            home.chmod(0o700)
-    except OSError as exc:
-        # Best-effort tightening of a pre-existing wide dir; a real failure
-        # surfaces at the FileLock that follows. Log for diagnosis on locked-down
-        # hosts rather than masking it entirely.
-        logger.debug("Could not tighten %s to 0o700: %s", home, exc)
-    return home
 
 
 # ── v2 registry (id-keyed) ───────────────────────────────────────────────────
@@ -163,7 +123,7 @@ def load_registry_v2() -> dict:
             one-time manual migration is required) or any other unknown
             version.
     """
-    rf = _registry_file()
+    rf = registry_file()
     if not rf.exists():
         return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V2}
 
@@ -204,7 +164,7 @@ def save_registry_v2(data: dict) -> None:
             f"save_registry_v2 refuses to write schema_version="
             f"{data['schema_version']!r}; expected {REGISTRY_SCHEMA_VERSION_V2}."
         )
-    rf = _registry_file()
+    rf = registry_file()
     atomic_write_text(rf, json.dumps(data, indent=2) + "\n")
 
 
@@ -258,7 +218,7 @@ def get_store_path_v2(project_id: str) -> Path:
     the projects root. It rejects only escapes, not the full ULID alphabet, so
     contained non-canonical ids (e.g. test fixtures) are left alone.
     """
-    projects_root = _projects_dir()
+    projects_root = projects_dir()
     store_path = projects_root / project_id
     try:
         store_path.resolve().relative_to(projects_root.resolve())

@@ -1,7 +1,7 @@
 """User configuration — manages ~/.nauro/config.json.
 
 Stores user-level settings such as authentication and retrieval preferences.
-Respects NAURO_HOME env var override (defaults to ~/.nauro/).
+The file path comes from ``nauro.store.home``.
 """
 
 import json
@@ -13,25 +13,15 @@ from pathlib import Path
 
 from filelock import FileLock
 
-from nauro.constants import (
-    CONFIG_FILENAME,
-    DEFAULT_NAURO_HOME,
-    NAURO_EMBEDDINGS_ENV,
-    NAURO_HOME_ENV,
-)
+from nauro.constants import NAURO_EMBEDDINGS_ENV
 from nauro.store._atomic import atomic_write_text
-from nauro.store.registry import _ensure_nauro_home
+from nauro.store.home import config_file, ensure_nauro_home
 
 logger = logging.getLogger("nauro.config")
 
 # Config key for the optional embedding retrieval augmenter. The env var
-# NAURO_EMBEDDINGS overrides it, mirroring the NAURO_HOME precedence.
+# NAURO_EMBEDDINGS overrides it, mirroring the home-path precedence.
 _EMBEDDINGS_CONFIG_KEY = "search.embeddings"
-
-
-def _config_file() -> Path:
-    nauro_home = Path(os.environ.get(NAURO_HOME_ENV, Path.home() / DEFAULT_NAURO_HOME))
-    return nauro_home / CONFIG_FILENAME
 
 
 @contextmanager
@@ -45,8 +35,8 @@ def _config_lock(timeout: float = -1):
     ``filelock.Timeout`` on expiry so a stuck holder cannot block a caller
     indefinitely.
     """
-    lock_path = _config_file().with_suffix(".lock")
-    _ensure_nauro_home()  # lock_path.parent is the home dir; create it owner-only
+    lock_path = config_file().with_suffix(".lock")
+    ensure_nauro_home()  # lock_path.parent is the home dir; create it owner-only
     with FileLock(str(lock_path), timeout=timeout):
         yield
 
@@ -104,7 +94,7 @@ def load_config() -> dict:
     before returning {} so a subsequent save cannot silently destroy any
     recoverable content.
     """
-    cf = _config_file()
+    cf = config_file()
     if cf.exists():
         try:
             data = json.loads(cf.read_text())
@@ -120,7 +110,7 @@ def load_config() -> dict:
 
 def save_config(data: dict) -> None:
     """Write config.json atomically (write-to-tmp + rename). Restricts to owner-only (0o600)."""
-    cf = _config_file()
+    cf = config_file()
     atomic_write_text(cf, json.dumps(data, indent=2) + "\n", mode=0o600)
 
 
@@ -153,7 +143,7 @@ def unset_config(key: str) -> bool:
 def resolve_embeddings_flag() -> bool:
     """Resolve whether embedding-augmented retrieval is enabled.
 
-    Precedence (mirrors NAURO_HOME): the ``NAURO_EMBEDDINGS`` env var wins when
+    Precedence (mirrors the home path): the ``NAURO_EMBEDDINGS`` env var wins when
     set; otherwise the ``search.embeddings`` config key is consulted; otherwise
     the default is OFF. Env and config both accept the same truthy tokens
     (``"1"``, ``"true"``, ``"yes"``, ``"on"``, case-insensitive) and a native

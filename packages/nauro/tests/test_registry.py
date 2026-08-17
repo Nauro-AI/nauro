@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.store import registry
+from nauro.store.home import projects_dir
 from nauro.store.repo_config import load_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -261,7 +262,7 @@ def test_load_registry_v2_non_dict_returns_empty(tmp_path, monkeypatch):
 def test_get_store_path_v2_accepts_valid_ulid(tmp_path, monkeypatch):
     """A canonical ULID maps to the id-keyed directory under the projects dir."""
     pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
-    assert registry.get_store_path_v2(pid) == registry._projects_dir() / pid
+    assert registry.get_store_path_v2(pid) == projects_dir() / pid
 
 
 @pytest.mark.parametrize("evil", ["../../../../etc", "../escape", "/etc"])
@@ -281,28 +282,4 @@ def test_get_store_path_v2_allows_contained_non_canonical_id(tmp_path, monkeypat
     test-fixture ids) is still returned. This guard rejects escapes, not the
     full ULID alphabet — keeping it from breaking non-escaping callers."""
     pid = "01TESTPROJECT00000000000"
-    assert registry.get_store_path_v2(pid) == registry._projects_dir() / pid
-
-
-# --- nauro home directory permissions ---
-
-
-def test_ensure_nauro_home_creates_owner_only(tmp_path, monkeypatch):
-    """A fresh Nauro home is created at 0o700 so the token and store are not
-    readable by other accounts on a shared host."""
-    home = tmp_path / "fresh_home"
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    created = registry._ensure_nauro_home()
-    assert created == home
-    assert oct(home.stat().st_mode & 0o777) == "0o700"
-
-
-def test_ensure_nauro_home_tightens_existing_wide_dir(tmp_path, monkeypatch):
-    """A home left group/other-accessible by an older build is tightened to
-    owner-only in place."""
-    home = tmp_path / "wide_home"
-    home.mkdir()
-    home.chmod(0o755)
-    monkeypatch.setenv("NAURO_HOME", str(home))
-    registry._ensure_nauro_home()
-    assert (home.stat().st_mode & 0o077) == 0
+    assert registry.get_store_path_v2(pid) == projects_dir() / pid

@@ -443,7 +443,6 @@ packages/nauro/src/nauro/store/recovery.py::_seed_sync_state
 packages/nauro/src/nauro/store/recovery.py::_sweep_legacy_staging
 packages/nauro/src/nauro/store/recovery.py::restore_cloud_store
 packages/nauro/src/nauro/store/recovery.py::scaffold_empty_store
-packages/nauro/src/nauro/store/registry.py::_ensure_nauro_home
 packages/nauro/src/nauro/store/registry.py::_load_registry_v2_or_empty
 packages/nauro/src/nauro/store/registry.py::_validate_project_name
 packages/nauro/src/nauro/store/registry.py::add_repo_v2
@@ -457,7 +456,6 @@ packages/nauro/src/nauro/store/registry.py::remove_repo_v2
 packages/nauro/src/nauro/store/registry.py::rename_project_id_v2
 packages/nauro/src/nauro/store/registry.py::save_registry_v2
 packages/nauro/src/nauro/store/registry.py::suggest_project_for_path
-packages/nauro/src/nauro/store/repo_config.py::_global_config_file
 packages/nauro/src/nauro/store/repo_config.py::_is_valid_ulid
 packages/nauro/src/nauro/store/repo_config.py::collides_with_global_config
 packages/nauro/src/nauro/store/repo_config.py::find_repo_config

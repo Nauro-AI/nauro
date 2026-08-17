@@ -236,9 +236,9 @@ class TestWelcomeDisambiguation:
         keeps the welcome screen. This asserts the narrowing of the
         onboarding case didn't lose the legitimate trigger."""
         # Drop the registry so no project can resolve from cwd or by name.
-        from nauro.store.registry import _registry_file
+        from nauro.store.home import registry_file
 
-        _registry_file().write_text('{"projects": {}, "schema_version": 2}\n')
+        registry_file().write_text('{"projects": {}, "schema_version": 2}\n')
         rendered = _rendered(get_raw_file(path="project.md"))
         assert "Welcome to Nauro" in rendered
 

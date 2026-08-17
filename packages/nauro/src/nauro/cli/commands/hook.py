@@ -22,7 +22,8 @@ import typer
 from nauro_core import MCP_INSTRUCTIONS_STATIC
 
 from nauro.cli._codex_hooks import _CODEX_HOOK_EVENTS
-from nauro.constants import DECISIONS_DIR, DEFAULT_NAURO_HOME, NAURO_HOME_ENV
+from nauro.constants import DECISIONS_DIR
+from nauro.store.home import nauro_home
 
 hook_app = typer.Typer(help="Client-side advisory hooks for AI coding agents.")
 
@@ -422,8 +423,7 @@ def _format_block(hits: list[dict]) -> str:
 
 
 def _hook_state_dir() -> Path:
-    nauro_home = Path(os.environ.get(NAURO_HOME_ENV, Path.home() / DEFAULT_NAURO_HOME))
-    return nauro_home / "hook-state"
+    return nauro_home() / "hook-state"
 
 
 def _session_state_file(session_id: str) -> Path | None:
