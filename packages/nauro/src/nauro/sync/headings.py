@@ -21,9 +21,7 @@ _HEADING_SEPARATORS = ("—", "-")
 def heading_number(text: str) -> int | None:
     """Return the number in the first decision H1, if the text has one.
 
-    Deliberately as lax as the decision parser: any ASCII digit run counts, so
-    a heading this module refuses to rewrite is still *read* correctly and a
-    filename/heading disagreement is detected rather than missed.
+    As lax as the decision parser: a heading it refuses to rewrite still reads.
     """
     for line in text.splitlines():
         number = heading_line_number(line)
@@ -70,12 +68,9 @@ def has_rewritable_heading(text: str, num: int) -> bool:
 
 
 def rewrite_decision_heading(text: str, old_num: int, new_num: int) -> str:
-    """Rewrite the first canonical ``# NNN —`` / ``# NNN -`` H1 to ``new_num``.
+    """Rewrite the first canonical ``# NNN`` H1, either separator, to ``new_num``.
 
-    Only the first line in canonical form is rewritten; the separator and the
-    rest of the line are preserved byte-for-byte. Text with no such line is
-    returned unchanged, so callers verify the result rather than assuming the
-    rewrite landed.
+    Text with no such line comes back unchanged, so callers verify the result.
     """
     lines = text.splitlines(keepends=True)
     index = _rewritable_index(lines, old_num)
@@ -89,8 +84,7 @@ def rewrite_decision_heading(text: str, old_num: int, new_num: int) -> str:
 def strip_number_prefix(filename: str) -> str:
     """Drop a leading ``NNN-`` decision-number prefix from a filename.
 
-    The leading digit run plus the single hyphen that immediately follows it
-    are removed. A digit run with no trailing hyphen is left intact.
+    A digit run with no trailing hyphen is left intact.
     """
     idx = 0
     while idx < len(filename) and filename[idx].isdigit():

@@ -81,11 +81,9 @@ class RestoreBusyError(RecoveryError):
 class EmptyCloudRecordError(RecoveryError):
     """The cloud project exists but has no stored record to restore.
 
-    Distinct from :class:`RecoveryError` so first-connection flows (attach)
-    can fall back to the pre-existing empty-store-then-sync contract, while
-    recovery flows (reconnect) keep treating an empty remote as a hard stop —
-    a machine recovering a lost record must not mistake "nothing was ever
-    pushed" for a successful restore.
+    Distinct from :class:`RecoveryError` so attach can fall back to the
+    empty-store-then-sync contract while a reconnect keeps treating an empty remote
+    as a hard stop: a lost record must not read as a successful restore.
     """
 
 
@@ -391,8 +389,7 @@ def _restore_lock(project_id: str, destination: Path) -> Iterator[None]:
 def _discard(path: Path) -> None:
     """Remove ``path``, whatever kind of file occupies it.
 
-    Best effort by design: every caller is either cleaning up after a failure
-    it is about to report, or opening a staging area it recreates immediately.
+    Best effort: every caller is cleaning up a failure or recreating the path.
     """
     if path.is_dir() and not path.is_symlink():
         shutil.rmtree(path, ignore_errors=True)
@@ -404,8 +401,7 @@ def _discard(path: Path) -> None:
 def _sweep_legacy_staging(project_id: str, parent: Path) -> None:
     """Remove staging directories a killed pre-resume run stranded.
 
-    Those runs staged into a random ``mkdtemp`` name that no later run could
-    find, so nothing but this sweep ever collects them.
+    Those runs staged into a random ``mkdtemp`` name only this sweep can collect.
     """
     for stranded in parent.glob(f".{project_id}{_LEGACY_STAGING_GLOB_SUFFIX}"):
         _discard(stranded)
@@ -414,9 +410,7 @@ def _sweep_legacy_staging(project_id: str, parent: Path) -> None:
 def _open_staging(staging: Path) -> None:
     """Make the staging path a directory, whatever is sitting on it.
 
-    Only a directory this restore can resume from may occupy the path. A file
-    there is not a partial restore under any reading, so it goes rather than
-    stopping a recovery on something no run of this code could have left.
+    Only a directory a restore can resume from may occupy the path, so a file goes.
     """
     if staging.exists() and not (staging.is_dir() and not staging.is_symlink()):
         _discard(staging)
@@ -470,16 +464,9 @@ def _prune_empty_directories(staging: Path) -> None:
 class _StagingArea:
     """The staging directory plus the record of what this run put in it.
 
-    The manifest alone cannot decide whether a staged file is still good. An
-    entry with an opaque multipart ETag and no size gives the audit nothing to
-    compare against, so a same-size corruption would pass it. The bytes are in
-    hand at download time, so the run records their sha256 next to the ETag it
-    downloaded them under, and the resume checks both: the digest catches local
-    damage, and the ETag catches a remote file that has moved on since.
-
-    The record lives beside the staging directory rather than inside it. That
-    keeps it out of the tree the install renames onto the store, and keeps it
-    alive through an install-phase failure that keeps staging for a resume.
+    The record holds each file's sha256 next to the ETag it was downloaded under, so
+    a resume catches local damage and a rotated remote. It lives beside the staging
+    directory, out of the tree the install renames and alive through a failed install.
     """
 
     path: Path
@@ -489,9 +476,7 @@ class _StagingArea:
     def audit(self, entries: dict[str, CloudManifestEntry]) -> set[str]:
         """Return the staged paths a resume may keep, deleting every other one.
 
-        Everything else — an unrecorded file, a rotated remote, local damage, a
-        path the manifest dropped, anything that is not a regular file — goes,
-        and the run downloads it again.
+        An unrecorded file, a rotated remote, local damage, or a non-regular file goes.
         """
         kept: set[str] = set()
         try:
@@ -529,15 +514,7 @@ class _StagingArea:
     def accept(self, relative: str, entry: CloudManifestEntry, content: bytes) -> None:
         """Land one downloaded file and record what it is.
 
-        The file is written whole or not at all: a truncating write that a kill
-        interrupts leaves a short file that still looks like content.
-
-        The record is rewritten after every file rather than in batches. It
-        must never name a file that is not on disk, and writing it second keeps
-        it one step behind the filesystem at every instant — a kill between the
-        two costs one re-download, never a false trust. Batching would trade
-        that for a saving measured against the download it accompanies, on a
-        record of hundreds of files.
+        The record trails the write, so a kill costs a re-download, never false trust.
         """
         try:
             atomic_write_bytes(self.path / relative, content)
@@ -573,8 +550,7 @@ def _discard_restore_state(project_id: str, destination: Path) -> None:
 def _open_staging_area(project_id: str, destination: Path, reporter: Reporter) -> _StagingArea:
     """Open the staging directory and read whatever record accompanies it.
 
-    An unreadable record is reported and treated as empty: the cost is a full
-    re-download, never a file trusted on a record that could not be read.
+    An unreadable record is reported and treated as empty, costing a re-download.
     """
     staging = _staging_path(project_id, destination)
     ledger_path = _ledger_path(project_id, destination)
@@ -668,23 +644,7 @@ def _install_staged_store(staging: Path, destination: Path) -> None:
 def _seed_sync_state(area: _StagingArea) -> None:
     """Record the assembled record as synced, inside the tree about to land.
 
-    A restore is the one moment a store is provably level with the server, and
-    nothing else can record it: ``.sync-state.json`` is never synced, so it
-    never arrives from the remote either. Left unwritten, every entry the next
-    pull reads is absent, absent reads as changed on both sides, and the run
-    backs the whole store up and downloads it again. A decision the server
-    edited fares worse: it reaches the collision gate untracked, and the stale
-    local copy wins a conflict it should never have been in.
-
-    The ledger is the source because it holds what actually landed - an ETag
-    the manifest published, and a digest of the bytes on disk under it, which
-    are ``remote_etag`` and ``local_sha256`` unchanged. It covers every
-    installed file whether this run downloaded it or resumed onto it, since a
-    staged file no ledger record backs is never kept.
-
-    The state is written into staging rather than onto the store, so it arrives
-    in the same rename as the files it describes and no instant exists in which
-    an installed store is untracked.
+    Written into staging, so it lands in the same rename as the files it describes.
     """
     now = _utcnow().isoformat()
     state = SyncState(
@@ -727,12 +687,7 @@ def restore_cloud_store(
 ) -> Path:
     """Restore a complete remote record into an absent or empty destination.
 
-    The restore resumes. It stages into a fixed per-project directory beside
-    the destination and keeps that directory when a run fails partway, so the
-    next run re-verifies what is there against a fresh manifest and downloads
-    only the rest — a dropped connection halfway through a large record costs
-    the remaining files, not all of them. Only a complete, validated tree
-    installs, and the install stays one rename.
+    Only a complete validated tree installs, in one rename; a failed run keeps staging.
     """
     surface: Reporter = reporter if reporter is not None else NullReporter()
     if not destination.is_absolute():

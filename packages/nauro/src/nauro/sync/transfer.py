@@ -43,10 +43,9 @@ class TransferFault(Enum):
 class Reporter(Protocol):
     """Surface for transfer progress, shared by every path that moves bytes.
 
-    The pull core and the cloud restore both report through it, and the CLI,
-    the hooks, and the tests each supply their own implementation: the CLI
-    echoes to the terminal, the hook logs quietly (session startup must never
-    crash), and a caller that surfaces nothing takes :class:`NullReporter`.
+    The pull core and the cloud restore both report through it, and each caller
+    supplies its own: the CLI echoes to the terminal, the hooks log quietly because
+    session startup must never crash, and a silent caller takes ``NullReporter``.
     """
 
     def info(self, msg: str) -> None:
@@ -90,9 +89,7 @@ def classify_fault(error: PresignError) -> TransferFault:
 def backoff_delay(failures: int) -> float:
     """Return the wait before the retry that follows ``failures`` failures.
 
-    Full jitter, not a fixed exponential step: a whole record's files fail
-    together when a network drops, and equal waits would retry them in
-    lockstep against the endpoint that just refused them.
+    Full jitter, not a fixed step: a whole record's files fail together on a drop.
     """
     ceiling = min(_MAX_DELAY_SECONDS, _BASE_DELAY_SECONDS * 2 ** (failures - 1))
     return random.uniform(0.0, ceiling)

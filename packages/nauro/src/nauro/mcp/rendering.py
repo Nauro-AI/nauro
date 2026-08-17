@@ -26,10 +26,9 @@ from nauro.store.filesystem_store import canonical_store_relative_path
 class RenderOutcome(NamedTuple):
     """Result of one render attempt.
 
-    ``text`` is the rendered block, or ``None`` when the caller must fall
-    back to its own JSON emission of the envelope. ``failure`` carries the
-    renderer's exception when one raised (``None`` for the no-renderer
-    case), so callers can attach their own diagnostics.
+    ``text`` is ``None`` when the caller must fall back to its own JSON emission
+    of the envelope. ``failure`` carries the renderer's exception, or ``None``
+    when no renderer was registered.
     """
 
     text: str | None
@@ -39,23 +38,9 @@ class RenderOutcome(NamedTuple):
 def resolve_renderer_kwargs(
     tool_name: str, request_args: dict[str, Any], store_path: Path | None
 ) -> dict[str, Any]:
-    """Per-tool renderer kwargs for a read-tool call.
+    """Return the renderer kwargs for one read tool, shared by the stdio server and CLI text mode.
 
-    The single source both local text surfaces (the stdio server and the CLI
-    ``--format text`` mode) use to thread request context to the shared
-    renderers, so the two surfaces cannot drift:
-
-    * ``get_decision`` — the requested ``mode``.
-    * ``search_decisions`` — the ``query`` the kernel envelope omits.
-    * ``get_context`` — the requested ``level``. Tailors the wording of the
-      over-budget guard report only; the size gate itself is level-blind.
-    * ``get_raw_file`` — the canonical store-relative ``path`` that selects
-      the bounded-read rule (so ``context/../open-questions.md`` routes to
-      the open-questions rule). Renderer-side only; the canonical path is
-      never placed on the result envelope.
-
-    Total: unknown tools, absent or mistyped args, a missing store path, or
-    a path that does not resolve inside the store simply omit the kwarg.
+    An unknown tool or an unusable argument omits the kwarg rather than raising.
     """
     if tool_name == "get_decision":
         mode = request_args.get("mode")
@@ -80,9 +65,7 @@ def try_render_envelope(
 ) -> RenderOutcome:
     """Render ``envelope`` through the tool's registered renderer.
 
-    ``renderer_kwargs`` threads renderer-specific options (e.g.
-    ``get_decision``'s requested ``mode``) without storing them on the
-    envelope.
+    ``renderer_kwargs`` threads renderer-specific options without storing them on the envelope.
     """
     renderer = RENDERERS.get(tool_name)
     if renderer is None:

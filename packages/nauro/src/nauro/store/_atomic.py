@@ -42,9 +42,7 @@ def _tmp_name(name: str) -> str:
 def is_tmp_sibling(name: str) -> bool:
     """True for a basename this module could have minted as a tmp sibling.
 
-    A write is removed on any failure, but a kill signal lands between the write
-    and the replace often enough to matter, and what it leaves behind is a
-    complete-looking file under a name nothing else claims.
+    Lets a reader recognise the orphan a kill between write and replace leaves.
     """
     if not (name.startswith(".") and name.endswith(TMP_SUFFIX)):
         return False
@@ -55,13 +53,7 @@ def is_tmp_sibling(name: str) -> bool:
 def _open_random_tmp(path: Path, creation_mode: int) -> tuple[int, Path]:
     """Open a randomly named ``O_CREAT|O_EXCL`` tmp sibling of ``path``.
 
-    Same shape as :func:`tempfile.mkstemp` (unguessable name, exclusive
-    creation that never follows a pre-planted symlink, umask applied to the
-    creation mode) but with the creation mode as a parameter, so a
-    non-sensitive new file can be born at the default umask mode instead of
-    ``0o600`` without touching the process-wide umask — ``os.umask`` is
-    process-global, and a read-restore dance around it races against every
-    other thread creating files.
+    Exclusive creation never follows a pre-planted symlink, and the mode is a parameter.
     """
     while True:
         tmp = path.parent / _tmp_name(path.name)
@@ -72,15 +64,9 @@ def _open_random_tmp(path: Path, creation_mode: int) -> tuple[int, Path]:
 
 
 def _resolve_modes(path: Path, mode: int | None) -> tuple[int | None, int]:
-    """The bits the final file must carry, and the bits the tmp is born with.
+    """Return the bits the final file must carry and the bits the tmp is born with.
 
-    When ``mode`` is given, or when an existing target's bits are being
-    preserved, the tmp is created owner-only so the contents are never
-    momentarily more readable than the final file — this matters for the auth
-    token, which is written at ``0o600``. A brand-new modeless file is instead
-    created at the default umask mode directly (the kernel applies the umask at
-    creation), matching a plain write for non-sensitive files without any
-    process-global umask manipulation.
+    A pinned or preserved mode makes the tmp owner-only; a modeless one uses the umask.
     """
     if mode is not None:
         return mode, 0o600
@@ -104,13 +90,7 @@ def _replace(tmp: Path, path: Path, final_mode: int | None) -> None:
 def atomic_write_bytes(path: Path, data: bytes) -> None:
     """Write ``data`` to ``path`` atomically via a tmp sibling and ``os.replace``.
 
-    The bytes counterpart of :func:`atomic_write_text`, with the same tmp-file
-    and permission handling; an existing target keeps its permission bits.
-
-    Callers that land content they did not author — the sync pull, writing
-    bytes fetched from the server — need this rather than ``write_bytes``: a
-    truncating write that fails partway leaves a file that is neither the old
-    version nor the new one, and nothing downstream can tell the difference.
+    The bytes counterpart of :func:`atomic_write_text`; an existing target keeps its bits.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     final_mode, creation_mode = _resolve_modes(path, None)
@@ -128,32 +108,8 @@ def atomic_write_text(
     path: Path, text: str, *, mode: int | None = None, newline: str | None = None
 ) -> None:
     """Write ``text`` to ``path`` atomically via a tmp sibling and ``os.replace``.
-
-    Creates the parent directory if needed, writes to a tmp sibling, then
-    atomically renames it over ``path`` so a reader never observes a partial
-    target.
-
-    Args:
-        path: Destination file path.
-        text: Full file contents to write.
-        mode: When set, the permission bits applied to the file (e.g. ``0o600``
-            for owner-only). When None, an existing file keeps its current
-            permission bits and a new file gets the default umask mode, the
-            same bits a plain ``write_text`` would produce.
-        newline: Passed through to the underlying text write. ``"\\n"`` pins LF
-            line endings on every platform, so a file written on Windows is
-            byte-identical to one written on POSIX (the default would translate
-            ``\\n`` to ``\\r\\n`` on Windows). When None, the platform default
-            applies, matching the original control-plane behavior.
-
-    Every write goes through a tmp sibling with a random, unguessable name
-    opened ``O_CREAT|O_EXCL``, so a symlink pre-planted at a predictable tmp
-    path can neither redirect nor clobber the write, and the tmp file is
-    removed on any failure. The permission handling is
-    :func:`_resolve_modes`. Guarantees are atomic-replace only: concurrent
-    writers each land a complete file (last replace wins, intermediate
-    read-modify-write updates can still be lost), and crash durability remains
-    out of scope.
+    ``mode`` pins the permission bits; without it an existing file keeps its own and
+    a new one takes the umask. Each writer lands a complete file, last replace wins.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     final_mode, creation_mode = _resolve_modes(path, mode)

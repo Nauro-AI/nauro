@@ -1,20 +1,16 @@
-"""Store-resolution helper + typed exceptions.
+"""Store-resolution helper and typed exceptions.
 
-The local stdio MCP transport translates a ``(project_id, cwd)`` pair into a
-path under the active ``NAURO_HOME``. This module owns the resolution rules
-and surfaces every failure as a typed exception so the transport can decide
-whether to show the welcome screen or return a specific error message.
+The local stdio MCP transport translates a ``(project_id, cwd)`` pair into a path
+under the active ``NAURO_HOME``. This module owns the resolution rules and
+surfaces every failure as a typed exception, so a wrapper can reserve the
+``WELCOME_NO_PROJECT`` onboarding screen for the genuinely-no-project case and
+give specific diagnostics for the other failure modes.
 
 Resolution order:
 
   1. cwd's ``.nauro/config.json`` walk-up (id-keyed v2 store).
-  2. ``project_id`` argument matched against the v2 registry by id, then
-     by name.
-  3. ``cwd`` argument matched against the v2 registry by repo path.
-
-The typed subclasses below let the wrappers reserve the
-``WELCOME_NO_PROJECT`` onboarding screen for the genuinely-no-project case
-and surface specific diagnostics for the other failure modes.
+  2. ``project_id`` matched against the v2 registry by id, then by name.
+  3. ``cwd`` matched against the v2 registry by repo path.
 """
 
 from __future__ import annotations
@@ -102,11 +98,9 @@ class MultipleProjectsError(StoreResolutionError):
 class RepoResolution(NamedTuple):
     """A cwd resolved to a project store.
 
-    ``project_id`` is the store key: a ULID from the repo config or the v2
-    registry. It is the key the sync layer pulls under. ``display_name`` is
-    the human-facing name for CLI output. ``store_path`` is not
-    existence-checked — each caller decides how to treat a
-    resolved-but-missing store.
+    ``project_id`` is the store key the sync layer pulls under: a ULID from the repo
+    config or the v2 registry. ``display_name`` is for CLI output. ``store_path`` is
+    not existence-checked, so each caller decides how to treat a missing store.
     """
 
     store_path: Path
@@ -276,8 +270,7 @@ def resolve_registered_project(
 def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
     """Walk up from ``start`` looking for ``.nauro/config.json``.
 
-    Returns ``(project_id, store_path)`` or ``None`` when no config is found.
-    Mirrors how git locates ``.git`` from anywhere inside a working tree.
+    Returns ``(project_id, store_path)``, or ``None`` when no config is found.
     """
     resolved = _resolve_repo_config_from_cwd(start)
     if resolved is None:
@@ -288,16 +281,9 @@ def resolve_via_repo_config(start: Path | None) -> tuple[str, Path] | None:
 
 
 def resolve_from_cwd(cwd: str | Path | None) -> RepoResolution | DisconnectedProject | None:
-    """Resolve a cwd to a project store via the canonical waterfall.
+    """Resolve a cwd to a project store through the two cwd-based tiers in order.
 
-    Applies the two cwd-based tiers in order and returns the first match:
-
-      1. ``.nauro/config.json`` walk-up (id-keyed v2 store).
-      2. v2 registry matched by repo path.
-
-    Returns a :class:`RepoResolution`, or ``None`` when no tier matches
-    (the no-project outcome). Both tiers surface missing or invalid stores
-    as typed :class:`DisconnectedProject` states.
+    ``None`` means no project; a missing store comes back as ``DisconnectedProject``.
     """
     start = Path(cwd) if cwd else Path.cwd()
 
@@ -324,10 +310,7 @@ def _store_path_or_raise(connection: RepoResolution | DisconnectedProject) -> Pa
 def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
     """Resolve a ``(project_id, cwd)`` pair to a store path.
 
-    Raises a specific :class:`StoreResolutionError` subclass on every
-    failure mode so callers can map each one to the appropriate response.
-    Callers that just want the welcome screen on any failure can still
-    catch the base class (or :class:`ValueError`) and ignore the subtype.
+    Every failure mode raises its own :class:`StoreResolutionError` subclass.
     """
     cwd_path = Path(cwd) if cwd else Path.cwd()
     config_resolution = _resolve_repo_config_from_cwd(cwd_path)

@@ -160,8 +160,7 @@ def save_quarantine_backup(
 ) -> Path:
     """Drop the quarantined remote decision into the backup directory.
 
-    An existing backup for the same remote version is left as it is, so the
-    idempotent re-pull neither rewrites nor multiplies it.
+    An existing backup for the same remote version is left alone, so a re-pull is idempotent.
     """
     name = backup_name(remote_path, quarantine_key(remote_etag, remote_content))
     existing = store_path / CONFLICT_BACKUP_DIR / name
@@ -215,13 +214,7 @@ def unresolved_quarantines(
 ) -> list[QuarantinedCollision]:
     """Quarantined collisions whose remote decision is still not installed.
 
-    Matched on the path digest rather than the displayed path, which may have
-    been capped in the backup filename. Only a canonically spelled path can be
-    resolved at all, because only a canonical path can ever be installed: a
-    quarantine raised against any other spelling stays listed however the state
-    file reads, since a legacy entry recorded under that spelling is exactly the
-    stale record the quarantine exists to surface, and letting it mark its own
-    collision resolved would hide it.
+    Matched on the path digest; only a canonically spelled path can resolve one.
     """
     backups = list_quarantine_backups(store_path)
     if not backups:

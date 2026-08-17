@@ -48,14 +48,9 @@ def load_state(project_path: Path) -> SyncState:
 
 
 def save_state(project_path: Path, state: SyncState) -> None:
-    """Write .sync-state.json to project directory.
+    """Write ``.sync-state.json`` into the project directory.
 
-    Written through a tmp sibling and ``os.replace``: a crash during the write
-    must leave the previous state readable rather than a truncated file, since
-    an unreadable state file makes every tracked path look untracked and
-    reopens the published-versus-unpublished question the collision classifier
-    answers from it. The serialized shape is unchanged, so an older binary
-    reads entries written here without adaptation.
+    Atomic, because an unreadable state makes every tracked path look untracked.
     """
     data = {
         "files": {

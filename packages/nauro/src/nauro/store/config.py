@@ -45,12 +45,7 @@ def _config_lock(timeout: float = -1):
 def config_transaction(timeout: float = -1):
     """Lock, reload fresh, yield the working dict, then persist on clean exit.
 
-    Binding the lock to a reload-and-save means a holder can never operate on a
-    stale snapshot. A body that raises skips ``save_config`` entirely, leaving
-    the file untouched. The lock is not re-entrant: a body must not open a
-    second ``config_transaction`` (sequence the writes instead). ``timeout`` is
-    forwarded to the lock: the default waits forever, a bound raises
-    ``filelock.Timeout`` on expiry.
+    Not re-entrant, and a body that raises skips the save, leaving the file untouched.
     """
     with _config_lock(timeout=timeout):
         data = load_config()
@@ -59,13 +54,9 @@ def config_transaction(timeout: float = -1):
 
 
 def _quarantine_corrupt_config(cf: Path) -> None:
-    """Preserve a corrupt config.json before a caller overwrites it.
+    """Rename a corrupt config.json aside before a caller overwrites it with ``{}``.
 
-    load_config returns {} on a corrupt file and config_transaction then
-    persists that empty dict — which would destroy any hand-recoverable content
-    (e.g. the auth tokens) in the broken file. Rename it to a timestamped
-    sidecar first so the data survives, and tell the user where it went.
-    Best-effort: a read-only dir or a concurrent rename is swallowed.
+    Timestamped sidecar, best-effort: a read-only dir or a racing rename is swallowed.
     """
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     sidecar = cf.with_name(f"{cf.name}.corrupt-{ts}")
@@ -128,8 +119,7 @@ def set_config(key: str, value: str) -> None:
 def unset_config(key: str) -> bool:
     """Remove a config key. Returns True if the key existed.
 
-    Uses the lock primitive directly rather than ``config_transaction`` so the
-    missing-key path can return without rewriting the file.
+    Uses the lock primitive directly so a missing key returns without a rewrite.
     """
     with _config_lock():
         data = load_config()

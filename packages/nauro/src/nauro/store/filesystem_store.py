@@ -18,16 +18,9 @@ from nauro.store.reader import read_text_lenient
 
 
 def canonical_store_relative_path(store_path: Path, path: str) -> str | None:
-    """Resolve ``path`` against the store root to its canonical relative form.
+    """Return ``path`` in canonical POSIX store-relative form, ``None`` if it escapes.
 
-    Returns the POSIX-style store-relative path
-    (``context/../open-questions.md`` resolves to ``open-questions.md``) or
-    ``None`` when the path escapes the store or cannot be resolved.
-    Read-side companion to :meth:`FilesystemStore._resolve_within`:
-    consumers that key per-file rules off the requested path (the
-    bounded-read renderer kwargs) classify on this canonical form so alias
-    spellings cannot dodge a rule. The escape rejection on the read/write
-    path itself stays in :meth:`FilesystemStore._resolve_within`.
+    Read-side companion to ``_resolve_within``: alias spellings cannot dodge a rule.
     """
     try:
         target = (store_path / path).resolve()
@@ -39,24 +32,18 @@ def canonical_store_relative_path(store_path: Path, path: str) -> str | None:
 class FilesystemStore:
     """Concrete ``Store`` rooted at a single project's on-disk directory.
 
-    Paths passed to :meth:`read_file` / :meth:`write_file` / :meth:`delete_file`
-    are interpreted relative to ``store_path``. Decision file enumeration goes
-    through :meth:`list_decisions`; a stem returned there can be read via
-    :meth:`read_decision` without re-deriving the canonical decisions
-    sub-directory.
+    Paths passed to :meth:`read_file`, :meth:`write_file` and :meth:`delete_file`
+    are interpreted relative to ``store_path``. A decision stem from
+    :meth:`list_decisions` reads back through :meth:`read_decision`.
     """
 
     def __init__(self, store_path: Path) -> None:
         self._store_path = store_path
 
     def _resolve_within(self, path: str) -> Path:
-        """Resolve ``path`` against the store root, refusing any escape.
+        """Return ``path`` resolved against the store root, refusing any escape.
 
-        Returns the resolved target when it stays inside ``store_path``; raises
-        ``ValueError`` when ``path`` carries ``..`` segments or an absolute path
-        that would land outside the project store. Shared by every file op so
-        the containment invariant is enforced uniformly rather than only on
-        reads.
+        Raises ``ValueError`` for a ``..`` or absolute path landing outside the store.
         """
         target = (self._store_path / path).resolve()
         target.relative_to(self._store_path.resolve())  # raises ValueError on escape

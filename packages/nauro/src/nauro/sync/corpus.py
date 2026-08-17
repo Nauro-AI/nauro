@@ -1,29 +1,18 @@
 """One view of ``decisions/`` for the lifetime of one sync run.
 
 Every collision verdict is taken against the store as it stands at that moment,
-which naively means rescanning and reparsing the whole corpus once per verdict.
-On a store with hundreds of decisions and a handful of collisions that is
-hundreds of thousands of parses. This module keeps the guarantee and drops the
-cost: the pull scans ``decisions/`` once inside the decision lock, reads each
-file only as far as the question being asked requires, and tells the corpus
-about every mutation it makes, so the in-memory view stays identical to the disk
-without re-reading it.
+which naively means rescanning and reparsing the whole corpus per verdict. The
+pull instead scans ``decisions/`` once inside the decision lock, reads each file
+only as far as the question requires, and tells the corpus about every mutation it
+makes, so the in-memory view stays identical to disk without re-reading it.
 
-Three levels of detail, each paid for only when asked:
+Three levels, each paid for only when asked: the listing of filenames and the
+numbers they claim comes from one ``scandir``; a heading number is read by
+scanning lines to the H1; a parse happens at most once, and the reference index
+folded from those parses is rebuilt, never re-read.
 
-* the **listing** - filenames and the numbers they claim - comes from one
-  ``scandir`` with no file reads, and answers "who claims this number?" and
-  "does this exact name exist?";
-* a file's **heading number** is read by scanning lines until the H1, so a
-  filename/heading mismatch is detected without loading bodies;
-* a file's **parse** is done at most once, and the reference index folded from
-  those parses is rebuilt (never re-read) after a mutation.
-
-Entries that are not regular files - a directory, a symlink, a broken link -
-are never read, followed, or modified. They are recorded as irregular, counted
-as claiming their number so nothing is minted or installed on top of them, and
-reported. A symlink's target can change outside every lock this layer holds, so
-no proof about its content would survive the write it authorizes.
+An entry that is not a regular file is never read, followed or modified, and still
+claims its number: no proof about a symlink would survive the write it authorizes.
 """
 
 from __future__ import annotations
@@ -159,12 +148,9 @@ class SkipReason(str, Enum):
 class IrregularEntry:
     """An entry under ``decisions/`` this layer will not read or modify.
 
-    Either it is not a regular file, or its name is not one the store's readers
-    recognise - ``list_decisions`` and the kernel's allocator match a lowercase
-    ``.md`` suffix literally, so a file named ``007-x.MD`` is invisible to them
-    however readable it is here. Both shapes still claim their number, because a
-    number claimed by something nothing can read is exactly the ambiguity that
-    must hold a remote decision back rather than let it land alongside.
+    Either it is not a regular file, or the store's readers do not recognise its name:
+    they match a lowercase ``.md`` suffix literally, so ``007-x.MD`` is invisible to
+    them. Both still claim their number, so nothing is minted or installed on top.
     """
 
     name: str
@@ -281,8 +267,7 @@ class DecisionCorpus:
     def references(self) -> ReferenceIndex:
         """Every supersession and question reference the store records.
 
-        Folded from per-file parses, so a rebuild after a mutation reparses
-        only the files that mutation created or changed.
+        Folded from per-file parses, so a rebuild reparses only what a mutation changed.
         """
         if self._references is None:
             unparseable: set[Path] = set()

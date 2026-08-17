@@ -1,25 +1,16 @@
 """HTTP client for the remote MCP server's project endpoints.
 
-Wraps ``POST /projects`` and ``GET /projects`` on the Nauro cloud control
-plane. Both endpoints require an OAuth bearer token; auth is shared with
-the sync transport via ``with_token_refresh`` — a stale access token is
-refreshed transparently on 401 (when a refresh token is available), so a
-session that has only been idle still completes ``nauro init --cloud``
-and ``nauro attach`` without an interactive re-login.
+Wraps ``POST /projects`` and ``GET /projects`` on the Nauro cloud control plane.
+Both endpoints require an OAuth bearer token; auth is shared with the sync
+transport via ``with_token_refresh``, so a stale access token is refreshed on 401
+and an idle session still completes ``nauro init --cloud`` and ``nauro attach``
+without an interactive re-login. Server URL resolution is shared too, through
+``nauro.sync.remote.resolve_api_url``.
 
-Server URL resolution is shared with the sync transport via
-``nauro.sync.remote.resolve_api_url`` (``NAURO_API_URL`` env var, then
-``api_url`` in user config, then the public default).
-
-Failure modes are collapsed into a single ``CloudProjectError`` with a
-human-readable message; both callers just render the message. The 4xx
-auth branches distinguish ``401 after refresh attempt`` from ``403
-forbidden`` so the remediation hint matches the underlying cause instead
-of always telling the user to log in.
-
-``created_at`` is passed through verbatim as an ISO 8601 string. No date
-parsing — that just creates timezone-normalization fragility for no caller
-benefit.
+Failure modes collapse into a single ``CloudProjectError`` carrying a
+human-readable message; the 401-after-refresh and 403-forbidden branches stay
+distinct so the remediation hint matches the cause. ``created_at`` passes through
+verbatim as an ISO 8601 string, unparsed.
 """
 
 from __future__ import annotations
@@ -69,14 +60,9 @@ def _parse_project(raw: object) -> ProjectView:
 
 
 def _request(method: str, path: str, *, json_body: dict | None = None) -> httpx.Response:
-    """Issue an authenticated request, refreshing the token on 401.
+    """Issue an authenticated request, refreshing the token once on 401.
 
-    Auth handling is delegated to :func:`with_token_refresh`: a fresh
-    request runs first, and a 401 triggers one refresh + retry before the
-    response surfaces here. Transport errors, refresh failures, and
-    persistent 4xx/5xx responses are all translated into
-    :class:`CloudProjectError` with a remediation hint matched to the
-    actual failure mode.
+    Transport errors, refresh failures and persistent 4xx/5xx all become one error.
     """
     url = f"{resolve_api_url()}{path}"
 
@@ -131,15 +117,9 @@ def _request(method: str, path: str, *, json_body: dict | None = None) -> httpx.
 
 
 def create_project(name: str) -> ProjectView:
-    """Create a new cloud-scoped project.
+    """Create a new cloud-scoped project and return its ``ProjectView``.
 
-    Args:
-        name: Human-readable project name. Server is the source of truth for
-            naming rules; this client passes the value through unchanged.
-
-    Returns:
-        ProjectView for the freshly minted project, including the
-        server-assigned ``project_id`` (ULID).
+    The server owns the naming rules; ``name`` passes through unchanged.
     """
     response = _request("POST", "/projects", json_body={"name": name})
     try:
@@ -152,10 +132,9 @@ def create_project(name: str) -> ProjectView:
 
 
 def list_projects() -> list[ProjectView]:
-    """List every cloud-scoped project visible to the current OAuth identity.
+    """Return every cloud-scoped project visible to the current OAuth identity.
 
-    Returns:
-        Project list in server order. May be empty.
+    In server order, possibly empty.
     """
     response = _request("GET", "/projects")
     try:

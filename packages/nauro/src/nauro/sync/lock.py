@@ -1,22 +1,17 @@
 """Store-scoped lock serializing sync pull and push.
 
 The pull core classifies a colliding decision, renames the local file, rewrites
-its heading, updates the hash index, and installs the remote file as a sequence
-of separate filesystem steps. A concurrent pull or push observing the store
-mid-sequence would classify against a half-applied state, so both directions
-take one lock per store for the whole run.
+its heading, updates the hash index and installs the remote file as separate
+filesystem steps, so a concurrent pull or push seeing the store mid-sequence
+would classify against a half-applied state. Both directions take one lock per
+store for the whole run, and every acquisition carries a finite timeout: an
+explicit ``nauro sync`` fails loud, and the SessionStart hook skips its pull.
 
-Unlike :func:`~nauro.store.store_lock.store_write_lock`, which blocks
-indefinitely, every acquisition here carries a finite timeout: an explicit
-``nauro sync`` fails loud when another sync holds the store, and the
-SessionStart hook skips its pull rather than delaying session start.
-
-The lock file sits next to ``.sync-state.json`` and ends in ``.json.lock``, so
-``should_skip`` already excludes it from both the push scan and the manifest
-walk. Lock order is one-way: this lock is taken outside
-``decision_write_lock``, never inside it, so a sync holding the store can still
-mint a decision number while a kernel writer taking only the decision lock can
-never block on a sync.
+Lock order is one-way: this lock is taken outside ``decision_write_lock``, never
+inside it, so a sync holding the store can still mint a decision number while a
+kernel writer taking only the decision lock never blocks on a sync. The lock file
+sits beside ``.sync-state.json`` and ends in ``.json.lock``, so ``should_skip``
+already excludes it from the push scan and the manifest walk.
 """
 
 from __future__ import annotations
@@ -72,8 +67,7 @@ def _bounded(lock_path: Path, store_path: Path, timeout: float, resource: str):
 def sync_lock(store_path: Path, timeout: float):
     """Hold the store's sync lock for the duration of the block.
 
-    Raises:
-        SyncLockTimeoutError: the lock was not acquired within ``timeout``.
+    Raises ``SyncLockTimeoutError`` when it is not acquired within ``timeout``.
     """
     with _bounded(store_path / SYNC_LOCK_FILE, store_path, timeout, "store"):
         yield
@@ -81,21 +75,9 @@ def sync_lock(store_path: Path, timeout: float):
 
 @contextmanager
 def decision_lock(store_path: Path, timeout: float):
-    """Hold the decision allocation lock, bounded by the caller's policy.
+    """Hold the decision allocation lock, raising ``SyncLockTimeoutError`` on timeout.
 
-    Same lock file as :func:`~nauro.store.decision_lock.decision_write_lock`,
-    so a sync and a kernel writer still exclude each other. The difference is
-    the wait: a kernel writer blocks until the store is free, which is right
-    for a user-initiated write, but would let a suspended writer hold session
-    start open indefinitely once the sync lock is already in hand. Every sync
-    acquisition is therefore finite and surfaces as
-    :class:`SyncLockTimeoutError`, which the CLI reports and the hooks skip on.
-
-    Taken inside the sync lock, never outside it, and never around a network
-    call: the kernel path takes only this lock, so the one-way order holds.
-
-    Raises:
-        SyncLockTimeoutError: the lock was not acquired within ``timeout``.
+    Same file as ``decision_write_lock``, inside the sync lock, never around network IO.
     """
     with _bounded(
         rmw_lock_path(store_path, DECISIONS_DIR, is_directory=True),

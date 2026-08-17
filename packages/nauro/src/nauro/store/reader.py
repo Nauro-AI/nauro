@@ -13,13 +13,9 @@ from nauro.constants import DECISIONS_DIR
 
 
 def read_text_lenient(path: Path) -> str:
-    """Read a store file as UTF-8, replacing any undecodable bytes.
+    """Read a store file as UTF-8, replacing any undecodable byte.
 
-    Store markdown is freeform and hand/agent-editable, so a file saved in a
-    legacy encoding — a smart quote pasted from a non-UTF-8 editor, an imported
-    doc in cp1252 — must not crash a read. Decoding with ``errors="replace"``
-    keeps the whole read surface (get_context, sync, search) working on a
-    mostly-valid file instead of aborting the command on a single bad byte.
+    Freeform store markdown may carry legacy encodings; one bad byte must not abort a read.
     """
     return path.read_text(encoding="utf-8", errors="replace")
 

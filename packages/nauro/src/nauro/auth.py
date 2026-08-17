@@ -1,19 +1,16 @@
-"""Auth domain logic for remote sync — credentials, token load, token refresh.
+"""Auth domain logic for remote sync: credentials, token load, token refresh.
 
-This module owns:
+This module owns the ``auth`` credential block in ``~/.nauro/config.json`` and
+the bearer token read out of it, the shipped Auth0 defaults (domain, client id,
+API URL, audience) with their env-var and config-key overrides, the
+single-flight refresh-token exchange (module lock, config filelock election,
+refuse-to-clobber commit, and a zero-network fast path for a caller whose token
+another caller already replaced), and the 429 and 401 retry helpers that
+transport callers use.
 
-- the credential block stored in ``~/.nauro/config.json`` under the ``auth``
-  key, and reading the bearer token out of it;
-- the shipped Auth0 defaults (domain, client id, API URL, audience) and the
-  env-var / config-key overrides that resolve on top of them;
-- the single-flight refresh-token exchange, including the module lock, the
-  config-filelock election, and the refuse-to-clobber commit;
-- the 429 retry helper and the 401 retry wrapper that transport callers use.
-
-Library code (``store/``, ``sync/``) imports from here. CLI presentation —
-the ``nauro auth`` Typer app, the PKCE flow, the localhost callback server,
-and the ``login``/``status``/``logout`` commands — stays in the ``auth``
-command module under ``nauro.cli.commands``.
+Library code under ``store/`` and ``sync/`` imports from here. CLI presentation,
+the ``nauro auth`` Typer app with its PKCE flow and localhost callback server,
+stays in ``nauro.cli.commands.auth``.
 """
 
 from __future__ import annotations
@@ -57,12 +54,9 @@ _DEFAULT_BACKOFF_SECONDS = (1.0, 2.0)
 
 
 def _retry_after_seconds(response: httpx.Response, attempt: int) -> float:
-    """Pick a backoff duration for a 429 retry.
+    """Return the seconds to wait before retrying a 429.
 
-    Reads the integer-seconds form of the ``Retry-After`` header using plain
-    string operations and clamps it to a small ceiling. The HTTP-date form is
-    ignored. When the header is absent or unparseable, falls back to a short
-    per-attempt default.
+    Only the integer-seconds ``Retry-After`` form is read, clamped to a small ceiling.
     """
     value = response.headers.get("Retry-After")
     if isinstance(value, str):
@@ -78,14 +72,9 @@ def _retry_after_seconds(response: httpx.Response, attempt: int) -> float:
 def post_with_429_retry(
     make_request: Callable[[], httpx.Response], *, max_attempts: int = 3
 ) -> httpx.Response:
-    """Run ``make_request`` and retry with backoff on HTTP 429.
+    """Run the zero-arg ``make_request``, retrying with backoff on HTTP 429.
 
-    ``make_request`` is a zero-arg callable returning an ``httpx.Response``;
-    each caller closes over its own URL, body, and timeout. Any non-429
-    response is returned immediately. On a 429 with attempts remaining, sleep
-    for the backoff interval and retry. A 429 on the final attempt is returned
-    as-is so the caller can render its own guidance — this helper never raises
-    and never emits user-facing messaging.
+    Returns the final response as-is, a 429 included; never raises, never prints.
     """
     response = make_request()
     for attempt in range(1, max_attempts):
@@ -222,18 +211,9 @@ def _exchange_refresh_token(
 def refresh_access_token(
     stale_access_token: str | None = None, *, client: httpx.Client | None = None
 ) -> str:
-    """Exchange the stored refresh token for a fresh access token.
+    """Return a fresh access token, persisting it and any rotated refresh token.
 
-    Single-flighted within the process by a module-level lock: one caller runs
-    the /oauth/token exchange while concurrent callers wait and then take a
-    zero-network fast path. Persists the new access token (and the new refresh
-    token, if Auth0 rotates it). Stored tokens are left intact on failure so the
-    user can retry without losing state.
-
-    ``stale_access_token`` is the token that just received a 401. When another
-    caller has already refreshed, the stored token now differs from it and the
-    fast path returns that stored token with no network call. Direct callers
-    that pass ``None`` always run the exchange.
+    Single-flighted; a failed exchange leaves the stored tokens intact.
     """
     if not _REFRESH_LOCK.acquire(timeout=_REFRESH_LOCK_TIMEOUT_SECONDS):
         raise AuthRefreshError(_REFRESH_TIMEOUT_MESSAGE)
@@ -311,12 +291,9 @@ def refresh_access_token(
 def with_token_refresh(
     call: Callable[[str], httpx.Response], *, client: httpx.Client | None = None
 ) -> httpx.Response:
-    """Run ``call(access_token)`` and refresh once on 401.
+    """Run ``call(access_token)``, refreshing once and retrying on a first 401.
 
-    The first 401 triggers a refresh and a single retry. A second 401 (or any
-    other status) is returned to the caller — there is no infinite loop. A
-    failed refresh propagates as ``AuthRefreshError`` so the caller can guide
-    the user to ``nauro auth login``.
+    A second 401 is returned to the caller; a failed refresh raises ``AuthRefreshError``.
     """
     token = load_access_token()
     if token is None:

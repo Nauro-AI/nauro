@@ -22,11 +22,9 @@ _MD5_HEX_DIGITS = 32
 
 
 def content_md5(raw_etag: str) -> str | None:
-    """Return the ETag as a content MD5, or None when it cannot be one.
+    """Return the ETag as a content MD5, or ``None`` when it cannot be one.
 
-    An ETag this can see is not a digest yields None, so the caller skips the
-    comparison rather than failing on it. Every other check a caller has - a
-    published size, a published sha256 - still applies.
+    ``None`` means the caller skips the comparison; size and sha256 checks still apply.
     """
     value = raw_etag.strip('"').lower()
     if len(value) != _MD5_HEX_DIGITS or any(ch not in "0123456789abcdef" for ch in value):
@@ -37,10 +35,9 @@ def content_md5(raw_etag: str) -> str | None:
 class ContentMatch(Enum):
     """What comparing a local file against an ETag established.
 
-    ``unknown`` is not a near miss. It says the ETag carried no content digest,
-    so nothing was compared and nothing is known. Folding it into ``differs``
-    would let an ETag that is not a digest pose as evidence that a file is out
-    of date, which is the shape of guess this type exists to refuse.
+    ``unknown`` is not a near miss: it says the ETag carried no content digest, so
+    nothing was compared and nothing is known. Folding it into ``differs`` would let
+    a non-digest ETag pose as evidence that a file is out of date.
     """
 
     matches = auto()
@@ -52,12 +49,9 @@ class ContentMatch(Enum):
 class LocalComparison:
     """What one read of a local file established about it.
 
-    ``sha256`` is filled on ``matches`` alone, and it is taken from the same
-    read as the comparison, so the two provably describe one set of bytes. A
-    caller that hashed the file again to record it would leave a window between
-    the two reads: an edit landing there is recorded as already synced, and
-    then goes nowhere, because the push skips a file whose recorded digest
-    matches and the pull ignores one whose ETag has not moved.
+    ``sha256`` is filled on ``matches`` alone and comes from the same read as the
+    comparison, so the two provably describe one set of bytes. Hashing the file
+    again would leave a window where an edit is recorded as synced and goes nowhere.
     """
 
     match: ContentMatch
@@ -67,13 +61,7 @@ class LocalComparison:
 def compare_local_file(path: Path, raw_etag: str) -> LocalComparison:
     """Say whether ``path`` already holds the bytes the ETag describes.
 
-    A file this cannot read raises rather than answering. Every caller hashes
-    the same file a step later and would raise on the same fault, so catching
-    it here would buy nothing and cost the distinction: a reported IO error
-    would become a silent verdict about content nobody read.
-
-    Raises:
-        OSError: the file could not be read.
+    Raises ``OSError`` rather than answering, so an IO fault is never a verdict.
     """
     expected = content_md5(raw_etag)
     if expected is None:

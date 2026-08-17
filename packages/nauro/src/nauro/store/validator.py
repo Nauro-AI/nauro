@@ -24,20 +24,9 @@ logger = logging.getLogger("nauro.store.validator")
 
 
 def validate_store(store_path: Path) -> list[str]:
-    """Validate a project store and return a list of warnings.
+    """Validate a project store and return its warnings, empty when clean.
 
-    Checks:
-    - Unfilled bracket prompts remaining in project.md, state.md, stack.md
-    - state.md "Last synced" older than 7 days
-    - L0 token count exceeds 3,500
-    - project.md token count exceeds the L0-preamble warning threshold
-    - Decision numbering is sequential with no gaps
-
-    Args:
-        store_path: Path to the project store directory.
-
-    Returns:
-        List of warning strings (empty if no issues).
+    Covers unfilled prompts, a stale last-sync, token budgets, and numbering gaps.
     """
     warnings: list[str] = []
 
@@ -141,10 +130,6 @@ def validate_store(store_path: Path) -> list[str]:
 
 
 def print_warnings(warnings: list[str]) -> None:
-    """Print validation warnings to stderr.
-
-    Args:
-        warnings: List of warning strings from validate_store().
-    """
+    """Print validation warnings from ``validate_store`` to stderr."""
     for w in warnings:
         logger.warning("  %s", w)

@@ -1,21 +1,18 @@
-"""Write-path provenance journal — append-only, store-local, journal-only.
+"""Write-path provenance journal: append-only, store-local, journal-only.
 
 Every write-path action (a decision proposal, a question flag, a state update)
 appends one origin-stamped event to ``journal/events.jsonl`` under the project
-store. The journal is store data, not telemetry: it records *which surface*
-originated a write so the provenance axis is auditable later. It is deliberately
-narrow in 1.x — capture only, no viewer, no rotation, no cloud sync, no snapshot
-capture.
+store. The journal is store data, not telemetry: it records which surface
+originated a write. Capture only in 1.x: no viewer, no rotation, no cloud sync.
+The file is one ASCII-escaped JSON event per line, and a crash-truncated final
+record is closed before the next append.
 
-Attempt markers, not deltas: the recorded ``payload_hash`` proves two payloads
-differed; it does not preserve a proposed-vs-ratified delta.
+Events are attempt markers, not deltas: ``payload_hash`` proves two payloads
+differed, it does not preserve a proposed-vs-ratified delta. Author identity is
+not captured; the ``actor`` slot is reserved and left unset.
 
-Author identity is not captured. The origin descriptor reserves an ``actor``
-slot additively, but pre-team stores are single-owner so that axis stays
-recoverable, and team-identity capture is barred until retention is proven.
-
-Fail-open is a hard invariant: :func:`append_event` never raises. A journaling
-failure must never fail or block the underlying store write.
+Fail-open is a hard invariant: :func:`append_event` never raises, so a
+journaling failure never blocks the underlying store write.
 """
 
 from __future__ import annotations
@@ -66,10 +63,8 @@ class OriginDescriptor(BaseModel):
     """Where a write-path action originated.
 
     ``transport`` is the only enumerated axis; ``client_name`` and
-    ``client_version`` are free-form recorded values with no vendor
-    enumeration. ``actor`` is a reserved slot for a future author-identity
-    axis — it is defined additively but left unset, because team-identity
-    capture is barred until retention is proven.
+    ``client_version`` are free-form recorded values with no vendor enumeration.
+    ``actor`` is a reserved slot for a future author-identity axis, left unset.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -90,11 +85,9 @@ class OriginDescriptor(BaseModel):
 class JournalEvent(BaseModel):
     """One append-only write-path provenance record.
 
-    ``status`` is ``committed`` when the underlying write executed and
-    ``rejected`` when the action was attempted but refused (a Tier-1 or kernel
-    rejection). ``decision_id`` is present only on a committed decision write.
-    ``payload_hash`` is an attempt marker over a canonical serialization of the
-    action payload, named by ``hash_algorithm`` / ``serialization``.
+    ``status`` is ``committed`` when the underlying write executed and ``rejected``
+    when the action was refused. ``decision_id`` appears only on a committed
+    decision write, and ``payload_hash`` is an attempt marker over the payload.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -116,9 +109,7 @@ class JournalEvent(BaseModel):
 def payload_hash(payload: dict) -> str:
     """Return the sha256 hex digest of ``payload`` under a canonical serialization.
 
-    The serialization is JSON with sorted keys and compact separators, encoded
-    UTF-8. It is key-order independent by construction, so two payloads that
-    differ only in dict ordering hash identically.
+    JSON with sorted keys and compact separators, so dict ordering cannot change it.
     """
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -134,15 +125,9 @@ def record_event(
     origin_factory: Callable[[], OriginDescriptor | None] | None = None,
     decision_id: str | None = None,
 ) -> None:
-    """Construct, hash, and append a write-path event — fully fail-open.
-
-    The origin is built by ``origin_factory`` *inside* the guard rather than
-    passed as a value: an argument expression is evaluated before the call, so
-    passing a constructed descriptor would leave its construction outside the
-    fail-open region. Hashing, origin construction, and event construction all
-    join the append inside one ``try``: a journaling defect (an unhashable
-    payload, a bad status, a raising origin builder) must never escape into the
-    caller after the underlying store write has already committed.
+    """Construct, hash, and append a write-path event. Fully fail-open.
+    ``origin_factory`` is called inside the guard rather than passed as a built
+    descriptor, so a raising builder, an unhashable payload or a bad status cannot escape.
     """
     try:
         origin = origin_factory() if origin_factory is not None else None
@@ -162,21 +147,7 @@ def record_event(
 def append_event(store_path: Path, event: JournalEvent) -> None:
     """Append one already-built event to the store's journal. Never raises.
 
-    A journaling failure must never fail or block the underlying store write,
-    so every error here is swallowed with a debug log. The dedicated journal
-    lock is acquired after the caller's resource lock has been released, so it
-    never nests inside a store or decision write lock.
-
-    The line is serialized with ``ensure_ascii=True`` so no raw non-ASCII byte
-    (including the Unicode line separators U+0085/U+2028/U+2029) can ever land
-    in the file and corrupt the one-event-per-line framing.
-
-    A crash mid-append can leave a final record with no trailing newline;
-    before appending, the file is checked and a newline is inserted first if
-    needed, so a new committed event never concatenates onto a corrupt partial
-    line and drag both into unreadability.
-
-    Rotation is deliberately deferred: the journal grows unbounded in 1.x.
+    The journal lock is taken only after the caller's resource lock is released.
     """
     try:
         journal_dir = store_path / JOURNAL_DIR
@@ -200,11 +171,7 @@ def append_event(store_path: Path, event: JournalEvent) -> None:
 def read_events(store_path: Path) -> list[JournalEvent]:
     """Read all parseable events from the store's journal.
 
-    Internal reader — not wired to any CLI or MCP surface. The file is read as
-    bytes and split on ``b"\\n"`` so a truncated final record — an interrupted
-    append can leave a partial multibyte UTF-8 character — is decoded per line
-    inside the tolerated path: any line that fails to decode, parse, or validate
-    is skipped rather than raising.
+    Internal reader: a line that fails to decode, parse, or validate is skipped.
     """
     events_file = store_path / JOURNAL_DIR / JOURNAL_EVENTS_FILENAME
     if not events_file.exists():

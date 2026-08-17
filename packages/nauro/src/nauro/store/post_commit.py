@@ -1,26 +1,18 @@
 """Fail-open runner for the ancillary steps that trail a committed write.
 
-Once a judgment write has committed to the local store, the artifacts derived
-from it are ancillary: the snapshot capture, the ``AGENTS.md`` regeneration,
-and the cloud push. A failure in one of them is reported and never converted
-into a failure of the write that already succeeded. The CLI names the degraded
-step and exits 0, and the MCP adapters keep their success envelope. Every
-remaining step still runs when an earlier one degrades, and each derived
-artifact self-heals on the next write or on ``nauro sync``.
+Once a judgment write has committed, the artifacts derived from it are ancillary:
+the snapshot capture, the ``AGENTS.md`` regeneration and the cloud push. A
+failure in one is reported, never converted into a failure of the write that
+already succeeded. The CLI names the degraded step and exits 0, the MCP adapters
+keep their success envelope, every remaining step still runs when an earlier one
+degrades, and each artifact self-heals on the next write or sync.
 
-Every step is guarded here, including the injected push. The push is fail-open
-at its own definition too, and the double guard is deliberate: this module owns
-the posture for whatever a caller injects, rather than trusting each callee to
-keep its own promise.
+Every step is guarded here, the injected push included: this module owns the
+posture for whatever a caller injects rather than trusting each callee.
 
-The guard catches ``Exception`` rather than ``OSError`` alone: the fail-soft
-regeneration path narrowed to ``OSError`` and drifted from the filesystem-error
-promise its own docstring made.
-
-Boundary: ``nauro sync`` and the setup wiring paths are deliberately not routed
-through this seam. There the snapshot capture or the regeneration is the
-command's primary work rather than a tail on a judgment write, so a failure
-stays a failure and exits nonzero.
+Boundary: ``nauro sync`` and the setup wiring paths are not routed through this
+seam. There the capture or the regeneration is the command's primary work, so a
+failure stays a failure and exits nonzero.
 """
 
 from __future__ import annotations
@@ -94,25 +86,9 @@ def run_post_commit(
     surface_bridge_notices: bool = True,
     push: Callable[[Path], PushReport | None] | None = None,
 ) -> PostCommitOutcome:
-    """Run the ancillary steps for a write that already committed.
-
-    Args:
-        store_path: Path to the project store directory.
-        snapshot_trigger: Trigger label for the snapshot. ``None`` skips the
-            capture (the caller's write does not warrant a new snapshot).
-        regenerate_agents_md: Refresh ``AGENTS.md`` in the associated repos.
-        warn: Forwarded to :func:`warn_then_regen` for its own per-repo skip and
-            git-hygiene warnings. Degraded steps are *not* reported through this
-            channel. They come back on the outcome so each surface routes them
-            to the channel it owns (stderr for the CLI, the assessment text for
-            the MCP adapters).
-        surface_bridge_notices: Forwarded to :func:`warn_then_regen`.
-        push: Optional cloud push, invoked with ``store_path``. Runs last, and
-            regardless of an earlier degraded step.
-
-    Returns:
-        The outcome naming every degraded step and the repos whose
-        ``AGENTS.md`` was regenerated.
+    """Return the outcome naming every degraded step and each regenerated ``AGENTS.md``.
+    A ``None`` ``snapshot_trigger`` skips the capture and ``push`` runs last whatever
+    degraded; ``warn`` never carries a degraded step, only its own per-repo notices.
     """
     degraded: list[DegradedStep] = []
     updated_repos: list[Path] = []
@@ -170,16 +146,7 @@ def surface_post_commit(
 ) -> dict:
     """Route a post-commit outcome's warnings into one write tool's envelope.
 
-    The single place the MCP adapters turn a degraded ancillary step into
-    something the agent can read. Without it the outcome was returned and
-    dropped, and the only record was a debug log line no local install
-    configures - so a store whose snapshot, ``AGENTS.md``, or cloud push had
-    stopped working said nothing at all.
-
-    The envelope is mutated in place and returned. The key appears only when
-    there is a warning to carry, so a clean run's envelope is byte-identical to
-    what a surface that never degrades would return, and any assessment the
-    caller already wrote keeps its place at the front.
+    Mutates the envelope in place and returns it, adding the key only when warned.
     """
     notes = [*extra_warnings, *outcome.warnings]
     if not notes:
@@ -192,14 +159,7 @@ def surface_post_commit(
 def with_assessment(message: str, envelope: dict) -> str:
     """Return ``message`` carrying the envelope's assessment text, if it has any.
 
-    The counterpart of :func:`surface_post_commit` for a transport that renders
-    a write envelope down to a single string. Putting a degraded step in the
-    envelope is only half the job: a surface that then reports its own fixed
-    confirmation drops it again, one layer further out, and the agent is told
-    the write succeeded and nothing else.
-
-    A message with nothing to add comes back unchanged, so a clean run's wire
-    string stays exactly what it was.
+    A message with nothing to add comes back unchanged.
     """
     assessment = envelope.get(ASSESSMENT_FIELD)
     return f"{message}\n\n{assessment}" if assessment else message
