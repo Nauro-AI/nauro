@@ -51,9 +51,7 @@ def resolve_repo_head(cwd: str | Path | None) -> str | None:
 def resolve_process_repo_head() -> str | None:
     """Return the HEAD SHA of the repository enclosing the process cwd.
 
-    Never raises: ``Path.cwd()`` itself raises when the process working
-    directory has been deleted, and capture must resolve to absence, not
-    abort the filing.
+    Never raises: a deleted working directory resolves to absence, not an abort.
     """
     try:
         cwd = Path.cwd()

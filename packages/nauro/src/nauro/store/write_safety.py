@@ -1,23 +1,17 @@
 """Symlink refusal for repo-scoped and user-global writes.
 
 Repo scope: a cloned repository is untrusted content, so a symlink pre-planted
-at a path Nauro mutates (a write, a read-before-mutate, an unlink, a
-directory prune) redirects the operation outside the repo. Repo-scoped
+at a path Nauro mutates redirects the operation outside the repo. Repo-scoped
 mutations never traverse a symlink, covering directory components (``.nauro``,
-``.cursor``, ``.claude``, ``.codex`` as symlinks) and the final file
-(:func:`find_symlink`). The repo root itself is trusted (the user's own
-choice); everything below it is checkout content.
+``.cursor``, ``.claude``, ``.codex``) and the final file (:func:`find_symlink`).
+The repo root itself is trusted; everything below it is checkout content.
 
-User scope: files under the user's home directory (``~/.codex/config.toml``,
-``~/.claude.json``, skill and agent files) are the user's own content, but
-replacing a symlinked file would sever it from the real file a dotfile
-manager owns. User-global mutations refuse only when the final path component
-is itself a symlink (:func:`find_file_symlink`); symlinked parent directories
-are expected and allowed; dotfile managers routinely symlink whole config
-directories.
+User scope: a file under the user's home is the user's own content, but replacing
+a symlinked file would sever it from the real file a dotfile manager owns, so a
+user-global mutation refuses only when the final component is itself a symlink
+(:func:`find_file_symlink`) and allows symlinked parents.
 
-On detection the writer refuses and warns, naming the path; it never writes
-through the link and never replaces the link. The guarantee covers
+On detection the writer refuses and warns, naming the path. The guarantee covers
 pre-planted symlinks, not TOCTOU races.
 """
 
@@ -67,12 +61,9 @@ class UserSymlinkRefusal:
 
 
 def find_file_symlink(path: Path) -> UserSymlinkRefusal | None:
-    """Return a refusal when ``path`` itself is a symlink, else None.
+    """Return a refusal when ``path`` itself is a symlink, else ``None``.
 
-    Exactly one lstat-based check on the final component; parent directories
-    are deliberately not walked, so a symlinked ``~/.codex`` or ``~/.claude``
-    keeps working. ``Path.is_symlink`` never follows the link, so a dangling
-    symlink is still refused. A missing path is safe.
+    One lstat check on the final component, so a symlinked parent keeps working.
     """
     if path.is_symlink():
         return UserSymlinkRefusal(target=path)
@@ -82,10 +73,7 @@ def find_file_symlink(path: Path) -> UserSymlinkRefusal | None:
 def find_symlink(repo_root: Path, relative: str) -> SymlinkRefusal | None:
     """Return a refusal for the first symlink component of ``repo_root / relative``.
 
-    Walks each component from the first one below ``repo_root`` down to and
-    including the final path, using the lstat-based ``Path.is_symlink()``,
-    which never follows links. A missing component is safe: there is nothing
-    to traverse. The untrusted suffix is never resolved.
+    Walks every component below ``repo_root`` with lstat, never resolving the suffix.
     """
     target = repo_root / relative
     current = repo_root

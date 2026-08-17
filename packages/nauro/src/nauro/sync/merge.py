@@ -54,10 +54,7 @@ LOCK_ARTIFACT_SUFFIXES = (".md.lock", ".json.lock", RMW_LOCK_SUFFIX)
 def normalize_rel(relative_path: str) -> str:
     """Return a store-relative path with POSIX separators.
 
-    The push scan builds relative paths via ``str(relative_to(...))``, which
-    yields ``\\`` separators on Windows, and a manifest can carry either. Every
-    prefix and suffix check in the sync layer operates on the normalized form
-    so none of them has to remember which it was handed.
+    Every prefix and suffix check in the sync layer works on this form.
     """
     return relative_path.replace("\\", "/")
 
@@ -88,15 +85,7 @@ def should_skip(relative_path: str) -> bool:
 def write_backup(project_path: Path, backup_name: str, content: bytes) -> Path:
     """Write ``content`` into ``.conflict-backup/`` under ``backup_name``.
 
-    The single writer into the backup directory: the last-write-wins loser
-    below names its file by timestamp, the quarantined remote decision in
-    ``sync.quarantine`` names its file by remote version.
-
-    Written atomically, like everything else the pull lands. This file is the
-    only copy of content the pull declined to install, and the quarantine
-    writer keeps an existing backup for a remote version rather than writing it
-    again - so a half-written one would never be corrected, and what it was
-    holding would be gone.
+    Written atomically: this is the only copy of content the pull declined to install.
     """
     backup_dir = project_path / CONFLICT_BACKUP_DIR
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -134,11 +123,8 @@ def resolve_conflict(
     keeps: Side,
 ) -> bytes:
     """Resolve a conflict between local and remote versions.
-
-    Files in ``_SET_UNION_PATHS`` merge by section-aware set-union, whatever
-    ``keeps`` asks for: a union drops nothing, so there is no losing side to
-    back up. Everything else keeps the side named and writes the other one to
-    ``.conflict-backup/``, so both versions survive either way.
+    A ``_SET_UNION_PATHS`` file set-unions whatever ``keeps`` asks, since a union has
+    no losing side; any other keeps the named side and backs the other one up.
     """
     local_content = local_path.read_bytes()
 
@@ -192,10 +178,9 @@ def _parse_sections(lines: list[str]) -> tuple[list[str], list[tuple[str, list[s
 
 
 def _dedupe_preserve_order(lines: list[str]) -> list[str]:
-    """Drop exact-duplicate non-blank lines, preserving first occurrence order.
+    """Drop exact-duplicate non-blank lines, preserving first-occurrence order.
 
-    Blank lines are passed through unchanged (not deduped), so the merged
-    output keeps the visual structure of the inputs.
+    Blank lines pass through undeduped, so the merged output keeps its structure.
     """
     seen: set[str] = set()
     out: list[str] = []

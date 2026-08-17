@@ -1,17 +1,12 @@
 """Render one local write envelope down to a single truthful line.
 
-The stdio transport answers a write tool with one advisory line rather than
-the dict envelope every other local surface returns. That flattening is the
-risk this module exists to remove: each wrapper used to test the one status
-it cared about and let every other status fall through to its own success
-string, so a kernel rejection, a noop, and a store-missing failure all told
-the agent the write had landed.
-
-The rule here is one line per status, and the wrapper's success renderer runs
-on the ``ok`` status and on nothing else. A status with nothing else to say
-still gets a line that names the outcome. An unrecognised status renders the
-status itself rather than borrowing a neighbour's meaning, and an envelope
-that carries no status at all reads as unconfirmed rather than as a success.
+The stdio transport answers a write tool with one advisory line rather than the
+dict envelope every other local surface returns. The rule here is one line per
+status, and the wrapper's success renderer runs on the ``ok`` status and on
+nothing else. A status with nothing else to say still gets a line that names the
+outcome, an unrecognised status renders the status itself rather than borrowing a
+neighbour's meaning, and an envelope that carries no status at all reads as
+unconfirmed rather than as a success.
 
 Only the flat-string wrappers use this seam. ``propose_decision`` returns the
 envelope itself on every status, so it has nothing to flatten.
@@ -57,9 +52,8 @@ _NO_STATUS = "The envelope carried no write status. Treat the write as unconfirm
 class EnvelopeError(BaseModel):
     """The ``error`` block of a write envelope, read for its prose.
 
-    Deliberately looser than ``nauro_core.operations.ErrorPayload``, which
-    forbids extra keys and requires ``kind``. This is a presentation
-    boundary: a core release that adds a field to the error payload must not
+    Looser than ``nauro_core.operations.ErrorPayload`` on purpose: this is a
+    presentation boundary, so a core release that adds an error field must not
     turn a renderable envelope into an exception here.
     """
 
@@ -73,9 +67,8 @@ class WriteEnvelope(BaseModel):
     """The status-bearing fields of a local write envelope.
 
     Parsed at the transport boundary so the dispatch reads typed attributes
-    instead of walking the raw dict. Extra keys are ignored on purpose: each
-    write tool carries its own payload (``warning``, ``hint``, ``project``)
-    that the status dispatch has no business knowing about.
+    instead of walking the raw dict. Extra keys are ignored on purpose: each write
+    tool carries its own payload that the status dispatch never inspects.
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
@@ -89,11 +82,9 @@ class WriteEnvelope(BaseModel):
 
     @property
     def detail(self) -> str | None:
-        """The envelope's own account of the outcome, if it carries one.
+        """Return the envelope's own account of the outcome, if it carries one.
 
-        Most specific text first: a rejection puts it in ``error.reason``,
-        a rejection with a remedial action adds ``error.guidance``, and a
-        store-missing failure puts it in the top-level ``guidance``.
+        Most specific first: ``error.reason``, ``error.guidance``, then ``guidance``.
         """
         if self.error is not None:
             reason = self.error.reason or self.error.guidance
@@ -118,17 +109,8 @@ class WriteEnvelope(BaseModel):
 
 
 def render_write_status(envelope: dict, success: Callable[[], str]) -> str:
-    """Render *envelope* as one line, calling *success* only on ``ok``.
+    """Render ``envelope`` as one line, calling ``success`` only on the ``ok`` status.
 
-    Args:
-        envelope: The dict a write adapter in ``nauro.mcp.tools`` returned.
-        success: Builds the wrapper's own confirmation line. Called on the
-            ``ok`` status and on no other, so a wrapper cannot report a
-            write that did not happen.
-
-    Returns:
-        The line for the envelope's status, carrying any post-commit
-        assessment the envelope holds. A write that did not commit has no
-        assessment to carry, so the two compose without a special case.
+    The line carries any post-commit assessment the envelope holds.
     """
     return with_assessment(WriteEnvelope.model_validate(envelope).line(success), envelope)

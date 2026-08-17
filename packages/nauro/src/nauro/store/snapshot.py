@@ -43,11 +43,7 @@ logger = logging.getLogger("nauro.snapshot")
 def _snapshot_lock(snapshots_dir: Path):
     """Exclusive file lock on the snapshots dir for atomic capture.
 
-    Mirrors ``registry._registry_lock``. The version is derived from the
-    existing snapshots, so the lock must span the read-compute-write sequence,
-    not just the write — otherwise two captures compute the same next version
-    and one overwrites the other. The snapshots dir lives under NAURO_HOME, so
-    the lock path inherits that override without re-resolving it here.
+    Spans read-compute-write: the next version is derived from the existing snapshots.
     """
     lock_path = snapshots_dir / ".lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,18 +52,9 @@ def _snapshot_lock(snapshots_dir: Path):
 
 
 def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = "") -> int:
-    """Capture a snapshot of the current project context.
+    """Capture every markdown file in the store as one JSON snapshot.
 
-    Reads all markdown files in the store, bundles into a JSON object with
-    auto-incremented version, timestamp, trigger, and file contents.
-
-    Args:
-        store_path: Path to the project store directory.
-        trigger: Description of what triggered this snapshot.
-        trigger_detail: Additional detail about the trigger.
-
-    Returns:
-        Snapshot version number.
+    Returns the auto-incremented version number.
     """
     snapshots_dir = store_path / SNAPSHOTS_DIR
     snapshots_dir.mkdir(parents=True, exist_ok=True)
@@ -115,16 +102,9 @@ def _count_decisions(snapshot_data: dict) -> int:
 
 
 def _prune_snapshots(snapshots_dir: Path) -> None:
-    """Prune snapshots using logarithmic spacing.
+    """Prune snapshots by age: 7 days all, 30 days daily, 6 months weekly, then monthly.
 
-    Buckets:
-    1. Last 7 days: keep every snapshot
-    2. Last 30 days: keep one per day (newest from each day)
-    3. Last 6 months: keep one per week (newest from each week)
-    4. Older than 6 months: keep one per month
-
-    Auto-pin: any snapshot where decisions/ file count is larger than
-    the previous snapshot's decisions/ count is never pruned.
+    A snapshot whose decisions/ count grew over its predecessor is auto-pinned.
     """
     snapshot_files = sorted(snapshots_dir.glob("v*.json"))
     if len(snapshot_files) <= 1:
@@ -221,18 +201,9 @@ def _prune_snapshots(snapshots_dir: Path) -> None:
 
 
 def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
-    """Find the most recent snapshot that is at or before the target datetime.
+    """Return metadata for the newest snapshot at or before ``target``.
 
-    Scans all snapshots and returns the most recent snapshot at or before the
-    target, with an oldest-snapshot fallback when no snapshot predates the
-    target.
-
-    Args:
-        store_path: Path to the project store directory.
-        target: The target datetime to search near.
-
-    Returns:
-        Snapshot metadata dict (version, timestamp), or None if no snapshots exist.
+    Falls back to the oldest snapshot when none predates it, ``None`` when none exist.
     """
     snapshots_dir = store_path / SNAPSHOTS_DIR
     if not snapshots_dir.exists():
@@ -267,14 +238,7 @@ def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
 
 
 def list_snapshots(store_path: Path) -> list[dict]:
-    """Return snapshot metadata (version, timestamp, trigger, etc.) without full content.
-
-    Args:
-        store_path: Path to the project store directory.
-
-    Returns:
-        List of metadata dicts, most recent first.
-    """
+    """Return snapshot metadata without file contents, most recent first."""
     snapshots_dir = store_path / SNAPSHOTS_DIR
     if not snapshots_dir.exists():
         return []
@@ -300,17 +264,9 @@ def list_snapshots(store_path: Path) -> list[dict]:
 
 
 def load_snapshot(store_path: Path, version: int) -> dict:
-    """Load a specific snapshot.
+    """Load one snapshot version, file contents included.
 
-    Args:
-        store_path: Path to the project store directory.
-        version: Snapshot version number.
-
-    Returns:
-        Full snapshot dict including file contents.
-
-    Raises:
-        FileNotFoundError: If snapshot doesn't exist.
+    Raises ``FileNotFoundError`` when that version does not exist.
     """
     path = store_path / SNAPSHOTS_DIR / f"v{version:03d}.json"
     if not path.exists():
@@ -322,28 +278,9 @@ def resolve_diff_snapshots(
     store_path: Path,
     days: int | None,
 ) -> tuple[dict | None, dict | None, str | None]:
-    """Assemble the (baseline, latest, cutoff_date_used) tuple for the kernel.
+    """Assemble the ``(baseline, latest, cutoff_date_used)`` tuple for the kernel.
 
-    Snapshot discovery sits outside the locked Store protocol, so the
-    adapter does the I/O and threads the loaded dicts into the kernel.
-
-    Mapping back to the kernel's sentinel branches:
-
-    * ``days=None`` + 0 snapshots → ``(None, None, None)``. Adapters
-      rewrite the kernel's ``No snapshots available.`` rendering to
-      ``Not enough snapshots…`` — the pinned local surface string for
-      this branch.
-    * ``days=None`` + 1 snapshot → ``(None, latest, None)``. Kernel
-      sentinel: ``Not enough snapshots…``
-    * ``days=None`` + 2+ snapshots → previous-to-latest pair.
-    * ``days=N`` + 0 snapshots → ``(None, None, None)``. Kernel
-      sentinel: ``No snapshots available.``
-    * ``days=N`` + baseline == latest → the matched pair; kernel renders
-      ``Only one snapshot covers the requested range…``.
-    * ``days=N`` otherwise → resolved baseline/latest pair plus the
-      REQUESTED cutoff (``now - N days``) as ``cutoff_date_used``. The
-      anchor reflects what the caller asked for, not the older baseline
-      the lookup happened to resolve to.
+    ``cutoff_date_used`` is the requested cutoff, not the resolved baseline's date.
     """
     snapshots = list_snapshots(store_path)
 

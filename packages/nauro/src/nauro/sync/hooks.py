@@ -1,28 +1,17 @@
 """Event-driven sync hooks: pull on session start, push after writes.
 
 Called by the MCP server (``stdio_server._pull_on_startup`` on entry,
-``mcp/tools._try_push`` after each write). Never block or crash —
-failures are logged, and post-write reports return to the post-commit surface.
+``mcp/tools._try_push`` after each write). Neither hook blocks or crashes:
+failures are logged, and a post-write report returns to the post-commit surface.
 
-Both hooks gate on Auth0 token presence and v2 cloud-mode at entry and
-silent-no-op when either is missing. The two no-op cases are:
+Both gate on Auth0 token presence and v2 cloud-mode at entry and silently no-op
+when either is missing. An unauthenticated user is not nagged on every tool call,
+and a project with no cloud-mode registry record has no presign target.
 
-* Not authenticated. MCP writes happen on every tool call; nagging
-  ``run nauro auth login`` on every write would be hostile. The user
-  saw the prompt at session start (or onboarding) — here we just skip.
-* Project is not v2 cloud-mode. An id with no cloud-mode registry
-  record (unknown, or local-mode) has no presign target, so the hooks
-  no-op.
-
-The pull and push transport lives in ``nauro.sync.pull`` and
-``nauro.sync.push`` and is shared with the ``nauro sync`` CLI command.
-These hooks supply a logging :class:`~nauro.sync.pull.Reporter`, so the
-shared core stays silent and crash-free here while the CLI echoes
-progress to the terminal.
-
-Token refresh on 401 is handled inside ``request_presigned_urls`` and
-``fetch_manifest`` via ``with_token_refresh``. ``AuthRefreshError``
-escapes here as a swallowed log line.
+The transport lives in ``nauro.sync.pull`` and ``nauro.sync.push``, shared with
+the ``nauro sync`` CLI command; these hooks supply a logging ``Reporter`` so the
+shared core stays silent here while the CLI echoes progress. Token refresh on 401
+happens inside the transport, and ``AuthRefreshError`` is swallowed as a log line.
 """
 
 from __future__ import annotations
@@ -55,12 +44,9 @@ class _LoggingReporter:
 
 
 def pull_before_session(project_id: str, store_path: Path) -> int:
-    """Pull remote changes from the server before a session starts.
+    """Pull remote changes before a session starts, returning the file count.
 
-    Silent no-op when not authenticated or when ``project_id`` is not a
-    v2 cloud-mode entry. Returns the number of files pulled/merged, or
-    0 on any swallowed failure. Never raises — auto-pull must not crash
-    session startup.
+    Silent no-op (0) when not authenticated or not v2 cloud-mode; never raises.
     """
     if not load_access_token():
         return 0
@@ -94,10 +80,9 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
 
 
 def push_after_write(project_id: str, store_path: Path) -> PushReport:
-    """Push changed local files after a write (decision, question, state).
+    """Push changed local files after a write, returning a structured report.
 
-    Silent no-op when not authenticated or when ``project_id`` is not a
-    v2 cloud-mode entry. Returns a structured push report. Never raises.
+    Silent no-op when not authenticated or not v2 cloud-mode; never raises.
     """
     from nauro.sync.push import PushReport
 

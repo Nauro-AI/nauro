@@ -1,35 +1,16 @@
-"""Nauro MCP server — stdio transport for Claude Code integration.
+"""Nauro MCP server: stdio transport, spawned by the MCP client at session start.
 
-Spawned by Claude Code at session start, communicates over stdin/stdout.
-Same store and payloads as the HTTP server.
+Reads and writes the same store and payloads as the remote HTTP server. Tool
+metadata (descriptions, titles, annotations) lives in ``nauro_core.mcp_tools``,
+not here, so the two transports cannot drift. This server registers 10 of the
+11 shared tools; ``list_projects`` is remote-only because a local install
+auto-resolves to its single project store.
 
-Tool metadata (descriptions, titles, annotations) is centralized in
-`nauro_core.mcp_tools` — edit there, not here — so the local stdio server
-and the remote HTTP server stay in sync.
-
-MCP tools registered here (10 — 7 read, 3 write):
-  get_context, get_raw_file, list_decisions, get_decision,
-  diff_since_last_session, search_decisions, check_decision,
-  propose_decision, flag_question, update_state
-
-The shared `nauro_core.mcp_tools.ALL_TOOLS` registry contains 11 tools.
-`list_projects` is remote-only — local installs auto-resolve to the
-single project store, so the discovery tool is not registered here.
-
-Renderer-scoped read tools listed in ``nauro_core.renderers.RENDERERS``
-— all seven read tools registered here — return a ``CallToolResult``
-with a single ``TextContent`` block: ``content[0]`` carries the renderer
-output. Write tools keep their existing single-value shape. A tool name
-missing from ``RENDERERS`` (an older installed nauro-core) falls back to
-a JSON dump of the envelope, so the wrapper degrades gracefully instead
-of crashing.
-
-The two write tools that answer with a flat string — ``flag_question``
-and ``update_state`` — route every envelope through
-``nauro.mcp.write_status.render_write_status``, which owns the
-status-to-line dispatch. Each wrapper supplies only the line for a write
-that committed. ``propose_decision`` returns the envelope itself and
-needs no such seam.
+Read tools listed in ``nauro_core.renderers.RENDERERS`` answer with a
+``CallToolResult`` whose ``content[0]`` carries the renderer output, and a
+missing or raising renderer falls back to a JSON dump of the envelope. The two
+write tools that answer with a flat string route every envelope through
+``nauro.mcp.write_status``, so no status can borrow another's meaning.
 """
 
 from __future__ import annotations
@@ -95,18 +76,7 @@ def _wrap_with_renderer(
 ) -> CallToolResult:
     """Wrap a renderer-scoped read-tool result in a single ``TextContent`` block.
 
-    Mirrors the remote MCP dispatcher (``mcp_server.mcp_router._build_tool_result``):
-    ``content[0]`` carries the renderer output from
-    ``nauro_core.renderers.RENDERERS[tool_name]``. A renderer raising — or a
-    tool name with no renderer mapped — falls back to a JSON dump of the
-    envelope in ``content[0]`` so a presentation bug never swallows a
-    response.
-
-    ``renderer_kwargs`` threads renderer-specific options (e.g.
-    ``get_decision``'s requested ``mode``) without storing them on the
-    result envelope. Disconnected-project errors also retain their existing
-    structured envelope so clients can act on stable recovery metadata while
-    humans still receive the rendered guidance.
+    A renderer that raises, or a tool with none mapped, falls back to a JSON dump.
     """
     structured_content = result if disconnected_reason_code(result) is not None else None
     outcome = try_render_envelope(tool_name, result, renderer_kwargs)
@@ -134,15 +104,9 @@ def _spec_kwargs(name: str) -> dict[str, Any]:
 
 
 def _param_desc(tool_name: str, param: str) -> str:
-    """Pull a per-property description from the centralized ToolSpec.
+    """Return one property description from the centralized ``ToolSpec``.
 
-    The local FastMCP stdio derives input schemas from Python type hints;
-    per-property descriptions are surfaced via
-    ``Annotated[T, Field(description=...)]`` rather than passing
-    ``input_schema`` through directly. Sourcing the description from the
-    ToolSpec at module load time keeps the registry as the single source
-    of truth — inlining literal strings here would create a parallel
-    surface the drift guards do not cover.
+    Read from the shared registry, not inlined, so the drift guards still cover it.
     """
     spec: ToolSpec = get_tool_spec(tool_name)
     props = spec["input_schema"].get("properties", {})
@@ -193,15 +157,9 @@ def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
 
 
 def _origin_from_ctx(mcp_ctx: Context | None) -> OriginDescriptor | None:
-    """Build the stdio-MCP origin descriptor from the request Context.
+    """Return the stdio-MCP origin descriptor from the request Context.
 
-    ``clientInfo`` comes from the client's unauthenticated ``initialize``
-    metadata, reachable at request time via
-    ``ctx.session.client_params.clientInfo``. Every hop is guarded so a client
-    that sent no ``clientInfo`` (or a Context absent entirely, as in a direct
-    unit test) still yields a well-formed descriptor with the name/version
-    unset. Total by construction: origin is provenance, never load-bearing for
-    the write, so any failure yields ``None`` rather than raising.
+    Provenance only: a missing ``clientInfo`` or Context yields a partial descriptor.
     """
     try:
         client_name: str | None = None
@@ -518,12 +476,9 @@ def update_state(
 
 
 def _pull_on_startup() -> None:
-    """Pull latest from remote before accepting tool calls.
+    """Pull the latest remote state before the server accepts tool calls.
 
-    Runs synchronously before mcp.run() so the first tool call sees fresh state.
-    Auth and cloud-mode gating happen inside ``pull_before_session`` — here we
-    only resolve the project key from cwd. Never raises — failures are logged
-    and the server starts with local state.
+    Never raises: a failed pull is logged and the server starts on local state.
     """
     try:
         resolution = resolve_from_cwd(Path(os.getcwd()))

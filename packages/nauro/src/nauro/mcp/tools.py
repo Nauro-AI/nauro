@@ -232,12 +232,9 @@ def _reject_if_too_long(value: str, label: str, max_length: int) -> dict | None:
 
 
 def _reject_if_envelope_token(value: str, field_name: str) -> dict | None:
-    """Return a rejection dict if *value* contains an MCP envelope fragment.
+    """Return a rejection dict when ``value`` carries an MCP envelope fragment.
 
-    Some non-Anthropic agent surfaces emit tool calls as XML and their MCP
-    bridges occasionally fail to extract <parameter> values cleanly, so the
-    envelope tail leaks into the string field. Reject before any I/O — see
-    nauro_core.validation.envelope_token_message.
+    Rejects before any I/O; see ``nauro_core.validation.envelope_token_message``.
     """
     reason = envelope_token_message(value, field_name)
     if not reason:

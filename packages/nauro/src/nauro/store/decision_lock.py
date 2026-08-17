@@ -1,19 +1,15 @@
 """Lock for local decision-number allocation.
 
-Decision files are named ``decisions/NNN-slug.md`` where ``NNN`` is
-``max(existing num) + 1``. The kernel computes that number from the store and
-then writes the file, but the per-target-file lock in ``write_file`` only
-mutually excludes writers aiming at the *same* filename. Two concurrent local
-writers compute the same next number, slugify distinct titles, and both land —
-yielding two decisions sharing a number.
+A decision file is named ``decisions/NNN-slug.md`` where ``NNN`` is
+``max(existing) + 1``. The kernel computes that number and then writes the file,
+and the per-target lock in ``write_file`` only excludes writers aiming at the
+same filename, so two concurrent local writers compute the same number, slugify
+distinct titles, and both land. ``decision_write_lock`` serializes the whole
+allocate-then-write sequence on one lock under the decisions dir.
 
-``decision_write_lock`` closes that race by serializing the whole
-allocate-then-write sequence on a single lock under the decisions dir. The
-remote path renumbers colliding decisions on pull, but that pull-time repair
-never runs for local-only projects (both pull paths gate on a cloud project),
-so prevention has to live here at the adapter layer. Mirrors
-``snapshot._snapshot_lock``: the lock path is derived from ``store_path`` so it
-inherits any NAURO_HOME override without re-resolving it.
+Prevention has to live here: the pull-time renumber repairs collisions only for
+cloud projects, and both pull paths gate on one. The lock path is derived from
+``store_path``, so it inherits any ``NAURO_HOME`` override.
 """
 
 from contextlib import contextmanager
@@ -27,14 +23,7 @@ from nauro.store.store_lock import store_write_lock
 def decision_write_lock(store_path: Path):
     """Exclusive file lock spanning decision-number allocation and the write.
 
-    The lock file is ``<store_path>/decisions/.lock``. It carries no ``.md``
-    suffix, so it is excluded from the ``*.md`` decision enumeration in
-    ``list_decisions``. The lock path differs from ``write_file``'s
-    per-file ``<file>.lock``, so the two never deadlock.
-
-    Delegates to the general :func:`store_write_lock` for the
-    directory-scoped decisions resource; the observable lock path stays
-    ``decisions/.lock``.
+    Locks ``decisions/.lock``: no ``.md`` suffix to enumerate, no alias of ``write_file``.
     """
     with store_write_lock(store_path, DECISIONS_DIR, is_directory=True):
         yield

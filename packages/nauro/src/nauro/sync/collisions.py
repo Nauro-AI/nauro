@@ -1,42 +1,18 @@
 """Classification of every decision file a pull is about to write.
 
-A remote decision whose number is already taken by a differently named local
-file is not a content conflict: two independent records claim one identity. The
-remote number is shared state other machines already reference, so it is never
-the side that moves. Instead the local collider is classified, with the fetched
-remote bytes in hand, into exactly one of:
+A remote decision whose number a differently named local file already holds is
+not a content conflict: two records claim one identity. The remote number is
+shared state other machines reference, so it never moves; the local collider is
+classified instead, remote bytes in hand. Canonicalize renames a byte-identical
+unpublished twin onto the remote name, renumber moves a provably unpublished,
+unreferenced, rewritable local file aside, and quarantine installs nothing.
 
-* **canonicalize** - the local file is byte-identical to the remote one and was
-  never published, so it is one record under two names; renaming the local file
-  onto the remote name reunites them.
-* **renumber local** - the local file is provably unpublished, unreferenced,
-  and rewritable, so it moves to a free number and the remote file installs.
-* **quarantine** - anything published, referenced, malformed, or ambiguous.
-  Nothing local is touched and nothing is installed.
-
-Provably unpublished means both that no sync-state entry tracks the local path
-and that the path is absent from the current server manifest: a push that
-uploaded a file and crashed before saving state leaves a published file with no
-state entry, and only the manifest reveals it.
-
-Every untracked decision write goes through this gate, not just the ones that
-looked like collisions when the pull planned its transfers. Two remote files can
-carry one number, and a local writer can mint a number between the plan and the
-write, so a verdict taken at planning time is not a verdict at all. The gate
-runs against the corpus the writer keeps current, immediately before the write
-it authorizes, under the decision lock.
-
-The renumber writes in a fixed order - rename, then heading rewrite, then hash
-index, then install - so every crash window leaves a state the next pull heals:
-a rename with a stale heading is repaired by :func:`run_completion_pass`, and an
-installed file with no state entry is adopted by the same-path leg below. No
-window can re-collide and mint a duplicate. The heading rewrite is computed and
-checked before the rename, so only a file that will certainly come out
-consistent enters that sequence at all.
-
-There is deliberately no multi-file reference rewrite. A local file that any
-other decision or question resolution names is quarantined, because rebinding
-those references to an unrelated remote decision cannot be detected afterwards.
+Provably unpublished means no sync-state entry tracks the path and the server
+manifest does not hold it. Every untracked decision write is classified at write
+time, under the decision lock, against the corpus the writer keeps current. The
+renumber writes rename, heading, hash index, install in that order, so each crash
+window leaves a state the next pull heals. A referenced file is quarantined
+rather than reference-rewritten.
 """
 
 from __future__ import annotations
@@ -234,10 +210,9 @@ class _CompletionRefusal(Enum):
 class CompletionOutcome:
     """What the idempotent completion pass found and healed.
 
-    ``unrepairable`` and ``quarantined`` are both report-only, and they differ
-    in what a human can do about them: an unrepairable file needs the store
-    graph untangled first, while a quarantined one only needs its heading or
-    its name put right, exactly like a quarantined collision.
+    ``unrepairable`` and ``quarantined`` are both report-only, and differ in what a
+    human can do: an unrepairable file needs the store graph untangled first, while a
+    quarantined one only needs its heading or its name put right.
     """
 
     repaired: tuple[HeadingRepair, ...] = ()
@@ -252,11 +227,9 @@ class CompletionOutcome:
 def _isolation_defect(
     corpus: DecisionCorpus, candidate: DecisionFile, numbers: tuple[int, ...]
 ) -> QuarantineReason | None:
-    """Return why ``candidate`` is not isolated, or None when it is.
+    """Return why ``candidate`` is not isolated, or ``None`` when it is.
 
-    Isolated means the file parses, takes part in no supersession in either
-    direction, is named by no question resolution, and sits in a store where
-    every other record could be read to establish that.
+    Isolated: parses, joins no supersession, named by no question, fully readable store.
     """
     if candidate.parsed().failed:
         return QuarantineReason.unparseable_collider
@@ -332,10 +305,7 @@ def _retarget_hash_index(store_path: Path, old_stem: str, new_stem: str) -> int:
 def _repair_dangling_stems(corpus: DecisionCorpus) -> tuple[str, ...]:
     """Retarget hash-index entries whose decision file was renumbered away.
 
-    Covers the crash window between the heading rewrite and the hash-index
-    update: the entry still names a stem that no longer exists on disk. It is
-    retargeted only when exactly one decision file carries the same slug, so an
-    entry for a genuinely deleted decision is left alone.
+    Only when exactly one decision file carries the same slug, so a deletion is left alone.
     """
     index = _load_hash_index(corpus.store_path)
     if index is None:
@@ -404,23 +374,7 @@ def _is_canonical_filename(filename: str) -> bool:
 def is_canonical_decision_path(rel: str) -> bool:
     """True only for the exact spelling this store reads and writes.
 
-    Everything else that enumerates the directory - the corpus scan here,
-    ``list_decisions`` in the store, the kernel's number allocation - matches a
-    flat, lowercase ``decisions/<name>.md`` literally. A path that merely
-    *resolves* to that shape is not the same thing: ``decisions//x.md``,
-    ``decisions/./x.md`` and ``decisions/x.md/`` all normalise onto an existing
-    decision, so accepting them would overwrite a record without the classifier
-    ever comparing it, and ``decisions/sub/x.md`` installs a file the allocator
-    cannot see but the push scan still uploads.
-
-    So the parse is structural rather than a suffix test: exactly two nonempty
-    components, the first literally ``decisions``, the second a filename the
-    store's own writers could have minted, and the two joined back together
-    byte-identical to the input. The filename rule is an allowlist rather than
-    a denylist of the characters that have bitten other tools - a colon opens
-    an alternate data stream on NTFS, a reserved basename resolves to a device
-    - because the set of such characters is not knowable in advance and the set
-    the writer emits is.
+    A path that merely resolves onto that shape is refused; the filename is an allowlist.
     """
     parts = rel.split("/")
     if len(parts) != 2:
@@ -440,10 +394,7 @@ def classify_decision(
 ) -> DecisionVerdict:
     """Decide what to do with one untracked remote decision file.
 
-    Called immediately before the write it authorizes, against the corpus as
-    the writer has maintained it: an earlier decision in the same pull may have
-    installed the file this one now collides with, or moved the file it would
-    have collided with.
+    Called immediately before the write it authorizes, against the writer's corpus.
     """
     if not is_canonical_decision_path(remote_path):
         # Routed here rather than dropped, but never written: the corpus scan
@@ -477,11 +428,7 @@ def _classify_same_path(
 ) -> DecisionVerdict:
     """The server holds this exact file and nothing here tracks it.
 
-    A push that uploaded and crashed before saving state leaves that shape, as
-    does a collision resolved into place by an interrupted pull. Adopting it is
-    only safe once nothing else claims its number: a sibling holding the same
-    number would be ratified as a duplicate by the very state entry adoption
-    writes, and would then push as a second remote record.
+    Adopting it is safe only once no sibling claims its number.
     """
     local = corpus.store_path / DECISIONS_DIR / filename
     if corpus.is_irregular(filename):
@@ -629,8 +576,7 @@ def _read_bytes(path: Path) -> bytes | None:
 def apply_canonicalize(corpus: DecisionCorpus, collider: Path, remote_path: str) -> Path:
     """Rename the byte-identical local collider onto the remote filename.
 
-    The number does not change, so the heading is already correct; only the
-    hash index, which keys on the file stem, follows the rename.
+    The number does not change, so only the stem-keyed hash index follows.
     """
     destination = corpus.store_path / remote_path
     text = read_text_lenient(collider)
@@ -644,22 +590,8 @@ def apply_renumber(
     corpus: DecisionCorpus, collider: Path, number: int, reserved_numbers: frozenset[int]
 ) -> RenumberResult:
     """Move the local collider to a free number so the remote one can install.
-
-    ``reserved_numbers`` are the decision numbers the server manifest already
-    holds: minting above them keeps the renumbered file from colliding with a
-    remote decision that has not been transferred yet.
-
-    The heading rewrite is computed and verified before the rename, so a file
-    whose heading the rewriter cannot address is refused with nothing on disk
-    touched. Only a file that will certainly come out consistent enters the
-    rename-first sequence, which keeps the crash window between the rename and
-    the heading write repairable by :func:`run_completion_pass`.
-
-    Raises:
-        RenumberRefusedError: the free name is already taken, or the heading could
-            not be rewritten to the new number. Nothing was mutated in either
-            case; the caller quarantines the remote file under the reason the
-            refusal names.
+    ``reserved_numbers`` are the numbers the server manifest holds, so the new one is
+    minted above them. The heading rewrite is verified first: a refusal mutated nothing.
     """
     new_num = max(corpus.claimed_numbers() | reserved_numbers) + 1
     destination = collider.with_name(f"{new_num:03d}-{strip_number_prefix(collider.name)}")
@@ -699,17 +631,7 @@ def _complete_heading(
 def run_completion_pass(corpus: DecisionCorpus) -> CompletionOutcome:
     """Finish any renumber that crashed between its steps.
 
-    The filename carries a decision's identity, so a file whose heading names a
-    different number is a half-applied rename. It is completed when the number
-    on its filename is held by no other file and the file is isolated by the
-    same criteria a renumber requires; anything else is reported and left
-    alone. Hash-index entries orphaned by a completed rename are retargeted in
-    the same pass. Idempotent: a store with nothing half-applied is unchanged,
-    and a file it declines to repair is reported the same way on every run
-    rather than rewritten a little more each time.
-
-    Detection reads each file only as far as its heading, so a store with
-    nothing to heal never loads a decision body.
+    Idempotent: anything it declines to repair is reported, never half-rewritten.
     """
     mismatched = [
         (entry, heading)

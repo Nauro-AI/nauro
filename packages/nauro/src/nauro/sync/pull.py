@@ -1,30 +1,18 @@
-"""Store ← cloud pull-and-merge over the presign transport.
+"""Cloud-to-store pull-and-merge over the presign transport.
 
-Shared by ``nauro sync`` (the pull half of pull-then-push) and the
-SessionStart hook (``pull_before_session``). Both callers fetch the
-server manifest, diff it against sync-state, mint presigned GET URLs, and
-transfer changed files directly from S3 — then classify every untracked
-decision file before it lands and merge conflicting append-only files.
+Shared by ``nauro sync`` (the pull half of pull-then-push) and the SessionStart
+hook. Both fetch the server manifest, diff it against sync state, mint presigned
+GET URLs, transfer changed files from S3, classify every untracked decision file
+before it lands, and merge conflicting append-only files. The two callers differ
+only in how they surface progress, injected through the shared ``Reporter``
+protocol rather than branched inside the pull core.
 
-The two callers differ only in how they surface progress: the CLI echoes
-to the terminal; the hook logs quietly and must never raise. That
-asymmetry is injected through the shared
-:class:`~nauro.sync.transfer.Reporter` protocol rather than branched inside
-the pull core, so the two paths cannot drift again.
-
-A run has two phases. It plans and fetches under the store's sync lock, which
-keeps two syncs off one store; then it writes everything under the decision
-lock as well, which keeps a local decision writer from minting a number into
-the middle of the batch. Nothing in the write phase touches the network, so the
-lock a local writer waits on is held for the length of a few file writes rather
-than the length of a transfer. Both acquisitions are bounded by the caller's
-policy: the CLI fails loud after a bounded wait, the hook skips its pull rather
-than delaying session start.
-
-Every decision file the store does not already track is written through the
-classifier, not just the ones that looked like collisions when the run planned
-its transfers - two remote files can claim one number, and a local writer can
-mint one between the plan and the write.
+A run has two phases. It plans and fetches under the store's sync lock, then
+writes under the decision lock as well, so a local decision writer cannot mint a
+number into the middle of the batch. Nothing in the write phase touches the
+network, so that writer waits for a few file writes rather than a transfer. Every
+untracked decision file goes through the classifier, not only the ones that
+looked like collisions at planning time.
 """
 
 from __future__ import annotations
@@ -111,10 +99,9 @@ class _RemoteFile:
 class _AdoptedFile:
     """A file already holding the server's bytes, and the digest that proved it.
 
-    The digest is the one the ETag comparison computed, not a fresh one. It
-    travels with the entry precisely so the run never hashes the file twice:
-    between two reads a local writer can land an edit, and recording the second
-    digest against the server's ETag would file that edit as already synced.
+    The digest is the one the ETag comparison computed, never a fresh one: between
+    two reads a local writer can land an edit, and recording the second digest
+    against the server's ETag would file that edit as already synced.
     """
 
     rel: str
@@ -126,11 +113,9 @@ class _AdoptedFile:
 class _Transfer:
     """One fetched manifest entry, ready to be applied to the store.
 
-    A streamed transfer carries its bytes: it is written before the next one is
-    fetched, so only one body is ever live. A spooled transfer carries a path
-    instead and reads the body back when asked, so the gated decision batch -
-    which must be fetched in full before the lock is taken - costs one file's
-    memory rather than the whole batch's.
+    A streamed transfer carries its bytes and is written before the next is fetched,
+    so one body is live at a time. A spooled transfer carries a path instead, so the
+    gated decision batch costs one file's memory rather than the whole batch's.
     """
 
     rel: str
@@ -150,18 +135,9 @@ class _Transfer:
 class _Tally:
     """What one run changed, in the terms it reports.
 
-    Two counts describe what did not land, because they answer different
-    questions. ``refused`` is a subject the next sync retries: a local write
-    error, a fetch that failed, a presign URL that never arrived. Each one is
-    reported, none is a failure of the run, and together they are the reason a
-    run cannot claim to have synced the whole store. ``skipped_permanent`` is
-    the opposite - a manifest row that resolves outside the store, a path an
-    ordinary pull may not write, a quarantined collision - and retrying changes
-    nothing about it, so it is reported and nothing more.
-
-    Both count manifest rows this run was asked to install, and only those.
-    Local files that were already irregular are the store's own hygiene: they
-    are warned about on every run and belong in neither count.
+    ``refused`` is a subject the next sync retries: a local write error, a failed
+    fetch, a missing presign URL. ``skipped_permanent`` is the opposite, and no retry
+    changes it. Both count only manifest rows this run was asked to install.
     """
 
     merged: int = 0
@@ -175,14 +151,9 @@ class _Tally:
 class PullReport:
     """What one pull run left behind, for a caller that must act on it.
 
-    ``nauro sync`` turns unfinished work into a nonzero exit: a run that could
-    not bring the store level with the server must not report success to a
-    script. Unfinished has two shapes, and a count describes only one of them.
-    ``refused`` counts files a later sync retries. ``manifest_read`` is False
-    when the run never learned what the server holds at all, which no file
-    count can stand in for - there is no denominator. ``skipped_permanent`` is
-    neither: it is reported to the user and never changes an exit code,
-    because no rerun resolves it.
+    ``manifest_read`` is False when the manifest fetch failed and the run never learned
+    what the server holds; a presign failure counts every planned file in ``refused``,
+    which a later sync retries. Both exit nonzero; ``skipped_permanent`` never does.
     """
 
     merged: int = 0
@@ -255,15 +226,9 @@ def _parse_manifest(rows: list[dict], reporter: Reporter) -> _Manifest:
 class _Worklists:
     """Manifest entries split by the treatment each one needs.
 
-    ``decisions`` holds every decision file the store does not track, whatever
-    it looked like at planning time; each one is classified again against the
-    live corpus before it is written. ``skipped_permanent`` counts the entries
-    triage refused outright, which no worklist carries and no rerun recovers.
-
-    ``adopted`` is the one list that needs no bytes from the server: those
-    files already hold what the server published, and only the record of it is
-    missing. It is deliberately absent from :meth:`all_files`, which is what
-    the run presigns and fetches.
+    ``decisions`` holds every decision file the store does not track, each classified
+    again against the live corpus before it is written. ``adopted`` needs no bytes
+    from the server and is absent from :meth:`all_files`, which the run fetches.
     """
 
     decisions: list[_RemoteFile] = field(default_factory=list)
@@ -290,19 +255,7 @@ class _Destination:
 def resolve_destination(store_path: Path, rel: str) -> _Destination:
     """Resolve a manifest path to the file it would really write.
 
-    The safety question is not how the manifest spelled a path but where the
-    bytes land, and the two come apart in more ways than a predicate can
-    enumerate: ``./decisions/x.md`` and ``.//decisions/x.md`` normalise into
-    the decisions directory, a backslash key is a separator on Windows (and the
-    push scan emits them there), and a symlink can point anywhere. Separators
-    are normalised the way ``should_skip`` already normalises them, then the
-    join is resolved through symlinks so the answer describes the filesystem
-    rather than the string.
-
-    The decisions directory counts as inside itself. An entry named exactly
-    ``decisions`` resolves to it, and treating that as an ordinary file would
-    either crash on hashing a directory or, on a store that has none yet,
-    create a regular file under the name every future decision write needs.
+    Separators are normalised and the join is resolved through symlinks, not just the string.
     """
     normalized = normalize_rel(rel)
     root = Path(os.path.realpath(store_path))
@@ -320,24 +273,7 @@ def resolve_destination(store_path: Path, rel: str) -> _Destination:
 def needs_decision_gate(rel: str, destination: _Destination, state: SyncState) -> bool:
     """True when this entry must be classified rather than written directly.
 
-    The planner routes on it and the write barrier refuses on it, so the two
-    cannot answer differently - which is exactly how a tracked decision once
-    ended up routed to an ordinary pull that the barrier then refused, leaving
-    every update after a decision's first sync stranded.
-
-    Either the spelling says decision or the destination does; the spelling
-    check is the cheap one and the destination check is the honest one. The
-    exemption is narrow: a canonically spelled decision that sync state tracks
-    and whose file is still on disk is an ordinary same-path update, changing
-    no number and needing no verdict. A path this store cannot enumerate is
-    never exempt, however it is tracked, because a legacy entry must not buy a
-    file a pass around the gate.
-
-    The file has to be there for that reasoning to hold. Once the local copy is
-    gone the number it held is free, a local writer can mint a different file
-    onto it, and reinstalling the tracked path without a verdict would leave two
-    files claiming one number and push the duplicate. A missing decision is
-    always classified.
+    Shared by the planner and the write barrier; only a tracked decision still on disk is exempt.
     """
     if not (_is_decision_path(rel) or destination.inside_decisions):
         return False
@@ -349,14 +285,7 @@ def needs_decision_gate(rel: str, destination: _Destination, state: SyncState) -
 def _is_decision_path(rel: str) -> bool:
     """True for anything the manifest places under the decisions directory.
 
-    Deliberately wider than what may be written. Routing has to catch every
-    spelling that could name a decision on some filesystem - a folded case
-    (``Decisions/007-x.MD``), a trailing dot Windows strips
-    (``decisions/007-x.md.``), a path that normalises onto a real file
-    (``decisions//007-x.md``) - because the alternative for anything it misses
-    is the untyped path, which writes wherever the manifest points. What may
-    actually be written is decided by :func:`is_canonical_decision_path`, and
-    everything else under this directory is quarantined.
+    Wider than what may be written, because a miss falls to the untyped write path.
     """
     head, slash, _name = rel.partition("/")
     return bool(slash) and head.casefold() == DECISIONS_DIR
@@ -409,26 +338,8 @@ def _route_entry(
     store_path: Path, entry: _ManifestEntry, state: SyncState, reporter: Reporter
 ) -> _Routing:
     """Decide what one manifest entry needs, naming the ones it refuses.
-
-    The order is the substance. Every guard about where the bytes would land
-    runs before anything about whether they are wanted, so a refusal is always
-    reported rather than hidden behind a shortcut. The unchanged-remote
-    shortcut then applies only when the local file is still there: the remote
-    store is the record for a tracked file, so an entry the user deleted
-    locally is reinstalled whether or not its etag moved.
-
-    Below the decision gate sits the other question sync state cannot answer.
-    Where state has no entry for a path, it is not saying the file changed; it
-    is saying nothing at all, and the conflict route below reads that silence
-    as both sides having moved. So the run settles it from the bytes instead:
-    an ETag that carries a content MD5 is compared against the file on disk,
-    and a file that already holds what the server published is adopted rather
-    than fought over. An opaque ETag compares nothing and changes nothing.
-
-    That leg stays below the gate on purpose. A decision adopts through the
-    classifier, never here, because only the classifier can see that a sibling
-    already claims the same number - and adopting under that shape would ratify
-    a duplicate. Here there is nothing to weigh but the bytes.
+    The unchanged-remote shortcut needs the local file present, so a deleted tracked
+    file is reinstalled; a decision adopts through the classifier, never here.
     """
     rel = entry.path
     if should_skip(rel):
@@ -489,11 +400,7 @@ def _triage(
 ) -> _Worklists:
     """Split the manifest into gated decision writes, clean pulls, and conflicts.
 
-    Planning only: it decides what to fetch, never what to write. The order it
-    puts decisions in is a preference, not a verdict - entries whose number an
-    existing local file already claims go first, so a collision is judged
-    against the store the user has rather than one this same run has written
-    unrelated files into.
+    Planning only: it decides what to fetch, never what to write.
     """
     work = _Worklists()
     listing = DecisionCorpus.scan(store_path)
@@ -533,36 +440,8 @@ def run_pull(
     session: TransferSession | None = None,
 ) -> PullReport:
     """Pull remote changes for ``project_id`` into ``store_path``.
-
-    Walks the server manifest, then applies it in two phases. Untracked
-    decision files are fetched together and written under the decision lock,
-    each classified immediately before its own write. Everything else streams.
-    Large ordinary files are fetched and written one at a time, outside that
-    lock, so the batch is never held in memory and a local decision writer
-    never waits on the whole transfer.
-
-    A file already holding the bytes the server published is neither, and is
-    never fetched at all: the ETag settled it during triage, so the run records
-    that and moves on.
-
-    Returns a :class:`PullReport`. A transport or auth-refresh failure is
-    reported through ``reporter`` and then carried in that report, in the terms
-    the run can honestly give: a manifest fetch that failed returns
-    ``manifest_read=False``, because the run never learned what the server
-    holds and has no count to offer; a presign request that failed as a whole
-    counts every planned file as refused, because there the total is known.
-    Neither returns an empty report, which would say the store is already level
-    with the server.
-
-    The write phase is crash-safe in both directions: a local filesystem error
-    on one file is reported and the batch continues, and sync state is written
-    whatever happens, so what landed is always recorded even when the run does
-    not reach the end.
-
-    Raises:
-        ~nauro.sync.lock.SyncLockTimeoutError: another sync held the store
-            lock, or a local decision writer held the decision lock, for
-            longer than ``lock_timeout``.
+    Returns a :class:`PullReport` carrying any transport failure, never an empty
+    success; exceeding ``lock_timeout`` on either lock raises ``SyncLockTimeoutError``.
     """
     with operation_session(session) as active:
         with sync_lock(store_path, lock_timeout):
@@ -691,8 +570,7 @@ def _run_pull_locked(
 def _report_tally(tally: _Tally, reporter: Reporter) -> PullReport:
     """Say what the run did, and hand the caller the same answer.
 
-    Every leg that stops early ends here too, so a run that fetched nothing
-    still names what it owes instead of falling silent.
+    Every early exit ends here, so a run that fetched nothing still names what it owes.
     """
     if tally.adopted:
         reporter.info(f"Adopted {tally.adopted} local file(s) already on the server")
@@ -740,25 +618,8 @@ _COMPLETION_FAILURE_DETAIL = (
 @contextmanager
 def _guarded_step(subject: str, detail: str, reporter: Reporter, tally: _Tally) -> Iterator[None]:
     """Run one mutation step, turning a local filesystem error into its outcome.
-
-    A pull mutates many files under one lock, and a store the run cannot write
-    - a read-only decision, a full disk, a directory removed underfoot - is a
-    property of one path, not of the batch. Before this guard, that path's
-    ``OSError`` escaped the whole run, so every file already written went
-    unrecorded and the next run replayed into a store its own state no longer
-    described.
-
-    So an ``OSError`` here is reported against the subject that raised it and
-    the batch carries on with the next file. That is only safe because every
-    step it wraps leaves a state the next run heals rather than a half-written
-    one: the remote bytes land through an atomic replace, so a file is either
-    its old version or its new one and never a truncation the push would then
-    upload over the good remote copy; an interrupted renumber is completed by
-    the next pull's completion pass; and a file written without a state entry
-    is adopted on its next classification.
-
-    Failures are counted on the tally, because a run that could not write
-    everything it found has not fully synced the store.
+    An ``OSError`` is reported against ``subject``, counted refused on ``tally``, and
+    the batch carries on, which is safe only because each step leaves a healable state.
     """
     try:
         yield
@@ -778,19 +639,7 @@ _STRANDED_TMP_MIN_AGE_SECONDS = 60.0
 def _sweep_interrupted_writes(store_path: Path, reporter: Reporter) -> int:
     """Remove the tmp siblings killed writes stranded, and say how many.
 
-    Nothing reads these files and both sync directions exclude them, so without
-    a sweep they accumulate for the life of the store, each one a full copy of
-    whatever was being written. The pull is where they are collected because it
-    already holds the sync lock and already walks the store.
-
-    Hygiene never costs the caller the sync it asked for. This is the first
-    thing a run does, before the manifest fetch, so an error escaping it would
-    abort a pull that had not started - and on the session-start hook, which
-    swallows everything, skip it in silence. The walk is guarded as well as
-    each file: the store is a directory other processes and the user write
-    into, so a directory can vanish underneath the traversal, and which errors
-    a walk raises rather than swallows differs across the Python versions this
-    supports. The guarantee has to be this function's, not the walk's.
+    Runs first and never raises: hygiene must not cost the caller the sync it asked for.
     """
     cutoff = time.time() - _STRANDED_TMP_MIN_AGE_SECONDS
     removed = 0
@@ -824,11 +673,9 @@ def _presign(
     session: TransferSession,
     tally: _Tally,
 ) -> dict[str, str] | None:
-    """Mint one GET URL per planned file, or None on a request failure.
+    """Mint one GET URL per planned file, or ``None`` on a request failure.
 
-    A shortfall and an unreadable entry are reported here as the totals they
-    are. The file each one costs is named and counted where that file is
-    consumed, so no file is counted twice and none goes unnamed.
+    A shortfall is reported here as a total; each missing file is named where consumed.
     """
     if not planned:
         return {}
@@ -862,10 +709,7 @@ def _stream(
 ) -> Iterator[_Transfer]:
     """Yield each planned file's bytes, fetched one at a time.
 
-    The caller writes each one before the next is fetched, so only a single
-    file's content is ever held. A planned file that yields nothing - no URL,
-    or a transfer that failed - is named and counted refused here, because the
-    caller only ever sees what arrived.
+    A file that yields nothing is counted refused here: the caller only sees arrivals.
     """
     for item in items:
         url = urls.get(item.rel)
@@ -887,9 +731,7 @@ def _stream(
 def _spool(store_path: Path) -> Iterator[Path]:
     """A scratch directory for fetched decision bodies, removed on the way out.
 
-    It lives in the store so it shares the store's filesystem, and its name
-    carries the prefix ``should_skip`` excludes, so a directory left behind by
-    a kill signal is never pushed or pulled.
+    Inside the store, under the prefix ``should_skip`` excludes, so a stranded one is never synced.
     """
     directory = Path(tempfile.mkdtemp(prefix=SPOOL_DIR_PREFIX, dir=store_path))
     try:
@@ -908,8 +750,7 @@ def _spool_batch(
 ) -> dict[str, _Transfer]:
     """Fetch a batch onto disk, keyed by store-relative path.
 
-    Names what it could not fetch but counts nothing: the caller counts one
-    refusal per decision missing from the batch, whichever leg lost it.
+    Names what it could not fetch but counts nothing; the caller counts the refusals.
     """
     spooled: dict[str, _Transfer] = {}
     for index, item in enumerate(items):
@@ -956,11 +797,7 @@ _SKIP_DETAIL: dict[SkipReason, str] = {
 def _report_completion(corpus: DecisionCorpus, reporter: Reporter) -> None:
     """Run the crash-window completion pass and report what it did.
 
-    What it declines to touch - a heading it cannot realign, a heading outside
-    the form it rewrites, a decision file it never reads - is a local file that
-    was already there, not something this run was asked to install. Each one is
-    warned about and none is counted: they are the store's own hygiene, and
-    folding them into the run's counts would make every sync report leftovers.
+    What it declines to touch is warned about but never counted: store hygiene.
     """
     outcome = run_completion_pass(corpus)
     for repair in outcome.repaired:
@@ -995,10 +832,7 @@ def _generic_write_allowed(
 ) -> bool:
     """Refuse an untyped write that would land somewhere it may not.
 
-    The last check before bytes hit the disk, and the one that does not depend
-    on having predicted the spelling. It asks the same question the planner
-    asked, so reaching here with an entry that needed the gate means the two
-    disagreed, and the write is the wrong place to resolve that.
+    The last check before bytes hit disk, asking the same question the planner asked.
     """
     destination = resolve_destination(store_path, transfer.rel)
     if not destination.inside_store:
@@ -1024,11 +858,7 @@ def _generic_write_allowed(
 def _conflict_side(rel: str, state: SyncState) -> Side:
     """Which copy of a contested path stays on disk.
 
-    A tracked path's two versions descend from a copy this store published, so
-    last-write-wins keeps the one the user is looking at. An untracked path was
-    never published from here and has no shared ancestor: the server's copy is
-    the record for it, and the local bytes go to the backup directory instead.
-    Neither side is lost either way; only which one needs a rename to recover.
+    Tracked is last-write-wins, untracked takes the server's copy; the loser is backed up.
     """
     return Side.local if rel in state.files else Side.remote
 
@@ -1055,11 +885,7 @@ def _apply_decision(
 ) -> None:
     """Classify one untracked remote decision and act on the verdict.
 
-    A renumber frees the contested number without settling what happens to the
-    remote file, so the verdict is taken again once the local file has moved.
-    The second pass is against a number nothing claims, so it cannot ask for
-    another renumber; a store that still contests the number after one move has
-    more than one claim on it and is quarantined.
+    A renumber reclassifies once the local file moved; a still-contested number is quarantined.
     """
     store_path = corpus.store_path
     verdict = classify_decision(corpus, transfer.rel, transfer.content, state, manifest.paths)
@@ -1133,11 +959,7 @@ def _quarantine(
 ) -> None:
     """Leave both sides alone, back up the remote bytes, and say so.
 
-    Counted permanent once the backup is safe: the same pull runs the same way
-    tomorrow, and the quarantine has its own surface in ``nauro sync --status``
-    until a person settles the number. A backup that could not be written is a
-    local write error instead, counted refused by the guard above this one, so
-    the count is taken after the write rather than before it.
+    Counted permanent only after the backup lands; a failed backup counts refused.
     """
     backup = save_quarantine_backup(store_path, transfer.rel, transfer.content, transfer.etag)
     tally.skipped_permanent += 1

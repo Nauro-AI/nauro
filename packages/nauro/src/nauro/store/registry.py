@@ -177,18 +177,9 @@ _MAX_PROJECT_NAME_LEN = 100
 
 
 def _validate_project_name(name: str) -> str:
-    """Validate a v2 project name and return its stripped form.
+    """Return the stripped project name, or raise ``ValueError``.
 
-    Rejects names that would corrupt the registry or escape the store
-    directory layout. The store path is derived from the project_id (a
-    ULID), not the name, but the name is persisted to ``registry.json`` and
-    surfaced in repo configs and AGENTS.md, so it must stay printable and
-    free of path-traversal substrings.
-
-    Raises:
-        ValueError: If the stripped name is empty, longer than 100 chars,
-            contains a path separator (``/`` or ``\\``) or the ``..``
-            substring, or contains a non-printable character.
+    Rejects empty, over 100 chars, a path separator, ``..``, or a non-printable.
     """
     name = name.strip()
     if not name:
@@ -209,14 +200,7 @@ def _validate_project_name(name: str) -> str:
 def get_store_path_v2(project_id: str) -> Path:
     """Return the id-keyed store directory for a v2 project.
 
-    Defense-in-depth: ``project_id`` becomes a path component under the
-    projects directory, so a value containing ``..`` or an absolute path could
-    relocate the store outside ``~/.nauro/projects/``. The primary guard is
-    ULID validation at the config trust boundary (``repo_config._validate``);
-    this containment check ensures no caller — present or future, including
-    ``nauro attach <project_id>`` taking the id straight from argv — can escape
-    the projects root. It rejects only escapes, not the full ULID alphabet, so
-    contained non-canonical ids (e.g. test fixtures) are left alone.
+    Rejects only a ``project_id`` that escapes the projects root, not a non-canonical id.
     """
     projects_root = projects_dir()
     store_path = projects_root / project_id
@@ -577,21 +561,9 @@ def register_project_v2(
     project_id: str | None = None,
     server_url: str | None = None,
 ) -> tuple[str, Path]:
-    """Add a v2 project to the registry and create its id-keyed store directory.
-
-    Args:
-        name: Display name (need not be unique).
-        repo_paths: List of associated repo paths.
-        mode: ``"local"`` (CLI-minted ULID) or ``"cloud"`` (server-minted).
-        project_id: ULID to use; minted via ``generate_ulid()`` when omitted.
-        server_url: Required when mode == "cloud".
-
-    Returns:
-        Tuple of (project_id, store_path).
-
-    Raises:
-        ValueError: If the name is invalid, the mode/server_url combination
-            is invalid, or the project_id is already present in the registry.
+    """Add a v2 project to the registry and return ``(project_id, store_path)``.
+    ``project_id`` is minted when absent, ``mode`` is ``local`` or ``cloud``, and
+    ``cloud`` requires ``server_url``; a duplicate id or bad name raises ``ValueError``.
     """
     name = _validate_project_name(name)
     if mode not in _VALID_MODES_V2:

@@ -67,20 +67,15 @@ class RepoConfigSymlinkError(Exception):
 def collides_with_global_config(repo_root: Path) -> bool:
     """True when ``repo_root``'s config path is Nauro's global config file.
 
-    With the default home layout, ``repo_config_path(Path.home())`` resolves to
-    ``~/.nauro/config.json``, the same file that holds user-level credentials
-    and settings. Writing a repo config there would
-    replace those settings, so writers must refuse the path.
+    A repo config at ``Path.home()`` would replace the user's credentials, so writers refuse.
     """
     return repo_config_path(repo_root).resolve() == config_file().resolve()
 
 
 def generate_ulid() -> str:
-    """Generate a 26-char Crockford-base32 ULID.
+    """Generate a 26-char Crockford-base32 ULID: 48 bits of ms timestamp, 80 random.
 
-    The format is the standard ULID: 48 bits of millisecond timestamp followed
-    by 80 bits of randomness. We mint these CLI-side for local-only projects;
-    cloud project IDs are minted by the server and arrive over the wire.
+    Minted CLI-side for local-only projects; cloud ids arrive from the server.
     """
     timestamp_ms = int(time.time() * 1000) & ((1 << 48) - 1)
     randomness = int.from_bytes(secrets.token_bytes(10), "big")
@@ -193,15 +188,7 @@ def save_repo_config(repo_root: Path, data: dict) -> Path:
 def find_repo_config(start: Path | None = None) -> Path | None:
     """Walk up from ``start`` looking for ``.nauro/config.json``.
 
-    Mirrors how git locates ``.git`` from anywhere inside a working tree.
-    Stops at the filesystem root and returns ``None`` if no config is found.
-
-    Args:
-        start: Directory to start walking from. Defaults to the current
-            working directory.
-
-    Returns:
-        The path of the config file when found, or ``None``.
+    Returns the config path, or ``None`` at the filesystem root; ``start`` defaults to cwd.
     """
     current = (start if start is not None else Path.cwd()).resolve()
     while True:
