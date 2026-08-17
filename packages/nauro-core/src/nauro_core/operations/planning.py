@@ -37,9 +37,7 @@ class PlanRejected(ValueError):
 def canonical_payload_bytes(payload: Mapping[str, object]) -> bytes:
     """Encode *payload* as canonical JSON bytes.
 
-    Sorted keys, compact separators, UTF-8 without ASCII escaping — the
-    deterministic byte form every surface digests for idempotency scope
-    resolution, so the same payload always produces the same digest.
+    Sorted keys, compact separators, UTF-8 unescaped, so the same payload always digests alike.
     """
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
         "utf-8"

@@ -100,13 +100,9 @@ def _reject_summary_without_visible_content(summary: str) -> None:
 class ShareContextPlan(BaseModel):
     """Frozen execution plan for one accepted ``share_context`` payload.
 
-    ``content`` is the validated immutable brief body; the server stores its
-    exact UTF-8 encoding create-only at ``path``. ``content_digest`` is the
-    lowercase SHA-256 hex digest of those bytes. ``pointer_body`` is the
-    frozen canonical discovery-pointer text — the question number in front
-    of it is allocated (and on contention reallocated) at execution, never
-    here. ``payload_bytes`` is the canonical JSON payload encoding — the
-    single-sourced idempotency digest input.
+    ``content`` is the validated brief body, stored create-only at ``path`` in exact
+    UTF-8, and ``content_digest`` is its lowercase SHA-256. ``pointer_body`` is
+    frozen text numbered at execution; ``payload_bytes`` is the idempotency input.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -128,31 +124,9 @@ def share_context(
     pointer_kind: str,
     summary: str,
 ) -> ShareContextPlan:
-    """Validate a shared-brief payload and return its frozen plan.
-
-    Args:
-        slug: Brief name, 1 to 120 lowercase ASCII letters, digits, or
-            internal hyphens; maps only to ``context/<slug>.md``.
-        content: The immutable brief body. Must be UTF-8-encodable text
-            without NUL characters, at most
-            :data:`~nauro_core.constants.MAX_BRIEF_BYTES` encoded bytes.
-        pointer_kind: One of ``brief``, ``resume``, or ``selection`` —
-            selects the discovery-pointer prefix.
-        summary: Nonempty single line of at most
-            :data:`SUMMARY_CHAR_LIMIT` characters, carried in the composed
-            pointer body. It must be UTF-8-encodable text that carries no
-            control character, line or paragraph separator, or bidirectional
-            control, and that still holds a visible character once format
-            characters and whitespace are stripped. The pointer is a
-            discovery surface an agent reads and a human audits, so what is
-            stored has to be what both of them see.
-
-    Returns:
-        :class:`ShareContextPlan` on acceptance.
-
-    Raises:
-        PlanRejected: On any Tier-1 validation failure. No plan exists and
-            nothing may be written.
+    """Validate a shared-brief payload into a frozen plan: ``slug`` maps only to
+    ``context/<slug>.md``, ``pointer_kind`` is ``brief``, ``resume`` or ``selection``, and
+    ``content`` and the one-line ``summary`` are bounded clean UTF-8, else ``PlanRejected``.
     """
     try:
         validate_identifier(IdentifierKind.brief_slug, slug, field="slug")

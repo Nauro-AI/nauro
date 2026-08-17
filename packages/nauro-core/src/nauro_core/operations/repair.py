@@ -1,31 +1,18 @@
 """Plan the one supersession repair a machine may make on a human's word.
 
 A supersede backref orphan is a half-written supersession: the newer decision
-records ``supersedes=<old>``, but the old decision was never flipped, so it
-still reads as active with no ``superseded_by``. ``nauro doctor`` names the
-shape; this module decides whether it can be closed without judgment, and
-renders the exact bytes that would close it.
+records ``supersedes=<old>`` but the old one was never flipped, so it still reads
+active with no ``superseded_by``. ``nauro doctor`` names the shape; this module
+decides whether it can close without judgment and renders the bytes that close it.
 
-The bar is deliberately narrow. A plan is produced only when the whole store
-carries exactly one orphan and nothing else references either side of it. Every
-other shape — a target claimed by more than one child, a supersession cycle, a
-file that does not parse, a decision number carried by two files, a third
-decision already referencing either side — comes back as a typed
-:class:`RepairRefusal` with guidance and no plan, because rewriting
-supersession history on a heuristic is worse than leaving it visibly broken.
+The bar is narrow: a plan exists only when the store holds exactly one orphan and
+nothing else references either side. Every other shape returns a typed
+:class:`RepairRefusal` with guidance and no plan. No refusal covers a target that
+moved since the child was filed, so the prompt shows both sides' version and date.
 
-One gap is named rather than papered over: there is no "target changed since
-the child was filed" refusal. A local store holds no evidence of when the
-target's bytes last moved relative to the child's filing, and inventing that
-evidence from snapshots or the journal would be a guess. The confirmation
-prompt compensates by showing the target's version, date, and status next to
-the child's, so the human judges recency before approving.
-
-Pure: reads only through the :class:`Store` protocol, takes no clock and no
-randomness, and writes nothing. The caller re-runs the plan under the write
-lock and compares :attr:`RepairPlan.pre_image_digest` before writing, which
-only works because the same store always yields the same plan. Imported
-submodule-only and deliberately not part of ``nauro_core.__all__``.
+Pure: reads through :class:`Store` only, no clock, no randomness, writes nothing.
+The caller re-plans under the write lock and compares
+:attr:`RepairPlan.pre_image_digest` before writing.
 """
 
 from __future__ import annotations
@@ -56,11 +43,9 @@ RepairRefusalKind = Literal[
 class RepairRefusal(BaseModel):
     """One shape the planner will not touch, with the reason already worded.
 
-    ``decisions`` names every decision number the refusal implicates and
-    ``stems`` every file, both sorted. An empty ``decisions`` marks a
-    store-wide refusal: it implicates no particular pair and therefore blocks
-    every candidate. ``guidance`` is the rendered sentence a surface prints
-    verbatim, so the wording cannot drift between the CLI and any later caller.
+    ``decisions`` names every implicated decision number and ``stems`` every file,
+    both sorted; an empty ``decisions`` marks a store-wide refusal that blocks every
+    candidate. ``guidance`` is the sentence a surface prints verbatim.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -80,12 +65,9 @@ class RepairRefusal(BaseModel):
 class RepairPlan(BaseModel):
     """The exact rewrite that would close one orphan, and the facts to judge it.
 
-    ``new_content`` is the target's full file after the flip. ``pre_image_digest``
-    is the sha256 of the target's current bytes, so a caller holding the write
-    lock can confirm nothing moved between planning and writing. The child's and
-    target's version and date, and the target's status, ride along for the
-    confirmation prompt: they are what a human needs to judge whether the newer
-    decision really does retire the older one.
+    ``new_content`` is the target's file after the flip. ``pre_image_digest`` is the
+    sha256 of its current bytes, so a caller holding the write lock can confirm
+    nothing moved. The versions, dates and target status ride along for the prompt.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -167,18 +149,9 @@ def _candidates(
     by_num: dict[int, Decision],
     stem_counts: Counter[int],
 ) -> list[_Candidate]:
-    """Forward supersession edges that still need a backref written. Sorted.
-
-    A settled pair — the target already records ``superseded_by`` naming this
-    child — is not a candidate, so a healthy store produces none and reports
-    nothing. An edge whose target has no file on disk is not a candidate
-    either: that is a dangling ref, which doctor already reports and repair
-    cannot close.
-
-    Deduplicated by number pair. Two files sharing a decision number and a
-    forward edge describe one pair, and the duplicate number is reported as its
-    own refusal; without this they would also render as rival children spelled
-    with the same label.
+    """Forward supersession edges that still need a backref written, sorted and
+    deduplicated by number pair. A settled pair is not a candidate, so a healthy
+    store yields none; an edge whose target has no file is a dangling ref, not one.
     """
     candidates: set[_Candidate] = set()
     for decision in parsed:
@@ -260,17 +233,9 @@ def _competing_references(
     parsed: list[Decision],
     by_num: dict[int, Decision],
 ) -> tuple[int, ...]:
-    """Decisions whose own refs compete with the backref that would be written.
-
-    Two shapes, both meaning the pair is not isolated:
-
-    - another decision already records ``superseded_by`` naming the target, so
-      the target is entangled in a supersession other than this one;
-    - the child is itself retired, or a third decision claims to supersede it,
-      so it is not settled enough to be recorded as anyone's replacement.
-
-    The child's own ``superseded_by`` counts as a competing reference under the
-    second shape and is reported as the child's own number.
+    """Decisions whose own refs compete with the backref that would be written: another
+    decision already records ``superseded_by`` naming the target, or the child is
+    itself retired or claimed, reported then as the child's own number.
     """
     competing: set[int] = set()
     for decision in parsed:
@@ -299,13 +264,9 @@ def _build_plan(
     by_num: dict[int, Decision],
     stems_by_num: dict[int, list[str]],
 ) -> RepairPlan:
-    """Render the flipped target for a candidate already cleared of refusals.
-
-    Only the two frontmatter fields move. The rewrite goes through the same
-    ``model_copy`` + ``format_decision`` transformation ``propose_decision``
-    applies on a supersede, so a repaired file is byte-identical to one the
-    write path would have produced — including any frontmatter key the reader
-    tolerates but does not model.
+    """Render the flipped target for a candidate already cleared of refusals. Only the
+    two frontmatter fields move, through the same ``model_copy`` plus
+    ``format_decision`` path a supersede write takes, so the bytes match exactly.
     """
     child = by_num[orphan.child]
     target = by_num[orphan.target]

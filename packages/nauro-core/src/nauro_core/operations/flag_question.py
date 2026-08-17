@@ -1,35 +1,18 @@
 """``flag_question`` — append an open question, or resolve existing ones.
 
-Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
-all call this function with the same arguments and receive the same
-:class:`FlagQuestionResult`. The kernel owns the parse/scan/mint/insert
-plumbing through the :class:`~nauro_core.operations.store.Store` protocol;
-length validation, envelope-token rejection, similarity hinting, snapshot
-capture, and cloud-sync push stay on the adapter side.
+CLI, local stdio MCP, and remote HTTP MCP all call this function and receive
+the same :class:`FlagQuestionResult`. The kernel owns parse, scan, mint and
+insert through the :class:`Store` protocol; length validation, envelope-token
+rejection, similarity hinting, snapshot capture, and cloud push are adapter-side.
 
-Two actions share the entry point, discriminated by ``resolved_by``:
+``resolved_by`` discriminates the two actions. Append mints a fresh ``Q###``
+and inserts it right after the top-level ``# `` header, and short-circuits with
+a rejection when a named target is already resolved. Resolve stamps the
+``targets`` entries, then runs ``normalize`` so prose-safe stamped entries move
+below ``## Resolved``; ``relocated_ids`` and ``skipped_prose_ids`` name what
+moved and what a detached body paragraph held back. Re-resolving is idempotent.
 
-* **append** (``resolved_by`` is None) — mint a fresh ``Q###`` and insert
-  it directly after the file's top-level ``# `` header, skipping blank
-  lines and leading HTML comments so the on-disk format stays
-  byte-identical across surfaces. When the caller passes
-  ``targets``, the append short-circuits if any named id already carries
-  a ``resolved_by`` reference, returning a rejection envelope naming the
-  resolving decision.
-
-* **resolve** (``resolved_by`` is set) — stamp the entries named in
-  ``targets`` as resolved by that decision, flipping each entry's
-  ``resolved_by`` in place, then run ``normalize`` so prose-safe stamped
-  entries relocate below the ``## Resolved`` divider. Normalize has
-  whole-file scope, so pre-existing strays self-heal on the same write;
-  ``relocated_ids`` and ``skipped_prose_ids`` on the result name what moved
-  and what a detached body paragraph held back. Re-resolving an
-  already-resolved id is idempotent (returns ok); the append-path
-  already-resolved short-circuit does not apply here.
-
-Freshness is bounded by the working copy the Store sees — on the local
-stdio surface that is the last ``_pull_on_startup`` run; on cloud HTTP
-MCP it is the per-request S3 read.
+Freshness is bounded by the working copy the Store sees.
 """
 
 from __future__ import annotations
@@ -132,13 +115,9 @@ def _short_circuit_if_resolved(
     parsed: OpenQuestionsFile,
     targets: list[str],
 ) -> FlagQuestionResult | None:
-    """Return a rejection result if any ``targets`` id is already resolved.
-
-    Reads the working copy only — freshness is bounded by whatever pull
-    cadence the Store's transport runs (none, on cloud HTTP; ``_pull_on_startup``
-    on local stdio). The check is therefore best-effort by construction:
-    a stale local copy that lacks a fresh remote resolution will fall
-    through to the normal append path.
+    """Return a rejection result if any ``targets`` id is already resolved. Reads the
+    working copy only, so it is best-effort: a stale local copy missing a fresh
+    remote resolution falls through to the normal append path.
     """
     entries_by_id: dict[str, EntryBlock] = {}
     for block in parsed.blocks:
@@ -178,12 +157,9 @@ def _resolve(
     targets: list[str],
     resolved_by: str,
 ) -> FlagQuestionResult:
-    """Stamp the ``targets`` entries as resolved by ``resolved_by`` in place.
-
-    Every named id must exist in ``open-questions.md`` as a single entry,
-    and ``resolved_by`` must resolve to a decision that exists in the
-    store. Any unparseable identifier, missing decision, unknown target,
-    or ambiguous target rejects the whole call without writing.
+    """Stamp the ``targets`` entries as resolved by ``resolved_by`` in place. Every id
+    must exist as a single entry and ``resolved_by`` must name a decision in the
+    store; a bad, missing or ambiguous id rejects the whole call without writing.
     """
     num = extract_decision_number(resolved_by)
     if num is None:

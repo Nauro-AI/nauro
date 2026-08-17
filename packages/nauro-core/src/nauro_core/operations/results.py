@@ -87,10 +87,9 @@ class CheckDecisionResult(BaseModel):
 class GetDecisionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.get_decision`.
 
-    On the success path ``content`` holds the decision's markdown body.
-    On the miss path ``error`` is populated with ``kind="error"``; the
-    ``store`` field is not part of the model and is added by transport
-    adapters at serialization time.
+    On success ``content`` holds the decision's markdown body; on a miss ``error``
+    is populated with ``kind="error"``. ``store`` is not part of the model;
+    transport adapters add it at serialization time.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -102,14 +101,9 @@ class GetDecisionResult(BaseModel):
 class GetContextResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.get_context`.
 
-    On the success path ``content`` holds the assembled L0/L1/L2 markdown
-    payload. On the rejection path ``error`` is populated with
-    ``kind="rejected"`` (invalid level); ``content`` stays unset. The
-    ``store`` field is not part of the model; transport adapters add it
-    back at serialization time. The result intentionally stays a single
-    text field — the kernel-side ``build_l0/l1/l2`` already return
-    assembled markdown, so structured sub-fields would duplicate that
-    work without buying the surface anything.
+    On success ``content`` holds the assembled L0/L1/L2 markdown; on rejection
+    ``error`` carries ``kind="rejected"`` and ``content`` stays unset. One text
+    field only, since the builders already return assembled markdown.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -121,12 +115,9 @@ class GetContextResult(BaseModel):
 class GetRawFileResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.get_raw_file`.
 
-    On the success path ``content`` holds the file's text body. On the
-    miss path ``error`` is populated with ``kind="error"``. The ``store``
-    field is not part of the model; transport adapters add it back at
-    serialization time. Hints such as ``available_files`` are not part of
-    the kernel result either — they belong to the adapter since the Store
-    protocol does not expose general file enumeration.
+    On success ``content`` holds the file's text body; on a miss ``error`` carries
+    ``kind="error"``. Hints such as ``available_files`` belong to the adapter, as
+    does ``store``, since the Store protocol exposes no file enumeration.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -138,13 +129,9 @@ class GetRawFileResult(BaseModel):
 class DecisionSummary(BaseModel):
     """One row in :class:`ListDecisionsResult`.
 
-    The row fields (``number``, ``title``, ``date``, ``status``,
-    ``type``, ``confidence``) are fixed — the ``tool_list_decisions``
-    envelope stays byte-identical across surfaces. ``date`` and
-    ``type`` stay optional so
-    decisions written without those frontmatter fields still serialize;
-    the adapter's ``exclude_none=True`` template choice drops the keys
-    when they are unset.
+    The row fields are fixed, so the ``tool_list_decisions`` envelope stays
+    byte-identical across surfaces. ``date`` and ``type`` stay optional so decisions
+    without them still serialize; ``exclude_none=True`` drops the keys when unset.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -160,10 +147,9 @@ class DecisionSummary(BaseModel):
 class ListDecisionsResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.list_decisions`.
 
-    ``decisions`` carries the projected rows, sorted by decision number
-    descending and truncated to the caller-supplied ``limit``. The
-    ``store`` field is not part of the model; transport adapters add it
-    back at serialization time.
+    ``decisions`` carries the projected rows, sorted by number descending and
+    truncated to ``limit``. ``store`` is not part of the model; transport adapters
+    add it at serialization time.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -174,13 +160,9 @@ class ListDecisionsResult(BaseModel):
 class SearchHit(BaseModel):
     """One ranked row in :class:`SearchDecisionsResult`.
 
-    The BM25 row fields (``number``, ``title``, ``date``, ``status``,
-    ``relevance_snippet``, ``score``) are fixed — the
-    ``tool_search_decisions`` envelope stays byte-identical across
-    surfaces. ``date`` and ``relevance_snippet``
-    stay optional so decisions without a parsed date or without a snippet
-    extraction still serialize; the adapter's ``exclude_none=True``
-    template choice drops the keys when they are unset.
+    The BM25 row fields are fixed, so the ``tool_search_decisions`` envelope stays
+    byte-identical across surfaces. ``date`` and ``relevance_snippet`` stay optional
+    so hits without them still serialize; ``exclude_none=True`` drops unset keys.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -196,12 +178,9 @@ class SearchHit(BaseModel):
 class SearchDecisionsResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.search_decisions`.
 
-    On the success path ``results`` carries the ranked hits, sorted by
-    BM25 score descending and truncated to the caller-supplied ``limit``.
-    On the rejection path ``error`` is populated with ``kind="rejected"``
-    (empty/whitespace query); ``results`` stays empty. The ``store``
-    field is not part of the model; transport adapters add it back at
-    serialization time.
+    On success ``results`` carries the ranked hits, sorted by BM25 score descending
+    and truncated to ``limit``. An empty or whitespace query populates ``error``
+    with ``kind="rejected"`` and leaves ``results`` empty.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -213,13 +192,9 @@ class SearchDecisionsResult(BaseModel):
 class UpdateStateResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.update_state`.
 
-    ``status="ok"`` signals the kernel wrote a new ``state_current.md``
-    body (and appended history when a prior body existed). ``status="noop"``
-    signals the store had no existing state file at all — the adapter
-    short-circuits snapshot capture and cloud push on this branch.
-    ``warning`` carries an optional keyword-overlap caution. ``error``
-    stays unset on the kernel path; length validation lives on the
-    adapter side and surfaces through a separate envelope shape.
+    ``status="ok"`` means a new ``state_current.md`` body was written, with history
+    appended when a prior body existed; ``status="noop"`` means no state file existed
+    and the adapter skips snapshot and push. ``warning`` carries an overlap caution.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -232,23 +207,9 @@ class UpdateStateResult(BaseModel):
 class FlagQuestionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.flag_question`.
 
-    ``status="ok"`` signals the kernel appended a new ``Q###`` entry to
-    ``open-questions.md``; ``num`` carries the minted identifier.
-    ``status="rejected"`` signals the caller passed ``targets`` naming
-    an already-resolved id, so the append was short-circuited; ``error``
-    names the resolving decision and ``num`` stays unset. Length
-    validation, envelope-token rejection, and similarity hinting still
-    live on the adapter and surface through a separate envelope shape.
-    ``store`` is not part of the model; transport adapters add it back
-    at serialization time.
-
-    ``relocated_ids`` and ``skipped_prose_ids`` are populated on the resolve
-    action from the post-stamp ``normalize`` step: ``relocated_ids`` names the
-    entries moved below ``## Resolved``, ``skipped_prose_ids`` the stamped
-    entries a detached body paragraph held in place. They stay None (dropped
-    by ``exclude_none``) on the append path and whenever nothing moved or was
-    skipped — the compensating observability so a self-heal riding an
-    unrelated resolve is reported, never silent.
+    ``status="ok"`` means a new ``Q###`` was appended and ``num`` carries it;
+    ``status="rejected"`` means a target was already resolved, ``error`` names the
+    resolving decision and ``num`` stays unset. The resolve path reports its own ids.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -263,14 +224,9 @@ class FlagQuestionResult(BaseModel):
 class DiffSinceLastSessionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.diff_since_last_session`.
 
-    ``diff`` carries the human-readable diff body. The "not enough
-    snapshots" and "only one snapshot covers the requested range" cases
-    populate ``diff`` with their respective sentinel strings rather than
-    surfacing as errors — behaviour the surface tests pin.
-    ``cutoff_date_used`` echoes the baseline snapshot timestamp when the
-    adapter resolved the baseline via a time-based lookup; it stays
-    unset for session-scoped diffs. ``store`` is not part of the model;
-    transport adapters add it back at serialization time.
+    ``diff`` carries the human-readable body, including the "not enough snapshots"
+    sentinels, which are not errors. ``cutoff_date_used`` is set only for a
+    time-based baseline lookup. Transport adapters add ``store`` back.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -283,31 +239,9 @@ class DiffSinceLastSessionResult(BaseModel):
 class ProposeDecisionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.propose_decision`.
 
-    Two statuses cover every branch the validation pipeline returns:
-
-    * ``confirmed`` — the kernel executed the write. ``decision_id``
-      carries the on-disk file stem and ``touched_decisions`` lists every
-      decision file the kernel rewrote (new id for add, new + old for
-      supersede, updated id for update). ``similar_decisions`` carries any
-      Tier 2 BM25 hits as advisory context — the agent surfaces them to
-      the human alongside the write rather than treating them as a
-      blocking gate.
-    * ``rejected`` — Tier 1 structural failure, ``operation="update"`` with
-      disallowed metadata, or unknown/ambiguous ``resolves_questions``
-      ids. ``assessment`` names the offending field. ``error`` is set when
-      a multi-object write hit a half-state mid-sequence.
-
-    ``similar_decisions`` carries the canonical :class:`RelatedDecision`
-    shape ``check_decision`` already returns. ``resolved_questions``
-    lists the ``open-questions.md`` ids the kernel stamped resolved on the
-    success path. ``relocated_ids`` and ``skipped_prose_ids`` come from the
-    post-stamp ``normalize`` step on the ``resolves_questions`` path:
-    ``relocated_ids`` names the entries moved below ``## Resolved``,
-    ``skipped_prose_ids`` the stamped entries a detached body paragraph held
-    in place. Both stay None (dropped by ``exclude_none``) when no relocation
-    or prose-skip occurred — the compensating observability so a self-heal
-    riding a resolve is reported, never silent. The ``store`` field is not
-    part of the model; transport adapters add it back at serialization time.
+    ``confirmed`` means the write executed: ``decision_id`` is the file stem,
+    ``touched_decisions`` every file rewritten, ``similar_decisions`` advisory.
+    ``rejected`` names the offending field, with ``error`` set on a half-state.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -328,11 +262,9 @@ class ProposeDecisionResult(BaseModel):
 class UpdateStackAccepted(BaseModel):
     """Committed outcome of a hosted ``update_stack`` operation.
 
-    ``stack_revision`` is the revision the store carries after the write —
-    the precondition for the caller's next conditional update.
-    ``previous_revision`` is the revision (or the absent token) the write
-    replaced. ``receipt_id`` and ``event_id`` bind the outcome to the
-    operation's receipt and audit event.
+    ``stack_revision`` is the revision the store carries after the write, the
+    precondition for the next conditional update; ``previous_revision`` is what it
+    replaced. ``receipt_id`` and ``event_id`` bind it to the receipt and audit event.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -362,11 +294,9 @@ class StackRevisionConflict(BaseModel):
 class ShareContextAccepted(BaseModel):
     """Committed outcome of a hosted ``share_context`` operation.
 
-    ``path`` is the immutable brief's store-relative location,
-    ``question_id`` the ``Q###`` id of its discovery pointer, and
-    ``content_digest`` the SHA-256 hex digest of the stored brief bytes.
-    ``receipt_id`` and ``event_id`` bind the outcome to the operation's
-    receipt and question event.
+    ``path`` is the immutable brief's store-relative location, ``question_id`` the
+    ``Q###`` of its discovery pointer, ``content_digest`` the SHA-256 of the stored
+    bytes. ``receipt_id`` and ``event_id`` bind it to the receipt and question event.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

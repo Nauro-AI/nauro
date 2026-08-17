@@ -27,21 +27,9 @@ from nauro_core.state import migrate_legacy_state, prepare_state_update
 
 
 def update_state(store: Store, delta: str) -> UpdateStateResult:
-    """Replace current state with *delta*, archiving the prior body.
-
-    Args:
-        store: Storage adapter. The kernel reads ``state_current.md`` and
-            falls back to legacy ``state.md`` via :meth:`Store.read_file`;
-            both writes go through :meth:`Store.write_file`.
-        delta: New state body. Length validation lives on the adapter
-            side — the kernel writes whatever the adapter passes through.
-
-    Returns:
-        :class:`UpdateStateResult`. ``status="ok"`` on a successful write,
-        ``status="noop"`` when the store has no existing state file
-        (the kernel early-returns without writing). ``warning``
-        carries a keyword-overlap caution when the delta heavily mirrors
-        an existing bullet in ``state_current.md``.
+    """Replace current state with *delta*, archiving the prior body to history.
+    ``status="ok"`` on a write, ``status="noop"`` when no state file exists and the
+    kernel returns without writing. ``warning`` carries a keyword-overlap caution.
     """
     current_content = store.read_file(STATE_CURRENT_FILENAME)
     using_legacy = False
@@ -67,12 +55,9 @@ def update_state(store: Store, delta: str) -> UpdateStateResult:
 
 
 def _overlap_warning(delta: str, current_content: str) -> str | None:
-    """Return a caution string when *delta* heavily mirrors a current entry.
-
-    Scans the current state body for bullet lines and flags the first one
-    that shares :data:`STATE_OVERLAP_MIN_KEYWORDS` or more non-stop-word
-    tokens with *delta*. Returns ``None`` when no qualifying overlap is
-    found.
+    """Return a caution when *delta* heavily mirrors a current-state bullet: the first
+    bullet sharing :data:`STATE_OVERLAP_MIN_KEYWORDS` or more non-stop-word tokens
+    with *delta*. ``None`` when no bullet qualifies.
     """
     delta_words = set(delta.lower().split())
     for line in current_content.split("\n"):

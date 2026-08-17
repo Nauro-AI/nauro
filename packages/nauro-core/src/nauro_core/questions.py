@@ -1,25 +1,18 @@
 """Pydantic model for open-questions.md.
 
-The authoritative shape for parsed open-questions.md content. Mirrors
+The authoritative shape for parsed open-questions.md content, mirroring
 ``decision_model.Decision``: ``OpenQuestionsFile.parse`` reads markdown,
 ``format`` writes it back, and validation lives on the model.
 
-A question entry is identified by its ``[Q###]`` prefix (sequential int
-minted by the writer as ``max(num) + 1`` against the existing store).
-The parser also accepts the legacy ``[YYYY-MM-DD HH:MM UTC]`` form so
-entries written before the Q-form rollout keep round-tripping without
-rewrite. The discriminator is which of ``num`` / ``timestamp`` is set on
-:class:`QuestionEntry`. Resolution sets ``resolved_by`` on the matching
-:class:`EntryBlock`; ``format`` then re-emits it with the ``[Resolved by
-Dnn on YYYY-MM-DD]`` prefix. The ``## Resolved`` subsection is excluded
-from L0 reads via the divider index on the parsed model.
+An entry is identified by its ``[Q###]`` prefix, minted by the writer as
+``max(num) + 1``. The parser also accepts the legacy ``[YYYY-MM-DD HH:MM UTC]``
+form, so pre-rollout entries round-trip without rewrite; the discriminator is
+which of ``num`` / ``timestamp`` is set. Resolution sets ``resolved_by`` on the
+matching ``EntryBlock``; ``format`` re-emits it with a ``[Resolved by Dnn]`` prefix.
 
-The internal shape is a flat ``blocks`` list. Each markdown line maps to
-exactly one block (``HeaderBlock``, ``ProseBlock``, ``EntryBlock``,
-``TripleHashBlock``, ``UnparsableBlock``), so ``parse → format`` is
-byte-identical for any input that doesn't pass through ``resolve``. The
-``## Resolved`` divider is positional: its block index splits the list
-into open-section and resolved-section regions.
+The internal shape is a flat ``blocks`` list, one block per markdown line, so
+``parse -> format`` is byte-identical unless the file passes through ``resolve``.
+The ``## Resolved`` divider is positional: its block index splits the regions.
 """
 
 from __future__ import annotations
@@ -48,10 +41,7 @@ QUESTION_TRUNCATION_POINTER = '... [truncated - full text: get_raw_file("open-qu
 def truncate_entry_text(text: str) -> str:
     """Cap rendered question-entry text at :data:`QUESTION_ENTRY_CHAR_BUDGET`.
 
-    Text at or under the budget is returned byte-unchanged. Over-budget
-    text is cut at the budget (trailing whitespace stripped) and ends
-    with :data:`QUESTION_TRUNCATION_POINTER`, pointing the reader at the
-    full file.
+    Text within budget is byte-unchanged; a cut ends with ``QUESTION_TRUNCATION_POINTER``.
     """
     if len(text) <= QUESTION_ENTRY_CHAR_BUDGET:
         return text
@@ -70,10 +60,9 @@ class ResolvedRef(BaseModel):
 class QuestionEntry(BaseModel):
     """A single question entry.
 
-    Open when ``resolved_by`` is None; resolved otherwise. Exactly one of
-    ``num`` (Q-form, the canonical id) or ``timestamp`` (legacy form,
-    accepted on parse so older entries round-trip without rewrite) must
-    be set; the validator below enforces this.
+    Open when ``resolved_by`` is None, resolved otherwise. Exactly one of ``num``
+    (Q-form, canonical) or ``timestamp`` (legacy, accepted on parse so older
+    entries round-trip) is set; the validator enforces it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -104,10 +93,7 @@ class QuestionEntry(BaseModel):
     def is_discovery_pointer(self) -> bool:
         """True when the body is a discovery pointer, not a question for review.
 
-        Discovery pointers (``BRIEF:``/``RESUME:``/``SELECT:`` body prefix) are
-        breadcrumbs written by the nauro-context and nauro-loop skills, not
-        questions awaiting human review. The check is on the left-stripped body
-        against :data:`POINTER_FLAG_PREFIXES`.
+        Checked on the left-stripped body against :data:`POINTER_FLAG_PREFIXES`.
         """
         return self.body.lstrip().startswith(POINTER_FLAG_PREFIXES)
 
@@ -205,11 +191,9 @@ Block = Annotated[
 class MigrationRename:
     """One legacy entry's rename, recorded by :meth:`OpenQuestionsFile.migrate`.
 
-    Attributes:
-        old_id: The legacy ``YYYY-MM-DD HH:MM UTC`` id the entry carried.
-        new_id: The minted ``Q###`` id that replaces it.
-        logged: The ``(logged YYYY-MM-DD HH:MM UTC)`` text appended to the
-            body so the human timestamp survives the id rewrite.
+    ``old_id`` is the legacy ``YYYY-MM-DD HH:MM UTC`` id, ``new_id`` the minted
+    ``Q###`` that replaces it, and ``logged`` the ``(logged ...)`` text appended to
+    the body so the human timestamp survives the rewrite.
     """
 
     old_id: str
@@ -221,13 +205,9 @@ class MigrationRename:
 class MigrationResult:
     """Outcome of :meth:`OpenQuestionsFile.migrate`.
 
-    Attributes:
-        file: A new :class:`OpenQuestionsFile` with legacy entries minted
-            into Q-form. Non-legacy blocks are the same objects as the
-            input, so a file with no legacy entries returns an unchanged
-            ``blocks`` list (idempotent).
-        renames: One :class:`MigrationRename` per legacy entry migrated, in
-            block order. Empty when nothing was migrated.
+    ``file`` is a new :class:`OpenQuestionsFile` with legacy entries minted into
+    Q-form; non-legacy blocks are the same objects, so a file with nothing to
+    migrate returns unchanged. ``renames`` holds one rename per entry, block order.
     """
 
     file: OpenQuestionsFile
@@ -265,18 +245,9 @@ class ResolveResult:
 class NormalizeResult:
     """Outcome of :meth:`OpenQuestionsFile.normalize`.
 
-    Attributes:
-        file: A new :class:`OpenQuestionsFile` with prose-safe resolved
-            entries relocated below the ``## Resolved`` divider. When
-            nothing is eligible the input file is returned unchanged
-            (identity, reuse-by-reference like :meth:`migrate`).
-        relocated_ids: Ids of the entries moved below the divider, in file
-            order. Empty when nothing was relocated.
-        skipped_prose_ids: Ids of entries that carry a ``resolved_by``
-            annotation and sit above the divider but were left in place
-            because a non-blank block trails them (a real body paragraph,
-            triple-hash topic, or unparsable line). Empty when no eligible
-            entry was blocked by prose.
+    ``file`` relocates prose-safe resolved entries below the ``## Resolved`` divider,
+    returning the input unchanged when nothing is eligible. ``relocated_ids`` names
+    what moved, in file order; ``skipped_prose_ids`` what trailing prose held back.
     """
 
     file: OpenQuestionsFile
@@ -426,10 +397,7 @@ class OpenQuestionsFile(BaseModel):
     def genuine_open_entries(self) -> list[QuestionEntry]:
         """Unresolved entries that are not discovery pointers, in file order.
 
-        The genuinely-open questions a human should see: the
-        :attr:`unresolved_entries` set (``resolved_by`` unset,
-        annotation-authoritative) minus the discovery-pointer breadcrumbs
-        (:attr:`QuestionEntry.is_discovery_pointer`).
+        The genuinely-open questions a human should see; ``resolved_by`` is authoritative.
         """
         return [e for e in self.unresolved_entries if not e.is_discovery_pointer]
 
@@ -437,9 +405,7 @@ class OpenQuestionsFile(BaseModel):
     def discovery_pointers(self) -> list[QuestionEntry]:
         """Unresolved entries that are discovery pointers, in file order.
 
-        The complement of :attr:`genuine_open_entries` within
-        :attr:`unresolved_entries`: ``BRIEF:``/``RESUME:``/``SELECT:``
-        breadcrumbs that are still open but are not questions for human review.
+        The complement of :attr:`genuine_open_entries`: breadcrumbs, not questions.
         """
         return [e for e in self.unresolved_entries if e.is_discovery_pointer]
 
@@ -447,9 +413,7 @@ class OpenQuestionsFile(BaseModel):
     def numbered_entries(self) -> list[QuestionEntry]:
         """Entries carrying a ``Q`` number, resolved history included, in file order.
 
-        The allocation domain for minting the next ``Q###``: a number stays
-        reserved for the file's lifetime, so resolved entries participate.
-        Legacy timestamp-form entries carry no number and are absent.
+        The allocation domain for the next ``Q###``: a number stays reserved for life.
         """
         return [
             b.entry for b in self.blocks if isinstance(b, EntryBlock) and b.entry.num is not None
@@ -470,10 +434,7 @@ class OpenQuestionsFile(BaseModel):
     def ambiguous_ids(self) -> dict[str, int]:
         """EntryBlock ids that appear more than once in the file (id -> count).
 
-        Legacy timestamp ids can collide when two questions were logged
-        in the same minute. Q-form ids should be unique by construction,
-        but the property reports any collision so the boundary can reject
-        before mutation.
+        Legacy timestamp ids can collide within a minute, so a boundary can reject first.
         """
         counts: dict[str, int] = {}
         for b in self.blocks:
@@ -546,24 +507,9 @@ class OpenQuestionsFile(BaseModel):
         )
 
     def migrate(self) -> MigrationResult:
-        """Mint a ``Q###`` id for every legacy ``[timestamp]`` entry.
-
-        A legacy entry is an :class:`EntryBlock` whose ``QuestionEntry`` has
-        ``timestamp`` set and ``num`` unset. Each such entry is reassigned
-        the next sequential id — ``max(num across the whole file) + 1``,
-        continuing past any existing Q ids — with ``timestamp`` cleared and
-        the original timestamp appended to the body as
-        ``(logged YYYY-MM-DD HH:MM UTC)``.
-
-        A resolved legacy entry keeps its ``resolved_by`` prefix; only the
-        ``[<timestamp>]`` id segment becomes ``[Q###]`` because
-        :meth:`QuestionEntry.render` builds the head from model fields.
-        Entries are never reordered — an entry physically under
-        ``## Resolved`` stays there with its id rewritten.
-
-        Only touched legacy entries are ``model_copy``'d; every other block
-        is reused by reference, so a file that is already all-Q-form returns
-        an unchanged ``blocks`` list and empty ``renames`` (idempotent).
+        """Mint a ``Q###`` id for every legacy ``[timestamp]`` entry: each takes
+        ``max(num across the file) + 1``, clears its timestamp into a ``(logged ...)``
+        body suffix, and stays in place. Only touched entries copy, so it is idempotent.
         """
         next_num = (
             max(
@@ -741,9 +687,7 @@ def _parse_header(lines: list[str], i: int) -> tuple[str, int]:
 def _parse_entry(lines: list[str], start: int) -> tuple[QuestionEntry | None, int]:
     """Parse a single ``- [...] body`` entry starting at ``lines[start]``.
 
-    Returns ``(entry, lines_consumed)``. ``entry`` is None when the line
-    can't be parsed; the caller is responsible for preserving the original
-    line (typically as an :class:`UnparsableBlock`).
+    Returns ``(entry, lines_consumed)``; ``entry`` is None when the line does not parse.
     """
     line = lines[start]
     if not line.startswith("- ["):
@@ -798,13 +742,9 @@ def _parse_entry(lines: list[str], start: int) -> tuple[QuestionEntry | None, in
 
 
 def _parse_q_id(text: str) -> int | None:
-    """Parse a ``Q\\d+`` id string into the integer num, or None.
+    """Parse a ``Q<digits>`` id string into the integer num, or None.
 
-    Plain string ops — file style avoids regex per ``_extract_embedded_id``.
-    Mirrors :class:`QuestionEntry`'s ``num`` ``ge=1`` constraint at the
-    parse layer so a literal ``[Q0]`` line degrades to ``UnparsableBlock``
-    via the strptime fallback rather than raising ``ValidationError`` out
-    of ``_parse_entry``.
+    Mirrors ``QuestionEntry``'s ``ge=1`` bound, so ``[Q0]`` degrades to unparsable.
     """
     if len(text) < 2 or text[0] != "Q":
         return None
@@ -838,8 +778,7 @@ def _parse_resolved_prefix(text: str) -> ResolvedRef | None:
 def _extract_embedded_id(line: str) -> str | None:
     """Find a ``[Q###]`` or ``[YYYY-MM-DD HH:MM UTC]`` substring in ``line``.
 
-    Returns the inner id text if either grammar parses, else None. Plain
-    string ops (no regex).
+    Returns the inner id text if either grammar parses, else ``None``. No regex.
     """
     start = line.find("[")
     while start != -1:

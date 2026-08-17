@@ -1,31 +1,18 @@
-"""Shared shape validators for identifiers that cross the local/hosted seam.
+"""Shape validators for identifiers that cross the local/hosted seam.
 
-The provenance ruling requires one definition of every new identifier shape,
-used by local and hosted parsing alike, so journal targets, receipts,
-projection rows, and audit records cannot drift apart and every encoded
-identifier has a predictable maximum size. The alphabet-only local project-ID
-check is deliberately not reused here.
+One definition per shape, so journal targets, receipts, projection rows, and
+audit records cannot drift and every encoded identifier has a bounded size. The
+alphabet-only local project-ID check is deliberately not reused here. Matching
+is always whole-value, so a trailing newline never passes.
 
-The kinds:
-
-- ``ulid`` - server-generated identifiers (proposal, question event, report
-  event, audit event, receipt, generation, invitation): 26-character
-  uppercase Crockford ULIDs.
-- ``operation_id`` - client-supplied operation identifiers: 1 to 128
-  printable ASCII characters.
-- ``server_token`` - closed server-owned tokens (operation kinds, audit
-  actions, target kinds, system reasons, execution modes, transition
-  values): a lowercase letter followed by lowercase letters, digits,
-  or underscores, at most 64 characters.
-- ``audit_target_id`` - stable opaque audit target identifiers: 1 to 128
-  printable ASCII characters, never an alias or free text.
-- ``brief_slug`` - shared-context brief names mapping to
-  ``context/<slug>.md``: 1 to 120 lowercase ASCII letters and digits with
-  internal hyphens only (never leading or trailing).
-- ``stack_revision`` - stack.md content revisions: a lowercase 64-character
-  SHA-256 hex digest, or the literal absent token for a missing file.
-
-Matching is always whole-value, so a trailing newline never passes.
+- ``ulid``: 26-character uppercase Crockford ULID, server-generated.
+- ``operation_id``: 1 to 128 printable ASCII characters, client-supplied.
+- ``server_token``: a lowercase letter then lowercase letters, digits, or
+  underscores, at most 64 characters; server-owned closed vocabularies.
+- ``audit_target_id``: 1 to 128 printable ASCII characters, never free text.
+- ``brief_slug``: 1 to 120 lowercase letters and digits, internal hyphens only.
+- ``stack_revision``: a lowercase 64-character SHA-256 hex digest, or the
+  literal absent token.
 """
 
 from __future__ import annotations

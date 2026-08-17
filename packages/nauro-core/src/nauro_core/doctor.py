@@ -1,37 +1,18 @@
 """Deterministic store-integrity diagnosis for ``nauro doctor``.
 
-``diagnose_store`` reads a project store through the :class:`Store` protocol
-and reports four kinds of *blocking* structural defect in the decision set:
+``diagnose_store`` reads a store through the :class:`Store` protocol and reports
+four blocking defects: unparseable decision files, dangling supersession refs,
+supersession cycles over both ref directions, and status contradictions.
 
-    1. Unparseable decision files.
-    2. Dangling supersession refs — a ``supersedes``/``superseded_by`` value
-       pointing at a decision number with no file on disk.
-    3. Supersession cycles — a directed cycle over the union of both ref
-       directions, self-loops included.
-    4. Status contradictions — an active decision carrying ``superseded_by``,
-       or a forward/back conflict where ``X.supersedes=Y`` while ``Y`` records
-       ``superseded_by=Z`` naming a third, present decision.
-
-Alongside those it reports one *repairable* defect: a supersede backref orphan,
-an active decision whose ``supersedes`` target is itself still active and
-carries no reciprocal ``superseded_by``. Severity is split deliberately.
-:attr:`StoreDiagnosis.is_clean` stays bound to the four blocking categories
-above and is unmoved by an orphan, because an orphan is a recoverable
-half-write rather than a store a reader cannot trust; it is surfaced through
-:attr:`StoreDiagnosis.has_repairable_defects` instead, and ``nauro repair``
-is the gated action that closes it.
-
-It also surfaces unknown frontmatter keys — keys the reader tolerates and
-preserves but does not model. This is advisory, not a defect: the tolerant
-reader accepts them by design, so they do not make a store unclean.
+Alongside those it reports one repairable defect, the supersede backref orphan,
+and advisory unknown frontmatter keys. :attr:`StoreDiagnosis.is_clean` is bound
+to the blocking four only: an orphan is a recoverable half-write surfaced
+through :attr:`StoreDiagnosis.has_repairable_defects` and closed by the gated
+``nauro repair``, and tolerated unknown keys are accepted by design.
 
 Every check is zero-false-positive by construction and the output is fully
-sorted, so two diagnoses over the same store are identical. The module stands
-apart from ``graph.py``: that builder's edge collection keeps only live
-endpoints and drops self-edges, which are exactly the anomalies this reports.
-
-Pure: no I/O beyond the Store reads, no clock, no randomness. It is imported
-submodule-only and is deliberately not part of ``nauro_core.__all__``.
+sorted, so two diagnoses over the same store are identical. Pure: no I/O beyond
+the Store reads, no clock, no randomness. Imported submodule-only.
 """
 
 from __future__ import annotations
@@ -84,14 +65,9 @@ class SupersessionCycle(BaseModel):
 class StatusContradiction(BaseModel):
     """A decision whose status and supersession fields disagree.
 
-    Two shapes, discriminated by ``kind``:
-
-    - ``active_with_superseded_by``: ``decision`` is active yet carries
-      ``superseded_by=other``.
-    - ``forward_back_conflict``: ``decision`` records ``supersedes=other``,
-      but ``other`` records ``superseded_by=conflicting_with`` naming a third,
-      present decision rather than ``decision``. ``conflicting_with`` is unset
-      for the first shape.
+    ``active_with_superseded_by``: ``decision`` is active yet carries
+    ``superseded_by=other``. ``forward_back_conflict``: ``decision`` records
+    ``supersedes=other``, but ``other`` names a third decision in ``conflicting_with``.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -145,9 +121,7 @@ class StoreDiagnosis(BaseModel):
     def is_clean(self) -> bool:
         """True when no blocking defect was found.
 
-        Bound to the four blocking categories only. Unknown frontmatter keys
-        are advisory, and supersede backref orphans are repairable, so neither
-        makes a store unclean.
+        Unknown frontmatter keys are advisory and orphans repairable, so neither counts.
         """
         return not (self.unparseable or self.dangling_refs or self.cycles or self.contradictions)
 
@@ -205,10 +179,9 @@ def _unknown_frontmatter_keys(parsed: list[Decision]) -> list[UnknownFrontmatter
 
 
 def _index_by_num(parsed: list[Decision]) -> dict[int, Decision]:
-    """Map each decision number to its parsed decision, first stem wins.
+    """Map each decision number to its parsed decision, first stem in scan order wins.
 
-    Duplicate numbers are a separate anomaly this command does not report; the
-    first occurrence in scan order is kept so target lookups are deterministic.
+    Duplicate numbers are a separate anomaly this command does not report.
     """
     by_num: dict[int, Decision] = {}
     for d in parsed:
@@ -231,14 +204,9 @@ def _dangling_refs(parsed: list[Decision], existing_numbers: set[int]) -> list[D
 
 
 def _cycles(parsed: list[Decision]) -> list[SupersessionCycle]:
-    """Detect directed cycles over the union of both ref directions.
-
-    ``supersedes: Y`` on decision N yields the edge ``N -> Y``;
-    ``superseded_by: X`` on decision N yields ``X -> N`` (X is newer, so X
-    supersedes N). A reciprocal pair collapses to one directed edge and is not
-    a cycle. Detection is by strongly connected component: an SCC of two or
-    more nodes always contains a directed cycle, and a single node with a
-    self-edge is a length-one cycle, so no acyclic chain can be flagged.
+    """Detect directed cycles over both ref directions: ``supersedes: Y`` on N yields
+    ``N -> Y``, ``superseded_by: X`` yields ``X -> N``. By strongly connected
+    component, so a reciprocal pair is never a cycle and a self-edge always is.
     """
     adjacency: dict[int, set[int]] = {}
     for d in parsed:
@@ -261,9 +229,7 @@ def _cycles(parsed: list[Decision]) -> list[SupersessionCycle]:
 def _strongly_connected_components(adjacency: dict[int, set[int]]) -> list[list[int]]:
     """Tarjan's SCC, iterative to avoid recursion limits on long chains.
 
-    Neighbors are visited in sorted order so traversal is deterministic; SCC
-    membership is order-independent regardless, but a stable walk keeps the
-    output reproducible.
+    Neighbors are visited in sorted order so the walk stays reproducible.
     """
     index_of: dict[int, int] = {}
     low: dict[int, int] = {}
@@ -316,20 +282,9 @@ def _contradictions(
     by_num: dict[int, Decision],
     existing_numbers: set[int],
 ) -> list[StatusContradiction]:
-    """Status/supersession contradictions. Sorted.
-
-    Two shapes:
-
-    (i) An active decision carrying a ``superseded_by`` value.
-
-    (ii) A forward/back conflict anchored on the forward edge only: ``X``
-    records ``supersedes=Y`` while ``Y`` records ``superseded_by=Z`` with ``Z``
-    present on disk and ``Z != X``. Anchoring on the forward edge is the
-    load-bearing guard for the one-to-many retirement convention (one forward
-    root, other members back-only ``superseded_by``): a back-only member has no
-    forward edge, so it is never examined and never flagged. Requiring ``Z``
-    present keeps a dangling ``superseded_by`` reported once (as dangling)
-    rather than also here.
+    """Status contradictions, sorted: an active decision carrying ``superseded_by``, and
+    a forward/back conflict where the target's ``superseded_by`` names a third present
+    decision. Only forward edges are anchored, so back-only retirement members pass.
     """
     rows: list[StatusContradiction] = []
     for d in parsed:
@@ -366,23 +321,9 @@ def _supersede_orphans(
     stem_counts: Mapping[int, int],
     cycles: list[SupersessionCycle],
 ) -> list[SupersedeOrphan]:
-    """Half-written supersessions: forward edge present, backref absent. Sorted.
-
-    A row is emitted only when every one of these holds, so the finding names a
-    single unambiguous pair of files and nothing else:
-
-    - the child parses and is still active, and records ``supersedes=target``;
-    - ``target`` is not the child's own number (a self-reference is a cycle);
-    - exactly one on-disk stem carries each side's number, so both the file to
-      repair and the decision claiming it are unambiguous. The child-side guard
-      is what keeps one shape from reporting twice: two parseable files sharing
-      a number and a forward edge are one duplicate-number defect, not two
-      orphans;
-    - the target's file parses, is still active, and carries no
-      ``superseded_by``.
-
-    A candidate whose child or target belongs to a reported cycle is suppressed:
-    the cycle is the defect there, and every defect is reported once.
+    """Half-written supersessions, sorted: an active child records ``supersedes=target``
+    and the target parses, is active, and carries no ``superseded_by``. Emitted only
+    for one stem per number, no self-reference, and neither side in a reported cycle.
     """
     cycle_members = {member for cycle in cycles for member in cycle.members}
     rows: list[SupersedeOrphan] = []

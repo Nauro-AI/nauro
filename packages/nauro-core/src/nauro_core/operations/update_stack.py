@@ -23,11 +23,9 @@ from nauro_core.operations.planning import PlanRejected, canonical_payload_bytes
 
 
 def compute_stack_revision(content: bytes | None) -> str:
-    """Return the stack revision for *content*.
-
-    The lowercase SHA-256 hex digest of the exact bytes; ``None`` (no file)
-    returns the literal absent token. Every surface that forms or checks a
-    stack precondition computes the revision through this function.
+    """Return the stack revision for *content*: the lowercase SHA-256 hex digest of
+    the exact bytes, or the literal absent token for ``None``. Every surface that
+    forms or checks a stack precondition computes the revision here.
     """
     if content is None:
         return STACK_REVISION_ABSENT
@@ -37,13 +35,9 @@ def compute_stack_revision(content: bytes | None) -> str:
 class UpdateStackPlan(BaseModel):
     """Frozen execution plan for one accepted ``update_stack`` payload.
 
-    ``content`` is the validated complete replacement document; the server
-    stores its exact UTF-8 encoding with no normalization. ``new_revision``
-    is the revision the store carries after the write commits.
-    ``expected_revision`` echoes the caller's precondition (a revision hex
-    digest, the absent token for create-only, or ``None`` when no
-    precondition was supplied). ``payload_bytes`` is the canonical JSON
-    payload encoding — the single-sourced idempotency digest input.
+    ``content`` is the validated replacement document, stored in exact UTF-8 with no
+    normalization. ``new_revision`` is what the store carries after the commit,
+    ``expected_revision`` the caller's precondition, ``payload_bytes`` the digest input.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -57,23 +51,9 @@ class UpdateStackPlan(BaseModel):
 
 
 def update_stack(content: str, expected_revision: str | None = None) -> UpdateStackPlan:
-    """Validate a full stack.md replacement and return its frozen plan.
-
-    Args:
-        content: The complete replacement document. Must be UTF-8-encodable
-            Markdown text without NUL characters, at most
-            :data:`~nauro_core.constants.STACK_DOC_CHAR_LIMIT` characters.
-        expected_revision: Optional precondition — the stack revision the
-            caller observed, or the absent token when creating a previously
-            missing file. Validated but never resolved here; the server
-            compares it against the current revision at execution.
-
-    Returns:
-        :class:`UpdateStackPlan` on acceptance.
-
-    Raises:
-        PlanRejected: On any Tier-1 validation failure. No plan exists and
-            nothing may be written.
+    """Validate a full stack.md replacement into a frozen plan: ``content`` must be clean
+    UTF-8 Markdown within ``STACK_DOC_CHAR_LIMIT``, and ``expected_revision`` is
+    validated but compared later. ``PlanRejected`` means no plan and nothing writable.
     """
     if "\x00" in content:
         raise PlanRejected("content contains a NUL character.")

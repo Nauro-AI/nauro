@@ -26,17 +26,9 @@ def list_decisions(
     limit: int = 20,
     include_superseded: bool = False,
 ) -> ListDecisionsResult:
-    """Return decision summaries sorted by number descending.
+    """Return decision summaries sorted by number descending, sliced to ``limit``.
 
-    Args:
-        store: Storage adapter providing ``list_decisions`` / ``read_decision``.
-        limit: Maximum number of rows to return.
-        include_superseded: When ``False`` (default), drop rows whose
-            status is ``superseded``; when ``True``, retain them.
-
-    Returns:
-        :class:`ListDecisionsResult` with ``decisions`` populated. Rows
-        are sorted by decision number descending and sliced to ``limit``.
+    ``include_superseded`` retains ``superseded`` rows; the default drops them.
     """
     decisions = parse_all_decisions(store)
 

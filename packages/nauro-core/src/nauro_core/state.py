@@ -29,10 +29,9 @@ _STATE_HISTORY_SEPARATOR: Final[str] = "\n\n# State History\n\n"
 class StateUpdateResult:
     """Result of preparing a state update.
 
-    Attributes:
-        current_content: Full content to write to state_current.md.
-        history_entry: Formatted block to append to state_history.md,
-            or None if there was no prior state to archive.
+    ``current_content`` is the full body to write to state_current.md.
+    ``history_entry`` is the block to append to state_history.md, or ``None`` when
+    there was no prior state to archive.
     """
 
     current_content: str
@@ -59,13 +58,9 @@ def _strip_current_header_footer(content: str) -> str:
 
 
 def prepare_state_update(new_state: str, current_content: str | None) -> StateUpdateResult:
-    """Prepare a state update for the split state files.
-
-    Pure function, zero I/O. Takes the new state text and the current content
-    of state_current.md (None if the file doesn't exist yet).
-
-    Returns a StateUpdateResult with the new current content and an optional
-    history entry to append to state_history.md.
+    """Prepare a state update for the split state files; pure, zero I/O. Takes the new
+    state text and the current ``state_current.md`` content (``None`` when it does
+    not exist) and returns the new body plus an optional history entry.
     """
     timestamp = _utc_timestamp()
 
@@ -86,9 +81,7 @@ def prepare_state_update(new_state: str, current_content: str | None) -> StateUp
 def migrate_legacy_state(legacy_content: str) -> StateUpdateResult:
     """Convert a pre-upgrade state.md into the split-state format.
 
-    Returns a StateUpdateResult where current_content is the legacy content
-    as-is (becomes state_current.md) and history_entry is None (no history
-    to archive on first migration).
+    ``current_content`` is the legacy content as-is and ``history_entry`` is ``None``.
     """
     return StateUpdateResult(current_content=legacy_content, history_entry=None)
 
@@ -98,16 +91,9 @@ def assemble_state_for_context(
     history_content: str | None,
     include_history: bool = False,
 ) -> str | None:
-    """Assemble state content for context payloads.
-
-    Args:
-        current_content: Content of state_current.md (or None).
-        history_content: Content of state_history.md (or None).
-        include_history: If False, returns current_content only (L0/L1).
-            If True, concatenates both with a separator (L2).
-
-    Returns:
-        Assembled state string, or None if both inputs are None.
+    """Assemble state content for context payloads: ``include_history`` False returns
+    ``current_content`` alone (L0/L1), True appends ``history_content`` after a
+    separator (L2). Returns ``None`` when both inputs are None.
     """
     if not include_history:
         return current_content

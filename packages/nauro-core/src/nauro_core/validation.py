@@ -272,11 +272,9 @@ _ENVELOPE_TOKENS: tuple[str, ...] = (
 
 
 def find_envelope_token(text: str) -> str | None:
-    """Return the first envelope token present in *text*, or None.
+    """Return the first envelope token present in *text*, or ``None``.
 
-    The check is a literal substring scan against a small, closed token set
-    — these are tool-use envelope fragments that must never reach the store.
-    Plain string operations only.
+    A literal substring scan over a small closed token set. Plain string ops only.
     """
     if not text:
         return None
@@ -289,10 +287,7 @@ def find_envelope_token(text: str) -> str | None:
 def envelope_token_message(value: str, field_name: str) -> str | None:
     """Return the rejection reason if *value* carries an envelope fragment, else None.
 
-    Wraps ``find_envelope_token``: on a hit, returns the full reason string
-    naming the offending *field_name* and the detected token; on no hit,
-    returns None. Both MCP transports share this builder so the message agents
-    see does not drift by transport. Pure — no I/O.
+    Wraps :func:`find_envelope_token`, naming *field_name* and the detected token.
     """
     token = find_envelope_token(value)
     if not token:

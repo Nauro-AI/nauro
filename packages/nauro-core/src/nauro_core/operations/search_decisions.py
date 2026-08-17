@@ -31,25 +31,9 @@ def search_decisions(
     include_superseded: bool = False,
     use_embeddings: bool = False,
 ) -> SearchDecisionsResult:
-    """Return BM25-ranked decisions for ``query``.
-
-    Args:
-        store: Storage adapter providing ``list_decisions`` / ``read_decision``.
-        query: Search text. Empty or whitespace-only is rejected.
-        limit: Maximum number of hits to return.
-        include_superseded: When False (default), only active decisions are
-            ranked. When True, superseded decisions are ranked as well.
-        use_embeddings: When True, augment the BM25 result with the optional
-            embedding retriever (union). Resolved by the adapter from
-            env/config; the kernel stays I/O-free. Fail-open: if the optional
-            dependency is absent the result is BM25-only.
-
-    Returns:
-        :class:`SearchDecisionsResult` with ``results`` populated on the
-        success path (sorted by BM25 score descending, truncated to
-        ``limit`` against the filtered set). On an empty/whitespace query,
-        ``error`` is populated with ``kind="rejected"`` and ``results``
-        stays empty.
+    """Return BM25-ranked decisions for ``query``, score descending, truncated to
+    ``limit`` against the status-filtered set. ``include_superseded`` also ranks
+    superseded rows; ``use_embeddings`` unions a pool, fail-open. Empty query rejects.
     """
     if not query or not query.strip():
         return SearchDecisionsResult(
@@ -114,18 +98,9 @@ def _append_embedding_hits(
     limit: int,
     bm25_hits: list[SearchHit],
 ) -> list[SearchHit]:
-    """Blend embedding-only hits into the BM25 result, bounded by ``limit``.
-
-    BM25 hits keep their order and shape; embedding-only decisions BM25 did not
-    surface are appended with ``score=0.0`` (no BM25 score) so the row stays
-    serializable. The augmenter is fail-open: an absent dependency yields an
-    empty pool and the BM25 hits pass through unchanged.
-
-    ``limit`` is honored as a hard cap. Up to ``_EMBEDDING_RESERVED_SLOTS`` of
-    those slots are reserved for embedding-only hits, so they survive even when
-    BM25 already returned a full ``limit`` set; the BM25 list is trimmed only as
-    far as needed to make room and never below the slots embeddings actually
-    fill. When BM25 underfills ``limit`` no trimming happens.
+    """Blend embedding-only hits into the BM25 result under a hard ``limit``: BM25 hits
+    keep order and shape, embedding-only decisions append with ``score=0.0`` into up
+    to ``_EMBEDDING_RESERVED_SLOTS`` slots, trimming BM25 only as far as those fill.
     """
     from nauro_core.embeddings import embedding_pool
 

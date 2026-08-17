@@ -1,37 +1,17 @@
 """Human-readable renderers for MCP read-tool responses.
 
-Each renderer is a pure function: takes the result dict that the
-``tools_read`` adapter (or ``list_user_projects``) produced and returns a
-formatted text block intended for chat-UI consumption. The dispatcher
-emits the rendered text as the sole ``content[0]`` block of the MCP
-``tools/call`` response.
+Each renderer is a pure function: it takes the result dict the ``tools_read``
+adapter produced and returns a formatted text block for chat-UI consumption,
+which the dispatcher emits as the sole ``content[0]`` block of the
+``tools/call`` response. Renderers do no I/O and never mutate the input.
 
-Renderers must not perform I/O, hit S3/DDB, or import anything that
-would. They must not mutate the input dict.
-
-Per-tool surface area:
-
-* ``check_decision`` — a single honest lead line (count + call-to-action +
-  lexical-rank caveat), then a header-equivalent triage block per hit:
-  label/status/score line, untruncated title, date + type + confidence
-  line, supersession refs when present, and the rationale lede as a
-  wrapped paragraph. The agent-facing call-to-action in the lead comes
-  from the upstream ``assessment`` field.
-* ``get_decision`` — light header on top of the markdown body the kernel
-  already returns.
-* ``search_decisions`` — query echo, then a ranked short list of hits
-  with snippet for each.
-* ``list_decisions`` — short tabular list of ``(D###, status, title)``
-  rows. Empty-state guidance flows through unchanged.
-* ``get_context`` — passthrough; the kernel-assembled markdown is already
-  human-readable.
-* ``get_raw_file`` — hit: the file content verbatim; miss: the
-  ``Error: File not found`` line plus the ``available_files`` hint in
-  its composed order.
-* ``diff_since_last_session`` — passthrough of the rendered diff body,
-  including the canonical sentinel strings byte-for-byte.
-* ``list_projects`` — short tabular list of ``(name, role, project_id)``
-  rows so the agent can disambiguate without re-fetching.
+``check_decision`` renders a lead line (count, call-to-action, lexical-rank
+caveat) then a header-equivalent triage block per hit. ``get_decision``,
+``search_decisions``, ``list_decisions`` and ``list_projects`` add light
+headers or short tabular listings. ``get_context`` and
+``diff_since_last_session`` pass through, the latter byte-transparent to its
+canonical sentinel strings. ``get_raw_file`` emits the content verbatim, or the
+not-found line plus the ``available_files`` hint.
 """
 
 from __future__ import annotations
@@ -134,12 +114,9 @@ def _connection_guidance(result: dict) -> str:
 
 
 def render_check_decision(result: dict) -> str:
-    """Render a related-decision result for chat-UI consumption.
-
-    Empty-store and zero-hit assessments flow through unchanged. The
-    rendered list pulls structure from ``related_decisions`` so the
-    top-match marker and triage headers render even when an upstream
-    assessment-string edit drifts.
+    """Render a related-decision result for chat-UI consumption. Empty-store and
+    zero-hit assessments pass through unchanged; structure comes from
+    ``related_decisions``, so the markers survive an assessment-string edit.
     """
     if guidance := _connection_guidance(result):
         return guidance
@@ -180,14 +157,9 @@ def render_check_decision(result: dict) -> str:
 
 
 def _check_hit_block(hit: dict, *, is_top: bool) -> list[str]:
-    """Render one hit as a header-equivalent triage block.
-
-    Layout mirrors ``get_decision``'s header mode so the inline hit is a
-    full substitute for a ``mode=header`` follow-up call: label/status/
-    score line, the untruncated title (deliberately exempt from the
-    tabular ``_TITLE_BUDGET`` — parity with the header projection requires
-    the whole title), the date/type/confidence line, supersession refs
-    only when present, and the rationale lede as a wrapped paragraph.
+    """Render one hit as a header-equivalent triage block, mirroring
+    ``get_decision``'s header mode so it substitutes for a ``mode=header`` call:
+    the title is untruncated and supersession refs appear only when present.
     """
     label = _id_to_label(hit.get("id", ""))
     status = hit.get("status", "")
@@ -251,11 +223,7 @@ def _extract_call_to_action(assessment: str) -> str:
 def render_get_decision(result: dict, mode: str = "full") -> str:
     """Render a decision body.
 
-    For ``mode="full"`` the kernel returns the verbatim markdown body;
-    surface it under a one-line header so chat clients see the title at a
-    glance. For ``mode="header"`` the kernel already returns the compact
-    projection (triage frontmatter + title + lede), so emit it as-is — a
-    second title header would duplicate the projection's own title line.
+    ``mode="full"`` gets a one-line title header; ``mode="header"`` is emitted as-is.
     """
     if guidance := _connection_guidance(result):
         return guidance
@@ -279,8 +247,7 @@ def render_get_decision(result: dict, mode: str = "full") -> str:
 def _decision_title_header(body: str) -> str:
     """Pull the ``# NNN - Title`` line from a decision body.
 
-    Returns an empty string when the body is malformed or missing a
-    decision-style heading.
+    Returns ``""`` when the body is malformed or carries no decision-style heading.
     """
     for line in body.splitlines():
         stripped = line.lstrip()
@@ -467,11 +434,7 @@ def render_get_raw_file(result: dict, path: str | None = None) -> str:
 def render_diff_since_last_session(result: dict) -> str:
     """Render a session diff.
 
-    The kernel/adapter ``diff`` body is already human-readable text and
-    passes through verbatim: the canonical sentinel strings ("No
-    snapshots available.", "Not enough snapshots...", "Only one snapshot
-    covers...") and the anchor line are cross-surface contracts, so the
-    renderer must stay byte-transparent to them.
+    The ``diff`` body passes through verbatim; its sentinels are cross-surface contracts.
     """
     if guidance := _connection_guidance(result):
         return guidance

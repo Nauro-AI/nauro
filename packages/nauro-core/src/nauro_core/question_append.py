@@ -14,12 +14,9 @@ from nauro_core.questions import OpenQuestionsFile
 
 
 def allocate_question_number(parsed: OpenQuestionsFile) -> int:
-    """Return the next sequential ``Q`` number for *parsed*.
-
-    One past the highest numbered entry anywhere in the file
-    (:attr:`~nauro_core.questions.OpenQuestionsFile.numbered_entries`, so
-    resolved history participates and a released number is never reused);
-    an empty or number-free file allocates ``1``.
+    """Return the next sequential ``Q`` number for *parsed*: one past the highest number
+    anywhere in the file, resolved history included, so a released number is never
+    reused. A number-free file allocates ``1``.
     """
     return max((entry.num for entry in parsed.numbered_entries), default=0) + 1
 

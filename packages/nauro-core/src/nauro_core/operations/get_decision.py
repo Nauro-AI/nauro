@@ -1,20 +1,15 @@
 """``get_decision`` — return the body of a decision by number.
 
-Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
-all call this function with the same arguments and receive the same
-:class:`GetDecisionResult`. Each transport's adapter wraps the call to
-add transport-specific framing such as the ``store`` field;
-the lookup itself is shared by construction.
+Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP all
+call this function and receive the same :class:`GetDecisionResult`. Each
+adapter adds transport-specific framing such as the ``store`` field.
 
-``mode`` selects how much of the decision the ``content`` field carries:
+``mode`` selects how much of the decision ``content`` carries:
 
-* ``"full"`` (default) — the verbatim markdown body, unchanged.
-* ``"header"`` — a compact projection (triage frontmatter fields, the
-  title, and a short lede from the ``## Decision`` section) for cheap
-  standalone triage of decisions surfaced by ``search_decisions`` or
-  ``list_decisions`` (``check_decision`` hits carry these headers
-  inline). The projection rides in the existing ``content`` field; the
-  result model shape is the same for both modes.
+* ``"full"`` (default) — the verbatim markdown body.
+* ``"header"`` — a compact projection (triage frontmatter, title, and a short
+  lede) for cheap standalone triage. It rides in the same ``content`` field, so
+  the result shape is identical for both modes.
 """
 
 from __future__ import annotations
@@ -47,25 +42,9 @@ def get_decision(
     number: int,
     mode: Literal["header", "full"] = "full",
 ) -> GetDecisionResult:
-    """Return the decision matching ``number``, or a not-found error.
-
-    Status filtering (active vs superseded) belongs to ``list_decisions``;
-    ``get_decision`` resolves the exact number regardless of status so
-    callers can still inspect the rationale of a superseded decision.
-
-    Args:
-        store: Storage adapter providing ``list_decisions`` / ``read_decision``.
-        number: Decision number to resolve. Matched against the leading
-            integer of each decision stem via
-            :func:`nauro_core.parsing.extract_decision_number`.
-        mode: ``"full"`` returns the verbatim markdown body; ``"header"``
-            returns the compact triage projection.
-
-    Returns:
-        :class:`GetDecisionResult`. On a hit ``content`` holds the markdown
-        body (``full``) or the projected block (``header``). On a miss
-        ``error`` is populated with ``kind="error"`` and a reason that
-        names the number.
+    """Return the decision matching ``number``, or a not-found error. Status is not
+    filtered, so a superseded decision resolves like any other. ``mode="header"``
+    returns the compact triage projection instead of the verbatim body.
     """
     for stem in store.list_decisions():
         parsed = extract_decision_number(stem)
@@ -89,17 +68,9 @@ def get_decision(
 
 
 def _project_header(decision: Decision) -> str:
-    """Build the compact header projection for a parsed decision.
-
-    Layout (blocks joined by a blank line):
-
-        <ordered triage frontmatter lines>
-        # NNN — Title
-        <lede>            (omitted when the first ## Decision paragraph is empty)
-
-    The empty-lede guard keeps supersession stubs and other bodies whose
-    ``## Decision`` section opens with whitespace from emitting a dangling
-    blank lede block.
+    """Build the compact header projection: ordered triage frontmatter lines, the
+    ``# NNN — Title`` line, then the lede, joined by blank lines. The lede block is
+    omitted when the first ``## Decision`` paragraph is empty.
     """
     frontmatter_lines: list[str] = []
     for field in _HEADER_FRONTMATTER_FIELDS:

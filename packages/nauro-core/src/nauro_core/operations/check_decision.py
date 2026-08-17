@@ -45,21 +45,9 @@ def check_decision(
     context: str | None = None,
     use_embeddings: bool = False,
 ) -> CheckDecisionResult:
-    """Return related-decision retrieval and assessment for ``proposed_approach``.
-
-    Args:
-        store: Storage adapter providing ``list_decisions`` / ``read_decision``.
-        proposed_approach: Free-form description of the approach to check.
-        context: Optional additional context concatenated into the retrieval
-            query. Subject to ``MAX_CONTEXT_LENGTH``.
-        use_embeddings: When True, augment the BM25 candidate pool with the
-            optional embedding retriever (union). Resolved by the adapter from
-            env/config; the kernel stays I/O-free. Fail-open: if the optional
-            dependency is absent the result is BM25-only.
-
-    Returns:
-        :class:`CheckDecisionResult`. On the rejection path ``error`` is
-        populated and ``related_decisions`` / ``assessment`` stay empty.
+    """Return related-decision retrieval and a deterministic assessment for
+    ``proposed_approach``, with ``context`` concatenated into the retrieval query and
+    length-bounded. ``use_embeddings`` unions an embedding pool, fail-open.
     """
     rejection = check_content_length(proposed_approach, "Proposed approach", MAX_APPROACH_LENGTH)
     if rejection:
@@ -101,13 +89,9 @@ def check_decision(
 
 
 def _assessment(related: list[RelatedDecision]) -> str:
-    """Build the deterministic single-line assessment from retrieval facts.
-
-    Surfaces retrieval facts — which decision ranked top, its BM25 score (or
-    semantic-match origin), status, date — plus a fixed caveat that the
-    ranking is lexical. It is never a confidence verdict on the match: the
-    agent reads the decision body and judges; the kernel does not grade
-    (no automated classification or scoring verdict).
+    """Build the deterministic single-line assessment from retrieval facts: top-ranked
+    decision, its score or semantic-match origin, status, date, and the
+    lexical-ranking caveat. It never grades the match.
     """
     top = related[0]
     top_num = extract_decision_number(top.id)
