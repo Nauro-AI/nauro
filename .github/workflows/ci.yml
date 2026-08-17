@@ -18,6 +18,7 @@ jobs:
       - run: ruff check packages/ benchmarks/ scripts/
       - run: ruff format --check packages/ benchmarks/ scripts/
       - run: python scripts/check_single_sourced.py packages/nauro/src
+      - run: python scripts/check_docstring_budget.py packages/nauro/src packages/nauro-core/src
       - run: python scripts/check_server_json_version.py
 
   import-linter:
