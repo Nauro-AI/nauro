@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import typer
 
-from nauro.cli.commands.auth import DEFAULT_API_URL, load_access_token
+from nauro.auth import DEFAULT_API_URL, load_access_token
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.utils import refuse_repo_config_symlink
 from nauro.constants import (
@@ -142,7 +142,7 @@ def link(
     # persisted. Pushing the store is best-effort: a transient presign/S3
     # failure must not roll back the promotion, so we warn and exit 0 and
     # let the user retry the upload with 'nauro sync'.
-    from nauro.cli.commands.auth import AuthRefreshError
+    from nauro.auth import AuthRefreshError
     from nauro.sync.lock import SyncLockTimeoutError
     from nauro.sync.remote import PresignError
 

@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from nauro.cli.commands.auth import DEFAULT_API_URL, with_token_refresh
+from nauro.auth import DEFAULT_API_URL, with_token_refresh
 from nauro.store.config import load_config
 
 _DEFAULT_API_TIMEOUT = 15.0

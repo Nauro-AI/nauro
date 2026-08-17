@@ -28,7 +28,7 @@ from typing import TypedDict
 
 import httpx
 
-from nauro.cli.commands.auth import AuthRefreshError, with_token_refresh
+from nauro.auth import AuthRefreshError, with_token_refresh
 from nauro.sync.remote import resolve_api_url
 
 _DEFAULT_TIMEOUT = 15.0

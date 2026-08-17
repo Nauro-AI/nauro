@@ -50,7 +50,7 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 
 User config lives at `~/.nauro/config.json` (written by `nauro auth login` and other feature-specific commands; inspect with `nauro config get/list/unset`, which resolve top-level keys only):
 - `auth` object — credentials from `nauro auth login`, nested under one top-level `auth` key (so inspect with `nauro config get auth`, not a dotted path): `access_token` is the Auth0 bearer sent to the presign sync endpoints; `refresh_token` mints a fresh access token when the bearer expires; `sub` is the raw JWT subject id (identity; the block also persists `sanitized_sub` and `user_id`)
-- Auth0 domain, client ID, API URL, and audience ship as defaults in `cli/commands/auth.py`; env vars (`NAURO_AUTH0_*`, `NAURO_API_URL`) or config keys override (domain + client_id must be set as a pair)
+- Auth0 domain, client ID, API URL, and audience ship as defaults in `nauro/auth.py`; env vars (`NAURO_AUTH0_*`, `NAURO_API_URL`) or config keys override (domain + client_id must be set as a pair)
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
 
 ## Stack
@@ -146,6 +146,7 @@ Nauro holds a high code bar. These apply to every change and are enforced in rev
 ```
 packages/nauro/
   src/nauro/
+    auth.py                # Auth0 defaults, token load, single-flight refresh, 401 retry
     cli/
       main.py              # Typer app entry point
       commands/            # one module per command

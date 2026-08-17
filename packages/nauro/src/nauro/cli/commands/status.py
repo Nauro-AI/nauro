@@ -510,7 +510,7 @@ class _StatusFacts:
 
 def _collect_status(project_name: str, store_path: Path, *, no_probe: bool) -> _StatusFacts:
     """Gather every fact the human table and the JSON payload render from."""
-    from nauro.cli.commands.auth import load_access_token
+    from nauro.auth import load_access_token
     from nauro.store.reader import _list_decisions
     from nauro.store.registry import is_cloud_project
 

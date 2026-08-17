@@ -43,7 +43,7 @@ from pathlib import Path
 from nauro_core import extract_decision_number
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from nauro.cli.commands.auth import AuthRefreshError
+from nauro.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR, SNAPSHOTS_DIR
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.sync.collisions import (

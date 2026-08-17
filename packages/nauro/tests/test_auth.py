@@ -9,10 +9,10 @@ import pytest
 from nauro_core import sanitize_sub
 from typer.testing import CliRunner
 
+from nauro.auth import decode_jwt_payload
 from nauro.cli.commands import auth as auth_module
 from nauro.cli.commands.auth import (
     _CallbackHandler,
-    _decode_jwt_payload,
     _generate_pkce,
 )
 from nauro.cli.main import app
@@ -42,24 +42,24 @@ def test_auth_uses_canonical_sanitize_sub():
     assert auth_module.sanitize_sub is sanitize_sub
 
 
-# --- _decode_jwt_payload ---
+# --- decode_jwt_payload ---
 
 
 class TestDecodeJwt:
     def test_valid_jwt(self):
         token = _make_jwt({"sub": "auth0|abc123", "aud": "test"})
-        payload = _decode_jwt_payload(token)
+        payload = decode_jwt_payload(token)
         assert payload["sub"] == "auth0|abc123"
         assert payload["aud"] == "test"
 
     def test_invalid_format(self):
         with pytest.raises(ValueError, match="Invalid JWT format"):
-            _decode_jwt_payload("not-a-jwt")
+            decode_jwt_payload("not-a-jwt")
 
     def test_padding_handling(self):
         """JWT base64 segments may lack padding — decoder must handle it."""
         token = _make_jwt({"sub": "x"})
-        payload = _decode_jwt_payload(token)
+        payload = decode_jwt_payload(token)
         assert payload["sub"] == "x"
 
 
@@ -324,7 +324,7 @@ class TestAuthLogin:
 
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
-            patch("nauro.cli.commands.auth.time.sleep"),
+            patch("nauro.auth.time.sleep"),
             patch("nauro.cli.commands.auth.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
@@ -367,7 +367,7 @@ class TestAuthLogin:
 
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
-            patch("nauro.cli.commands.auth.time.sleep"),
+            patch("nauro.auth.time.sleep"),
             patch("nauro.cli.commands.auth.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
@@ -415,7 +415,7 @@ class TestAuthLogin:
 
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
-            patch("nauro.cli.commands.auth.time.sleep") as sleep,
+            patch("nauro.auth.time.sleep") as sleep,
             patch("nauro.cli.commands.auth.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
@@ -541,7 +541,7 @@ class TestAuthLogout:
 
 def test_defaults_are_non_empty():
     """Trip-wire: a future audit pass must not strip these back to empty strings."""
-    from nauro.cli.commands.auth import (
+    from nauro.auth import (
         DEFAULT_API_URL,
         DEFAULT_AUTH0_AUDIENCE,
         DEFAULT_AUTH0_CLIENT_ID,
@@ -558,12 +558,12 @@ class TestResolveAuthConfig:
     """Pure-function resolver tests — no monkeypatching, no tmp_path."""
 
     def _call(self, env=None, config=None):
-        from nauro.cli.commands.auth import _resolve_auth_config
+        from nauro.auth import resolve_auth_config
 
-        return _resolve_auth_config(env or {}, config or {})
+        return resolve_auth_config(env or {}, config or {})
 
     def _defaults(self):
-        from nauro.cli.commands.auth import (
+        from nauro.auth import (
             DEFAULT_API_URL,
             DEFAULT_AUTH0_AUDIENCE,
             DEFAULT_AUTH0_CLIENT_ID,
@@ -588,13 +588,13 @@ class TestResolveAuthConfig:
         assert client_id == "cfg-id"
 
     def test_config_only_domain_raises(self):
-        from nauro.cli.commands.auth import PartialAuthConfigError
+        from nauro.auth import PartialAuthConfigError
 
         with pytest.raises(PartialAuthConfigError):
             self._call(config={"auth0_domain": "cfg.auth0.com"})
 
     def test_config_only_client_id_raises(self):
-        from nauro.cli.commands.auth import PartialAuthConfigError
+        from nauro.auth import PartialAuthConfigError
 
         with pytest.raises(PartialAuthConfigError):
             self._call(config={"auth0_client_id": "cfg-id"})
@@ -610,13 +610,13 @@ class TestResolveAuthConfig:
         assert client_id == "env-id"
 
     def test_env_only_domain_raises(self):
-        from nauro.cli.commands.auth import PartialAuthConfigError
+        from nauro.auth import PartialAuthConfigError
 
         with pytest.raises(PartialAuthConfigError):
             self._call(env={"NAURO_AUTH0_DOMAIN": "env.auth0.com"})
 
     def test_env_only_client_id_raises(self):
-        from nauro.cli.commands.auth import PartialAuthConfigError
+        from nauro.auth import PartialAuthConfigError
 
         with pytest.raises(PartialAuthConfigError):
             self._call(env={"NAURO_AUTH0_CLIENT_ID": "env-id"})

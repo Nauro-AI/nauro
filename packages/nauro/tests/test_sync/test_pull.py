@@ -23,7 +23,7 @@ import pytest
 from nauro_core import extract_decision_number
 from nauro_core.operations.propose_decision import _next_decision_num
 
-from nauro.cli.commands.auth import AuthRefreshError
+from nauro.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR
 from nauro.store import _atomic
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling

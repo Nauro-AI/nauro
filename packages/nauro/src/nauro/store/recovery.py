@@ -27,7 +27,7 @@ from pydantic import (
     field_validator,
 )
 
-from nauro.cli.commands.auth import AuthRefreshError
+from nauro.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR, PROJECT_MD
 from nauro.store._atomic import atomic_write_bytes
 from nauro.store.filesystem_store import FilesystemStore
