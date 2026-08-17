@@ -2,7 +2,8 @@
 
 Adapts the existing ``~/.nauro/projects/<name>/`` layout to the kernel's
 :class:`~nauro_core.operations.Store` protocol. Writes hold a per-target
-FileLock; reads are unlocked.
+FileLock and land atomically through :mod:`nauro.store._atomic`; reads are
+unlocked.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from pathlib import Path
 from filelock import FileLock
 from nauro_core.constants import DECISIONS_DIR
 
+from nauro.store._atomic import atomic_write_text
 from nauro.store.reader import read_text_lenient
 
 
@@ -74,13 +76,15 @@ class FilesystemStore:
     # the same num because they raced between list/write) are caught and
     # repaired on the next sync-pull.
     def write_file(self, path: str, content: str) -> None:
+        """Replace ``path`` atomically: readers see old bytes or new bytes, never a mix."""
         # Fail loud on an out-of-store path: silently dropping or redirecting a
         # write would corrupt the store, so a traversal path is an error.
         target = self._resolve_within(path)
+        # Ahead of the lock, because the lock file is a sibling of the target.
         target.parent.mkdir(parents=True, exist_ok=True)
         lock = target.with_name(target.name + ".lock")
         with FileLock(str(lock)):
-            target.write_text(content, encoding="utf-8")
+            atomic_write_text(target, content)
 
     def delete_file(self, path: str) -> None:
         try:

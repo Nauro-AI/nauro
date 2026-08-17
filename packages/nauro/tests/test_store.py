@@ -5,12 +5,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from nauro_core.constants import (
+    DECISIONS_DIR,
+    OPEN_QUESTIONS_MD,
+    STATE_CURRENT_FILENAME,
+)
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations import update_state as _update_state_op
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.constants import SNAPSHOTS_DIR
+from nauro.store import _atomic
+from nauro.store._atomic import is_tmp_sibling
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.reader import _list_decisions
 from nauro.store.snapshot import capture_snapshot, list_snapshots, load_snapshot
@@ -881,3 +888,82 @@ def test_filesystem_store_read_file_returns_none_on_traversal(tmp_path):
     secret = tmp_path / "secret.md"
     secret.write_text("top secret")
     assert FilesystemStore(store_root).read_file("../secret.md") is None
+
+
+# --- FilesystemStore atomic writes ---
+
+
+def _tmp_siblings(directory: Path) -> list[str]:
+    """Names in ``directory`` that ``_atomic`` could have minted as tmp files."""
+    return [p.name for p in directory.iterdir() if is_tmp_sibling(p.name)]
+
+
+def test_filesystem_store_write_file_keeps_old_bytes_when_the_write_dies(tmp_path, monkeypatch):
+    """A write that fails partway leaves the previous file whole.
+
+    This is the reason the store writes atomically: a truncating write killed
+    halfway leaves a shortened judgment file that still parses, and the next
+    sync pushes it as the truth.
+    """
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    target = store_root / OPEN_QUESTIONS_MD
+    target.write_text("# Open Questions\n\n- [Q001] Everything that was here before?\n")
+    before = target.read_bytes()
+
+    def boom(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(_atomic.os, "replace", boom)
+    with pytest.raises(OSError):
+        FilesystemStore(store_root).write_file(OPEN_QUESTIONS_MD, "short")
+
+    assert target.read_bytes() == before
+    assert _tmp_siblings(store_root) == []
+
+
+def test_filesystem_store_write_file_creates_fresh_file_without_strays(tmp_path):
+    """A first write lands the content and leaves no tmp sibling behind."""
+    store_root = tmp_path / "store"
+    store = FilesystemStore(store_root)
+    store.write_file(f"{DECISIONS_DIR}/042-atomic-writes.md", "# 042. Atomic writes\n")
+
+    decisions_dir = store_root / DECISIONS_DIR
+    assert (decisions_dir / "042-atomic-writes.md").read_text() == "# 042. Atomic writes\n"
+    assert _tmp_siblings(decisions_dir) == []
+
+
+def test_filesystem_store_list_decisions_skips_a_stranded_tmp_sibling(tmp_path, monkeypatch):
+    """A tmp sibling stranded in ``decisions/`` is never listed as a decision.
+
+    A kill between the tmp write and the rename leaves a complete-looking file
+    under the tmp name. It must not glob as ``*.md``, or the store would read
+    and push a decision the writer never committed.
+    """
+    store_root = tmp_path / "store"
+    store = FilesystemStore(store_root)
+    store.write_file(f"{DECISIONS_DIR}/001-committed.md", "# 001. Committed\n")
+
+    # Drop the rename, not the write: exactly what a signal between the two
+    # leaves on disk, under the real minted tmp name.
+    monkeypatch.setattr(_atomic, "_replace", lambda tmp, path, final_mode: None)
+    store.write_file(f"{DECISIONS_DIR}/002-interrupted.md", "# 002. Interrupted\n")
+
+    decisions_dir = store_root / DECISIONS_DIR
+    assert len(_tmp_siblings(decisions_dir)) == 1
+    assert not (decisions_dir / "002-interrupted.md").exists()
+    assert store.list_decisions() == ["001-committed"]
+
+
+def test_filesystem_store_write_file_preserves_permission_bits(tmp_path):
+    """An existing file's mode survives the replace; the tmp's owner-only
+    creation mode must not leak onto a store file."""
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    target = store_root / STATE_CURRENT_FILENAME
+    target.write_text("# Current State\n")
+    target.chmod(0o640)
+
+    FilesystemStore(store_root).write_file(STATE_CURRENT_FILENAME, "# Current State\n\n- New\n")
+
+    assert oct(target.stat().st_mode & 0o777) == "0o640"
