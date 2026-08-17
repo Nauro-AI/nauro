@@ -8,6 +8,7 @@ state/stack/questions parsing, and snippet extraction.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 from nauro_core.constants import DECISIONS_DIR, PROJECT_MD_SCAFFOLD_BODY, STACK_EMPTY_MARKER
 
@@ -175,6 +176,22 @@ def extract_decision_number(identifier: str) -> int | None:
             return None
         break
     return int(leading) if leading else None
+
+
+def sort_stems_by_number(stems: Iterable[str]) -> list[str]:
+    """Order decision file stems by number ascending, then by stem.
+
+    Stems carrying no number sort last, lexicographically among themselves.
+    """
+    return sorted(stems, key=_stem_order_key)
+
+
+def _stem_order_key(stem: str) -> tuple[int, int, str]:
+    """Sort key for :func:`sort_stems_by_number`: numbered stems first, by number."""
+    num = extract_decision_number(stem)
+    if num is None:
+        return (1, 0, stem)
+    return (0, num, stem)
 
 
 # Body reference prefixes, lowercased. ``extract_decision_number`` accepts the

@@ -123,17 +123,17 @@ def validate_store(store_path: Path) -> list[str]:
                 f"{PROJECT_MD_TOKEN_WARN:,} - move detail to stack.md or decisions"
             )
 
-    # Check decision numbering is sequential with no gaps
+    # Check decision numbering is sequential with no gaps, over the min..max
+    # span of the numbers themselves — filename order is not number order.
     decisions_dir = store_path / DECISIONS_DIR
     if decisions_dir.exists():
-        numbers = []
-        for f in sorted(decisions_dir.glob("*.md")):
+        numbers = set()
+        for f in decisions_dir.glob("*.md"):
             n = extract_decision_number(f.name)
             if n is not None:
-                numbers.append(n)
+                numbers.add(n)
         if numbers:
-            expected = list(range(numbers[0], numbers[-1] + 1))
-            missing = set(expected) - set(numbers)
+            missing = set(range(min(numbers), max(numbers) + 1)) - numbers
             if missing:
                 warnings.append(f"Decision numbering gap: missing {sorted(missing)}")
 

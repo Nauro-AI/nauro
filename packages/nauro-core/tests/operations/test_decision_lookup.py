@@ -162,3 +162,40 @@ def test_scan_decisions_clean_store_has_no_failures() -> None:
     parsed, failures = scan_decisions(store)
     assert [d.num for d in parsed] == [1]
     assert failures == []
+
+
+# ── scan order is numeric, not lexicographic ──
+
+
+def _four_digit_store() -> InMemoryStore:
+    """A store whose stems span 3 and 4 digits."""
+    return InMemoryStore(
+        decisions={
+            f"{num:03d}-decision-{num}": _decision_body(num, f"Decision {num}")
+            for num in (998, 999, 1000, 1001)
+        }
+    )
+
+
+def test_scan_decisions_orders_past_999_by_number() -> None:
+    store = _four_digit_store()
+    # Sanity: the protocol order disagrees, so the assertion below has teeth.
+    assert store.list_decisions()[-1] == "999-decision-999"
+    parsed, failures = scan_decisions(store)
+    assert [d.num for d in parsed] == [998, 999, 1000, 1001]
+    assert failures == []
+
+
+def test_parse_all_decisions_orders_past_999_by_number() -> None:
+    assert [d.num for d in parse_all_decisions(_four_digit_store())] == [998, 999, 1000, 1001]
+
+
+def test_scan_order_on_three_digit_store_equals_lexicographic_order() -> None:
+    stems = ["001-alpha", "010-bravo", "042-charlie", "099-delta", "999-echo"]
+    store = InMemoryStore(
+        decisions={
+            stem: _decision_body(int(stem[:3]), stem.split("-", 1)[1].title()) for stem in stems
+        }
+    )
+    parsed, _ = scan_decisions(store)
+    assert [d.num for d in parsed] == [int(stem[:3]) for stem in sorted(stems)]

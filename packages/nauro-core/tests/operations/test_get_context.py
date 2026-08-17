@@ -212,3 +212,44 @@ def test_no_last_synced_trailer_in_l0_content() -> None:
     # The italic trailer ``*Last synced: <value>*`` is appended by the
     # transport adapter; the kernel content must not carry it.
     assert "\n\n*Last synced:" not in result.content
+
+
+# ── recency past decision 999 ──
+
+
+def _store_past_999() -> InMemoryStore:
+    """A store whose newest decision is 1001."""
+    decisions = {}
+    for num in (998, 999, 1000, 1001):
+        body = format_decision(
+            Decision(
+                num=num,
+                title=f"Decision {num}",
+                rationale=f"Rationale for decision {num}.",
+                confidence=DecisionConfidence.medium,
+                status=DecisionStatus.active,
+                date=date(2026, 1, 1),
+            )
+        )
+        decisions[f"{num:03d}-decision-{num}"] = body
+    return InMemoryStore(files={"project.md": "# Project\n\nGoal.\n"}, decisions=decisions)
+
+
+def test_l0_recent_decisions_leads_with_the_newest_past_999() -> None:
+    result = get_context(_store_past_999(), 0)
+    assert result.content is not None
+    summary = result.content.split("## Recent Decisions\n", 1)[1]
+    assert [line.split(" ")[1] for line in summary.strip().splitlines()] == [
+        "D1001",
+        "D1000",
+        "D999",
+        "D998",
+    ]
+
+
+def test_l1_decisions_lead_with_the_newest_past_999() -> None:
+    result = get_context(_store_past_999(), 1)
+    assert result.content is not None
+    body = result.content.split("## Decisions\n\n", 1)[1]
+    positions = [body.index(f"Decision {num}") for num in (1001, 1000, 999, 998)]
+    assert positions == sorted(positions)
