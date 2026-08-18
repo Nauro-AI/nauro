@@ -35,7 +35,7 @@ from nauro.mcp import tools as mcp_tools
 from nauro.store import post_commit as post_commit_module
 from tests._ansi import strip_ansi
 from tests._writer_compat import append_decision
-from tests.conftest import register_v2_repo
+from tests.conftest import active_decision_markdown, register_v2_repo
 
 runner = CliRunner()
 
@@ -399,7 +399,7 @@ def _seed_resolvable(store_path: Path) -> None:
     (store_path / "open-questions.md").write_text("# Open Questions\n\n- [Q1] needs a decision\n")
     decisions = store_path / "decisions"
     decisions.mkdir(exist_ok=True)
-    (decisions / "042-some-decision.md").write_text("# Decision 42\n")
+    (decisions / "042-some-decision.md").write_text(active_decision_markdown(42, "Some decision"))
 
 
 class TestFlagQuestionArgumentShapes:

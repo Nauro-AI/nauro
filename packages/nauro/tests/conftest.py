@@ -136,6 +136,19 @@ def seed_decisions_into(store_path: Path, *decisions: Decision) -> None:
         (decisions_dir / f"{d.num:03d}-{slug}.md").write_text(format_decision(d))
 
 
+def active_decision_markdown(num: int, title: str) -> str:
+    """Return a minimal decision body that parses as active v2."""
+    return (
+        "---\n"
+        "date: 2026-08-18\n"
+        "confidence: high\n"
+        "---\n\n"
+        f"# {num:03d} \u2014 {title}\n\n"
+        "## Decision\n\n"
+        "Test rationale.\n"
+    )
+
+
 def write_decision_file(store: Path, num: int, slug: str, content: str) -> None:
     """Write raw ``content`` to ``store/decisions/NNN-slug.md`` verbatim.
 

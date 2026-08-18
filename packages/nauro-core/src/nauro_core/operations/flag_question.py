@@ -20,14 +20,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from nauro_core.constants import OPEN_QUESTIONS_DEFAULT_BODY, OPEN_QUESTIONS_MD
-from nauro_core.operations.decision_lookup import find_decision_stem_by_num
 from nauro_core.operations.results import ErrorPayload, FlagQuestionResult
 from nauro_core.operations.store import Store
-from nauro_core.parsing import extract_decision_number
 from nauro_core.question_append import (
     allocate_question_number,
     compose_question_entry,
     insert_question_entry,
+)
+from nauro_core.question_resolution import (
+    ResolutionDecisionDocument,
+    resolve_question_document,
 )
 from nauro_core.questions import (
     EntryBlock,
@@ -40,8 +42,6 @@ from nauro_core.questions import (
 # Private alias kept for one release: a deployed consumer still imports this
 # name. New code reads OPEN_QUESTIONS_DEFAULT_BODY from nauro_core directly.
 _DEFAULT_FILE_BODY = OPEN_QUESTIONS_DEFAULT_BODY
-
-_FRESHNESS_CAVEAT = "This reads the working copy, only as fresh as the most recent pull."
 
 
 def flag_question(
@@ -74,8 +74,8 @@ def flag_question(
         resolved_by: A decision identifier (``D123``, ``123``,
             ``decision-123`` …). When set, the call resolves the
             ``targets`` entries against that decision instead of
-            appending. The number must resolve to a decision that exists
-            in the store.
+            appending. The number must resolve to an active decision that
+            exists in the store.
 
     Returns:
         :class:`FlagQuestionResult`. On the append success path
@@ -185,57 +185,25 @@ def _resolve(
     targets: list[str],
     resolved_by: str,
 ) -> FlagQuestionResult:
-    """Stamp the ``targets`` entries as resolved by ``resolved_by`` in place. Every id
-    must exist as a single entry and ``resolved_by`` must name a decision in the
-    store; a bad, missing or ambiguous id rejects the whole call without writing.
-    """
-    num = extract_decision_number(resolved_by)
-    if num is None:
-        return _reject(
-            f"resolved_by {resolved_by!r} is not a decision identifier "
-            "(expected a form like D123, 123, or decision-123)."
-        )
-
-    if find_decision_stem_by_num(store, num) is None:
-        return _reject(
-            f"resolved_by names decision D{num}, which does not exist in the store. "
-            f"{_FRESHNESS_CAVEAT}"
-        )
-
-    if not targets:
-        return _reject("resolved_by requires at least one id in targets to resolve.")
-
+    """Capture store inputs, run the pure resolver, and persist changed bytes."""
+    stems = store.list_decisions()
+    bodies = store.read_decisions(stems)
+    documents = tuple(
+        ResolutionDecisionDocument(stem=stem, content=body.encode("utf-8"))
+        for stem in stems
+        if (body := bodies.get(stem)) is not None
+    )
     content = store.read_file(OPEN_QUESTIONS_MD) or _DEFAULT_FILE_BODY
-    parsed = OpenQuestionsFile.parse(content)
-
-    ambiguous = parsed.ambiguous_ids
-    requested_ambiguous = [t for t in targets if t in ambiguous]
-    if requested_ambiguous:
-        return _reject(
-            "targets contains ambiguous id(s) matching more than one entry: "
-            + ", ".join(repr(t) for t in dict.fromkeys(requested_ambiguous))
-            + ". Disambiguate before resolving."
-        )
-
-    entry_ids = {b.entry.id for b in parsed.blocks if isinstance(b, EntryBlock)}
-    missing = [t for t in targets if t not in entry_ids]
-    if missing:
-        return _reject(
-            "targets contains id(s) not present in open-questions.md: "
-            + ", ".join(repr(t) for t in dict.fromkeys(missing))
-            + f". {_FRESHNESS_CAVEAT}"
-        )
-
-    result = parsed.resolve(
-        ids=targets,
-        decision_num=num,
-        date=datetime.now(timezone.utc).date(),
+    outcome = resolve_question_document(
+        open_questions_bytes=content.encode("utf-8"),
+        decision_documents=documents,
+        targets=targets,
+        resolved_by=resolved_by,
+        resolution_date=datetime.now(timezone.utc).date(),
     )
-    normalized = result.file.normalize()
-    store.write_file(OPEN_QUESTIONS_MD, normalized.file.format())
-    return FlagQuestionResult(
-        status="ok",
-        num=None,
-        relocated_ids=normalized.relocated_ids or None,
-        skipped_prose_ids=normalized.skipped_prose_ids or None,
-    )
+    if outcome.updated_open_questions_bytes is not None:
+        store.write_file(
+            OPEN_QUESTIONS_MD,
+            outcome.updated_open_questions_bytes.decode("utf-8"),
+        )
+    return outcome.result

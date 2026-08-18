@@ -1702,6 +1702,8 @@
     "OPEN_QUESTIONS_DEFAULT_BODY",
     "OPEN_QUESTIONS_MD",
     "PROJECT_MD",
+    "QuestionResolutionOutcome",
+    "ResolutionDecisionDocument",
     "SNAPSHOTS_DIR",
     "SNAPSHOT_SCHEMA_VERSION",
     "STACK_MD",
@@ -1721,6 +1723,7 @@
     "format_decision",
     "normalize_title",
     "parse_decision",
+    "resolve_question_document",
     "sanitize_sub",
     "serialize_snapshot"
   ],

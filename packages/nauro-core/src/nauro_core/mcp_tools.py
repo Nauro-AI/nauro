@@ -438,6 +438,11 @@ FLAG_QUESTION: ToolSpec = {
         "is stamped resolved and, when prose-safe, moved below "
         "`## Resolved`.\n"
         "\n"
+        "Before resolving, read the cited decision. Verify that it is active "
+        "and answers each question's operative ask; shared terms or topic "
+        "overlap are not sufficient. A bulk close-out requires a complete "
+        "question census and the recorded session-decision procedure.\n"
+        "\n"
         "Pass exactly one of `question` or `resolved_by`."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},

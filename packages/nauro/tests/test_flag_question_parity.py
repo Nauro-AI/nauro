@@ -30,7 +30,7 @@ from nauro.mcp import stdio_server as stdio_module
 from nauro.mcp import tools as mcp_tools
 from nauro.mcp.stdio_server import flag_question as stdio_flag_question
 from nauro.mcp.tools import tool_flag_question
-from tests.conftest import register_v2_repo
+from tests.conftest import active_decision_markdown, register_v2_repo
 
 
 @pytest.fixture(autouse=True)
@@ -122,7 +122,7 @@ def _seed_resolvable(store_path, q_id: str = "Q1") -> None:
     )
     decisions = store_path / "decisions"
     decisions.mkdir(exist_ok=True)
-    (decisions / "042-some-decision.md").write_text("# Decision 42\n")
+    (decisions / "042-some-decision.md").write_text(active_decision_markdown(42, "Some decision"))
 
 
 def test_resolve_ok_matches_across_tool_and_cli(seeded_repo):

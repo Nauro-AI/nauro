@@ -21,6 +21,7 @@ from nauro.store.post_commit import AncillaryStep, run_post_commit
 from nauro.store.registry import register_project_v2
 from nauro.sync.push import PushReport
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import active_decision_markdown
 
 SNAPSHOTS = "snapshots"
 
@@ -283,7 +284,7 @@ def test_degraded_push_reaches_the_flag_question_resolve_envelope(
     )
     decisions = adapter_store / "decisions"
     decisions.mkdir(exist_ok=True)
-    (decisions / "042-caching.md").write_text("# 042 — Caching\n")
+    (decisions / "042-caching.md").write_text(active_decision_markdown(42, "Caching"))
 
     def _boom(_store_path: Path) -> None:
         raise RuntimeError("S3 credentials expired")

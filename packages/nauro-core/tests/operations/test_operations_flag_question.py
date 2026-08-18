@@ -291,7 +291,26 @@ def _open_q1_q5_seed() -> str:
 
 
 def _decisions(*nums: int) -> dict[str, str]:
-    return {f"{n:03d}-some-decision": f"# Decision {n}\n" for n in nums}
+    return {
+        f"{n:03d}-some-decision": (
+            "---\n"
+            "date: 2026-08-18\n"
+            "version: 1\n"
+            "status: active\n"
+            "confidence: high\n"
+            "decision_type: pattern\n"
+            "reversibility: easy\n"
+            "source: mcp\n"
+            "files_affected: []\n"
+            "supersedes: null\n"
+            "superseded_by: null\n"
+            "---\n\n"
+            f"# {n:03d} \u2014 Decision {n}\n\n"
+            "## Decision\n\n"
+            "Resolve the named question.\n"
+        )
+        for n in nums
+    }
 
 
 def test_resolve_relocates_target_below_divider_and_returns_ok() -> None:
@@ -375,6 +394,31 @@ def test_resolve_already_resolved_id_is_idempotent_ok() -> None:
     assert after == before
 
 
+def test_resolve_no_op_preserves_successful_write() -> None:
+    class WriteCountingStore(InMemoryStore):
+        writes = 0
+
+        def write_file(self, path: str, content: str) -> None:
+            self.writes += 1
+            super().write_file(path, content)
+
+    seed = (
+        "# Open Questions\n\n"
+        "## Resolved\n\n"
+        "- [Resolved by D41 on 2026-05-20] [Q5] already resolved\n"
+    )
+    store = WriteCountingStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: seed},
+    )
+
+    result = flag_question(store, targets=["Q5"], resolved_by="D42")
+
+    assert result.status == "ok"
+    assert store.writes == 1
+    assert store.read_file(OPEN_QUESTIONS_MD) == seed
+
+
 def test_resolve_heals_pre_existing_stray_whole_file_scope() -> None:
     """Whole-file scope: resolving Q1 also relocates a pre-existing stray Q9
     that was stamped resolved earlier but never moved below the divider."""
@@ -422,6 +466,29 @@ def test_resolve_missing_decision_rejects_naming_number() -> None:
     content = store.read_file(OPEN_QUESTIONS_MD)
     assert content is not None
     assert "- [Q5] also still open" in content
+
+
+def test_resolve_superseded_decision_rejects_without_write() -> None:
+    body = (
+        _decisions(42)["042-some-decision"]
+        .replace(
+            "status: active\n",
+            "status: superseded\n",
+        )
+        .replace("superseded_by: null\n", 'superseded_by: "43"\n')
+    )
+    store = InMemoryStore(
+        decisions={"042-some-decision": body},
+        files={OPEN_QUESTIONS_MD: _open_q1_q5_seed()},
+    )
+    before = store.read_file(OPEN_QUESTIONS_MD)
+
+    result = flag_question(store, targets=["Q5"], resolved_by="D42")
+
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "not active" in result.error.reason
+    assert store.read_file(OPEN_QUESTIONS_MD) == before
 
 
 def test_resolve_unknown_target_rejects_whole_call_naming_id() -> None:
@@ -499,7 +566,7 @@ def test_resolve_missing_decision_reason_mentions_freshness() -> None:
     result = flag_question(store, targets=["Q5"], resolved_by="D99")
     assert result.status == "rejected"
     assert result.error is not None
-    assert "pull" in result.error.reason.lower()
+    assert "captured decision set" in result.error.reason.lower()
 
 
 def test_resolve_uses_utc_now_date() -> None:

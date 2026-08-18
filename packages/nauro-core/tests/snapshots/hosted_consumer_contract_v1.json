@@ -13,6 +13,31 @@
       "kind": "value",
       "type": "str"
     },
+    "nauro_core.QuestionResolutionOutcome": {
+      "bases": [
+        "builtins.object"
+      ],
+      "fields": [
+        "result",
+        "updated_open_questions_bytes",
+        "resolved_question_ids"
+      ],
+      "kind": "class",
+      "module": "nauro_core.question_resolution",
+      "qualname": "QuestionResolutionOutcome"
+    },
+    "nauro_core.ResolutionDecisionDocument": {
+      "bases": [
+        "builtins.object"
+      ],
+      "fields": [
+        "stem",
+        "content"
+      ],
+      "kind": "class",
+      "module": "nauro_core.question_resolution",
+      "qualname": "ResolutionDecisionDocument"
+    },
     "nauro_core.build_remote_instructions": {
       "kind": "function",
       "module": "nauro_core.instructions",
@@ -1031,6 +1056,12 @@
       "kind": "value",
       "len": 8,
       "type": "dict"
+    },
+    "nauro_core.resolve_question_document": {
+      "kind": "function",
+      "module": "nauro_core.question_resolution",
+      "qualname": "resolve_question_document",
+      "signature": "(*, open_questions_bytes: bytes | None, decision_documents: Sequence[ResolutionDecisionDocument], targets: Sequence[str], resolved_by: str, resolution_date: date) -> QuestionResolutionOutcome"
     },
     "nauro_core.sanitize_sub": {
       "kind": "function",
