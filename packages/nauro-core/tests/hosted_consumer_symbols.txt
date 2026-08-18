@@ -3,6 +3,8 @@
 nauro_core.DECISION_HASHES_FILE
 nauro_core.HOSTED_STORE_FORMAT_VERSION
 nauro_core.MCP_INSTRUCTIONS_STATIC
+nauro_core.QuestionResolutionOutcome
+nauro_core.ResolutionDecisionDocument
 nauro_core.build_remote_instructions
 nauro_core.compute_hash
 nauro_core.constants.BRIEF_SLUG_MAX_LENGTH
@@ -115,6 +117,7 @@ nauro_core.questions.parse_question_id
 nauro_core.questions.validate_legacy_question_id
 nauro_core.questions.validate_question_id
 nauro_core.renderers.RENDERERS
+nauro_core.resolve_question_document
 nauro_core.sanitize_sub
 nauro_core.serialize_snapshot
 nauro_core.state.prepare_state_update

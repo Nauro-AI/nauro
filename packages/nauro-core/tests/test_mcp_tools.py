@@ -143,6 +143,14 @@ class TestLookup:
         composed = f"before `propose_decision`: {APPROVAL_BEFORE_PROPOSE}"
         assert composed in get_tool_spec("check_decision")["description"]
 
+    def test_flag_question_carries_resolution_verification_contract(self) -> None:
+        description = get_tool_spec("flag_question")["description"]
+        assert "Verify that it is active" in description
+        assert "operative ask" in description
+        assert "shared terms or topic overlap are not sufficient" in description
+        assert "complete question census" in description
+        assert "recorded session-decision procedure" in description
+
 
 class TestGetContextLevel:
     """Regression: level must be the string enum, not int, to match remote."""

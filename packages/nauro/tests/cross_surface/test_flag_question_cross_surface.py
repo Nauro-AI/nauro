@@ -37,6 +37,7 @@ from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
 from tests.conftest import (  # noqa: E402
     CROSS_SURFACE_PROJECT_ID,
     CROSS_SURFACE_USER_ID,
+    active_decision_markdown,
     moto_s3_bucket,
 )
 from tests.cross_surface.conftest import _dump  # noqa: E402
@@ -96,7 +97,7 @@ def test_repeated_writes_match_across_stores(both_stores):
 def _seed_resolvable(fs_store: FilesystemStore, cloud: CloudStore) -> None:
     seed = "# Open Questions\n\n- [Q1] needs a decision\n"
     _seed_open_questions(fs_store, cloud, seed)
-    decision = "# Decision 42\n"
+    decision = active_decision_markdown(42, "Some decision")
     fs_store.write_file("decisions/042-some-decision.md", decision)
     cloud.write_file("decisions/042-some-decision.md", decision)
 

@@ -231,6 +231,15 @@ from nauro_core.protocol import (
 from nauro_core.protocol import (
     substitute_protocol_fragments as substitute_protocol_fragments,
 )
+from nauro_core.question_resolution import (
+    QuestionResolutionOutcome as QuestionResolutionOutcome,
+)
+from nauro_core.question_resolution import (
+    ResolutionDecisionDocument as ResolutionDecisionDocument,
+)
+from nauro_core.question_resolution import (
+    resolve_question_document as resolve_question_document,
+)
 from nauro_core.questions import (
     Block as Block,
 )
@@ -372,6 +381,10 @@ __all__ = [
     "CHECK_DECISION_RETURNS",
     "GET_DECISION_BEFORE_PROPOSING",
     "NO_INVENT_RATIONALE",
+    # Deterministic question resolution.
+    "QuestionResolutionOutcome",
+    "ResolutionDecisionDocument",
+    "resolve_question_document",
     # Identity.
     "sanitize_sub",
     # Valid decision types.
