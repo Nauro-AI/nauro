@@ -1,8 +1,8 @@
 # Nauro
 
-Give your agents the context code leaves out.
+The decision system for building software with AI.
 
-Nauro keeps current state, open questions, and human-approved project judgment in one record, ready for every agent you connect.
+Nauro gives connected agents human-approved project judgment and current state before they plan or change work.
 
 Nauro keeps a living project record. It combines project scope, current state, and open questions with human-approved project judgment: intent, goals, decisions, rationale, tradeoffs, and rejected paths. Project judgment is the human-ratified part of the record; context is the relevant slice of the record an agent receives for the work in front of it. Works with Claude, Perplexity, Cursor, Codex, and any MCP client.
 

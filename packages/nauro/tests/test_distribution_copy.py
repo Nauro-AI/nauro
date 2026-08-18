@@ -13,11 +13,11 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[3]
 
-HEADLINE = "Give your agents the context code leaves out."
+HEADLINE = "The decision system for building software with AI."
 
 SUPPORT_LINE = (
-    "Nauro keeps current state, open questions, and human-approved project judgment "
-    "in one record, ready for every agent you connect."
+    "Nauro gives connected agents human-approved project judgment and current state "
+    "before they plan or change work."
 )
 
 FIT_BOUNDARY = (
