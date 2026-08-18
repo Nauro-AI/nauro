@@ -8,12 +8,14 @@ behavior, these pin the helpers' own contract.
 
 from __future__ import annotations
 
+import pytest
+
 from nauro_core.question_append import (
     allocate_question_number,
     compose_question_entry,
     insert_question_entry,
 )
-from nauro_core.questions import OpenQuestionsFile
+from nauro_core.questions import InvalidQuestionIdentifier, OpenQuestionsFile
 
 
 class TestAllocateQuestionNumber:
@@ -53,6 +55,11 @@ class TestComposeQuestionEntry:
     def test_pointer_body_composes_identically(self) -> None:
         body = "BRIEF: context/auth-cutover.md - the auth cutover plan"
         assert compose_question_entry(3, body) == f"- [Q3] {body}"
+
+    @pytest.mark.parametrize("number", [0, -1, True])
+    def test_rejects_non_positive_integer_number(self, number) -> None:
+        with pytest.raises(InvalidQuestionIdentifier):
+            compose_question_entry(number, "Question?")
 
 
 class TestInsertQuestionEntry:

@@ -10,7 +10,7 @@ pure — the caller reads and writes the file bytes.
 
 from __future__ import annotations
 
-from nauro_core.questions import OpenQuestionsFile
+from nauro_core.questions import OpenQuestionsFile, format_question_id
 
 
 def allocate_question_number(parsed: OpenQuestionsFile) -> int:
@@ -23,7 +23,7 @@ def allocate_question_number(parsed: OpenQuestionsFile) -> int:
 
 def compose_question_entry(num: int, body: str) -> str:
     """Compose the canonical single-line entry for *body* under ``Q{num}``."""
-    return f"- [Q{num}] {body}"
+    return f"- [{format_question_id(num)}] {body}"
 
 
 def insert_question_entry(content: str, entry: str) -> str:

@@ -29,7 +29,13 @@ from nauro_core.question_append import (
     compose_question_entry,
     insert_question_entry,
 )
-from nauro_core.questions import EntryBlock, OpenQuestionsFile
+from nauro_core.questions import (
+    EntryBlock,
+    InvalidQuestionIdentifier,
+    OpenQuestionsFile,
+    format_question_id,
+    parse_question_id,
+)
 
 # Private alias kept for one release: a deployed consumer still imports this
 # name. New code reads OPEN_QUESTIONS_DEFAULT_BODY from nauro_core directly.
@@ -79,6 +85,7 @@ def flag_question(
         specific failure; no write occurs.
     """
     del context  # adapter composes context into question; kernel sees one body.
+    canonical_targets = _canonical_question_targets(targets or [])
 
     has_question = question is not None and question.strip() != ""
     if resolved_by is not None:
@@ -87,7 +94,7 @@ def flag_question(
                 "Pass either question (to append a new flag) or resolved_by "
                 "(to resolve existing entries), not both."
             )
-        return _resolve(store, targets or [], resolved_by)
+        return _resolve(store, canonical_targets, resolved_by)
 
     if not has_question:
         return _reject(
@@ -99,8 +106,8 @@ def flag_question(
     content = store.read_file(OPEN_QUESTIONS_MD) or _DEFAULT_FILE_BODY
     parsed = OpenQuestionsFile.parse(content)
 
-    if targets:
-        rejection = _short_circuit_if_resolved(parsed, targets)
+    if canonical_targets:
+        rejection = _short_circuit_if_resolved(parsed, canonical_targets)
         if rejection is not None:
             return rejection
 
@@ -111,6 +118,18 @@ def flag_question(
     return FlagQuestionResult(status="ok", num=next_num)
 
 
+def _canonical_question_targets(targets: list[str]) -> list[str]:
+    canonical: list[str] = []
+    for target in targets:
+        try:
+            number = parse_question_id(target)
+        except InvalidQuestionIdentifier:
+            canonical.append(target)
+        else:
+            canonical.append(format_question_id(number))
+    return canonical
+
+
 def _short_circuit_if_resolved(
     parsed: OpenQuestionsFile,
     targets: list[str],
@@ -119,6 +138,15 @@ def _short_circuit_if_resolved(
     working copy only, so it is best-effort: a stale local copy missing a fresh
     remote resolution falls through to the normal append path.
     """
+    ambiguous = parsed.ambiguous_ids
+    requested_ambiguous = [target for target in targets if target in ambiguous]
+    if requested_ambiguous:
+        return _reject(
+            "targets contains ambiguous id(s) matching more than one entry: "
+            + ", ".join(repr(target) for target in dict.fromkeys(requested_ambiguous))
+            + ". The flag was not appended."
+        )
+
     entries_by_id: dict[str, EntryBlock] = {}
     for block in parsed.blocks:
         if isinstance(block, EntryBlock):
