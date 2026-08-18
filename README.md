@@ -1,8 +1,14 @@
-# Nauro
+<p align="center">
+  <img src="docs/images/nauro-wordmark-dark.svg" alt="Nauro" width="180">
+</p>
 
-[![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![CI](https://github.com/Nauro-AI/nauro/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Nauro-AI/nauro/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+<p align="center"><strong>The decision system for building software with AI.</strong></p>
 
-**The decision system for building software with AI.**
+<p align="center">
+  <a href="https://pypi.org/project/nauro/"><img alt="PyPI" src="https://img.shields.io/pypi/v/nauro.svg"></a>
+  <a href="https://github.com/Nauro-AI/nauro/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Nauro-AI/nauro/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
+</p>
 
 Nauro gives connected agents human-approved project judgment and current state before they plan or change work.
 
