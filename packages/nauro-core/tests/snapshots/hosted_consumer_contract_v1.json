@@ -668,6 +668,22 @@
       "qualname": "propose_decision",
       "signature": "(store: Store, *, title: str, rationale: str, operation: Literal['add', 'update', 'supersede'] = 'add', affected_decision_id: str | None = None, rejected: list[dict] | None = None, confidence: Literal['high', 'medium', 'low'] | None = None, decision_type: str | None = None, reversibility: Literal['easy', 'moderate', 'hard'] | None = None, files_affected: list[str] | None = None, resolves_questions: list[str] | None = None, source: str | None = None, base_commit: str | None = None) -> ProposeDecisionResult"
     },
+    "nauro_core.operations.results.FlagQuestionResult": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "error": "None | nauro_core.operations.results.ErrorPayload",
+        "num": "None | int",
+        "relocated_ids": "None | tuple[str, Ellipsis]",
+        "skipped_prose_ids": "None | tuple[str, Ellipsis]",
+        "status": "Literal['ok', 'rejected']"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.results",
+      "qualname": "FlagQuestionResult"
+    },
     "nauro_core.operations.results.ProposeDecisionResult": {
       "bases": [
         "pydantic.main.BaseModel"
@@ -856,6 +872,18 @@
       "qualname": "extract_decision_number",
       "signature": "(identifier: str) -> int | None"
     },
+    "nauro_core.protected_generation_membership.is_hosted_snapshot_content_member": {
+      "kind": "function",
+      "module": "nauro_core.protected_generation_membership",
+      "qualname": "is_hosted_snapshot_content_member",
+      "signature": "(path: object) -> bool"
+    },
+    "nauro_core.protected_generation_membership.is_protected_generation_member": {
+      "kind": "function",
+      "module": "nauro_core.protected_generation_membership",
+      "qualname": "is_protected_generation_member",
+      "signature": "(path: object) -> bool"
+    },
     "nauro_core.question_append.allocate_question_number": {
       "kind": "function",
       "module": "nauro_core.question_append",
@@ -874,6 +902,60 @@
       "qualname": "insert_question_entry",
       "signature": "(content: str, entry: str) -> str"
     },
+    "nauro_core.question_provenance.QuestionProvenanceDocument": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "by_legacy_id": "collections.abc.Mapping[str, nauro_core.question_provenance.LegacyQuestionProvenanceRecord]",
+        "by_question_id": "collections.abc.Mapping[str, nauro_core.question_provenance.QuestionProvenanceRecord]",
+        "schema_version": "Literal[1]"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.question_provenance",
+      "qualname": "QuestionProvenanceDocument"
+    },
+    "nauro_core.question_provenance.QuestionProvenanceError": {
+      "bases": [
+        "builtins.ValueError"
+      ],
+      "kind": "class",
+      "module": "nauro_core.question_provenance",
+      "qualname": "QuestionProvenanceError"
+    },
+    "nauro_core.question_provenance.QuestionProvenanceRecord": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "actor_id": "str",
+        "created_at": "str",
+        "event_id": "str"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.question_provenance",
+      "qualname": "QuestionProvenanceRecord"
+    },
+    "nauro_core.question_provenance.insert_question_provenance": {
+      "kind": "function",
+      "module": "nauro_core.question_provenance",
+      "qualname": "insert_question_provenance",
+      "signature": "(document: QuestionProvenanceDocument, *, question_id: str, provenance: QuestionProvenanceRecord) -> QuestionProvenanceMutation"
+    },
+    "nauro_core.question_provenance.parse_question_provenance": {
+      "kind": "function",
+      "module": "nauro_core.question_provenance",
+      "qualname": "parse_question_provenance",
+      "signature": "(data: bytes) -> QuestionProvenanceDocument"
+    },
+    "nauro_core.question_provenance.serialize_question_provenance": {
+      "kind": "function",
+      "module": "nauro_core.question_provenance",
+      "qualname": "serialize_question_provenance",
+      "signature": "(document: QuestionProvenanceDocument) -> bytes"
+    },
     "nauro_core.questions.EntryBlock": {
       "bases": [
         "pydantic.main.BaseModel"
@@ -886,6 +968,14 @@
       "kind": "class",
       "module": "nauro_core.questions",
       "qualname": "EntryBlock"
+    },
+    "nauro_core.questions.InvalidQuestionIdentifier": {
+      "bases": [
+        "builtins.ValueError"
+      ],
+      "kind": "class",
+      "module": "nauro_core.questions",
+      "qualname": "InvalidQuestionIdentifier"
     },
     "nauro_core.questions.OpenQuestionsFile": {
       "bases": [
@@ -912,6 +1002,30 @@
       "kind": "class",
       "module": "nauro_core.questions",
       "qualname": "UnparsableBlock"
+    },
+    "nauro_core.questions.format_question_id": {
+      "kind": "function",
+      "module": "nauro_core.questions",
+      "qualname": "format_question_id",
+      "signature": "(number: object, *, field: str = 'question_number') -> str"
+    },
+    "nauro_core.questions.parse_question_id": {
+      "kind": "function",
+      "module": "nauro_core.questions",
+      "qualname": "parse_question_id",
+      "signature": "(value: object, *, field: str = 'question_id') -> int"
+    },
+    "nauro_core.questions.validate_legacy_question_id": {
+      "kind": "function",
+      "module": "nauro_core.questions",
+      "qualname": "validate_legacy_question_id",
+      "signature": "(value: object, *, field: str = 'legacy_question_id') -> str"
+    },
+    "nauro_core.questions.validate_question_id": {
+      "kind": "function",
+      "module": "nauro_core.questions",
+      "qualname": "validate_question_id",
+      "signature": "(value: object, *, field: str = 'question_id') -> str"
     },
     "nauro_core.renderers.RENDERERS": {
       "kind": "value",
