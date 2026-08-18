@@ -1,16 +1,12 @@
-
-
-
-
 # Nauro
 
-[![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![Python](https://img.shields.io/pypi/pyversions/nauro.svg)](https://pypi.org/project/nauro/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/nauro.svg)](https://pypi.org/project/nauro/) [![CI](https://github.com/Nauro-AI/nauro/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Nauro-AI/nauro/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Give your agents the context code leaves out.**
+**The decision system for building software with AI.**
 
-Nauro keeps current state, open questions, and human-approved project judgment in one record, ready for every agent you connect.
+Nauro gives connected agents human-approved project judgment and current state before they plan or change work.
 
-The record combines project scope, state, open questions, and the rationale behind decisions. Nauro surfaces the relevant slice before work, then carries approved judgment and reported progress into later sessions and connected tools.
+Before work, Nauro surfaces the relevant part of that record. Approved judgment and reported progress carry into later sessions and connected tools.
 
 **Status:** Stable (1.x). Semantic versioning covers the CLI, local stdio MCP contract, on-disk store format, and curated `nauro-core` import API. Cloud sync and hosted MCP are versioned separately.
 
@@ -47,17 +43,17 @@ cd your-repo
 nauro adopt --with-skills --with-subagents
 ```
 
-Restart your agent, then invoke `/nauro-adopt` in Claude Code or `$nauro-adopt` in Codex. The skill reads project documentation and code, asks you about missing rationale, and seeds the project record without inventing decisions. The same onboarding command also installs the gated `nauro-ship-task` workflow and its planner, executor, reviewer, and tech-lead agents for both surfaces.
+Restart your agent, then invoke `/nauro-adopt` in Claude Code or `$nauro-adopt` in Codex. The skill reads the repo, asks about missing rationale, and seeds the project record. The optional flags also install the gated `nauro-ship-task` workflow and its four workflow agents.
 
-Run `nauro status` to verify MCP plus the installed skills and workflow agents. Run `nauro doctor` to check the project store itself. Re-running the onboarding command refreshes Nauro-owned workflow files and keeps recoverable backups of differing copies. It never migrates or changes third-party skills.
+Run `nauro status` to check MCP, skills, and workflow agents. Run `nauro doctor` to check the project store.
 
-Nauro surfaces prior judgment for the agent to assess. Retrieval is advisory and never blocks a change. New or revised judgment is written only after your explicit approval. Local use needs no account. The local record is plain Markdown that you own. Cloud sync and remote MCP access are optional. Nauro sends no product analytics.
+Nauro surfaces prior judgment for the agent to assess. Retrieval is advisory. New or revised judgment requires your explicit approval. Local use needs no account, and the record is plain Markdown on your machine. Cloud sync and remote MCP access are optional. Nauro sends no product analytics.
 
-Adoption, setup, and incidental regeneration preserve an unmanaged `AGENTS.md` and warn. `nauro sync` is the sole explicit overwrite path. A `# Manual` section survives replacement.
+Nauro preserves an existing `AGENTS.md` unless you explicitly run `nauro sync`. A `# Manual` section survives replacement.
 
 ## Desktop app (macOS)
 
-A free, read-only viewer over the project record: timeline, map, list, activity, docs. First launch sets up the CLI.
+A free, read-only viewer for the project record: timeline, map, list, activity, and docs. First launch installs the CLI, connects your agents, and adopts or attaches a project.
 
 https://github.com/user-attachments/assets/e23d3d7f-2d5b-4ce4-be18-fcaff74e7973
 
