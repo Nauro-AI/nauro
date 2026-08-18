@@ -1,9 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/nauro-wordmark-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/nauro-wordmark-light.svg">
-    <img src="docs/images/nauro-wordmark-light.svg" alt="Nauro" width="180">
-  </picture>
+  <img src="docs/images/nauro-wordmark-dark.svg" alt="Nauro" width="180">
 </p>
 
 <p align="center"><strong>The decision system for building software with AI.</strong></p>
