@@ -10,6 +10,8 @@ from nauro_core.questions import (
     QUESTION_TRUNCATION_POINTER,
     EntryBlock,
     HeaderBlock,
+    InvalidLegacyQuestionIdentifier,
+    InvalidQuestionIdentifier,
     MigrationRename,
     NormalizeResult,
     OpenQuestionsFile,
@@ -18,7 +20,11 @@ from nauro_core.questions import (
     ResolvedRef,
     TripleHashBlock,
     UnparsableBlock,
+    format_question_id,
+    parse_question_id,
     truncate_entry_text,
+    validate_legacy_question_id,
+    validate_question_id,
 )
 
 
@@ -561,6 +567,69 @@ class TestQuestionEntryIdValidator:
         assert entry.render() == ["- [Resolved by D7 on 2026-05-19] [Q42] qbody"]
 
 
+class TestQuestionIdentifierSeam:
+    def test_validate_accepts_only_canonical_unpadded_form(self):
+        assert validate_question_id("Q17") == "Q17"
+        with pytest.raises(InvalidQuestionIdentifier):
+            validate_question_id("Q017")
+
+    def test_parse_accepts_padded_compatibility_form(self):
+        assert parse_question_id("Q17") == 17
+        assert parse_question_id("Q017") == 17
+
+    def test_format_emits_canonical_unpadded_form(self):
+        assert format_question_id(17) == "Q17"
+
+    def test_parse_and_format_have_no_identifier_width_limit(self):
+        canonical = "Q1" + "0" * 4999
+        padded = "Q000" + canonical[1:]
+        number = parse_question_id(padded)
+        assert format_question_id(number) == canonical
+        assert validate_question_id(canonical) == canonical
+        with pytest.raises(InvalidQuestionIdentifier):
+            validate_question_id(padded)
+
+    @pytest.mark.parametrize(
+        "value",
+        ["Q0", "Q", "Q-1", "Q1.0", "Q 1", " Q1", "Q1 ", "Q\u0661", 1, None],
+    )
+    def test_parse_rejects_invalid_values(self, value):
+        with pytest.raises(InvalidQuestionIdentifier):
+            parse_question_id(value)
+
+    @pytest.mark.parametrize("value", [0, -1, True, "17", None])
+    def test_format_rejects_non_positive_integer_values(self, value):
+        with pytest.raises(InvalidQuestionIdentifier):
+            format_question_id(value)
+
+    def test_question_errors_do_not_echo_rejected_values(self):
+        rejected = "Qsecret"
+        with pytest.raises(InvalidQuestionIdentifier) as exc_info:
+            validate_question_id(rejected, field="question_key")
+        assert rejected not in str(exc_info.value)
+        assert exc_info.value.field == "question_key"
+
+    def test_validate_legacy_question_id_accepts_exact_calendar_value(self):
+        value = "2026-05-12 20:18 UTC"
+        assert validate_legacy_question_id(value) == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "2026-5-12 20:18 UTC",
+            "2026-05-12 2:18 UTC",
+            "2026-02-30 20:18 UTC",
+            "2026-05-12 20:18 UTC ",
+            "2026-05-12T20:18 UTC",
+            "2026-05-12 20:18Z",
+            20260512,
+        ],
+    )
+    def test_validate_legacy_question_id_rejects_noncanonical_values(self, value):
+        with pytest.raises(InvalidLegacyQuestionIdentifier):
+            validate_legacy_question_id(value)
+
+
 class TestParseQForm:
     def test_parse_q_form_open(self):
         content = "# Open Questions\n\n- [Q1] new id body\n"
@@ -592,6 +661,20 @@ class TestParseQForm:
             "- [Resolved by D7 on 2026-05-19] [Q2] resolved q\n"
         )
         assert OpenQuestionsFile.parse(content).format() == content
+
+    def test_padded_q_form_round_trips_with_canonical_typed_id(self):
+        content = "# Open Questions\n\n- [Q017] padded source spelling\n"
+        file = OpenQuestionsFile.parse(content)
+        assert file.open_ids == ["Q17"]
+        assert file.format() == content
+
+    def test_padded_q_form_adds_source_and_canonical_known_aliases(self):
+        file = OpenQuestionsFile.parse("# Open Questions\n\n- [Q017] padded\n")
+        assert file.known_question_ids == {"Q17", "Q017"}
+
+    def test_padded_triple_hash_id_adds_source_and_canonical_known_aliases(self):
+        file = OpenQuestionsFile.parse("# Open Questions\n\n### [Q017] Padded topic\nbody\n")
+        assert file.known_question_ids == {"Q17", "Q017"}
 
     def test_non_ascii_q_number_is_not_an_entry(self):
         """A non-ASCII id is not an entry this file could have written.
@@ -713,6 +796,21 @@ class TestResolveQForm:
         result = file.resolve(["Q1", "2026-05-12 20:18 UTC"], 7, date(2026, 5, 19))
         assert set(result.moved_ids) == {"Q1", "2026-05-12 20:18 UTC"}
 
+    @pytest.mark.parametrize("requested", ["Q17", "Q017"])
+    def test_resolve_padded_source_by_either_alias_returns_canonical_id(self, requested):
+        file = OpenQuestionsFile.parse("# Open Questions\n\n- [Q017] padded\n")
+        result = file.resolve([requested], 7, date(2026, 5, 19))
+        assert result.moved_ids == ("Q17",)
+        assert result.unknown_ids == ()
+        assert result.ambiguous_ids == ()
+        assert "[Resolved by D7 on 2026-05-19] [Q017] padded" in result.file.format()
+
+    def test_unknown_padded_input_is_reported_canonically(self):
+        file = OpenQuestionsFile.parse("# Open Questions\n\n- [Q1] one\n")
+        result = file.resolve(["Q017"], 7, date(2026, 5, 19))
+        assert result.moved_ids == ()
+        assert result.unknown_ids == ("Q17",)
+
 
 class TestResolveRejectsAmbiguous:
     """Same-minute timestamp collision must not silently move both
@@ -759,6 +857,17 @@ class TestResolveRejectsAmbiguous:
         result = file.resolve(["Q1", "2026-05-12 20:18 UTC"], 7, date(2026, 5, 19))
         assert result.ambiguous_ids == ("2026-05-12 20:18 UTC",)
         assert result.moved_ids == ()
+        assert result.file.format() == before
+
+    @pytest.mark.parametrize("requested", ["Q17", "Q017"])
+    def test_padded_and_unpadded_entries_are_one_ambiguous_identity(self, requested):
+        file = OpenQuestionsFile.parse("# Open Questions\n\n- [Q017] padded\n- [Q17] canonical\n")
+        before = file.format()
+        assert file.ambiguous_ids == {"Q17": 2, "Q017": 2}
+        result = file.resolve([requested], 7, date(2026, 5, 19))
+        assert result.ambiguous_ids == ("Q17",)
+        assert result.moved_ids == ()
+        assert result.unknown_ids == ()
         assert result.file.format() == before
 
 

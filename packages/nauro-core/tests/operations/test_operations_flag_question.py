@@ -167,6 +167,43 @@ def test_targets_pointing_at_resolved_entry_short_circuits() -> None:
     assert store.read_file(OPEN_QUESTIONS_MD) == before
 
 
+@pytest.mark.parametrize(
+    ("entry_id", "target"),
+    [("Q17", "Q017"), ("Q017", "Q17")],
+)
+def test_resolved_entry_short_circuits_through_either_q_spelling(
+    entry_id: str,
+    target: str,
+) -> None:
+    seed = f"# Open Questions\n\n- [Resolved by D42 on 2026-05-20] [{entry_id}] already resolved\n"
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    before = store.read_file(OPEN_QUESTIONS_MD)
+    result = flag_question(store, "duplicate", targets=[target])
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "Q17 is already resolved by D42" in result.error.reason
+    assert store.read_file(OPEN_QUESTIONS_MD) == before
+
+
+@pytest.mark.parametrize("target", ["Q017", "Q17"])
+def test_append_refuses_ambiguous_q_identity_when_resolved_entry_is_second(
+    target: str,
+) -> None:
+    seed = (
+        "# Open Questions\n\n"
+        "- [Q017] open first\n"
+        "- [Resolved by D42 on 2026-05-20] [Q17] resolved second\n"
+    )
+    store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
+    before = store.read_file(OPEN_QUESTIONS_MD)
+    result = flag_question(store, "duplicate", targets=[target])
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "ambiguous" in result.error.reason
+    assert "Q17" in result.error.reason
+    assert store.read_file(OPEN_QUESTIONS_MD) == before
+
+
 def test_targets_pointing_at_open_entry_appends_normally() -> None:
     seed = "# Open Questions\n\n- [Q1] still open\n- [Q5] also still open\n"
     store = InMemoryStore(files={OPEN_QUESTIONS_MD: seed})
@@ -275,6 +312,28 @@ def test_resolve_relocates_target_below_divider_and_returns_ok() -> None:
     q5_line = next(line for line in content.split("\n") if "[Q5]" in line)
     assert q5_line.startswith("- [Resolved by D42 on ")
     assert content.index("[Q1] still open") < content.index("## Resolved") < content.index("[Q5]")
+
+
+@pytest.mark.parametrize(
+    ("entry_id", "target"),
+    [("Q17", "Q017"), ("Q017", "Q17")],
+)
+def test_resolve_accepts_either_q_spelling_and_preserves_source(
+    entry_id: str,
+    target: str,
+) -> None:
+    seed = f"# Open Questions\n\n- [{entry_id}] open\n"
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: seed},
+    )
+    result = flag_question(store, targets=[target], resolved_by="D42")
+    assert result.status == "ok"
+    assert result.relocated_ids == ("Q17",)
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert f"[{entry_id}] open" in content
+    assert "[Resolved by D42 on " in content
 
 
 def test_resolve_does_not_append_a_question() -> None:
@@ -394,6 +453,38 @@ def test_resolve_ambiguous_target_rejects_naming_id() -> None:
     assert result.status == "rejected"
     assert result.error is not None
     assert "2026-04-30 10:00 UTC" in result.error.reason
+
+
+@pytest.mark.parametrize("target", ["Q17", "Q017"])
+def test_resolve_rejects_padded_and_unpadded_duplicate_through_either_spelling(
+    target: str,
+) -> None:
+    seed = "# Open Questions\n\n- [Q017] padded\n- [Q17] canonical\n"
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: seed},
+    )
+    before = store.read_file(OPEN_QUESTIONS_MD)
+    result = flag_question(store, targets=[target], resolved_by="D42")
+    assert result.status == "rejected"
+    assert result.error is not None
+    assert "Q17" in result.error.reason
+    assert store.read_file(OPEN_QUESTIONS_MD) == before
+
+
+def test_resolve_legacy_timestamp_id_is_unchanged() -> None:
+    legacy_id = "2026-04-30 10:00 UTC"
+    seed = f"# Open Questions\n\n- [{legacy_id}] legacy open\n"
+    store = InMemoryStore(
+        decisions=_decisions(42),
+        files={OPEN_QUESTIONS_MD: seed},
+    )
+    result = flag_question(store, targets=[legacy_id], resolved_by="D42")
+    assert result.status == "ok"
+    assert result.relocated_ids == (legacy_id,)
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    assert content is not None
+    assert f"[{legacy_id}] legacy open" in content
 
 
 def test_resolve_with_no_targets_rejects() -> None:

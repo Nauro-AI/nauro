@@ -22,7 +22,7 @@ from datetime import date as _date
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from nauro_core.constants import POINTER_FLAG_PREFIXES, QUESTION_ENTRY_CHAR_BUDGET
 from nauro_core.parsing import is_ascii_decimal
@@ -36,6 +36,86 @@ _RESOLVED_PREFIX_SEP = " on "
 # Appended to over-budget entry text by :func:`truncate_entry_text` so a
 # capped payload never silently hides content.
 QUESTION_TRUNCATION_POINTER = '... [truncated - full text: get_raw_file("open-questions.md")]'
+
+
+class InvalidQuestionIdentifier(ValueError):
+    """A question identifier is not valid for the requested boundary."""
+
+    def __init__(self, field: str, requirement: str) -> None:
+        self.field = field
+        super().__init__(f"{field} must be {requirement}.")
+
+
+class InvalidLegacyQuestionIdentifier(ValueError):
+    """A legacy question identifier is not in its permanent exact grammar."""
+
+    def __init__(self, field: str) -> None:
+        self.field = field
+        super().__init__(f"{field} must use valid YYYY-MM-DD HH:MM UTC form.")
+
+
+def format_question_id(number: object, *, field: str = "question_number") -> str:
+    """Return the canonical unpadded Q-form for a positive integer."""
+    if isinstance(number, bool) or not isinstance(number, int) or number < 1:
+        raise InvalidQuestionIdentifier(field, "a positive integer")
+    return "Q" + _format_positive_ascii_decimal(number)
+
+
+def parse_question_id(value: object, *, field: str = "question_id") -> int:
+    """Return the numeric identity of a compatible Q-form input."""
+    if not isinstance(value, str) or len(value) < 2 or value[0] != "Q":
+        raise InvalidQuestionIdentifier(field, "Q followed by positive ASCII decimal digits")
+    digits = value[1:]
+    if not is_ascii_decimal(digits):
+        raise InvalidQuestionIdentifier(field, "Q followed by positive ASCII decimal digits")
+    number = 0
+    for digit in digits:
+        number = number * 10 + ord(digit) - ord("0")
+    if number < 1:
+        raise InvalidQuestionIdentifier(field, "Q followed by positive ASCII decimal digits")
+    return number
+
+
+def _format_positive_ascii_decimal(number: int) -> str:
+    chunks: list[int] = []
+    while number:
+        number, remainder = divmod(number, 1_000_000_000)
+        chunks.append(remainder)
+    head = str(chunks.pop())
+    return head + "".join(f"{chunk:09d}" for chunk in reversed(chunks))
+
+
+def validate_question_id(value: object, *, field: str = "question_id") -> str:
+    """Return a canonical unpadded Q-form or raise."""
+    number = parse_question_id(value, field=field)
+    canonical = format_question_id(number, field=field)
+    if value != canonical:
+        raise InvalidQuestionIdentifier(field, "a canonical unpadded Q-form")
+    return canonical
+
+
+def validate_legacy_question_id(
+    value: object,
+    *,
+    field: str = "legacy_question_id",
+) -> str:
+    """Return an exact calendar-valid legacy timestamp identifier or raise."""
+    if not isinstance(value, str) or len(value) != 20:
+        raise InvalidLegacyQuestionIdentifier(field)
+    if value[4] != "-" or value[7] != "-" or value[10] != " ":
+        raise InvalidLegacyQuestionIdentifier(field)
+    if value[13] != ":" or value[16:] != " UTC":
+        raise InvalidLegacyQuestionIdentifier(field)
+    digits = (value[0:4], value[5:7], value[8:10], value[11:13], value[14:16])
+    if not all(is_ascii_decimal(part) for part in digits):
+        raise InvalidLegacyQuestionIdentifier(field)
+    try:
+        parsed = datetime.strptime(value, _TIMESTAMP_FMT)
+    except ValueError as exc:
+        raise InvalidLegacyQuestionIdentifier(field) from exc
+    if parsed.strftime(_TIMESTAMP_FMT) != value:
+        raise InvalidLegacyQuestionIdentifier(field)
+    return value
 
 
 def truncate_entry_text(text: str) -> str:
@@ -72,6 +152,7 @@ class QuestionEntry(BaseModel):
     body: str
     continuation: list[str] = Field(default_factory=list)
     resolved_by: ResolvedRef | None = None
+    _source_question_id: str | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def exactly_one_id(self) -> QuestionEntry:
@@ -85,9 +166,13 @@ class QuestionEntry(BaseModel):
     @property
     def id(self) -> str:
         if self.num is not None:
-            return f"Q{self.num}"
+            return format_question_id(self.num)
         assert self.timestamp is not None  # exactly_one_id validator
         return self.timestamp.strftime(_TIMESTAMP_FMT)
+
+    @property
+    def _render_id(self) -> str:
+        return self._source_question_id or self.id
 
     @property
     def is_discovery_pointer(self) -> bool:
@@ -103,10 +188,10 @@ class QuestionEntry(BaseModel):
             ref = self.resolved_by
             head = (
                 f"- [Resolved by D{ref.decision_num} on {ref.date.isoformat()}] "
-                f"[{self.id}] {self.body}"
+                f"[{self._render_id}] {self.body}"
             )
         else:
-            head = f"- [{self.id}] {self.body}"
+            head = f"- [{self._render_id}] {self.body}"
         return [head, *self.continuation]
 
 
@@ -426,8 +511,13 @@ class OpenQuestionsFile(BaseModel):
         for b in self.blocks:
             if isinstance(b, EntryBlock):
                 known.add(b.entry.id)
+                if b.entry._source_question_id is not None:
+                    known.add(b.entry._source_question_id)
             elif isinstance(b, TripleHashBlock) and b.embedded_id is not None:
                 known.add(b.embedded_id)
+                number = _parse_q_id(b.embedded_id)
+                if number is not None:
+                    known.add(format_question_id(number))
         return known
 
     @property
@@ -437,10 +527,19 @@ class OpenQuestionsFile(BaseModel):
         Legacy timestamp ids can collide within a minute, so a boundary can reject first.
         """
         counts: dict[str, int] = {}
+        aliases: dict[str, set[str]] = {}
         for b in self.blocks:
             if isinstance(b, EntryBlock):
-                counts[b.entry.id] = counts.get(b.entry.id, 0) + 1
-        return {k: v for k, v in counts.items() if v > 1}
+                canonical_id = b.entry.id
+                counts[canonical_id] = counts.get(canonical_id, 0) + 1
+                aliases.setdefault(canonical_id, set()).add(canonical_id)
+                if b.entry._source_question_id is not None:
+                    aliases[canonical_id].add(b.entry._source_question_id)
+        ambiguous: dict[str, int] = {}
+        for canonical_id, count in counts.items():
+            if count > 1:
+                ambiguous.update({alias: count for alias in sorted(aliases[canonical_id])})
+        return ambiguous
 
     def resolve(
         self,
@@ -463,7 +562,7 @@ class OpenQuestionsFile(BaseModel):
         if not ids:
             return ResolveResult(file=self, moved_ids=(), unknown_ids=())
 
-        requested = list(dict.fromkeys(ids))
+        requested = list(dict.fromkeys(_canonicalize_question_reference(value) for value in ids))
         ambiguous_map = self.ambiguous_ids
         ambiguous_requested = tuple(i for i in requested if i in ambiguous_map)
         if ambiguous_requested:
@@ -535,7 +634,11 @@ class OpenQuestionsFile(BaseModel):
                 )
                 new_blocks.append(EntryBlock(entry=new_entry))
                 renames.append(
-                    MigrationRename(old_id=old_id, new_id=f"Q{next_num}", logged=logged)
+                    MigrationRename(
+                        old_id=old_id,
+                        new_id=format_question_id(next_num),
+                        logged=logged,
+                    )
                 )
                 next_num += 1
             else:
@@ -719,8 +822,9 @@ def _parse_entry(lines: list[str], start: int) -> tuple[QuestionEntry | None, in
     timestamp: datetime | None = None
     if num is None:
         try:
+            validate_legacy_question_id(id_str)
             timestamp = datetime.strptime(id_str, _TIMESTAMP_FMT)
-        except ValueError:
+        except (InvalidLegacyQuestionIdentifier, ValueError):
             return None, 1
 
     continuation: list[str] = []
@@ -729,16 +833,16 @@ def _parse_entry(lines: list[str], start: int) -> tuple[QuestionEntry | None, in
         continuation.append(lines[j])
         j += 1
 
-    return (
-        QuestionEntry(
-            num=num,
-            timestamp=timestamp,
-            body=body,
-            continuation=continuation,
-            resolved_by=resolved_ref,
-        ),
-        j - start,
+    entry = QuestionEntry(
+        num=num,
+        timestamp=timestamp,
+        body=body,
+        continuation=continuation,
+        resolved_by=resolved_ref,
     )
+    if num is not None:
+        entry._source_question_id = id_str
+    return entry, j - start
 
 
 def _parse_q_id(text: str) -> int | None:
@@ -746,15 +850,17 @@ def _parse_q_id(text: str) -> int | None:
 
     Mirrors ``QuestionEntry``'s ``ge=1`` bound, so ``[Q0]`` degrades to unparsable.
     """
-    if len(text) < 2 or text[0] != "Q":
+    try:
+        return parse_question_id(text)
+    except InvalidQuestionIdentifier:
         return None
-    digits = text[1:]
-    if not is_ascii_decimal(digits):
-        return None
-    num = int(digits)
-    if num < 1:
-        return None
-    return num
+
+
+def _canonicalize_question_reference(value: str) -> str:
+    try:
+        return format_question_id(parse_question_id(value))
+    except InvalidQuestionIdentifier:
+        return value
 
 
 def _parse_resolved_prefix(text: str) -> ResolvedRef | None:
@@ -789,8 +895,8 @@ def _extract_embedded_id(line: str) -> str | None:
         if _parse_q_id(candidate) is not None:
             return candidate
         try:
-            datetime.strptime(candidate, _TIMESTAMP_FMT)
+            validate_legacy_question_id(candidate)
             return candidate
-        except ValueError:
+        except InvalidLegacyQuestionIdentifier:
             start = line.find("[", end + 1)
     return None
