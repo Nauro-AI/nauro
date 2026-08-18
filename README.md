@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/nauro-mark-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/images/nauro-mark-light.svg">
-    <img src="docs/images/nauro-mark-light.svg" alt="Nauro" width="72">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/nauro-wordmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/nauro-wordmark-light.svg">
+    <img src="docs/images/nauro-wordmark-light.svg" alt="Nauro" width="180">
   </picture>
 </p>
 

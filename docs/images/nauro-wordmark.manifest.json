@@ -1,0 +1,27 @@
+{
+  "asset": "Nauro horizontal wordmark",
+  "dimensions": {
+    "width": 132,
+    "height": 42
+  },
+  "variants": {
+    "dark": "nauro-wordmark-dark.svg",
+    "light": "nauro-wordmark-light.svg"
+  },
+  "mark_source": "Nauro primary mark selected as Optical Refinement A",
+  "typeface": "Schibsted Grotesk Variable",
+  "type_weight": 620,
+  "text": "Nauro",
+  "construction": "The approved N mark is the first letter; converted type paths spell auro",
+  "text_rendering": "Converted to SVG paths for deterministic rendering",
+  "colors": {
+    "dark": {
+      "mark": "#E9ECF1",
+      "text": "#E9ECF1"
+    },
+    "light": {
+      "mark": "#0F3A52",
+      "text": "#131720"
+    }
+  }
+}
