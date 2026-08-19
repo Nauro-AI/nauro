@@ -28,6 +28,20 @@ from nauro_core.operations import (
 )
 
 
+class RecordingStore:
+    def __init__(self, files: dict[str, str]) -> None:
+        self.files = dict(files)
+        self.calls: list[tuple[str, str, str | None]] = []
+
+    def read_file(self, path: str) -> str | None:
+        self.calls.append(("read", path, None))
+        return self.files.get(path)
+
+    def write_file(self, path: str, content: str) -> None:
+        self.calls.append(("write", path, content))
+        self.files[path] = content
+
+
 def test_returns_result_type() -> None:
     result = update_state(InMemoryStore(), "anything")
     assert isinstance(result, UpdateStateResult)
@@ -96,6 +110,41 @@ def test_legacy_state_only_migrates_to_state_current() -> None:
     history = store.read_file(STATE_HISTORY_FILENAME)
     assert history is not None
     assert "Legacy content" in history
+
+
+def test_legacy_write_order_and_lazy_history_read_remain_unchanged() -> None:
+    legacy = "# State\n\nLegacy body\n"
+    store = RecordingStore({STATE_LEGACY_FILENAME: legacy})
+    with patch("nauro_core.state._utc_timestamp", return_value="2026-04-08T15:30Z"):
+        result = update_state(store, "New body")
+
+    assert result.status == "ok"
+    assert store.calls == [
+        ("read", STATE_CURRENT_FILENAME, None),
+        ("read", STATE_LEGACY_FILENAME, None),
+        ("write", STATE_CURRENT_FILENAME, legacy),
+        (
+            "write",
+            STATE_CURRENT_FILENAME,
+            "# Current State\n\nNew body\n\n*Last updated: 2026-04-08T15:30Z*\n",
+        ),
+        ("read", STATE_HISTORY_FILENAME, None),
+        (
+            "write",
+            STATE_HISTORY_FILENAME,
+            "## 2026-04-08T15:30Z\n\n# State\n\nLegacy body\n\n---\n",
+        ),
+    ]
+
+
+def test_noop_keeps_history_read_lazy() -> None:
+    store = RecordingStore({STATE_HISTORY_FILENAME: "unread"})
+    result = update_state(store, "New body")
+    assert result.status == "noop"
+    assert store.calls == [
+        ("read", STATE_CURRENT_FILENAME, None),
+        ("read", STATE_LEGACY_FILENAME, None),
+    ]
 
 
 def test_history_accumulates_across_repeated_writes() -> None:

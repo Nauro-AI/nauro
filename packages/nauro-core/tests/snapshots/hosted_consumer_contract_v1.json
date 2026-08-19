@@ -222,7 +222,8 @@
         "server_token",
         "audit_target_id",
         "brief_slug",
-        "stack_revision"
+        "stack_revision",
+        "state_revision"
       ],
       "module": "nauro_core.identifiers",
       "qualname": "IdentifierKind"
