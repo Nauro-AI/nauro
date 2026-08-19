@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from nauro_core.constants import STATE_REVISION_ABSENT
 from nauro_core.identifiers import (
     IdentifierKind,
     InvalidIdentifier,
@@ -21,6 +22,7 @@ VALID_BY_KIND = {
     IdentifierKind.audit_target_id: "target-1",
     IdentifierKind.brief_slug: "auth-cutover-2",
     IdentifierKind.stack_revision: "0" * 64,
+    IdentifierKind.state_revision: "f" * 64,
 }
 
 
@@ -213,6 +215,41 @@ class TestStackRevision:
 
     def test_rejects_non_str(self) -> None:
         assert not is_identifier(IdentifierKind.stack_revision, None)
+
+
+class TestStateRevision:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "0" * 64,
+            "f" * 64,
+            "0123456789abcdef" * 4,
+            STATE_REVISION_ABSENT,
+        ],
+    )
+    def test_accepts(self, value: str) -> None:
+        assert is_identifier(IdentifierKind.state_revision, value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "0" * 63,
+            "0" * 65,
+            "A" * 64,
+            "0123456789ABCDEF" * 4,
+            "g" * 64,
+            "ABSENT",
+            "Absent",
+            "absent ",
+            "present",
+        ],
+    )
+    def test_rejects(self, value: str) -> None:
+        assert not is_identifier(IdentifierKind.state_revision, value)
+
+    def test_rejects_non_str(self) -> None:
+        assert not is_identifier(IdentifierKind.state_revision, None)
 
 
 class TestTrailingNewline:

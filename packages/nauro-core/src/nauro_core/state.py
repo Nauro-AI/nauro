@@ -40,7 +40,12 @@ class StateUpdateResult:
 
 def _utc_timestamp() -> str:
     """Return current UTC time as ISO 8601 with minute precision."""
-    return datetime.now(timezone.utc).strftime(_TIMESTAMP_FORMAT)
+    return _format_state_timestamp(datetime.now(timezone.utc))
+
+
+def _format_state_timestamp(updated_at: datetime) -> str:
+    """Format an explicit time for state files at UTC minute precision."""
+    return updated_at.astimezone(timezone.utc).strftime(_TIMESTAMP_FORMAT)
 
 
 def _strip_current_header_footer(content: str) -> str:
@@ -57,13 +62,12 @@ def _strip_current_header_footer(content: str) -> str:
     return "\n".join(stripped).strip()
 
 
-def prepare_state_update(new_state: str, current_content: str | None) -> StateUpdateResult:
-    """Prepare a state update for the split state files; pure, zero I/O. Takes the new
-    state text and the current ``state_current.md`` content (``None`` when it does
-    not exist) and returns the new body plus an optional history entry.
-    """
-    timestamp = _utc_timestamp()
-
+def _prepare_state_update_with_timestamp(
+    new_state: str,
+    current_content: str | None,
+    timestamp: str,
+) -> StateUpdateResult:
+    """Format one state update with an explicit minute timestamp."""
     new_current = (
         f"{_CURRENT_STATE_HEADER}\n\n{new_state}\n\n"
         f"{_LAST_UPDATED_PREFIX}{timestamp}{_LAST_UPDATED_SUFFIX}\n"
@@ -76,6 +80,24 @@ def prepare_state_update(new_state: str, current_content: str | None) -> StateUp
             history_entry = f"## {timestamp}\n\n{old_body}\n\n---\n"
 
     return StateUpdateResult(current_content=new_current, history_entry=history_entry)
+
+
+def _prepare_state_update_at(
+    new_state: str,
+    current_content: str | None,
+    updated_at: datetime,
+) -> StateUpdateResult:
+    """Prepare a state update at an explicit time without reading the clock."""
+    return _prepare_state_update_with_timestamp(
+        new_state,
+        current_content,
+        _format_state_timestamp(updated_at),
+    )
+
+
+def prepare_state_update(new_state: str, current_content: str | None) -> StateUpdateResult:
+    """Prepare a state update for the split state files with the current UTC time."""
+    return _prepare_state_update_with_timestamp(new_state, current_content, _utc_timestamp())
 
 
 def migrate_legacy_state(legacy_content: str) -> StateUpdateResult:

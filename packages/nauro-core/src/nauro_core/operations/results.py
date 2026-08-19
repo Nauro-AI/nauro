@@ -291,6 +291,16 @@ class StackRevisionConflict(BaseModel):
     current_revision: str
 
 
+class StateRevisionConflict(BaseModel):
+    """A supplied state revision did not match the observed state_current.md bytes."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    status: Literal["stale_revision"] = "stale_revision"
+    expected_revision: str
+    current_revision: str
+
+
 class ShareContextAccepted(BaseModel):
     """Committed outcome of a hosted ``share_context`` operation.
 

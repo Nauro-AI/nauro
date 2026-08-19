@@ -14,6 +14,7 @@ from nauro_core.operations.results import (
     ShareContextAccepted,
     SlugConflict,
     StackRevisionConflict,
+    StateRevisionConflict,
     UpdateStackAccepted,
     WorkflowExpired,
     WorkflowInProgress,
@@ -97,6 +98,33 @@ class TestStackRevisionConflict:
             conflict.current_revision = "absent"
         with pytest.raises(ValidationError):
             StackRevisionConflict(
+                expected_revision=REVISION,
+                current_revision="absent",
+                unexpected_field="value",
+            )
+
+
+class TestStateRevisionConflict:
+    def test_dump_shape(self) -> None:
+        conflict = StateRevisionConflict(
+            expected_revision=REVISION,
+            current_revision="absent",
+        )
+        assert conflict.model_dump(mode="json") == {
+            "status": "stale_revision",
+            "expected_revision": REVISION,
+            "current_revision": "absent",
+        }
+
+    def test_frozen_and_closed(self) -> None:
+        conflict = StateRevisionConflict(
+            expected_revision=REVISION,
+            current_revision="0" * 64,
+        )
+        with pytest.raises(ValidationError):
+            conflict.current_revision = "absent"
+        with pytest.raises(ValidationError):
+            StateRevisionConflict(
                 expected_revision=REVISION,
                 current_revision="absent",
                 unexpected_field="value",

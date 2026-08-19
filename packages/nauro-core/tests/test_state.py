@@ -1,10 +1,12 @@
 """Tests for nauro_core.state — split state file logic."""
 
 import re
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from nauro_core.state import (
     StateUpdateResult,
+    _prepare_state_update_at,
     _strip_current_header_footer,
     assemble_state_for_context,
     migrate_legacy_state,
@@ -77,6 +79,18 @@ class TestPrepareStateUpdate:
             assert "2026-04-08T15:30Z" in result.current_content
             assert result.history_entry is not None
             assert "2026-04-08T15:30Z" in result.history_entry
+
+    def test_explicit_time_helper_uses_one_utc_minute_timestamp(self):
+        old = "# Current State\n\nOld\n\n*Last updated: 2026-04-01T10:00Z*\n"
+        result = _prepare_state_update_at(
+            "new",
+            old,
+            datetime(2026, 4, 8, 15, 30, 59, tzinfo=timezone.utc),
+        )
+        assert result.current_content == (
+            "# Current State\n\nnew\n\n*Last updated: 2026-04-08T15:30Z*\n"
+        )
+        assert result.history_entry == "## 2026-04-08T15:30Z\n\nOld\n\n---\n"
 
 
 class TestMigrateLegacyState:

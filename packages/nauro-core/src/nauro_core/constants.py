@@ -201,6 +201,7 @@ STACK_DOC_CHAR_LIMIT = 40_000
 # UTF-8 bytes; a missing file carries this literal token instead. The shape
 # lives in nauro_core.identifiers as the stack_revision kind.
 STACK_REVISION_ABSENT = "absent"
+STATE_REVISION_ABSENT = "absent"
 
 # ── L1 stack projection bounds ──
 # Automatic context gets a bound independent of both the document cap above
