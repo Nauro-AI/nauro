@@ -1,6 +1,7 @@
 """Kernel tests for the hosted typed-operation outcome models.
 
-The plan-returning operations (``update_stack``, ``share_context``) are
+The plan-returning operations (``update_stack``, ``share_context``,
+``submit_report``) are
 executed by the hosted server; these models are the cross-surface outcome
 contract it returns. Pinned here because the shapes ship in nauro-core.
 """
@@ -15,6 +16,7 @@ from nauro_core.operations.results import (
     SlugConflict,
     StackRevisionConflict,
     StateRevisionConflict,
+    SubmitReportAccepted,
     UpdateStackAccepted,
     WorkflowExpired,
     WorkflowInProgress,
@@ -41,6 +43,17 @@ def _share_context_accepted() -> ShareContextAccepted:
         content_digest=REVISION,
         receipt_id=ULID,
     )
+
+
+def _submit_report_accepted(**overrides: object) -> SubmitReportAccepted:
+    values: dict[str, object] = {
+        "report_id": ULID,
+        "event_id": ULID,
+        "body_digest": REVISION,
+        "receipt_id": ULID,
+    }
+    values.update(overrides)
+    return SubmitReportAccepted(**values)
 
 
 class TestUpdateStackAccepted:
@@ -155,6 +168,64 @@ class TestShareContextAccepted:
                 receipt_id=ULID,
                 unexpected_field="value",
             )
+
+
+class TestSubmitReportAccepted:
+    def test_exact_field_order_and_dump_shape(self) -> None:
+        assert list(SubmitReportAccepted.model_fields) == [
+            "status",
+            "report_id",
+            "event_id",
+            "body_digest",
+            "receipt_id",
+        ]
+        assert _submit_report_accepted().model_dump(mode="json") == {
+            "status": "accepted",
+            "report_id": ULID,
+            "event_id": ULID,
+            "body_digest": REVISION,
+            "receipt_id": ULID,
+        }
+
+    def test_model_is_strict_frozen_and_closed(self) -> None:
+        assert SubmitReportAccepted.model_config["strict"] is True
+        result = _submit_report_accepted()
+        with pytest.raises(ValidationError):
+            result.report_id = "01KQ6AZGNA0B3QBF67NBXP3S46"
+        with pytest.raises(ValidationError):
+            _submit_report_accepted(unexpected_field="value")
+        with pytest.raises(ValidationError):
+            _submit_report_accepted(body_digest=123)
+
+    def test_status_is_fixed(self) -> None:
+        with pytest.raises(ValidationError):
+            _submit_report_accepted(status="ok")
+
+    @pytest.mark.parametrize("field", ["report_id", "event_id", "receipt_id"])
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "",
+            "01KQ6AZGNA0B3QBF67NBXP3S4I",
+            "81KQ6AZGNA0B3QBF67NBXP3S45",
+            "01kq6azgna0b3qbf67nbxp3s45",
+        ],
+    )
+    def test_all_ids_must_be_ulids(self, field: str, value: str) -> None:
+        with pytest.raises(ValidationError):
+            _submit_report_accepted(**{field: value})
+
+    @pytest.mark.parametrize(
+        "body_digest",
+        ["ab" * 31, "ab" * 33, "AB" * 32, "ag" * 32],
+    )
+    def test_body_digest_must_be_lowercase_sha256(self, body_digest: str) -> None:
+        with pytest.raises(ValidationError):
+            _submit_report_accepted(body_digest=body_digest)
+
+    def test_original_report_id_equals_event_id(self) -> None:
+        with pytest.raises(ValidationError):
+            _submit_report_accepted(event_id="01KQ6AZGNA0B3QBF67NBXP3S46")
 
 
 class TestSlugConflict:
