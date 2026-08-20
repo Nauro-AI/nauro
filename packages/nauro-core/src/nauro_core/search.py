@@ -15,15 +15,21 @@ declined path's identity).
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TypedDict
-
-import bm25s
-import Stemmer
 
 from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import _first_sentence_snippet, extract_relevance_snippet
 
-_stemmer = Stemmer.Stemmer("english")
+
+# bm25s and Stemmer (and numpy underneath) are imported on first search call,
+# never at module import: the package init pulls this module into every
+# consumer, and idle MCP server processes must not pay the BM25 stack.
+@lru_cache(maxsize=1)
+def _stemmer():
+    import Stemmer
+
+    return Stemmer.Stemmer("english")
 
 
 # Two distinct result shapes, deliberately not unified. Module-private (not in
@@ -70,10 +76,12 @@ def bm25_search(
     if not decisions or not query or not query.strip():
         return []
 
+    import bm25s
+
     corpus = [_index_text(d) for d in decisions]
     # show_progress=False — bm25s defaults to True; the tqdm output is invisible
     # in MCP server stderr but pollutes the `nauro check-decision` CLI surface.
-    corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer, show_progress=False)
+    corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer(), show_progress=False)
 
     retriever = bm25s.BM25()
     retriever.index(corpus_tokens, show_progress=False)
@@ -83,7 +91,7 @@ def bm25_search(
     k = max(0, min(limit, len(decisions)))
     if k == 0:
         return []
-    query_tokens = bm25s.tokenize([query], stopwords="en", stemmer=_stemmer, show_progress=False)
+    query_tokens = bm25s.tokenize([query], stopwords="en", stemmer=_stemmer(), show_progress=False)
     results, scores = retriever.retrieve(query_tokens, k=k, show_progress=False)
 
     query_words = query.strip().split()
@@ -127,9 +135,11 @@ def bm25_retrieve(
     if not active or not query_text or not query_text.strip():
         return []
 
+    import bm25s
+
     corpus = [_index_text(d) for d in active]
     corpus_tokens = bm25s.tokenize(
-        corpus, stopwords=stopwords, stemmer=_stemmer, show_progress=False
+        corpus, stopwords=stopwords, stemmer=_stemmer(), show_progress=False
     )
 
     retriever = bm25s.BM25()
@@ -137,7 +147,7 @@ def bm25_retrieve(
 
     k = min(top_k, len(active))
     query_tokens = bm25s.tokenize(
-        [query_text], stopwords=stopwords, stemmer=_stemmer, show_progress=False
+        [query_text], stopwords=stopwords, stemmer=_stemmer(), show_progress=False
     )
     results, scores = retriever.retrieve(query_tokens, k=k, show_progress=False)
 

@@ -152,7 +152,7 @@ def test_fire_predicate_schema_valid() -> None:
         candidates,
         sample["query"],
         top_k=len(candidates),
-        stopwords=bench._CHECK_DECISION_STOPWORDS,
+        stopwords=bench._check_decision_stopwords(),
         use_embeddings=False,
     )
     top_hit = ranked[0] if ranked else None

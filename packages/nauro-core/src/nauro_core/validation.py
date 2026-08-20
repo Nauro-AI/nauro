@@ -8,8 +8,7 @@ in by callers.
 from __future__ import annotations
 
 import hashlib
-
-from bm25s.stopwords import STOPWORDS_EN
+from functools import lru_cache
 
 from nauro_core.constants import (
     MIN_RATIONALE_LENGTH,
@@ -28,6 +27,7 @@ from nauro_core.search import Bm25Hit, bm25_retrieve
 # validation outcome on either.
 TIER2_TOP_K = 5
 
+
 # bm25s's default English stopword list is minimal (~30 tokens: a, an, and,
 # are, as, at, be, but, by, for, if, in, into, is, it, no, not, of, on, or,
 # ...). It omits common action verbs that appear in virtually every Nauro
@@ -41,7 +41,22 @@ TIER2_TOP_K = 5
 # positives are added, not a speculative blanket of generic verbs. Add
 # more only when a concrete failure case justifies it, and add a test to
 # lock the case in.
-TIER2_STOPWORDS = [*list(STOPWORDS_EN), "use"]
+#
+# Built lazily (module __getattr__ below) so importing the package does not
+# pull the bm25s/numpy stack; idle MCP server processes never search. Cached
+# so every access shares one list object, matching the old module constant.
+@lru_cache(maxsize=1)
+def _tier2_stopwords() -> list[str]:
+    from bm25s.stopwords import STOPWORDS_EN
+
+    return [*STOPWORDS_EN, "use"]
+
+
+def __getattr__(name: str) -> list[str]:
+    if name == "TIER2_STOPWORDS":
+        return _tier2_stopwords()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # The scaffold-seeded "Initial project setup" decision is Nauro's own
 # bookkeeping — it records that the store was initialized, not a choice the
@@ -104,7 +119,7 @@ def check_bm25_similarity(
         candidates,
         proposal_text,
         top_k=top_k,
-        stopwords=stopwords if stopwords is not None else TIER2_STOPWORDS,
+        stopwords=stopwords if stopwords is not None else _tier2_stopwords(),
     )
     if not related:
         return ("auto_confirm", [])
