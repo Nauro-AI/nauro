@@ -10,7 +10,7 @@ shared by construction.
 
 from __future__ import annotations
 
-from bm25s.stopwords import STOPWORDS_EN
+from functools import lru_cache
 
 from nauro_core.constants import (
     LEXICAL_RANK_CAVEAT,
@@ -31,12 +31,19 @@ from nauro_core.parsing import _decision_label, extract_decision_number
 from nauro_core.search import union_retrieve
 from nauro_core.validation import check_content_length, is_scaffold_seed
 
+
 # Extended stopword list for ``check_decision`` retrieval. Mirrors the
 # tier-2 ``TIER2_STOPWORDS`` curation: bm25s's default English list omits
 # common action verbs that appear in almost every decision title, so adding
 # ``"use"`` collapses the false-positive matches that otherwise surface as
-# near-neighbours on every call.
-_CHECK_DECISION_STOPWORDS = [*list(STOPWORDS_EN), "use"]
+# near-neighbours on every call. Built lazily so importing the operations
+# package does not pull the bm25s/numpy stack; cached so every call shares
+# one list object.
+@lru_cache(maxsize=1)
+def _check_decision_stopwords() -> list[str]:
+    from bm25s.stopwords import STOPWORDS_EN
+
+    return [*STOPWORDS_EN, "use"]
 
 
 def check_decision(
@@ -74,7 +81,7 @@ def check_decision(
         decisions,
         query_text,
         top_k=5,
-        stopwords=_CHECK_DECISION_STOPWORDS,
+        stopwords=_check_decision_stopwords(),
         use_embeddings=use_embeddings,
     )
     if not hits:

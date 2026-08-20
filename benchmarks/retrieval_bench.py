@@ -61,7 +61,7 @@ from _stats import (
     wilson_lower,
 )
 from nauro_core.decision_model import Decision, DecisionStatus, parse_decision
-from nauro_core.operations.check_decision import _CHECK_DECISION_STOPWORDS
+from nauro_core.operations.check_decision import _check_decision_stopwords
 from nauro_core.parsing import first_sentence_end
 from nauro_core.search import union_retrieve
 
@@ -526,7 +526,7 @@ def run_conflict_catching(
                 candidates,
                 query,
                 top_k=len(candidates),
-                stopwords=_CHECK_DECISION_STOPWORDS,
+                stopwords=_check_decision_stopwords(),
                 use_embeddings=False,
             )
             rank = rank_of(t, ranked)
@@ -540,7 +540,7 @@ def run_conflict_catching(
                     candidates,
                     query,
                     top_k=TOP_K,
-                    stopwords=_CHECK_DECISION_STOPWORDS,
+                    stopwords=_check_decision_stopwords(),
                     use_embeddings=True,
                 )
                 bucket["union_pool_catch"] += t in [h["number"] for h in pool]
@@ -622,7 +622,7 @@ def run_artifact_regime(decisions: dict[int, Decision], events: list[dict]) -> d
             candidates,
             art["query"],
             top_k=len(candidates),
-            stopwords=_CHECK_DECISION_STOPWORDS,
+            stopwords=_check_decision_stopwords(),
             use_embeddings=False,
         )
         top_hit = ranked[0] if ranked else None
@@ -720,7 +720,7 @@ def _probe_g(active: list[Decision], by_num: dict[int, Decision], query: str) ->
         active,
         envelope,
         top_k=len(active),
-        stopwords=_CHECK_DECISION_STOPWORDS,
+        stopwords=_check_decision_stopwords(),
         use_embeddings=False,
     )
     top_hit = ranked[0] if ranked else None
@@ -812,7 +812,7 @@ def run_batteries(decisions: dict[int, Decision]) -> dict:
             active,
             production_envelope(proposal),
             top_k=TOP_K,
-            stopwords=_CHECK_DECISION_STOPWORDS,
+            stopwords=_check_decision_stopwords(),
             use_embeddings=False,
         )
         novel_top1.append(hits[0]["similarity"] if hits else 0.0)
@@ -823,7 +823,7 @@ def run_batteries(decisions: dict[int, Decision]) -> dict:
             active,
             production_envelope(query),
             top_k=TOP_K,
-            stopwords=_CHECK_DECISION_STOPWORDS,
+            stopwords=_check_decision_stopwords(),
             use_embeddings=False,
         )
         off_domain[query] = len(hits)

@@ -319,9 +319,6 @@ from nauro_core.state import (
     prepare_state_update as prepare_state_update,
 )
 from nauro_core.validation import (
-    TIER2_STOPWORDS as TIER2_STOPWORDS,
-)
-from nauro_core.validation import (
     TIER2_TOP_K as TIER2_TOP_K,
 )
 from nauro_core.validation import (
@@ -412,3 +409,13 @@ __all__ = [
     "STATE_CURRENT_FILENAME",
     "STATE_HISTORY_FILENAME",
 ]
+
+
+def __getattr__(name: str) -> list[str]:
+    # TIER2_STOPWORDS resolves lazily: building it imports the bm25s/numpy
+    # stack, which package import must not pay.
+    if name == "TIER2_STOPWORDS":
+        from nauro_core.validation import TIER2_STOPWORDS
+
+        return TIER2_STOPWORDS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
