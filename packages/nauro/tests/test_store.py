@@ -444,21 +444,25 @@ def test_snapshot_logarithmic_pruning_keeps_correct_per_bucket(tmp_path: Path):
     assert len(remaining) == 7, f"Expected 7 snapshots after pruning, got {len(remaining)}"
 
 
-def test_snapshot_decision_adding_never_pruned(tmp_path: Path):
-    """Snapshots where decisions/ count increased are never pruned."""
+def test_snapshot_decision_adding_prunes_by_age(tmp_path: Path):
+    """Decision-adding snapshots hold no pruning exemption; the age ladder rules."""
     store_path = tmp_path / "projects" / "pintest"
     scaffold_project_store("pintest", store_path)
     snapshots_dir = store_path / "snapshots"
 
     now = datetime.now(timezone.utc)
 
-    # Create old snapshots — some with increasing decision counts
+    # Old snapshots with strictly increasing decision counts, all past the
+    # weekly window (>180 days), so only the monthly ladder can keep them.
+    timestamps: dict[int, datetime] = {}
     for i in range(20):
-        decisions = {f"decisions/{j:03d}-d.md": "content" for j in range(1, i // 2 + 1)}
+        decisions = {f"decisions/{j:03d}-d.md": "content" for j in range(1, i + 2)}
         files = {"project.md": "test", **decisions}
+        ts = now - timedelta(days=200 + i)
+        timestamps[i + 1] = ts
         snap = {
             "version": i + 1,
-            "timestamp": (now - timedelta(days=200 + i)).isoformat(),
+            "timestamp": ts.isoformat(),
             "trigger": f"old-{i}",
             "trigger_detail": "",
             "token_count": 100,
@@ -470,24 +474,17 @@ def test_snapshot_decision_adding_never_pruned(tmp_path: Path):
     # Trigger pruning
     capture_snapshot(store_path, trigger="trigger")
 
-    remaining = list(snapshots_dir.glob("v*.json"))
+    remaining_versions = sorted(int(f.stem[1:]) for f in snapshots_dir.glob("v*.json"))
 
-    # All remaining snapshots should be valid JSON with a version field
-    remaining_versions = sorted(int(f.stem[1:]) for f in remaining)
-    for f in remaining:
-        data = json.loads(f.read_text())
-        assert "version" in data
-
-    # Pinned snapshots (where decision count increased) should survive pruning.
-    # Versions 3,5,7,9,11,13,15,17,19 added a decision vs their predecessor.
-    pinned_versions = {3, 5, 7, 9, 11, 13, 15, 17, 19}
-    assert pinned_versions.issubset(set(remaining_versions)), (
-        f"Some pinned snapshots were pruned. Remaining: {remaining_versions}"
-    )
-
-    # At minimum, the latest should be there
-    versions = sorted(int(f.stem[1:]) for f in remaining)
-    assert 21 in versions  # the capture_snapshot we just did
+    # Survivors: the newest snapshot per month bucket plus the fresh capture —
+    # decision-count growth keeps nothing extra alive.
+    newest_per_month: dict[str, int] = {}
+    for version, ts in timestamps.items():
+        key = ts.strftime("%Y-%m")
+        current = newest_per_month.get(key)
+        if current is None or timestamps[current] < ts:
+            newest_per_month[key] = version
+    assert remaining_versions == sorted([*newest_per_month.values(), 21])
 
 
 def test_snapshot_pruning_few_is_noop(store: Path):
@@ -498,36 +495,64 @@ def test_snapshot_pruning_few_is_noop(store: Path):
     assert len(snaps) == 10  # all kept (all within last 7 days)
 
 
-def test_snapshot_all_pinned_no_excessive_pruning(tmp_path: Path):
-    """Edge case: all snapshots are pinned — don't prune below the logarithmic floor."""
-    store_path = tmp_path / "projects" / "allpin"
-    scaffold_project_store("allpin", store_path)
-    snapshots_dir = store_path / "snapshots"
-
+def test_snapshot_version_rollover_past_v999(store: Path):
+    """Capture derives the next version numerically, so v1000 is never overwritten."""
+    snapshots_dir = store / SNAPSHOTS_DIR
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
-
-    # Create 15 old snapshots, each with increasing decision count (all pinned)
-    for i in range(15):
-        decisions = {f"decisions/{j:03d}-d.md": "content" for j in range(1, i + 2)}
-        files = {"project.md": "test", **decisions}
+    for ver in (999, 1000):
         snap = {
-            "version": i + 1,
-            "timestamp": (now - timedelta(days=200 + i)).isoformat(),
-            "trigger": f"pinned-{i}",
+            "version": ver,
+            "timestamp": now.isoformat(),
+            "trigger": f"t{ver}",
             "trigger_detail": "",
-            "token_count": 100,
-            "files": files,
+            "token_count": 1,
+            "files": {"project.md": "x"},
         }
-        path = snapshots_dir / f"v{i + 1:03d}.json"
-        path.write_text(json.dumps(snap) + "\n")
+        (snapshots_dir / f"v{ver:03d}.json").write_text(json.dumps(snap) + "\n")
 
-    capture_snapshot(store_path, trigger="latest")
-    remaining = list(snapshots_dir.glob("v*.json"))
+    version = capture_snapshot(store, trigger="next")
+    assert version == 1001
+    # v999 sorts after v1000 lexically; deriving from that order would rebuild
+    # version 1000 and overwrite it.
+    assert json.loads((snapshots_dir / "v1000.json").read_text())["trigger"] == "t1000"
+    assert (snapshots_dir / "v1001.json").exists()
 
-    # All pinned snapshots plus the latest should survive
-    # At minimum 15 pinned + 1 latest = 16 (first snapshot has no predecessor so not pinned)
-    # Actually version 2+ are all pinned (each has more decisions than previous)
-    assert len(remaining) >= 15
+
+def test_non_canonical_snapshot_names_never_deleted_or_counted(store: Path):
+    """A v*-named file that is not the canonical name for its version stays untouched."""
+    snapshots_dir = store / SNAPSHOTS_DIR
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+    old_ts = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
+    stray = snapshots_dir / "v001-copy.json"
+    stray.write_text(json.dumps({"version": 1, "timestamp": old_ts, "files": {}}) + "\n")
+    mismatched = snapshots_dir / "v002.json"
+    mismatched.write_text(json.dumps({"version": 9000, "timestamp": old_ts, "files": {}}) + "\n")
+
+    version = capture_snapshot(store, trigger="t")
+    assert version == 1  # neither file steers version derivation
+
+    assert stray.exists() and mismatched.exists()  # prune never touches them
+    assert [s["version"] for s in list_snapshots(store)] == [1]
+
+
+def test_list_snapshots_numeric_order_past_v999(store: Path):
+    snapshots_dir = store / SNAPSHOTS_DIR
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc)
+    for ver in (999, 1000):
+        snap = {
+            "version": ver,
+            "timestamp": now.isoformat(),
+            "trigger": f"t{ver}",
+            "trigger_detail": "",
+            "token_count": 1,
+            "files": {"project.md": "x"},
+        }
+        (snapshots_dir / f"v{ver:03d}.json").write_text(json.dumps(snap) + "\n")
+
+    snaps = list_snapshots(store)
+    assert [s["version"] for s in snaps[:2]] == [1000, 999]
 
 
 def test_snapshot_load_missing(store: Path):
