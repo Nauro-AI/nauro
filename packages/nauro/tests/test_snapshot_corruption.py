@@ -93,8 +93,38 @@ def test_bad_timestamp_snapshot_skipped_by_date_search_and_prune(tmp_path: Path)
 
     # capture runs prune, which parses every timestamp — must not raise.
     version = capture_snapshot(store_path, trigger="after-bad-ts")
-    assert version >= 3
+    assert version == 4
     assert not list(store_path.glob("snapshots/*.tmp"))
+    # An undated snapshot is listed and versioned but never pruned.
+    assert _snap(store_path, 3).exists()
+    assert 3 in {s["version"] for s in list_snapshots(store_path)}
+
+
+def test_naive_timestamp_snapshot_treated_as_undated(tmp_path: Path):
+    store_path = _store_with_two_snapshots(tmp_path)
+    # fromisoformat accepts a timezone-naive value, but a naive datetime cannot
+    # compare against the UTC-aware prune cutoffs — it must count as undated.
+    _snap(store_path, 3).write_text('{"version": 3, "timestamp": "2026-01-01T00:00:00"}')
+    from datetime import datetime, timezone
+
+    result = find_snapshot_near_date(store_path, datetime.now(timezone.utc))
+    assert result is not None and result["version"] in {1, 2}
+
+    version = capture_snapshot(store_path, trigger="after-naive-ts")
+    assert version == 4
+    assert _snap(store_path, 3).exists()
+    assert 3 in {s["version"] for s in list_snapshots(store_path)}
+
+
+def test_malformed_token_count_never_crashes(tmp_path: Path):
+    store_path = _store_with_two_snapshots(tmp_path)
+    base = '"timestamp": "2026-01-01T00:00:00+00:00", "files": {}'
+    _snap(store_path, 3).write_text(f'{{"version": 3, "token_count": null, {base}}}')
+    _snap(store_path, 4).write_text(f'{{"version": 4, "token_count": {{"x": 1}}, {base}}}')
+
+    by_version = {s["version"]: s for s in list_snapshots(store_path)}
+    assert by_version[3]["token_count"] == 0  # null coerces to 0
+    assert 4 not in by_version  # unconvertible value: skipped, no crash
 
 
 def test_nauro_log_does_not_crash_on_corrupt_snapshot(tmp_path: Path, monkeypatch):

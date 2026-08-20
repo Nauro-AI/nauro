@@ -7,13 +7,14 @@ written to snapshots/vNNN.json. Pruned with logarithmic spacing:
 - Last 6 months: keep one per week
 - Older than 6 months: keep one per month
 
-Snapshots where the decisions/ count increased are auto-pinned
-and never pruned (preserves the decision chain).
+Every read path works from one scan (`_scan_snapshots`) that retains only
+scalar headers; whole bodies load only in `load_snapshot`.
 """
 
 import json
 import logging
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -34,9 +35,77 @@ from nauro.store.reader import read_text_lenient
 # truncated/garbage JSON body, a missing required key, or an OS read error. The
 # read paths skip such a file with a warning rather than letting it crash the
 # command (log/sync/diff) on a single bad snapshot.
-_CORRUPT_SNAPSHOT_ERRORS = (OSError, json.JSONDecodeError, KeyError, TypeError)
+_CORRUPT_SNAPSHOT_ERRORS = (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError)
 
 logger = logging.getLogger("nauro.snapshot")
+
+
+@dataclass(frozen=True)
+class _SnapshotMeta:
+    """The scalar header of one snapshot file; the body stays on disk.
+
+    ``timestamp`` is ``None`` when the user-editable raw value does not parse;
+    such a snapshot is listed and versioned but never pruned or date-matched.
+    """
+
+    path: Path
+    version: int
+    raw_timestamp: str
+    timestamp: datetime | None
+    trigger: str
+    trigger_detail: str
+    token_count: int
+
+
+def _parse_timestamp(raw: str) -> datetime | None:
+    """The snapshot timestamp as an aware datetime, ``None`` when unusable.
+
+    Naive values count as unusable: they cannot compare against UTC cutoffs.
+    """
+    try:
+        ts = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return ts if ts.tzinfo is not None else None
+
+
+def _scan_snapshots(snapshots_dir: Path) -> list[_SnapshotMeta]:
+    """Parse every canonical vNNN.json into a scalar header, oldest version first.
+
+    Skips unreadable or misnamed files with a warning; no body is retained past the scan.
+    """
+    metas = []
+    for f in snapshots_dir.glob("v*.json"):
+        try:
+            data = json.loads(f.read_text())
+            version = data["version"]
+            if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+                raise TypeError(f"bad version {version!r}")
+            raw_timestamp = str(data["timestamp"])
+            meta = _SnapshotMeta(
+                path=f,
+                version=version,
+                raw_timestamp=raw_timestamp,
+                timestamp=_parse_timestamp(raw_timestamp),
+                trigger=str(data.get("trigger", "")),
+                trigger_detail=str(data.get("trigger_detail", "")),
+                token_count=int(data.get("token_count") or 0),
+            )
+        except _CORRUPT_SNAPSHOT_ERRORS:
+            logger.warning("Skipping unreadable snapshot: %s", f)
+            continue
+        # Only the canonical name for the body's version may enter retention: a
+        # mismatch (v001-copy.json, a hand-renamed file) must not steer version
+        # derivation and must never reach the prune delete set.
+        if f.name != f"v{meta.version:03d}.json":
+            logger.warning("Skipping non-canonical snapshot name: %s", f)
+            continue
+        metas.append(meta)
+    # Sort numerically by the version field, never lexically by filename:
+    # v999.json sorts after v1000.json as a string, which would make capture
+    # re-derive version 1000 and overwrite it.
+    metas.sort(key=lambda m: m.version)
+    return metas
 
 
 @contextmanager
@@ -64,9 +133,8 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
     # same existing version, derive the same next version, and one would
     # overwrite the other.
     with _snapshot_lock(snapshots_dir):
-        # Determine next version
-        existing = list_snapshots(store_path)
-        next_version = (existing[0]["version"] + 1) if existing else 1
+        metas = _scan_snapshots(snapshots_dir)
+        next_version = max((m.version for m in metas), default=0) + 1
 
         # Read all markdown files
         files = {}
@@ -78,8 +146,9 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
             for md in sorted(decisions_dir.glob("*.md")):
                 files[f"{DECISIONS_DIR}/{md.name}"] = read_text_lenient(md)
 
+        now = datetime.now(timezone.utc)
         snapshot = serialize_snapshot(
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now.isoformat(),
             trigger=trigger,
             trigger_detail=trigger_detail,
             files=files,
@@ -89,115 +158,81 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
         out_path = snapshots_dir / f"v{next_version:03d}.json"
         atomic_write_text(out_path, json.dumps(snapshot, indent=2) + "\n")
 
-        # Prune after every capture. Prune mutates the same dir the version
-        # count reads, so it stays inside the lock.
-        _prune_snapshots(snapshots_dir)
+        # Prune after every capture, inside the lock, over the set just scanned
+        # plus the snapshot just written — no second disk pass.
+        new_meta = _SnapshotMeta(
+            path=out_path,
+            version=next_version,
+            raw_timestamp=snapshot["timestamp"],
+            timestamp=now,
+            trigger=trigger,
+            trigger_detail=trigger_detail,
+            token_count=snapshot["token_count"],
+        )
+        _prune_snapshots([*metas, new_meta])
 
     return next_version
 
 
-def _count_decisions(snapshot_data: dict) -> int:
-    """Count the number of decisions/ files in a snapshot."""
-    return sum(1 for k in snapshot_data.get("files", {}) if k.startswith(DECISIONS_DIR + "/"))
-
-
-def _prune_snapshots(snapshots_dir: Path) -> None:
+def _prune_snapshots(metas: list[_SnapshotMeta]) -> None:
     """Prune snapshots by age: 7 days all, 30 days daily, 6 months weekly, then monthly.
 
-    A snapshot whose decisions/ count grew over its predecessor is auto-pinned.
+    Deletes only snapshots with a parseable timestamp; the latest version always survives.
     """
-    snapshot_files = sorted(snapshots_dir.glob("v*.json"))
-    if len(snapshot_files) <= 1:
+    if len(metas) <= 1:
         return
 
-    # Load all snapshots with their metadata. The timestamp is a
-    # user-editable field, so a single snapshot with an unparseable value is
-    # skipped (left on disk untouched) rather than allowed to break pruning of
-    # the valid snapshots.
-    snapshots = []
-    for f in snapshot_files:
-        try:
-            data = json.loads(f.read_text())
-            timestamp = datetime.fromisoformat(data["timestamp"])
-            _ = data["version"]  # required for the sort below; skip if absent
-        except (ValueError, *_CORRUPT_SNAPSHOT_ERRORS):
-            # Skip an unreadable/unparseable snapshot (incl. a missing timestamp
-            # or version) rather than crashing prune — which runs inside capture,
-            # so a corrupt sibling would otherwise break sync.
-            logger.warning("Skipping unreadable snapshot during prune: %s", f)
-            continue
-        snapshots.append(
-            {
-                "path": f,
-                "data": data,
-                "timestamp": timestamp,
-                "decision_count": _count_decisions(data),
-            }
-        )
-
-    if not snapshots:
+    dated = [(m.timestamp, m) for m in metas if m.timestamp is not None]
+    if not dated:
         return
 
-    # Sort by version (chronological)
-    snapshots.sort(key=lambda s: s["data"]["version"])
-
-    # Determine pinned snapshots (decision count increased vs previous)
-    pinned = set()
-    for i, snap in enumerate(snapshots):
-        if i == 0:
-            continue
-        if snap["decision_count"] > snapshots[i - 1]["decision_count"]:
-            pinned.add(snap["path"])
-
-    # Always keep the latest snapshot
-    latest = snapshots[-1]["path"]
+    keep = {max(metas, key=lambda m: m.version).path}
+    keep.add(max(dated, key=lambda p: p[1].version)[1].path)
 
     now = datetime.now(timezone.utc)
     keep_all_cutoff = now - timedelta(days=PRUNE_KEEP_ALL_DAYS)
     daily_cutoff = now - timedelta(days=PRUNE_DAILY_DAYS)
     weekly_cutoff = now - timedelta(days=PRUNE_WEEKLY_DAYS)
 
-    # Assign each snapshot to a bucket and determine keepers
-    keep = {latest}  # always keep latest
-    keep.update(pinned)  # always keep pinned
+    bucket_daily: dict[str, list[tuple[datetime, _SnapshotMeta]]] = {}
+    bucket_weekly: dict[str, list[tuple[datetime, _SnapshotMeta]]] = {}
+    bucket_monthly: dict[str, list[tuple[datetime, _SnapshotMeta]]] = {}
 
-    # Bucket snapshots (excluding latest and pinned — they're already kept)
-    bucket_daily: dict[str, list] = {}  # day_key -> [snapshots]
-    bucket_weekly: dict[str, list] = {}  # week_key -> [snapshots]
-    bucket_monthly: dict[str, list] = {}  # month_key -> [snapshots]
-
-    for snap in snapshots:
-        if snap["path"] in keep:
+    for ts, m in dated:
+        if m.path in keep:
             continue
-
-        ts = snap["timestamp"]
-
         if ts >= keep_all_cutoff:
-            # Last 7 days: keep all
-            keep.add(snap["path"])
+            keep.add(m.path)
         elif ts >= daily_cutoff:
-            # Last 30 days: one per day
-            day_key = ts.strftime("%Y-%m-%d")
-            bucket_daily.setdefault(day_key, []).append(snap)
+            bucket_daily.setdefault(ts.strftime("%Y-%m-%d"), []).append((ts, m))
         elif ts >= weekly_cutoff:
-            # Last 6 months: one per week
-            week_key = ts.strftime("%Y-W%W")
-            bucket_weekly.setdefault(week_key, []).append(snap)
+            bucket_weekly.setdefault(ts.strftime("%Y-W%W"), []).append((ts, m))
         else:
-            # Older: one per month
-            month_key = ts.strftime("%Y-%m")
-            bucket_monthly.setdefault(month_key, []).append(snap)
+            bucket_monthly.setdefault(ts.strftime("%Y-%m"), []).append((ts, m))
 
-    # From each bucket, keep the newest snapshot
     for bucket in (bucket_daily, bucket_weekly, bucket_monthly):
-        for _key, snaps in bucket.items():
-            newest = max(snaps, key=lambda s: s["timestamp"])
-            keep.add(newest["path"])
+        for group in bucket.values():
+            newest = max(group, key=lambda p: p[0])
+            keep.add(newest[1].path)
 
-    # Delete snapshots not in the keep set
-    for snap in snapshots:
-        if snap["path"] not in keep:
-            snap["path"].unlink()
+    for _ts, m in dated:
+        if m.path not in keep:
+            m.path.unlink()
+
+
+def _nearest_at_or_before(metas: list[_SnapshotMeta], target: datetime) -> _SnapshotMeta | None:
+    """The newest dated snapshot at or before ``target``.
+
+    Falls back to the oldest dated snapshot when none predates it, ``None`` when none exist.
+    """
+    dated = sorted(
+        ((m.timestamp, m) for m in metas if m.timestamp is not None),
+        key=lambda p: p[0],
+    )
+    if not dated:
+        return None
+    candidates = [m for ts, m in dated if ts <= target]
+    return candidates[-1] if candidates else dated[0][1]
 
 
 def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
@@ -209,32 +244,10 @@ def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
     if not snapshots_dir.exists():
         return None
 
-    all_snaps = []
-    for f in snapshots_dir.glob("v*.json"):
-        try:
-            data = json.loads(f.read_text())
-            ts = datetime.fromisoformat(data["timestamp"])
-            entry = {
-                "version": data["version"],
-                "timestamp": data["timestamp"],
-                "datetime": ts,
-            }
-        except (ValueError, *_CORRUPT_SNAPSHOT_ERRORS):
-            logger.warning("Skipping unreadable snapshot: %s", f)
-            continue
-        all_snaps.append(entry)
-
-    if not all_snaps:
+    best = _nearest_at_or_before(_scan_snapshots(snapshots_dir), target)
+    if best is None:
         return None
-
-    all_snaps.sort(key=lambda s: s["datetime"])
-
-    # Most recent snapshot at or before the target; falls back to the
-    # oldest snapshot when none predate the target.
-    candidates = [s for s in all_snaps if s["datetime"] <= target]
-    best = candidates[-1] if candidates else all_snaps[0]
-
-    return {"version": best["version"], "timestamp": best["timestamp"]}
+    return {"version": best.version, "timestamp": best.raw_timestamp}
 
 
 def list_snapshots(store_path: Path) -> list[dict]:
@@ -243,24 +256,16 @@ def list_snapshots(store_path: Path) -> list[dict]:
     if not snapshots_dir.exists():
         return []
 
-    result = []
-    for f in sorted(snapshots_dir.glob("v*.json"), reverse=True):
-        try:
-            data = json.loads(f.read_text())
-            entry = {
-                "version": data["version"],
-                "timestamp": data["timestamp"],
-                "trigger": data.get("trigger", ""),
-                "trigger_detail": data.get("trigger_detail", ""),
-                "token_count": data.get("token_count", 0),
-            }
-        except _CORRUPT_SNAPSHOT_ERRORS:
-            # Skip a corrupt/truncated snapshot (e.g. an interrupted write)
-            # rather than crashing log/sync/diff; capture overwrites the slot.
-            logger.warning("Skipping unreadable snapshot: %s", f)
-            continue
-        result.append(entry)
-    return result
+    return [
+        {
+            "version": m.version,
+            "timestamp": m.raw_timestamp,
+            "trigger": m.trigger,
+            "trigger_detail": m.trigger_detail,
+            "token_count": m.token_count,
+        }
+        for m in reversed(_scan_snapshots(snapshots_dir))
+    ]
 
 
 def load_snapshot(store_path: Path, version: int) -> dict:
@@ -282,11 +287,13 @@ def resolve_diff_snapshots(
 
     ``cutoff_date_used`` is the requested cutoff, not the resolved baseline's date.
     """
-    snapshots = list_snapshots(store_path)
+    snapshots_dir = store_path / SNAPSHOTS_DIR
+    metas = _scan_snapshots(snapshots_dir) if snapshots_dir.exists() else []
+    if not metas:
+        return None, None, None
+    latest = metas[-1]
 
     if days is not None:
-        if not snapshots:
-            return None, None, None
         now = datetime.now(timezone.utc)
         # Clamp the lookback to the representable date range on both sides
         # before the subtraction. A huge positive --days reaches past the
@@ -297,20 +304,19 @@ def resolve_diff_snapshots(
         max_days = (now - datetime.min.replace(tzinfo=timezone.utc)).days
         min_days = -((datetime.max.replace(tzinfo=timezone.utc) - now).days)
         target = now - timedelta(days=max(min(days, max_days), min_days))
-        baseline_meta = find_snapshot_near_date(store_path, target)
-        if baseline_meta is None:
+        baseline = _nearest_at_or_before(metas, target)
+        if baseline is None:
             return None, None, None
-        latest_version = snapshots[0]["version"]
-        baseline_version = baseline_meta["version"]
-        baseline_snapshot = load_snapshot(store_path, baseline_version)
-        latest_snapshot = load_snapshot(store_path, latest_version)
-        return baseline_snapshot, latest_snapshot, target.isoformat()
+        return (
+            load_snapshot(store_path, baseline.version),
+            load_snapshot(store_path, latest.version),
+            target.isoformat(),
+        )
 
-    if not snapshots:
-        return None, None, None
-    if len(snapshots) < 2:
-        latest_snapshot = load_snapshot(store_path, snapshots[0]["version"])
-        return None, latest_snapshot, None
-    baseline_snapshot = load_snapshot(store_path, snapshots[1]["version"])
-    latest_snapshot = load_snapshot(store_path, snapshots[0]["version"])
-    return baseline_snapshot, latest_snapshot, None
+    if len(metas) < 2:
+        return None, load_snapshot(store_path, latest.version), None
+    return (
+        load_snapshot(store_path, metas[-2].version),
+        load_snapshot(store_path, latest.version),
+        None,
+    )
