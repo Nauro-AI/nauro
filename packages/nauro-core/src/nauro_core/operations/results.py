@@ -5,7 +5,8 @@ shape responses from typed attributes rather than loosely-typed dicts.
 ``RelatedDecision`` and ``ErrorPayload`` are shared submodels reused by
 multiple operations; per-operation ``Result`` models live alongside.
 
-The plan-returning operations (``update_stack``, ``share_context``) are
+The plan-returning operations (``update_stack``, ``share_context``,
+``submit_report``) are
 executed by the hosted server, so their outcome models — the accepted,
 conflict, and workflow shapes at the bottom of this module — are defined
 here as the cross-surface contract even though the kernel never
@@ -16,7 +17,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from nauro_core.identifiers import IdentifierKind, validate_identifier
 
 
 class RelatedDecision(BaseModel):
@@ -317,6 +320,36 @@ class ShareContextAccepted(BaseModel):
     event_id: str
     content_digest: str
     receipt_id: str
+
+
+class SubmitReportAccepted(BaseModel):
+    """Committed outcome of an original hosted ``submit_report`` operation."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    status: Literal["accepted"] = "accepted"
+    report_id: str
+    event_id: str
+    body_digest: str
+    receipt_id: str
+
+    @field_validator("report_id", "event_id", "receipt_id")
+    @classmethod
+    def _ulids(cls, value: str, info) -> str:
+        return validate_identifier(IdentifierKind.ulid, value, field=info.field_name)
+
+    @field_validator("body_digest")
+    @classmethod
+    def _body_digest(cls, value: str) -> str:
+        if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+            raise ValueError("body_digest must be a lowercase SHA-256 digest.")
+        return value
+
+    @model_validator(mode="after")
+    def _original_identity(self) -> SubmitReportAccepted:
+        if self.report_id != self.event_id:
+            raise ValueError("report_id must equal event_id for an original report.")
+        return self
 
 
 class SlugConflict(BaseModel):
