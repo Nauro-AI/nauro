@@ -229,28 +229,9 @@ def _import_adrs(
     *,
     strict_alternatives: bool = False,
 ) -> dict[str, Any]:
-    """Import Architecture Decision Records from a directory into the store.
-
-    Scans for markdown files matching ADR naming patterns (NNN-title.md or
-    NNNN-title.md). Extracts title, rationale, rejected alternatives, and
-    confidence from each file.
-
-    Args:
-        strict_alternatives: When True, rejected alternatives come from
-            ``_extract_adr_alternatives_strict`` — only ``### <title>``
-            subsections under an explicit ``## Alternatives Considered`` /
-            ``## Options Considered`` section, each carrying its verbatim body
-            as the reason. No ``## Consequences`` scraping and no placeholder
-            reason: an ADR that names no alternatives imports with no rejected
-            list. Defaults to False, which selects the legacy
-            ``_extract_adr_rejected`` path (unchanged in shape). Section
-            extraction is heading-level-aware per ``_extract_section``, so h3
-            ``### Rejected``/``### Consequences`` sections now reach the legacy
-            path where they were previously dropped.
-
-    Returns:
-        Dict with counts: imported, skipped.
-    """
+    """Import ADR files (``NNN-title.md``/``NNNN-title.md``, ascending by number) into
+    the store; ``strict_alternatives`` selects the strict extractor over the legacy
+    path. Returns a counts dict: ``imported``, ``skipped``, ``_skipped_reasons``."""
     counts: dict[str, Any] = {"imported": 0, "skipped": 0}
     skipped_reasons: list[str] = []
 
@@ -297,13 +278,8 @@ def _import_adrs(
 
 
 def _legacy_structured_rejected(content: str) -> list[dict] | None:
-    """Legacy default rejected-alternative shape for ``nauro import --adr``.
-
-    ADR source format has no structured reason-per-alternative; attach a
-    placeholder so the v2 validator (which requires a reason on every rejected
-    alternative of an active decision) accepts the import. The placeholder makes
-    the data gap explicit rather than fabricating prose.
-    """
+    """Wrap ``_extract_adr_rejected`` items in the structured shape, attaching the
+    fixed placeholder reason to each; returns None when the source names none."""
     rejected = _extract_adr_rejected(content)
     if not rejected:
         return None
@@ -388,32 +364,9 @@ _DEFERRED_OPTION_MARKERS: tuple[str, ...] = (
 
 
 def _extract_adr_alternatives_strict(content: str) -> list[dict] | None:
-    """Extract NAMED rejected alternatives from an explicit alternatives section.
-
-    Strict, alternatives-aware companion to ``_extract_adr_rejected`` — opt-in
-    and never on the default ``nauro import --adr`` path. It reads only a
-    ``## Alternatives Considered`` or ``## Options Considered`` section, splits
-    it into ``### <title>`` subsections, and returns one entry per subsection
-    whose body verbatim is the rejection reason::
-
-        {"alternative": <title>, "reason": <verbatim body>, "offset": <int>}
-
-    ``offset`` is the character index of the ``### `` heading line in
-    ``content``, so a caller can derive a file:line citation for the span.
-
-    Deliberately narrow, by design:
-
-    - No ``## Consequences`` scraping — that fallback infers rejection from
-      prose, which fabricates a "why" the source never stated.
-    - When the source names no alternatives section, returns ``None`` (the
-      caller omits ``rejected`` entirely — no placeholder reason).
-    - A subsection whose body opens with a deferred/conditional marker (e.g.
-      "This may become valid later") is an option held open, not a named
-      rejection, and is skipped.
-
-    Returns ``None`` when there is no alternatives section or it yields no
-    honest named rejection; otherwise a non-empty list.
-    """
+    """Return one ``{"alternative", "reason", "offset"}`` per ``###`` subsection of an explicit
+    Alternatives/Options Considered section; reason is the verbatim body, offset the heading's
+    index in ``content``. Deferred-option and empty bodies are skipped; None when none survive."""
     section = _find_alternatives_section(content)
     if section is None:
         return None
@@ -436,13 +389,9 @@ def _extract_adr_alternatives_strict(content: str) -> list[dict] | None:
 
 
 def _find_alternatives_section(content: str) -> tuple[str, int] | None:
-    """Return ``(section_body, body_start_offset)`` for the alternatives section.
-
-    Matches ``## Alternatives Considered`` or ``## Options Considered`` (case
-    insensitive). ``body_start_offset`` is the character index in ``content``
-    where the section body begins (just after the heading line). Returns
-    ``None`` when neither heading is present.
-    """
+    """Return ``(body, body_start_offset)`` for a ``## Alternatives Considered`` or
+    ``## Options Considered`` section (case-insensitive); the body runs to the next
+    h2. None when neither heading is present."""
     pattern = re.compile(
         r"^##\s+(?:Alternatives|Options)\s+Considered\s*$",
         re.MULTILINE | re.IGNORECASE,
@@ -457,13 +406,8 @@ def _find_alternatives_section(content: str) -> tuple[str, int] | None:
 
 
 def _iter_subsections(section_text: str):
-    """Yield ``(title, verbatim_body, offset)`` per ``### <title>`` subsection.
-
-    ``offset`` is the index of the ``###`` heading line within ``section_text``;
-    ``verbatim_body`` is the stripped text between this heading and the next
-    ``###`` (or end of section). The body is returned exactly as written — no
-    rewording, no summarization — so the reason is a quoted span, never composed.
-    """
+    """Yield ``(title, body, offset)`` per ``### <title>`` subsection: the stripped
+    verbatim body between headings, and the heading's offset within ``section_text``."""
     heading = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
     matches = list(heading.finditer(section_text))
     for i, m in enumerate(matches):
@@ -475,12 +419,8 @@ def _iter_subsections(section_text: str):
 
 
 def _is_deferred_option(body: str) -> bool:
-    """True when a subsection body opens with a deferred/conditional marker.
-
-    Guards against recording an option the source held open ("may become valid
-    later") as a rejected alternative. Only the opening of the body is checked —
-    a marker buried mid-paragraph does not flip an otherwise-rejected option.
-    """
+    """True when a deferred/conditional marker appears within the opening 200
+    lowercased chars of the subsection body."""
     lowered = body.lstrip().lower()
     opening = lowered[:200]
     return any(marker in opening for marker in _DEFERRED_OPTION_MARKERS)
@@ -497,20 +437,9 @@ def _extract_adr_confidence(content: str) -> str:
 
 
 def _extract_section(content: str, heading: str) -> str | None:
-    """Extract the body text of an h2 or h3 heading section, stripped.
-
-    An h2 heading is preferred over h3: the heading is matched at level 2 first
-    (``## <heading>``) and level 3 (``### <heading>``) is tried only when no h2
-    of that name exists anywhere in the content, so an h2 section extracts
-    identically to the h2-only rule even when a same-named ``###`` sits earlier
-    in the content. The body runs up to the next heading at the matched level or
-    shallower: for an h2 match the boundary is the next h2, so nested ``###``
-    subsections stay in the body; for an h3 match the boundary is the next h2 or
-    h3. h1 is never a boundary and never a section heading (the level floor is
-    2); h4 and deeper never match as a heading and stay inside the body. Setext
-    headings are not supported. Returns None if the section is not found or is
-    empty.
-    """
+    """Extract the stripped body of a ``## <heading>`` section, trying ``###`` only
+    when no h2 of that name exists anywhere; the body runs to the next heading at
+    levels 2 up to the matched level. None when the section is missing or empty."""
     for level in (2, 3):
         hashes = "#" * level
         pattern = rf"^{hashes}\s+{re.escape(heading)}\s*$"
@@ -542,11 +471,8 @@ def _extract_list_items(text: str) -> list[str]:
 
 
 def _import_progress(content: str) -> list[str]:
-    """Extract recently completed items from progress.md as a list.
-
-    Pure parser — composition into a state delta and the single update_state
-    call live in _import_memory_bank.
-    """
+    """Pure parser for ``- ``/``* `` list items in progress.md content; composition
+    into a state delta lives in ``_import_memory_bank``."""
     items: list[str] = []
     for line in content.split("\n"):
         stripped = line.strip()

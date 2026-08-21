@@ -40,15 +40,9 @@ _ULID_LEN = 26
 
 
 def _is_valid_ulid(value: str) -> bool:
-    """True when ``value`` is a 26-char Crockford-base32 ULID.
-
-    Mirrors the alphabet and length produced by :func:`generate_ulid` and by
-    the server when it mints cloud project ids. This is a trust-boundary check:
-    the ``id`` from an untrusted ``.nauro/config.json`` becomes a path component
-    under ``~/.nauro/projects/``, so a value carrying ``..``, path separators,
-    or an absolute path could relocate the store root. Constraining ``id`` to
-    the ULID alphabet rejects all of those before they reach the filesystem.
-    """
+    """True when ``value`` is a 26-char Crockford-base32 ULID. Trust-boundary check:
+    the id from an untrusted ``.nauro/config.json`` becomes a path component, so
+    this rejects traversal shapes before they reach the filesystem."""
     return len(value) == _ULID_LEN and all(ch in _CROCKFORD for ch in value)
 
 
@@ -127,16 +121,9 @@ def _validate(data: dict) -> None:
 
 
 def load_repo_config(repo_root: Path) -> dict:
-    """Read the repo config from ``<repo_root>/.nauro/config.json``.
-
-    Raises:
-        FileNotFoundError: When the config file does not exist.
-        RepoConfigSchemaError: When the file is missing required fields,
-            advertises an unknown schema_version, or is corrupt/unparseable
-            JSON or not valid UTF-8. Corruption is remapped here so a single
-            typed error family covers both schema-mismatch and corruption,
-            letting callers degrade gracefully on either.
-    """
+    """Read ``<repo_root>/.nauro/config.json``; FileNotFoundError when absent.
+    RepoConfigSchemaError covers unknown schema_version, missing fields, and corrupt
+    JSON or non-UTF-8, remapped into one typed family so callers degrade on either."""
     path = repo_config_path(repo_root)
     try:
         text = path.read_text(encoding="utf-8")
@@ -155,19 +142,9 @@ def load_repo_config(repo_root: Path) -> dict:
 
 
 def save_repo_config(repo_root: Path, data: dict) -> Path:
-    """Write the repo config atomically. Returns the path written.
-
-    The data dict is validated before write; an invalid shape raises
-    RepoConfigSchemaError without touching disk. A config path that traverses
-    a symlink inside the checkout (a symlinked ``.nauro`` directory or
-    ``config.json``) raises RepoConfigSymlinkError, and is checked first: a
-    pre-planted link in a cloned repo would redirect the write outside the
-    checkout, and it must be diagnosed as a planted link rather than by
-    whatever the link resolves to. A ``repo_root`` whose config path collides
-    with the global config raises RepoConfigLocationError. Both are the last
-    line of defense for every writer; CLI commands additionally refuse such
-    paths up front with friendlier guidance.
-    """
+    """Write the repo config atomically, returning the path written. An invalid shape raises
+    RepoConfigSchemaError without touching disk; a symlink-traversing config path raises
+    RepoConfigSymlinkError, checked first; a global-config collision, RepoConfigLocationError."""
     refusal = find_symlink(repo_root, f"{REPO_CONFIG_DIR}/{REPO_CONFIG_FILENAME}")
     if refusal is not None:
         raise RepoConfigSymlinkError(refusal.message)

@@ -35,34 +35,9 @@ def warn_then_regen(
     bridge_sink: list[BridgeOutcome] | None = None,
     surface_bridge_notices: bool = True,
 ) -> list[Path]:
-    """Warn on skipped repo paths, then regenerate ``AGENTS.md`` everywhere.
-
-    Args:
-        project_key: The project_id (ULID).
-        store_path: Path to the project store directory.
-        warn: Optional callback for skip and git-hygiene warnings. When
-            ``None``, skipped repo paths are silent and git-hygiene checks
-            do not run.
-        overwrite_unmanaged: Replace an existing ``AGENTS.md`` even when
-            Nauro did not generate it. Off by default: only ``nauro sync``
-            passes True, every other caller preserves hand-written files.
-        fail_soft: Report filesystem errors through ``warn`` and return rather
-            than raising after project registration has succeeded.
-        bridge_sink: Forwarded to :func:`regenerate_agents_md_for_project` so a
-            caller can surface the Claude Code bridge outcome per updated repo.
-            The bridge is ensured on every AGENTS.md write regardless.
-        surface_bridge_notices: When no ``bridge_sink`` is supplied, route the
-            actionable bridge outcomes (an advisory for an unbridged CLAUDE.md,
-            a symlink refusal, a per-repo failure) through ``warn`` so sink-less
-            CLI callers do not drop them. The MCP write tools set this False to
-            stay protocol-silent. Callers that pass a ``bridge_sink`` render the
-            outcomes themselves and are never double-reported here.
-
-    Returns:
-        The list of repo paths whose ``AGENTS.md`` was successfully
-        regenerated. Mirrors :func:`regenerate_agents_md_for_project` so
-        existing CLI surfaces can continue echoing the per-repo line.
-    """
+    """Regenerate ``AGENTS.md`` in each project repo that passes the write guards, returning
+    updated paths. ``fail_soft`` maps regeneration OSError to [] (warned if ``warn`` is set).
+    Sink-less actionable bridge notices reach it unless ``surface_bridge_notices`` is False."""
     # Always collect bridge outcomes so a sink-less caller can still surface the
     # actionable ones; a supplied sink is filled in place for the caller.
     collected: list[BridgeOutcome] = bridge_sink if bridge_sink is not None else []
