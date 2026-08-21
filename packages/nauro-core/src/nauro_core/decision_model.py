@@ -347,12 +347,8 @@ def _split_frontmatter(text: str, filename: str) -> tuple[str, str]:
 
 
 def _leading_fence_marker(line: str) -> str | None:
-    """Return the fence marker char if the line opens/closes a code fence.
-
-    A fence line's stripped form starts with a run of at least three of the
-    same marker character (a backtick or a tilde). Returns ``"`"`` or ``"~"``
-    for such a line, else ``None``. An info string after the run (e.g.
-    ``text`` in ```` ```text ````) does not affect the marker.
+    """Return ``"`"`` or ``"~"`` when the stripped line starts with at least three of
+    that marker (a fence line), else None. An info string after the run is ignored.
     """
     stripped = line.strip()
     for marker in ("`", "~"):
@@ -362,33 +358,9 @@ def _leading_fence_marker(line: str) -> str | None:
 
 
 def _split_decision_body(body: str) -> tuple[str | None, str | None]:
-    """Split a decision body into ``(rationale, rejected_body)``.
-
-    The rationale may contain arbitrary ``##``/``###`` subsections, ``---``
-    rules, and fenced code blocks. Only two top-level headings are treated as
-    section boundaries, and only when they appear as non-fenced whole lines:
-
-    - The Decision anchor is the FIRST non-fenced line whose stripped form is
-      exactly ``## Decision``. If none exists, the rationale is ``None`` and the
-      caller raises the missing-section error (contract unchanged).
-    - The Rejected anchor is the LAST non-fenced whole-line ``## Rejected
-      Alternatives`` occurring after the Decision anchor. A literal heading line
-      inside the rationale (e.g. an example, or one preceding the real block) is
-      therefore kept in the rationale, and only the genuine trailing block is
-      parsed as rejected alternatives.
-
-    Lines inside fenced code blocks never anchor, and the fence-marker lines
-    themselves are never anchors. A fence opened with one marker (``` ``` ```
-    or ``~~~``) closes only on a bare run of the SAME marker, so a run of the
-    opposite marker inside the block (e.g. a ``~~~~~`` separator inside a
-    ```` ```text ```` block) is content, not a close — it cannot desync the
-    tracker and swallow a trailing Rejected Alternatives section.
-
-    Returns:
-        ``(rationale, rejected_body)`` where ``rationale`` is the stripped text
-        between the Decision anchor and the Rejected anchor (or end of body),
-        and ``rejected_body`` is the stripped text after the Rejected anchor, or
-        ``None`` when there is no Rejected anchor.
+    """Split a body into ``(rationale, rejected_body)`` at the first non-fenced
+    ``## Decision`` line and the last non-fenced ``## Rejected Alternatives`` after it.
+    No Decision anchor gives ``(None, None)``; no Rejected anchor, ``rejected_body=None``.
     """
     lines = body.split("\n")
 

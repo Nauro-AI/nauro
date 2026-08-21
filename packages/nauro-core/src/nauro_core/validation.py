@@ -73,12 +73,8 @@ _SCAFFOLD_SEED_TITLE = "Initial project setup"
 
 
 def is_scaffold_seed(decision) -> bool:
-    """Detect the scaffold-seeded first decision (``Decision`` or legacy dict).
-
-    The convention match (``num == 1`` and the exact scaffold title) is the
-    single source every surface shares: tier-2 validation, ``check_decision``
-    retrieval, and the graph payload builder all call this predicate so they
-    agree on what counts as the seed.
+    """Detect the scaffold-seeded first decision: ``num == 1`` plus the exact
+    scaffold title. Accepts a ``Decision`` object or the legacy dict shape.
     """
     if hasattr(decision, "num"):
         return decision.num == 1 and decision.title == _SCAFFOLD_SEED_TITLE
@@ -91,24 +87,9 @@ def check_bm25_similarity(
     top_k: int = TIER2_TOP_K,
     stopwords: list[str] | None = None,
 ) -> tuple[str, list[Bm25Hit]]:
-    """Tier-2 BM25 similarity check. Shared by local and remote surfaces.
-
-    Filters the scaffold-seed decision (bookkeeping, not a user choice) and
-    delegates retrieval to ``nauro_core.search.bm25_retrieve``, which also
-    filters non-active decisions and empty-score matches.
-
-    Args:
-        proposal: Dict with at least "title" and "rationale" keys (extractor /
-            MCP input shape — stays a dict).
-        existing_decisions: Parsed ``Decision`` objects.
-        top_k: Maximum number of related decisions to return.
-        stopwords: Override for tokenizer stopwords. Defaults to
-            ``TIER2_STOPWORDS``.
-
-    Returns:
-        (action, related) where action is "auto_confirm" or "needs_review"
-        and related uses the ``bm25_retrieve`` shape:
-        ``{"number", "title", "similarity", "rationale_preview"}``.
+    """Tier-2 BM25 similarity check, shared by the local and remote surfaces so the
+    same proposal validates identically. Filters the scaffold seed, then delegates to
+    ``bm25_retrieve``; returns ``("auto_confirm" | "needs_review", hits)`` in its shape.
     """
     candidates = [d for d in existing_decisions if not is_scaffold_seed(d)]
     if not candidates:
@@ -145,13 +126,8 @@ def normalize_title(title: str) -> str:
 
 
 def rejected_item_label(item: dict) -> str | None:
-    """Extract the label from a dict-form rejected-alternative item.
-
-    The label is the first value under ``alternative`` then the legacy
-    ``name`` alias that is non-empty after stripping; an empty
-    ``alternative`` falls through to ``name``. Returns the stripped label,
-    or None when neither key carries one. Shared by the Tier 1 screen and
-    the write-path coercer so both agree on what counts as labeled.
+    """Return the first non-empty stripped value under ``alternative``, then the
+    legacy ``name`` alias; None when neither key carries a label.
     """
     for key in ("alternative", "name"):
         value = item.get(key)
@@ -179,26 +155,9 @@ def screen_structural(
     existing_hashes: set[str],
     active_decisions: list[dict],
 ) -> tuple[str, str | None]:
-    """Run structural screening on a proposal. No I/O.
-
-    Checks: schema validation (title, rationale, confidence, the optional
-    enum fields decision_type / reversibility / source), minimum rationale
-    length, rejected-alternative labels (each dict item must carry a non-empty
-    'alternative' or 'name'), hash dedup against existing_hashes, and title
-    dedup against active_decisions (same title as a decision still in force).
-
-    This function is operation-agnostic: it dedups the proposal title against
-    whatever list the caller hands it. The caller decides which decisions are
-    eligible (active decisions, with any supersede target excluded).
-
-    Args:
-        proposal: Dict with title, rationale, confidence keys.
-        existing_hashes: Set of content hashes from the hash index.
-        active_decisions: Decisions to dedup the title against (caller filters
-            to active decisions, excluding any supersede target).
-
-    Returns:
-        (action, reason) where action is "pass" or "reject".
+    """Structural Tier-1 screen, no I/O: schema and enum fields, minimum rationale
+    length, rejected-item labels, hash dedup, and title dedup against the caller-filtered
+    ``active_decisions`` (operation-agnostic). Returns ``("pass" | "reject", reason)``.
     """
     title = (proposal.get("title") or "").strip()
     if not title:

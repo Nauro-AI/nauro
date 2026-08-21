@@ -55,32 +55,9 @@ def diff_since_last_session(
     latest_snapshot: dict | None,
     cutoff_date_used: str | None = None,
 ) -> DiffSinceLastSessionResult:
-    """Compute a semantic diff between two snapshot dicts.
-
-    Args:
-        store: Storage adapter. Retained for kernel-shape uniformity; the
-            diff body operates entirely on the supplied snapshot dicts.
-        baseline_snapshot: Earlier snapshot dict as returned by
-            ``load_snapshot`` (carries ``version``, ``timestamp``,
-            ``files``). ``None`` signals the adapter had no usable
-            baseline (zero or one snapshot in the session-scoped case).
-        latest_snapshot: Later snapshot dict, same shape. ``None`` signals
-            no snapshots at all.
-        cutoff_date_used: When the adapter resolved the baseline via a
-            time-based lookup, the requested cutoff (``now - N days``) is
-            threaded through here so callers can render it. This is the
-            cutoff the caller asked for, not the (possibly older) baseline
-            snapshot's timestamp the lookup resolved to.
-
-    Returns:
-        :class:`DiffSinceLastSessionResult`. ``diff`` carries the
-        rendered diff body. For the empty/insufficient and
-        one-snapshot-covers-range cases the adapter renders the canonical
-        sentinel strings exposed by this module and short-circuits before
-        calling in; the kernel itself only handles the
-        ``(None, *)``/``(*, None)`` sentinels and the "diff two dicts"
-        path. ``error`` stays unset — the sentinel paths are normal
-        success-path results, not errors.
+    """Diff two snapshot dicts; a None baseline or latest yields the sentinel diffs as
+    normal success results, ``error`` unset. ``store`` is retained only for kernel-shape
+    uniformity; ``cutoff_date_used`` is the requested cutoff, not the baseline's timestamp.
     """
     # ``store`` is part of the locked kernel signature; the diff body
     # operates on the supplied snapshot dicts only.
@@ -257,13 +234,9 @@ def _diff_stack(old: str, new: str) -> list[str]:
 
 
 def _diff_questions(old: str, new: str) -> list[str]:
-    """Diff open-questions.md semantically.
-
-    Each rendered bullet is capped at
-    :data:`~nauro_core.constants.QUESTION_ENTRY_CHAR_BUDGET` characters
-    via :func:`~nauro_core.questions.truncate_entry_text`, matching the
-    L0/L1 question projection; bullets at or under the budget render
-    byte-unchanged.
+    """Diff open-questions.md; each over-budget bullet is cut at ``QUESTION_ENTRY_CHAR_BUDGET``
+    chars with a retrieval pointer appended (``truncate_entry_text``, the L0/L1 question
+    projection's rule); in-budget bullets render byte-unchanged.
     """
     changes: list[str] = []
 

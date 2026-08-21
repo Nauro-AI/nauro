@@ -302,22 +302,10 @@ class MigrationResult:
 @dataclass(frozen=True)
 class ResolveResult:
     """Outcome of :meth:`OpenQuestionsFile.resolve`.
-
-    Attributes:
-        file: A new :class:`OpenQuestionsFile` with the resolutions applied.
-        moved_ids: Ids whose ``resolved_by`` ended set — nothing is
-            physically moved. The name is legacy (stale "move"
-            vocabulary); ``resolve`` stamps the annotation in place and
-            never reorders blocks. Relocation is the separate
-            :meth:`normalize` step. Includes ids that were already resolved
-            (idempotent — desired state achieved). Renaming is deferred to a
-            future major because the field is exported public API.
-        unknown_ids: Ids absent from the file. The caller decides whether
-            to surface this as a hard rejection.
-        ambiguous_ids: Ids that matched more than one EntryBlock. When
-            non-empty no blocks were mutated — the input file is returned
-            unchanged. Defensive guard for callers that bypassed the
-            pipeline's ambiguity gate.
+    ``file`` carries the applied resolutions. ``moved_ids`` are the requested ids
+    whose ``resolved_by`` ended set, in place (already-resolved ids included, so
+    the call is idempotent); ``unknown_ids`` are absent from the file. A non-empty
+    ``ambiguous_ids`` means the input file was returned unmutated.
     """
 
     file: OpenQuestionsFile
@@ -463,14 +451,9 @@ class OpenQuestionsFile(BaseModel):
 
     @property
     def unresolved_entries(self) -> list[QuestionEntry]:
-        """Entries whose resolution annotation is unset, in file order.
-
-        Annotation-authoritative, not positional: an entry is unresolved iff
-        its ``resolved_by`` is None, regardless of whether it sits before or
-        after the ``## Resolved`` divider. This is the definition a reader of
-        genuinely-still-open questions wants. It differs from :attr:`open_ids`,
-        which partitions strictly on divider position and is kept for the
-        round-trip and resolve machinery that depends on physical layout.
+        """Entries whose ``resolved_by`` is None, in file order.
+        Annotation-authoritative regardless of divider position, unlike the
+        strictly positional :attr:`open_ids` partition.
         """
         return [
             b.entry
@@ -547,17 +530,9 @@ class OpenQuestionsFile(BaseModel):
         decision_num: int,
         date: _date,
     ) -> ResolveResult:
-        """Mark entries with the given ids as resolved by ``decision_num``.
-
-        Blocks are flipped in place — they are never reordered. An entry
-        physically under ``## Resolved`` stays where it is. When no
-        ``## Resolved`` divider exists yet and at least one pre-divider
-        entry was flipped, a divider is appended after the existing blocks.
-
-        If any requested id matches more than one EntryBlock, no blocks
-        are mutated and ``ResolveResult.ambiguous_ids`` reports the
-        offending ids. Defense in depth — the validation pipeline should
-        reject ambiguous ids before this call.
+        """Set ``resolved_by`` on the entries named by ``ids``, in place; blocks are never
+        reordered. ``## Resolved`` is appended when no divider is detected (any ``## `` header
+        naming "resolved" counts) and a pre-divider entry flipped. Ambiguous ids: no mutation.
         """
         if not ids:
             return ResolveResult(file=self, moved_ids=(), unknown_ids=())
@@ -650,48 +625,9 @@ class OpenQuestionsFile(BaseModel):
         )
 
     def normalize(self) -> NormalizeResult:
-        """Relocate prose-safe resolved entries below the ``## Resolved`` divider.
-
-        A distinct post-stamp step, never part of :meth:`format` (which stays
-        a faithful serializer). Pure, deterministic, and idempotent:
-        ``normalize(normalize(f)) == normalize(f)``. Whole-file scope — every
-        eligible entry present at call time is relocated, not only ids stamped
-        in the current call, so pre-existing strays self-heal on the next
-        resolution.
-
-        An :class:`EntryBlock` is *relocation-eligible* iff all of:
-
-        1. its ``resolved_by`` is set;
-        2. it sits above the ``## Resolved`` divider (or no divider exists) —
-           entries already below the divider are never touched; and
-        3. every block strictly between it and the next EntryBlock/HeaderBlock
-           (or end of file) is a :class:`ProseBlock` whose lines are all
-           empty or whitespace-only.
-
-        Rule 3 distinguishes pure spacing (safe) from a real trailing
-        paragraph, triple-hash topic, or unparsable line (unsafe). An entry
-        blocked by trailing prose is left in place and reported in
-        ``skipped_prose_ids``. The conservatism of rule 3 is by design — the
-        parser binds an entry only to its head line and two-space-indented
-        continuations, so a blank-line-separated body paragraph is a
-        free-floating ProseBlock the entry does not own, and moving the entry
-        without it would strand the body.
-
-        Eligible entries are removed from the open region in file order and
-        inserted at the end of the Resolved section — immediately before the
-        next HeaderBlock after the divider, or at end of file when none
-        exists — so hand-added sections after ``## Resolved`` are never
-        colonized. All-blank ProseBlocks that immediately trailed a moved
-        entry are dropped so spacing does not accumulate in the open region.
-        When no divider exists and at least one entry is eligible, a blank
-        ProseBlock plus the ``## Resolved`` HeaderBlock are appended first
-        (mirroring :meth:`resolve`).
-
-        Divider detection uses :attr:`resolved_divider_idx`. Its substring
-        matching (``"resolved" in stripped.lower()`` in :meth:`parse`) means a
-        hand-added header such as ``## Unresolved threads`` would be treated as
-        the divider — a pre-existing limitation shared with :meth:`resolve`,
-        out of scope here.
+        """Relocate prose-safe resolved entries below the detected divider (any ``## `` header
+        naming "resolved"), minting ``## Resolved`` when none is detected; insertion precedes
+        the first header after it. Pure, idempotent, whole-file; prose-trailed entries stay put.
         """
         blocks = self.blocks
         n = len(blocks)
@@ -773,9 +709,7 @@ class OpenQuestionsFile(BaseModel):
 
 def _parse_header(lines: list[str], i: int) -> tuple[str, int]:
     """Skip leading blanks and capture the file-level ``# `` header if present.
-
-    Returns ``(header, next_i)``. The ``startswith("# ")`` / not-``startswith("## ")``
-    guard distinguishes the file header from section markers like ``## Resolved``.
+    Returns ``(header, next_i)``; a ``## `` section marker is never the header.
     """
     n = len(lines)
     while i < n and not lines[i].strip():

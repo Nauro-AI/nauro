@@ -55,10 +55,7 @@ def _truncate(text: str, limit: int) -> str:
 
 def _error_block(error) -> str:
     """Render an error field as a one-line ``Error: <reason>`` header.
-
-    Most adapters lift ``result.error.reason`` to a top-level string, but
-    ``check_decision`` carries the kernel's full :class:`ErrorPayload`
-    serialization (``{"kind": "...", "reason": "..."}``). Tolerate both.
+    Tolerates both a plain string and the kernel's ``ErrorPayload`` dict shape.
     """
     if isinstance(error, dict):
         reason = error.get("reason") or error.get("message") or str(error)
@@ -68,22 +65,9 @@ def _error_block(error) -> str:
 
 
 def _guidance(result: dict) -> str:
-    """Onboarding/empty-state guidance text carried by the envelope, if any.
-
-    Both surfaces attach a ``guidance`` string to empty-payload envelopes: the
-    remote MCP on an empty store, and the local stdio server on the
-    no-project / unresolved-project path (``{"status": "error",
-    "guidance": ...}`` — note that envelope has no ``error`` key, so the
-    error branch above does not fire). Every read renderer surfaces this before
-    its own empty-state default, so a read tool called at session start in a
-    repo that has not run ``nauro init`` returns the actionable welcome text
-    instead of an empty string (``get_context``/``get_decision``) or a
-    misleading "no results" line (``check_decision``/``search_decisions``).
-
-    A non-string ``guidance`` value is ignored: guidance is advisory
-    metadata, and raising on a malformed field would trigger the callers'
-    full-envelope JSON fallback — which, with an oversized body alongside,
-    would bypass the bounded-read guards entirely.
+    """Return the envelope's stripped ``guidance`` string, or ``""`` when absent.
+    A non-string value is ignored rather than raised on: a raising renderer would
+    trigger the callers' JSON fallback and bypass the bounded-read guards.
     """
     guidance = result.get("guidance")
     if not isinstance(guidance, str):
@@ -92,12 +76,9 @@ def _guidance(result: dict) -> str:
 
 
 def disconnected_reason_code(result: dict) -> str | None:
-    """Return the reason code when ``result`` is a disconnected-error envelope.
-
-    The single definition of the envelope's discriminator (``status ==
-    "error"`` with a nonempty ``reason_code``), shared by every adapter that
-    routes disconnected states differently from plain errors — so a change to
-    the envelope shape lands in one place instead of drifting across surfaces.
+    """Return the reason code when ``result`` is a disconnected-error envelope:
+    ``status == "error"`` with a nonempty string ``reason_code``; else None.
+    This is the single definition of the envelope's discriminator.
     """
     if result.get("status") != "error":
         return None
@@ -208,11 +189,8 @@ def _check_hit_block(hit: dict, *, is_top: bool) -> list[str]:
 
 
 def _extract_call_to_action(assessment: str) -> str:
-    """Pull the trailing ``Call get_decision...`` sentence from the assessment.
-
-    The kernel always emits a single ``Call ...`` clause as the last
-    sentence; if the format ever drifts, fall back to an empty string and
-    let the renderer's default call-to-action fire in the lead line.
+    """Pull the trailing ``Call ...`` sentence from the assessment, or return
+    ``""`` so the renderer's default call-to-action fires in the lead line.
     """
     idx = assessment.find("Call ")
     if idx == -1:
@@ -261,14 +239,9 @@ def _decision_title_header(body: str) -> str:
 
 
 def render_search_decisions(result: dict, query: str | None = None) -> str:
-    """Render BM25 search results.
-
-    ``query`` is render-time display context for the result header. The
-    kernel envelope intentionally omits the echoed query (a verbatim copy
-    of the caller's argument), so the local stdio transport threads it
-    here via renderer kwargs. When given
-    it takes precedence; the remote transport, whose wire envelope still
-    carries ``query``, keeps rendering via the dict fallback.
+    """Render BM25 search results. The ``query`` kwarg is display context for the
+    header and takes precedence; the envelope's ``query`` key is the fallback for
+    transports that carry the echo on the wire.
     """
     if guidance := _connection_guidance(result):
         return guidance
@@ -343,20 +316,9 @@ def render_list_decisions(result: dict) -> str:
 
 
 def render_get_context(result: dict, level: str | int | None = None) -> str:
-    """Render context. The kernel already assembles human-readable markdown;
-    pass it through, with structured errors surfaced explicitly.
-
-    The two adapters disagree on the envelope key: the remote MCP server
-    surfaces the assembled markdown under ``context``; the local stdio
-    server uses ``content`` (the kernel ``GetContextResult`` field name).
-    Accept either so a single renderer covers both transports.
-
-    A body over :data:`L2_CHAR_BUDGET` chars is withheld behind a compact
-    guard report instead. The gate is size-keyed, not level-keyed: any
-    over-budget body gates on every transport, with or without the ``level``
-    renderer kwarg - ``level``, where threaded, only tailors the report's
-    wording. At or under budget the rendering is byte-identical to the
-    pre-guard passthrough.
+    """Render context from either envelope key (remote ``context``, local ``content``);
+    an in-budget body passes through rstripped. Over :data:`L2_CHAR_BUDGET` chars the
+    size-keyed guard report renders instead on every transport; ``level`` only words it.
     """
     if guidance := _connection_guidance(result):
         return guidance
@@ -389,19 +351,9 @@ def _context_guard_report(size: int, level: str | int | None) -> str:
 
 
 def render_get_raw_file(result: dict, path: str | None = None) -> str:
-    """Render a raw-file read.
-
-    On a hit the file content renders through the bounded-read rules of
-    :func:`nauro_core.bounded_read.render_bounded_file`: byte-verbatim at or
-    under its budget, head/tail/structure-aware truncation with elision
-    markers over it. ``path`` is the canonical store-relative path threaded
-    as a renderer kwarg by the local surfaces (it never enters the result
-    envelope); a surface that threads none gets the generic head-keep rule.
-    On a miss the error line renders first
-    (``Error: File not found: <path>``), then the adapter-composed
-    ``available_files`` hint in its exact order — the ordering (canonical
-    root files, remaining root markdown, per-directory anchors) is a
-    cross-surface contract, never reorder it here.
+    """Render a raw-file read. A hit renders via the bounded-read rules; ``path`` is a
+    renderer kwarg, never an envelope field. A miss renders the error line, then the
+    ``available_files`` hint in the adapter's exact order - a cross-surface contract.
     """
     if guidance := _connection_guidance(result):
         return guidance
