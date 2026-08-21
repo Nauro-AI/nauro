@@ -45,38 +45,9 @@ def flag_question(
     targets: list[str] | None = None,
     resolved_by: str | None = None,
 ) -> FlagQuestionResult:
-    """Append *question*, or resolve the entries named in ``targets``.
-
-    Args:
-        store: Storage adapter. The kernel reads ``open-questions.md`` via
-            :meth:`Store.read_file` and writes through
-            :meth:`Store.write_file`. The two calls happen back-to-back
-            within the same kernel invocation.
-        question: Composed question body for the append action. Required
-            when ``resolved_by`` is None; must be omitted when
-            ``resolved_by`` is set. The adapter is responsible for any
-            caller-side composition (e.g. folding ``context`` into the
-            same line) before reaching the kernel.
-        context: Reserved for future kernel-side composition. Currently
-            unused — the adapter folds context into ``question`` and
-            passes ``None`` here so the on-disk format stays unchanged.
-        targets: On the append action, optional candidate ``Q###`` (or
-            legacy timestamp) ids the caller suspects this question may
-            duplicate. On the resolve action, the entries to stamp as
-            resolved — every id must exist in the file or the whole call
-            rejects.
-        resolved_by: A decision identifier (``D123``, ``123``,
-            ``decision-123`` …). When set, the call resolves the
-            ``targets`` entries against that decision instead of
-            appending. The number must resolve to an active decision that
-            exists in the store.
-
-    Returns:
-        :class:`FlagQuestionResult`. On the append success path
-        ``status="ok"`` and ``num`` carries the minted identifier. On the
-        resolve success path ``status="ok"`` and ``num`` stays unset. On
-        any rejection ``status="rejected"`` and ``error`` names the
-        specific failure; no write occurs.
+    """Append ``question``, minting ``num`` as the next ``Q###``, or with ``resolved_by`` set
+    resolve the ``targets`` entries; ``context`` is discarded. Rejects write nothing: a resolved
+    or ambiguous append target, a missing or inactive decision, or a missing resolve target.
     """
     del context  # adapter composes context into question; kernel sees one body.
     canonical_targets = _canonical_question_targets(targets or [])

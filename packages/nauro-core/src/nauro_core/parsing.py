@@ -22,17 +22,9 @@ _SENTENCE_TERMINATORS = ".!?"
 
 
 def first_sentence_end(text: str) -> int:
-    """Index just past the end of the first sentence in ``text``.
-
-    A sentence ends at a ``.``, ``!`` or ``?`` that is followed by whitespace
-    or the end of the string. A terminator immediately followed by a non-space
-    (a decimal point, a mid-word ellipsis) is not a boundary, and a terminating
-    period that closes a known abbreviation (``e.g.``, ``vs.``, ``etc.``) or a
-    single letter is skipped so the sentence runs past it. Returns ``len(text)``
-    when no boundary is found. Plain string ops; no regex.
-
-    Shared by the graph payload builder (first-sentence body cap) and BM25
-    snippet generation so the two surfaces split sentences identically.
+    """Index just past the first sentence boundary: a ``.``, ``!`` or ``?`` followed
+    by whitespace or end of string. A period closing a known abbreviation or a
+    single-letter initial is skipped; returns ``len(text)`` when no boundary exists.
     """
     n = len(text)
     for i, ch in enumerate(text):
@@ -48,11 +40,8 @@ def first_sentence_end(text: str) -> int:
 
 def _ends_with_abbreviation(text: str, period_idx: int) -> bool:
     """Whether the period at ``period_idx`` closes an abbreviation or initial.
-
-    Reads the token ending at the period (the run of non-space characters
-    immediately before it, with any embedded periods kept so ``e.g`` is one
-    token) and reports a match against the known-abbreviation set or a
-    single-letter initial.
+    The token ending at the period (the run of non-space characters before it) is
+    matched against the known-abbreviation set or a single lone letter.
     """
     start = period_idx
     while start > 0 and not text[start - 1].isspace():
@@ -67,13 +56,8 @@ def _ends_with_abbreviation(text: str, period_idx: int) -> bool:
 
 
 def _first_sentence_snippet(text: str, length: int = 100) -> str:
-    """First sentence of ``text``, trimmed to ``length`` with a trailing ellipsis.
-
-    Splits at the first sentence boundary via the co-located ``first_sentence_end``,
-    drops the trailing terminator, trims to ``length`` characters, and appends
-    ``...`` when the first sentence runs longer than ``length``. This is the BM25
-    search snippet fallback used when no query word matches the rationale, so its
-    output shape is user-visible on the search surface.
+    """First sentence of ``text``, terminator dropped, trimmed to ``length`` chars.
+    ``...`` is appended when the first sentence ran longer than ``length``.
     """
     end = first_sentence_end(text)
     first_sentence = text[:end].rstrip(".!?")
@@ -84,13 +68,9 @@ def _first_sentence_snippet(text: str, length: int = 100) -> str:
 
 
 def _cap_to_first_unit(body: str) -> str:
-    """Cap a body to its first sentence or first line, whichever ends sooner.
-
-    The first line ends at the first newline; the first sentence ends per the
-    co-located ``first_sentence_end`` grammar (terminator plus boundary,
-    abbreviations skipped). The shorter boundary wins, so a multi-sentence
-    single line truncates to the first sentence and a multi-line body to its
-    first line. Feeds the graph payload's open-question display bodies.
+    """Cap a stripped body to its first line or first sentence, whichever ends sooner.
+    A multi-sentence single line truncates to its first sentence; a multi-line
+    body to its first line.
     """
     text = body.strip()
     line_end = text.find("\n")
@@ -105,61 +85,24 @@ _ASCII_DIGITS = "0123456789"
 
 def is_ascii_decimal(token: str) -> bool:
     """True when ``token`` is a non-empty run of ASCII decimal digits.
-
-    The one test for "could this store have written that number". Every number
-    it renders - a decision's filename prefix, its H1, a ``D70`` reference, a
-    question's ``Q7`` id - is written in ASCII, so every reader here reads back
-    in ASCII, and one predicate keeps the readers from disagreeing.
-
-    ``str.isdigit`` is not that test. It is true across scripts, and the two
-    ways it goes wrong both matter: a superscript or circled digit passes it
-    and then makes ``int`` raise, and an Arabic-Indic run passes it and reads
-    as a number whose canonical written form is ASCII, so the value and the
-    text that carried it can never agree again.
+    Not ``str.isdigit``: a non-ASCII digit either makes ``int`` raise or breaks the
+    round-trip between a number and the ASCII text this store writes for it.
     """
     return bool(token) and all(char in _ASCII_DIGITS for char in token)
 
 
 def _continues_a_number(char: str) -> bool:
     """True when ``char`` could be one more digit of the number just read.
-
-    The right-boundary test for a number token, and deliberately narrower than
-    :func:`is_ascii_decimal`'s complement: ``str.isdecimal`` is true for exactly
-    the characters ``int`` accepts as digits, which is what "this number goes
-    on" means. So an Arabic-Indic digit after an ASCII run continues the number,
-    and the token is one number written in two scripts.
-
-    A superscript or circled digit is not one of them - ``int`` refuses it - so
-    it never continues a number. In a body it is a footnote marker after a
-    reference, and in a name it is simply where the number ended, the same as a
-    letter.
+    ``str.isdecimal`` is true for exactly the digits ``int`` accepts, so a decimal
+    digit in any script continues the number; a superscript or circled digit does not.
     """
     return char.isdecimal()
 
 
 def extract_decision_number(identifier: str) -> int | None:
-    """Extract the decision number from a decision identifier.
-
-    Accepts:
-    - file stem: ``"042-some-title"`` (or ``"042-some-title.md"``)
-    - synthetic id: ``"decision-042"``
-    - prefixed: ``"D042"`` or ``"D42"``
-    - bare integer: ``"42"``
-
-    The number is ASCII decimal (see :func:`is_ascii_decimal`); an identifier
-    numbered in any other script is one no writer here produced, and reads as
-    no number rather than as an error. Callers already handle that answer: it
-    is the same one a name like ``notes.md`` gets.
-
-    The whole number token is judged, not just its first characters. A run
-    that stops where the number continues in another script (see
-    :func:`_continues_a_number`) is one number written two ways, so it names
-    nothing here - reading the ASCII part alone would let such a name claim
-    decision 12, which it does not spell. A run that stops anywhere else is the
-    ordinary shape: the number ended and the rest is slug, so ``12x-foo.md``
-    still reads 12.
-
-    Returns None if the identifier doesn't match a known shape.
+    """Extract the decision number from ``"042-title[.md]"``, ``"decision-042"``,
+    ``"D42"``, or a bare ``"42"``; None when no shape matches. Digits are ASCII and
+    judged whole: a run continued by a non-ASCII decimal digit reads as no number.
     """
     s = identifier.removesuffix(".md")
     low = s.lower()
@@ -203,21 +146,9 @@ _REFERENCE_PREFIXES: tuple[str, ...] = ("decision-", "d")
 
 
 def scan_decision_references(text: str, max_number: int) -> set[int]:
-    """Return every in-range decision number referenced in ``text``.
-
-    Recognized forms, case-insensitive: ``D70`` / ``d70``, zero-padded
-    ``D070``, and ``decision-70`` / ``Decision-70``. A reference must be
-    preceded by a non-alphanumeric character (or the start of the text) so a
-    digit or letter run does not fabricate a match (a UUID's ``...d4`` or an
-    identifier's ``...D70`` is rejected). The digit run is read to its boundary
-    so a short reference never matches inside a longer number (``D118`` parses
-    as 118, never 1 then 18), and only ASCII digits are consumed so a trailing
-    Unicode digit cannot reach ``int`` and raise. Numbers outside
-    ``1..max_number`` are dropped. Plain string ops; no regex.
-
-    This is the single home for the body-reference grammar. The graph payload
-    builder is the current consumer; ``extract_decision_number`` stays the
-    single-identifier analogue.
+    """Return every decision number referenced in ``text`` as ``D70`` / ``decision-70``,
+    case-insensitive where lowercasing preserves length (always for ASCII). A reference
+    needs a non-alphanumeric left boundary, a whole ASCII digit run, and ``1..max_number``.
     """
     low = text.lower()
     found: set[int] = set()
@@ -227,12 +158,9 @@ def scan_decision_references(text: str, max_number: int) -> set[int]:
 
 
 def _scan_prefix(text: str, low: str, prefix: str, found: set[int], max_number: int) -> None:
-    """Accumulate every ``<prefix><digits>`` occurrence into ``found``.
-
-    ``low`` is ``text`` lowercased once so the prefix match is case-insensitive
-    without rescanning; offsets line up because lowercasing is length-preserving
-    for the ASCII letters in the prefixes. The original ``text`` supplies the
-    digit run.
+    """Accumulate every ``<prefix><digits>`` occurrence in ``text`` into ``found``.
+    ``low`` is ``text`` lowercased once for case-insensitive prefix matches; its offsets
+    index ``text``, exact only where lowercasing preserves length (always for ASCII).
     """
     plen = len(prefix)
     n = len(text)
@@ -308,13 +236,8 @@ def _stem_from_decision_path(path: str) -> str | None:
 
 def strip_leading_h1(content: str) -> str:
     """Drop a leading ``# ...`` H1 line plus surrounding blank lines.
-
-    Mirrors ``context._strip_leading_current_header`` but for any H1: leading
-    blank lines are dropped, one H1 line is removed when present, and the
-    remainder is returned stripped. Content without a leading H1 passes
-    through (stripped) unchanged. Shared by ``is_scaffold_project_md`` and the
-    L0 project-scope preamble, which renders project.md under its own section
-    ordering and must not stutter the file's title heading.
+    CRLF is normalized first; one H1 is removed when present and the remainder is
+    returned stripped. Content without a leading H1 passes through stripped.
     """
     # S3-synced bytes on the hosted path decode without the universal-newline
     # translation local Path.read_text gets; normalizing here fixes both the
@@ -356,12 +279,8 @@ def extract_current_state(state_content: str) -> str:
 
 
 def _is_top_level_bullet(line: str) -> bool:
-    """Whether ``line`` is a top-level ``- `` bullet, not an indented child.
-
-    The stripped line opens with ``- `` and the raw line carries no leading
-    indent, so a nested bullet under a parent item does not count. Shared by the
-    stack extractors here and the snapshot stack diff so the three sites agree on
-    what a top-level bullet is.
+    """Whether ``line`` is a top-level ``- `` bullet: the stripped line opens with
+    ``- `` and the raw line has no leading two-space indent (a nested child bullet).
     """
     return line.strip().startswith("- ") and not line.startswith("  ")
 
