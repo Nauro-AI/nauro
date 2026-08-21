@@ -1,42 +1,16 @@
 """Render a decision-graph payload into one self-contained HTML document.
 
-The output is a single read-only file: inline CSS, inline vanilla JS, inline
-SVG, no external network requests, no third-party assets. The payload is
-embedded once as a ``<script type="application/json">`` block; the page reads it
-at load time to drive cross-view search and filters and to populate the shared
-detail panel.
+The output is a single read-only artifact: inline CSS, vanilla JS, and SVG,
+with no external requests. The payload (v2 shape assumed, no legacy fallback)
+is embedded once as a JSON script block and drives four views: Graph (a
+deterministic node-link map, no force physics), Lineage (one supersession DAG
+per component), Timeline (a true date axis with category lanes), and Browse
+(decisions grouped by category). Open questions link into the shared detail
+panel via the payload's ``references`` field.
 
-The page is a four-view single-file application over the same payload:
-
-* Graph (default): a node-link map of the whole store on a deterministic
-  layout (no force-directed physics). Supersession threads are star clusters,
-  isolated decisions sit in per-category sunflower discs, and the clusters are
-  packed with a golden-angle spiral. Node radius is degree, hue is category,
-  fill is status, opacity is confidence. Pan and zoom are vanilla JS over the
-  SVG viewBox.
-* Lineage: one drawn DAG per supersession component, SVG edges, time flowing
-  left to right. Generation columns are the longest distance from the
-  component's roots along supersession edges; consolidation fan-ins are the most
-  prominent objects.
-* Timeline: a true date axis (earliest to latest decision date) with category
-  lanes; marks are positioned by real date, not index, and same-day same-lane
-  marks stack so a busy day reads as a visible column.
-* Browse: every decision grouped by category, superseded ones dimmed, each
-  expanding in place to a detail panel of relations and linked questions.
-
-Open questions are integrated: a question's decision references render as links
-into the detail panel, and each referenced decision badges back to its
-questions. References come from the payload's ``references`` field; there is no
-client-side reference parsing. The renderer and the payload ship in the same
-artifact, so there is no legacy-payload fallback path: a v2 payload is assumed.
-
-This module deliberately consumes only the payload dict, never a store or any
-I/O, so relocating it (for example to a hosted renderer that builds the same
-payload) is mechanical.
-
-Built with f-strings and string templates only; no Jinja2, no regex. All
-authored copy is neutral and diagnostic, uses "decision" as the framing noun,
-carries no em-dashes, and keeps "memory" and "context" out of headings.
+This module consumes only the payload dict, never a store or any I/O, and the
+layout is a pure function of the payload, so the same payload and timestamp
+render byte-identically. Built with f-strings and string templates only.
 """
 
 from __future__ import annotations
@@ -115,18 +89,9 @@ _GRAPH_LABEL_LINE_H = 14.0  # estimated single-line text-box height
 
 
 def render_html(payload: dict, *, generated_at: str) -> str:
-    """Render the graph payload to a complete HTML document.
-
-    Args:
-        payload: The dict returned by ``build_graph_payload`` (v2 shape).
-            Embedded verbatim and also read on the Python side to build the
-            static markup for all four views.
-        generated_at: A human-readable generation timestamp for the footer. The
-            payload itself carries no timestamp (the builder is pure), so the
-            caller stamps the time here.
-
-    Returns:
-        One self-contained HTML document as a string.
+    """Render the graph payload (v2 shape) to one self-contained HTML document.
+    The payload is embedded once with script-safe JSON escaping; ``generated_at``
+    is the footer timestamp, stamped by the caller because the builder is clock-free.
     """
     project = payload.get("project") or "this project"
     nodes = payload.get("nodes", [])
@@ -171,15 +136,8 @@ def render_html(payload: dict, *, generated_at: str) -> str:
 
 def _embed_payload(payload: dict) -> str:
     """Serialize the payload for a ``<script type="application/json">`` block.
-
-    The ``.replace`` chain below is the only thing that prevents a string value
-    (a title or body containing ``</script>``, say) from terminating the script
-    element early: it rewrites ``<``, ``>`` and ``&`` to their JSON unicode
-    escapes, which are valid only inside JSON string literals, which is the only
-    place those characters occur in this document. Do not remove it on the
-    assumption that ``ensure_ascii`` covers the breakout; it does not.
-    ``ensure_ascii`` only forces non-ASCII to ``\\uXXXX`` and leaves ``<`` and
-    ``>`` intact.
+    The ``.replace`` chain is the only guard against a ``</script>`` in a string
+    value ending the script element early; ``ensure_ascii`` leaves ``<`` intact.
     """
     raw = json.dumps(payload, ensure_ascii=True, sort_keys=True)
     return raw.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
@@ -204,12 +162,9 @@ def _category_of(decision_type) -> str:
 
 
 def _node_data_attrs(node: dict) -> str:
-    """Status, category, and confidence data attributes shared by every view.
-
-    The Graph circle, Browse card, and Timeline mark all key the detail panel,
-    filters, and spotlight off the same status/category/confidence attributes.
-    Hard-indexing status and confidence keeps a malformed payload failing loud
-    in every view the same way the Graph builder already does.
+    """Status, category, and confidence data attributes for node-bearing markup.
+    The Graph circle, Browse card, and Timeline mark share them; hard-indexing
+    status and confidence keeps a malformed payload failing loud in all three.
     """
     status = node["status"]
     category = _category_of(node.get("decision_type"))
@@ -229,12 +184,9 @@ def _category_label(category: str) -> str:
 
 
 def _supersession_relations(payload: dict) -> dict[int, dict[str, list[int]]]:
-    """Map each node to the decisions it supersedes and is superseded by.
-
-    An edge ``(from, to)`` means ``from`` supersedes ``to``. For each node this
-    returns ``{"supersedes": [...], "superseded_by": [...]}`` with both lists
-    ascending. Edges come straight from the payload, so the relations shown on
-    the detail panels reflect exactly the edges the components encode.
+    """Map each node to its ``supersedes`` and ``superseded_by`` lists, both ascending.
+    An edge ``(from, to)`` means ``from`` supersedes ``to``; edges come straight
+    from the payload, so the detail panels reflect exactly the encoded edges.
     """
     relations: dict[int, dict[str, list[int]]] = {}
     for edge in payload.get("supersession_edges", []):
@@ -250,11 +202,9 @@ def _supersession_relations(payload: dict) -> dict[int, dict[str, list[int]]]:
 
 
 def _citation_map(payload: dict) -> dict[int, list[int]]:
-    """Map each node to the decisions it cites in its body (the "cited by" view).
-
-    A citation edge ``(from, to)`` means ``from`` cites ``to``. The detail panel
-    shows, for a node, which decisions cite it (the reverse of the edge), which
-    is what "cited by" means to a reader. Lists ascend.
+    """Map each node to the decisions that cite it, lists ascending.
+    A citation edge ``(from, to)`` means ``from`` cites ``to``; the map inverts
+    the edge because the detail panel shows "cited by".
     """
     cited_by: dict[int, list[int]] = {}
     for edge in payload.get("citation_edges", []):
@@ -266,11 +216,8 @@ def _citation_map(payload: dict) -> dict[int, list[int]]:
 
 def _question_reference_map(payload: dict) -> dict[int, list[str]]:
     """Map each decision number to the question ids that reference it.
-
-    The payload carries the question-to-decision direction (each question's
-    ``references``); this inverts it so a decision's detail panel can badge the
-    questions pointing at it. Question ids keep first-seen (payload) order, which
-    is questions-first then resolved per the builder's filter.
+    Inverts the question-to-decision direction of each question's ``references``
+    field; question ids keep first-seen payload order.
     """
     by_decision: dict[int, list[str]] = {}
     for q in payload.get("open_questions", []):
@@ -293,10 +240,7 @@ def _question_reference_map(payload: dict) -> dict[int, list[str]]:
 
 def _node_degree(payload: dict) -> dict[int, int]:
     """Total degree per node = supersession plus citation endpoints.
-
-    Degree drives node radius, so both edge layers count: a consolidation hub is
-    large because many supersession edges touch it, and a heavily cited decision
-    grows even with no supersession edge.
+    Degree drives node radius, so both edge layers count toward it.
     """
     degree: dict[int, int] = {n["number"]: 0 for n in payload.get("nodes", [])}
     for edge in payload.get("supersession_edges", []):
@@ -314,10 +258,8 @@ def _node_degree(payload: dict) -> dict[int, int]:
 
 def _node_radius(degree: int, max_degree: int) -> float:
     """Map a node's degree onto a floored, capped radius.
-
-    Radius scales with the square root of degree (so area, not radius, tracks
-    degree) between the floor and the cap. With no edges anywhere every node
-    sits at the floor.
+    Radius scales with the square root of degree so area tracks degree; with
+    no edges anywhere every node sits at the floor.
     """
     if max_degree <= 0:
         return _GRAPH_BASE_RADIUS
@@ -327,12 +269,8 @@ def _node_radius(degree: int, max_degree: int) -> float:
 
 def _component_center(component: dict, node_by_number: dict[int, dict]) -> int:
     """Pick the cluster center: the terminal active retirer of the thread.
-
-    A terminal node is one nothing else in the component supersedes (no incoming
-    supersession edge, i.e. it is never a ``to``). Among terminals, prefer active
-    ones, then take the highest number so multi-terminal threads resolve
-    deterministically. Falls back to the highest number overall if the edge set
-    somehow leaves no terminal (a pure cycle).
+    Prefers active terminals (never a ``to`` in the component), then the highest
+    number, so multi-terminal threads and pure cycles resolve deterministically.
     """
     members = set(component["nodes"])
     superseded_targets = {e["to"] for e in component["edges"]}
@@ -346,11 +284,8 @@ def _component_center(component: dict, node_by_number: dict[int, dict]) -> int:
 
 def _supersession_distance(component: dict, center: int) -> dict[int, int]:
     """Distance in supersession edges from each node to the cluster center.
-
-    Undirected breadth-first over the component's edges, so a node's ring is how
-    many retirement hops separate it from the terminal center. The center sits at
-    distance 0 (the innermost point); a pure fan-in puts every child at distance
-    1 (one ring), and a chain steps outward one ring per generation.
+    Undirected breadth-first over the component's edges; the center sits at
+    distance 0 and any unreached node lands on the outermost ring.
     """
     adjacency: dict[int, list[int]] = {n: [] for n in component["nodes"]}
     for e in component["edges"]:
@@ -378,12 +313,8 @@ def _layout_component(
     component: dict, node_by_number: dict[int, dict]
 ) -> tuple[dict[int, tuple[float, float]], float, int]:
     """Lay out one supersession component as concentric rings around its center.
-
     Returns ``(local_positions, bounding_radius, center_number)`` with positions
-    relative to the cluster center at (0, 0). Nodes on a ring are sorted by
-    number and spread evenly around the circle; alternate rings are rotated half
-    a step so spokes on adjacent rings do not align. A pure fan-in becomes a
-    star, a chain a short radial run, and a merge two arms joining the center.
+    relative to the cluster center at (0, 0); nodes on a ring sort by number.
     """
 
     center = _component_center(component, node_by_number)
@@ -417,12 +348,8 @@ def _layout_disc(
     members: list[int],
 ) -> tuple[dict[int, tuple[float, float]], float]:
     """Lay out a category of isolated decisions as a phyllotaxis (sunflower) disc.
-
-    Node k sits at angle ``k * golden_angle`` and radius ``c * sqrt(k)`` (the
-    sunflower spiral), nodes ordered by number. The square-root radius keeps the
-    dot density uniform across the disc, so it reads as a filled circle rather
-    than a spiral arm. Returns positions relative to the disc center at (0, 0)
-    and the disc bounding radius.
+    Returns positions relative to the disc center at (0, 0) and the disc
+    bounding radius; nodes are ordered by number.
     """
 
     ordered = sorted(members)
@@ -439,15 +366,8 @@ def _layout_disc(
 
 def _pack_clusters(clusters: list[dict]) -> None:
     """Place each cluster's center on the canvas with a golden-angle spiral.
-
-    Each cluster is a circle of known ``radius``. The cluster flagged
-    ``priority`` (the named top story) takes the origin slot first so it sits at
-    the visual center; the rest sort by radius descending and each walks a
-    golden-angle spiral outward from the origin, taking the first position where
-    its circle clears every already-placed circle (plus padding). Without a
-    priority cluster the largest by radius takes origin, as before. The walk is
-    deterministic, so the packing is reproducible and looks organic without any
-    physics. Mutates each cluster dict in place with a ``center`` key.
+    The ``priority`` cluster (else the largest by radius) takes the origin slot;
+    the walk is deterministic and sets a ``center`` key on each dict in place.
     """
 
     priority = [c for c in clusters if c.get("priority")]
@@ -483,17 +403,9 @@ def _pack_clusters(clusters: list[dict]) -> None:
 
 
 def build_graph_layout(payload: dict, priority_center: int | None = None) -> dict:
-    """Compute the full deterministic node-link layout for the Graph view.
-
-    Returns a dict with: ``positions`` (number -> absolute (x, y)), ``radii``
-    (number -> node radius), ``clusters`` (metadata for cluster labels), and
-    ``bounds`` (min_x, min_y, max_x, max_y of all node centers). Pure and
-    randomness-free, so rendering the same payload twice is byte-identical.
-
-    ``priority_center`` is the center number of the component cluster that should
-    take the origin slot (the named top story, so it sits near the visual center
-    rather than being out-sized to the edge by the big category discs). When None
-    or not a component center, the largest cluster by radius takes origin.
+    """Return the Graph-view layout dict with ``positions``, ``radii``, ``degree``,
+    ``clusters``, and ``bounds``. Pure and randomness-free; ``priority_center``
+    names the origin-slot cluster, else the largest by radius takes origin.
     """
     nodes = payload.get("nodes", [])
     node_by_number = {n["number"]: n for n in nodes}
@@ -657,12 +569,9 @@ def _largest_consolidation(
     relations: dict[int, dict[str, list[int]]],
     node_by_number: dict[int, dict],
 ) -> int | None:
-    """Return the supersession target with the most incoming edges, or None.
-
-    A node's ``supersedes`` list is its incoming retirements. Ties resolve to the
-    lower number. Returns None when no node retires at least two decisions. This
-    is the single source of truth for the named top story, the default
-    spotlight, and the packing-priority cluster.
+    """Return the node retiring the most decisions (at least two), else None; ties
+    resolve to the lower number. Single source of truth for the named top story
+    and the packing-priority cluster.
     """
     best = None
     best_count = 0
@@ -680,14 +589,8 @@ def _compute_insights(
     question_refs: dict[int, list[str]],
 ) -> list[dict]:
     """Compute the ordered docent insights, deterministically, renderer-side.
-
-    Returns a list of insight dicts in display order; the first is the named top
-    story (largest consolidation) and is the default spotlight. Each dict has
-    ``kind`` (``center`` / ``detail`` / ``date``), a ``kicker`` and ``body``
-    string, and either ``target`` (a decision number) or ``date``. A metric
-    undefined for the store is omitted, so a sparse store yields fewer insights
-    or none. The story strip, the pinned insight labels, and the JS spotlight all
-    read from this one computation, so they cannot disagree.
+    The consolidation top story leads when one exists; the story strip, the
+    pinned insight labels, and the chip jump actions read this one computation.
     """
     nodes = payload.get("nodes", [])
     node_by_number = {n["number"]: n for n in nodes}
@@ -941,10 +844,8 @@ def _graph_hub_numbers(
     node_by_number: dict[int, dict],
 ) -> set[int]:
     """Pick the nodes labelled at the default zoom: hubs and top-degree nodes.
-
-    Every consolidation target (active fan-in of three or more) is a hub, plus
-    the highest-degree nodes up to the label budget. Returns roughly 12-20
-    numbers, deterministically chosen by degree then number.
+    Every active fan-in of three or more is a hub, then the highest-degree nodes
+    fill the label budget, deterministically by degree then number.
     """
     hubs: set[int] = {
         num
@@ -962,9 +863,8 @@ def _graph_hub_numbers(
 
 def _hub_label_text(num: int, title: str) -> str:
     """The visible text of a hub label: ``D<n> <title>`` with the title capped.
-
-    Single source of truth for the label string so the suppression pass sizes
-    the box from exactly the text that is emitted.
+    Single source of truth so the suppression pass sizes the box from exactly
+    the text that is emitted.
     """
     label = title if len(title) <= 32 else title[:31].rstrip() + "…"
     return f"D{num} {label}"
@@ -974,12 +874,8 @@ def _hub_label_box(
     num: int, title: str, x: float, y: float, r: float
 ) -> tuple[float, float, float, float]:
     """Estimate a hub label's text box as ``(x0, y0, x1, y1)``.
-
-    The label is anchored at the middle of ``x`` on a baseline at ``y - r - 6``
-    (the emit geometry below). Width is the character count times the per-glyph
-    estimate; the box rises one line height above the baseline. Conservative by
-    construction: the heuristic overshoots real glyph widths, so a box that does
-    not intersect here cannot collide on screen.
+    Width is a conservative character-count estimate; no DOM measurement is
+    available at render time, so the suppression pass compares estimated boxes.
     """
     text = _hub_label_text(num, title)
     width = len(text) * _GRAPH_LABEL_CHAR_W
@@ -989,9 +885,8 @@ def _hub_label_box(
 
 def _insight_label_text(num: int, meta: dict) -> str:
     """The visible text of an insight pill: the ``short`` headline or ``D<n>``.
-
-    Single source of truth shared by the pill renderer and the suppression
-    pass so both size the box from the same string.
+    Single source of truth shared by the pill renderer and the suppression pass
+    so both size the box from the same string.
     """
     if meta["primary"] and meta.get("short"):
         return meta["short"]
@@ -1002,7 +897,6 @@ def _insight_label_box(
     num: int, meta: dict, x: float, y: float, r: float
 ) -> tuple[float, float, float, float]:
     """Estimate an insight pill's box as ``(x0, y0, x1, y1)``.
-
     Mirrors the pill geometry in ``_render_insight_labels`` exactly so the
     suppression pass blocks against the same rectangle that renders.
     """
@@ -1028,12 +922,8 @@ def _suppressed_hub_labels(
     degree: dict[int, int],
 ) -> set[int]:
     """Return the hub numbers whose labels collide with a higher-priority box.
-
-    Priority order: insight labels first (never suppressed, but their boxes
-    block), then hub labels by degree descending, ties by decision number
-    ascending. The walk keeps every accepted box and suppresses any hub whose
-    box intersects one already accepted. Pure and deterministic: the same
-    payload yields the same suppression set.
+    Insight boxes block first, then hub labels by degree descending, ties by
+    number ascending; pure, so one payload yields one suppression set.
     """
     accepted: list[tuple[float, float, float, float]] = list(insight_boxes)
     suppressed: set[int] = set()
@@ -1322,10 +1212,8 @@ def _render_lineage_view(payload: dict, relations: dict[int, dict[str, list[int]
 
 def _order_components(components: list[dict], node_by_number: dict[int, dict]) -> list[dict]:
     """Sort components by node count descending, then by latest member date.
-
-    The payload already orders by size then smallest member; this re-sorts the
-    secondary key to recency (the most recent decision in the thread) so newer
-    consolidations surface above equally sized older ones.
+    Re-sorts the payload's secondary key to recency so newer consolidations
+    surface above equally sized older ones.
     """
 
     def sort_key(component: dict) -> tuple[int, str]:
@@ -1347,17 +1235,8 @@ def _order_components(components: list[dict], node_by_number: dict[int, dict]) -
 
 def _lineage_columns(component: dict) -> dict[int, int]:
     """Assign each node a generation column = longest distance from a root.
-
-    A root is a node with no incoming supersession edge inside the component
-    (nothing supersedes it; it is the oldest generation). The column index is
-    the longest path in edges from any root to the node along supersession
-    direction ``retired -> retirer`` reversed into generation order: an edge
-    ``(from, to)`` means ``from`` supersedes ``to``, so ``to`` is older and sits
-    in an earlier column than ``from``.
-
-    The longest-distance layout is computed over the DAG formed by treating
-    "older" as the source. Cycles (a malformed back-and-forth pair) are bounded
-    by a visited guard so the relaxation terminates.
+    An edge ``(from, to)`` means ``from`` supersedes ``to``, so ``to`` is older
+    and sits in an earlier column; the pass bound keeps malformed cycles finite.
     """
     nodes = component["nodes"]
     edges = component["edges"]
@@ -1390,22 +1269,9 @@ def _barycentric_rows(
     edges: list[dict],
     columns: dict[int, int],
 ) -> dict[int, int]:
-    """Assign each node a row slot so a fan-in radiates into its retirer.
-
-    Column 0 (the oldest generation, the retired leaves) keeps rows ascending by
-    number. For every later column the row is the mean of the rows of the nodes
-    the node supersedes (its predecessors one column to the left), so a retirer
-    sits vertically centered on the children that converge into it: a retirer
-    of 13 leaves lands centered on that fan, one with two predecessors lands
-    midway between them.
-
-    Collisions within a column are resolved deterministically. Nodes are ordered
-    by ``(barycenter, number)`` and then walked top to bottom, pushing each down
-    to at least one slot below the previous so no two share a slot and none
-    overlap. The push only ever increases a row, so the relative order from the
-    barycenter sort is preserved and the result is independent of input order.
-
-    Returns integer row slots; the caller multiplies by the row pitch.
+    """Assign each node an integer row slot so a fan-in radiates into its retirer.
+    A row is the mean of the rows of the node's predecessors; column collisions
+    push rows down in ``(barycenter, number)`` order, independent of input order.
     """
     # Predecessors of a node = the nodes it supersedes (edge from this node).
     supersedes: dict[int, list[int]] = {n: [] for n in nodes}
@@ -1648,7 +1514,6 @@ def _render_timeline_view(payload: dict) -> str:
 
 def _lane_stack_depth(nodes: list[dict], categories: list[str]) -> dict[str, int]:
     """Deepest count of marks sharing a (date, lane) cell, per lane.
-
     Drives each lane's height so its busiest day's stack fits without spilling
     into the neighbouring lane.
     """
@@ -1719,13 +1584,8 @@ def _timeline_lane_label(category: str, top: float, height: float) -> str:
 
 def _to_ordinal(iso_date: str) -> int:
     """Convert an ISO ``YYYY-MM-DD`` date to its proleptic-Gregorian day ordinal.
-
-    Uses ``datetime.date.toordinal`` so the spacing is calendar-exact: a one-day
-    gap is exactly one unit, a leap day counts, and month lengths are real. This
-    is date arithmetic on stored data, not a clock read, so it does not break the
-    builder's no-clock rule (the renderer is the consumer here, and the date is
-    a payload value). A malformed date returns 0 so a bad entry cannot crash the
-    render.
+    Calendar-exact via ``date.toordinal``; a malformed date returns 0 so a bad
+    entry cannot crash the render.
     """
     parts = iso_date.split("-")
     if len(parts) != 3:
