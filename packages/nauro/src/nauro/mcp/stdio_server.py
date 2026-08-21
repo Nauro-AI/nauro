@@ -124,14 +124,9 @@ _resolve_store = resolve_store
 
 
 def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
-    """Resolve a store path, or translate a resolution failure to an error dict.
-
-    Every tool wrapper shares this preamble: on success it returns
-    ``(store_path, None)``; on failure it returns ``(None, error_dict)`` where
-    the dict carries the transport-appropriate guidance — the welcome screen for
-    the genuine no-project case, the specific diagnostic otherwise. Each wrapper
-    routes the dict to its own output shape (renderer envelope, dict, or the
-    guidance string).
+    """Return ``(store_path, None)``, translating only ``StoreResolutionError``
+    and its subclasses to ``(None, error_dict)``: the no-project welcome screen,
+    the disconnected diagnostic with recovery fields, or the resolution error text.
     """
     try:
         return _resolve_store(project_id, cwd), None

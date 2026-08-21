@@ -48,12 +48,9 @@ def _format_time_ago(iso_timestamp: str) -> str:
 
 
 def _count_remote_decisions(project_id: str) -> int | None:
-    """Count decisions in the remote store via the manifest endpoint.
-
-    Returns None when the manifest fetch fails. Callers must gate on
-    auth + cloud-mode before invoking this — the function does not
-    re-check, and a failed call against the wrong endpoint is the
-    caller's bug.
+    """Count remote manifest entries whose path starts with ``decisions/`` and
+    ends with ``.md``; ``None`` on any fetch failure. Callers must gate on auth
+    and cloud-mode first; this function does not re-check.
     """
     try:
         from nauro.sync.remote import PresignError, fetch_manifest

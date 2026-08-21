@@ -27,11 +27,9 @@ def compose_question_entry(num: int, body: str) -> str:
 
 
 def insert_question_entry(content: str, entry: str) -> str:
-    """Return *content* with *entry* inserted directly after the H1 header.
-
-    Skips blank lines and leading HTML comments below the first top-level
-    ``# `` header so the on-disk format stays byte-identical across
-    surfaces; a file without a header inserts at line two.
+    """Return *content* with *entry* inserted after the first ``# `` header,
+    skipping blank lines and leading HTML comments below it; a header-less
+    file applies the same skip from line two.
     """
     lines = content.split("\n")
     insert_idx = 1

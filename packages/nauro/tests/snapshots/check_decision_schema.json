@@ -3,7 +3,7 @@
     "$defs": {
       "ErrorPayload": {
         "additionalProperties": false,
-        "description": "Structured error envelope returned on rejection or operation failure.\n\n``kind`` discriminates between caller-fixable rejections (input over\nlength, malformed argument) and operation-side failures. ``guidance``\ncarries an onboarding string when the rejection has a remedial action\nthe caller can take.",
+        "description": "Structured error envelope returned on rejection or operation failure.\n\n``kind`` discriminates caller-fixable rejections (input over length,\nmalformed argument) from operation-side failures; ``guidance`` carries\nremedial onboarding text when one exists.",
         "properties": {
           "guidance": {
             "anyOf": [
@@ -39,7 +39,7 @@
       },
       "RelatedDecision": {
         "additionalProperties": false,
-        "description": "A decision surfaced by retrieval as related to a proposed approach.\n\nThe canonical retrieval-hit shape: enriched with the triage-header\nfields (status, date, type, confidence, supersession refs) and a\nrationale lede so any transport can render the same hit without\nre-fetching the underlying decision body.\n\n``decision_type``, ``confidence``, ``supersedes``, and\n``superseded_by`` stay optional so hits whose decision omits those\nfrontmatter fields still serialize; the adapter's ``exclude_none=True``\ntemplate choice drops the keys when they are unset (the\n:class:`DecisionSummary`/:class:`SearchHit` key-omission contract).",
+        "description": "The canonical retrieval-hit shape: triage-header fields plus a rationale\nlede, sparing a re-fetch of the decision body at render time. Optional\nfields stay ``None``-able so hits missing frontmatter still serialize;\nadapters' ``exclude_none=True`` drops unset keys (the\n:class:`DecisionSummary`/:class:`SearchHit` key-omission contract).",
         "properties": {
           "confidence": {
             "anyOf": [
@@ -127,7 +127,7 @@
       }
     },
     "additionalProperties": false,
-    "description": "Return shape for :func:`nauro_core.operations.check_decision`.\n\n``assessment`` is declared first so the takeaway leads the serialized\npayload (Pydantic ``model_dump`` preserves declaration order), matching\nthe rendered block's takeaway-first order. On the success path it carries\nthe deterministic human-readable summary and ``related_decisions``\ncontains zero or more :class:`RelatedDecision` hits. On the rejection\npath ``error`` is populated; ``assessment`` stays empty and\n``related_decisions`` stays empty. ``store`` is not part of the model;\ntransport adapters add it back at serialization time.",
+    "description": "Return shape for :func:`nauro_core.operations.check_decision`.\n``assessment`` is declared first so the takeaway leads the serialized payload\n(``model_dump`` preserves declaration order). Success populates ``assessment``\nand zero or more ``related_decisions``; rejection populates ``error`` and leaves\nboth empty; ``store`` is adapter-added at serialization time.",
     "properties": {
       "assessment": {
         "default": "",
@@ -158,7 +158,7 @@
   },
   "RelatedDecision": {
     "additionalProperties": false,
-    "description": "A decision surfaced by retrieval as related to a proposed approach.\n\nThe canonical retrieval-hit shape: enriched with the triage-header\nfields (status, date, type, confidence, supersession refs) and a\nrationale lede so any transport can render the same hit without\nre-fetching the underlying decision body.\n\n``decision_type``, ``confidence``, ``supersedes``, and\n``superseded_by`` stay optional so hits whose decision omits those\nfrontmatter fields still serialize; the adapter's ``exclude_none=True``\ntemplate choice drops the keys when they are unset (the\n:class:`DecisionSummary`/:class:`SearchHit` key-omission contract).",
+    "description": "The canonical retrieval-hit shape: triage-header fields plus a rationale\nlede, sparing a re-fetch of the decision body at render time. Optional\nfields stay ``None``-able so hits missing frontmatter still serialize;\nadapters' ``exclude_none=True`` drops unset keys (the\n:class:`DecisionSummary`/:class:`SearchHit` key-omission contract).",
     "properties": {
       "confidence": {
         "anyOf": [

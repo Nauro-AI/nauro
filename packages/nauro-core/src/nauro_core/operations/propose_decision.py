@@ -74,13 +74,11 @@ from nauro_core.validation import (
 
 @dataclass(frozen=True)
 class _QuestionResolveOutcome:
-    """Result of stamping (and self-healing) ``resolves_questions`` entries.
-
-    ``resolved_ids`` are the ids whose ``resolved_by`` ended set;
-    ``relocated_ids`` / ``skipped_prose_ids`` come from the post-stamp
-    ``normalize`` step and feed the propose result's observability fields.
-    Internal to the propose write path — carried in the execute tuple so the
-    error branches (which never relocate) can return an empty instance.
+    """Outcome of stamping ``resolves_questions`` entries. ``resolved_ids`` are the
+    requested ids whose ``resolved_by`` ended set, already-resolved targets included;
+    ``relocated_ids`` and ``skipped_prose_ids`` come from the post-stamp ``normalize``
+    step and feed the propose result's observability fields. Error branches return
+    an empty instance.
     """
 
     resolved_ids: tuple[str, ...] = ()
@@ -181,12 +179,9 @@ def propose_decision(
 
 
 def _write_decision_direct(store: Store, proposal: dict) -> str:
-    """Write a proposal as a new decision and return the resulting decision id.
-
-    Private helper shared by the validated ``propose_decision`` write path
-    and CLI write paths (``nauro note``) that bypass the validation
-    pipeline. Updates the in-store hash index after a successful write so
-    subsequent Tier 1 checks catch exact duplicates.
+    """Write *proposal* as a new decision and return its file stem. Shared by the
+    validated pipeline and the CLI bypass writers (``nauro note``, ``nauro import``);
+    updates the hash index so later Tier 1 checks catch exact duplicates.
     """
     next_num = _next_decision_num(store)
     title = proposal.get("title", "Untitled")
@@ -262,16 +257,9 @@ def _execute_operation(
     proposal: dict,
     affected_decision_id: str | None,
 ) -> tuple[str | None, str, tuple[str, ...], _QuestionResolveOutcome, ErrorPayload | None]:
-    """Execute the validated operation against the store.
-
-    Returns:
-        ``(decision_id, actual_operation, touched, resolve_outcome, error)``.
-        ``touched`` enumerates the decision file stems the kernel rewrote —
-        used by the adapter to drive AGENTS.md regen. ``resolve_outcome``
-        carries the resolved / relocated / prose-skipped question ids from the
-        ``resolves_questions`` ingestion (empty on the error branches, which
-        never relocate). On the supersede half-state path ``decision_id`` is
-        the newly-written decision and ``error`` names the un-flipped old id.
+    """Return ``(decision_id, actual_operation, touched, resolve_outcome, error)``.
+    ``touched`` lists every rewritten decision stem (drives adapter AGENTS.md regen);
+    half-state errors leave completed writes standing with ``resolve_outcome`` empty.
     """
     if operation == "supersede" and affected_decision_id:
         return _do_supersede(store, proposal, affected_decision_id)
