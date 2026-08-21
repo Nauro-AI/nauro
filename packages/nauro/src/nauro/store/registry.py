@@ -112,17 +112,9 @@ def _registry_lock():
 
 
 def load_registry_v2() -> dict:
-    """Read registry.json under v2 semantics. Refuses v1.
-
-    Returns:
-        Registry dict shaped as ``{"projects": {<id>: {...}}, "schema_version": 2}``.
-        When the file does not exist, returns the empty v2 shape.
-
-    Raises:
-        RegistrySchemaError: If the on-disk registry is at schema_version 1 (a
-            one-time manual migration is required) or any other unknown
-            version.
-    """
+    """Read registry.json under v2 semantics; a missing file, invalid JSON, or a
+    non-dict document returns the empty v2 shape. Raises RegistrySchemaError on a v1
+    registry (manual migration required) or any other unknown schema_version."""
     rf = registry_file()
     if not rf.exists():
         return {"projects": {}, "schema_version": REGISTRY_SCHEMA_VERSION_V2}
@@ -152,12 +144,8 @@ def load_registry_v2() -> dict:
 
 
 def save_registry_v2(data: dict) -> None:
-    """Write a v2 registry atomically. Stamps schema_version=2 on the data.
-
-    Raises:
-        RegistrySchemaError: If ``data["schema_version"]`` is set to anything
-            other than 2.
-    """
+    """Write a v2 registry atomically, stamping schema_version=2; raises
+    RegistrySchemaError when ``data`` carries any other schema_version."""
     data.setdefault("schema_version", REGISTRY_SCHEMA_VERSION_V2)
     if data["schema_version"] != REGISTRY_SCHEMA_VERSION_V2:
         raise RegistrySchemaError(
@@ -367,13 +355,9 @@ def bind_project_store_v2(
     server_url: str | None = None,
     update_name: bool = False,
 ) -> Path:
-    """Bind a validated local store to a v2 project without creating a store.
-
-    ``update_name`` lets a caller holding the authoritative current name (the
-    cloud, via membership verification) reconcile a server-side rename instead
-    of conflicting. Callers whose name comes from repository config must leave
-    it False — repo content never overwrites registry identity.
-    """
+    """Bind an existing, validated local store to a v2 project, creating the registry entry
+    if needed but never the store directory. ``update_name`` is reserved for callers
+    holding the authoritative (cloud) name; repo config never overwrites registry identity."""
     name = _validate_project_name(name)
     if mode not in _VALID_MODES_V2:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
@@ -455,13 +439,9 @@ def bind_project_store_v2(
 
 
 def _load_registry_v2_or_empty() -> dict:
-    """Read v2 registry; treat a v1-shaped file on disk as 'no v2 entries'.
-
-    Read paths use this so a leftover v1 registry degrades to the no-project
-    outcome instead of crashing. Write paths continue to call
-    ``load_registry_v2`` directly, so mutations against a v1 file fail loudly
-    rather than silently overwriting it.
-    """
+    """Read-path helper: RegistrySchemaError degrades to the empty v2 shape.
+    Write paths call ``load_registry_v2`` directly so a v1 or unknown-version
+    registry fails loudly instead of being silently overwritten."""
     try:
         return load_registry_v2()
     except RegistrySchemaError:
@@ -483,12 +463,8 @@ def get_project_entry_v2(project_id: str) -> RegistryEntryV2 | None:
 
 
 def is_cloud_project(project_id: str) -> bool:
-    """True iff ``project_id`` is a cloud-mode registry entry.
-
-    Unknown ids and local-mode entries return False. Used by the auto-sync
-    hooks and the status command to gate presign calls; an id without a
-    cloud-mode record has no presign target.
-    """
+    """True iff ``project_id`` has a cloud-mode registry entry; unknown ids
+    and local-mode entries return False."""
     entry = get_project_v2(project_id)
     if entry is None:
         return False
@@ -532,15 +508,9 @@ def resolve_v2_from_path(path: Path) -> tuple[str, dict] | None:
 
 
 def suggest_project_for_path(path: Path) -> tuple[str, dict] | None:
-    """Suggest a project whose name matches ``path``'s directory name.
-
-    Useful when path-based resolution finds nothing (the repo may have
-    moved since it was registered). Returns ``(project_id, entry)`` only
-    when exactly one project matches, so the caller can render a
-    re-registration hint appropriate to the entry's mode; an ambiguous
-    name yields None because the hinted ``init --add-repo`` command
-    refuses duplicate names.
-    """
+    """Suggest the project whose name case-insensitively matches ``path``'s
+    directory name. Returns ``(project_id, entry)`` only when exactly one
+    project matches; an ambiguous or absent name yields None."""
     registry = _load_registry_v2_or_empty()
     dirname = path.resolve().name.lower()
     matches = [
@@ -593,11 +563,7 @@ def register_project_v2(
 
 
 def add_repo_v2(project_id: str, repo_path: Path) -> None:
-    """Add a repo path to an existing v2 project.
-
-    Raises:
-        KeyError: If the project_id is not in the v2 registry.
-    """
+    """Add a repo path to an existing v2 project; raises KeyError on an unknown id."""
     with _registry_lock():
         registry = load_registry_v2()
         if project_id not in registry["projects"]:
@@ -611,16 +577,8 @@ def add_repo_v2(project_id: str, repo_path: Path) -> None:
 
 def remove_repo_v2(project_id: str, repo_path_str: str) -> bool:
     """Remove one repo path from a v2 project, leaving the project entry intact.
-
-    The mirror of ``add_repo_v2`` for teardown: ``nauro adopt --remove`` calls
-    it when un-adopting one repo of a multi-repo project, so the project and its
-    other repos survive. ``repo_path_str`` is matched exactly against the stored
-    value (registration stores ``str(path.resolve())``).
-
-    Returns:
-        True if the path was found and removed, False if the project is unknown
-        or the path was not associated with it.
-    """
+    ``repo_path_str`` is matched exactly against the stored resolved string. Returns
+    False when the project is unknown or the path is not associated with it."""
     with _registry_lock():
         registry = load_registry_v2()
         entry = registry["projects"].get(project_id)
@@ -635,16 +593,8 @@ def remove_repo_v2(project_id: str, repo_path_str: str) -> bool:
 
 
 def remove_project_v2(project_id: str) -> bool:
-    """Remove a v2 project's registry entry. Leaves the on-disk store intact.
-
-    The store directory under ``~/.nauro/projects/<id>/`` is deliberately
-    preserved so a mistaken removal does not destroy decision history; the
-    caller is responsible for surfacing where that data still lives.
-
-    Returns:
-        True if an entry with ``project_id`` existed and was removed, False
-        if no such entry was present.
-    """
+    """Remove a v2 project's registry entry, preserving the on-disk store.
+    Returns True when an entry existed and was removed, False otherwise."""
     with _registry_lock():
         registry = load_registry_v2()
         if project_id not in registry["projects"]:
@@ -662,28 +612,9 @@ def rename_project_id_v2(
     server_url: str | None = None,
     rename_store: bool = True,
 ) -> Path:
-    """Re-key a v2 project entry from ``old_id`` to ``new_id``.
-
-    Used by ``nauro link --cloud`` to promote a local-only project to a
-    cloud project: the store directory is renamed to the new id-keyed path
-    and the registry entry is moved to the new key, preserving repo_paths.
-
-    Args:
-        old_id: Current project_id to migrate from.
-        new_id: New project_id (typically a server-minted cloud ULID).
-        mode: New mode value (e.g. ``"cloud"``); leave None to retain.
-        server_url: New server_url; required if the resulting mode is cloud.
-        rename_store: When True (default), also move the on-disk store
-            directory from ``<projects>/old_id/`` to ``<projects>/new_id/``.
-
-    Returns:
-        Path to the renamed store directory.
-
-    Raises:
-        KeyError: If ``old_id`` is not in the v2 registry.
-        ValueError: If ``new_id`` is already registered, or if the
-            resulting mode/server_url combination is invalid.
-    """
+    """Re-key a v2 project from ``old_id`` to ``new_id``, preserving repo_paths; the store
+    directory moves only when ``rename_store`` is set, the ids differ, and it exists.
+    KeyError on unknown old_id; ValueError on a registered new_id or invalid mode/server_url."""
     with _registry_lock():
         registry = load_registry_v2()
         if old_id not in registry["projects"]:

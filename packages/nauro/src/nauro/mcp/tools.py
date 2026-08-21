@@ -86,13 +86,8 @@ logger = logging.getLogger("nauro.mcp.tools")
 
 
 def _project_identity(store_path: Path) -> dict:
-    """Best-effort project identity (name + id) for the response envelope.
-
-    The store directory name is the project id (ULID). Resolve the
-    human-readable name from the registry; fall back to the directory name
-    for a store with no registry entry. Never raises — identity is advisory,
-    and a lookup failure must not break a tool response.
-    """
+    """Best-effort ``{"id", "name"}`` identity for the response envelope; never
+    raises, falling back to ``{"id": None, "name": <directory name>}``."""
     key = store_path.name
     try:
         from nauro.store.registry import get_project_v2
@@ -106,13 +101,8 @@ def _project_identity(store_path: Path) -> dict:
 
 
 def _stamp_identity(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Add ``project`` identity to a tool's ``store='local'`` response envelope.
-
-    Every return path, including success, rejection, and store-missing errors,
-    carries the resolved project name + id alongside the
-    ``store`` field (the local-store indicator, extended to also carry project identity).
-    Local surface only; the remote mcp-server envelope is unchanged.
-    """
+    """Add ``project`` identity to ``store='local'`` dict envelopes that lack it;
+    local surface only, the remote mcp-server envelope is unchanged."""
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -139,21 +129,9 @@ _REJECTED_STATUSES: frozenset[str] = frozenset({"rejected"})
 
 
 def journaled(*, operation: str, target: str) -> Callable[..., Any]:
-    """Append a write-path provenance event after the wrapped adapter returns.
-
-    The event is emitted *after* the adapter has returned — the adapter's own
-    resource lock (decision/store write lock) is released by then, so the
-    journal's dedicated lock never nests inside it. Emission is fail-open: the
-    hash and append are wrapped so a journaling defect can never turn a
-    successful write into a failure.
-
-    The payload hashed is the adapter's logical arguments with ``store_path``,
-    ``origin``, and ``base_commit`` removed — ``origin`` and ``base_commit``
-    are provenance, not payload, and ``store_path`` is environment.
-    ``committed`` events carry ``decision_id``
-    when the envelope reports one; ``rejected`` events carry the payload hash
-    and no decision id.
-    """
+    """Append a provenance event for committed and rejected envelopes after the
+    wrapped adapter returns, so the journal lock never nests inside the adapter's
+    write lock; fail-open. Hashed payload excludes ``store_path``, ``origin``, ``base_commit``."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         sig = inspect.signature(func)
@@ -287,13 +265,9 @@ def _coerce_level(level: int | str) -> int:
 
 
 def _last_synced_trailer(store_path: Path) -> str:
-    """Return the italicised ``*Last synced: ...*`` trailer or empty string.
-
-    Local-L0 surface behaviour: scan state_current.md (with legacy
-    state.md fallback) for the ``**Last synced:**`` marker and render
-    the value into an italic line the kernel content can be appended
-    to. No-op when the marker is absent.
-    """
+    """Render the ``*Last synced: ...*`` trailer by scanning state_current.md
+    (legacy state.md fallback) for the ``**Last synced:**`` marker; empty
+    string when the marker is absent."""
     state = ""
     current = store_path / STATE_CURRENT_FILENAME
     if current.exists():
@@ -311,12 +285,8 @@ def _last_synced_trailer(store_path: Path) -> str:
 
 
 def _snapshot_diff_section(store_path: Path) -> str:
-    """Render the trailing ``## Snapshot Diff (...)`` block, if any.
-
-    Reads the two most recent snapshots and produces a file-level diff
-    summary. Returns the empty string when there are fewer than two
-    snapshots or the diff has no entries.
-    """
+    """Render a file-level diff of the two most recent snapshots; empty string
+    when there are fewer than two or the diff has no entries."""
     snapshots = list_snapshots(store_path)
     if len(snapshots) < 2:
         return ""
@@ -579,13 +549,9 @@ def tool_flag_question(
     *,
     origin: OriginDescriptor | None = None,
 ) -> dict:
-    """Flag an open question, or resolve existing entries against a decision.
-
-    With ``resolved_by`` set the kernel stamps the ``targets`` entries as
-    resolved; otherwise it appends ``question`` as a new flag. Both are
-    writes — on success the adapter captures a snapshot and pushes; on
-    rejection no write occurred so neither runs.
-    """
+    """With ``resolved_by`` set, resolve the ``targets`` entries; otherwise append
+    ``question`` as a new flag. Both are writes: snapshot and push run on success
+    and neither runs on rejection."""
     guidance = _check_store_exists(store_path)
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
@@ -664,15 +630,9 @@ def _flag_question_resolve(
     targets: list[str] | None,
     resolved_by: str,
 ) -> dict:
-    """Resolve the ``targets`` entries against ``resolved_by``.
-
-    Skips the BM25 similarity hint — resolving against a known decision is
-    not a duplicate-flag situation. ``question`` is forwarded so the kernel's
-    pass-exactly-one rejection fires when the caller sent both. On success
-    this is a write, so capture a snapshot (labelled to distinguish resolve
-    from append) and push; on rejection the kernel performed no write, so
-    neither runs.
-    """
+    """Resolve the ``targets`` entries against ``resolved_by``, skipping the BM25
+    hint; ``question`` is forwarded so the kernel's pass-exactly-one rejection
+    fires. On success a resolve-labelled snapshot and push run; on rejection neither."""
     # The resolve action reads open-questions.md, stamps the targets, and
     # writes the file back — same read-modify-write race as the append path,
     # so it takes the same lock. Snapshot and push stay outside.
@@ -711,17 +671,9 @@ _CANONICAL_ROOT_FILES: tuple[str, ...] = (
 
 
 def _available_files_hint(store_path: Path, cap: int = 20) -> list[str]:
-    """Ordered ``available_files`` entries for the ``get_raw_file`` miss envelope.
-
-    Canonical root files lead in a fixed order (when present), then remaining
-    root-level markdown files ascending by name, then one anchor per visible
-    subdirectory ascending by directory name: its lexicographically-last
-    markdown path (for a flat, zero-padded ``decisions/`` layout, the newest
-    decision) plus a ``<dir>/ (N files)`` roll-up when the directory holds
-    more than one file.
-    ``snapshots/`` and dot-directories are excluded. The cap applies after
-    ordering so root files are never crowded out by a large directory.
-    """
+    """Ordered miss-envelope ``available_files``: canonical roots in fixed order, remaining root
+    markdown ascending, per-dir anchors ascending plus multi-file ``<dir>/ (N files)`` roll-ups;
+    no ``snapshots/`` or dot-dirs. The cap applies after ordering, so roots are not crowded out."""
     root_files: set[str] = set()
     subdir_files: dict[str, list[str]] = {}
     for f in store_path.rglob("*.md"):

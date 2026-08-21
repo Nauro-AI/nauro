@@ -173,13 +173,8 @@ def _read_stdin_utf8() -> str:
 
 
 def _resolve_store_path(cwd: Path) -> Path | None:
-    """Resolve the project store path from a hook payload's cwd.
-
-    Delegates to the canonical ``resolve_from_cwd`` waterfall that
-    ``cli/utils.resolve_target_project`` uses, but operates against the payload's
-    cwd rather than the process cwd and returns None instead of raising — the
-    hook never errors a turn over an unresolvable directory.
-    """
+    """Resolve the store path via the canonical ``resolve_from_cwd`` waterfall
+    against the payload's cwd; any resolution other than a connected repo yields None."""
     from nauro.store.resolution import RepoResolution, resolve_from_cwd
 
     resolution = resolve_from_cwd(cwd)
@@ -187,14 +182,9 @@ def _resolve_store_path(cwd: Path) -> Path | None:
 
 
 def _check(store_path: Path, prompt: str) -> list[dict]:
-    """Run the check_decision kernel and return its related-decision hits.
-
-    The embeddings flag is resolved here so the hook shares the MCP and CLI
-    retrieval path, but the MVP install does not set ``NAURO_EMBEDDINGS``, so the
-    hook runs BM25-only by default. The flag wiring is retained for the follow-up
-    that re-admits cosine-gated embedding hits once the kernel exposes the score.
-    Each hit is reduced to the fields the injection block needs.
-    """
+    """Run the check_decision kernel with the shared embeddings-flag resolution,
+    reducing each hit to the fields the injection block needs; a kernel error
+    yields []."""
     from nauro_core.operations.check_decision import check_decision
     from nauro_core.parsing import extract_decision_number
 
@@ -253,29 +243,15 @@ def _effective_floor(corpus_size: int) -> float:
 
 
 def _apply_floor(hits: list[dict], corpus_size: int) -> list[dict]:
-    """Filter hits to those worth injecting.
-
-    BM25 hits at or above the corpus-adjusted relevance floor are kept in order;
-    everything else is dropped. Embedding-only hits (score 0.0) are not admitted:
-    on the validation corpus they recovered no conflict the BM25 floor missed
-    while injecting a nearest-neighbour on every otherwise-silent prompt. The
-    kernel discards the cosine score, so an embedding-only hit cannot be
-    relevance-gated here. Re-admitting them is a follow-up that requires the
-    kernel to expose the embedding score.
-    """
+    """Keep hits at or above the corpus-adjusted relevance floor, in order;
+    embedding-only hits (score 0.0) are not admitted by the corpus-scaled floor."""
     floor = _effective_floor(corpus_size)
     return [h for h in hits if h["score"] >= floor]
 
 
 def _enrich_supersedes(store_path: Path, hits: list[dict]) -> None:
-    """Attach resolved structural supersedes refs to injected hits, in place.
-
-    For each hit, resolve whether the surfaced decision structurally supersedes
-    another and, if so, that older decision's number and title, stored under the
-    hit's ``supersedes_ref`` key. Resolution is fail-open per hit (see
-    ``_resolve_supersedes_ref``): a hit that does not resolve is left without the
-    key and renders the shipped line.
-    """
+    """Attach ``supersedes_ref`` to each hit in place, fail-open per hit: an
+    unresolved hit is left without the key."""
     from nauro.store.filesystem_store import FilesystemStore
 
     store = FilesystemStore(store_path)
@@ -286,19 +262,9 @@ def _enrich_supersedes(store_path: Path, hits: list[dict]) -> None:
 
 
 def _resolve_supersedes_ref(store, number: int) -> dict | None:
-    """Resolve a surfaced decision's structural supersedes ref, or None.
-
-    Returns ``{"number": old_num, "title": old_title}`` when the decision at
-    ``number`` carries a ``supersedes`` ref that resolves to a readable,
-    parseable decision on disk; otherwise None. Only a structural ref produces a
-    payload: a decision with no ``supersedes`` resolves to None, so no relation
-    wording is ever emitted without one.
-
-    Fail-open per hit: a missing target, an unparseable file, or any OSError
-    degrades to None so the hit renders the shipped line. Never propagates, since
-    propagating would lose the whole advisory block through the caller's
-    outer try/except.
-    """
+    """Return ``{"number", "title"}`` only when the decision carries a structural
+    supersedes ref that resolves to a parseable on-disk decision. Resolution failures
+    degrade to None rather than propagate and lose the advisory block."""
     from nauro_core.operations.decision_lookup import (
         find_decision_stem_by_num,
         parse_decision_or_none,
@@ -330,17 +296,9 @@ def _resolve_supersedes_ref(store, number: int) -> dict | None:
 
 
 def _select_injected(candidates: list[dict]) -> list[dict]:
-    """Select the injected hits, guaranteeing a slot for a superseding decision.
-
-    Starts from the top ``MAX_INJECTED`` candidates by relevance. When none of
-    them supersedes an older decision but a lower-ranked candidate does, the
-    first such superseding hit takes the last slot, keeping the two strongest
-    top hits. This guarantees the block always carries the top floor-clearing
-    decision that supersedes another when one is present, at the cost of at most
-    one relevance slot. Detection is structural: a hit carries a truthy
-    ``supersedes_ref`` payload only when enrichment resolved a real supersedes
-    relation on disk, so no relation is ever promoted without one.
-    """
+    """Select the top ``MAX_INJECTED`` candidates by relevance, except when none
+    of them supersedes an older decision and a lower-ranked candidate does: the
+    first such superseding hit takes the last slot."""
     injected = candidates[:MAX_INJECTED]
     if any(h.get("supersedes_ref") is not None for h in injected):
         return injected
@@ -413,11 +371,8 @@ def _hook_state_dir() -> Path:
 
 
 def _session_state_file(session_id: str) -> Path | None:
-    """Return the state file path for a session, or None when unusable.
-
-    The session id comes from an external payload, so reject anything that is
-    not a plain identifier rather than letting it shape a filesystem path.
-    """
+    """Return the session's state file path; the id comes from an external
+    payload, so anything that is not a plain identifier yields None."""
     if not isinstance(session_id, str) or not session_id:
         return None
     if "/" in session_id or "\\" in session_id or session_id in (".", ".."):
@@ -426,11 +381,8 @@ def _session_state_file(session_id: str) -> Path | None:
 
 
 def _load_seen(session_id: str | None) -> set[int]:
-    """Return the decision numbers already surfaced this session.
-
-    Fail-open: an unreadable or malformed state file means we inject anyway, so
-    a corrupt dedup record never silences a genuine conflict.
-    """
+    """Return the decision numbers already surfaced this session; a missing or
+    unreadable file, invalid JSON, or non-numeric entries degrade to the empty set."""
     if session_id is None:
         return set()
     state_file = _session_state_file(session_id)
@@ -445,11 +397,8 @@ def _load_seen(session_id: str | None) -> set[int]:
 
 
 def _record_seen(session_id: str | None, numbers: list[int]) -> None:
-    """Persist newly-surfaced decision numbers for this session.
-
-    Best-effort: an unwritable state directory is swallowed, so dedup degrades
-    to per-invocation but the turn still completes.
-    """
+    """Record surfaced decision numbers for this session, keeping the highest
+    ``MAX_DEDUP_ENTRIES_PER_SESSION`` numbers; best-effort, OSError is swallowed."""
     if session_id is None:
         return
     state_file = _session_state_file(session_id)
@@ -467,11 +416,8 @@ def _record_seen(session_id: str | None, numbers: list[int]) -> None:
 
 
 def _prune_state_dir(state_dir: Path) -> None:
-    """Drop expired and surplus session-state files to bound the directory.
-
-    Removes files older than the TTL, then trims to the most-recent cap by
-    mtime. Best-effort: individual unlink failures are ignored.
-    """
+    """Drop session-state files past the TTL, then trim to the most-recent cap
+    by mtime; best-effort, individual unlink failures are ignored."""
     try:
         files = [p for p in state_dir.glob("*.json") if p.is_file()]
     except OSError:

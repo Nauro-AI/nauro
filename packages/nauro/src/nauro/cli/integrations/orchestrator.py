@@ -408,51 +408,9 @@ def setup_all_surfaces(
     with_hooks: bool = False,
     clear_user_scope_override: bool | None = None,
 ) -> list[ArtifactOutcome]:
-    """Wire MCP and materialize skills across Claude Code, Cursor, Codex.
-
-    Continues across per-handler errors so partial coverage still reports
-    progress. Returns the cumulative status lines.
-
-    ``current_project_key`` is the registry key (project id) for the
-    project being wired or torn down. When ``remove=True``, it is excluded
-    from the "are there other projects?" check so per-project teardown only
-    clears user-scope artifacts (Claude/Codex skill, ``~/.codex/config.toml``)
-    when this is the last project on the machine.
-
-    On the add path, when both ``current_project_key`` and ``store_path`` are
-    supplied, AGENTS.md is regenerated once across the project's repos so every
-    entry point (``setup claude-code``, ``setup all``, ``adopt``) produces the
-    cross-tool context file. The MCP-less Cursor/Codex surfaces depend on this
-    fallback layer the most, yet only ``setup claude-code`` used to write it.
-
-    ``with_subagents`` opts into installing or removing the bundled
-    ``nauro-*`` workflow subagents under ``~/.claude/agents/`` and
-    ``~/.codex/agents/``. Off by default so existing flows that pre-date the
-    subagent bundle keep their previous behavior. ``force_overwrite`` is only
-    meaningful when ``remove`` is False. It replaces locally modified bundled
-    skill and agent files instead of backing them up first.
-
-    ``with_skills`` opts into installing the bundled opt-in skills
-    (``nauro-ship-task``, ``nauro-context``, ``nauro-loop``). Independent of
-    ``with_subagents`` so users
-    can adopt skills and subagents on separate cadences, though
-    ``nauro-ship-task`` references the bundled ``@nauro-*`` subagents in
-    its body — and ``nauro-loop`` dispatches that chain — so a caller that
-    surfaces ``with_skills`` without ``with_subagents`` should warn the user.
-
-    ``with_hooks`` opts into wiring the advisory Claude Code
-    ``UserPromptSubmit`` hook and the Codex ``SessionStart`` and
-    ``SubagentStart`` hooks into each repo's project-scope configuration. Off
-    by default. A hook-wiring failure is caught and reported as a status line
-    so it never aborts the rest of setup.
-
-    ``clear_user_scope_override`` forces the shared-user-scope decision instead
-    of deriving it from the registry. ``nauro adopt --remove`` passes ``False``
-    when it un-adopts one repo of a multi-repo project: the default
-    ``_user_scope_safe_to_clear`` check is project-granular, so it would wrongly
-    clear codex/skill/agent artifacts that the project's other repos still need.
-    Leave ``None`` for the default behavior.
-    """
+    """Wire/unwire MCP/skills per ``remove`` for Claude Code, Cursor, Codex, collecting status
+    lines past per-handler errors. AGENTS.md regen on add: ``current_project_key``+``store_path``.
+    Multi-repo un-adopt passes ``clear_user_scope_override=False`` (default: project-granular)."""
     if clear_user_scope_override is not None:
         clear_user_scope = clear_user_scope_override
     else:
