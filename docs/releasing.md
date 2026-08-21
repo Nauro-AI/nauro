@@ -156,7 +156,27 @@ gh release create nauro-core-v<Y> --verify-tag --title "nauro-core <Y>" --notes-
 gh release create nauro-v<X>      --verify-tag --title "nauro <X>"      --notes-file <file>
 ```
 
-## Step 9 — Clean up
+## Step 9 — Sync the Claude Code plugin (nauro releases only)
+
+The plugin repo (`Nauro-AI/claude-plugins`) pins `.claude-plugin/plugin.json`
+to the published `nauro` version, byte-verified by its `version-sync` CI (which
+also runs on a daily schedule, so a skipped sync goes red there within a day).
+After the PyPI publish:
+
+- Bump `plugin.json` `version` to `<X>` in a branch.
+- With `nauro==<X>` installed, run `nauro render-plugin . --check`; if it
+  reports drift, run `nauro render-plugin .` and commit the re-rendered
+  `agents/`.
+- Add a CHANGELOG entry (note whether the re-render was byte-identical) and
+  open a PR; CI re-verifies lockstep and byte-identity against the published
+  wheel.
+- Merge once CI is green. The sync is not done at PR-open: installs serve the
+  plugin from `main`, and the scheduled `version-sync` on `main` stays red
+  until the merge lands.
+
+Skip this step for a nauro-core-only release.
+
+## Step 10 — Clean up
 
 Delete the merged release branch locally (`git branch -d`); the remote branch
 auto-deletes on merge.
