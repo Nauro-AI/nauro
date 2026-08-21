@@ -39,10 +39,6 @@ from nauro_core.questions import (
     parse_question_id,
 )
 
-# Private alias kept for one release: a deployed consumer still imports this
-# name. New code reads OPEN_QUESTIONS_DEFAULT_BODY from nauro_core directly.
-_DEFAULT_FILE_BODY = OPEN_QUESTIONS_DEFAULT_BODY
-
 
 def flag_question(
     store: Store,
@@ -103,7 +99,7 @@ def flag_question(
         )
 
     assert question is not None  # narrowed by has_question above.
-    content = store.read_file(OPEN_QUESTIONS_MD) or _DEFAULT_FILE_BODY
+    content = store.read_file(OPEN_QUESTIONS_MD) or OPEN_QUESTIONS_DEFAULT_BODY
     parsed = OpenQuestionsFile.parse(content)
 
     if canonical_targets:
@@ -193,7 +189,7 @@ def _resolve(
         for stem in stems
         if (body := bodies.get(stem)) is not None
     )
-    content = store.read_file(OPEN_QUESTIONS_MD) or _DEFAULT_FILE_BODY
+    content = store.read_file(OPEN_QUESTIONS_MD) or OPEN_QUESTIONS_DEFAULT_BODY
     outcome = resolve_question_document(
         open_questions_bytes=content.encode("utf-8"),
         decision_documents=documents,

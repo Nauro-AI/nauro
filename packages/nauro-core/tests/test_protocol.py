@@ -54,16 +54,12 @@ class TestFragmentAnchors:
         assert "stay internal" in _PROPOSAL_VISIBILITY_DETAIL
         assert "raw JSON only" in _PROPOSAL_VISIBILITY_DETAIL
 
-    def test_approval_fragment_public_name_and_compat_alias(self) -> None:
-        """The approval fragment is public API (re-exported for downstream
-        composition); the underscore name survives only as a compat alias
-        for consumers pinned to pre-1.6.0 nauro-core."""
+    def test_approval_fragment_is_public_api(self) -> None:
+        """The approval fragment is public API, re-exported for downstream composition."""
         import nauro_core
 
         assert "APPROVAL_BEFORE_PROPOSE" in protocol.__all__
         assert "APPROVAL_BEFORE_PROPOSE" in nauro_core.__all__
-        assert "_APPROVAL_BEFORE_PROPOSE" not in protocol.__all__
-        assert protocol._APPROVAL_BEFORE_PROPOSE is protocol.APPROVAL_BEFORE_PROPOSE
         assert nauro_core.APPROVAL_BEFORE_PROPOSE is protocol.APPROVAL_BEFORE_PROPOSE
         # Neither approval fragment is a markdown-substitution token.
         assert "APPROVAL_BEFORE_PROPOSE" not in CANONICAL_FRAGMENTS

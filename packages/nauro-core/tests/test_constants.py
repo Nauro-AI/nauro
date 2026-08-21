@@ -106,12 +106,6 @@ class TestOpenQuestionsDefaultBody:
         assert nauro_core.OPEN_QUESTIONS_DEFAULT_BODY == OPEN_QUESTIONS_DEFAULT_BODY
         assert "OPEN_QUESTIONS_DEFAULT_BODY" in nauro_core.__all__
 
-    def test_kernel_private_alias_still_resolves(self):
-        # Retained for one release: a deployed consumer imports the private name.
-        from nauro_core.operations.flag_question import _DEFAULT_FILE_BODY
-
-        assert _DEFAULT_FILE_BODY == OPEN_QUESTIONS_DEFAULT_BODY
-
 
 class TestValidValues:
     def test_valid_confidences_non_empty(self):
