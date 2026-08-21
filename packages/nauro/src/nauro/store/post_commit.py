@@ -68,10 +68,6 @@ class PostCommitOutcome(BaseModel):
     updated_repos: tuple[Path, ...] = ()
 
     @property
-    def is_degraded(self) -> bool:
-        return bool(self.degraded)
-
-    @property
     def warnings(self) -> tuple[str, ...]:
         """One line per degraded step, in the order the steps ran."""
         return tuple(item.warning for item in self.degraded)

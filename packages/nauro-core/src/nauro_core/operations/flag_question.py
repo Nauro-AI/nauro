@@ -29,14 +29,12 @@ from nauro_core.question_append import (
 )
 from nauro_core.question_resolution import (
     ResolutionDecisionDocument,
+    _canonical_question_targets,
     resolve_question_document,
 )
 from nauro_core.questions import (
     EntryBlock,
-    InvalidQuestionIdentifier,
     OpenQuestionsFile,
-    format_question_id,
-    parse_question_id,
 )
 
 
@@ -112,18 +110,6 @@ def flag_question(
     store.write_file(OPEN_QUESTIONS_MD, insert_question_entry(content, entry))
 
     return FlagQuestionResult(status="ok", num=next_num)
-
-
-def _canonical_question_targets(targets: list[str]) -> list[str]:
-    canonical: list[str] = []
-    for target in targets:
-        try:
-            number = parse_question_id(target)
-        except InvalidQuestionIdentifier:
-            canonical.append(target)
-        else:
-            canonical.append(format_question_id(number))
-    return canonical
 
 
 def _short_circuit_if_resolved(
