@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
-from nauro_core.protocol import _APPROVAL_BEFORE_PROPOSE
+from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -49,10 +49,10 @@ def test_generate_includes_behavioral_instructions():
     # session can still reach `nauro propose-decision` (single-call commit)
     # via shell.
     anchored_boundary = (
-        f"Before `propose_decision` (or `nauro propose-decision`): {_APPROVAL_BEFORE_PROPOSE}"
+        f"Before `propose_decision` (or `nauro propose-decision`): {APPROVAL_BEFORE_PROPOSE}"
     )
     assert result.count(anchored_boundary) == 1
-    assert result.count(_APPROVAL_BEFORE_PROPOSE) == 1
+    assert result.count(APPROVAL_BEFORE_PROPOSE) == 1
     assert "advisory conflict checks" not in result
 
 

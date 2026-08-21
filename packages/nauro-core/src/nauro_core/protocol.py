@@ -54,10 +54,6 @@ APPROVAL_BEFORE_PROPOSE = (
     "validation."
 )
 
-# Compat alias for consumers pinned to pre-1.6.0 nauro-core; excluded from
-# __all__. Remove once every in-repo import moves to the public name.
-_APPROVAL_BEFORE_PROPOSE = APPROVAL_BEFORE_PROPOSE
-
 _PROPOSAL_VISIBILITY_DETAIL = (
     "Never pair the draft with an approval prompt (AskUserQuestion) in the "
     "same turn - text before a tool call may never render. Prompt only once "
