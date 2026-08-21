@@ -141,7 +141,6 @@ POINTER_FLAG_PREFIXES: tuple[str, ...] = tuple(POINTER_PREFIX_BY_KIND.values())
 # A brief slug is 1 to 120 lowercase ASCII letters, digits, and internal
 # hyphens; it maps only to context/<slug>.md. The shape itself lives in
 # nauro_core.identifiers as the brief_slug kind.
-BRIEF_SLUG_MIN_LENGTH = 1
 BRIEF_SLUG_MAX_LENGTH = 120
 
 # ── Stack empty marker ──

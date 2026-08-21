@@ -44,7 +44,6 @@ def test_clean_run_reports_no_degradation_and_the_regenerated_repos(tmp_path: Pa
         regenerate_agents_md=True,
     )
 
-    assert outcome.is_degraded is False
     assert outcome.degraded == ()
     assert outcome.warnings == ()
     assert outcome.updated_repos == (repo,)
@@ -156,7 +155,7 @@ def test_warn_channel_is_threaded_into_the_regeneration(tmp_path: Path) -> None:
 
     outcome = run_post_commit(store_path, regenerate_agents_md=True, warn=warnings.append)
 
-    assert outcome.is_degraded is False
+    assert outcome.degraded == ()
     assert any("repo path does not exist" in line for line in warnings)
 
 

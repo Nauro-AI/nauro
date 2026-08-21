@@ -27,20 +27,20 @@ class InMemoryStore:
         self._files: dict[str, str] = dict(files or {})
 
     def read_file(self, path: str) -> str | None:
-        stem = _decision_stem(path)
+        stem = _stem_from_decision_path(path)
         if stem is not None and stem in self._decisions:
             return self._decisions[stem]
         return self._files.get(path)
 
     def write_file(self, path: str, content: str) -> None:
-        stem = _decision_stem(path)
+        stem = _stem_from_decision_path(path)
         if stem is not None:
             self._decisions[stem] = content
             return
         self._files[path] = content
 
     def delete_file(self, path: str) -> None:
-        stem = _decision_stem(path)
+        stem = _stem_from_decision_path(path)
         if stem is not None:
             self._decisions.pop(stem, None)
             return
@@ -57,8 +57,3 @@ class InMemoryStore:
         # self._decisions directly: subclasses that instrument read_decision
         # (e.g. the scan-counting double) must see one call per stem.
         return {stem: self.read_decision(stem) for stem in stems}
-
-
-def _decision_stem(path: str) -> str | None:
-    """Return the decision file stem when ``path`` targets ``decisions/*.md``."""
-    return _stem_from_decision_path(path)

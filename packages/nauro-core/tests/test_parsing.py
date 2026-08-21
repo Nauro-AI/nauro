@@ -332,7 +332,8 @@ class TestDecisionFilenameFormatters:
 
 
 def _old_decision_stem(path: str) -> str | None:
-    """Reference copy of the former ``_in_memory_store._decision_stem`` logic."""
+    """Reference copy of the original decision-stem logic, pinned against
+    ``_stem_from_decision_path`` by :class:`TestStemFromDecisionPath`."""
     prefix = f"{DECISIONS_DIR}/"
     if not path.startswith(prefix):
         return None
