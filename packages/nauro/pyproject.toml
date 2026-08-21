@@ -35,7 +35,6 @@ dependencies = [
 dev = [
     "hatchling",
     "pytest>=7.0",
-    "pytest-asyncio>=0.21",
     "ruff>=0.1",
     "mypy>=1.0",
 ]
@@ -48,9 +47,6 @@ Issues = "https://github.com/nauro-ai/nauro/issues"
 
 [project.scripts]
 nauro = "nauro.cli.main:app"
-
-[tool.hatch.envs.default]
-features = ["dev"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nauro"]
@@ -86,4 +82,3 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-asyncio_mode = "auto"
