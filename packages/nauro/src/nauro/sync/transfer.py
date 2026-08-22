@@ -104,19 +104,9 @@ _T = TypeVar("_T")
 
 
 def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], _T]) -> _T:
-    """Download one object, retrying transient faults and one stale URL.
-
-    A re-mint is a credential refresh, not a network fault, so it resets the
-    transient budget instead of spending from it: the URL that failed and the
-    URL that replaces it are different requests, and the second one has to be
-    able to ride out a dropped connection too. The total stays bounded because
-    ``reminted`` is a one-time latch - at worst a full budget before the mint
-    and a full budget after it, then the second refusal falls through as
-    permanent.
-
-    Raises:
-        ~nauro.sync.remote.PresignError: the last failure, once the fault is
-            permanent or the attempt budget is spent.
+    """Download ``path``, retrying transient faults up to the attempt budget with jittered backoff;
+    the first expired-candidate fault earns a budget-resetting re-mint (at most two budgets), later
+    ones raise. Raises the last ``PresignError`` once the fault is permanent or the budget spent.
     """
     failures = 0
     reminted = False

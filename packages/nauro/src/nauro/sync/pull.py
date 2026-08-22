@@ -188,12 +188,9 @@ class _Manifest:
 
 
 def _parse_manifest(rows: list[dict], reporter: Reporter) -> _Manifest:
-    """Parse the manifest into typed entries plus the path and number views.
-
-    The path set answers "could the server already hold this local file?" for
-    the collision classifier, so it spans every entry, including the ones
-    triage skips. The number set reserves the decision numbers the server holds
-    so a local renumber never mints onto one.
+    """Parse the manifest: invalid rows are warned via ``reporter`` and counted in
+    ``unreadable_rows``; ``paths`` spans every retained entry, even ones triage skips;
+    ``decision_numbers`` reserves server-held numbers so a local renumber never mints onto one.
     """
     entries: list[_ManifestEntry] = []
     unreadable = 0
