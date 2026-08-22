@@ -146,10 +146,8 @@ def resolve_conflict(
 
 def _parse_sections(lines: list[str]) -> tuple[list[str], list[tuple[str, list[str]]]]:
     """Split lines into a preamble and a list of (header, body) sections.
-
-    A section starts at any line beginning with "## " (level-2 ATX heading).
-    The preamble is everything before the first such header. Each section body
-    runs until the next "## " line or end of input.
+    A section starts at any line beginning with "## " (level-2 ATX); the preamble is everything
+    before the first header, and each body runs to the next header or EOF.
     """
     preamble: list[str] = []
     sections: list[tuple[str, list[str]]] = []
@@ -196,14 +194,9 @@ def _dedupe_preserve_order(lines: list[str]) -> list[str]:
 
 
 def _set_union_markdown(local: bytes, remote: bytes) -> bytes:
-    """Section-aware set-union merge for append-only markdown files.
-
-    Parses each side into a preamble plus a list of "## " sections, then emits
-    the deduped union of the preambles followed by, for each section header in
-    local order, the deduped union of that section's local and remote bodies.
-    Any sections that appear only in remote are appended at the end.
-
-    Pure function (no I/O); plain string ops only.
+    """Section-aware set-union merge of two append-only markdown files; pure function, no I/O.
+    Emits the union of the preambles, then per-header body unions in local order with
+    remote-only sections appended last; non-blank lines are deduped at document scope.
     """
     local_text = local.decode("utf-8")
     remote_text = remote.decode("utf-8")

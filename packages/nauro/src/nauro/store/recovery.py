@@ -182,12 +182,9 @@ def bind_local_store(repo_path: Path, store_path: Path) -> RepoResolution:
 
 
 def scaffold_empty_store(destination: Path) -> Path:
-    """Create the empty store directory for a cloud project with no record yet.
-
-    Preserves attach's pre-recovery contract: the directory is created empty
-    and files arrive via sync. Only first-connection flows call this, and only
-    after the cloud has confirmed the remote record is empty — it is a mirror
-    of the remote state, never a replacement for a lost local record.
+    """Ensure the store directory exists for a cloud project with no record yet.
+    Only first-connection flows call this, and only after the cloud confirmed the remote
+    record is empty: it mirrors remote state, never replaces a lost local record.
     """
     destination.mkdir(parents=True, exist_ok=True)
     return destination
@@ -233,11 +230,9 @@ class _IntegrityDefect(Enum):
 
 
 def _content_defect(content: bytes, entry: CloudManifestEntry) -> _IntegrityDefect | None:
-    """Return the check ``content`` fails for ``entry``, or None when it passes.
-
-    One judgment serves both callers: a fresh download that fails it is a
-    corrupt transfer and stops the restore, and a staged file that fails it is
-    a leftover the resume re-downloads.
+    """Return the first check ``content`` fails for ``entry``, else None; a check applies only
+    when its manifest field is present and usable (a multipart etag yields no md5 check); one
+    judgment for both callers: a failing download stops the restore, a staged one is re-downloaded.
     """
     if entry.size is not None and len(content) != entry.size:
         return _IntegrityDefect.SIZE
@@ -308,12 +303,10 @@ def _mint_download_urls(
 
 class _ChunkUrls:
     """Presigned GET URLs for one download chunk, re-minted as the chunk drains.
-
-    Minting immediately before a chunk downloads keeps a whole record off one
-    TTL clock, which a slow network or a large record outlives. The server
-    stamps one ceiling across a batch, so the chunk carries a single deadline
-    and re-mints what is left rather than starting a download it cannot
-    finish inside the margin. A stale-URL 403 re-mints through the same door.
+    The server stamps one expiry ceiling per batch; when it is known, the chunk carries that
+    single deadline and re-mints the outstanding tail rather than starting a download it cannot
+    finish inside the margin. An undated batch cannot renew early; a stale-URL 403 re-mints
+    through the same door either way.
     """
 
     def __init__(

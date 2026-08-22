@@ -111,11 +111,8 @@ def refuse_repo_config_symlink(repo_root: Path) -> None:
 
 
 def _v2_registry_or_empty() -> dict:
-    """Return the v2 registry; on schema error fall back to an empty shape.
-
-    The schema-mismatch error is surfaced separately during resolution so
-    each command shows a single coherent message. Helper sites that just
-    need the registry data (e.g. iterating) get an empty shape.
+    """Return the v2 registry, or ``{"projects": {}}`` on ``RegistrySchemaError`` only.
+    The schema error is surfaced by resolution, not here; other exceptions propagate.
     """
     try:
         return load_registry_v2()
@@ -124,10 +121,8 @@ def _v2_registry_or_empty() -> dict:
 
 
 def _available_project_names() -> list[str]:
-    """Return the sorted project names, blanks removed.
-
-    The empty string is subtracted so an entry missing its ``name`` field
-    cannot leak a blank token into the "Available projects:" listing.
+    """Return the sorted project names, the empty string subtracted so a nameless entry
+    cannot leak a blank token into listings.
     """
     names = {e.get("name", "") for e in _v2_registry_or_empty()["projects"].values()}
     return sorted(names - {""})
@@ -208,17 +203,9 @@ def resolve_target_project(project_flag: str | None) -> tuple[str, Path]:
 
 
 def _resolve_project_entry(project_name: str, project_key: str) -> dict:
-    """Resolve a registry entry that has at least one associated repo path.
-
-    Args:
-        project_name: Display name (used in the error message).
-        project_key: project_id (store directory name) for the lookup.
-
-    Returns:
-        The resolved registry entry dict, guaranteed to carry ``repo_paths``.
-
-    Raises:
-        typer.Exit: code 1 when no entry resolves or the entry has no repos.
+    """Return the registry entry for ``project_key``, guaranteed to carry non-empty ``repo_paths``.
+    Raises ``typer.Exit`` code 1, with the display ``project_name`` in the message, when no entry
+    resolves or the entry has no repos.
     """
     entry = get_project_v2(project_key)
     if entry is None or not entry.get("repo_paths"):

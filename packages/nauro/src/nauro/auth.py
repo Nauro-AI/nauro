@@ -88,13 +88,9 @@ def post_with_429_retry(
 def resolve_auth_config(
     env: Mapping[str, str], config: Mapping[str, object]
 ) -> tuple[str, str, str, str]:
-    """Resolve (domain, client_id, api_url, audience).
-
-    (domain, client_id) must come from the same source — mixing tenants produces
-    confusing Auth0 errors. A partial env pair (one of the two set without the
-    other) raises rather than falling through to config or defaults; a stale
-    shell export is usually the cause and silent fall-through would hide it.
-    api_url and audience resolve independently.
+    """Resolve ``(domain, client_id, api_url, audience)``: env over config over defaults.
+    domain and client_id must come as a pair from one layer, env before config; a partial pair at
+    the winning layer raises ``PartialAuthConfigError``; api_url and audience resolve independently.
     """
     env_domain = env.get("NAURO_AUTH0_DOMAIN") or ""
     env_client_id = env.get("NAURO_AUTH0_CLIENT_ID") or ""
@@ -127,10 +123,8 @@ def resolve_auth_config(
 
 
 def load_access_token() -> str | None:
-    """Read the OAuth bearer token written by ``nauro auth login``.
-
-    Returns ``None`` when no token is present. Callers that need to fail loudly
-    should render the "run nauro auth login" guidance themselves.
+    """Return the bearer token written by ``nauro auth login``, or None when no token is stored.
+    Callers that need to fail loudly render the "run nauro auth login" guidance themselves.
     """
     auth = load_config().get("auth") or {}
     if not isinstance(auth, dict):
@@ -164,12 +158,9 @@ def _exchange_refresh_token(
     *,
     client: httpx.Client | None = None,
 ) -> tuple[str, object]:
-    """Run the /oauth/token refresh exchange.
-
-    Returns ``(new_access_token, rotated_refresh)`` where ``rotated_refresh`` is
-    whatever Auth0 returned under ``refresh_token`` (a string when the client
-    rotates, otherwise absent); the caller decides whether to persist it. Every
-    failure mode raises ``AuthRefreshError``.
+    """Run the /oauth/token refresh exchange and return ``(new_access_token, rotated_refresh)``.
+    ``rotated_refresh`` is whatever Auth0 returned under ``refresh_token``; persisting it is the
+    caller's call. Network/429/non-200/non-JSON/missing-token failures raise ``AuthRefreshError``.
     """
     try:
         response = post_with_429_retry(

@@ -78,27 +78,16 @@ def quarantine_key(remote_etag: str, remote_content: bytes) -> str:
 
 def path_key(remote_path: str) -> str:
     """Return the key identifying one exact remote path.
-
-    The encoded path already appears in the filename, but on a case-folding
-    filesystem two paths that differ only in case name one physical file - so
-    two distinct quarantines would share a backup, and installing the canonical
-    one would appear to resolve the other. This digest is over the path's exact
-    bytes and renders as lowercase hex, which no filesystem folds together, so
-    distinct paths always get distinct files.
+    A fixed-width digest rendered as lowercase hex; the input is the path's exact bytes with
+    no case folding, so case-different paths produce different inputs on case-folding filesystems.
     """
     return _digest(remote_path.encode("utf-8"))
 
 
 def _encode_path(remote_path: str) -> str:
     """Flatten a store path into one filename component without losing it.
-
-    Percent-encoding over an allowlist rather than escaping the separators we
-    happened to think of: a quarantined path is server-supplied and can carry
-    anything, and everything outside the safe set is a filename hazard
-    somewhere - a backslash is a separator on Windows and would send the write
-    into a directory that does not exist, a colon opens an alternate data
-    stream, a trailing dot or space is silently stripped. Encoding by byte also
-    keeps a non-ASCII path from depending on the filesystem's normalisation.
+    Every UTF-8 byte outside ``_SAFE_NAME_CHARS`` is percent-encoded, so the name is independent
+    of filesystem normalisation; a trailing ``.`` is escaped so Windows writes the computed name.
     """
     encoded = "".join(
         chr(byte) if chr(byte) in _SAFE_NAME_CHARS else f"%{byte:02X}"
@@ -134,11 +123,9 @@ def _decode_path(encoded: str) -> str:
 
 
 def _truncate_encoded(encoded: str) -> str:
-    """Cap the encoded path so the whole filename stays well inside any limit.
-
-    Identity lives in the two digests, so a capped tail costs display
-    completeness and nothing else. The cut never lands inside a percent escape,
-    which would decode to a different byte than the one encoded.
+    """Cap the encoded path component at ``_MAX_ENCODED_PATH`` characters.
+    The cut never lands inside a percent escape, and identity lives in the digests, so a capped
+    tail costs display completeness and nothing else.
     """
     if len(encoded) <= _MAX_ENCODED_PATH:
         return encoded
@@ -170,11 +157,9 @@ def save_quarantine_backup(
 
 
 def _parse_backup_name(name: str) -> tuple[str, str] | None:
-    """Recover the path digest and displayable path from a backup filename.
-
-    Only this module writes the prefix, so the prefix and key shape are enough
-    to tell a quarantine copy from a last-write-wins backup; the path itself is
-    whatever was encoded, including spellings this store would never write.
+    """Recover ``(path_digest, display_path)`` from a backup filename.
+    Returns None unless the name matches the quarantine backup shape: the prefix, two
+    fixed-width keys, and a non-empty encoded path.
     """
     if not name.startswith(_BACKUP_PREFIX):
         return None
