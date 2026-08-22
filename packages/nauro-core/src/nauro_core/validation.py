@@ -28,23 +28,8 @@ from nauro_core.search import Bm25Hit, bm25_retrieve
 TIER2_TOP_K = 5
 
 
-# bm25s's default English stopword list is minimal (~30 tokens: a, an, and,
-# are, as, at, be, but, by, for, if, in, into, is, it, no, not, of, on, or,
-# ...). It omits common action verbs that appear in virtually every Nauro
-# decision title ("Use Postgres", "Use Redis", "Use FastAPI", etc.), so a
-# fresh proposal shares the stem ``use`` with most existing decisions and
-# gets a nonzero BM25 score, surfacing as a near-neighbour on almost every
-# call. Extending the list with ``use`` collapses those false-positive
-# matches to score 0 (already filtered by bm25_retrieve).
-#
-# This list is intentionally minimal: only tokens with observed false
-# positives are added, not a speculative blanket of generic verbs. Add
-# more only when a concrete failure case justifies it, and add a test to
-# lock the case in.
-#
-# Built lazily (module __getattr__ below) so importing the package does not
-# pull the bm25s/numpy stack; idle MCP server processes never search. Cached
-# so every access shares one list object, matching the old module constant.
+# Extend only for an observed false-positive stem, with a test locking the case.
+# Lazy via module __getattr__ so package import does not pull the bm25s/numpy stack.
 @lru_cache(maxsize=1)
 def _tier2_stopwords() -> list[str]:
     from bm25s.stopwords import STOPWORDS_EN
@@ -58,17 +43,8 @@ def __getattr__(name: str) -> list[str]:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-# The scaffold-seeded "Initial project setup" decision is Nauro's own
-# bookkeeping — it records that the store was initialized, not a choice the
-# user made. It should not gate validation of user-authored proposals.
-# Including it in the tier-2 corpus causes every new proposal sharing even
-# one weak stem (e.g. "store", "use") with the template text to escalate,
-# defeating tier 2's purpose as a cheap pre-filter.
-#
-# Identified by the conventional num+title pair written by the scaffold
-# template. This is a convention match, not a fuzzy heuristic: the title is
-# hardcoded in the scaffold and the scaffold is the only path that produces
-# a ``num == 1`` decision with this exact title.
+# Must match the title the scaffold template hardcodes; detection is the
+# num == 1 + title convention.
 _SCAFFOLD_SEED_TITLE = "Initial project setup"
 
 

@@ -100,15 +100,6 @@ def _registry_lock():
 
 
 # ── v2 registry (id-keyed) ───────────────────────────────────────────────────
-#
-# v2 uses a project_id (ULID) primary key and tracks ``mode`` plus an
-# optional ``server_url`` per project.
-#
-# v2 is a strict loader: it refuses to read a v1 registry and tells the user
-# to run the one-time manual migration documented in the release notes.
-# Auto-migration is intentionally out of scope — solo-founder scale, single
-# existing project, three shell commands beat code that needs idempotency,
-# directory renames, and adopt-existing-config fallbacks.
 
 
 def load_registry_v2() -> dict:

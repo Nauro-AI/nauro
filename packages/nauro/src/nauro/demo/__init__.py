@@ -60,21 +60,9 @@ def _decision(
 
 
 # ── Demo decisions ──
-#
-# The first seven carry the product's foundational choices at the shared
-# 2026-03-15 date. Decisions 8 through 13 add two supersession structures,
-# dated across the project's timeline so the graph's timeline and lineage
-# views both read:
-#
-#   Consolidation fan: decision 13 (one ordered transaction pipeline) retires
-#   three earlier per-screen approaches (8 inline category guessing, 9 per-screen
-#   amount formatting, 10 dashboard-only de-duplication). It carries a scalar
-#   supersedes pointing at the earliest of the three (8); all three flip to
-#   superseded and carry superseded_by pointing back at 13. This mirrors the
-#   on-disk shape that propose_decision's supersede path writes.
-#
-#   Short chain: decision 11 (calendar-month budget periods) is superseded by
-#   decision 12 (pay-cycle budget periods), a two-step lineage.
+# Decisions 8-13 form two supersession structures the graph views and tests depend on: a fan
+# (13 supersedes 8; 8, 9, 10 all carry superseded_by 13, matching propose_decision's on-disk
+# supersede shape) and a chain (11 -> 12).
 
 DEMO_DECISIONS: list[Decision] = [
     _decision(
