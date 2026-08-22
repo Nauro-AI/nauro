@@ -53,11 +53,8 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
     if not is_cloud_project(project_id):
         return 0
 
-    try:
-        from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
-        from nauro.sync.pull import run_pull
-    except ImportError:
-        return 0
+    from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
+    from nauro.sync.pull import run_pull
 
     try:
         # The merged count only: session start has no exit code to carry a
@@ -91,13 +88,10 @@ def push_after_write(project_id: str, store_path: Path) -> PushReport:
     if not is_cloud_project(project_id):
         return PushReport()
 
-    try:
-        from nauro.auth import AuthRefreshError
-        from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
-        from nauro.sync.push import push_changed_files
-        from nauro.sync.remote import PresignError
-    except ImportError:
-        return PushReport(failed=("sync import",))
+    from nauro.auth import AuthRefreshError
+    from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
+    from nauro.sync.push import push_changed_files
+    from nauro.sync.remote import PresignError
 
     try:
         return push_changed_files(project_id, store_path, lock_timeout=HOOK_SYNC_LOCK_TIMEOUT)

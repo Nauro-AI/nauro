@@ -48,7 +48,7 @@ class TestSyncPullBeforePush:
             return PushReport()
 
         monkeypatch.setattr(sync_mod, "_pull_from_cloud", mock_pull)
-        monkeypatch.setattr(sync_mod, "_push_to_cloud", mock_push)
+        monkeypatch.setattr(sync_mod, "push_store_to_cloud", mock_push)
 
         result = runner.invoke(app, ["sync"])
         assert result.exit_code == 0
@@ -115,7 +115,7 @@ class TestSyncExitCode:
             ),
         )
         monkeypatch.setattr(sync_mod, "is_cloud_project", lambda _project: True)
-        monkeypatch.setattr(sync_mod, "_push_to_cloud", lambda *_args, **_kwargs: PushReport())
+        monkeypatch.setattr(sync_mod, "push_store_to_cloud", lambda *_args, **_kwargs: PushReport())
 
         result = runner.invoke(app, ["sync"])
 
@@ -138,7 +138,7 @@ class TestSyncExitCode:
             return PushReport()
 
         monkeypatch.setattr(sync_mod, "_pull_from_cloud", mock_pull)
-        monkeypatch.setattr(sync_mod, "_push_to_cloud", mock_push)
+        monkeypatch.setattr(sync_mod, "push_store_to_cloud", mock_push)
 
         result = runner.invoke(app, ["sync"])
 
@@ -159,7 +159,7 @@ class TestSyncExitCode:
         self._stub_pull(monkeypatch, PullReport(refused=1))
         monkeypatch.setattr(
             sync_mod,
-            "_push_to_cloud",
+            "push_store_to_cloud",
             lambda *_args, **_kwargs: PushReport(failed=("transport",)),
         )
 

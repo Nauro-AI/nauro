@@ -13,18 +13,41 @@ from filelock import FileLock
 from nauro.store import recovery
 from nauro.store.recovery import RecoveryError, RestoreBusyError, restore_cloud_store
 from nauro.sync import transfer
-from nauro.sync.remote import FetchedObject, PresignTransferError
+from nauro.sync.remote import (
+    FetchedObject,
+    RetryClassification,
+    TransferBoundaryError,
+    TransferOperation,
+    TransportFaultKind,
+    WriteOutcome,
+    classify_status,
+)
 from nauro.sync.state import SYNC_STATE_FILE
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.test_recovery import PID, _decision_bytes, _store_files
 
 
-def _http_fault(status: int) -> PresignTransferError:
-    return PresignTransferError("Presigned GET", status=status, detail="refused")
+def _http_fault(status: int) -> TransferBoundaryError:
+    classification = classify_status(status, operation=TransferOperation.GET)
+    return TransferBoundaryError(
+        operation=TransferOperation.GET,
+        origin="invalid-origin",
+        status=status,
+        kind=classification.kind,
+        retry=classification.retry,
+        write_outcome=classification.write_outcome,
+    )
 
 
-def _transport_fault() -> PresignTransferError:
-    return PresignTransferError("Presigned GET", transport=True, detail="connection reset")
+def _transport_fault() -> TransferBoundaryError:
+    return TransferBoundaryError(
+        operation=TransferOperation.GET,
+        origin="invalid-origin",
+        status=None,
+        kind=TransportFaultKind.CONNECT_ERROR,
+        retry=RetryClassification.TRANSIENT,
+        write_outcome=WriteOutcome.NOT_APPLICABLE,
+    )
 
 
 class _Cloud:

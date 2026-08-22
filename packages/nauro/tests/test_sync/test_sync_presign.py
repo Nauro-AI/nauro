@@ -23,6 +23,7 @@ import pytest
 from nauro_core.constants import MAX_BRIEF_BYTES
 
 from nauro.store.config import save_config
+from nauro.sync.remote import TransferBoundaryError, TransferOperation, classify_status
 from nauro.sync.state import (
     FileState,
     SyncState,
@@ -50,7 +51,7 @@ def _seed_token(access_token: str = "tok_orig", refresh_token: str = "refresh_or
 
 
 class TestModeDetection:
-    """Routing predicates for ``_pull_from_cloud`` / ``_push_to_cloud``:
+    """Routing predicates for ``_pull_from_cloud`` / ``push_store_to_cloud``:
 
     * cloud-mode + Auth0 token       → presign
     * cloud-mode without a token     → warn + return False (push), 0 (pull)
@@ -80,9 +81,9 @@ class TestModeDetection:
         store = _scaffolded_cloud_project("strandedproj", tmp_path)
         save_config({})
 
-        from nauro.cli.commands.sync import _push_to_cloud
+        from nauro.sync.push import push_store_to_cloud
 
-        ok = _push_to_cloud(store.name, store)
+        ok = push_store_to_cloud(store.name, store)
         assert ok.is_complete is False
 
     def test_stale_legacy_config_keys_load_cleanly(self, tmp_path, monkeypatch):
@@ -449,9 +450,9 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response) as mock_put,
         ):
-            from nauro.cli.commands.sync import _push_to_cloud
+            from nauro.sync.push import push_store_to_cloud
 
-            ok = _push_to_cloud(cloud_store.name, cloud_store)
+            ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
         assert ok.is_complete is True
         # Presign payload carries project_id + a single PUT op for the modified path.
@@ -582,9 +583,9 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
-            from nauro.cli.commands.sync import _push_to_cloud
+            from nauro.sync.push import push_store_to_cloud
 
-            ok = _push_to_cloud(cloud_store.name, cloud_store)
+            ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
         assert ok.is_complete is True
         # The in-cap brief is presigned; the over-cap one is excluded entirely.
@@ -628,9 +629,9 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
-            from nauro.cli.commands.sync import _push_to_cloud
+            from nauro.sync.push import push_store_to_cloud
 
-            ok = _push_to_cloud(cloud_store.name, cloud_store)
+            ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
         assert ok.is_complete is True
         pushed = {op["path"] for op in mock_post.call_args.kwargs["json"]["operations"]}
@@ -647,9 +648,9 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post") as mock_post,
             patch.object(remote.httpx.Client, "put") as mock_put,
         ):
-            from nauro.cli.commands.sync import _push_to_cloud
+            from nauro.sync.push import push_store_to_cloud
 
-            ok = _push_to_cloud(cloud_store.name, cloud_store)
+            ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
         assert ok.is_complete is True
         mock_post.assert_not_called()
@@ -682,9 +683,9 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
-            from nauro.cli.commands.sync import _push_to_cloud
+            from nauro.sync.push import push_store_to_cloud
 
-            ok = _push_to_cloud(cloud_store.name, cloud_store)
+            ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
         assert ok.is_complete is True
         # Initial 401 + retry against /sync/presign, plus one /oauth/token refresh.
@@ -783,32 +784,41 @@ class TestPresignedGetFailures:
         assert caught.value.transport is False
 
 
+def _get_status_fault(status: int) -> TransferBoundaryError:
+    classification = classify_status(status, operation=TransferOperation.GET)
+    return TransferBoundaryError(
+        operation=TransferOperation.GET,
+        origin="invalid-origin",
+        status=status,
+        kind=classification.kind,
+        retry=classification.retry,
+        write_outcome=classification.write_outcome,
+    )
+
+
 class TestTransferPolicy:
     """Classification decides what a retry may promise."""
 
     @pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
     def test_overload_statuses_are_transient(self, status):
-        from nauro.sync.remote import PresignTransferError
         from nauro.sync.transfer import TransferFault, classify_fault
 
-        fault = classify_fault(PresignTransferError("Presigned GET", status=status))
+        fault = classify_fault(_get_status_fault(status))
 
         assert fault is TransferFault.TRANSIENT
 
     @pytest.mark.parametrize("status", [400, 404, 409, 418])
     def test_an_unnamed_status_is_permanent(self, status):
-        from nauro.sync.remote import PresignTransferError
         from nauro.sync.transfer import TransferFault, classify_fault
 
-        fault = classify_fault(PresignTransferError("Presigned GET", status=status))
+        fault = classify_fault(_get_status_fault(status))
 
         assert fault is TransferFault.PERMANENT
 
     def test_a_refusal_is_an_expiry_candidate(self):
-        from nauro.sync.remote import PresignTransferError
         from nauro.sync.transfer import TransferFault, classify_fault
 
-        fault = classify_fault(PresignTransferError("Presigned GET", status=403))
+        fault = classify_fault(_get_status_fault(403))
 
         assert fault is TransferFault.EXPIRED_CANDIDATE
 
