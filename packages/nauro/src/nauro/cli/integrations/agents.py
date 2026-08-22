@@ -24,20 +24,6 @@ def _agent_target(surface: str, name: str) -> Path:
     raise ValueError(f"unknown surface: {surface!r}")
 
 
-# Subagents are rendered from canonical bodies in nauro.agents and written into
-# the user's surface directories: ``~/.claude/agents/`` for Claude Code and
-# ``~/.codex/agents/`` for Codex.
-# Unlike skills, agents are namespaced (``nauro-*``) and opt-in. The
-# ``nauro-`` namespace is bundle-owned: on install, the current bundle
-# wins, so a published body change (e.g. dropping a removed MCP tool) actually
-# reaches users who installed an earlier version. A pre-existing
-# A bundled agent file that differs from the current render is refreshed; its
-# prior content is stashed to a sibling ``.bak`` so the rare hand-customization is
-# recoverable. ``force_overwrite=True`` skips the ``.bak`` and overwrites in
-# place. User-authored files without the ``nauro-`` prefix (e.g. a personal
-# ``~/.claude/agents/planner.md``) are never touched.
-
-
 def materialize_agents(
     surface: str,
     *,

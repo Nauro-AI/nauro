@@ -12,19 +12,9 @@ from nauro.store.write_safety import (
     find_symlink,
 )
 
-# Skills are rendered from canonical bodies in nauro.skills and written into
-# the user's surface directories. Claude Code and Codex skills are user-global;
-# Cursor skills ship per-project (Cursor's "User Rules" live in the IDE
-# Settings UI, not a file path).
-#
-# ``SKILL_NAMES`` is the always-installed set — the core onboarding skill.
-# ``OPT_IN_SKILL_NAMES`` is materialized only when the caller passes
-# ``with_skills=True``. ``nauro-ship-task`` references the bundled ``@nauro-*``
-# subagents and is opt-in for that reason, so the ``--with-subagents`` notice
-# stays scoped to it. ``nauro-loop`` dispatches ``/nauro-ship-task``
-# byte-for-byte, so it carries the same subagent dependency transitively.
-# ``nauro-context`` composes only existing MCP tools (plus the agent's own
-# filesystem write) with no subagent dependency, so it carries no such notice.
+# Cursor has no user-global skills path (its User Rules live in the IDE Settings UI);
+# Cursor skills ship per-project.
+# SKILL_NAMES always installs; OPT_IN_SKILL_NAMES only when the caller passes with_skills=True.
 
 SKILL_NAMES: tuple[str, ...] = ("nauro-adopt",)
 OPT_IN_SKILL_NAMES: tuple[str, ...] = ("nauro-ship-task", "nauro-context", "nauro-loop")
