@@ -53,15 +53,9 @@ class BridgeState(Enum):
 
 
 def _fence_marker(line: str) -> tuple[str, int, bool] | None:
-    """Classify a line as a code-fence delimiter.
-
-    Returns ``(char, run_length, closes_only)`` when the line opens or closes a
-    fenced code block, else None. A fence is a run of at least three backticks
-    or tildes, indented no more than three spaces. ``closes_only`` is True when
-    nothing but whitespace follows the run - the CommonMark condition a closing
-    fence must meet (an opener may carry an info string). A backtick fence
-    whose info string itself contains a backtick is not a fence at all
-    (CommonMark, to avoid colliding with inline code spans); tildes are exempt.
+    """Classify a code-fence line as ``(char, run_length, closes_only)``, else None.
+    A fence is a run of 3+ backticks or tildes indented at most 3 spaces; ``closes_only`` is True
+    when only whitespace follows the run; a backtick in the info string voids backtick fences only.
     """
     indent = len(line) - len(line.lstrip(" "))
     if indent > 3:
@@ -78,11 +72,9 @@ def _fence_marker(line: str) -> tuple[str, int, bool] | None:
 
 
 def _active_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
-    """Yield ``(index, line)`` for the lines that sit outside fenced blocks.
-
-    A fence is closed only by the same delimiter character with a run at least
-    as long as the opener (so a tilde fence never closes a backtick fence, and
-    ``` never closes ````), matching real Markdown semantics.
+    """Yield ``(index, line)`` for the lines that sit outside fenced code blocks.
+    A fence is closed only by the same delimiter character with a run at least as long
+    as the opener.
     """
     in_fence = False
     fence_char = ""
@@ -107,11 +99,8 @@ def _active_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
 
 def _strip_inline_code(line: str) -> str:
     """Drop backtick-delimited inline code spans, keeping the surrounding text.
-
-    A code span opens with a run of N backticks and closes with a run of
-    exactly N backticks (so ``@AGENTS.md`` in a double-backtick span is code,
-    not a live import). An unmatched opener is literal text, kept as-is. Spans
-    are resolved within a single line on purpose (see ``_has_live_import``).
+    A span opened by N backticks closes only on a run of exactly N; an unmatched opener stays
+    literal text. Spans are resolved within a single line by design (see ``_has_live_import``).
     """
     out: list[str] = []
     i = 0
@@ -163,13 +152,9 @@ def _is_owned(content: str) -> bool:
 
 
 def _has_live_import(content: str) -> bool:
-    """True iff a live ``@AGENTS.md`` import appears at top level.
-
-    The import counts only outside fenced code blocks and inline code spans -
-    the spans Claude Code actually follows - and as a whitespace-delimited word
-    so ``foo@AGENTS.md`` does not register. Inline spans are resolved per line;
-    that bound is deliberate (scanner-safety-first), so an import on the second
-    line of a multi-line span reads as live rather than being suppressed.
+    """True iff a live ``@AGENTS.md`` import appears at top level: a whitespace-delimited word
+    outside fenced blocks and single-line inline spans, so ``foo@AGENTS.md`` never counts; an
+    import on a later line of a multi-line span reads as live (deliberate scanner-safety bound).
     """
     return any(
         BRIDGE_IMPORT in _strip_inline_code(line).split()

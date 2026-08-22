@@ -26,14 +26,9 @@ _EMBEDDINGS_CONFIG_KEY = "search.embeddings"
 
 @contextmanager
 def _config_lock(timeout: float = -1):
-    """Exclusive file lock on config.json for atomic read-modify-write.
-
-    Mirrors ``registry._registry_lock``. The lock is NOT re-entrant — callers
-    must never open a ``config_transaction`` inside another, or it deadlocks.
-    ``timeout`` is forwarded to ``FileLock``: the default of -1 waits forever
-    (every existing caller), while a non-negative bound raises
-    ``filelock.Timeout`` on expiry so a stuck holder cannot block a caller
-    indefinitely.
+    """Exclusive file lock on config.json for atomic read-modify-write; NOT re-entrant, so
+    nesting (or ``config_transaction`` inside it) deadlocks. ``timeout`` forwards to ``FileLock``:
+    default -1 waits forever; a non-negative bound raises ``filelock.Timeout`` on expiry.
     """
     lock_path = config_file().with_suffix(".lock")
     ensure_nauro_home()  # lock_path.parent is the home dir; create it owner-only
@@ -79,11 +74,9 @@ def _quarantine_corrupt_config(cf: Path) -> None:
 
 
 def load_config() -> dict:
-    """Read config.json, return empty dict if it doesn't exist or is corrupt.
-
-    A corrupt or wrong-shape file is moved aside to a ``.corrupt-<ts>`` sidecar
-    before returning {} so a subsequent save cannot silently destroy any
-    recoverable content.
+    """Read config.json, returning ``{}`` when it is missing, invalid JSON, or not a dict.
+    An invalid-JSON or non-dict file is first moved aside to a ``.corrupt-<ts>`` sidecar,
+    best-effort, before ``{}`` is returned; read and decode errors propagate.
     """
     cf = config_file()
     if cf.exists():
@@ -131,13 +124,9 @@ def unset_config(key: str) -> bool:
 
 
 def resolve_embeddings_flag() -> bool:
-    """Resolve whether embedding-augmented retrieval is enabled.
-
-    Precedence (mirrors the home path): the ``NAURO_EMBEDDINGS`` env var wins when
-    set; otherwise the ``search.embeddings`` config key is consulted; otherwise
-    the default is OFF. Env and config both accept the same truthy tokens
-    (``"1"``, ``"true"``, ``"yes"``, ``"on"``, case-insensitive) and a native
-    bool from config.
+    """Resolve whether embedding-augmented retrieval is on: ``NAURO_EMBEDDINGS`` wins when set
+    (a falsy env value disables even over a truthy config key), else the ``search.embeddings`` key,
+    else OFF. Both accept ``1/true/yes/on`` case-insensitively; config also accepts a native bool.
     """
     env_value = os.environ.get(NAURO_EMBEDDINGS_ENV)
     if env_value is not None:
