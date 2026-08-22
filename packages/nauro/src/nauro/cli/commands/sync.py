@@ -22,10 +22,6 @@ from nauro.templates.agents_md_regen import warn_then_regen
 if TYPE_CHECKING:
     from nauro.sync.pull import PullReport
 
-# Names retained for callers/tests that import the push helper from this
-# command module; the implementation now lives in ``nauro.sync.push``.
-_push_to_cloud = push_store_to_cloud
-
 
 def sync(
     message: str = typer.Option("", "--message", "-m", help="Sync message stored in the snapshot."),
@@ -66,7 +62,7 @@ def sync(
             bridge_sink=bridge_outcomes,
         )
 
-        pushed = _push_to_cloud(project_key, store_path, session=session)
+        pushed = push_store_to_cloud(project_key, store_path, session=session)
 
     if pulled.origin_aborted:
         typer.echo(

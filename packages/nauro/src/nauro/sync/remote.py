@@ -127,47 +127,6 @@ class TransferBoundaryError(PresignError):
         )
 
 
-class PresignTransferError(TransferBoundaryError):
-    """Compatibility constructor for callers that used the old GET error."""
-
-    def __init__(
-        self,
-        action: str,
-        *,
-        status: int | None = None,
-        transport: bool = False,
-        detail: str = "",
-    ) -> None:
-        del detail
-        operation = TransferOperation.PUT if "PUT" in action else TransferOperation.GET
-        if status is not None:
-            classification = classify_status(status, operation=operation)
-        elif transport:
-            classification = FaultClassification(
-                TransportFaultKind.CONNECT_ERROR,
-                RetryClassification.TRANSIENT,
-                WriteOutcome.NOT_WRITTEN
-                if operation is TransferOperation.PUT
-                else WriteOutcome.NOT_APPLICABLE,
-            )
-        else:
-            classification = FaultClassification(
-                TransportFaultKind.INVALID_URL,
-                RetryClassification.PERMANENT,
-                WriteOutcome.NOT_WRITTEN
-                if operation is TransferOperation.PUT
-                else WriteOutcome.NOT_APPLICABLE,
-            )
-        super().__init__(
-            operation=operation,
-            origin="invalid-origin",
-            status=status,
-            kind=classification.kind,
-            retry=classification.retry,
-            write_outcome=classification.write_outcome,
-        )
-
-
 @dataclass(frozen=True)
 class FetchedObject:
     body: bytes
@@ -312,14 +271,6 @@ class TransferSession:
     def close(self) -> None:
         if self._owned:
             self.client.close()
-
-    def is_tripped(self, url_or_origin: str) -> bool:
-        origin = (
-            url_or_origin
-            if "://" in url_or_origin and "/" not in url_or_origin.partition("://")[2]
-            else canonical_origin(url_or_origin)
-        )
-        return origin in self._tripped_origins
 
     def trip(self, url: str) -> None:
         self._tripped_origins.add(canonical_origin(url))
@@ -603,7 +554,6 @@ __all__ = [
     "FetchedObject",
     "PRESIGN_BATCH_LIMIT",
     "PresignError",
-    "PresignTransferError",
     "PresignedUrl",
     "PutResult",
     "RetryClassification",

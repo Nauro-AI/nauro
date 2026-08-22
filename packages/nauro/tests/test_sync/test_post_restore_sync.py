@@ -29,7 +29,12 @@ from nauro.store.repo_config import save_repo_config
 from nauro.sync.merge import CONFLICT_BACKUP_DIR, should_skip
 from nauro.sync.pull import PullReport, run_pull
 from nauro.sync.quarantine import list_quarantine_backups
-from nauro.sync.remote import FetchedObject, PresignTransferError
+from nauro.sync.remote import (
+    FetchedObject,
+    TransferBoundaryError,
+    TransferOperation,
+    classify_status,
+)
 from nauro.sync.state import SYNC_STATE_FILE, load_state
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.test_sync.conftest import (
@@ -44,6 +49,18 @@ from tests.test_sync.conftest import (
 runner = CliRunner()
 
 _DECISION = "decisions/042-a-ruling.md"
+
+
+def _gone_fault() -> TransferBoundaryError:
+    classification = classify_status(404, operation=TransferOperation.GET)
+    return TransferBoundaryError(
+        operation=TransferOperation.GET,
+        origin="invalid-origin",
+        status=404,
+        kind=classification.kind,
+        retry=classification.retry,
+        write_outcome=classification.write_outcome,
+    )
 
 
 def _scaffolded_bytes(root: Path) -> dict[str, bytes]:
@@ -245,7 +262,7 @@ class TestSeededState:
         assert should_skip(SYNC_STATE_FILE)
 
     def test_a_restore_that_fails_before_install_leaves_no_state(self, remote, store):
-        remote.faults[_DECISION] = PresignTransferError("Presigned GET", status=404, detail="gone")
+        remote.faults[_DECISION] = _gone_fault()
 
         with pytest.raises(RecoveryError):
             restore_cloud_store(CLOUD_PID, store)
@@ -256,7 +273,7 @@ class TestSeededState:
         assert not (staging / SYNC_STATE_FILE).exists()
 
     def test_a_resumed_restore_seeds_every_installed_file(self, remote, store):
-        remote.faults[_DECISION] = PresignTransferError("Presigned GET", status=404, detail="gone")
+        remote.faults[_DECISION] = _gone_fault()
         with pytest.raises(RecoveryError):
             restore_cloud_store(CLOUD_PID, store)
         staged_first = set(remote.fetched)
