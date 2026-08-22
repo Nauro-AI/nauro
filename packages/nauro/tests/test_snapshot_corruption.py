@@ -15,8 +15,8 @@ from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
 from nauro.store.snapshot import (
     capture_snapshot,
-    find_snapshot_near_date,
     list_snapshots,
+    resolve_diff_snapshots,
 )
 from nauro.templates.scaffolds import scaffold_project_store
 
@@ -47,14 +47,15 @@ def test_list_snapshots_skips_corrupt(tmp_path: Path):
     assert versions == {1, 2}  # the two corrupt files are skipped, no crash
 
 
-def test_find_snapshot_near_date_skips_corrupt(tmp_path: Path):
+def test_days_resolution_skips_corrupt(tmp_path: Path):
     store_path = _store_with_two_snapshots(tmp_path)
     _snap(store_path, 3).write_text("not json at all")
-    from datetime import datetime, timezone
 
-    # Must not raise on the corrupt v003.
-    result = find_snapshot_near_date(store_path, datetime.now(timezone.utc))
-    assert result is not None and result["version"] in {1, 2}
+    # Must not raise on the corrupt v003; its body is excluded from the scan
+    # entirely, so it can never become the latest snapshot either.
+    baseline, latest, _cutoff = resolve_diff_snapshots(store_path, days=0)
+    assert baseline is not None and baseline["version"] in {1, 2}
+    assert latest is not None and latest["version"] == 2
 
 
 def test_capture_survives_corrupt_snapshot(tmp_path: Path):
@@ -81,15 +82,16 @@ def test_capture_survives_corrupt_older_snapshot_during_prune(tmp_path: Path):
     assert not list(store_path.glob("snapshots/*.tmp"))
 
 
-def test_bad_timestamp_snapshot_skipped_by_date_search_and_prune(tmp_path: Path):
+def test_bad_timestamp_snapshot_skipped_by_days_resolution_and_prune(tmp_path: Path):
     store_path = _store_with_two_snapshots(tmp_path)
     # Valid JSON with a version but an unparseable timestamp: the timestamp-
-    # parsing paths (find_snapshot_near_date, prune) must skip it, not raise.
+    # parsing paths (day-range diff resolution, prune) must skip it, not raise.
     _snap(store_path, 3).write_text('{"version": 3, "timestamp": "not-a-date"}')
-    from datetime import datetime, timezone
 
-    result = find_snapshot_near_date(store_path, datetime.now(timezone.utc))
-    assert result is not None and result["version"] in {1, 2}
+    # An undated snapshot never date-matches as baseline yet stays the latest.
+    baseline, latest, _cutoff = resolve_diff_snapshots(store_path, days=0)
+    assert baseline is not None and baseline["version"] in {1, 2}
+    assert latest is not None and latest["version"] == 3
 
     # capture runs prune, which parses every timestamp — must not raise.
     version = capture_snapshot(store_path, trigger="after-bad-ts")
@@ -105,10 +107,10 @@ def test_naive_timestamp_snapshot_treated_as_undated(tmp_path: Path):
     # fromisoformat accepts a timezone-naive value, but a naive datetime cannot
     # compare against the UTC-aware prune cutoffs — it must count as undated.
     _snap(store_path, 3).write_text('{"version": 3, "timestamp": "2026-01-01T00:00:00"}')
-    from datetime import datetime, timezone
 
-    result = find_snapshot_near_date(store_path, datetime.now(timezone.utc))
-    assert result is not None and result["version"] in {1, 2}
+    baseline, latest, _cutoff = resolve_diff_snapshots(store_path, days=0)
+    assert baseline is not None and baseline["version"] in {1, 2}
+    assert latest is not None and latest["version"] == 3
 
     version = capture_snapshot(store_path, trigger="after-naive-ts")
     assert version == 4

@@ -16,8 +16,8 @@ from nauro.mcp.tools import tool_diff_since_last_session
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import (
     capture_snapshot,
-    find_snapshot_near_date,
     load_snapshot,
+    resolve_diff_snapshots,
 )
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._writer_compat import append_decision
@@ -411,42 +411,6 @@ def timed_store(store: Path) -> Path:
     return store
 
 
-# --- find_snapshot_near_date tests ---
-
-
-class TestFindSnapshotNearDate:
-    def test_finds_exact_match(self, timed_store: Path):
-        target = datetime.now(timezone.utc) - timedelta(days=7)
-        result = find_snapshot_near_date(timed_store, target)
-        assert result is not None
-        assert result["version"] == 2
-
-    def test_finds_nearest_before(self, timed_store: Path):
-        # 10 days ago — should pick v001 (14 days ago), not v002 (7 days ago)
-        target = datetime.now(timezone.utc) - timedelta(days=10)
-        result = find_snapshot_near_date(timed_store, target)
-        assert result is not None
-        assert result["version"] == 1
-
-    def test_falls_back_to_oldest(self, timed_store: Path):
-        # 30 days ago — nothing that old, should return oldest (v001)
-        target = datetime.now(timezone.utc) - timedelta(days=30)
-        result = find_snapshot_near_date(timed_store, target)
-        assert result is not None
-        assert result["version"] == 1
-
-    def test_no_snapshots(self, store: Path):
-        result = find_snapshot_near_date(store, datetime.now(timezone.utc))
-        assert result is None
-
-    def test_target_in_future(self, timed_store: Path):
-        # Future target — should pick latest (v003)
-        target = datetime.now(timezone.utc) + timedelta(days=1)
-        result = find_snapshot_near_date(timed_store, target)
-        assert result is not None
-        assert result["version"] == 3
-
-
 # --- Time-based diff_since_last_session tests ---
 
 
@@ -537,28 +501,28 @@ class TestCorruptSnapshotTimestamp:
         # The latest snapshot is always kept.
         assert _snapshot_file(store, 3).exists()
 
-    def test_find_snapshot_near_date_ignores_bad_timestamp(self, timed_store: Path):
-        """find_snapshot_near_date resolves among the valid snapshots and
-        ignores one whose timestamp cannot be parsed."""
+    def test_days_resolution_ignores_bad_timestamp(self, timed_store: Path):
+        """Day-range baseline matching skips a snapshot whose timestamp cannot
+        be parsed; latest selection is unaffected."""
         # timed_store: v001 14d ago, v002 7d ago, v003 now.
         _corrupt_timestamp(timed_store, 2)
 
-        # Target 7 days ago: v002 would have matched exactly, but it is now
-        # unparseable, so the nearest valid snapshot at/before the target is
-        # v001 (14 days ago).
-        target = datetime.now(timezone.utc) - timedelta(days=7)
-        result = find_snapshot_near_date(timed_store, target)
-        assert result is not None
-        assert result["version"] == 1
+        # days=7 would have matched v002 exactly, but it is now unparseable,
+        # so the nearest valid snapshot at/before the cutoff is v001.
+        baseline, latest, cutoff = resolve_diff_snapshots(timed_store, days=7)
+        assert baseline is not None and baseline["version"] == 1
+        assert latest is not None and latest["version"] == 3
+        assert cutoff is not None
 
-    def test_find_snapshot_near_date_all_bad_returns_none(self, timed_store: Path):
-        """When every snapshot has an unparseable timestamp, the scan resolves
-        to no candidates and returns None."""
+    def test_days_resolution_all_bad_timestamps_degrades_gracefully(self, timed_store: Path):
+        """When every snapshot has an unparseable timestamp, resolution yields
+        no pair and the rendered diff degrades to the no-snapshots message."""
         for version in (1, 2, 3):
             _corrupt_timestamp(timed_store, version)
 
-        result = find_snapshot_near_date(timed_store, datetime.now(timezone.utc))
-        assert result is None
+        assert resolve_diff_snapshots(timed_store, days=7) == (None, None, None)
+        result = diff_since_last_session(timed_store, days=7)
+        assert "No snapshots" in result
 
     def test_capture_snapshot_all_bad_does_not_crash(self, store: Path):
         """capture_snapshot prunes after writing; with only bad-timestamp
