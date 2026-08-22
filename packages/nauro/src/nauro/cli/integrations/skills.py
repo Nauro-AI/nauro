@@ -44,16 +44,6 @@ def _skill_refusal(target: Path, repo: Path | None) -> SymlinkRefusal | UserSyml
     return find_symlink(repo, target.relative_to(repo).as_posix())
 
 
-def _materialize_skill_file(target: Path, content: str) -> SkillOutcome:
-    """Write an arbitrary user-scope skill file for compatibility callers."""
-    refusal = find_file_symlink(target)
-    if refusal is not None:
-        return SkillOutcome(SkillKind.REFUSED_SYMLINK, target=target, refusal=refusal)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
-    return SkillOutcome(SkillKind.WROTE, target=target)
-
-
 def _install_bundled_skill(
     target: Path,
     bundled: str,
@@ -122,26 +112,6 @@ def _remove_bundled_skill(
         parent.rmdir()
         parent = parent.parent
     return SkillOutcome(SkillKind.REMOVED, target=target, repo=repo)
-
-
-def _remove_skill_file(target: Path, *, stop_above: Path) -> SkillOutcome:
-    """Remove an arbitrary skill file, for codec callers that already picked the target.
-    Bundle teardown uses ``_remove_bundled_skill`` instead, which preserves modified Nauro files.
-    """
-    refusal = find_file_symlink(target)
-    if refusal is not None:
-        return SkillOutcome(SkillKind.REFUSED_SYMLINK, target=target, refusal=refusal)
-    if not target.is_file():
-        return SkillOutcome(SkillKind.ABSENT, target=target)
-    target.unlink()
-    stop_resolved = stop_above.resolve()
-    parent = target.parent
-    while parent.is_dir() and not any(parent.iterdir()):
-        if parent.resolve() == stop_resolved:
-            break
-        parent.rmdir()
-        parent = parent.parent
-    return SkillOutcome(SkillKind.REMOVED, target=target)
 
 
 def _migrate_legacy_codex_skill(name: str) -> SkillOutcome | None:

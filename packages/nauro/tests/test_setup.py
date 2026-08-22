@@ -11,9 +11,9 @@ from nauro.cli.integrations.claude_bridge import BridgeState as _BridgeState
 from nauro.cli.integrations.claude_bridge import detect_bridge_state
 from nauro.cli.integrations.codex_config import _configure_codex
 from nauro.cli.integrations.json_mcp import _configure_mcp, recorded_mcp_commands
-from nauro.cli.integrations.legacy import CLAUDE_MD_END, CLAUDE_MD_START
 from nauro.cli.integrations.outcomes import CodexConfigKind, JsonMcpKind
 from nauro.cli.main import app
+from nauro.constants import NAURO_BLOCK_END, NAURO_BLOCK_START
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
@@ -254,14 +254,16 @@ class TestLegacyCleanup:
     def test_removes_legacy_block_from_claude_md(self, tmp_path: Path, monkeypatch):
         """Setup removes legacy Nauro block from CLAUDE.md."""
         repos = _setup_project(tmp_path, monkeypatch)
-        content = f"# My Project\n\nKeep this.\n\n{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n"
+        content = (
+            f"# My Project\n\nKeep this.\n\n{NAURO_BLOCK_START}\nold block\n{NAURO_BLOCK_END}\n"
+        )
         (repos[0] / "CLAUDE.md").write_text(content)
 
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
 
         cleaned = (repos[0] / "CLAUDE.md").read_text()
-        assert CLAUDE_MD_START not in cleaned
+        assert NAURO_BLOCK_START not in cleaned
         assert "# My Project" in cleaned
         assert "Keep this." in cleaned
         assert "Legacy cleanup" in result.output
@@ -270,12 +272,12 @@ class TestLegacyCleanup:
         """A CLAUDE.md that was only a legacy block is stripped, then the fresh
         bridge is written in its place (the file is absent between the two steps)."""
         repos = _setup_project(tmp_path, monkeypatch)
-        content = f"{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n"
+        content = f"{NAURO_BLOCK_START}\nold block\n{NAURO_BLOCK_END}\n"
         (repos[0] / "CLAUDE.md").write_text(content)
 
         result = runner.invoke(app, ["setup", "claude-code", "--project", "testproj"])
         assert result.exit_code == 0
-        assert CLAUDE_MD_START not in (repos[0] / "CLAUDE.md").read_text()
+        assert NAURO_BLOCK_START not in (repos[0] / "CLAUDE.md").read_text()
         assert detect_bridge_state(repos[0]) is _BridgeState.OWNED
 
 
@@ -341,7 +343,7 @@ class TestSymlinkRefusal:
 
     def test_legacy_cleanup_refuses_symlinked_claude_md(self, tmp_path: Path, monkeypatch):
         repos = _setup_project(tmp_path, monkeypatch)
-        content = f"{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n"
+        content = f"{NAURO_BLOCK_START}\nold block\n{NAURO_BLOCK_END}\n"
         outside = tmp_path / "outside.md"
         outside.write_text(content)
         (repos[0] / "CLAUDE.md").symlink_to(outside)
