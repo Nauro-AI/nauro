@@ -48,12 +48,9 @@ _STACK_ITEM_TRUNCATION_MARKER = '... [item truncated - full text: get_raw_file("
 
 
 def _is_stack_heading(line: str) -> bool:
-    """An ATX heading line: 1-6 ``#`` at column zero, then space, tab, or
-    end of line.
-
-    A hash-tag word like ``#python`` is ordinary prose, not a heading —
-    without the follow-character rule one such line would flip the whole
-    file into structured mode and discard its prose paragraphs.
+    """An ATX heading line: 1-6 ``#`` at column zero, then a space, a tab, or
+    end of line. A hash-tag word like ``#python`` is ordinary prose, never a
+    heading.
     """
     marker_length = len(line) - len(line.lstrip("#"))
     if not 1 <= marker_length <= 6:
@@ -62,13 +59,9 @@ def _is_stack_heading(line: str) -> bool:
 
 
 def _is_first_level_list_item(line: str) -> bool:
-    """A first-level Markdown list item: a list marker at column zero.
-
-    Matches the unordered markers (``-``, ``*``, ``+``) and ordered markers
-    (a 1-9 digit number followed by ``.`` or ``)``), each followed by a
-    space. Indented (nested) list items and continuation lines never
-    match — the projection carries the inventory skeleton, not nested
-    rationale prose.
+    """A first-level Markdown list item, its marker at column zero: ``- ``, ``* ``, or
+    ``+ ``, or one to nine digit characters then ``.`` or ``)`` then a space. Indented
+    (nested) items and continuation lines never match.
     """
     if line.startswith(("- ", "* ", "+ ")):
         return True
@@ -81,11 +74,9 @@ def _is_first_level_list_item(line: str) -> bool:
 
 
 def _fence_delimiter(line: str) -> tuple[str, int, str] | None:
-    """Split a potential code-fence line into ``(char, run, rest)``.
-
-    A fence delimiter is a run of at least three backticks or tildes
-    indented at most three spaces; ``rest`` is whatever follows the run
-    (the info string on an opener; must be blank on a closer).
+    """Split a potential code-fence line into ``(char, run, rest)``, or ``None``: a run
+    of at least three backticks or tildes indented at most three spaces, with ``rest``
+    whatever follows the run.
     """
     stripped = line.lstrip(" ")
     if len(line) - len(stripped) > 3:
@@ -100,16 +91,9 @@ def _fence_delimiter(line: str) -> tuple[str, int, str] | None:
 
 
 def _lines_outside_fences(lines: list[str]) -> list[str]:
-    """Drop fenced code-block lines before item detection.
-
-    Tracks the basic CommonMark fence rule: a fence opens on a run of at
-    least three backticks or tildes indented at most three spaces (a
-    backtick fence's info string may not itself contain a backtick — such
-    a line is ordinary text; tilde info strings may), and closes only on a
-    matching-or-longer run of the same character with nothing else on the
-    line; an unclosed fence runs to end of file. The delimiters and
-    everything between them drop out, and each elided fence leaves one
-    blank line so paragraphs never merge across it.
+    """Drop fenced code, leaving one blank line per fence so paragraphs never merge. A backtick
+    opener with a backtick in its info string is plain text (tilde info strings may); a fence
+    closes only on a matching run at least as long then only whitespace, else runs to end of file.
     """
     outside: list[str] = []
     fence: tuple[str, int] | None = None
@@ -273,13 +257,9 @@ def _resolve_state(files: dict[str, str]) -> str | None:
 
 
 def _strip_leading_current_header(assembled: str) -> str:
-    """Drop a leading ``# Current State`` header line from assembled state.
-
-    state_current.md carries its own ``# Current State`` header. L0 wraps the
-    state under its own ``## Current State`` section header, so without this the
-    payload (and the generated AGENTS.md) shows a stuttered ``## Current State``
-    immediately followed by ``# Current State``. Only the header line is removed;
-    the body and any footer are preserved.
+    """Drop a leading ``# Current State`` header line and the blank lines after
+    it from assembled state, returning the remainder stripped of outer
+    whitespace.
     """
     lines = assembled.strip().split("\n")
     if lines and lines[0].strip() == "# Current State":

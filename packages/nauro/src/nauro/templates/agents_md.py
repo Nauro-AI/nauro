@@ -330,10 +330,9 @@ def remove_generated_agents_md(repo_path: Path) -> str | None:
 
 
 def parse_preserved_sections(agents_md_path: Path) -> PreservedSections:
-    """Parse ``## Skills`` and ``# Manual`` sections from an existing AGENTS.md.
-
-    Both sections are preserved across regen. ``order`` records source-
-    appearance order so regen re-emits them in the same order the user had.
+    """Parse the ``## Skills`` and ``# Manual`` sections preserved across regen;
+    ``order`` records source-appearance order so regen re-emits them in the
+    same order the user had. A missing file yields an empty ``PreservedSections``.
     """
     if not agents_md_path.exists():
         return PreservedSections()

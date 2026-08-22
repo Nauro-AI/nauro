@@ -1,11 +1,2 @@
 # Docstring budget baseline: pre-existing overruns, one <path>::<qualname> per line.
 # This list may only shrink. Fix the docstring and delete the entry.
-packages/nauro-core/src/nauro_core/context.py::_fence_delimiter
-packages/nauro-core/src/nauro_core/context.py::_is_first_level_list_item
-packages/nauro-core/src/nauro_core/context.py::_is_stack_heading
-packages/nauro-core/src/nauro_core/context.py::_lines_outside_fences
-packages/nauro-core/src/nauro_core/context.py::_strip_leading_current_header
-packages/nauro/src/nauro/store/resolution.py::_resolve_repo_config_from_cwd
-packages/nauro/src/nauro/sync/pull.py::_parse_manifest
-packages/nauro/src/nauro/sync/transfer.py::download_with_retry
-packages/nauro/src/nauro/templates/agents_md.py::parse_preserved_sections

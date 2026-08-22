@@ -131,17 +131,9 @@ class DisconnectedProject:
 
 
 def _resolve_repo_config_from_cwd(start: Path | None) -> tuple[dict, Path] | None:
-    """Walk up from ``start`` for ``.nauro/config.json`` and load it.
-
-    Returns ``(config, repo_root)`` or ``None`` when no config is found or the
-    config is unreadable. Both ``RepoConfigSchemaError`` (schema mismatch, or a
-    corrupt-JSON error the reader remaps to it) and ``OSError`` (an unreadable
-    file) degrade to ``None`` so a resolution failure surfaces the no-project
-    fallback rather than crashing the transport. A config path that traverses
-    a symlink (a symlinked ``.nauro`` directory or ``config.json``) degrades
-    to ``None`` the same way: a cloned repo is untrusted content, and a
-    pre-planted link must not let attacker-chosen content select which
-    project a command operates on.
+    """Walk up from ``start`` for ``.nauro/config.json`` and return ``(config, repo_root)``.
+    Returns ``None`` for a missing config, on ``RepoConfigSchemaError`` or ``OSError`` from
+    the config read, and for a symlinked ``.nauro`` or ``config.json``, whose refusal is logged.
     """
     config_path = find_repo_config(start=start)
     if config_path is None:
