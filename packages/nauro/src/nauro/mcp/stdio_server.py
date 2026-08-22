@@ -24,14 +24,9 @@ from typing import Annotated, Any, Literal
 from mcp.server import FastMCP
 from mcp.server.fastmcp import Context
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from nauro_core.constants import MCP_INSTRUCTIONS
+from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
 from nauro_core.operations import ErrorPayload
-
-# Back-compat re-export — tests patch the registry through this name. It is
-# the same dict object nauro.mcp.rendering renders from, so an in-place patch
-# here reaches the shared render step.
-from nauro_core.renderers import RENDERERS as _RENDERERS  # noqa: F401
 from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field
 
@@ -64,7 +59,7 @@ from nauro.store.resolution import (
 )
 
 logger = logging.getLogger("nauro.stdio")
-mcp = FastMCP("nauro", instructions=MCP_INSTRUCTIONS, log_level="WARNING")
+mcp = FastMCP("nauro", instructions=MCP_INSTRUCTIONS_STATIC, log_level="WARNING")
 # FastMCP does not forward a version to the underlying low-level server, which
 # otherwise reports the mcp framework version in the initialize response. Set
 # the nauro package version so connecting clients see the release in use.
@@ -118,18 +113,13 @@ def _param_desc(tool_name: str, param: str) -> str:
     return props[param]["description"]
 
 
-# Back-compat re-export — tests import this symbol from this module.
-# The resolution logic itself lives in nauro.store.resolution.
-_resolve_store = resolve_store
-
-
 def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
     """Return ``(store_path, None)``, translating only ``StoreResolutionError``
     and its subclasses to ``(None, error_dict)``: the no-project welcome screen,
     the disconnected diagnostic with recovery fields, or the resolution error text.
     """
     try:
-        return _resolve_store(project_id, cwd), None
+        return resolve_store(project_id, cwd), None
     except NoProjectError:
         return None, {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
     except DisconnectedProjectError as exc:

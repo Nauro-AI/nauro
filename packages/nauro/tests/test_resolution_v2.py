@@ -1,7 +1,7 @@
 """Tests for the v2 project-resolution flow used by every CLI command.
 
 The CLI's ``resolve_target_project`` and the local MCP servers'
-``_resolve_store`` share the same priority order: explicit ``--project``
+``resolve_store`` share the same priority order: explicit ``--project``
 flag → cwd ``.nauro/config.json`` walk-up → registry matched by repo
 path. These tests pin that behavior end-to-end so a regression cannot
 silently flip the precedence.
@@ -29,7 +29,7 @@ from nauro.constants import (
     REPO_CONFIG_FILENAME,
     REPO_CONFIG_SCHEMA_VERSION,
 )
-from nauro.mcp.stdio_server import _resolve_store
+from nauro.mcp.stdio_server import resolve_store
 from nauro.store import registry
 from nauro.store.repo_config import load_repo_config, save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
@@ -148,13 +148,13 @@ def test_duplicate_name_disambiguation_shows_full_ulid(tmp_path, monkeypatch, ca
     assert pid_b in err
 
 
-# ── stdio _resolve_store mirrors the same precedence ─────────────────────────
+# ── stdio resolve_store mirrors the same precedence ─────────────────────────
 
 
 def test_stdio_resolve_uses_repo_config_when_no_project_passed(tmp_path, monkeypatch):
     cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
     monkeypatch.chdir(repo_root)
-    store = _resolve_store(None, None)
+    store = resolve_store(None, None)
     assert store == tmp_path / "projects" / cloud_pid
 
 
@@ -163,7 +163,7 @@ def test_stdio_resolve_mismatched_project_id_errors(tmp_path, monkeypatch):
     _cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
     monkeypatch.chdir(repo_root)
     with pytest.raises(ValueError, match="does not match"):
-        _resolve_store("01KZZZZZZZZZZZZZZZZZZZZZZZ", str(repo_root))
+        resolve_store("01KZZZZZZZZZZZZZZZZZZZZZZZ", str(repo_root))
 
 
 def test_stdio_resolve_no_repo_no_project_errors(tmp_path, monkeypatch):
@@ -174,13 +174,13 @@ def test_stdio_resolve_no_repo_no_project_errors(tmp_path, monkeypatch):
     from nauro.store.resolution import NoProjectError
 
     with pytest.raises(NoProjectError, match="No Nauro project found"):
-        _resolve_store(None, None)
+        resolve_store(None, None)
 
 
 def test_stdio_resolve_explicit_id_matching_config(tmp_path, monkeypatch):
     cloud_pid, repo_root = _post_migration_state(tmp_path, monkeypatch)
     monkeypatch.chdir(repo_root)
-    store = _resolve_store(cloud_pid, str(repo_root))
+    store = resolve_store(cloud_pid, str(repo_root))
     assert store == tmp_path / "projects" / cloud_pid
 
 
@@ -253,7 +253,7 @@ def test_stdio_resolve_corrupt_config_raises_no_project(tmp_path, monkeypatch, c
     monkeypatch.chdir(repo_root)
 
     with pytest.raises(NoProjectError, match="No Nauro project found"):
-        _resolve_store(None, None)
+        resolve_store(None, None)
 
 
 def test_get_context_does_not_crash_transport_on_corrupt_config(tmp_path, monkeypatch):
@@ -264,7 +264,7 @@ def test_get_context_does_not_crash_transport_on_corrupt_config(tmp_path, monkey
     escape the resolver and propagate out of the tool. This pins the wrapper's
     try/except that converts the resolution failure into a returned
     CallToolResult, coverage the two parametrized tests above do not reach
-    because they stop at _resolve_store raising.
+    because they stop at resolve_store raising.
     """
     from mcp.types import CallToolResult
 
@@ -494,7 +494,7 @@ def test_v1_shaped_registry_reaches_welcome_screen(tmp_path, monkeypatch):
     monkeypatch.chdir(repo)
 
     with pytest.raises(NoProjectError, match="No Nauro project found"):
-        _resolve_store(None, None)
+        resolve_store(None, None)
 
 
 @pytest.mark.parametrize("raw_store_path", [42, "", None])
@@ -617,7 +617,7 @@ def test_resolve_store_raises_typed_disconnected_error(tmp_path, monkeypatch):
     save_repo_config(repo, {"mode": "local", "id": pid, "name": "Pareto"})
 
     with pytest.raises(DisconnectedProjectError) as exc:
-        _resolve_store(None, repo)
+        resolve_store(None, repo)
 
     assert exc.value.state.reason_code == "not_connected_on_this_machine"
 
@@ -715,7 +715,7 @@ def test_stdio_resolve_welcome_on_oserror_reading_repo_config(tmp_path, monkeypa
 
     Before the shared tier-1 helper caught OSError alongside
     RepoConfigSchemaError, an unreadable ``.nauro/config.json`` let the OSError
-    escape ``_resolve_store`` and crash the tool call. Now it reaches the same
+    escape ``resolve_store`` and crash the tool call. Now it reaches the same
     NoProjectError the genuine no-project case surfaces as the welcome screen.
     """
     from nauro.store import resolution
@@ -735,7 +735,7 @@ def test_stdio_resolve_welcome_on_oserror_reading_repo_config(tmp_path, monkeypa
     monkeypatch.chdir(repo_root)
 
     with pytest.raises(NoProjectError, match="No Nauro project found"):
-        _resolve_store(None, None)
+        resolve_store(None, None)
 
 
 # ── integration: two projects coexist post-migration ─────────────────────────

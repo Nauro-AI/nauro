@@ -18,13 +18,13 @@ from nauro_core.operations import flag_question as _flag_question_op
 
 from nauro.mcp.stdio_server import (
     _pull_on_startup,
-    _resolve_store,
     check_decision,
     flag_question,
     get_context,
     get_raw_file,
     mcp,
     propose_decision,
+    resolve_store,
     update_state,
 )
 from nauro.store.filesystem_store import FilesystemStore
@@ -67,13 +67,13 @@ def store(tmp_path: Path, monkeypatch) -> Path:
 
 class TestResolveStore:
     def test_resolve_by_project_name(self, store: Path):
-        result = _resolve_store("testproj", None)
+        result = resolve_store("testproj", None)
         assert result == store
 
     def test_resolve_by_cwd(self, store: Path, tmp_path: Path):
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir(exist_ok=True)
-        result = _resolve_store(None, str(repo_dir))
+        result = resolve_store(None, str(repo_dir))
         assert result == store
 
     def test_raises_on_unknown_project(self, store: Path):
@@ -82,7 +82,7 @@ class TestResolveStore:
         from nauro.store.resolution import ProjectNotFoundError
 
         with pytest.raises(ProjectNotFoundError, match="registry"):
-            _resolve_store("nonexistent", None)
+            resolve_store("nonexistent", None)
 
     def test_raises_on_no_project_or_cwd(self, store: Path):
         # NoProjectError is reserved for the genuinely-no-project case.
@@ -90,7 +90,7 @@ class TestResolveStore:
         from nauro.store.resolution import NoProjectError
 
         with pytest.raises(NoProjectError, match="No Nauro project found"):
-            _resolve_store(None, None)
+            resolve_store(None, None)
 
 
 class TestGetContext:
