@@ -23,17 +23,10 @@ from nauro_core.identifiers import IdentifierKind, validate_identifier
 
 
 class RelatedDecision(BaseModel):
-    """A decision surfaced by retrieval as related to a proposed approach.
-
-    The canonical retrieval-hit shape: enriched with the triage-header
-    fields (status, date, type, confidence, supersession refs) and a
-    rationale lede so any transport can render the same hit without
-    re-fetching the underlying decision body.
-
-    ``decision_type``, ``confidence``, ``supersedes``, and
-    ``superseded_by`` stay optional so hits whose decision omits those
-    frontmatter fields still serialize; the adapter's ``exclude_none=True``
-    template choice drops the keys when they are unset (the
+    """The canonical retrieval-hit shape: triage-header fields plus a rationale
+    lede, sparing a re-fetch of the decision body at render time. Optional
+    fields stay ``None``-able so hits missing frontmatter still serialize;
+    adapters' ``exclude_none=True`` drops unset keys (the
     :class:`DecisionSummary`/:class:`SearchHit` key-omission contract).
     """
 
@@ -54,10 +47,9 @@ class RelatedDecision(BaseModel):
 class ErrorPayload(BaseModel):
     """Structured error envelope returned on rejection or operation failure.
 
-    ``kind`` discriminates between caller-fixable rejections (input over
-    length, malformed argument) and operation-side failures. ``guidance``
-    carries an onboarding string when the rejection has a remedial action
-    the caller can take.
+    ``kind`` discriminates caller-fixable rejections (input over length,
+    malformed argument) from operation-side failures; ``guidance`` carries
+    remedial onboarding text when one exists.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -69,15 +61,10 @@ class ErrorPayload(BaseModel):
 
 class CheckDecisionResult(BaseModel):
     """Return shape for :func:`nauro_core.operations.check_decision`.
-
-    ``assessment`` is declared first so the takeaway leads the serialized
-    payload (Pydantic ``model_dump`` preserves declaration order), matching
-    the rendered block's takeaway-first order. On the success path it carries
-    the deterministic human-readable summary and ``related_decisions``
-    contains zero or more :class:`RelatedDecision` hits. On the rejection
-    path ``error`` is populated; ``assessment`` stays empty and
-    ``related_decisions`` stays empty. ``store`` is not part of the model;
-    transport adapters add it back at serialization time.
+    ``assessment`` is declared first so the takeaway leads the serialized payload
+    (``model_dump`` preserves declaration order). Success populates ``assessment``
+    and zero or more ``related_decisions``; rejection populates ``error`` and leaves
+    both empty; ``store`` is adapter-added at serialization time.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

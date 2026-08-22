@@ -5,18 +5,9 @@ packages/nauro-core/src/nauro_core/context.py::_is_first_level_list_item
 packages/nauro-core/src/nauro_core/context.py::_is_stack_heading
 packages/nauro-core/src/nauro_core/context.py::_lines_outside_fences
 packages/nauro-core/src/nauro_core/context.py::_strip_leading_current_header
-packages/nauro-core/src/nauro_core/operations/planning.py::<module>
-packages/nauro-core/src/nauro_core/operations/propose_decision.py::_QuestionResolveOutcome
-packages/nauro-core/src/nauro_core/operations/propose_decision.py::_execute_operation
-packages/nauro-core/src/nauro_core/operations/propose_decision.py::_write_decision_direct
-packages/nauro-core/src/nauro_core/operations/results.py::CheckDecisionResult
-packages/nauro-core/src/nauro_core/operations/results.py::ErrorPayload
-packages/nauro-core/src/nauro_core/operations/results.py::RelatedDecision
-packages/nauro-core/src/nauro_core/question_append.py::insert_question_entry
 packages/nauro/src/nauro/auth.py::_exchange_refresh_token
 packages/nauro/src/nauro/auth.py::load_access_token
 packages/nauro/src/nauro/auth.py::resolve_auth_config
-packages/nauro/src/nauro/cli/commands/status.py::_count_remote_decisions
 packages/nauro/src/nauro/cli/integrations/claude_bridge.py::_active_lines
 packages/nauro/src/nauro/cli/integrations/claude_bridge.py::_fence_marker
 packages/nauro/src/nauro/cli/integrations/claude_bridge.py::_has_live_import
@@ -24,7 +15,6 @@ packages/nauro/src/nauro/cli/integrations/claude_bridge.py::_strip_inline_code
 packages/nauro/src/nauro/cli/utils.py::_available_project_names
 packages/nauro/src/nauro/cli/utils.py::_resolve_project_entry
 packages/nauro/src/nauro/cli/utils.py::_v2_registry_or_empty
-packages/nauro/src/nauro/mcp/stdio_server.py::_resolve_or_error
 packages/nauro/src/nauro/store/config.py::_config_lock
 packages/nauro/src/nauro/store/config.py::load_config
 packages/nauro/src/nauro/store/config.py::resolve_embeddings_flag
