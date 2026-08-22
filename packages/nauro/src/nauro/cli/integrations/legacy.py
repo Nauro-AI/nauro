@@ -9,10 +9,6 @@ from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
 from nauro.store.reader import read_text_lenient
 from nauro.store.write_safety import find_symlink
 
-# Legacy markers — kept for removal of old CLAUDE.md blocks during --remove.
-CLAUDE_MD_START = NAURO_BLOCK_START
-CLAUDE_MD_END = NAURO_BLOCK_END
-
 
 def _remove_claude_md(repo_path: Path) -> LegacyOutcome | None:
     """Remove a legacy Nauro block from CLAUDE.md if present.
@@ -27,11 +23,11 @@ def _remove_claude_md(repo_path: Path) -> LegacyOutcome | None:
         return None
 
     content = read_text_lenient(claude_md)
-    if CLAUDE_MD_START not in content:
+    if NAURO_BLOCK_START not in content:
         return None
 
-    before = content[: content.index(CLAUDE_MD_START)]
-    after = content[content.index(CLAUDE_MD_END) + len(CLAUDE_MD_END) :]
+    before = content[: content.index(NAURO_BLOCK_START)]
+    after = content[content.index(NAURO_BLOCK_END) + len(NAURO_BLOCK_END) :]
     remaining = (before + after).strip()
 
     if not remaining:

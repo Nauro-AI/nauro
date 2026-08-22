@@ -20,7 +20,7 @@ from nauro.cli.integrations.outcomes import (
     JsonMcpKind,
     SkillKind,
 )
-from nauro.cli.integrations.skills import materialize_skills_cursor_for_repo
+from nauro.cli.integrations.skills import _remove_bundled_skill, materialize_skills_cursor_for_repo
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
@@ -370,30 +370,26 @@ def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
     assert not (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").exists()
 
 
-def test_remove_skill_file_does_not_walk_above_base(tmp_path: Path):
-    """``_remove_skill_file`` must stop at ``stop_above`` — never delete the surface root."""
-    from nauro.cli.integrations.skills import _remove_skill_file
-
+def test_remove_bundled_skill_does_not_walk_above_base(tmp_path: Path):
+    """``_remove_bundled_skill`` must stop at ``stop_above`` - never delete the surface root."""
     base = tmp_path / ".claude" / "skills"
     skill_dir = base / "nauro-adopt"
     skill_dir.mkdir(parents=True)
     target = skill_dir / "SKILL.md"
     target.write_text("body")
 
-    outcome = _remove_skill_file(target, stop_above=base)
+    outcome = _remove_bundled_skill(target, "body", stop_above=base)
 
     assert outcome.kind is SkillKind.REMOVED
     assert not target.exists()
-    assert not skill_dir.exists()  # subdir was empty → pruned
+    assert not skill_dir.exists()  # subdir was empty - pruned
     assert base.is_dir()  # base preserved
     assert base.parent.is_dir()  # ~/.claude preserved
     assert base.parent.parent.is_dir()  # tmp_path preserved
 
 
-def test_remove_skill_file_preserves_sibling_skills(tmp_path: Path):
+def test_remove_bundled_skill_preserves_sibling_skills(tmp_path: Path):
     """If `~/.claude/skills/` has other skills, removing nauro must not touch them."""
-    from nauro.cli.integrations.skills import _remove_skill_file
-
     base = tmp_path / ".claude" / "skills"
     nauro_skill = base / "nauro-adopt" / "SKILL.md"
     other_skill = base / "user-other" / "SKILL.md"
@@ -402,7 +398,7 @@ def test_remove_skill_file_preserves_sibling_skills(tmp_path: Path):
     other_skill.parent.mkdir(parents=True)
     other_skill.write_text("user-other")
 
-    outcome = _remove_skill_file(nauro_skill, stop_above=base)
+    outcome = _remove_bundled_skill(nauro_skill, "nauro", stop_above=base)
 
     assert outcome.kind is SkillKind.REMOVED
     assert not nauro_skill.exists()

@@ -29,10 +29,10 @@ from nauro.cli.integrations.claude_bridge import (
     ensure_claude_bridge,
     remove_claude_bridge,
 )
-from nauro.cli.integrations.legacy import CLAUDE_MD_END, CLAUDE_MD_START, _remove_claude_md
+from nauro.cli.integrations.legacy import _remove_claude_md
 from nauro.cli.integrations.outcomes import BridgeKind
 from nauro.cli.main import app
-from nauro.constants import CLAUDE_BRIDGE_MARKER, CLAUDE_MD
+from nauro.constants import CLAUDE_BRIDGE_MARKER, CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
 from nauro.mcp.tools import tool_propose_decision
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
@@ -440,13 +440,13 @@ def test_legacy_block_stripped_then_treated_as_foreign_unbridged(tmp_path: Path,
     save_repo_config(repo, {"mode": "local", "id": pid, "name": "proj"})
     monkeypatch.chdir(repo)
     original_remainder = "# My project\n\nKeep this.\n"
-    _write(repo, f"{original_remainder}\n{CLAUDE_MD_START}\nold block\n{CLAUDE_MD_END}\n")
+    _write(repo, f"{original_remainder}\n{NAURO_BLOCK_START}\nold block\n{NAURO_BLOCK_END}\n")
 
     result = runner.invoke(app, ["setup", "claude-code"])
     assert result.exit_code == 0
 
     content = (repo / CLAUDE_MD).read_text(encoding="utf-8")
-    assert CLAUDE_MD_START not in content
+    assert NAURO_BLOCK_START not in content
     assert "# My project" in content
     assert "Keep this." in content
     # The remainder has no import and no bridge marker: it stays foreign and is

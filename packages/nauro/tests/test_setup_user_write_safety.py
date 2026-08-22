@@ -30,7 +30,7 @@ from nauro.cli.integrations.outcomes import (
     CodexConfigKind,
     SkillKind,
 )
-from nauro.cli.integrations.skills import _materialize_skill_file, _remove_skill_file
+from nauro.cli.integrations.skills import _install_bundled_skill, _remove_bundled_skill
 from nauro.cli.nauro_command import _find_nauro_command
 
 if sys.version_info >= (3, 11):
@@ -375,7 +375,7 @@ def test_skill_add_refuses_symlinked_target(tmp_path: Path):
     target.parent.mkdir(parents=True)
     target.symlink_to(real)
 
-    line = _materialize_skill_file(target, "new body")
+    line = _install_bundled_skill(target, "new body", force_overwrite=False)
 
     assert line.kind is SkillKind.REFUSED_SYMLINK
     assert target.is_symlink()
@@ -391,7 +391,7 @@ def test_skill_remove_refuses_symlinked_target(tmp_path: Path):
     target.parent.mkdir(parents=True)
     target.symlink_to(real)
 
-    line = _remove_skill_file(target, stop_above=base)
+    line = _remove_bundled_skill(target, "original", stop_above=base)
 
     assert line.kind is SkillKind.REFUSED_SYMLINK
     assert target.is_symlink()
@@ -406,7 +406,7 @@ def test_skill_writes_through_symlinked_parent_dir(tmp_path: Path):
     base.symlink_to(real_dir, target_is_directory=True)
     target = base / "nauro-adopt" / "SKILL.md"
 
-    line = _materialize_skill_file(target, "body")
+    line = _install_bundled_skill(target, "body", force_overwrite=False)
 
     assert line.kind is SkillKind.WROTE
     assert line.target == target
