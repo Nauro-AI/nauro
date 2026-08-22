@@ -72,6 +72,7 @@ def test_scaffold_creates_all_files(store: Path):
 
 def test_scaffold_uses_bracketed_prompts(store: Path):
     content = (store / "project.md").read_text()
+    assert "# testproj" in content
     assert "[What this does in one sentence" in content
     assert "<!--" not in content  # no HTML comments
 

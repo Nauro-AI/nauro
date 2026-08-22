@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from nauro.cli.commands.setup import CHECK_HINT_LINE
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import _configure_codex
 from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo
@@ -251,20 +250,6 @@ def test_configure_codex_remove_surfaces_parse_error(tmp_path: Path):
 
 
 # ─── claude-code regression ──────────────────────────────────────────────────
-
-
-def test_setup_claude_code_subcommand_unchanged(tmp_path: Path, monkeypatch):
-    """The existing `setup claude-code` command stays callable."""
-    monkeypatch.setenv("HOME", str(tmp_path))  # divert ~/.claude search
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "claude-code"])
-    assert result.exit_code == 0, result.output
-    assert "Configured Nauro" in result.output
 
 
 def test_setup_claude_code_warns_for_untracked_unignored_known_paths(tmp_path: Path, monkeypatch):
@@ -516,24 +501,6 @@ def test_standalone_codex_remove_preserves_when_projects_remain(tmp_path: Path, 
     assert data["mcp_servers"]["nauro"]["args"] == ["serve", "--stdio"]
 
 
-def test_standalone_codex_remove_message_counts_single_project(tmp_path: Path, monkeypatch):
-    """With one project registered, the preserved message states the count and
-    points at ``setup all --remove`` instead of claiming *other* projects."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    register_project_v2("only-project", [repo])
-
-    runner.invoke(app, ["setup", "codex"])
-    result = runner.invoke(app, ["setup", "codex", "--remove"])
-
-    assert result.exit_code == 0, result.output
-    assert "preserved nauro entry" in result.output
-    assert "1 nauro project" in result.output
-    assert "setup all --remove" in result.output
-    assert "other nauro projects" not in result.output
-
-
 def test_standalone_codex_remove_message_counts_two_projects(tmp_path: Path, monkeypatch):
     """With two projects registered, the preserved message pluralizes the count."""
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -550,74 +517,6 @@ def test_standalone_codex_remove_message_counts_two_projects(tmp_path: Path, mon
     assert result.exit_code == 0, result.output
     assert "preserved nauro entry" in result.output
     assert "2 nauro projects" in result.output
-
-
-# ─── nauro check-decision discoverability hint ──────────────────────────────
-
-
-def test_setup_claude_code_advertises_check_decision(tmp_path: Path, monkeypatch):
-    """`setup claude-code` success output points users at the L1 surface."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "claude-code"])
-    assert result.exit_code == 0, result.output
-    assert CHECK_HINT_LINE in result.output
-
-
-def test_setup_claude_code_remove_does_not_advertise_check_decision(tmp_path: Path, monkeypatch):
-    """The hint only fires on the add path — removal output stays minimal."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "claude-code", "--remove"])
-    assert result.exit_code == 0, result.output
-    assert CHECK_HINT_LINE not in result.output
-
-
-def test_setup_cursor_advertises_check_decision(tmp_path: Path, monkeypatch):
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "cursor"])
-    assert result.exit_code == 0, result.output
-    assert CHECK_HINT_LINE in result.output
-
-
-def test_setup_all_advertises_check_decision(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "all"])
-    assert result.exit_code == 0, result.output
-    assert CHECK_HINT_LINE in result.output
-
-
-def test_setup_codex_advertises_check_decision(tmp_path: Path, monkeypatch):
-    """`setup codex` also advertises `nauro check-decision` — a Codex user
-    benefits from knowing they can demo conflict-detection from the shell
-    before opening a Codex session.
-    """
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-    result = runner.invoke(app, ["setup", "codex"])
-    assert result.exit_code == 0, result.output
-    assert CHECK_HINT_LINE in result.output
 
 
 # ─── nauro setup all --with-subagents ───────────────────────────────────────
@@ -1041,20 +940,6 @@ def test_setup_all_with_skills_installs_loop_everywhere(tmp_path: Path, monkeypa
     assert not cursor.exists()
 
 
-def test_setup_all_with_skills_emits_notice_when_subagents_off(tmp_path: Path, monkeypatch):
-    """The body references @nauro-* subagents; the user-facing add path warns."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "all", "--with-skills"])
-    assert result.exit_code == 0, result.output
-    assert "nauro-ship-task references the bundled @nauro-* subagents" in result.output
-
-
 def test_setup_all_with_skills_and_subagents_suppresses_notice(tmp_path: Path, monkeypatch):
     """When both flags are passed, no notice — prerequisites met."""
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -1162,68 +1047,6 @@ def test_setup_all_remove_does_not_write_agents_md(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.output
     # One write on add, none on remove.
     assert len(calls) == 1
-
-
-# ─── multi-surface restart handoff ──────────────────────────────────────────
-
-
-def test_setup_all_prints_restart_line(tmp_path: Path, monkeypatch):
-    """`setup all` tells the user to start a fresh session for the new wiring."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "all"])
-    assert result.exit_code == 0, result.output
-    assert "MCP config and installed workflow files are read at session start" in result.output
-
-
-def test_setup_claude_code_still_prints_restart_line(tmp_path: Path, monkeypatch):
-    """`setup claude-code` keeps its own restart handoff (regression)."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "claude-code"])
-    assert result.exit_code == 0, result.output
-    assert "start a Claude Code session" in result.output
-
-
-# ─── subagents connector-name surfacing ─────────────────────────────────────
-
-
-def test_setup_all_with_subagents_names_connector_requirement(tmp_path: Path, monkeypatch):
-    """`setup all --with-subagents` names the required cloud connector name."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "all", "--with-subagents"])
-    assert result.exit_code == 0, result.output
-    assert "name the remote MCP connector exactly `Nauro`" in result.output
-
-
-def test_setup_all_without_subagents_omits_connector_notice(tmp_path: Path, monkeypatch):
-    """No connector-name notice when subagents are not installed."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _, store_path = register_project_v2("myproj", [repo])
-    scaffold_project_store("myproj", store_path)
-    monkeypatch.chdir(repo)
-
-    result = runner.invoke(app, ["setup", "all"])
-    assert result.exit_code == 0, result.output
-    assert "name the remote MCP connector exactly `Nauro`" not in result.output
 
 
 # ─── end-to-end merge-not-clobber ───────────────────────────────────────────

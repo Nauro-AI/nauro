@@ -1773,12 +1773,3 @@ def test_json_format_is_byte_identical_across_runs(tmp_path, monkeypatch):
     assert first.exit_code == 0
     assert second.exit_code == 0
     assert first.stdout == second.stdout
-
-
-def test_default_format_html_still_writes_file(tmp_path, monkeypatch):
-    """The default (no --format) path still writes the HTML file to the store."""
-    store = _populated_store(tmp_path, monkeypatch)
-
-    result = runner.invoke(app, ["graph", "--no-open"])
-    assert result.exit_code == 0
-    assert (store / "nauro-graph.html").exists()

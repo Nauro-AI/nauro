@@ -9,7 +9,6 @@ from nauro.cli.main import app
 from nauro.store import registry
 from nauro.store.home import projects_dir
 from nauro.store.repo_config import load_repo_config
-from nauro.templates.scaffolds import scaffold_project_store
 
 # --- suggest_project_for_path ---
 
@@ -46,23 +45,6 @@ def test_suggest_project_ambiguous_name_yields_none(tmp_path, monkeypatch):
     other = tmp_path / "clones" / "myapp"
     other.mkdir(parents=True)
     assert registry.suggest_project_for_path(other) is None
-
-
-# --- scaffold ---
-
-
-def test_scaffold_creates_all_files(tmp_path):
-    store = tmp_path / "store"
-    scaffold_project_store("testproj", store)
-    assert (store / "project.md").exists()
-    assert (store / "state_current.md").exists()
-    assert not (store / "state.md").exists()
-    assert (store / "stack.md").exists()
-    assert (store / "open-questions.md").exists()
-    assert (store / "decisions").is_dir()
-    assert (store / "snapshots").is_dir()
-    content = (store / "project.md").read_text()
-    assert "# testproj" in content
 
 
 # --- CLI init ---
