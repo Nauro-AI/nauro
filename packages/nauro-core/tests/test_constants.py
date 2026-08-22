@@ -210,13 +210,13 @@ class TestMcpInstructions:
         assert "list_decisions" not in MCP_INSTRUCTIONS_STATIC
 
     def test_local_and_remote_share_static_tail(self) -> None:
-        """The local stdio server delivers MCP_INSTRUCTIONS verbatim; the
-        remote server composes MCP_INSTRUCTIONS_STATIC into a per-user
-        payload. Both draw from the same static tail, so the two surfaces
-        cannot silently drift. The alias pins that single source."""
+        """The local stdio server delivers MCP_INSTRUCTIONS_STATIC verbatim;
+        the remote server composes it into a per-user payload. Both draw
+        from the same static tail, so the two surfaces cannot silently
+        drift. The alias pins that single source."""
         assert MCP_INSTRUCTIONS == MCP_INSTRUCTIONS_STATIC
         remote = build_remote_instructions(MCP_INSTRUCTIONS_STATIC, [])
-        assert remote.endswith(MCP_INSTRUCTIONS)
+        assert remote.endswith(MCP_INSTRUCTIONS_STATIC)
 
     def test_inline_header_fragment_present_and_bounded(self) -> None:
         """The inline-header sentence is spliced into the static block and

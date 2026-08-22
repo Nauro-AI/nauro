@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from mcp.types import CallToolResult, TextContent
 from nauro_core.operations import flag_question as _flag_question_op
+from nauro_core.renderers import RENDERERS
 
 from nauro.mcp.stdio_server import (
     check_decision,
@@ -254,12 +255,11 @@ class TestErrorAndFallbackPaths:
         """If a renderer raises unexpectedly, the wrapper must not lose
         the response; it falls back to a single JSON block so programmatic
         consumers still get a parseable envelope."""
-        import nauro.mcp.stdio_server as stdio_mod
 
         def explode(_result):
             raise RuntimeError("renderer kaboom")
 
-        monkeypatch.setitem(stdio_mod._RENDERERS, "list_decisions", explode)
+        monkeypatch.setitem(RENDERERS, "list_decisions", explode)
         result = list_decisions(project_id="blockshape")
         blocks = result.content
         assert len(blocks) == 1

@@ -253,7 +253,7 @@ class TestStdioNamesEveryStatus:
         """The store-missing race: resolution succeeded, then the store went."""
         pid, _store_path = seeded_repo
         vanished = tmp_path / "vanished-store"
-        monkeypatch.setattr(stdio_module, "_resolve_store", lambda *_a, **_kw: vanished)
+        monkeypatch.setattr(stdio_module, "resolve_store", lambda *_a, **_kw: vanished)
 
         stdio_string = stdio_update_state(delta="Shipped the stdio surface", project_id=pid)
 
