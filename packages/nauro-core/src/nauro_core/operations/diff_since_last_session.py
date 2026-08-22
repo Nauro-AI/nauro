@@ -3,7 +3,7 @@
 Cross-transport implementation: CLI, local stdio MCP, and remote HTTP MCP
 all call this function with the same arguments and receive the same
 :class:`DiffSinceLastSessionResult`. Snapshot discovery (``list_snapshots``,
-``load_snapshot``, ``find_snapshot_near_date``) sits outside the locked
+``load_snapshot``, ``resolve_diff_snapshots``) sits outside the locked
 Store protocol; the adapter assembles the baseline/latest snapshot dicts
 and threads them in.
 

@@ -4,7 +4,7 @@ Each test seeds an ``InMemoryStore`` (the kernel does not touch it for
 this operation, but the locked signature still takes it) and synthesises
 snapshot dicts inline. Surface-level wiring tests live in the consumer
 package — snapshot discovery (``list_snapshots`` / ``load_snapshot`` /
-``find_snapshot_near_date``) sits outside the locked Store protocol and
+``resolve_diff_snapshots``) sits outside the locked Store protocol and
 the kernel must never import it.
 """
 
@@ -325,7 +325,7 @@ def _kernel_imports() -> set[str]:
 
 def test_kernel_does_not_import_snapshot_discovery() -> None:
     imported = _kernel_imports()
-    forbidden = {"list_snapshots", "load_snapshot", "find_snapshot_near_date"}
+    forbidden = {"list_snapshots", "load_snapshot", "resolve_diff_snapshots"}
     assert forbidden.isdisjoint(imported), (
         f"kernel imports snapshot discovery primitives: {forbidden & imported}; "
         "those live in the adapter, not the kernel."

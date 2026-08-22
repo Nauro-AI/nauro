@@ -235,21 +235,6 @@ def _nearest_at_or_before(metas: list[_SnapshotMeta], target: datetime) -> _Snap
     return candidates[-1] if candidates else dated[0][1]
 
 
-def find_snapshot_near_date(store_path: Path, target: datetime) -> dict | None:
-    """Return metadata for the newest snapshot at or before ``target``.
-
-    Falls back to the oldest snapshot when none predates it, ``None`` when none exist.
-    """
-    snapshots_dir = store_path / SNAPSHOTS_DIR
-    if not snapshots_dir.exists():
-        return None
-
-    best = _nearest_at_or_before(_scan_snapshots(snapshots_dir), target)
-    if best is None:
-        return None
-    return {"version": best.version, "timestamp": best.raw_timestamp}
-
-
 def list_snapshots(store_path: Path) -> list[dict]:
     """Return snapshot metadata without file contents, most recent first."""
     snapshots_dir = store_path / SNAPSHOTS_DIR
