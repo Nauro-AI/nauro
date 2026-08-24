@@ -21,7 +21,7 @@ from nauro_core import (
 )
 from nauro_core.protocol import protocol_tokens_in
 
-from nauro.skills import load_adopt_body, render_skill
+from nauro.skills import load_adopt_body, load_interview_body, render_skill
 from tests._skill_surfaces import REPO_ROOT, load_docs_adopt_prompt
 
 # Per-surface fragment manifest. Each rendered surface must contain every
@@ -30,6 +30,11 @@ from tests._skill_surfaces import REPO_ROOT, load_docs_adopt_prompt
 # stay out of this map — silence is allowed, divergence is not.
 SURFACE_FRAGMENTS: dict[str, list[str]] = {
     "adopt": [
+        CHECK_DECISION_RETURNS,
+        GET_DECISION_BEFORE_PROPOSING,
+        NO_INVENT_RATIONALE,
+    ],
+    "interview": [
         CHECK_DECISION_RETURNS,
         GET_DECISION_BEFORE_PROPOSING,
         NO_INVENT_RATIONALE,
@@ -68,6 +73,10 @@ def _adopt_rendered() -> str:
     return render_skill("claude_code", "nauro-adopt")
 
 
+def _interview_rendered() -> str:
+    return render_skill("claude_code", "nauro-interview")
+
+
 def _propose_decision_spec_text() -> str:
     """Flatten the propose_decision ToolSpec into a single string so the
     retired-paraphrase scan covers titles, top-level descriptions, and every
@@ -80,7 +89,7 @@ def _propose_decision_spec_text() -> str:
     return json.dumps(get_tool_spec("propose_decision"), ensure_ascii=False)
 
 
-_RENDERED_LOADERS = {"adopt": _adopt_rendered}
+_RENDERED_LOADERS = {"adopt": _adopt_rendered, "interview": _interview_rendered}
 
 
 @pytest.mark.parametrize(
@@ -128,7 +137,13 @@ def test_adopt_body_mentions_operation_anchor(anchor: str) -> None:
     [
         (s, k)
         for s in ("claude_code", "cursor", "codex")
-        for k in ("nauro-adopt", "nauro-ship-task", "nauro-context", "nauro-loop")
+        for k in (
+            "nauro-adopt",
+            "nauro-ship-task",
+            "nauro-context",
+            "nauro-loop",
+            "nauro-interview",
+        )
     ],
 )
 def test_rendered_skill_has_no_protocol_tokens(surface: str, skill: str) -> None:
@@ -140,6 +155,7 @@ def test_rendered_skill_has_no_protocol_tokens(surface: str, skill: str) -> None
 
 def test_loaders_have_no_protocol_tokens() -> None:
     assert protocol_tokens_in(load_adopt_body()) == []
+    assert protocol_tokens_in(load_interview_body()) == []
 
 
 def test_docs_adopt_prompt_has_no_protocol_tokens() -> None:
@@ -153,7 +169,13 @@ def test_docs_adopt_prompt_has_no_protocol_tokens() -> None:
 # Source templates: only known tokens allowed (catches typos at the source)
 # ─────────────────────────────────────────────────────────────────────────────
 
-SOURCE_TEMPLATE_FILES = ("adopt_body.md", "ship_task_body.md", "context_body.md", "loop_body.md")
+SOURCE_TEMPLATE_FILES = (
+    "adopt_body.md",
+    "ship_task_body.md",
+    "context_body.md",
+    "loop_body.md",
+    "interview_body.md",
+)
 
 
 @pytest.mark.parametrize("template_filename", SOURCE_TEMPLATE_FILES)
@@ -189,6 +211,9 @@ DISTRIBUTION_FILES = (
     ".claude/skills/nauro-loop/SKILL.md",
     ".cursor/rules/nauro-loop.mdc",
     ".agents/skills/nauro-loop/SKILL.md",
+    ".claude/skills/nauro-interview/SKILL.md",
+    ".cursor/rules/nauro-interview.mdc",
+    ".agents/skills/nauro-interview/SKILL.md",
     "docs/adopt-prompt.md",
 )
 

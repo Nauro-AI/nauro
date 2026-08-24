@@ -17,6 +17,7 @@ from nauro_core.constants import MAX_BRIEF_BYTES, MAX_DELTA_LENGTH
 from nauro.skills import (
     load_adopt_body,
     load_context_body,
+    load_interview_body,
     load_loop_body,
     load_ship_task_body,
     render_skill,
@@ -182,6 +183,113 @@ def test_load_loop_body_returns_canonical_bytes():
     # No leaked template syntax.
     assert "<!--" not in body
     assert "{{" not in body
+
+
+def test_load_interview_body_preserves_deliberation_boundary():
+    body = load_interview_body()
+
+    assert body.endswith("\n")
+    assert not body.endswith("\n\n")
+    assert 1000 < len(body) < 25000
+    assert "Elicit mode" in body
+    assert "Challenge mode" in body
+    assert "dependency-aware interview loop" in body
+    assert 'get_context(level="L0"' in body
+    assert "check_decision" in body
+    assert "get_decision" in body
+    assert "prerequisite-ready frontier" in body
+    assert "recommendation" in body
+    assert "tradeoffs" in body
+    assert "Every question must include a recommendation" in body
+    assert "recommend deferring the choice or preserving it as unresolved" in body
+    assert "wait for the user's reply" in body
+    for outcome_class in (
+        "Terminology",
+        "Verified current state",
+        "Open question",
+        "Non-durable detail",
+        "Candidate durable judgment",
+    ):
+        assert outcome_class in body
+    assert "Shared understanding is non-authoritative" in body
+    assert "evidence only" in body
+    assert "does not write `CONTEXT.md` or ADR files" in body
+
+
+def test_interview_body_requires_separate_later_reply_for_each_write_class():
+    body = load_interview_body()
+
+    assert "separate later-reply approval gate" in body
+    assert "propose_decision" in body
+    assert "update_state" in body
+    assert "flag_question" in body
+    assert body.count('get_raw_file(path="state_current.md", project_id=...)') == 2
+    assert "complete short structured-Markdown replacement" in body
+    assert "never stage or submit a partial state delta" in body
+    assert "reread `state_current.md` immediately before" in body
+    assert "intervening state change invalidates the approval" in body
+    assert "archives the prior body" in body
+    assert "exact open-question entry" in body
+    assert "fresh approval" in body
+    assert "changed overlap" in body
+    assert "Interview agreement never grants write authority" in body
+
+
+def test_interview_body_guards_team_state_writes_with_exact_revision():
+    body = load_interview_body()
+
+    assert "exact returned content and exact `state_revision`" in body
+    assert "both the exact content and exact revision" in body
+    assert "expected_revision` set to the exact approved baseline `state_revision`" in body
+    assert "stop and defer the team-mode state write" in body
+    assert "Never fall back to an unguarded team-mode state write" in body
+    assert (
+        "State in local or pre-team mode: "
+        "`update_state(delta=<exact approved complete replacement body>, project_id=...)`" in body
+    )
+
+
+def test_interview_body_separates_team_ratification_from_chat_approval():
+    body = load_interview_body()
+
+    assert "Local or pre-team mode" in body
+    assert "Team mode" in body
+    assert "chat approval cannot ratify project judgment" in body
+    assert "pending proposal" in body
+    assert "authenticated first-party web action" in body
+    assert "exact proposal revision and digest" in body
+    assert "Do not claim that the chat reply committed the decision" in body
+
+
+def test_interview_body_preserves_explicit_triggers_and_routes_other_work():
+    body = load_interview_body()
+
+    for trigger in (
+        "interview me",
+        "grill this",
+        "stress-test this decision",
+        "draw out my reasoning",
+        "help me transfer this reasoning into Nauro",
+    ):
+        assert trigger in body
+    assert "nauro-adopt" in body
+    assert "nauro-context" in body
+    assert "nauro-ship-task" in body
+    assert "no external skill or subagent dependency" in body
+
+
+def test_render_skill_interview_frontmatter():
+    claude = render_skill("claude_code", "nauro-interview")
+    assert claude.startswith("---\nname: nauro-interview\n")
+    assert "description:" in claude.split("\n---\n", 1)[0]
+    assert claude.split("\n---\n", 1)[1].lstrip("\n") == load_interview_body()
+
+    cursor = render_skill("cursor", "nauro-interview")
+    frontmatter = cursor.split("\n---\n", 1)[0]
+    assert "description:" in frontmatter
+    assert "alwaysApply: false" in frontmatter
+    assert "name:" not in frontmatter
+    assert cursor.split("\n---\n", 1)[1].lstrip("\n") == load_interview_body()
 
 
 def test_render_skill_claude_code_loop_frontmatter():
@@ -432,6 +540,9 @@ DOGFOOD_FILES = [
     (".claude/skills/nauro-loop/SKILL.md", "claude_code", "nauro-loop"),
     (".cursor/rules/nauro-loop.mdc", "cursor", "nauro-loop"),
     (".agents/skills/nauro-loop/SKILL.md", "codex", "nauro-loop"),
+    (".claude/skills/nauro-interview/SKILL.md", "claude_code", "nauro-interview"),
+    (".cursor/rules/nauro-interview.mdc", "cursor", "nauro-interview"),
+    (".agents/skills/nauro-interview/SKILL.md", "codex", "nauro-interview"),
 ]
 
 
