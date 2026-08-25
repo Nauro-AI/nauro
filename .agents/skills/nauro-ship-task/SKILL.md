@@ -1,6 +1,6 @@
 ---
 name: nauro-ship-task
-description: Run the full planner -> executor -> reviewer -> tech-lead -> user-confirm -> push chain for a non-trivial code change against Nauro's bundled @nauro-* subagents. Gates on the user whenever the planner or tech-lead will file a Nauro decision; the executor never files. Runs @nauro-tech-lead Mode C between reviewer-APPROVE and the push gate to catch doctrine drift the reviewer missed. A prompt that carries a detailed implementation spec or a pasted handoff is still chain input, not license to implement directly. Invoke explicitly with the surface's nauro-ship-task command. Requires `nauro adopt --with-subagents` to have run.
+description: Run the full planner -> executor -> reviewer -> tech-lead -> user-confirm -> push chain for a non-trivial code change against Nauro's bundled @nauro-* subagents. Gates on the user whenever the planner or tech-lead will file a Nauro decision; the executor never files. Runs @nauro-tech-lead Mode C between reviewer-APPROVE and the push gate to catch doctrine drift the reviewer missed. A prompt that carries a detailed implementation spec or a pasted handoff is still chain input, not license to implement directly. Invoke explicitly with the surface's nauro-ship-task command. Requires `nauro adopt --with-subagents` to have run. A program Delivery returns a standardized program handback after PR creation or a terminal blocker.
 ---
 
 # Nauro ship task skill
@@ -100,6 +100,27 @@ If the body would be long, that's fine — paste it anyway. Skipping the verbati
 
 On approval, push the branch. Write the drafted description to a file and open the PR with `gh pr create --body-file <file>` — passing the body inline breaks on quote characters in the drafted body. If `gh` is unavailable, hand the user the PR-creation URL the push prints (or the compare URL constructed from the remote and branch). Decisions filed during the chain go in the PR body by paraphrase (Why or What changed), not by raw decision number — the public-repo convention is to describe the doctrine move ("the bundled-subagents pattern"), not cite internal D-numbers.
 
+## Program handback
+
+When the invoking prompt identifies this run as a program Delivery, return a complete program handback after PR creation or every terminal blocker. A terminal blocker is a condition that prevents this task from reaching PR creation and cannot be cleared inside the current run. A pending human approval gate is held state, not a terminal blocker.
+
+Keep the handback conversational and include these labeled facts:
+
+- **Outcome or blocker:** what completed, or the exact condition that stopped delivery.
+- **Repository and verified base:** the repository identity and base anchor this task verified.
+- **Primary invariant:** the single review-sized invariant the task implemented or attempted.
+- **Branch, final commit, reviewed commit, and PR:** use explicit unknown or not-created values where needed.
+- **Hand-edited file count and non-generated line count:** report exact totals against the verified base.
+- **Validation evidence:** commands, results, and any test or check that did not run.
+- **Reviewer and tech-lead verdicts:** include findings, nits, constraints, or not-reached states.
+- **Filed decisions and evidence riders:** list human-approved records filed during this task, or state none.
+- **Deferred boundaries:** include planned deferrals, remaining risks, and unrelated issues preserved.
+- **Merge status:** report only observed state. The delivery task does not count a PR as merged unless it independently verified the merge.
+- **Next coordinator action:** state the one verification or routing action the coordinator should take next.
+- **Next-dependency claim:** label this exactly as a **coordinator-verification hypothesis**. It is a proposed next dependency, not authority to start it.
+
+The handback does not automatically create a `BRIEF:` or `RESUME:` file, update project state, flag a question, or file a decision or evidence rider. Those writes retain their existing explicit human approval paths. Do not automatically start another Delivery. The coordinator verifies the merge and decides the next action.
+
 ## Rules
 
 - A fully specified task still goes through the planner — the spec becomes the planner's input, not a reason to skip the chain and implement directly.
@@ -108,3 +129,4 @@ On approval, push the branch. Write the drafted description to a file and open t
 - If a `propose_decision` is pending but the Nauro MCP server is disconnected, that is a hard pause — do not push the PR and file the decision after reconnecting. The code and its decision land together; a push-now-file-later split leaves doctrine unrecorded if the session ends first. Surface the disconnect and wait.
 - If anything fails or surprises mid-chain (a tool errors, tests fail unexpectedly, a verdict is incoherent), stop and surface to the user rather than recovering silently.
 - The chain is doctrine-aware end-to-end: every architectural choice flows through `check_decision` (at planning) and `propose_decision` (when the choice lands, after user approval). Skipping either silently is a chain failure, not a shortcut.
+- A program Delivery returns the standardized handback after PR creation or a terminal blocker. Ordinary prompts and all handbacks stay conversational and create no project-store artifact automatically.
