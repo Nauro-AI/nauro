@@ -94,7 +94,8 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "carries a detailed implementation spec or a pasted handoff is still "
         "chain input, not license to implement directly. Invoke explicitly "
         "with the surface's nauro-ship-task command. Requires `nauro adopt "
-        "--with-subagents` to have run."
+        "--with-subagents` to have run. A program Delivery returns a "
+        "standardized program handback after PR creation or a terminal blocker."
     ),
     "nauro-context": (
         "Writes durable shared context into Nauro's project store so other "
@@ -118,20 +119,20 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "`nauro adopt --with-skills`."
     ),
     "nauro-loop": (
-        "Run a gated iteration of work origination on top of /nauro-ship-task. "
+        "Run gated work origination as ORIENT -> SELECT -> ROUTE. "
         "Invoke under the dynamic /loop command (/loop /nauro-loop). Mines the "
         "project's existing Nauro store state read-only (get_context, "
         "open-questions RESUME/BRIEF pointers, diff_since_last_session, "
-        "list_decisions) and originates 1-3 ranked candidate tasks, then "
-        "surfaces them via AskUserQuestion for the human to pick - a mandatory "
-        "ratify-gate with no auto-pick path. On the human's pick it dispatches "
-        "/nauro-ship-task <chosen task> byte-for-byte with all six inner gates "
-        "intact, then loops back. Originates the candidate set only; the human "
-        "selects the task, approves the plan, clears every tech-lead pause, and "
-        "confirms every push. The loop itself never files a decision, never "
-        "pushes, and never runs gh; it holds no store-write authority. Stops on "
-        "an empty mine and at a hard per-session ceiling. Installed by `nauro "
-        "adopt --with-skills`."
+        "list_decisions) and originates 1-3 ranked Delivery and Interview candidates. "
+        "Every route requires mandatory human selection with no auto-pick path. "
+        "Interview stays explicit and non-authoritative in the live coordinator. "
+        "Delivery preserves synchronous and scheduled modes; opt-in program mode "
+        "invokes the target surface's `nauro-ship-task` command in a fresh delivery "
+        "task and stops. The loop never files a decision, pushes, or runs gh. "
+        "Ordinary outputs create no automatic store artifacts; scheduled ORIENT "
+        "retains its existing SELECT checkpoint and pointer writes as a narrow "
+        "process-state exception. "
+        "Installed by `nauro adopt --with-skills`."
     ),
     "nauro-interview": (
         "Interview the user to elicit tacit project reasoning or challenge a proposed "

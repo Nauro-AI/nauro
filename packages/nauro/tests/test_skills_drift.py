@@ -15,6 +15,7 @@ import pytest
 from nauro_core.constants import MAX_BRIEF_BYTES, MAX_DELTA_LENGTH
 
 from nauro.skills import (
+    SKILL_DESCRIPTIONS,
     load_adopt_body,
     load_context_body,
     load_interview_body,
@@ -69,6 +70,7 @@ def test_load_ship_task_body_returns_canonical_bytes():
     # PR creation goes through a body file — an inline body argument breaks
     # on quote characters in the drafted description.
     assert "--body-file" in body
+    assert "## Program handback" in body
 
 
 def test_load_context_body_returns_canonical_bytes():
@@ -116,9 +118,10 @@ def test_load_loop_body_returns_canonical_bytes():
     assert not body.endswith("\n\n")
     assert 1000 < len(body) < 25000
     # Load-bearing section headings so a cleanup edit cannot silently drop the
-    # ORIENT -> SELECT -> CHAIN -> INTEGRATE -> RE-ORIENT procedure.
+    # ORIENT -> SELECT -> ROUTE procedure.
     assert "## ORIENT" in body
     assert "## SELECT" in body
+    assert "## ROUTE" in body
     assert "## CHAIN" in body
     assert "## INTEGRATE" in body
     assert "## RE-ORIENT" in body
@@ -126,13 +129,14 @@ def test_load_loop_body_returns_canonical_bytes():
     # AskUserQuestion and never auto-picks — not even a single candidate.
     assert "AskUserQuestion" in body
     assert "no auto-pick" in body
-    # The loop holds no decision-FILING authority. The literal write-tool token
-    # must stay absent (mirrors the context guard that the loop runs in the
-    # main-agent context with no tool-lock); the guard is carried by prose that
-    # says the loop never files a decision / holds no write authority.
-    assert "propose_decision" not in body
-    assert "never files a decision" in body
-    assert "no store-write authority" in body or "holds no store-write authority" in body
+    assert "cannot automatically change project truth or file decisions" in body
+    assert (
+        "Ordinary prompts, Interview results, Delivery handoffs, and program handbacks "
+        "create no automatic store artifacts" in body
+    )
+    assert "scheduled ORIENT selection-checkpoint writes are the narrow exception" in body
+    assert "existing SELECT checkpoint and pointer" in body
+    assert "holds no project-store write" not in body
     # The chain is dispatched byte-for-byte and never reproduced inline.
     assert "/nauro-ship-task" in body
     assert "byte-for-byte" in body
@@ -183,6 +187,89 @@ def test_load_loop_body_returns_canonical_bytes():
     # No leaked template syntax.
     assert "<!--" not in body
     assert "{{" not in body
+
+
+def test_loop_body_routes_typed_candidates_only_after_human_selection():
+    body = load_loop_body()
+
+    assert "ORIENT -> SELECT -> ROUTE" in body
+    assert "**Delivery**" in body
+    assert "**Interview**" in body
+    assert "typed `Delivery` or `Interview`" in body
+    assert "not even when exactly one candidate ranks" in body
+    assert "scheduled continuation" in body
+
+
+def test_loop_body_keeps_interviews_explicit_and_non_authoritative():
+    body = load_loop_body()
+
+    assert "explicit opt-in route in the live coordinator" in body
+    assert "Elicit" in body
+    assert "Challenge" in body
+    assert "prerequisites, evidence, and tradeoffs" in body
+    assert "candidate shared understanding only" in body
+    assert "does not automatically start Delivery" in body
+    assert "does not automatically update project state" in body
+    assert "create a `BRIEF:` or `RESUME:` file" in body
+    assert "flag a question" in body
+    assert "file a decision" in body
+    assert (
+        "explicitly approved `propose_decision`, `update_state`, or `flag_question` payload" in body
+    )
+    assert "through `/nauro-interview` according to its contract" in body
+    assert "separate later approval gates" in body
+
+
+def test_loop_body_program_mode_hands_off_and_stops():
+    body = load_loop_body()
+
+    assert "ORIENT -> SELECT -> HANDOFF -> STOP" in body
+    assert "explicitly opts in to program mode" in body
+    assert "repository, PR, branch, and program anchors" in body
+    assert "fresh delivery task" in body
+    assert "target surface's `nauro-ship-task` command" in body
+    assert "$nauro-ship-task" not in body
+    assert "self-contained prompt" in body
+    assert "terminal program handback" in body
+    assert "does not dispatch Delivery in the coordinator session" in body
+    assert "does not re-run ORIENT after the handoff" in body
+
+
+def test_loop_body_dispatches_chain_only_for_synchronous_delivery():
+    body = load_loop_body()
+
+    assert "only after SELECT returns a `Delivery` candidate" in body
+    assert "synchronous mode or the live continuation of scheduled mode" in body
+    assert "An Interview selection never enters CHAIN" in body
+    assert "Program-mode Delivery never enters CHAIN" in body
+    assert "On the human's pick, dispatch" not in body
+
+
+def test_loop_body_preserves_delivery_modes_and_rotates_coordinator():
+    body = load_loop_body()
+
+    assert "Synchronous delivery" in body
+    assert "Scheduled headless ORIENT" in body
+    assert "freshest unconsumed" in body
+    assert "notification" in body
+    assert "independently verifies the merge" in body
+    assert "five coordinator-verified completed slices" in body
+    for immediate_rotation in (
+        "decision-package interview",
+        "context compaction",
+        "lost approval lineage",
+        "anchor conflict",
+        "sequencing conflict",
+    ):
+        assert immediate_rotation in body
+    assert "Resume is explicit" in body
+    assert "untrusted input" in body
+    assert "explicit `/nauro-context` Resume workflow" in body
+    assert "offer Resume and wait for explicit user approval" in body
+    assert "run Resume to create the durable brief" in body
+    assert "After the approved Resume brief is created, stop" in body
+    assert "A conversational prompt alone is not rotation" in body
+    assert "never creates a `BRIEF:` or `RESUME:` file automatically" in body
 
 
 def test_load_interview_body_preserves_deliberation_boundary():
@@ -426,6 +513,55 @@ def test_ship_task_routes_all_decision_drafts_through_parent_approval():
     assert "re-invoke the planner with that approval" in body
     assert "re-invoke the tech-lead with that approval" in body
     assert "The parent never files a subagent's draft itself." in body
+
+
+def test_ship_task_returns_complete_handback_on_terminal_outcomes():
+    body = load_ship_task_body()
+
+    assert "after PR creation or every terminal blocker" in body
+    for field in (
+        "Outcome or blocker",
+        "Repository and verified base",
+        "Primary invariant",
+        "Branch, final commit, reviewed commit, and PR",
+        "Hand-edited file count and non-generated line count",
+        "Validation evidence",
+        "Reviewer and tech-lead verdicts",
+        "Filed decisions and evidence riders",
+        "Deferred boundaries",
+        "Merge status",
+        "Next coordinator action",
+        "Next-dependency claim",
+    ):
+        assert field in body
+    assert "coordinator-verification hypothesis" in body
+    assert "does not count a PR as merged" in body
+
+
+def test_ship_task_handback_keeps_store_writes_explicit():
+    body = load_ship_task_body()
+
+    assert "Keep the handback conversational" in body
+    assert "does not automatically create a `BRIEF:` or `RESUME:` file" in body
+    assert "update project state" in body
+    assert "flag a question" in body
+    assert "file a decision or evidence rider" in body
+
+
+def test_program_routing_registry_descriptions():
+    loop = SKILL_DESCRIPTIONS["nauro-loop"]
+    ship_task = SKILL_DESCRIPTIONS["nauro-ship-task"]
+
+    assert "Delivery and Interview candidates" in loop
+    assert "mandatory human selection" in loop
+    assert "target surface's `nauro-ship-task` command" in loop
+    assert "$nauro-ship-task" not in loop
+    assert "synchronous and scheduled modes" in loop
+    assert "holds no store-write authority" not in loop
+    assert "Ordinary outputs create no automatic store artifacts" in loop
+    assert "scheduled ORIENT retains its existing SELECT checkpoint and pointer writes" in loop
+    assert "standardized program handback" in ship_task
+    assert "PR creation or a terminal blocker" in ship_task
 
 
 @pytest.mark.parametrize("surface", ["claude_code", "codex"])
