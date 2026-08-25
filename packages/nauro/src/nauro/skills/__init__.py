@@ -22,7 +22,13 @@ from typing import Literal
 from nauro_core.protocol import substitute_protocol_fragments
 
 Surface = Literal["claude_code", "cursor", "codex"]
-SkillName = Literal["nauro-adopt", "nauro-ship-task", "nauro-context", "nauro-loop"]
+SkillName = Literal[
+    "nauro-adopt",
+    "nauro-ship-task",
+    "nauro-context",
+    "nauro-loop",
+    "nauro-interview",
+]
 
 _SHIP_TASK_PREREQUISITES_TOKEN = "<!-- surface:SHIP_TASK_PREREQUISITES -->"
 
@@ -127,6 +133,14 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "an empty mine and at a hard per-session ceiling. Installed by `nauro "
         "adopt --with-skills`."
     ),
+    "nauro-interview": (
+        "Interview the user to elicit tacit project reasoning or challenge a proposed "
+        "choice against Nauro decisions and repository evidence, then classify the "
+        "result as shared understanding without granting write authority. Use only "
+        "when the user explicitly asks to be interviewed, grilled, stress-tested, or "
+        "helped to transfer reasoning into Nauro. Runs in the main agent context with "
+        "no external skill or subagent dependency."
+    ),
 }
 
 
@@ -181,6 +195,12 @@ def load_loop_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
+def load_interview_body() -> str:
+    """Return the ``nauro-interview`` skill body with protocol fragments resolved."""
+    raw = resources.files(__package__).joinpath("interview_body.md").read_text(encoding="utf-8")
+    return substitute_protocol_fragments(_strip_template_header(raw))
+
+
 def _load_body(surface: str, skill_name: str) -> str:
     if skill_name == "nauro-adopt":
         return load_adopt_body()
@@ -190,6 +210,8 @@ def _load_body(surface: str, skill_name: str) -> str:
         return load_context_body()
     if skill_name == "nauro-loop":
         return load_loop_body()
+    if skill_name == "nauro-interview":
+        return load_interview_body()
     raise ValueError(f"unknown skill: {skill_name!r}")
 
 
@@ -219,6 +241,7 @@ __all__ = [
     "Surface",
     "load_adopt_body",
     "load_context_body",
+    "load_interview_body",
     "load_loop_body",
     "load_ship_task_body",
     "render_skill",
