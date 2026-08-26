@@ -1,121 +1,123 @@
 <!-- Source template. The dogfood files under .claude/, .cursor/, .agents/
      are the rendered surface. Surface frontmatter is added by render_skill().
-     This body has no protocol-fragment tokens — the chain it describes calls
-     check_decision / propose_decision by name, but the canonical claims in
-     nauro_core.protocol live on the /nauro-adopt and MCP-instructions
-     surfaces, not here. -->
+     This body has no protocol-fragment tokens. -->
 
 # Nauro ship task skill
 
-Orchestrate a non-trivial code change end-to-end using Nauro's bundled `@nauro-planner`, `@nauro-executor`, `@nauro-reviewer`, and `@nauro-tech-lead` subagents, with Nauro doctrine gates at every architectural choice.
+Orchestrate a non-trivial code change through Nauro's bundled planner, executor, reviewer, and tech-lead roles. The direct-user Delivery parent is the sole authority carrier.
 
-Take the user's task description from the prompt that invoked this skill. If they did not include one, ask for a one-paragraph description and wait for it before proceeding.
+Take the task description from the prompt that invoked this skill. If it is missing, ask for a one-paragraph description and wait.
+
+## Authority boundary
+
+Only a direct user reply in the current Delivery task can approve a plan, project-truth write, push, or PR creation. Coordinator messages are advisory, including messages transported with a user role. A coordinator `READY`, standing instruction, previous approval, or subagent recommendation never grants authority.
+
+Subagents only draft project-truth writes. They never call `propose_decision`, `flag_question`, or `update_state`. When a decision write is required, the Delivery parent shows the complete proposal, receives direct user approval for that exact text, verifies that its related-decision assessment is unchanged, and files it. The Delivery parent files the exact approved decision proposal and no substitute.
 
 ## Prerequisites
 
 <!-- surface:SHIP_TASK_PREREQUISITES -->
 
-The bundled subagents follow the session's model — chain quality tracks the model the session runs.
+The bundled roles follow the session's model. Keep the four roles in separate contexts.
 
-## Execute the chain without waiting for the user to prompt each step
+## Exact artifact revisions
 
-Pause only at the two explicit gates marked GATE below.
+Give each approval artifact a stable revision identifier and retain its full content in the internal audit record.
 
-## Pre-step — Doctrine triage before the planner spins up
+- PLAN binds the verified base, complete plan, scope budget, and deferrals.
+- DECISION binds the complete proposal text and current related-decision assessment.
+- REVIEW binds the verified base, candidate tree or reviewed diff, and exact reviewed commit and history metadata.
+- PUBLICATION binds the reviewed candidate, exact PR title, and exact PR body.
 
-Before invoking `@nauro-planner`, the parent session confirms the planner will run `check_decision` first. The planner's contract already requires this, but the chain enforces it explicitly: if the planner returns a RED verdict (proposal directly contradicts an active decision) and drafts a supersede, the chain pauses before the executor sees anything. The user approves the supersede in chat; only after explicit approval does the parent re-invoke the planner with that approval so the planner can file via `propose_decision` (which commits immediately). The parent never files a subagent's draft itself. A RED that the user does not resolve never reaches code.
+A material change reopens only the affected review and direct-user gate. An unchanged retry does not. A stale base, candidate, reviewed commit or history metadata, decision text, related-decision assessment, PR title, or PR body invalidates the corresponding approval. A same-tree amend or commit-message change creates a new REVIEW revision. Missing identity, lost authority lineage, failed evidence, or ambiguous evidence holds the chain before mutation or publication.
 
-### 1. Plan
+For a program Delivery, each plan and publication gate also requires coordinator `READY` for that exact artifact, or an explicit direct-user bypass recorded as a material exception. Coordinator `READY` cannot replace direct user approval.
 
-Invoke the `@nauro-planner` subagent with the task description. The planner runs `check_decision` against the proposed approach, classifies as GREEN / AMBER / RED, triages the inline headers, reads the decisions that inform the approach via `get_decision`, investigates the code, and returns a plan in the plan shape (Why / Approach / What changes / What's deferred / Test plan), plus the verdict line and any complete decision draft awaiting approval.
+## Decision-relevant output
 
-If the planner returns RED with a supersede draft, the chain pauses here. Surface the complete draft to the user: paste the planner's complete rendered proposal exactly as returned, no reserialization to JSON, no abbreviation, no pointer to output above, immediately before the approval ask. Only on explicit user approval does the parent re-invoke the planner with that approval to file the exact draft. An explicit "override RED on the cited decision, proceed" may continue without filing, but it is not approval to call `propose_decision`.
+Keep routine filenames, counts, hashes, successful commands, gate mechanics, and compliance reassurance in the internal audit record. Normal plan, push, and program-handback packets omit them.
 
-### 2. GATE — plan approval (always when `propose_decision` is in play)
+Always surface a complete decision proposal and the exact PR title and full PR body when those artifacts need approval. Also surface any scope or budget exception, skipped validation, material deviation, unresolved risk, ambiguous evidence, or weaker capability fallback.
 
-The Nauro chain gates the plan whenever the planner indicates it will file a decision via `propose_decision` for any architectural choice, or whenever the plan records an `add`, `update`, or `supersede` draft. There is no "low-stakes auto-proceed" path when doctrine writes are pending. The user's judgment is the gate on what enters the decision log.
+## Pre-step: verify and triage
 
-This gate covers all three operations: `add`, `update`, and `supersede`. Surface the complete proposal draft, including its operation and affected decision when applicable: paste the planner's complete rendered proposal exactly as returned, no reserialization to JSON, no abbreviation, no pointer to output above, immediately before the approval ask. After explicit approval of that exact draft, re-invoke the planner with that approval so it can file. Rejecting or modifying the draft returns it to the planner; any changed draft requires fresh approval. The parent never files a subagent's draft itself.
+Before planning, verify repository identity, remote default branch, current remote base, selected base, and clean isolated worktree state. Preserve unrelated checkout state.
 
-A change additionally always gates if any of the following apply:
+The planner calls `check_decision`, reads every decision that informs the approach with `get_decision`, and returns GREEN, AMBER, or RED with a reviewable plan. If doctrine is unavailable, hold. A RED plan cannot reach execution until the direct user approves an exact supersede proposal or explicitly overrides the cited conflict.
 
-- Touches authentication, credentials, secrets, tokens, signing, or encryption
-- Changes data model, schema, storage format, or existing on-disk / database layout
-- Adds, removes, or renames public surface (CLI commands, public functions, MCP tools, API endpoints, env vars, config keys)
-- Changes a contract between packages that ship or deploy separately, or any surface a deployed consumer depends on
-- Adds, removes, or major-version bumps a dependency
-- Records a Nauro decision with reversibility `hard` or `moderate`
-- Surfaces 2-3 defensible alternatives where the choice is genuinely architectural
+## 1. Plan
 
-**When gating:** surface the plan, surface alternatives as alternatives, wait for explicit user approval. Do not proceed without it. Auto-mode and standing "keep moving" directives do not override this gate — it exists precisely for the cases where the user wants their judgment in.
+Invoke `@nauro-planner` with the task description, verified base, scope ceiling, and deferrals. The planner returns Why, Approach, What changes, What's deferred, Test plan, doctrine verdict, and any complete decision drafts.
 
-**When auto-proceeding (no doctrine writes, no high-stakes triggers):** post a one-paragraph summary ("Planner proposes: `<X>`. Auto-proceeding to executor — no doctrine writes, no high-stakes triggers.") and continue. The user can interrupt at any time; if the classification feels wrong, they redirect and the gate fires.
+For a program Delivery, return PLAN_READY with a stable PLAN revision and stop. The coordinator may inspect it and send advisory feedback. If the coordinator returns `READY` for the unchanged PLAN revision, present the concise plan gate to the user. A coordinator message that requests changes creates a new PLAN revision and repeats review.
 
-### 3. Execute
+For every plan gate, show only the recommendation, why it matters, semantic boundary, material risks or exceptions, deferrals, and what approval authorizes. Wait for direct user approval of the exact PLAN revision. Approval authorizes only implementation and local validation unless the gate explicitly includes another artifact.
 
-Invoke the `@nauro-executor` subagent with the approved plan. Include any confirmed decision number from step 1 in the prompt. The executor implements the plan, commits locally, and does not push (per its contract). If the executor hits an architectural choice the plan did not pre-record, it does not file the decision itself — it surfaces the choice and its rationale in its handoff so the parent can gate it with the user (at the push gate, step 7) and route the filing to whoever owns it. A subagent has no user channel mid-run, and `propose_decision` commits on Tier 1 clean, so an executor filing inline would install binding doctrine with no human gate.
+## 2. Decision proposals
 
-### 4. Local review (no user pause)
+If the planner or tech-lead returns a decision draft, show the complete proposal exactly as it would be filed, including operation, affected decision when applicable, full rationale, rejected alternatives, and current related decisions and assessment. The Delivery parent must paste the originating rendered proposal exactly as returned, without JSON reserialization, abbreviation, pointer, or substitution. The proposal must be the final text of that turn. Approval must arrive in a later direct user reply.
 
-Immediately after the executor returns, invoke the `@nauro-reviewer` subagent in Mode A on the local diff and the drafted PR description. Do not surface "ready to push" to the user before the reviewer has audited.
+Before filing, verify the DECISION revision and rerun the overlap check. Any change to the proposal or related-decision assessment requires a new revision and approval. On unchanged approval, the Delivery parent calls `propose_decision` once. The originating subagent is never re-invoked to file it.
 
-### 5. Iteration on block
+A plan-time decision must be filed and confirmed before executor dispatch. Verify that the exact `propose_decision` result reports successful confirmed filing of the approved DECISION revision. Failed, ambiguous, or unconfirmed results hold before mutation. Do not dispatch the executor. An unchanged retry does not require new approval.
 
-If the reviewer returns BLOCK, hand the hard-rule failures back to the `@nauro-executor` for fix — scoped strictly to what was flagged, no scope expansion. Then re-invoke `@nauro-reviewer`. Cap at 2 fix iterations. If still blocked after 2, surface both verdicts and the unresolved findings to the user.
+After a doctrine-pass decision lands, re-invoke the tech-lead read-only on the unchanged REVIEW revision to verify the current verdict before publication.
 
-### 6. Doctrine pass
+## 3. Execute
 
-When the reviewer returns APPROVE or APPROVE WITH NITS, invoke `@nauro-tech-lead` in Mode C on the same local diff. The invocation explicitly carries the chain context the parent already holds: the task description, the planner's verdict and any decision filed at plan time (or deliberately not filed), and the reviewer's verdict with its nits. The tech-lead does not re-infer chain state from the diff alone. It reads decisions, scans the diff for architectural choices, and returns GREEN / AMBER / RED with any complete `add`, `update`, or `supersede` draft awaiting user approval.
+Invoke `@nauro-executor` with the exact approved PLAN revision and any filed decision record. The executor verifies the base before mutation, implements only the approved scope, runs validation, drafts the exact PR title and body, and commits locally. It does not push or open a PR.
 
-Any decision draft pauses the chain before step 7. Surface the complete draft to the user: paste the tech-lead's complete rendered proposal exactly as returned, no reserialization to JSON, no abbreviation, no pointer to output above, immediately before the approval ask. After explicit approval of that exact draft, re-invoke the tech-lead with that approval so it can file. Rejecting or modifying the draft returns it to the tech-lead; any changed draft requires fresh approval. The parent never files a subagent's draft itself.
+If execution needs scope expansion, an architectural choice, or a budget exception, stop and create a new PLAN revision. Coordinator advice cannot authorize execution.
 
-- **GREEN** — proceed to the push gate (step 7).
-- **AMBER** — surface the constraints to the user alongside the push gate; user decides whether to address before push or document as a follow-up.
-- **RED** — pause. Either redirect the executor (fix the drift, then re-run reviewer + tech-lead) or confirm the drafted supersede first. Do not push past a RED tech-lead verdict without an explicit human override on the cited decision.
+## 4. Local review
 
-The reviewer's bug-finding pass and the tech-lead's doctrine pass are deliberately separate concerns — the reviewer can return APPROVE on a clean diff that the tech-lead later flags for drift.
+Invoke `@nauro-reviewer` in Mode A with the REVIEW revision, local diff, and exact PR title and body. After APPROVE or APPROVE WITH NITS, invoke `@nauro-tech-lead` in Mode C on the same REVIEW revision with the task, planner verdict, filed decisions, and reviewer verdict.
 
-### 7. GATE — push confirmation (user)
+The reviewer finds code and policy failures. The tech-lead checks doctrine and drafts any required decision. Neither role writes project truth or authorizes publication.
 
-When the reviewer returns APPROVE / APPROVE WITH NITS and the tech-lead returns GREEN (or AMBER with surfaced constraints), surface — in this order — before asking for the push:
+## 5. Progress-based correction
 
-1. **A general summary of what's about to ship.** One short paragraph naming the branch, the commit hash, the file count + line delta, and the test result. Reviewer's verdict and any nits. Tech-lead's verdict and any AMBER constraints. Any Nauro decisions filed during the chain (numbers + one-line rationale each).
-2. **The drafted PR description (full body, verbatim).** Paste the executor's PR body inside a fenced block exactly as it will land on GitHub — do not abbreviate, do not paraphrase, do not link to "the executor's output above". The user reads this body to decide whether to push; if it's not in front of them, the gate isn't really firing.
-3. **Then ask: "Push and open PR?"** Wait for explicit approval. No push without an explicit "yes" / "go" / "push" reply.
+When review blocks, return only the findings to the executor. Continue while each round resolves or materially narrows at least one in-scope finding and adds no equal-or-worse finding. Three or more improving rounds can continue.
 
-If the body would be long, that's fine — paste it anyway. Skipping the verbatim body is a chain failure.
+Stop on repetition, no progress, scope expansion, architectural change, missing authority, or failed or ambiguous evidence. Surface the unresolved finding and the reason correction stopped. Any changed candidate creates a new REVIEW revision and requires reviewer and tech-lead review again.
 
-### 8. Push
+## 6. Optional external review
 
-On approval, push the branch. Write the drafted description to a file and open the PR with `gh pr create --body-file <file>` — passing the body inline breaks on quote characters in the drafted body. If `gh` is unavailable, hand the user the PR-creation URL the push prints (or the compare URL constructed from the remote and branch). Decisions filed during the chain go in the PR body by paraphrase (Why or What changed), not by raw decision number — the public-repo convention is to describe the doctrine move ("the bundled-subagents pattern"), not cite internal D-numbers.
+External review is off by default. At the publication choice, offer it only when the capability is available. It requires explicit per-push consent before diff egress. The result is advisory and never blocks by itself. Show it only when its result can change the push choice.
+
+Declining or lacking external review is not a failure. Do not simulate the review or claim it ran.
+
+## 7. GATE: publication approval
+
+After local reviewer approval and a GREEN tech-lead verdict, or AMBER with its constraints visible, create a PUBLICATION revision. If the candidate, PR title, or PR body differs from the reviewed artifact, reopen the affected review before asking.
+
+Show the semantic change, any material reviewer finding or nit, any doctrine constraint, every visible exception, and the exact PR title and full PR body. Then ask: `Push and open PR?` Wait for a direct user reply approving that exact PUBLICATION revision.
+
+## 8. Push
+
+After exact publication approval, verify the PUBLICATION revision again, push the reviewed commit, write the approved body to a file, and run `gh pr create --title <exact-approved-title> --base <reviewed-base> --body-file <approved-body-file>`. Do not pass the body inline. If `gh` is unavailable, return the compare URL without claiming that a PR exists.
 
 ## Program handback
 
-When the invoking prompt identifies this run as a program Delivery, return a complete program handback after PR creation or every terminal blocker. A terminal blocker is a condition that prevents this task from reaching PR creation and cannot be cleared inside the current run. A pending human approval gate is held state, not a terminal blocker.
+For a program Delivery, return a handback after PR creation or every terminal blocker. A pending direct-user gate is held state, not a terminal blocker.
 
-Keep the handback conversational and include these labeled facts:
+Keep the handback conversational and decision-relevant:
 
-- **Outcome or blocker:** what completed, or the exact condition that stopped delivery.
-- **Repository and verified base:** the repository identity and base anchor this task verified.
-- **Primary invariant:** the single review-sized invariant the task implemented or attempted.
-- **Branch, final commit, reviewed commit, and PR:** use explicit unknown or not-created values where needed.
-- **Hand-edited file count and non-generated line count:** report exact totals against the verified base.
-- **Validation evidence:** commands, results, and any test or check that did not run.
-- **Reviewer and tech-lead verdicts:** include findings, nits, constraints, or not-reached states.
-- **Filed decisions and evidence riders:** list human-approved records filed during this task, or state none.
-- **Deferred boundaries:** include planned deferrals, remaining risks, and unrelated issues preserved.
-- **Merge status:** report only observed state. The delivery task does not count a PR as merged unless it independently verified the merge.
-- **Next coordinator action:** state the one verification or routing action the coordinator should take next.
-- **Next-dependency claim:** label this exactly as a **coordinator-verification hypothesis**. It is a proposed next dependency, not authority to start it.
+- **Outcome or blocker:** what completed or stopped delivery.
+- **Primary invariant:** the behavior implemented or attempted.
+- **Material exceptions or risks:** only items that affect the next choice.
+- **Deferred boundaries:** planned deferrals and preserved unrelated work.
+- **Merge status:** observed state only. The Delivery task does not count a PR as merged unless it independently verifies the merge.
+- **Next coordinator action:** one verification or routing action.
+- **Next-dependency claim:** label it a **coordinator-verification hypothesis**.
 
-The handback does not automatically create a `BRIEF:` or `RESUME:` file, update project state, flag a question, or file a decision or evidence rider. Those writes retain their existing explicit human approval paths. Do not automatically start another Delivery. The coordinator verifies the merge and decides the next action.
+Keep routine repository paths, revisions, counts, hashes, successful validation commands, and gate history in the internal audit record. The handback does not automatically create a `BRIEF:` or `RESUME:` file, update project state, flag a question, or file a decision or evidence rider. Do not automatically start another Delivery.
 
 ## Rules
 
-- A fully specified task still goes through the planner — the spec becomes the planner's input, not a reason to skip the chain and implement directly.
-- Push and `gh pr create` happen only with explicit user approval at the push gate (step 7).
-- `propose_decision` happens only with explicit user approval. Subagents draft or surface decisions; they never file an unapproved one. After the user approves in chat, the originating agent files — the planner for plan-time decisions, `@nauro-tech-lead` for doctrine moves it surfaces in Mode C. The executor never files; it surfaces emergent choices in its handoff (step 3) for the parent to gate. The kernel commits immediately on Tier 1 clean.
-- If a `propose_decision` is pending but the Nauro MCP server is disconnected, that is a hard pause — do not push the PR and file the decision after reconnecting. The code and its decision land together; a push-now-file-later split leaves doctrine unrecorded if the session ends first. Surface the disconnect and wait.
-- If anything fails or surprises mid-chain (a tool errors, tests fail unexpectedly, a verdict is incoherent), stop and surface to the user rather than recovering silently.
-- The chain is doctrine-aware end-to-end: every architectural choice flows through `check_decision` (at planning) and `propose_decision` (when the choice lands, after user approval). Skipping either silently is a chain failure, not a shortcut.
-- A program Delivery returns the standardized handback after PR creation or a terminal blocker. Ordinary prompts and all handbacks stay conversational and create no project-store artifact automatically.
+- A detailed task still goes through the planner.
+- Direct user approval applies only to the unchanged artifact in this Delivery task.
+- No subagent or coordinator has authority to approve, file, push, or create a PR.
+- If an approved decision cannot be filed and confirmed, hold before the next mutation or publication step.
+- Push and PR creation require separate exact publication approval.
+- Do not push, open a PR, merge, or start deferred work without the corresponding direct user authority.
