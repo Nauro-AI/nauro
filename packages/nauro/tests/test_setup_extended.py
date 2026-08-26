@@ -751,6 +751,9 @@ def test_setup_all_default_does_not_install_ship_task(tmp_path: Path, monkeypatc
     assert not (tmp_path / ".claude" / "skills" / "nauro-loop" / "SKILL.md").exists()
     assert not (tmp_path / ".agents" / "skills" / "nauro-loop" / "SKILL.md").exists()
     assert not (repo / ".cursor" / "rules" / "nauro-loop.mdc").exists()
+    assert not (tmp_path / ".claude" / "skills" / "nauro-interview" / "SKILL.md").exists()
+    assert not (tmp_path / ".agents" / "skills" / "nauro-interview" / "SKILL.md").exists()
+    assert not (repo / ".cursor" / "rules" / "nauro-interview.mdc").exists()
 
 
 def test_setup_all_with_skills_installs_ship_task_everywhere(tmp_path: Path, monkeypatch):
@@ -936,6 +939,35 @@ def test_setup_all_with_skills_installs_loop_everywhere(tmp_path: Path, monkeypa
     assert not cursor.exists()
 
 
+def test_setup_all_with_skills_installs_interview_everywhere(tmp_path: Path, monkeypatch):
+    """``--with-skills`` installs and removes byte-equal Interview artifacts."""
+    from nauro.skills import render_skill
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    _, store_path = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo)
+
+    install = runner.invoke(app, ["setup", "all", "--with-skills"])
+    assert install.exit_code == 0, install.output
+
+    claude = tmp_path / ".claude" / "skills" / "nauro-interview" / "SKILL.md"
+    codex = tmp_path / ".agents" / "skills" / "nauro-interview" / "SKILL.md"
+    cursor = repo / ".cursor" / "rules" / "nauro-interview.mdc"
+    assert claude.read_text(encoding="utf-8") == render_skill("claude_code", "nauro-interview")
+    assert codex.read_text(encoding="utf-8") == render_skill("codex", "nauro-interview")
+    assert cursor.read_text(encoding="utf-8") == render_skill("cursor", "nauro-interview")
+
+    remove = runner.invoke(app, ["setup", "all", "--remove", "--with-skills"])
+    assert remove.exit_code == 0, remove.output
+
+    assert not claude.exists()
+    assert not codex.exists()
+    assert not cursor.exists()
+
+
 def test_setup_all_with_skills_and_subagents_suppresses_notice(tmp_path: Path, monkeypatch):
     """When both flags are passed, no notice — prerequisites met."""
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -950,7 +982,7 @@ def test_setup_all_with_skills_and_subagents_suppresses_notice(tmp_path: Path, m
     assert "nauro-ship-task references the bundled @nauro-* subagents" not in result.output
 
 
-def test_setup_all_remove_without_with_skills_leaves_ship_task_intact(tmp_path: Path, monkeypatch):
+def test_setup_all_remove_without_with_skills_leaves_interview_intact(tmp_path: Path, monkeypatch):
     """If the user installed ``--with-skills`` and removes without the flag,
     the opt-in skill files persist — the remove path mirrors the install path's
     name set so partial cleanups are explicit, not silent."""
@@ -962,13 +994,13 @@ def test_setup_all_remove_without_with_skills_leaves_ship_task_intact(tmp_path: 
     monkeypatch.chdir(repo)
 
     runner.invoke(app, ["setup", "all", "--with-skills"])
-    claude = tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md"
+    claude = tmp_path / ".claude" / "skills" / "nauro-interview" / "SKILL.md"
     assert claude.is_file()
 
     remove = runner.invoke(app, ["setup", "all", "--remove"])  # no --with-skills
     assert remove.exit_code == 0, remove.output
 
-    # nauro-adopt is cleared (the always-installed set), nauro-ship-task is not.
+    # nauro-adopt is cleared (the always-installed set), nauro-interview is not.
     assert not (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").exists()
     assert claude.is_file()
 

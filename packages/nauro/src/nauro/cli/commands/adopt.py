@@ -382,7 +382,7 @@ def adopt(
         "--with-skills",
         help=(
             "Install Nauro's bundled opt-in skills "
-            "(nauro-ship-task, nauro-context, nauro-loop) alongside the "
+            "(nauro-ship-task, nauro-context, nauro-loop, nauro-interview) alongside the "
             "always-installed nauro-adopt skill. Independent of --with-subagents."
         ),
     ),

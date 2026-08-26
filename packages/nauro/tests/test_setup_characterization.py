@@ -373,6 +373,7 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/.claude/skills/nauro-ship-task/SKILL.md\n"
             "  wrote {TMP}/.claude/skills/nauro-context/SKILL.md\n"
             "  wrote {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
+            "  wrote {TMP}/.claude/skills/nauro-interview/SKILL.md\n"
             "  installed {TMP}/.claude/agents/nauro-planner.md\n"
             "  installed {TMP}/.claude/agents/nauro-executor.md\n"
             "  installed {TMP}/.claude/agents/nauro-reviewer.md\n"
@@ -383,11 +384,13 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
+            "  wrote {TMP}/repo/.cursor/rules/nauro-interview.mdc\n"
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-context/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  wrote {TMP}/.agents/skills/nauro-interview/SKILL.md\n"
             "  installed {TMP}/.codex/agents/nauro-planner.toml\n"
             "  installed {TMP}/.codex/agents/nauro-executor.toml\n"
             "  installed {TMP}/.codex/agents/nauro-reviewer.toml\n"
@@ -512,16 +515,19 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/.claude/skills/nauro-ship-task/SKILL.md\n"
             "  wrote {TMP}/.claude/skills/nauro-context/SKILL.md\n"
             "  wrote {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
+            "  wrote {TMP}/.claude/skills/nauro-interview/SKILL.md\n"
             "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
+            "  wrote {TMP}/repo/.cursor/rules/nauro-interview.mdc\n"
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-context/SKILL.md\n"
             "  wrote {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  wrote {TMP}/.agents/skills/nauro-interview/SKILL.md\n"
             "  {TMP}/repo: regenerated AGENTS.md\n"
             + _bridge_line()
             + "\n"
@@ -722,12 +728,13 @@ class TestSetupAllTranscripts:
         # opt-in skills in both skill roots, their Cursor rules, and all subagents.
         for root in (".claude/skills", ".agents/skills"):
             names = {p.name for p in (tmp_path / root).iterdir()}
-            assert names == {"nauro-ship-task", "nauro-context", "nauro-loop"}
+            assert names == {"nauro-ship-task", "nauro-context", "nauro-loop", "nauro-interview"}
         rule_names = {p.name for p in (tmp_path / "repo" / ".cursor" / "rules").iterdir()}
         assert rule_names == {
             "nauro-ship-task.mdc",
             "nauro-context.mdc",
             "nauro-loop.mdc",
+            "nauro-interview.mdc",
         }
         agent_names = {p.name for p in (tmp_path / ".claude" / "agents").iterdir()}
         assert agent_names == {
@@ -770,6 +777,7 @@ class TestSetupAllTranscripts:
             "  removed {TMP}/.claude/skills/nauro-ship-task/SKILL.md\n"
             "  removed {TMP}/.claude/skills/nauro-context/SKILL.md\n"
             "  removed {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
+            "  removed {TMP}/.claude/skills/nauro-interview/SKILL.md\n"
             "  removed {TMP}/.claude/agents/nauro-planner.md\n"
             "  removed {TMP}/.claude/agents/nauro-executor.md\n"
             "  removed {TMP}/.claude/agents/nauro-reviewer.md\n"
@@ -780,11 +788,13 @@ class TestSetupAllTranscripts:
             "  removed {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
+            "  removed {TMP}/repo/.cursor/rules/nauro-interview.mdc\n"
             "Codex: removed nauro from {TMP}/.codex/config.toml\n"
             "  removed {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  removed {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
             "  removed {TMP}/.agents/skills/nauro-context/SKILL.md\n"
             "  removed {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  removed {TMP}/.agents/skills/nauro-interview/SKILL.md\n"
             "  removed {TMP}/.codex/agents/nauro-planner.toml\n"
             "  removed {TMP}/.codex/agents/nauro-executor.toml\n"
             "  removed {TMP}/.codex/agents/nauro-reviewer.toml\n"
@@ -920,6 +930,7 @@ class TestCommandIdempotency:
             "  unchanged {TMP}/.claude/skills/nauro-ship-task/SKILL.md\n"
             "  unchanged {TMP}/.claude/skills/nauro-context/SKILL.md\n"
             "  unchanged {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
+            "  unchanged {TMP}/.claude/skills/nauro-interview/SKILL.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-planner.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-executor.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-reviewer.md\n"
@@ -930,11 +941,13 @@ class TestCommandIdempotency:
             "  unchanged {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  unchanged {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
             "  unchanged {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
+            "  unchanged {TMP}/repo/.cursor/rules/nauro-interview.mdc\n"
             "Codex: nauro already configured in {TMP}/.codex/config.toml\n"
             "  unchanged {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
             "  unchanged {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
             "  unchanged {TMP}/.agents/skills/nauro-context/SKILL.md\n"
             "  unchanged {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  unchanged {TMP}/.agents/skills/nauro-interview/SKILL.md\n"
             "  unchanged {TMP}/.codex/agents/nauro-planner.toml\n"
             "  unchanged {TMP}/.codex/agents/nauro-executor.toml\n"
             "  unchanged {TMP}/.codex/agents/nauro-reviewer.toml\n"

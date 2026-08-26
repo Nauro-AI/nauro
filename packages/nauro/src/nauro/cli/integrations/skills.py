@@ -17,7 +17,12 @@ from nauro.store.write_safety import (
 # SKILL_NAMES always installs; OPT_IN_SKILL_NAMES only when the caller passes with_skills=True.
 
 SKILL_NAMES: tuple[str, ...] = ("nauro-adopt",)
-OPT_IN_SKILL_NAMES: tuple[str, ...] = ("nauro-ship-task", "nauro-context", "nauro-loop")
+OPT_IN_SKILL_NAMES: tuple[str, ...] = (
+    "nauro-ship-task",
+    "nauro-context",
+    "nauro-loop",
+    "nauro-interview",
+)
 
 
 def _claude_skill_dir() -> Path:

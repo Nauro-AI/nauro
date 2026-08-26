@@ -89,7 +89,7 @@ def test_status_reports_current_skills_and_agents_on_both_surfaces(tmp_path, mon
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
-    assert "Skills        active (Claude 4/4; Codex 4/4)" in result.output
+    assert "Skills        active (Claude 5/5; Codex 5/5)" in result.output
     assert "Workflow      active (Claude 4/4; Codex 4/4)" in result.output
 
 
@@ -124,7 +124,7 @@ def test_status_reports_stale_skill_without_legacy_copy(tmp_path, monkeypatch):
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
-    assert "Skills        BROKEN - Claude 4/4; Codex 3/4" in result.output
+    assert "Skills        BROKEN - Claude 5/5; Codex 4/5" in result.output
     assert "differ from this release; run 'nauro setup all --with-skills'" in result.output
 
 
@@ -157,7 +157,24 @@ def test_status_partial_optin_skills_prompt_completion(tmp_path, monkeypatch):
 
     assert result.exit_code == 0
     assert (
-        "Skills        partial (Claude 4/4; Codex 1/4) - "
+        "Skills        partial (Claude 5/5; Codex 1/5) - "
+        "run 'nauro setup all --with-skills'" in result.output
+    )
+
+
+def test_status_prior_release_skills_prompt_refresh_on_both_surfaces(tmp_path, monkeypatch):
+    """A prior four-skill install is partial on both surfaces until refreshed."""
+    _setup_project(tmp_path, monkeypatch)
+    _install_workflow_artifacts()
+    home = tmp_path / "home"
+    (home / ".claude" / "skills" / "nauro-interview" / "SKILL.md").unlink()
+    (home / ".agents" / "skills" / "nauro-interview" / "SKILL.md").unlink()
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert (
+        "Skills        partial (Claude 4/5; Codex 4/5) - "
         "run 'nauro setup all --with-skills'" in result.output
     )
 

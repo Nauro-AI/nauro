@@ -12,8 +12,8 @@ nauro adopt --name <your-project-name>
 
 That registers the project, wires MCP across surfaces, and installs the
 `nauro-adopt` skill. (The session skill `nauro-context`, the workflow skill
-`nauro-ship-task`, and the loop skill `nauro-loop` are opt-in via
-`nauro adopt --with-skills`.) Once that has
+`nauro-ship-task`, the loop skill `nauro-loop`, and the interview skill
+`nauro-interview` are opt-in via `nauro adopt --with-skills`.) Once that has
 run, you can use the prompt below from any connected chat surface to seed the
 project's store with context.
 
