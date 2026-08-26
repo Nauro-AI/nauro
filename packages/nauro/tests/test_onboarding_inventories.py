@@ -132,6 +132,7 @@ def test_adopt_with_skills_and_subagents_inventory(tmp_path: Path, monkeypatch):
         | {
             ".agents/skills/nauro-adopt/SKILL.md",
             ".agents/skills/nauro-context/SKILL.md",
+            ".agents/skills/nauro-interview/SKILL.md",
             ".agents/skills/nauro-loop/SKILL.md",
             ".agents/skills/nauro-ship-task/SKILL.md",
             ".claude/agents/nauro-executor.md",
@@ -140,6 +141,7 @@ def test_adopt_with_skills_and_subagents_inventory(tmp_path: Path, monkeypatch):
             ".claude/agents/nauro-tech-lead.md",
             ".claude/skills/nauro-adopt/SKILL.md",
             ".claude/skills/nauro-context/SKILL.md",
+            ".claude/skills/nauro-interview/SKILL.md",
             ".claude/skills/nauro-loop/SKILL.md",
             ".claude/skills/nauro-ship-task/SKILL.md",
             ".codex/agents/nauro-executor.toml",
@@ -150,6 +152,7 @@ def test_adopt_with_skills_and_subagents_inventory(tmp_path: Path, monkeypatch):
             "repo/.cursor/mcp.json",
             "repo/.cursor/rules/nauro-adopt.mdc",
             "repo/.cursor/rules/nauro-context.mdc",
+            "repo/.cursor/rules/nauro-interview.mdc",
             "repo/.cursor/rules/nauro-loop.mdc",
             "repo/.cursor/rules/nauro-ship-task.mdc",
             "repo/.gitignore",
