@@ -481,6 +481,88 @@ def test_load_interview_body_preserves_deliberation_boundary():
     assert "does not write `CONTEXT.md` or ADR files" in body
 
 
+def test_interview_body_asks_compact_bounded_numbered_rounds():
+    body = load_interview_body()
+
+    assert "at most three prerequisite-ready material questions" in body
+    assert "Use one question when only one is ready" in body
+    assert "unlock the most downstream material branches" in body
+    assert "Number questions continuously across the interview, starting at 1" in body
+    assert "keeps its number until it is answered" in body
+    assert "next unused number" in body
+    assert "atomic and directly answerable with a short choice or short free-text answer" in body
+    assert "Use compact options when the answer space is finite" in body
+    assert "Use exactly this form: `Reply: 4: <answer>; 5: <answer>. Answer any subset.`" in body
+
+
+def test_interview_body_advances_dependencies_without_repetition():
+    body = load_interview_body()
+
+    assert "Preserve each unanswered ready question with its original number" in body
+    assert "Recompute dependencies after every partial answer" in body
+    assert "Never repeat a settled question" in body
+    assert "Do not ask permission to continue" in body
+    assert "must not block independent prerequisite-ready questions" in body
+    assert "vague, contradictory, conditional, slogan-like, or incomplete" in body
+    for missing_detail in (
+        "condition",
+        "threshold",
+        "example",
+        "rejected path",
+        "failure case",
+        "consequence",
+        "reversal trigger",
+    ):
+        assert missing_detail in body
+
+
+def test_interview_body_keeps_routine_work_internal_and_recommendations_bounded():
+    body = load_interview_body()
+
+    assert "recommend an answer shape" in body
+    assert "Never invent the user's rationale" in body
+    assert "routine orientation" in body
+    assert "fact finding" in body
+    assert "dependency tree" in body
+    assert "coverage ledger" in body
+    assert "unless it changes the user's answer or corrects a factual claim" in body
+    assert "For each question, provide:" not in body
+    assert "Why it is ready now" not in body
+
+
+def test_interview_body_audits_coverage_and_branch_dispositions():
+    body = load_interview_body()
+
+    for coverage_class in (
+        "outcome",
+        "rationale",
+        "constraints",
+        "terminology",
+        "assumptions",
+        "alternatives and rejected paths",
+        "consequences",
+        "unresolved choices",
+        "material failure cases",
+    ):
+        assert coverage_class in body
+    assert "disconfirming evidence and reversal triggers" in body
+    assert "`Interview complete` only after every material branch" in body
+    assert (
+        "settled, verified, rejected with a reason, or explicitly preserved as unresolved" in body
+    )
+    assert "label the interview incomplete" in body
+    assert "only the material unresolved branches" in body
+    assert "Render only the nonempty record classes" in body
+
+
+def test_interview_body_never_stages_writes_from_completion_or_confirmation():
+    body = load_interview_body()
+
+    assert "explicitly asked to transfer, save, or record the result" in body
+    assert "Completing the interview does not stage a write" in body
+    assert "Confirming the shared-understanding summary does not stage a write" in body
+
+
 def test_interview_body_requires_separate_later_reply_for_each_write_class():
     body = load_interview_body()
 
@@ -547,6 +629,7 @@ def test_render_skill_interview_frontmatter():
     claude = render_skill("claude_code", "nauro-interview")
     assert claude.startswith("---\nname: nauro-interview\n")
     assert "description:" in claude.split("\n---\n", 1)[0]
+    assert "compact, numbered prerequisite-ready questions" in claude.split("\n---\n", 1)[0]
     assert claude.split("\n---\n", 1)[1].lstrip("\n") == load_interview_body()
 
     cursor = render_skill("cursor", "nauro-interview")
