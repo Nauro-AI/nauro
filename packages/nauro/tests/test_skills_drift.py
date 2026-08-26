@@ -119,12 +119,12 @@ def test_load_loop_body_returns_canonical_bytes():
     assert 1000 < len(body) < 25000
     # Load-bearing section headings so a cleanup edit cannot silently drop the
     # ORIENT -> SELECT -> ROUTE procedure.
-    assert "## ORIENT" in body
-    assert "## SELECT" in body
-    assert "## ROUTE" in body
-    assert "## CHAIN" in body
-    assert "## INTEGRATE" in body
-    assert "## RE-ORIENT" in body
+    assert "### ORIENT" in body
+    assert "### SELECT" in body
+    assert "### ROUTE" in body
+    assert "## START" in body
+    assert "## ADVISE" in body
+    assert "## VERIFY" in body
     # SELECT is the net-new human ratify-gate; it surfaces candidates via
     # AskUserQuestion and never auto-picks — not even a single candidate.
     assert "AskUserQuestion" in body
@@ -138,19 +138,18 @@ def test_load_loop_body_returns_canonical_bytes():
     assert "existing SELECT checkpoint and pointer" in body
     assert "holds no project-store write" not in body
     # The chain is dispatched byte-for-byte and never reproduced inline.
-    assert "/nauro-ship-task" in body
+    assert "nauro-ship-task" in body
     assert "byte-for-byte" in body
     # Under the loop the chain's low-stakes auto-proceed at the plan gate closes.
-    assert "auto-proceed" in body
-    assert "closed" in body or "CLOSED" in body
-    # Structural hard rules: fail-closed on gate-callback timeout, a held-gate
-    # lock, and a hard per-session ceiling.
+    assert "low-stakes auto-proceed" not in body
+    # Structural hard rules: fail closed into a recoverable held state while
+    # keeping at most one active direct-user Delivery.
     assert "fails closed" in body or "fail closed" in body
-    assert "held-gate lock" in body or "held gate" in body
-    assert "per-session ceiling" in body
-    # Gate H is the stuck-handler: a chain that self-halts or fails loud routes
-    # to a surface-and-wait gate, never a blind retry or skip to the next task.
-    assert "Gate H" in body
+    assert "moves the program to held" in body
+    assert "Only one Delivery may be active" in body
+    # Held-state recovery must restore authoritative evidence before the
+    # coordinator resumes or advances the program.
+    assert "Held state and recovery" in body
     # ORIENT mines via the Resume pointers on the union-merged file.
     assert "RESUME:" in body
     assert "BRIEF:" in body
@@ -220,56 +219,235 @@ def test_loop_body_keeps_interviews_explicit_and_non_authoritative():
     assert "separate later approval gates" in body
 
 
-def test_loop_body_program_mode_hands_off_and_stops():
+def test_loop_body_program_mode_starts_direct_user_delivery():
     body = load_loop_body()
 
-    assert "ORIENT -> SELECT -> HANDOFF -> STOP" in body
-    assert "explicitly opts in to program mode" in body
-    assert "repository, PR, branch, and program anchors" in body
-    assert "fresh delivery task" in body
+    assert "FRAME -> CHOOSE -> START -> ADVISE -> VERIFY -> ADVANCE" in body
+    assert "explicit opt-in Delivery policy" in body
+    assert "repository anchors" in body
+    assert "fresh direct-user Delivery task" in body
     assert "target surface's `nauro-ship-task` command" in body
     assert "$nauro-ship-task" not in body
     assert "self-contained prompt" in body
-    assert "terminal program handback" in body
-    assert "does not dispatch Delivery in the coordinator session" in body
-    assert "does not re-run ORIENT after the handoff" in body
+    assert "compact terminal handback" in body
+    assert "Only one Delivery may be active" in body
+    assert "never starts that action automatically" in body
 
 
-def test_loop_body_dispatches_chain_only_for_synchronous_delivery():
+def test_loop_body_dispatches_chain_only_for_non_program_delivery():
     body = load_loop_body()
 
-    assert "only after SELECT returns a `Delivery` candidate" in body
-    assert "synchronous mode or the live continuation of scheduled mode" in body
-    assert "An Interview selection never enters CHAIN" in body
-    assert "Program-mode Delivery never enters CHAIN" in body
-    assert "On the human's pick, dispatch" not in body
+    assert "Synchronous non-program Delivery stays outside" in body
+    assert "An Interview selection never enters that chain" in body
+    assert "current surface's `nauro-ship-task` command" in body
+    assert "Do not reproduce the planner, executor, reviewer, or tech-lead roles inline" in body
 
 
 def test_loop_body_preserves_delivery_modes_and_rotates_coordinator():
     body = load_loop_body()
 
-    assert "Synchronous delivery" in body
+    assert "Synchronous non-program Delivery" in body
     assert "Scheduled headless ORIENT" in body
     assert "freshest unconsumed" in body
     assert "notification" in body
-    assert "independently verifies the merge" in body
-    assert "five coordinator-verified completed slices" in body
-    for immediate_rotation in (
-        "decision-package interview",
-        "context compaction",
-        "lost approval lineage",
-        "anchor conflict",
-        "sequencing conflict",
-    ):
-        assert immediate_rotation in body
-    assert "Resume is explicit" in body
+    assert "Independently verify" in body
+    assert "Slice count and context length alone do not require rotation" in body
+    assert "lost approval lineage" in body
+    assert "repository anchors" in body
     assert "untrusted input" in body
     assert "explicit `/nauro-context` Resume workflow" in body
-    assert "offer Resume and wait for explicit user approval" in body
-    assert "run Resume to create the durable brief" in body
-    assert "After the approved Resume brief is created, stop" in body
-    assert "A conversational prompt alone is not rotation" in body
-    assert "never creates a `BRIEF:` or `RESUME:` file automatically" in body
+    assert "wait for user approval before writing a brief" in body
+    assert "create no automatic `BRIEF:` or `RESUME:` file" in body
+
+
+def test_loop_program_contract_has_six_phases_in_order():
+    body = load_loop_body()
+    headings = [
+        "## FRAME",
+        "## CHOOSE",
+        "## START",
+        "## ADVISE",
+        "## VERIFY",
+        "## ADVANCE",
+    ]
+
+    assert [body.index(heading) for heading in headings] == sorted(
+        body.index(heading) for heading in headings
+    )
+    assert "FRAME -> CHOOSE -> START -> ADVISE -> VERIFY -> ADVANCE" in body
+
+
+def test_loop_program_contract_preserves_entry_and_store_boundaries():
+    body = load_loop_body()
+
+    assert "For `HUMAN-SELECTED` input, FRAME also verifies the named invariant" in body
+    assert "Agent-originated FRAME does not require a selected invariant before CHOOSE" in body
+    assert "HUMAN-SELECTED" in body
+    assert "skips candidate origination, ORIENT, and SELECT" in body
+    assert "preserve the user's exact named work" in body
+    assert "Agent-originated work enters ORIENT" in body
+    assert "1-3 ranked frontier items" in body
+    assert "mandatory SELECT" in body
+    assert "reject all" in body
+    assert "no auto-pick path" in body
+    assert "Scheduled headless ORIENT" in body
+    assert "parks the set as a durable SELECT checkpoint and exits before any gate" in body
+    assert "Interview remains explicit, separate, and non-authoritative" in body
+    assert "scheduled ORIENT selection-checkpoint writes are the narrow exception" in body
+    assert "Ordinary prompts, Interview results, Delivery handoffs, and program handbacks" in body
+
+
+def test_loop_program_start_enforces_one_direct_user_delivery():
+    body = load_loop_body()
+
+    assert "exactly one fresh direct-user Delivery task" in body
+    assert "Only one Delivery may be active for the program" in body
+    assert "create, identify, inspect, and message" in body
+    assert "hidden child, ordinary subagent, or generic agent" in body
+    assert "is not a substitute" in body
+    assert "self-contained prompt" in body
+    assert "require Delivery to stop at `PLAN_READY` and `PUBLICATION_READY`" in body
+    assert "Ambiguous launch" in body
+    assert "failed post-create identification" in body
+    assert "duplicate Delivery" in body
+    assert "do not retry creation" in body
+
+
+def test_loop_program_advice_binds_exact_artifact_revisions():
+    body = load_loop_body()
+
+    assert "PLAN_READY" in body
+    assert "PUBLICATION_READY" in body
+    assert "exact unchanged artifact revision" in body
+    assert "content digest" in body
+    assert "recomputes the digest from the complete artifact bytes" in body
+    assert "send the bound advice to that same active Delivery identity" in body
+    assert "Coordinator `READY` and requested changes are advice only" in body
+    assert "transport labels it as user input" in body
+    assert "Only the direct user in Delivery can approve" in body
+    assert (
+        "explicitly states that they bypass coordinator review or advice for that exact "
+        "artifact revision and digest" in body
+    )
+    assert "This includes a bypass after coordinator requested changes" in body
+    assert "Requested changes do not veto Delivery" in body
+    assert "direct user approves the same exact artifact and either" in body
+    assert "Material changes create a new revision identity" in body
+    assert "reopen coordinator review and direct-user approval" in body
+    assert "byte-identical retry retains the revision" in body
+    for material_input in (
+        "decision proposal",
+        "related-decision assessment",
+        "reviewed base",
+        "candidate",
+        "pull-request title",
+        "pull-request body",
+        "reviewed code candidate",
+    ):
+        assert material_input in body
+
+
+def test_loop_program_prompt_completes_ship_task_publication_advice_round_trip():
+    loop = load_loop_body()
+    ship_task = load_ship_task_body()
+
+    assert "For a program Delivery, return PLAN_READY" in ship_task
+    assert "create a PUBLICATION revision" in ship_task
+    assert "require Delivery to stop at `PLAN_READY` and `PUBLICATION_READY`" in loop
+    assert "before either direct-user gate" in loop
+
+
+def test_loop_program_recovery_reverifies_lineage_and_anchors():
+    body = load_loop_body()
+
+    for held_state in (
+        "unavailable coordinator",
+        "incomplete artifact",
+        "lost approval lineage",
+        "duplicate Delivery",
+        "uncertain merge",
+    ):
+        assert held_state in body
+    assert "replacement coordinator" in body
+    assert "program frame" in body
+    assert "active Delivery identity" in body
+    assert "artifact identity" in body
+    assert "repository anchors" in body
+    assert "Narrative summaries do not carry approval" in body
+    assert (
+        "An explicit direct-user statement may bypass coordinator review or advice, including "
+        "requested changes, for the exact artifact revision and digest" in body
+    )
+
+
+def test_loop_program_verifies_before_one_next_recommendation():
+    body = load_loop_body()
+
+    assert "compact terminal handback" in body
+    assert "evidence, not proof" in body
+    assert "pull-request result" in body
+    assert "merge state" in body
+    assert "current `origin/main`" in body
+    assert "expected behavioral state" in body
+    assert "`gh pr view` or an equivalent authenticated read channel" in body
+    assert "only when a required PR-backed repository-anchor check needs it" in body
+    assert "This includes ORIENT, Resume, replacement-coordinator recovery, and VERIFY" in body
+    assert "Read-only inspection does not grant publication authority" in body
+    assert "performs another publication mutation" in body
+    assert "at most one next action" in body
+    assert "never starts that action automatically" in body
+    assert "Rotate only when required evidence can no longer be verified" in body
+    assert "direct user requests rotation" in body
+    assert "Slice count and context length alone do not require rotation" in body
+
+
+def test_loop_program_packets_keep_routine_evidence_internal():
+    body = load_loop_body()
+
+    assert "User-facing packets contain only" in body
+    for visible in (
+        "choice",
+        "authority boundary",
+        "semantic risk",
+        "material scope or invalidation",
+        "blocker",
+        "exact external payload",
+        "outcome",
+        "next required action",
+    ):
+        assert visible in body
+    assert "Routine paths, counts, hashes, commands, successful checks" in body
+    assert "gate narration, dispatch details, and compliance reassurance remain internal" in body
+    assert (
+        "Complete decision proposals and exact pull-request publication payloads remain visible"
+        in body
+    )
+
+
+def test_loop_keeps_synchronous_delivery_outside_program_contract():
+    body = load_loop_body()
+
+    assert "Synchronous non-program Delivery stays outside the Program state machine" in body
+    assert "current surface's `nauro-ship-task` command" in body
+    assert "byte-for-byte" in body
+    assert "direct-user plan, decision, review, and publication gates" in body
+    assert "MCP or shell write paths may exist" in body
+    assert "do not grant the coordinator authority" in body
+
+
+def test_loop_program_rejects_retired_topology_and_rotation():
+    body = load_loop_body()
+
+    for retired in (
+        "ORIENT -> SELECT -> HANDOFF -> STOP",
+        "low-stakes auto-proceed",
+        "six existing gates",
+        "five coordinator-verified completed slices",
+        "context compaction",
+        "RE-ORIENT",
+        "A surface may run one complete `nauro-ship-task` inside a persistent",
+    ):
+        assert retired not in body
 
 
 def test_load_interview_body_preserves_deliberation_boundary():
@@ -384,7 +562,15 @@ def test_render_skill_claude_code_loop_frontmatter():
     assert rendered.startswith("---\nname: nauro-loop\n")
     assert "description:" in rendered.split("\n---\n", 1)[0]
     body = rendered.split("\n---\n", 1)[1].lstrip("\n")
-    assert body == load_loop_body()
+    assert body == load_loop_body("claude_code")
+
+
+def test_render_skill_codex_loop_frontmatter():
+    rendered = render_skill("codex", "nauro-loop")
+    assert rendered.startswith("---\nname: nauro-loop\n")
+    assert "description:" in rendered.split("\n---\n", 1)[0]
+    body = rendered.split("\n---\n", 1)[1].lstrip("\n")
+    assert body == load_loop_body("codex")
 
 
 def test_render_skill_cursor_loop_frontmatter():
@@ -394,7 +580,67 @@ def test_render_skill_cursor_loop_frontmatter():
     assert "alwaysApply: false" in fm
     assert "name:" not in fm
     body = rendered.split("\n---\n", 1)[1].lstrip("\n")
-    assert body == load_loop_body()
+    assert body == load_loop_body("cursor")
+
+
+@pytest.mark.parametrize("surface", ["claude_code", "codex", "cursor"])
+def test_loop_rendered_surfaces_reject_retired_program_authority_clauses(surface: str):
+    body = render_skill(surface, "nauro-loop")
+
+    assert "only when a required PR-backed repository-anchor check needs it" in body
+    assert "This includes ORIENT, Resume, replacement-coordinator recovery, and VERIFY" in body
+    assert "Requested changes do not veto Delivery" in body
+    assert "bypass coordinator review or advice for that exact artifact revision and digest" in body
+    for retired_clause in (
+        "never runs `gh`",
+        "never run `gh`",
+        "does not run `gh`",
+        "do not run `gh`",
+        "must not run `gh`",
+        "cannot run `gh`",
+        "only to perform VERIFY",
+        "only for read-only VERIFY inspection",
+        "explicitly bypasses unavailable coordinator advice",
+        "bypass only unavailable coordinator advice",
+        "Only an explicit direct-user bypass can clear the unavailable-coordinator hold",
+        "requested changes veto Delivery",
+        "requested changes block Delivery",
+        "cannot bypass requested changes",
+    ):
+        assert retired_clause not in body
+
+
+def test_loop_lifecycle_fragments_match_each_surface():
+    claude = load_loop_body("claude_code")
+    codex = load_loop_body("codex")
+    cursor = load_loop_body("cursor")
+
+    assert "Claude Code lifecycle proof" in claude
+    assert "normal subagent controls do not qualify" in claude
+    assert "`/nauro-ship-task <DELIVERY>`" in claude
+    assert "Codex lifecycle proof" in codex
+    assert "normal subagent controls do not qualify" in codex
+    assert "`$nauro-ship-task <DELIVERY>`" in codex
+    assert "Delivery cannot start on Cursor in this release" in cursor
+    assert "supported Claude Code surface" in cursor
+    assert "`/nauro-ship-task <DELIVERY>`" in cursor
+    assert len({claude, codex, cursor}) == 3
+    for body in (claude, codex, cursor):
+        assert "<!-- surface:" not in body
+        assert "create, identify, inspect, and message" in body
+
+    for body in (claude, codex):
+        create = body.index("create once")
+        retain = body.index("record the stable returned identity as the sole launch identity")
+        inspect = body.index("inspect that task", retain)
+        activate = body.index("record it as the active Delivery identity", inspect)
+        message = body.index("message the exact prompt", activate)
+        assert create < retain < inspect < activate < message
+
+
+def test_load_loop_body_unknown_surface_raises():
+    with pytest.raises(ValueError):
+        load_loop_body("emacs")
 
 
 def test_context_body_brief_size_gloss_matches_constant():
@@ -639,11 +885,13 @@ def test_program_routing_registry_descriptions():
     ship_task = SKILL_DESCRIPTIONS["nauro-ship-task"]
 
     assert "Delivery and Interview candidates" in loop
+    assert "FRAME -> CHOOSE -> START -> ADVISE -> VERIFY -> ADVANCE" in loop
+    assert "Human-named work bypasses candidate selection" in loop
     assert "mandatory human selection" in loop
-    assert "target surface's `nauro-ship-task` command" in loop
-    assert "$nauro-ship-task" not in loop
-    assert "synchronous and scheduled modes" in loop
-    assert "holds no store-write authority" not in loop
+    assert "create, identify, inspect, and message" in loop
+    assert "returns one exact launch prompt and stops" in loop
+    assert "artifact review is advisory" in loop
+    assert "Synchronous non-program Delivery stays outside" in loop
     assert "Ordinary outputs create no automatic store artifacts" in loop
     assert "scheduled ORIENT retains its existing SELECT checkpoint and pointer writes" in loop
     assert "standardized program handback" in ship_task

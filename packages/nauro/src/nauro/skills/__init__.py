@@ -31,6 +31,7 @@ SkillName = Literal[
 ]
 
 _SHIP_TASK_PREREQUISITES_TOKEN = "<!-- surface:SHIP_TASK_PREREQUISITES -->"
+_LOOP_PROGRAM_DELIVERY_LIFECYCLE_TOKEN = "<!-- surface:LOOP_PROGRAM_DELIVERY_LIFECYCLE -->"
 
 _CLAUDE_SHIP_TASK_PREREQUISITES = (
     "This skill invokes the bundled `@nauro-*` subagents by name. They install via "
@@ -98,6 +99,44 @@ _CODEX_SHIP_TASK_PREREQUISITES = (
     "contexts and the human-controlled gates remain mandatory in both dispatch modes."
 )
 
+_CLAUDE_LOOP_PROGRAM_DELIVERY_LIFECYCLE = (
+    "### Claude Code lifecycle proof\n\n"
+    "Prove at runtime that Claude Code can create, identify, inspect, and message a fresh "
+    "direct-user task. The normal subagent controls do not qualify, even when they can spawn, "
+    "list, or message a retained child. If any operation is unavailable before creation, "
+    "return exactly one launch prompt and stop: `/nauro-ship-task <DELIVERY>`. Replace "
+    "`<DELIVERY>` with the complete self-contained Delivery prompt.\n\n"
+    "When all four operations are available, create once, require one stable returned task "
+    "identity, record the stable returned identity as the sole launch identity, inspect that "
+    "task to confirm its direct user channel, record it as the active Delivery identity, and "
+    "message the exact prompt to that identity. Any post-create uncertainty holds without "
+    "another create call."
+)
+
+_CODEX_LOOP_PROGRAM_DELIVERY_LIFECYCLE = (
+    "### Codex lifecycle proof\n\n"
+    "Prove at runtime that Codex can create, identify, inspect, and message a fresh "
+    "direct-user task. The normal subagent controls do not qualify, including spawn, list, "
+    "follow-up, or send-message controls for generic or custom agents. If any operation is "
+    "unavailable before creation, return exactly one launch prompt and stop: "
+    "`$nauro-ship-task <DELIVERY>`. Replace `<DELIVERY>` with the complete self-contained "
+    "Delivery prompt.\n\n"
+    "When all four operations are available, create once, require one stable returned task "
+    "identity, record the stable returned identity as the sole launch identity, inspect that "
+    "task to confirm its direct user channel, record it as the active Delivery identity, and "
+    "message the exact prompt to that identity. Any post-create uncertainty holds without "
+    "another create call."
+)
+
+_CURSOR_LOOP_PROGRAM_DELIVERY_LIFECYCLE = (
+    "### Cursor launch hold\n\n"
+    "Delivery cannot start on Cursor in this release. Cursor cannot prove runtime controls "
+    "to create, identify, inspect, and message a fresh direct-user task. Do not use a hidden "
+    "child or generic agent. Return exactly one launch prompt for the supported Claude Code "
+    "surface and stop: `/nauro-ship-task <DELIVERY>`. Replace `<DELIVERY>` with the complete "
+    "self-contained Delivery prompt."
+)
+
 SKILL_DESCRIPTIONS: dict[str, str] = {
     "nauro-adopt": (
         "Seeds Nauro's project store from an existing repo. Use after "
@@ -143,20 +182,18 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "`nauro adopt --with-skills`."
     ),
     "nauro-loop": (
-        "Run gated work origination as ORIENT -> SELECT -> ROUTE. "
-        "Invoke under the dynamic /loop command (/loop /nauro-loop). Mines the "
-        "project's existing Nauro store state read-only (get_context, "
-        "open-questions RESUME/BRIEF pointers, diff_since_last_session, "
-        "list_decisions) and originates 1-3 ranked Delivery and Interview candidates. "
-        "Every route requires mandatory human selection with no auto-pick path. "
-        "Interview stays explicit and non-authoritative in the live coordinator. "
-        "Delivery preserves synchronous and scheduled modes; opt-in program mode "
-        "invokes the target surface's `nauro-ship-task` command in a fresh delivery "
-        "task and stops. The loop never files a decision, pushes, or runs gh. "
-        "Ordinary outputs create no automatic store artifacts; scheduled ORIENT "
-        "retains its existing SELECT checkpoint and pointer writes as a narrow "
-        "process-state exception. "
-        "Installed by `nauro adopt --with-skills`."
+        "Originate gated Delivery and Interview candidates, or coordinate selected Program "
+        "Delivery as FRAME -> CHOOSE -> START -> ADVISE -> VERIFY -> ADVANCE. Human-named "
+        "work bypasses candidate selection. Agent-originated work keeps read-only ORIENT, "
+        "1-3 candidates, mandatory human selection, reject-all, and no auto-pick path. "
+        "Each Program slice uses at most one fresh direct-user Delivery task. Automatic "
+        "launch requires surface lifecycle support to create, identify, inspect, and message "
+        "that task; otherwise the coordinator returns one exact launch prompt and stops. "
+        "Coordinator artifact review is advisory, and integration is verified independently. "
+        "Synchronous non-program Delivery stays outside the Program state machine. Interview "
+        "stays explicit and non-authoritative. Ordinary outputs create no automatic store "
+        "artifacts; scheduled ORIENT retains its existing SELECT checkpoint and pointer writes "
+        "as a narrow process-state exception. Installed by `nauro adopt --with-skills`."
     ),
     "nauro-interview": (
         "Interview the user to elicit tacit project reasoning or challenge a proposed "
@@ -216,10 +253,19 @@ def load_context_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
-def load_loop_body() -> str:
-    """Return the ``/nauro-loop`` skill body (no frontmatter), protocol fragments resolved."""
+def load_loop_body(surface: str = "claude_code") -> str:
+    """Return the ``/nauro-loop`` skill body (no frontmatter) for ``surface``."""
     raw = resources.files(__package__).joinpath("loop_body.md").read_text(encoding="utf-8")
-    return substitute_protocol_fragments(_strip_template_header(raw))
+    body = substitute_protocol_fragments(_strip_template_header(raw))
+    if surface == "claude_code":
+        lifecycle = _CLAUDE_LOOP_PROGRAM_DELIVERY_LIFECYCLE
+    elif surface == "codex":
+        lifecycle = _CODEX_LOOP_PROGRAM_DELIVERY_LIFECYCLE
+    elif surface == "cursor":
+        lifecycle = _CURSOR_LOOP_PROGRAM_DELIVERY_LIFECYCLE
+    else:
+        raise ValueError(f"unknown surface: {surface!r}")
+    return body.replace(_LOOP_PROGRAM_DELIVERY_LIFECYCLE_TOKEN, lifecycle)
 
 
 def load_interview_body() -> str:
@@ -236,7 +282,7 @@ def _load_body(surface: str, skill_name: str) -> str:
     if skill_name == "nauro-context":
         return load_context_body()
     if skill_name == "nauro-loop":
-        return load_loop_body()
+        return load_loop_body(surface)
     if skill_name == "nauro-interview":
         return load_interview_body()
     raise ValueError(f"unknown skill: {skill_name!r}")

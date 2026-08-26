@@ -1,28 +1,35 @@
 ---
 name: nauro-loop
-description: Run gated work origination as ORIENT -> SELECT -> ROUTE. Invoke under the dynamic /loop command (/loop /nauro-loop). Mines the project's existing Nauro store state read-only (get_context, open-questions RESUME/BRIEF pointers, diff_since_last_session, list_decisions) and originates 1-3 ranked Delivery and Interview candidates. Every route requires mandatory human selection with no auto-pick path. Interview stays explicit and non-authoritative in the live coordinator. Delivery preserves synchronous and scheduled modes; opt-in program mode invokes the target surface's `nauro-ship-task` command in a fresh delivery task and stops. The loop never files a decision, pushes, or runs gh. Ordinary outputs create no automatic store artifacts; scheduled ORIENT retains its existing SELECT checkpoint and pointer writes as a narrow process-state exception. Installed by `nauro adopt --with-skills`.
+description: Originate gated Delivery and Interview candidates, or coordinate selected Program Delivery as FRAME -> CHOOSE -> START -> ADVISE -> VERIFY -> ADVANCE. Human-named work bypasses candidate selection. Agent-originated work keeps read-only ORIENT, 1-3 candidates, mandatory human selection, reject-all, and no auto-pick path. Each Program slice uses at most one fresh direct-user Delivery task. Automatic launch requires surface lifecycle support to create, identify, inspect, and message that task; otherwise the coordinator returns one exact launch prompt and stops. Coordinator artifact review is advisory, and integration is verified independently. Synchronous non-program Delivery stays outside the Program state machine. Interview stays explicit and non-authoritative. Ordinary outputs create no automatic store artifacts; scheduled ORIENT retains its existing SELECT checkpoint and pointer writes as a narrow process-state exception. Installed by `nauro adopt --with-skills`.
 ---
 
 # Nauro loop skill
 
-Run a gated iteration of work origination on top of `/nauro-ship-task` and `/nauro-interview`. Its conceptual flow is `ORIENT -> SELECT -> ROUTE`. It mines the project's existing Nauro store state, ranks a small set of typed Delivery and Interview candidates, and surfaces them to the human. The human selects a frontier item before the loop routes it. Delivery either runs through the existing chain or, in opt-in program mode, becomes a prompt for a fresh task. Interview stays in the live coordinator and produces candidate shared understanding only.
+Run gated work origination and coordinate selected Program Delivery. The Program state machine is `FRAME -> CHOOSE -> START -> ADVISE -> VERIFY -> ADVANCE`. The coordinator owns the verified frame, sequence, handoff, advisory review, integration verification, and next recommendation. It does not implement, approve, file project truth, push, create a pull request, merge, or start the next slice.
 
-The loop adds one net-new agent authority, frontier origination, and nothing else. It enumerates options; it never selects. Everything past enumeration stays with the human: the SELECT ratify-gate, the explicit choice to interview or deliver, the chain's plan-approval gate, every AMBER/RED tech-lead pause, and every push confirmation.
+User-named work enters as `HUMAN-SELECTED`. Agent-originated work keeps read-only ORIENT, 1-3 ranked Delivery and Interview candidates, mandatory SELECT, reject all, and no auto-pick path. Interview remains explicit, separate, and non-authoritative. Synchronous non-program Delivery stays outside the Program state machine and keeps the current `nauro-ship-task` chain.
 
-## What the loop cannot do
+## Authority boundary
 
-These are structural, not stylistic. The loop holds none of these capabilities and must not simulate them.
+These are authority rules. MCP or shell write paths may exist, but they do not grant the coordinator authority to use them for Program Delivery.
 
 - The loop cannot automatically change project truth or file decisions. Ordinary prompts, Interview results, Delivery handoffs, and program handbacks create no automatic store artifacts. The scheduled ORIENT selection-checkpoint writes are the narrow exception: they create only the existing SELECT checkpoint and pointer through the filesystem and `nauro sync` mechanism defined below. A selected Interview returns candidate shared understanding only. After the interview, an explicitly approved `propose_decision`, `update_state`, or `flag_question` payload may be executed through `/nauro-interview` according to its contract and separate later approval gates. Those writes belong to the interview contract, not loop authority.
-- The loop never pushes and never runs `gh`. Push and PR creation live only inside the chain's push-confirmation gate, behind an explicit human "yes".
+- The coordinator may inspect pull-request and merge state through read-only channels, including `gh pr view` or an equivalent authenticated read channel, only when a required PR-backed repository-anchor check needs it. This includes ORIENT, Resume, replacement-coordinator recovery, and VERIFY. Read-only inspection does not grant publication authority. The coordinator never pushes, creates or edits a pull request, merges, or performs another publication mutation. Only the direct-user Delivery task may perform approved publication work through its own gates.
 - The loop is NOT a "keep moving" override of any inner gate. A standing "keep going" or auto-mode directive does not clear the SELECT gate, the plan gate, a tech-lead pause, or the push gate. The loop exists to repeat the gated chain, not to bypass it.
-- Under the loop, the chain's low-stakes auto-proceed path at the plan gate is CLOSED. Inside a bare `/nauro-ship-task` run a plan with no doctrine writes and no high-stakes triggers may auto-proceed to the executor; under the loop that path is closed and every plan blocks for explicit human approval at the plan gate. Tightening origination this way is doctrine-positive, not a regression.
-- The loop fails closed on a gate-callback timeout. If a human gate is surfaced and the response channel times out or is unavailable, the loop halts and surfaces the held state; it never treats a timed-out gate as an approval.
-- A held gate takes a lock: while any gate (SELECT or an inner chain gate) is awaiting a human, the loop starts no new ORIENT, composes no new candidates, and dispatches no chain. One gate is open at a time.
-- The loop has a hard per-session ceiling on both completed chains and idle re-orient cycles. When either ceiling is reached, the loop stops and reports; it does not silently continue.
 - SELECT is never auto-picked. Neither entry mode picks for the human, not even when exactly one candidate ranks or when a scheduled continuation has one surviving candidate. The synchronous mode surfaces SELECT in the parent session; the scheduled mode parks a SELECT checkpoint and exits before any gate; the resume continuation surfaces SELECT to the human. No path resolves SELECT without the human.
+- A hidden child, ordinary subagent, generic agent, or persistent Delivery child is not a substitute for a fresh direct-user Delivery task.
 
-## ORIENT — mine the store, read-only
+## FRAME
+
+Verify the program goal, ordered review-sized slices, dependencies, expected behavioral state, repository, and current `origin/main`. For `HUMAN-SELECTED` input, FRAME also verifies the named invariant. Agent-originated FRAME does not require a selected invariant before CHOOSE. Record the repository anchors and whether an active Delivery identity already exists. Keep this evidence internal unless it changes the user's choice, authority, risk, or next required action. A conflict or missing anchor holds the program.
+
+## CHOOSE
+
+If the user named the work, mark it `HUMAN-SELECTED` and preserve the user's exact named work. `HUMAN-SELECTED` skips candidate origination, ORIENT, and SELECT. Do not add a redundant choice gate.
+
+Agent-originated work enters ORIENT. Its selection flow is `ORIENT -> SELECT -> ROUTE`. It must complete mandatory SELECT before routing. The scheduled path preserves its durable SELECT checkpoint. Program mode remains an explicit opt-in Delivery policy. Interview can be chosen, but it stays in the live coordinator and does not enter Program Delivery.
+
+### ORIENT: mine the store, read-only
 
 ORIENT writes nothing to doctrine. It reuses the Resume mining logic to read the project's current state and assemble candidate work:
 
@@ -36,17 +43,17 @@ From that, ORIENT composes 1-3 ranked frontier items. Each item is typed `Delive
 - **Delivery** means the prerequisites and invariant are clear enough for a review-sized implementation task.
 - **Interview** means unresolved human reasoning blocks a safe Delivery. It recommends Elicit or Challenge mode and shows the prerequisites, evidence, and tradeoffs that make the interview useful.
 
-Re-verify every `RESUME:` anchor before ranking it: check the branch heads, open PR numbers, and any expected-state anchors the pointer names against `origin/main`. A `RESUME:` candidate whose anchors no longer match is demoted to "stale, surface" — it is not ranked as live work; it is reported to the human as a pointer that needs attention. ORIENT never fabricates a candidate: if the mine is empty, it composes nothing and the loop stops (see RE-ORIENT).
+Re-verify every `RESUME:` anchor before ranking it: check the branch heads, open PR numbers, and any expected-state anchors the pointer names against `origin/main`. A `RESUME:` candidate whose anchors no longer match is demoted to "stale, surface". It is not ranked as live work. Report it to the human as a pointer that needs attention. ORIENT never fabricates a candidate: if the mine is empty, it composes nothing and the loop stops.
 
-## Substrate and scope — two entry modes
+### Agent-originated entry modes
 
-The loop has two named entry modes. Both share ORIENT, SELECT, and ROUTE; they differ only in how SELECT reaches the human. Program mode is an opt-in Delivery policy layered on either live SELECT path, not a third substrate mode. Pass `project_id` explicitly on every MCP call when more than one project exists.
+Agent-originated selection has two named entry modes. Both share ORIENT, SELECT, and ROUTE. They differ only in how SELECT reaches the human. Program mode is an opt-in Delivery policy layered on either live SELECT path, not a third entry mode. Pass `project_id` explicitly on every MCP call when more than one project exists.
 
-### (a) Synchronous
+#### (a) Synchronous
 
 The existing `/loop /nauro-loop` run. The dynamic `/loop` command repeats the skill in the parent session, which can pause for the SELECT gate's `AskUserQuestion`. ORIENT mines, SELECT surfaces the ranked candidates in the live parent session and blocks for the human's pick, and ROUTE handles the chosen type. Synchronous delivery remains the default. The parent session stays open across the SELECT gate.
 
-### (b) Scheduled headless ORIENT
+#### (b) Scheduled headless ORIENT
 
 A scheduled, headless run — the customer's own scheduler (cron, a cloud routine, any wakeup) fires it; Nauro bundles no scheduler. This mode mines read-only (the same L0 + targeted `RESUME:`/`BRIEF:` scan + `diff_since_last_session` + `list_decisions` as ORIENT), composes the 1-3 ranked candidate set with provenance, and then **parks the set as a durable SELECT checkpoint and exits before any gate**. A headless run reaches no `AskUserQuestion`: it cannot pause for a human, so it must never surface SELECT — it writes the checkpoint and stops. The steps:
 
@@ -59,7 +66,7 @@ A scheduled, headless run — the customer's own scheduler (cron, a cloud routin
 
 On an empty mine the scheduled run writes no checkpoint, flags no pointer, and fires no notification — it exits rather than parking an empty set.
 
-## Resume-entrypoint — the live continuation answers the parked SELECT
+### Resume-entrypoint: the live continuation answers the parked SELECT
 
 A live, remote-controlled continuation (the human's own session, where the gate bridges to the human) consumes a parked checkpoint. It does not mine fresh; it answers a checkpoint mode (b) already parked.
 
@@ -70,86 +77,89 @@ A live, remote-controlled continuation (the human's own session, where the gate 
 5. **Surface SELECT.** Present the surviving candidates through `AskUserQuestion`, each with its one-line rationale, source signal, and provenance. If ORIENT ran `check_decision` against a candidate, show its output as a raw related-decision list only — never a verdict, score, or recommendation. The human may pick one candidate or reject all; on rejection the continuation reports that the parked set produced nothing the human wanted and stops.
 6. **Route.** On the human's pick, apply ROUTE to the selected type. Synchronous delivery remains the default unless the human explicitly opted in to program mode before selection. The human's chosen candidate is passed through as ratified, not silently changed into another type or task.
 
-## SELECT — the human picks (mandatory, no auto-pick ever)
+### SELECT: the human picks (mandatory, no auto-pick ever)
 
 SELECT surfaces the ranked candidates and waits for the human to choose. This gate is mandatory and has no auto-pick path — not even when exactly one candidate ranks. Removing the human from selection would begin removing the human from origination, which the loop must never do. SELECT is surfaced through `AskUserQuestion` either in the synchronous parent session (mode a) or in the live resume continuation (mode b), never by a headless scheduled run.
 
 The human may pick one candidate, or reject all of them. On rejection the loop surfaces that the set produced nothing the human wanted and stops; it does not silently re-rank the same set. The selected type and body become ROUTE input exactly as the human ratified them.
 
-## ROUTE: interview or deliver
+### ROUTE: interview or deliver
 
 ROUTE acts only after SELECT. It must preserve the selected type.
 
-### Interview
+#### Interview
 
 Interview is an explicit opt-in route in the live coordinator. Before starting, show why an interview is needed, recommend Elicit or Challenge, and show the prerequisites, evidence, and tradeoffs. Invoke `/nauro-interview` only after the human confirms the route and mode.
 
 Interview output is candidate shared understanding only. Completing it does not automatically start Delivery. The loop does not automatically update project state, create a `BRIEF:` or `RESUME:` file, flag a question, file a decision, or perform any other store write. After the interview, `/nauro-interview` may execute an explicitly approved `propose_decision`, `update_state`, or `flag_question` payload through its separate later approval gates. Any later Delivery requires a new explicit selection.
 
-### Synchronous delivery
+#### Synchronous non-program route
 
-Synchronous delivery preserves the existing loop behavior. Dispatch `/nauro-ship-task <chosen task>` byte-for-byte in the live session with all chain gates intact. When the chain returns, follow INTEGRATE and RE-ORIENT.
+Route a selected synchronous Delivery through the current surface's `nauro-ship-task` command. It stays outside the Program state machine. An Interview selection never enters that chain.
 
-### Program delivery
+## START
 
-Program mode runs `ORIENT -> SELECT -> HANDOFF -> STOP`. Use it only when the human explicitly opts in to program mode. After the human selects a Delivery candidate:
+START creates exactly one fresh direct-user Delivery task for the selected Program slice. Only one Delivery may be active for the program. Before launch, re-verify the repository, current `origin/main`, selected invariant, sequence, scope boundary, and expected behavioral state.
 
-1. Re-verify the repository, PR, branch, and program anchors against `origin/main`. An anchor conflict stops the coordinator and is surfaced to the human.
-2. Emit a self-contained prompt for a fresh delivery task. Include the selected invariant, verified base, expected scope and boundaries, required decisions and evidence, approval gates, validation, and the required terminal program handback. The prompt must explicitly invoke the target surface's `nauro-ship-task` command.
-3. Tell the human to start that prompt as a fresh delivery task. The coordinator does not dispatch Delivery in the coordinator session.
-4. **STOP.** The coordinator does not re-run ORIENT after the handoff. It resumes only when the fresh delivery task returns its terminal program handback.
+Compose one self-contained prompt. Include the verified base, selected invariant, scope and deferrals, relevant decisions and evidence, direct-user approval boundaries, validation, and the compact terminal handback contract. The prompt must invoke the target surface's `nauro-ship-task` command. For Program Delivery, it must require Delivery to stop at `PLAN_READY` and `PUBLICATION_READY`, expose the complete artifact identity, and wait for bound coordinator advice or an explicit direct-user bypass before either direct-user gate. Automatic launch requires current runtime support to create, identify, inspect, and message the same direct-user task.
 
-## CHAIN: dispatch synchronous Delivery byte-for-byte
+### Claude Code lifecycle proof
 
-CHAIN applies only after SELECT returns a `Delivery` candidate and the active route is synchronous mode or the live continuation of scheduled mode. An Interview selection never enters CHAIN. Program-mode Delivery never enters CHAIN; it uses HANDOFF -> STOP without coordinator-session dispatch.
+Prove at runtime that Claude Code can create, identify, inspect, and message a fresh direct-user task. The normal subagent controls do not qualify, even when they can spawn, list, or message a retained child. If any operation is unavailable before creation, return exactly one launch prompt and stop: `/nauro-ship-task <DELIVERY>`. Replace `<DELIVERY>` with the complete self-contained Delivery prompt.
 
-For the eligible synchronous Delivery, dispatch `/nauro-ship-task <chosen task>` exactly as written, with all six existing gates intact: the RED-supersede pause before the executor, the plan-approval gate, AMBER surfacing, the RED tech-lead pause, the push-confirmation gate, and the doctrine-disconnect hard-pause. Do not reproduce the chain inline in the loop. The gates depend on the chain's structure and the bundled subagents' restricted tool access, and an inline imitation runs without them. The loop's job is to hand the ratified task to the chain and let the chain run; the loop adds no step inside the chain and removes none.
+When all four operations are available, create once, require one stable returned task identity, record the stable returned identity as the sole launch identity, inspect that task to confirm its direct user channel, record it as the active Delivery identity, and message the exact prompt to that identity. Any post-create uncertainty holds without another create call.
 
-Every filing, every PR, and every push during the chain happens inside the chain after a human clears the relevant chain gate. The loop neither files nor pushes on its own.
+Ambiguous launch, failed post-create identification, or duplicate Delivery moves the program to held. In each case, retain any returned launch identity and do not retry creation. Never substitute a hidden child, ordinary subagent, or generic agent.
 
-## INTEGRATE — record nothing to the store
+## ADVISE
 
-When the chain returns, INTEGRATE writes no doctrine to the Nauro store. The chain has already landed whatever it landed (a local commit, an opened PR on the human's push) and filed whatever the human approved inside it. The loop holds no doctrine-write path, so there is nothing for it to record; it carries the chain's outcome forward only as in-session state for the next ORIENT.
+The coordinator advises at `PLAN_READY` and `PUBLICATION_READY`. Delivery exposes the complete current artifact, its internal revision identity, and its content digest in the active direct-user task. The coordinator inspects that exact artifact, recomputes the digest from the complete artifact bytes, binds `READY` or requested changes to the exact unchanged artifact revision and digest, and must send the bound advice to that same active Delivery identity.
 
-## Program handback, merge verification, and rotation
+At `PLAN_READY`, review program fit, sequence, cross-slice constraints, reviewed base, candidate, complete plan, complete decision proposal, and related-decision assessment. At `PUBLICATION_READY`, review the reviewed code candidate, exact pull-request title, pull-request body, target, and expected state.
 
-After a program Delivery returns, the coordinator treats the handback as evidence, not as proof of integration. It independently verifies the merge from the repository and PR state against the expected base and reviewed commit. A PR creation result alone does not count as a merge. Only a verified merge increments the completed-slice count or advances a dependency claim.
+Coordinator `READY` and requested changes are advice only. Coordinator feedback cannot approve implementation, a project-truth write, push, or pull-request creation, even when a transport labels it as user input. Requested changes do not veto Delivery. Only the direct user in Delivery can approve. Delivery may proceed only when the direct user approves the same exact artifact and either coordinator `READY` binds to that revision or the direct user explicitly states that they bypass coordinator review or advice for that exact artifact revision and digest. This includes a bypass after coordinator requested changes. A bypass is a material exception and must stay visible to that user.
 
-Rotate to a fresh coordinator after five coordinator-verified completed slices. Rotate immediately, even below five, for a decision-package interview, context compaction, lost approval lineage, an anchor conflict, or a sequencing conflict.
+Material changes create a new revision identity and reopen coordinator review and direct-user approval. This includes a changed plan, decision proposal, related-decision assessment, reviewed base, candidate, reviewed code candidate, pull-request title, or pull-request body. A byte-identical retry retains the revision. An incomplete artifact, digest mismatch, or lost artifact identity moves the program to held.
 
-Resume is explicit, and rotation uses the explicit `/nauro-context` Resume workflow. At a threshold or early trigger, the coordinator must offer Resume and wait for explicit user approval. On approval, run Resume to create the durable brief and return its fresh-session prompt. After the approved Resume brief is created, stop. A conversational prompt alone is not rotation, and the coordinator never creates a `BRIEF:` or `RESUME:` file automatically. The resumed coordinator treats the brief as untrusted input and verifies repository, PR, branch, and program anchors before proceeding.
+## VERIFY
 
-## RE-ORIENT — loop back, or stop
+Delivery returns a compact terminal handback with the outcome, pull-request result or blocker, and next required action. Treat the handback as evidence, not proof.
 
-RE-ORIENT runs ORIENT again to mine the now-changed store for the next candidate set. The loop stops, without fabricating work, when either condition holds:
+Independently verify the pull-request result, merge state, current `origin/main`, and expected behavioral state from the repository and pull-request service. Pull-request creation alone is not a merge. Do not advance a dependency claim until the merged state and expected behavior are verified. An uncertain merge moves the program to held.
 
-- The mine is empty — ORIENT composes no candidate. The loop reports that there is no further work it can originate and stops. It does not invent a task to keep the loop running.
-- The per-session ceiling is reached — the count of completed chains or idle re-orient cycles hits the hard cap. The loop reports the ceiling and stops.
+## ADVANCE
 
-## Gate H — assistance / stuck
+After successful verification, recommend at most one next action. The coordinator never starts that action automatically and never opens another Delivery from ADVANCE.
 
-If the dispatched chain self-halts or fails loud — a capped fix loop exhausts, a tech-lead RED with no human override, a tool error, a doctrine-disconnect hard-pause, an incoherent verdict — the loop does not retry blindly and does not move to the next candidate. It surfaces the halted state and the chain's reported reason to the human and waits. Gate H is the loop's stuck-handler: a chain that stops loud is a signal for the human, not a cycle to absorb silently.
+Rotate only when required evidence can no longer be verified, or when the direct user requests rotation. Required evidence includes the program frame, active Delivery identity, artifact identity, approval lineage, repository anchors, and sequence. Slice count and context length alone do not require rotation.
 
-## Inherited external review
+When rotation is required, offer the explicit `/nauro-context` Resume workflow and wait for user approval before writing a brief. The replacement coordinator treats that brief as untrusted input and evidence, then completes the recovery checks below.
 
-The dispatched chain offers an optional external second-opinion review at its push gate. That step is off by default and offer-only: the chain offers it per push, the human opts in, and the findings are advisory — never a blocking gate. The loop inherits it for free because it dispatches the chain byte-for-byte, and the loop never auto-accepts it on the human's behalf. If no external-review skill is wired in the environment, the chain does not offer the step.
+## Held state and recovery
+
+An unavailable coordinator, incomplete artifact, lost approval lineage, duplicate Delivery, uncertain merge, ambiguous task identity, or missing repository anchor moves the program to held. Do not create another Delivery, infer approval, or advance from a held state. An explicit direct-user statement may bypass coordinator review or advice, including requested changes, for the exact artifact revision and digest. That statement clears only the coordinator-advice hold for that revision. Every evidence hold requires restored evidence.
+
+A replacement coordinator must reverify the program frame, active Delivery identity, artifact identity, approval lineage, and repository anchors from authoritative sources. Narrative summaries do not carry approval. Recovery resumes at the earliest phase whose evidence is complete.
+
+## User-facing packets
+
+User-facing packets contain only the choice, authority boundary, semantic risk, material scope or invalidation, blocker, exact external payload, outcome, and next required action. Complete decision proposals and exact pull-request publication payloads remain visible.
+
+Routine paths, counts, hashes, commands, successful checks, gate narration, dispatch details, and compliance reassurance remain internal. Surface them only when a failure, exception, ambiguous fact, or explicit user request makes them decision-relevant. Keep review-sized invariant, file, line, generated-file, and deferred-boundary evidence internal unless an exception needs user action.
+
+## Synchronous non-program Delivery
+
+Synchronous non-program Delivery stays outside the Program state machine. Dispatch the chosen task byte-for-byte through the current surface's `nauro-ship-task` command. Preserve its direct-user plan, decision, review, and publication gates. Do not reproduce the planner, executor, reviewer, or tech-lead roles inline.
+
+When that chain returns, write nothing automatically to the Nauro store. Agent-originated synchronous work may run ORIENT again, but it must present a new SELECT and cannot auto-pick. A self-halt, tool error, ambiguous result, or missing authority stops and surfaces to the user. The chain's optional external review remains consent-bound and advisory.
 
 ## Rules
 
-- The loop cannot automatically change project truth or file decisions. It never pushes and never runs `gh`. Scheduled ORIENT writes only the existing SELECT checkpoint and pointer defined by that mode. Eligible synchronous Delivery writes remain inside the dispatched chain. Separately approved post-interview writes remain inside the `/nauro-interview` contract.
-- Writing a SELECT checkpoint is session/process state via the agent's filesystem write plus `nauro sync`, NOT a doctrine write. It never goes through the decision-filing write tool and installs no binding doctrine.
-- SELECT is mandatory with no auto-pick path ever, even for a single ranked candidate or a single surviving scheduled candidate. The human selects every frontier item; the loop only enumerates. The scheduled headless run exits before any gate and never surfaces `AskUserQuestion`; SELECT is answered only in the synchronous parent session or the live resume continuation.
-- The loop does not override any gate. Auto-mode and standing "keep moving" directives clear neither the SELECT gate nor any inner chain gate, and under the loop the chain's low-stakes auto-proceed at the plan gate is closed — every plan blocks.
-- ORIENT is read-only and never fabricates a candidate; on an empty mine the loop stops rather than inventing work, and the scheduled run parks no checkpoint and fires no notification.
-- A `RESUME:`/provenance anchor that no longer matches `origin/main` is demoted to "surface, don't dispatch" and reported, never ranked or dispatched as live work.
-- A SELECT checkpoint older than 24 hours is stale → surface, do not act. The continuation re-verifies before surfacing; a missing or empty selection surfaces and stops.
-- The continuation picks the freshest unconsumed `SELECT:` deterministically — greatest slug `<YYYYMMDD>`, then latest mtime, ties on frontmatter `created` then slug uid — with no read-time clock dependency.
-- The loop fails closed on a gate-callback timeout, takes a held-gate lock so only one gate is open at a time, and stops at the hard per-session ceiling on chains and idle cycles.
-- A chain that self-halts or fails loud routes to Gate H — surface and wait; never retry blindly and never skip to the next candidate.
-- `check_decision` output is shown as a raw related-decision list, never as a verdict, score, or recommendation.
-- Interview remains live, explicit, and non-authoritative. It never starts Delivery or writes project truth automatically.
-- Program Delivery hands off to a fresh task and stops. It never dispatches the chain or re-orients in the coordinator session.
-- Program prompts and handbacks remain conversational. The loop does not automatically create BRIEF or RESUME files, update state, flag questions, or file decisions.
-- The coordinator verifies merges independently and uses the approved `/nauro-context` Resume workflow after five verified slices or an immediate-rotation trigger. It never trusts a handback or Resume brief as authority.
-- Generic, not Conductor: the scheduler is the customer's own — no bundled scheduler, no worktree assumption. Nauro ships only the checkpoint protocol and the two entry modes.
-- On any tool error or surprise mid-loop, stop and surface to the human rather than recovering silently.
+- The coordinator does not implement, approve, file project truth, push, create or edit a pull request, merge, perform another publication mutation, or auto-start another slice. It may use `gh pr view` or an equivalent authenticated read channel only for a required PR-backed repository-anchor check, including during ORIENT, Resume, replacement-coordinator recovery, and VERIFY.
+- Scheduled ORIENT writes only its existing SELECT checkpoint and pointer. Writing that checkpoint through the filesystem and `nauro sync` is session or process state, NOT a doctrine write.
+- Separately approved Interview writes stay inside the `/nauro-interview` contract. Interview output alone grants no write or Delivery authority.
+- Agent-originated SELECT remains mandatory, including a one-candidate set. Human-selected work retains its exact named scope without a redundant SELECT.
+- One direct-user Delivery may be active. Lifecycle uncertainty, artifact uncertainty, approval uncertainty, or integration uncertainty fails closed.
+- Coordinator advice never approves. Direct-user approval binds to the exact unchanged artifact revision in Delivery.
+- Program prompts and handbacks create no automatic `BRIEF:` or `RESUME:` file, state update, question, or decision.
+- The customer's scheduler owns scheduled execution. Nauro has no bundled scheduler and makes no worktree assumption.
