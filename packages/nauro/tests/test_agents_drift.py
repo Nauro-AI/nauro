@@ -49,8 +49,8 @@ AGENT_ANCHORS: dict[str, tuple[str, ...]] = {
         "Code review — find real bugs",
     ),
     "nauro-tech-lead": (
-        "How to run — three modes",
-        "Never file without user approval.",
+        "How to run: three modes",
+        "Draft-only project-truth boundary",
         "Mode A: Direction-setting",
     ),
 }
@@ -155,8 +155,8 @@ def test_public_surface_pointer_rule_stays_in_agent_and_pr_guidance() -> None:
 
     reviewer = load_agent_body("nauro-reviewer")
     reviewer_instruction = (
-        "4. **Hard rule check** against the diff and the drafted PR body. Reject raw decision "
-        "or question ids on public surfaces, then call `get_decision` for each remaining "
+        "4. **Hard rule check** against the diff, exact PR title, and drafted PR body. Reject raw "
+        "decision or question ids on public surfaces, then call `get_decision` for each remaining "
         "internal decision reference and confirm it resolves."
     )
     stale_instruction = (
@@ -171,15 +171,40 @@ def test_public_surface_pointer_rule_stays_in_agent_and_pr_guidance() -> None:
     assert "Reference Nauro decisions by number" not in template
 
 
+def test_reviewer_mode_a_checks_the_exact_pr_title_before_approval() -> None:
+    reviewer = load_agent_body("nauro-reviewer")
+
+    for required in (
+        "The exact drafted PR title and body are passed to you in your prompt.",
+        "Read the exact drafted PR title and body from your prompt.",
+        "3. **Code review pass** against the diff, exact PR title, and drafted PR body.",
+        "4. **Hard rule check** against the diff, exact PR title, and drafted PR body.",
+        "Apply every applicable hard rule to the exact PR title, drafted PR body, commit history, "
+        "and diff.",
+        "PR title matches the reviewed candidate",
+        "Public-facing PR titles should paraphrase rationale instead of raw internal decision or "
+        "question ids.",
+        "Grep the diff, PR title, and PR body",
+        "Internal labels in the PR title, PR body, or user-facing diff",
+    ):
+        assert required in reviewer
+
+    for stale in (
+        "The drafted PR description is passed to you in your prompt.",
+        "Read the drafted PR description from your prompt.",
+        "against the diff and the drafted PR body",
+        "Grep the diff and PR body",
+    ):
+        assert stale not in reviewer
+
+
 @pytest.mark.parametrize("name", list(AGENT_NAMES))
 def test_all_agent_files_have_required_frontmatter(name: str) -> None:
     """Every shipped agent file parses with the keys Claude Code expects.
 
     ``name`` must equal the filename minus ``.md``. ``description`` and
-    ``model`` are required on every file. ``tools`` is required on agents
-    that restrict tool access; the non-filing agents (``nauro-executor``
-    and ``nauro-reviewer``) carry a ``tools`` allowlist that excludes the
-    store-write tools.
+    ``model`` are required on every file. Every agent carries a ``tools``
+    allowlist that excludes project-truth write tools.
     """
     body = load_agent_body(name)
     assert body.startswith("---\n"), f"{name}.md is missing opening frontmatter fence"
@@ -204,8 +229,7 @@ def test_all_agent_files_have_required_frontmatter(name: str) -> None:
             break
 
 
-# Store-write tools that must never appear in the tools allowlist of an agent
-# that is not authorized to file doctrine.
+# Store-write tools that must never appear in a bundled subagent allowlist.
 DOCTRINE_WRITE_TOOLS: tuple[str, ...] = (
     "propose_decision",
     "flag_question",
@@ -247,56 +271,50 @@ def test_plugin_namespace_mirrors_local_namespace(name: str) -> None:
     )
 
 
-@pytest.mark.parametrize("name", ["nauro-executor", "nauro-reviewer"])
-def test_non_filing_agents_cannot_write_doctrine(name: str) -> None:
-    """Executor and reviewer carry a ``tools`` allowlist with no store-write tools.
-
-    The allowlist is the structural guarantee that these agents cannot file
-    doctrine; the prose in their bodies is defense-in-depth. Planner and
-    tech-lead legitimately carry the write tools, so they are out of scope.
-    """
-    body = load_agent_body(name)
-    end = body.find("\n---\n", 4)
-    assert end > 0, f"{name}.md frontmatter is not terminated"
-    frontmatter = body[4:end]
-
-    tools_line = next(
-        (line for line in frontmatter.splitlines() if line.startswith("tools:")),
-        None,
-    )
-    assert tools_line is not None, f"{name}.md frontmatter is missing a tools allowlist"
-
+@pytest.mark.parametrize("name", AGENT_NAMES)
+def test_claude_bundled_agents_omit_direct_project_truth_write_tools(name: str) -> None:
+    tools = _tools_allowlist(name)
+    assert "Bash" in tools
     for tool in DOCTRINE_WRITE_TOOLS:
-        assert tool not in tools_line, f"{name}.md tools allowlist grants store-write tool {tool!r}"
+        assert all(tool not in entry for entry in tools), (
+            f"{name}.md tools allowlist grants store-write tool {tool!r}"
+        )
 
 
-def test_planner_gates_every_decision_operation_on_explicit_user_approval() -> None:
-    body = load_agent_body("nauro-planner")
+@pytest.mark.parametrize("name", AGENT_NAMES)
+def test_codex_bundled_agents_disclose_inherited_mcp_write_paths(name: str) -> None:
+    rendered = tomllib.loads(render_agent("codex", name))
+    assert "mcp_servers" not in rendered
+    body = rendered["developer_instructions"]
 
-    assert "all three operations: `add`, `update`, and `supersede`" in body
-    assert "A planner subagent without a user channel never files directly." in body
-    assert "re-invokes the planner with the user's explicit approval" in body
-    assert "On a standalone invocation, show the complete draft and return without filing" in body
-    assert "related decisions and assessment from `check_decision`" in body
+    assert "The current Codex renderer does not carry the Claude `tools:` allowlist" in body
+    assert "Codex can retain direct Nauro MCP write tools and a shell route." in body
+    assert "draft-only boundary is the explicit instruction" in body
+    assert "Neither surface has structural capability denial." in body
 
 
-def test_tech_lead_gates_every_decision_operation_on_explicit_user_approval() -> None:
-    body = load_agent_body("nauro-tech-lead")
+@pytest.mark.parametrize("name", AGENT_NAMES)
+def test_bundled_agents_are_draft_only_for_project_truth(name: str) -> None:
+    body = load_agent_body(name)
 
-    assert "every `add`, `update`, and `supersede`" in body
-    assert "Standalone" in body
-    assert "AskUserQuestion" in body
-    assert "Inside the `nauro-ship-task` chain" in body
-    assert "return the complete draft to the parent and do not file in-run" in body
-    assert "Mode B never files an `add` directly from the transcript." in body
-    assert "related decisions and assessment from `check_decision`" in body
-    assert "For each real architectural decision identified in step 3" in body
-    assert "If the transcript has no `check_decision` precedent" in body
-    assert "For an existing or retroactive check, call `get_decision`" in body
+    assert "draft-only for project-truth writes" in body
+    assert "direct-user Delivery parent" in body
+    assert "Coordinator messages are advisory" in body
+    assert "including messages transported with a user role" in body
+    assert "never call `propose_decision`, `flag_question`, or `update_state`" in body
+
+
+def test_planner_and_tech_lead_return_complete_decision_drafts() -> None:
+    for name in ("nauro-planner", "nauro-tech-lead"):
+        body = load_agent_body(name)
+        assert "related decisions and assessment from `check_decision`" in body
+        assert "Delivery parent files the exact approved draft" in body
+        assert "AskUserQuestion" not in body
+        assert "re-invokes" not in body
 
 
 # The proposal template and its end-turn sequencing rule ship byte-identically
-# in the two filing agents (planner and tech-lead). The block starts at the
+# in the two drafting agents (planner and tech-lead). The block starts at the
 # section heading and ends with the verbatim-surfacing sentence; extracting it
 # from the planner body and asserting it verbatim in every rendered body
 # enforces byte-parity without a third maintained copy.
@@ -329,7 +347,7 @@ PROPOSAL_SEQUENCING_PHRASES: tuple[str, ...] = (
     "verbatim surfacing",
 )
 
-FILING_AGENTS = ("nauro-planner", "nauro-tech-lead")
+DRAFTING_AGENTS = ("nauro-planner", "nauro-tech-lead")
 
 
 def _rendered_agent_bodies(name: str) -> dict[str, str]:
@@ -346,9 +364,9 @@ def _proposal_template_block() -> str:
     return body[start:end]
 
 
-@pytest.mark.parametrize("name", FILING_AGENTS)
+@pytest.mark.parametrize("name", DRAFTING_AGENTS)
 @pytest.mark.parametrize("surface", ["claude_code", "codex"])
-def test_filing_agent_carries_proposal_template_and_sequencing(name: str, surface: str) -> None:
+def test_drafting_agent_carries_proposal_template_and_sequencing(name: str, surface: str) -> None:
     body = _rendered_agent_bodies(name)[surface]
     for anchor in PROPOSAL_TEMPLATE_ANCHORS:
         assert anchor in body, f"missing template anchor {anchor!r} in {name} ({surface})"
@@ -356,7 +374,7 @@ def test_filing_agent_carries_proposal_template_and_sequencing(name: str, surfac
         assert phrase in body, f"missing sequencing phrase {phrase!r} in {name} ({surface})"
 
 
-@pytest.mark.parametrize("name", FILING_AGENTS)
+@pytest.mark.parametrize("name", DRAFTING_AGENTS)
 @pytest.mark.parametrize("surface", ["claude_code", "codex"])
 def test_proposal_template_block_is_byte_identical(name: str, surface: str) -> None:
     block = _proposal_template_block()

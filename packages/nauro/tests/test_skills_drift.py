@@ -509,10 +509,66 @@ def test_adopt_body_gates_each_classified_proposal_before_write():
 def test_ship_task_routes_all_decision_drafts_through_parent_approval():
     body = load_ship_task_body()
 
-    assert "all three operations: `add`, `update`, and `supersede`" in body
-    assert "re-invoke the planner with that approval" in body
-    assert "re-invoke the tech-lead with that approval" in body
-    assert "The parent never files a subagent's draft itself." in body
+    assert "The direct-user Delivery parent is the sole authority carrier." in body
+    assert "including messages transported with a user role" in body
+    assert "Subagents only draft project-truth writes." in body
+    assert "The Delivery parent files the exact approved decision proposal" in body
+    assert "never call `propose_decision`, `flag_question`, or `update_state`" in body
+    assert (
+        "No subagent or coordinator has authority to approve, file, push, or create a PR." in body
+    )
+
+
+def test_ship_task_stops_before_execution_when_plan_decision_is_not_filed():
+    body = load_ship_task_body()
+
+    execute = body.index("## 3. Execute")
+    dispatch = body.index("Invoke `@nauro-executor`")
+    for rule in (
+        "A plan-time decision must be filed and confirmed before executor dispatch.",
+        "the exact `propose_decision` result reports successful confirmed filing",
+        "Failed, ambiguous, or unconfirmed results hold before mutation.",
+        "Do not dispatch the executor.",
+        "An unchanged retry does not require new approval.",
+    ):
+        assert body.index(rule) < execute
+        assert body.index(rule) < dispatch
+
+
+def test_ship_task_binds_approvals_to_exact_artifact_revisions():
+    body = load_ship_task_body()
+
+    assert "PLAN binds the verified base, complete plan, scope budget, and deferrals." in body
+    assert (
+        "DECISION binds the complete proposal text and current related-decision assessment." in body
+    )
+    assert (
+        "REVIEW binds the verified base, candidate tree or reviewed diff, and exact reviewed "
+        "commit and history metadata." in body
+    )
+    assert "PUBLICATION binds the reviewed candidate, exact PR title, and exact PR body." in body
+    assert "A material change reopens only the affected review and direct-user gate." in body
+    assert "An unchanged retry does not." in body
+    assert "Coordinator `READY` cannot replace direct user approval." in body
+    assert "Coordinator advice cannot authorize execution." in body
+    assert (
+        "Direct user approval applies only to the unchanged artifact in this Delivery task." in body
+    )
+    assert (
+        "A stale base, candidate, reviewed commit or history metadata, decision text, "
+        "related-decision assessment, PR title, or PR body" in body
+    )
+    assert "A same-tree amend or commit-message change creates a new REVIEW revision." in body
+
+
+def test_ship_task_creates_the_exact_approved_publication_artifact():
+    body = load_ship_task_body()
+
+    assert (
+        "gh pr create --title <exact-approved-title> --base <reviewed-base> "
+        "--body-file <approved-body-file>" in body
+    )
+    assert "gh pr create --body-file <file>" not in body
 
 
 def test_ship_task_returns_complete_handback_on_terminal_outcomes():
@@ -521,13 +577,7 @@ def test_ship_task_returns_complete_handback_on_terminal_outcomes():
     assert "after PR creation or every terminal blocker" in body
     for field in (
         "Outcome or blocker",
-        "Repository and verified base",
         "Primary invariant",
-        "Branch, final commit, reviewed commit, and PR",
-        "Hand-edited file count and non-generated line count",
-        "Validation evidence",
-        "Reviewer and tech-lead verdicts",
-        "Filed decisions and evidence riders",
         "Deferred boundaries",
         "Merge status",
         "Next coordinator action",
@@ -548,6 +598,42 @@ def test_ship_task_handback_keeps_store_writes_explicit():
     assert "file a decision or evidence rider" in body
 
 
+def test_ship_task_keeps_normal_packets_decision_relevant():
+    body = load_ship_task_body()
+
+    assert "routine filenames, counts, hashes, successful commands, gate mechanics" in body
+    assert "internal audit record" in body
+    assert "complete decision proposal" in body
+    assert "exact PR title and full PR body" in body
+    for exception in (
+        "scope or budget exception",
+        "skipped validation",
+        "material deviation",
+        "unresolved risk",
+        "weaker capability fallback",
+    ):
+        assert exception in body
+
+
+def test_ship_task_correction_depends_on_progress():
+    body = load_ship_task_body()
+
+    assert "Three or more improving rounds can continue." in body
+    assert "resolves or materially narrows at least one in-scope finding" in body
+    assert "adds no equal-or-worse finding" in body
+    assert "Stop on repetition, no progress, scope expansion, architectural change" in body
+    assert "Cap at 2 fix iterations" not in body
+
+
+def test_ship_task_external_review_is_consent_bound_and_advisory():
+    body = load_ship_task_body()
+
+    assert "External review is off by default." in body
+    assert "explicit per-push consent before diff egress" in body
+    assert "advisory and never blocks by itself" in body
+    assert "only when its result can change the push choice" in body
+
+
 def test_program_routing_registry_descriptions():
     loop = SKILL_DESCRIPTIONS["nauro-loop"]
     ship_task = SKILL_DESCRIPTIONS["nauro-ship-task"]
@@ -566,18 +652,13 @@ def test_program_routing_registry_descriptions():
 
 @pytest.mark.parametrize("surface", ["claude_code", "codex"])
 def test_ship_task_surfaces_decision_drafts_verbatim(surface: str):
-    """Each of the three decision gates (step 1 RED pause, step 2 plan gate,
-    step 6 doctrine pass) mandates a verbatim paste of the originating
-    agent's rendered proposal, mirroring the step 7 verbatim-PR-body rule."""
-    verbatim_rule = (
-        "complete rendered proposal exactly as returned, no reserialization "
-        "to JSON, no abbreviation, no pointer to output above, immediately "
-        "before the approval ask"
-    )
     body = load_ship_task_body(surface)
-    assert body.count(verbatim_rule) == 3
-    assert body.count("paste the planner's " + verbatim_rule) == 2
-    assert body.count("paste the tech-lead's " + verbatim_rule) == 1
+    assert "show the complete proposal exactly as it would be filed" in body
+    assert "paste the originating rendered proposal exactly as returned" in body
+    assert "without JSON reserialization, abbreviation, pointer, or substitution" in body
+    assert "The proposal must be the final text of that turn." in body
+    assert "Approval must arrive in a later direct user reply." in body
+    assert "exact PR title and full PR body" in body
 
 
 # --- render_skill produces frontmatter + body ---
@@ -616,7 +697,42 @@ def test_render_skill_cursor_ship_task_frontmatter():
     assert "alwaysApply: false" in fm
     assert "name:" not in fm
     body = rendered.split("\n---\n", 1)[1].lstrip("\n")
-    assert body == load_ship_task_body()
+    assert "bundled subagent dispatch is unsupported" in fm
+    assert body == load_ship_task_body("cursor")
+    assert "Cursor cannot dispatch the bundled subagent roles" in body
+    assert "Stop before planning or mutation" in body
+    assert (
+        "Do not reproduce the roles inline. Do not use a generic agent. Do not edit files, "
+        "write project truth, commit, push, or open a PR." in body
+    )
+    for directive in (
+        "Invoke `@nauro-planner`",
+        "Invoke `@nauro-executor`",
+        "## 4. Local review",
+        "commits locally",
+        "## 8. Push",
+        "`gh pr create`",
+    ):
+        assert directive not in body
+    assert body != load_ship_task_body("claude_code")
+
+
+def test_rendered_claude_ship_task_discloses_allowlist_limitation():
+    body = load_ship_task_body("claude_code")
+
+    assert "declared `tools:` allowlists omit direct Nauro write tools as defense in depth" in body
+    assert "General shell access retains an indirect Nauro write path." in body
+    assert "does not provide structural capability denial" in body
+
+
+def test_rendered_codex_ship_task_discloses_direct_mcp_and_shell_paths():
+    body = load_ship_task_body("codex")
+
+    assert "does not carry the Claude `tools:` allowlists" in body
+    assert "emit `mcp_servers` restrictions" in body
+    assert "Codex can retain direct Nauro MCP write tools and a general shell write path." in body
+    assert "draft-only boundary is the explicit no-write instruction" in body
+    assert "does not provide structural capability denial" in body
 
 
 def test_render_skill_codex_ship_task_requires_approved_dispatch_fallback():
@@ -629,6 +745,7 @@ def test_render_skill_codex_ship_task_requires_approved_dispatch_fallback():
     assert "Use the instruction-level Codex fallback for this run?" in body
     assert "Do not plan, edit, file a decision, commit, or push" in body
     assert "Record that the instruction-level fallback was used" in body
+    assert "Codex can retain direct Nauro MCP write tools and a general shell write path." in body
     assert body != load_ship_task_body("claude_code")
 
 

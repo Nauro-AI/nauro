@@ -37,12 +37,30 @@ _CLAUDE_SHIP_TASK_PREREQUISITES = (
     "`nauro adopt --with-subagents` (or `nauro setup all --with-subagents`) and "
     "dispatch on Claude Code. If they are missing, or the current surface cannot "
     "spawn subagents, the chain cannot run; surface that to the user and stop. Do "
-    "not reproduce the chain inline in the main session: the gates depend on the "
-    "subagents' restricted tool access, and an inline imitation runs without those "
-    "restrictions. The personal-subagent path (`@planner` / `@executor` / `@reviewer` "
+    "not reproduce the chain inline in the main session: its independent role contexts "
+    "and authority gates are required. The personal-subagent path (`@planner` / "
+    "`@executor` / `@reviewer` "
     "without the `nauro-` prefix) is not a substitute either. The bundled subagents "
     "call Nauro's MCP tools by design, which is what makes the doctrine gates "
-    "load-bearing."
+    "load-bearing. On the Claude-rendered agent surface, declared `tools:` allowlists omit "
+    "direct Nauro write tools as defense in depth. General shell access retains an indirect "
+    "Nauro write path. The explicit no-write instruction and Delivery-parent authority "
+    "contract are the portable controls; this does not provide structural capability "
+    "denial. Stronger denial belongs to the surface runtime."
+)
+
+_CURSOR_SHIP_TASK_PREREQUISITES = (
+    "# Nauro ship task skill\n\n"
+    "Cursor cannot dispatch the bundled subagent roles in this release. Bundled "
+    "subagent dispatch is unsupported. Stop before planning or mutation and tell the "
+    "user that the chain is unavailable on this surface. Do not reproduce the roles "
+    "inline. Do not use a generic agent. Do not edit files, write project truth, commit, "
+    "push, or open a PR."
+)
+
+_CURSOR_SHIP_TASK_DESCRIPTION = (
+    "Cursor bundled subagent dispatch is unsupported. This skill stops before planning "
+    "or mutation and does not use inline or generic-agent fallbacks."
 )
 
 _CODEX_SHIP_TASK_PREREQUISITES = (
@@ -70,6 +88,12 @@ _CODEX_SHIP_TASK_PREREQUISITES = (
     "6. Record that the instruction-level fallback was used. Include that fact in the "
     "push-gate summary and final receipt. If the user declines, or any agent definition "
     "is missing, stop before mutation.\n\n"
+    "The current Codex renderer does not carry the Claude `tools:` allowlists or emit "
+    "`mcp_servers` restrictions. Codex can retain direct Nauro MCP write tools and a general "
+    "shell write path. Its draft-only boundary is the explicit no-write instruction and "
+    "Delivery-parent authority contract only. This does not provide structural capability "
+    "denial. Stronger denial belongs to the surface runtime. Keep this limitation visible "
+    "when it can affect the user's choice.\n\n"
     "Do not reproduce the four roles inline in the parent session. The independent "
     "contexts and the human-controlled gates remain mandatory in both dispatch modes."
 )
@@ -86,11 +110,11 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
     ),
     "nauro-ship-task": (
         "Run the full planner -> executor -> reviewer -> tech-lead -> "
-        "user-confirm -> push chain for a non-trivial code change against "
-        "Nauro's bundled @nauro-* subagents. Gates on the user whenever the "
-        "planner or tech-lead will file a Nauro decision; the executor never "
-        "files. Runs @nauro-tech-lead Mode C between reviewer-APPROVE and the "
-        "push gate to catch doctrine drift the reviewer missed. A prompt that "
+        "direct-user-confirm -> push chain for a non-trivial code change against "
+        "Nauro's bundled @nauro-* subagents. Every subagent is draft-only for "
+        "project-truth writes; the direct-user Delivery parent files exact approved "
+        "decision proposals. Runs @nauro-tech-lead Mode C between reviewer-APPROVE "
+        "and the push gate to catch doctrine drift the reviewer missed. A prompt that "
         "carries a detailed implementation spec or a pasted handoff is still "
         "chain input, not license to implement directly. Invoke explicitly "
         "with the surface's nauro-ship-task command. Requires `nauro adopt "
@@ -177,8 +201,10 @@ def load_ship_task_body(surface: str = "claude_code") -> str:
     body = substitute_protocol_fragments(_strip_template_header(raw))
     if surface == "codex":
         prerequisites = _CODEX_SHIP_TASK_PREREQUISITES
-    elif surface in ("claude_code", "cursor"):
+    elif surface == "claude_code":
         prerequisites = _CLAUDE_SHIP_TASK_PREREQUISITES
+    elif surface == "cursor":
+        return _CURSOR_SHIP_TASK_PREREQUISITES
     else:
         raise ValueError(f"unknown surface: {surface!r}")
     return body.replace(_SHIP_TASK_PREREQUISITES_TOKEN, prerequisites)
@@ -221,6 +247,8 @@ def _frontmatter(surface: str, skill_name: str) -> str:
     if skill_name not in SKILL_DESCRIPTIONS:
         raise ValueError(f"unknown skill: {skill_name!r}")
     description = SKILL_DESCRIPTIONS[skill_name]
+    if surface == "cursor" and skill_name == "nauro-ship-task":
+        description = _CURSOR_SHIP_TASK_DESCRIPTION
     if surface in ("claude_code", "codex"):
         return f"---\nname: {skill_name}\ndescription: {description}\n---\n\n"
     if surface == "cursor":
