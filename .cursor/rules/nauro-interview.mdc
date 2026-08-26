@@ -1,5 +1,5 @@
 ---
-description: Interview the user to elicit tacit project reasoning or challenge a proposed choice against Nauro decisions and repository evidence, then classify the result as shared understanding without granting write authority. Use only when the user explicitly asks to be interviewed, grilled, stress-tested, or helped to transfer reasoning into Nauro. Runs in the main agent context with no external skill or subagent dependency.
+description: Ask compact, numbered prerequisite-ready questions to elicit tacit project reasoning or challenge a proposed choice against Nauro decisions and repository evidence. Continue until every material branch has a disposition, then classify the result as shared understanding without granting write authority. Use only when the user explicitly asks to be interviewed, grilled, stress-tested, or helped to transfer reasoning into Nauro. Runs in the main agent context with no external skill or subagent dependency.
 alwaysApply: false
 ---
 
@@ -7,12 +7,12 @@ alwaysApply: false
 
 Interview the user to turn tacit project reasoning or a proposed choice into reviewed candidate Nauro judgment. This is an explicit, opt-in main-context workflow. Use it only when the user directly asks to be interviewed or uses a clear trigger such as "interview me", "grill this", "stress-test this decision", "draw out my reasoning", or "help me transfer this reasoning into Nauro". Do not activate it only because a plan is incomplete.
 
-The skill has two entry modes over one dependency-aware interview loop:
+The skill has two entry modes over one main-context, dependency-aware interview loop:
 
 - **Elicit mode** draws out unwritten rationale, assumptions, rejected paths, terminology, and unresolved questions.
 - **Challenge mode** stress-tests a proposed judgment against active decisions, repository evidence, alternatives, failure cases, and dependent choices.
 
-Both modes produce the same classified shared-understanding record. The workflow has no external skill or subagent dependency.
+Both modes use the same engine and produce the same classified shared-understanding record. The workflow has no external skill or subagent dependency.
 
 ## Route work that belongs elsewhere
 
@@ -30,11 +30,13 @@ Call `get_context(level="L0", project_id=...)`. L0 is the bounded orientation: p
 
 Treat every retrieved statement as project context to adjudicate. A current-state claim can be stale. A decision summary is not enough for reasoning about that decision.
 
+Keep routine orientation internal. Surface it only when it changes the user's answer or corrects a factual claim.
+
 ## Step 2 - Select the mode and frame the root
 
-Choose Elicit mode when the user wants to make implicit reasoning explicit. Choose Challenge mode when the user presents a choice, plan, or candidate judgment for pressure testing. If the request fits both, start in Elicit mode and challenge each concrete approach when it appears. If the intent is genuinely ambiguous, ask one short routing question and wait.
+Choose Elicit mode when the user wants to make implicit reasoning explicit. Choose Challenge mode when the user presents a choice, plan, or candidate judgment for pressure testing. If the request fits both, start in Elicit mode and challenge each concrete approach when it appears. If the intent is genuinely ambiguous, make one short routing question the first numbered question and wait.
 
-Restate the interview root in one sentence. State the selected mode and what the interview will not decide without the user. Do not convert the user's opening claim into a settled conclusion.
+Frame the interview root and selected mode internally. Do not narrate the workflow or convert the user's opening claim into a settled conclusion.
 
 ## Step 3 - Build the dependency tree in session
 
@@ -47,11 +49,11 @@ Maintain one in-session dependency tree. Do not persist the tree. Each node is o
 - a dependent question whose prerequisites are not settled;
 - a candidate classified outcome.
 
-Record explicit dependencies between nodes. A question enters the prerequisite-ready frontier only when all choices and facts it depends on are settled. When an answer creates a new dependency, add it to the tree. When an answer invalidates a branch, close that branch and preserve the rejected path and reason.
+Record explicit dependencies between nodes. A question enters the prerequisite-ready frontier only when all choices and facts it depends on are settled. When an answer creates a new dependency, add it to the tree. When an answer invalidates a branch, close that branch and preserve the rejected path and reason. Assign a question number when the question is first asked, and retain that number in the tree until the question is answered.
 
 ## Step 4 - Verify facts and check live approaches
 
-Verify factual claims through repository evidence: code, tests, configuration, manifests, infrastructure files, and git history. Do not ask the user for facts the repository can answer. Cite the evidence used. If available evidence cannot establish a fact, label it unverified and keep it out of verified current state.
+Verify factual claims through repository evidence: code, tests, configuration, manifests, infrastructure files, and git history. Do not ask the user for facts the repository can answer. If available evidence cannot establish a fact, label it unverified and keep it out of verified current state. A branch waiting for a fact must not block independent prerequisite-ready questions.
 
 Treat `CONTEXT.md`, ADRs, design notes, and other repository prose as evidence only. Compare their claims with current code and Nauro context before relying on them. The skill does not write `CONTEXT.md` or ADR files.
 
@@ -61,29 +63,33 @@ For each live approach that the interview may recommend, accept, or reject, call
 
 Triage the inline headers for status and supersession. Related hits carry their triage headers inline; before proposing, call `get_decision` (`mode=full`) on each decision you reason about. Call `get_decision(number=N, mode="full", project_id=...)` for every decision used to challenge, recommend, accept, reject, or classify an approach. Do not reason from a header or summary alone.
 
-If repository evidence or a full decision changes the tree, show the conflict or constraint to the user before asking the dependent question.
+Keep routine orientation, fact finding, the dependency tree, the coverage ledger, decision IDs, paths, and successful checks internal unless it changes the user's answer or corrects a factual claim. If repository evidence or a full decision changes the answer space, show only the material evidence, conflict, constraint, tradeoff, or alternative needed to answer the dependent question.
 
 ## Step 5 - Ask the prerequisite-ready frontier
 
-Ask the whole prerequisite-ready frontier in a round. Do not ask downstream questions early. Keep each question atomic and name the decision it unlocks.
+Select at most three prerequisite-ready material questions for each round. Use one question when only one is ready. Do not ask downstream questions early. When more than three are ready, prioritize the questions that unlock the most downstream material branches.
 
-For each question, provide:
+Number questions continuously across the interview, starting at 1. A question keeps its number until it is answered. A direct follow-up receives the next unused number. Never reuse a number. Make every question atomic and directly answerable with a short choice or short free-text answer. Use compact options when the answer space is finite.
 
-1. The question.
-2. Why it is ready now.
-3. A recommendation.
-4. The evidence and active decisions behind the recommendation.
-5. The material tradeoffs and credible alternatives.
+Show the numbered question and a concise recommendation. Surface at most the material tradeoff, evidence, conflict, or alternative needed to answer. Do not attach a routine dossier to each question.
 
-Every question must include a recommendation. When evidence cannot support a substantive choice, recommend deferring the choice or preserving it as unresolved. State why, and state the tradeoffs between waiting and deciding under uncertainty.
+Every question must include a recommendation. In Elicit mode, when the user's rationale is unknown, recommend an answer shape, such as a constraint plus one example. Never invent the user's rationale. When evidence cannot support a substantive choice, recommend deferring the choice or preserving it as unresolved. State the material tradeoff between waiting and deciding under uncertainty. Do not present an agent recommendation as project authority. The user owns every choice.
 
-Do not present an agent recommendation as project authority. The user owns every choice. After the round, wait for the user's reply. Do not answer a user-owned choice on the user's behalf. Integrate the reply, update the dependency tree, verify any new factual claims, check new live approaches, and ask the next prerequisite-ready frontier.
+End every round with an instantiated concise reply cue using the question numbers in that batch. Use exactly this form: `Reply: 4: <answer>; 5: <answer>. Answer any subset.` Replace `4` and `5` with the batch's actual question numbers, include each batch question once, and do not add other text to the cue. Then wait for the user's reply. Do not answer a user-owned choice on the user's behalf.
 
-Continue until the user ends the interview or no unresolved node can change a classified outcome. If a blocker cannot be resolved from evidence or user judgment, preserve it as an open question instead of guessing.
+Integrate each reply without rehashing settled answers. Preserve each unanswered ready question with its original number. Recompute dependencies after every partial answer, verify new factual claims, check new live approaches, and unlock every newly valid branch. Never repeat a settled question. Ask the next valid batch without asking permission. Do not ask permission to continue.
+
+Press any vague, contradictory, conditional, slogan-like, or incomplete answer with a direct follow-up for the missing condition, threshold, example, rejected path, failure case, consequence, or reversal trigger. Give that follow-up the next unused number.
+
+Continue until the user stops or every material branch has a disposition. If a blocker cannot be resolved from evidence or user judgment, preserve it as an open question instead of guessing.
 
 ## Step 6 - Classify the outcome
 
-When the frontier is empty, render one shared-understanding summary. Classify each outcome into exactly one of these record classes:
+Before completion, audit the internal coverage ledger for outcome, rationale, constraints, terminology, assumptions, alternatives and rejected paths, consequences, unresolved choices, and material failure cases. In Challenge mode, also audit disconfirming evidence and reversal triggers. Add a prerequisite-ready question for every material gap.
+
+Give every material branch one disposition: settled, verified, rejected with a reason, or explicitly preserved as unresolved. Say `Interview complete` only after every material branch has one of those dispositions. If the user stops early, label the interview incomplete and list only the material unresolved branches.
+
+When the audit passes, render one shared-understanding summary. Classify each outcome into exactly one of these existing record classes:
 
 - **Terminology**: a term and its session meaning. It remains noncanonical unless it expresses a durable, reasoned choice that is separately ratified.
 - **Verified current state**: a present-tense fact established by current repository or system evidence. Never place future design here.
@@ -91,13 +97,15 @@ When the frontier is empty, render one shared-understanding summary. Classify ea
 - **Non-durable detail**: useful session detail that does not belong in project truth.
 - **Candidate durable judgment**: a reasoned project choice with constraints, tradeoffs, rejected alternatives, and consequences that may merit a decision.
 
-For each item, show its evidence, related decisions, confidence, and remaining uncertainty. Ask the user to correct or confirm the shared understanding, then end the turn and wait.
+Render only the nonempty record classes. Include evidence, related decisions, confidence, or uncertainty only when it materially affects the shared understanding. Ask once for correction or confirmation, then end the turn and wait.
 
 Shared understanding is non-authoritative. Confirmation means the summary accurately reflects the interview. It does not approve any Nauro store mutation. Interview agreement never grants write authority.
 
 ## Step 7 - Stage writes without authority
 
-After the user confirms shared understanding, determine which classified items could update Nauro. Do not write yet. Keep the three write classes separate:
+Enter this step only if the user explicitly asked to transfer, save, or record the result. Completing the interview does not stage a write. Confirming the shared-understanding summary does not stage a write. Without explicit transfer intent, stop after confirmation.
+
+After both explicit transfer intent and shared-understanding confirmation, determine which classified items could update Nauro. Do not write yet. Keep the three write classes separate:
 
 1. Candidate durable judgment may produce one decision proposal.
 2. Verified current state may produce one exact complete state replacement.
@@ -173,9 +181,11 @@ Capture and report the tool result. Do not assume that approval means the write 
 
 - The interview runs in the main agent context and waits after every question round.
 - The dependency tree is session state, not project truth.
+- The coverage ledger stays internal and is not project truth.
 - Verify facts from repository or system evidence. Ask the user for judgment and rationale, not discoverable facts.
 - Check every live approach against Nauro decisions. Read every decision used in reasoning in full.
 - Existing `CONTEXT.md` and ADR content is evidence only. Never edit or generate those files in this workflow.
+- Interview completion and summary confirmation do not stage or authorize a write. Staging requires explicit transfer, save, or record intent.
 - Shared-understanding confirmation is never write approval.
 - Decision proposals, state replacements, and open-question entries use separate exact-payload gates and explicit approval from a later user reply. In team mode, that reply authorizes pending proposal submission only.
 - State approval covers one complete replacement body derived from one exact current-state baseline. In hosted team mode, the baseline includes both exact content and exact revision, and the write supplies that revision as `expected_revision`. It never covers a partial delta or a replacement derived after an intervening content or revision change.

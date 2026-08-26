@@ -196,12 +196,13 @@ SKILL_DESCRIPTIONS: dict[str, str] = {
         "as a narrow process-state exception. Installed by `nauro adopt --with-skills`."
     ),
     "nauro-interview": (
-        "Interview the user to elicit tacit project reasoning or challenge a proposed "
-        "choice against Nauro decisions and repository evidence, then classify the "
-        "result as shared understanding without granting write authority. Use only "
-        "when the user explicitly asks to be interviewed, grilled, stress-tested, or "
-        "helped to transfer reasoning into Nauro. Runs in the main agent context with "
-        "no external skill or subagent dependency."
+        "Ask compact, numbered prerequisite-ready questions to elicit tacit project "
+        "reasoning or challenge a proposed choice against Nauro decisions and repository "
+        "evidence. Continue until every material branch has a disposition, then classify "
+        "the result as shared understanding without granting write authority. Use only "
+        "when the user explicitly asks to be interviewed, grilled, stress-tested, or helped "
+        "to transfer reasoning into Nauro. Runs in the main agent context with no external "
+        "skill or subagent dependency."
     ),
 }
 
