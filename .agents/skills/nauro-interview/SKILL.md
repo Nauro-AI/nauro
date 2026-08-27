@@ -71,11 +71,15 @@ Select at most three prerequisite-ready material questions for each round. Use o
 
 Number questions continuously across the interview, starting at 1. A question keeps its number until it is answered. A direct follow-up receives the next unused number. Never reuse a number. Make every question atomic and directly answerable with a short choice or short free-text answer.
 
-Present every question in this stable three-part form:
+Begin every active question round with exactly `◆ Nauro Interview`. Place it once before the first question. Do not add the mode, round count, progress, evidence, or paths.
 
-1. `<continuous number>. <short decision label>`
-2. A direct question that names every finite choice.
-3. `Recommendation: <concrete answer>. <concise rationale>`
+Present every question block in this exact form:
+
+`❓ **Q<n>** - **<short decision label>**: <direct question>`
+
+`➡️ **Recommendation: <concrete answer>.** <concise rationale>`
+
+A direct question must name every finite choice. The `Q` prefix is presentation only. The underlying number remains continuous and stable across unanswered questions and follow-ups. When a round contains multiple questions, place `---` only between question blocks. Never place it after the final question block.
 
 Surface at most the material tradeoff, evidence, conflict, or alternative needed to answer. Do not attach a routine dossier to each question.
 
