@@ -466,7 +466,7 @@ def test_load_interview_body_preserves_deliberation_boundary():
     assert "recommendation" in body
     assert "tradeoffs" in body
     assert "Every question must include a recommendation" in body
-    assert "recommend deferring the choice or preserving it as unresolved" in body
+    assert "Treat `defer` and `preserve unresolved` as concrete advisory recommendations" in body
     assert "wait for the user's reply" in body
     for outcome_class in (
         "Terminology",
@@ -491,8 +491,28 @@ def test_interview_body_asks_compact_bounded_numbered_rounds():
     assert "keeps its number until it is answered" in body
     assert "next unused number" in body
     assert "atomic and directly answerable with a short choice or short free-text answer" in body
-    assert "Use compact options when the answer space is finite" in body
     assert "Use exactly this form: `Reply: 4: <answer>; 5: <answer>. Answer any subset.`" in body
+
+
+def test_interview_body_presents_labeled_direct_answer_first_questions():
+    body = load_interview_body()
+
+    for presentation_part in (
+        "`<continuous number>. <short decision label>`",
+        "A direct question that names every finite choice",
+        "`Recommendation: <concrete answer>. <concise rationale>`",
+    ):
+        assert presentation_part in body
+    assert "Every substantive recommendation starts with the concrete recommended answer" in body
+    assert "repository evidence and active project judgment cannot support" in body
+    assert "without inventing a user-owned choice or rationale" in body
+    assert "Treat `defer` and `preserve unresolved` as concrete advisory recommendations" in body
+    assert "Every recommendation remains advisory" in body
+    for superseded_rule in (
+        "Use compact options when the answer space is finite",
+        "when the user's rationale is unknown, recommend an answer shape",
+    ):
+        assert superseded_rule not in body
 
 
 def test_interview_body_advances_dependencies_without_repetition():
@@ -519,7 +539,7 @@ def test_interview_body_advances_dependencies_without_repetition():
 def test_interview_body_keeps_routine_work_internal_and_recommendations_bounded():
     body = load_interview_body()
 
-    assert "recommend an answer shape" in body
+    assert "Use answer-shape guidance only" in body
     assert "Never invent the user's rationale" in body
     assert "routine orientation" in body
     assert "fact finding" in body

@@ -67,11 +67,17 @@ Keep routine orientation, fact finding, the dependency tree, the coverage ledger
 
 Select at most three prerequisite-ready material questions for each round. Use one question when only one is ready. Do not ask downstream questions early. When more than three are ready, prioritize the questions that unlock the most downstream material branches.
 
-Number questions continuously across the interview, starting at 1. A question keeps its number until it is answered. A direct follow-up receives the next unused number. Never reuse a number. Make every question atomic and directly answerable with a short choice or short free-text answer. Use compact options when the answer space is finite.
+Number questions continuously across the interview, starting at 1. A question keeps its number until it is answered. A direct follow-up receives the next unused number. Never reuse a number. Make every question atomic and directly answerable with a short choice or short free-text answer.
 
-Show the numbered question and a concise recommendation. Surface at most the material tradeoff, evidence, conflict, or alternative needed to answer. Do not attach a routine dossier to each question.
+Present every question in this stable three-part form:
 
-Every question must include a recommendation. In Elicit mode, when the user's rationale is unknown, recommend an answer shape, such as a constraint plus one example. Never invent the user's rationale. When evidence cannot support a substantive choice, recommend deferring the choice or preserving it as unresolved. State the material tradeoff between waiting and deciding under uncertainty. Do not present an agent recommendation as project authority. The user owns every choice.
+1. `<continuous number>. <short decision label>`
+2. A direct question that names every finite choice.
+3. `Recommendation: <concrete answer>. <concise rationale>`
+
+Surface at most the material tradeoff, evidence, conflict, or alternative needed to answer. Do not attach a routine dossier to each question.
+
+Every question must include a recommendation. Every substantive recommendation starts with the concrete recommended answer and then gives concise rationale. Use answer-shape guidance only when repository evidence and active project judgment cannot support a substantive recommendation without inventing a user-owned choice or rationale. Never invent the user's rationale. Treat `defer` and `preserve unresolved` as concrete advisory recommendations when evidence is insufficient, and state the material tradeoff between waiting and deciding under uncertainty. Every recommendation remains advisory. The user owns every choice.
 
 End every round with an instantiated concise reply cue using the question numbers in that batch. Use exactly this form: `Reply: 4: <answer>; 5: <answer>. Answer any subset.` Replace `4` and `5` with the batch's actual question numbers, include each batch question once, and do not add other text to the cue. Then wait for the user's reply. Do not answer a user-owned choice on the user's behalf.
 
