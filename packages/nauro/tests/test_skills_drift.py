@@ -497,12 +497,14 @@ def test_interview_body_asks_compact_bounded_numbered_rounds():
 def test_interview_body_presents_labeled_direct_answer_first_questions():
     body = load_interview_body()
 
-    for presentation_part in (
-        "`<continuous number>. <short decision label>`",
-        "A direct question that names every finite choice",
-        "`Recommendation: <concrete answer>. <concise rationale>`",
-    ):
-        assert presentation_part in body
+    assert "Begin every active question round with exactly `◆ Nauro Interview`" in body
+    assert "`❓ **Q<n>** - **<short decision label>**: <direct question>`" in body
+    assert "`➡️ **Recommendation: <concrete answer>.** <concise rationale>`" in body
+    assert "A direct question must name every finite choice" in body
+    assert "place `---` only between question blocks" in body
+    assert "Never place it after the final question block" in body
+    assert "The `Q` prefix is presentation only" in body
+    assert "Do not add the mode, round count, progress, evidence, or paths" in body
     assert "Every substantive recommendation starts with the concrete recommended answer" in body
     assert "repository evidence and active project judgment cannot support" in body
     assert "without inventing a user-owned choice or rationale" in body
