@@ -1,8 +1,8 @@
 # Nauro
 
-The decision system for building software with AI.
+Human Controlled Project Truth
 
-Nauro gives connected agents human-approved project judgment and current state before they plan or change work.
+Keep your project's direction in human hands as agents do more of the work.
 
 Nauro keeps a living project record. It combines project scope, current state, and open questions with human-approved project judgment: intent, goals, decisions, rationale, tradeoffs, and rejected paths. Project judgment is the human-ratified part of the record; context is the relevant slice of the record an agent receives for the work in front of it. Works with Claude, Perplexity, Cursor, Codex, and any MCP client.
 

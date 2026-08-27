@@ -13,12 +13,9 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[3]
 
-HEADLINE = "The decision system for building software with AI."
+HEADLINE = "Human Controlled Project Truth"
 
-SUPPORT_LINE = (
-    "Nauro gives connected agents human-approved project judgment and current state "
-    "before they plan or change work."
-)
+SUPPORT_LINE = "Keep your project's direction in human hands as agents do more of the work."
 
 FIT_BOUNDARY = (
     "If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, "
@@ -26,8 +23,8 @@ FIT_BOUNDARY = (
 )
 
 COMPACT_DESCRIPTION = (
-    "Human-approved project judgment and current state for connected AI agents, "
-    "surfaced before work."
+    "Human Controlled Project Truth: Keep your project's direction in human hands as "
+    "agents do more of the work."
 )
 
 README_PATHS = ("README.md", "packages/nauro/README.md")
@@ -59,16 +56,27 @@ def test_readmes_carry_headline_support_line_and_fit_boundary() -> None:
         assert FIT_BOUNDARY in text, relative
 
 
-def test_compact_description_identical_across_distribution_surfaces() -> None:
+def test_compact_description_contract_across_distribution_surfaces() -> None:
     pyproject = tomllib.loads((ROOT / "packages/nauro/pyproject.toml").read_text(encoding="utf-8"))
     server = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
     assert pyproject["project"]["description"] == COMPACT_DESCRIPTION
-    assert server["description"] == COMPACT_DESCRIPTION
 
     from nauro.cli.main import app
 
     assert app.info.help is not None
     assert app.info.help.startswith(COMPACT_DESCRIPTION)
+    assert server["title"] == "Nauro"
+    assert server["description"] == HEADLINE
+    assert len(server["description"]) <= 100
+    assert {
+        surface
+        for surface, description in {
+            "pypi": pyproject["project"]["description"],
+            "cli": app.info.help,
+            "mcp_registry": server["description"],
+        }.items()
+        if description != COMPACT_DESCRIPTION
+    } == {"mcp_registry"}
 
 
 def test_public_copy_uses_us_judgment_spelling() -> None:

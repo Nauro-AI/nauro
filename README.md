@@ -2,7 +2,7 @@
   <img src="docs/images/nauro-wordmark-dark.svg" alt="Nauro" width="180">
 </p>
 
-<p align="center"><strong>The decision system for building software with AI.</strong></p>
+<p align="center"><strong>Human Controlled Project Truth</strong></p>
 
 <p align="center">
   <a href="https://pypi.org/project/nauro/"><img alt="PyPI" src="https://img.shields.io/pypi/v/nauro.svg"></a>
@@ -10,7 +10,7 @@
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
 </p>
 
-Nauro gives connected agents human-approved project judgment and current state before they plan or change work.
+Keep your project's direction in human hands as agents do more of the work.
 
 Before work, Nauro surfaces the relevant part of that record. Approved judgment and reported progress carry into later sessions and connected tools.
 
