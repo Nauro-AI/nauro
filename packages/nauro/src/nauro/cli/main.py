@@ -25,8 +25,8 @@ def _version_callback(value: bool) -> None:
 app = typer.Typer(
     name="nauro",
     help=(
-        "Human-approved project judgment and current state for connected AI agents, "
-        "surfaced before work."
+        "Human Controlled Project Truth: Keep your project's direction in human hands "
+        "as agents do more of the work."
     ),
     no_args_is_help=True,
     rich_markup_mode=None,
@@ -45,8 +45,8 @@ def main(
         help="Show version and exit.",
     ),
 ) -> None:
-    """Human-approved project judgment and current state for connected AI agents,
-    surfaced before work.
+    """Human Controlled Project Truth: Keep your project's direction in human hands
+    as agents do more of the work.
     """
 
 
