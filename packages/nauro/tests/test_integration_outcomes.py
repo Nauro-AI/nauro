@@ -488,10 +488,6 @@ RENDER_CASES = [
     (SkillOutcome(SkillKind.ABSENT, target=TARGET), [f"  no skill at {TARGET}"]),
     # ── Agent ──
     (
-        AgentOutcome(AgentKind.SURFACE_NOT_IMPLEMENTED, surface="cursor"),
-        ["  skipped ~/.cursor agents (not yet implemented)"],
-    ),
-    (
         AgentOutcome(AgentKind.SURFACE_INVALID, surface="x", detail="bad"),
         [f"  skipped agents on surface {'x'!r}: bad"],
     ),
@@ -502,6 +498,10 @@ RENDER_CASES = [
     (
         AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=USER_REFUSAL),
         [f"  {USER_REFUSAL.message}"],
+    ),
+    (
+        AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=REPO_REFUSAL),
+        [f"  {REPO_REFUSAL.message}"],
     ),
     (AgentOutcome(AgentKind.UNCHANGED, target=TARGET), [f"  unchanged {TARGET}"]),
     (AgentOutcome(AgentKind.OVERWROTE, target=TARGET), [f"  overwrote {TARGET}"]),

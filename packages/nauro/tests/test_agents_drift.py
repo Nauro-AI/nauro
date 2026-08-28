@@ -9,8 +9,7 @@ user's surface directory.
 Subagent markdown ships with full Claude Code frontmatter inline, so
 ``render_agent("claude_code", name)`` returns the body unchanged; there
 is no per-surface wrapping. Codex renders the canonical instructions into
-custom-agent TOML. Cursor raises ``NotImplementedError`` until a target shape
-is defined.
+custom-agent TOML. Cursor renders them into native custom-agent Markdown.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from nauro.agents import AGENT_NAMES, emit_plugin_agents, load_agent_body, render_agent
@@ -95,9 +95,30 @@ def test_agent_body_has_no_retired_phrases(name: str, phrase: str, reason: str) 
 
 
 @pytest.mark.parametrize("name", list(AGENT_NAMES))
-def test_render_agent_cursor_raises_not_implemented(name: str) -> None:
-    with pytest.raises(NotImplementedError):
-        render_agent("cursor", name)
+def test_render_agent_cursor_uses_native_frontmatter(name: str) -> None:
+    rendered = render_agent("cursor", name)
+    end = rendered.find("\n---\n", 4)
+    data = yaml.safe_load(rendered[4:end])
+    canonical = load_agent_body(name)
+    canonical_end = canonical.find("\n---\n", 4)
+    canonical_data = yaml.safe_load(canonical[4:canonical_end])
+
+    assert data["name"] == name
+    assert data["description"] == canonical_data["description"]
+    assert data["model"] == "inherit"
+    assert "tools" not in data
+    if name == "nauro-executor":
+        assert "readonly" not in data
+    else:
+        assert data["readonly"] is True
+    assert rendered[end + len("\n---\n") :] == canonical[canonical_end + len("\n---\n") :]
+
+
+@pytest.mark.parametrize("name", list(AGENT_NAMES))
+def test_agent_authority_text_covers_cursor_mcp_inheritance(name: str) -> None:
+    body = load_agent_body(name)
+    assert "Cursor subagents inherit the parent's MCP tools" in body
+    assert "No surface provides structural capability denial" in body
 
 
 @pytest.mark.parametrize("name", list(AGENT_NAMES))
@@ -287,10 +308,10 @@ def test_codex_bundled_agents_disclose_inherited_mcp_write_paths(name: str) -> N
     assert "mcp_servers" not in rendered
     body = rendered["developer_instructions"]
 
-    assert "The current Codex renderer does not carry the Claude `tools:` allowlist" in body
-    assert "Codex can retain direct Nauro MCP write tools and a shell route." in body
-    assert "draft-only boundary is the explicit instruction" in body
-    assert "Neither surface has structural capability denial." in body
+    assert "The Codex renderer does not carry the Claude `tools:` allowlist" in body
+    assert "Codex and Cursor can therefore retain direct Nauro MCP write tools." in body
+    assert "Their draft-only boundary is the explicit instruction" in body
+    assert "No surface provides structural capability denial." in body
 
 
 @pytest.mark.parametrize("name", AGENT_NAMES)

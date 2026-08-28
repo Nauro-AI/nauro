@@ -342,8 +342,6 @@ def _render_skill(o: SkillOutcome) -> list[str]:
 
 def _render_agent(o: AgentOutcome) -> list[str]:
     match o.kind:
-        case AgentKind.SURFACE_NOT_IMPLEMENTED:
-            return [f"  skipped ~/.{o.surface} agents (not yet implemented)"]
         case AgentKind.SURFACE_INVALID:
             return [f"  skipped agents on surface {o.surface!r}: {o.detail}"]
         case AgentKind.PRESERVED:
