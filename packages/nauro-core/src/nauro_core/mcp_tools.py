@@ -63,8 +63,9 @@ _PROJECT_PARAM: dict[str, Any] = {
     ),
 }
 
-# Schema-optional so local adapters can generate and bind one when the
-# caller omits it; the hosted HTTP surface refuses the call without it.
+# Each ToolSpec selects whether operation_id is required. Existing local-backed
+# hosted tools keep it schema-optional for adapter generation; create_project
+# requires it.
 _OPERATION_ID_PARAM: dict[str, Any] = {
     "type": "string",
     "description": (
@@ -528,11 +529,10 @@ LIST_PROJECTS: ToolSpec = {
 
 # ── Hosted-only tool specs ──
 #
-# update_stack and share_context are served by the hosted HTTP surface only
-# for now: they are deliberately absent from ALL_TOOLS, which the stdio
-# server, the CLI autogen allowlist, and the public contract snapshot all
-# key off, so defining them here changes no local surface. They join
-# ALL_TOOLS when the local adapters ship.
+# These specs are served by the hosted HTTP surface only: they are deliberately
+# absent from ALL_TOOLS, which the stdio server, the CLI autogen allowlist, and
+# the public contract snapshot all key off, so defining them here changes no
+# local surface.
 
 UPDATE_STACK: ToolSpec = {
     "name": "update_stack",
@@ -633,6 +633,41 @@ SHARE_CONTEXT: ToolSpec = {
     },
 }
 
+CREATE_PROJECT: ToolSpec = {
+    "name": "create_project",
+    "title": "Create a project",
+    "description": (
+        "Create an empty hosted project for the authenticated account. This tool works "
+        "before the caller has any project.\n\n"
+        "Pass only name and operation_id. The server trims outer whitespace from name. "
+        "The result must be nonempty and at most 100 Python characters. No other character "
+        "restrictions apply.\n\n"
+        "The authenticated bearer identity becomes the creator and initial owner. The server "
+        "derives the project ID, membership, owner role, timestamps, generation identity, "
+        "storage keys, format and epoch facts, neutral alias, receipt, digest, audit event, "
+        "counter, and transaction facts. The caller cannot supply any of them.\n\n"
+        "operation_id defines an account-scoped idempotency key. Resending the same operation_id "
+        "with the same trimmed name replays the original outcome instead of creating another "
+        "project. A different trimmed name conflicts."
+    ),
+    "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": True},
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": (
+                    "Project name. Outer whitespace is trimmed; the result must be nonempty and "
+                    "at most 100 Python characters. No other character restrictions apply."
+                ),
+            },
+            "operation_id": _OPERATION_ID_PARAM,
+        },
+        "required": ["name", "operation_id"],
+        "additionalProperties": False,
+    },
+}
+
 # ── Registry ──
 
 ALL_TOOLS: tuple[ToolSpec, ...] = (
@@ -652,7 +687,12 @@ ALL_TOOLS: tuple[ToolSpec, ...] = (
 # The hosted HTTP server's registry: every shared tool plus the
 # hosted-only typed operations above. Local surfaces keep keying off
 # ALL_TOOLS, so this tuple is inert for them.
-HOSTED_TOOLS: tuple[ToolSpec, ...] = (*ALL_TOOLS, UPDATE_STACK, SHARE_CONTEXT)
+HOSTED_TOOLS: tuple[ToolSpec, ...] = (
+    *ALL_TOOLS,
+    UPDATE_STACK,
+    SHARE_CONTEXT,
+    CREATE_PROJECT,
+)
 
 _BY_NAME: dict[str, ToolSpec] = {spec["name"]: spec for spec in ALL_TOOLS}
 
