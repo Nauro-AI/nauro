@@ -49,7 +49,11 @@ cd your-repo
 nauro adopt --with-skills --with-subagents
 ```
 
-Restart your agent, then invoke `/nauro-adopt` in Claude Code or `$nauro-adopt` in Codex. The skill reads the repo, asks about missing rationale, and seeds the project record. The optional flags also install the gated `nauro-ship-task` workflow and its four workflow agents.
+Restart, then seed the store with `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat.
+
+Plain adopt installs `nauro-adopt`. `--with-skills` adds `nauro-ship-task`, `nauro-context`, `nauro-loop`, and `nauro-interview`. `--with-subagents` adds four workflow agents for Claude Code and Codex. Cursor receives the skill rules, but Nauro does not install workflow-agent definitions for Cursor.
+
+On a new machine, run `nauro setup cursor`, then restart Cursor. Commit `.nauro/config.json` and shared `.cursor/rules/nauro-*.mdc`, not the gitignored, machine-local `.cursor/mcp.json`. Cursor Cloud Agents need separate MCP configuration at `cursor.com/agents`.
 
 Run `nauro status` to check MCP, skills, and workflow agents. Run `nauro doctor` to check the project store.
 

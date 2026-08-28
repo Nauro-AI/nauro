@@ -68,7 +68,13 @@ If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Na
 
 For real-project setup (`nauro init` / `nauro adopt`), cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme). Don't run `nauro setup` from `/tmp/nauro-demo`; that would wire the throwaway demo into your MCP client.
 
-For full Claude Code and Codex onboarding, run `nauro adopt --with-skills --with-subagents`. This installs the gated `nauro-ship-task` workflow and Nauro's bundled planner, executor, reviewer, and tech-lead agents into `~/.claude/agents/` and `~/.codex/agents/`. Re-running the command refreshes Nauro-owned workflow files and saves differing copies as backups. It leaves third-party skills and agents untouched. Pass `--force-overwrite` only when you do not want backups.
+For cross-surface onboarding, run `nauro adopt --with-skills --with-subagents`. Plain adopt installs `nauro-adopt`. `--with-skills` adds `nauro-ship-task`, `nauro-context`, `nauro-loop`, and `nauro-interview`. `--with-subagents` adds Nauro's planner, executor, reviewer, and tech-lead agents for Claude Code and Codex. Cursor receives the skill rules, but Nauro does not install workflow-agent definitions for Cursor.
+
+Restart, then seed the store with `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat. On a new machine, run `nauro setup cursor`, then restart Cursor. Commit `.nauro/config.json` and shared `.cursor/rules/nauro-*.mdc`, not the gitignored, machine-local `.cursor/mcp.json`.
+
+Cursor Cloud Agents need separate MCP configuration at `cursor.com/agents`. If you use Nauro's hosted connector there, link and sync the project first.
+
+Re-running onboarding refreshes Nauro-owned workflow files and saves differing copies as backups. It leaves third-party skills and agents untouched. Pass `--force-overwrite` only when you do not want backups.
 
 ## Why Nauro?
 
