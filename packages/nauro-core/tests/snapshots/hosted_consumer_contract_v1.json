@@ -250,7 +250,7 @@
     },
     "nauro_core.mcp_tools.HOSTED_TOOLS": {
       "kind": "value",
-      "len": 13,
+      "len": 14,
       "type": "tuple"
     },
     "nauro_core.normalize_title": {

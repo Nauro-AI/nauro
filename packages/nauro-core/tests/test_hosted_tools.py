@@ -1,11 +1,10 @@
 """Tests for the hosted-only tool specs and the HOSTED_TOOLS registry.
 
-``update_stack`` and ``share_context`` ship as submodule-public specs for
-the hosted HTTP server only: ALL_TOOLS, the stdio registration, the CLI
-autogen allowlist, and the public contract snapshot must not move. The
-zero-drift pins live in ``test_mcp_tools.py`` (the 11-tool registry) and
-the ``packages/nauro`` contract suites; these tests cover the additive
-hosted surface.
+The specs in this module ship for the hosted HTTP server only: ALL_TOOLS,
+the stdio registration, the CLI autogen allowlist, and the public contract
+snapshot must not move. The zero-drift pins live in ``test_mcp_tools.py``
+(the 11-tool registry) and the ``packages/nauro`` contract suites; these
+tests cover the additive hosted surface.
 """
 
 from __future__ import annotations
@@ -14,23 +13,27 @@ import pytest
 
 from nauro_core.mcp_tools import (
     ALL_TOOLS,
+    CREATE_PROJECT,
     HOSTED_TOOLS,
     SHARE_CONTEXT,
     UPDATE_STACK,
     get_tool_spec,
 )
 
-HOSTED_ONLY = (UPDATE_STACK, SHARE_CONTEXT)
+PROJECT_SCOPED_HOSTED_ONLY = (UPDATE_STACK, SHARE_CONTEXT)
 
 
 class TestHostedRegistry:
-    def test_hosted_tools_is_all_tools_plus_the_two_typed_operations(self) -> None:
-        assert (*ALL_TOOLS, UPDATE_STACK, SHARE_CONTEXT) == HOSTED_TOOLS
+    def test_hosted_tools_is_all_tools_plus_the_three_typed_operations(self) -> None:
+        assert (*ALL_TOOLS, UPDATE_STACK, SHARE_CONTEXT, CREATE_PROJECT) == HOSTED_TOOLS
+        assert HOSTED_TOOLS[-1] is CREATE_PROJECT
+        assert len(HOSTED_TOOLS) == 14
 
     def test_hosted_only_specs_absent_from_all_tools(self) -> None:
         names = {spec["name"] for spec in ALL_TOOLS}
         assert "update_stack" not in names
         assert "share_context" not in names
+        assert "create_project" not in names
 
     def test_unique_names_across_hosted_registry(self) -> None:
         names = [spec["name"] for spec in HOSTED_TOOLS]
@@ -43,10 +46,12 @@ class TestHostedRegistry:
             get_tool_spec("update_stack")
         with pytest.raises(KeyError):
             get_tool_spec("share_context")
+        with pytest.raises(KeyError):
+            get_tool_spec("create_project")
 
 
 class TestHostedSpecShape:
-    @pytest.mark.parametrize("spec", HOSTED_ONLY, ids=lambda s: s["name"])
+    @pytest.mark.parametrize("spec", PROJECT_SCOPED_HOSTED_ONLY, ids=lambda s: s["name"])
     def test_required_fields(self, spec) -> None:
         assert spec["name"]
         assert spec["title"]
@@ -54,20 +59,20 @@ class TestHostedSpecShape:
         assert spec["annotations"]
         assert spec["input_schema"]["type"] == "object"
 
-    @pytest.mark.parametrize("spec", HOSTED_ONLY, ids=lambda s: s["name"])
+    @pytest.mark.parametrize("spec", PROJECT_SCOPED_HOSTED_ONLY, ids=lambda s: s["name"])
     def test_write_annotations(self, spec) -> None:
         assert spec["annotations"]["readOnlyHint"] is False
         assert spec["annotations"]["destructiveHint"] is False
         assert spec["annotations"]["openWorldHint"] is False
         assert spec["annotations"]["idempotentHint"] is False
 
-    @pytest.mark.parametrize("spec", HOSTED_ONLY, ids=lambda s: s["name"])
+    @pytest.mark.parametrize("spec", PROJECT_SCOPED_HOSTED_ONLY, ids=lambda s: s["name"])
     def test_project_id_optional(self, spec) -> None:
         schema = spec["input_schema"]
         assert "project_id" in schema["properties"]
         assert "project_id" not in schema["required"]
 
-    @pytest.mark.parametrize("spec", HOSTED_ONLY, ids=lambda s: s["name"])
+    @pytest.mark.parametrize("spec", PROJECT_SCOPED_HOSTED_ONLY, ids=lambda s: s["name"])
     def test_operation_id_schema_optional_with_hosted_required_description(self, spec) -> None:
         # Schema-optional so local adapters can generate one; the
         # description carries the hosted-required contract.
@@ -76,6 +81,59 @@ class TestHostedSpecShape:
         assert "operation_id" not in schema["required"]
         description = schema["properties"]["operation_id"]["description"]
         assert "Required on the hosted HTTP surface" in description
+
+
+class TestCreateProjectSpec:
+    def test_exact_account_scoped_contract(self) -> None:
+        assert CREATE_PROJECT == {
+            "name": "create_project",
+            "title": "Create a project",
+            "description": (
+                "Create an empty hosted project for the authenticated account. This tool works "
+                "before the caller has any project.\n\n"
+                "Pass only name and operation_id. The server trims outer whitespace from name. "
+                "The result must be nonempty and at most 100 Python characters. No other "
+                "character restrictions apply.\n\n"
+                "The authenticated bearer identity becomes the creator and initial owner. The "
+                "server derives the project ID, membership, owner role, timestamps, generation "
+                "identity, storage keys, format and epoch facts, neutral alias, receipt, digest, "
+                "audit event, counter, and transaction facts. The caller cannot supply any of "
+                "them.\n\n"
+                "operation_id defines an account-scoped idempotency key. Resending the same "
+                "operation_id with the same trimmed name replays the original outcome instead of "
+                "creating another project. A different trimmed name conflicts."
+            ),
+            "annotations": {
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "Project name. Outer whitespace is trimmed; the result must be "
+                            "nonempty and at most 100 Python characters. No other character "
+                            "restrictions apply."
+                        ),
+                    },
+                    "operation_id": {
+                        "type": "string",
+                        "description": (
+                            "Client-generated idempotency identifier for this operation (1-128 "
+                            "printable ASCII characters). Required on the hosted HTTP surface; "
+                            "resending the same operation_id with the same payload returns the "
+                            "original outcome instead of repeating the write."
+                        ),
+                    },
+                },
+                "required": ["name", "operation_id"],
+                "additionalProperties": False,
+            },
+        }
 
 
 class TestUpdateStackSpec:
