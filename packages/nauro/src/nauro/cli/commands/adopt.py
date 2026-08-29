@@ -22,6 +22,7 @@ from pathlib import Path
 
 import typer
 
+from nauro.agents import AGENT_NAMES
 from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.cli.integrations.orchestrator import (
     SHIP_TASK_NEEDS_SUBAGENTS_NOTICE,
@@ -149,9 +150,19 @@ def _install_into_adopted_repo(
     Mirrors the materialize step of a fresh adoption without re-registering the project
     or rewriting ``.nauro/config.json``.
     """
+    project_repos = [repo_root]
+    try:
+        project_id = load_repo_config(repo_root).get("id")
+        if isinstance(project_id, str):
+            registered = [Path(path) for path in get_repo_paths(project_id)]
+            if registered:
+                project_repos = registered
+    except (OSError, RepoConfigSchemaError, RegistrySchemaError):
+        pass
+
     typer.echo("Repo already adopted. Installing requested artifacts across surfaces:\n")
     for outcome in setup_all_surfaces(
-        [repo_root],
+        project_repos,
         remove=False,
         with_subagents=with_subagents,
         force_overwrite=force_overwrite,
@@ -181,6 +192,7 @@ def _unadopt_symlink_refusals(repo_root: Path) -> list[SymlinkRefusal]:
         "AGENTS.md",
         "CLAUDE.md",
         *(f".cursor/rules/{name}.mdc" for name in SKILL_NAMES + OPT_IN_SKILL_NAMES),
+        *(f".cursor/agents/{name}.md" for name in AGENT_NAMES),
     ]
     # .gitignore is a teardown target only inside a git working tree — the
     # managed-block removal skips non-git directories entirely, so a symlinked
@@ -362,10 +374,10 @@ def adopt(
         False,
         "--with-subagents",
         help=(
-            "Install Nauro's bundled workflow subagents (@nauro-planner, "
-            "@nauro-executor, @nauro-reviewer, @nauro-tech-lead) into "
-            "~/.claude/agents/ for Claude Code and ~/.codex/agents/ for Codex. "
-            "Off by default."
+            "Install Nauro's bundled workflow subagents (nauro-planner, "
+            "nauro-executor, nauro-reviewer, nauro-tech-lead) into "
+            "~/.claude/agents/ for Claude Code, .cursor/agents/ in each registered "
+            "repo for Cursor, and ~/.codex/agents/ for Codex. Off by default."
         ),
     ),
     force_overwrite: bool = typer.Option(

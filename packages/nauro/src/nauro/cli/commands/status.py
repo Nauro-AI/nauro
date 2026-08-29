@@ -145,8 +145,44 @@ _NO_PAIR = _SurfacePair(claude=_NO_COUNTS, codex=_NO_COUNTS)
 
 
 @dataclass(frozen=True)
+class _WorkflowAgentCounts:
+    """Workflow agents tallied on Claude Code, Cursor, and Codex."""
+
+    claude: _ArtifactCounts
+    cursor: _ArtifactCounts
+    codex: _ArtifactCounts
+
+    @property
+    def present(self) -> int:
+        return self.claude.present + self.cursor.present + self.codex.present
+
+    @property
+    def current(self) -> int:
+        return self.claude.current + self.cursor.current + self.codex.current
+
+    @property
+    def expected(self) -> int:
+        return self.claude.expected + self.cursor.expected + self.codex.expected
+
+    @property
+    def stale(self) -> int:
+        return self.present - self.current
+
+    @property
+    def fully_current(self) -> bool:
+        return self.current == self.expected
+
+
+_NO_AGENT_COUNTS = _WorkflowAgentCounts(
+    claude=_NO_COUNTS,
+    cursor=_NO_COUNTS,
+    codex=_NO_COUNTS,
+)
+
+
+@dataclass(frozen=True)
 class _WorkflowArtifacts:
-    """Nauro-owned skills and workflow agents across both user surfaces.
+    """Nauro-owned skills and workflow agents across supported surfaces.
 
     Core skills install on every adopt/setup-all run; opt-in skills and
     workflow agents install only behind their flags, so their absence is a
@@ -155,14 +191,14 @@ class _WorkflowArtifacts:
 
     core_skills: _SurfacePair
     opt_in_skills: _SurfacePair
-    agents: _SurfacePair
+    agents: _WorkflowAgentCounts
     legacy_codex_skills: int
 
 
 _NO_WORKFLOW_ARTIFACTS = _WorkflowArtifacts(
     core_skills=_NO_PAIR,
     opt_in_skills=_NO_PAIR,
-    agents=_NO_PAIR,
+    agents=_NO_AGENT_COUNTS,
     legacy_codex_skills=0,
 )
 
@@ -221,8 +257,8 @@ def _count_skills(surface: str, base: Path, names: tuple[str, ...]) -> _Artifact
     )
 
 
-def _workflow_artifacts() -> _WorkflowArtifacts:
-    """Inspect Nauro-owned skills and workflow agents on both user surfaces."""
+def _workflow_artifacts(repo_paths: list[Path]) -> _WorkflowArtifacts:
+    """Inspect Nauro-owned skills and workflow agents on supported surfaces."""
     from nauro.agents import AGENT_NAMES, render_agent
     from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 
@@ -231,10 +267,17 @@ def _workflow_artifacts() -> _WorkflowArtifacts:
     claude_agent_base = Path.home() / ".claude" / "agents"
     codex_agent_base = Path.home() / ".codex" / "agents"
 
-    agents = _SurfacePair(
+    agents = _WorkflowAgentCounts(
         claude=_count_artifacts(
             {
                 claude_agent_base / f"{name}.md": render_agent("claude_code", name)
+                for name in AGENT_NAMES
+            }
+        ),
+        cursor=_count_artifacts(
+            {
+                repo / ".cursor" / "agents" / f"{name}.md": render_agent("cursor", name)
+                for repo in repo_paths
                 for name in AGENT_NAMES
             }
         ),
@@ -279,7 +322,7 @@ def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
     except Exception:
         agents_generated = 0
     try:
-        workflow = _workflow_artifacts()
+        workflow = _workflow_artifacts(repo_paths)
     except Exception:
         workflow = _NO_WORKFLOW_ARTIFACTS
 
@@ -380,6 +423,15 @@ def _surface_detail(*pairs: _SurfacePair) -> str:
     return f"Claude {claude_current}/{claude_expected}; Codex {codex_current}/{codex_expected}"
 
 
+def _workflow_agent_detail(counts: _WorkflowAgentCounts) -> str:
+    """Per-surface current and expected workflow-agent counts."""
+    return (
+        f"Claude {counts.claude.current}/{counts.claude.expected}; "
+        f"Cursor {counts.cursor.current}/{counts.cursor.expected}; "
+        f"Codex {counts.codex.current}/{counts.codex.expected}"
+    )
+
+
 _SKILLS_INACTIVE_LINE = (
     "  Skills        inactive - run 'nauro setup all' (--with-skills adds the opt-in skills)"
 )
@@ -428,7 +480,7 @@ def _workflow_agents_status_line(snapshot: _WiringSnapshot) -> str:
     """Render the Workflow row. The agents are opt-in, so full absence is a
     stated choice; a partial or stale install is a defect."""
     agents = snapshot.workflow.agents
-    detail = _surface_detail(agents)
+    detail = _workflow_agent_detail(agents)
     if agents.stale:
         return (
             f"  Workflow      BROKEN - {detail}; installed Nauro agent files differ from "
@@ -648,6 +700,12 @@ class _SurfaceCountsPayload(BaseModel):
     codex: _CountsPayload
 
 
+class _WorkflowAgentCountsPayload(BaseModel):
+    claude: _CountsPayload
+    cursor: _CountsPayload
+    codex: _CountsPayload
+
+
 class _SyncPayload(BaseModel):
     cloud: bool
     authenticated: bool
@@ -705,7 +763,7 @@ class StatusPayload(BaseModel):
     mcp: _McpPayload
     codex_hooks: _CodexHooksPayload
     skills: _SkillsPayload
-    workflow_agents: _SurfaceCountsPayload
+    workflow_agents: _WorkflowAgentCountsPayload
     agents_md: _AgentsMdPayload
     decisions: _DecisionsPayload
 
@@ -717,6 +775,16 @@ def _counts_payload(counts: _ArtifactCounts) -> _CountsPayload:
 def _surface_counts_payload(pair: _SurfacePair) -> _SurfaceCountsPayload:
     return _SurfaceCountsPayload(
         claude=_counts_payload(pair.claude), codex=_counts_payload(pair.codex)
+    )
+
+
+def _workflow_agent_counts_payload(
+    counts: _WorkflowAgentCounts,
+) -> _WorkflowAgentCountsPayload:
+    return _WorkflowAgentCountsPayload(
+        claude=_counts_payload(counts.claude),
+        cursor=_counts_payload(counts.cursor),
+        codex=_counts_payload(counts.codex),
     )
 
 
@@ -778,7 +846,7 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
             opt_in=_surface_counts_payload(workflow.opt_in_skills),
             legacy_codex_copies=workflow.legacy_codex_skills,
         ),
-        workflow_agents=_surface_counts_payload(workflow.agents),
+        workflow_agents=_workflow_agent_counts_payload(workflow.agents),
         agents_md=_AgentsMdPayload(
             repo_count=snapshot.repo_count,
             generated_repos=snapshot.agents_generated,

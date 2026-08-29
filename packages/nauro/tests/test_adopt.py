@@ -13,7 +13,8 @@ from typer.testing import CliRunner
 from nauro.agents import AGENT_NAMES, render_agent
 from nauro.cli.main import app
 from nauro.skills import load_adopt_body
-from nauro.store.registry import find_projects_by_name_v2, register_project_v2
+from nauro.store.registry import add_repo_v2, find_projects_by_name_v2, register_project_v2
+from nauro.store.repo_config import load_repo_config, save_repo_config
 
 runner = CliRunner()
 
@@ -180,12 +181,13 @@ def test_adopt_already_adopted_with_subagents_installs_instead_of_aborting(
     subagents rather than dead-ending on the already-adopted guard."""
     from nauro.agents import AGENT_NAMES
 
-    _adopt_env(monkeypatch, tmp_path)
+    repo = _adopt_env(monkeypatch, tmp_path)
     first = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert first.exit_code == 0, first.output
     # Fresh adopt without the flag installs no subagents.
     for n in AGENT_NAMES:
         assert not _agent_path(tmp_path, n).exists()
+        assert not _cursor_agent_path(repo, n).exists()
         assert not _codex_agent_path(tmp_path, n).exists()
 
     result = runner.invoke(app, ["adopt", "--with-subagents"])
@@ -193,6 +195,9 @@ def test_adopt_already_adopted_with_subagents_installs_instead_of_aborting(
     assert "already adopted" not in result.output.lower() or "Installing" in result.output
     for n in AGENT_NAMES:
         assert _agent_path(tmp_path, n).is_file(), f"missing {n} after re-adopt --with-subagents"
+        assert _cursor_agent_path(repo, n).is_file(), (
+            f"missing Cursor {n} after re-adopt --with-subagents"
+        )
         assert _codex_agent_path(tmp_path, n).is_file(), (
             f"missing Codex {n} after re-adopt --with-subagents"
         )
@@ -207,6 +212,29 @@ def test_adopt_already_adopted_with_skills_installs_and_notices(tmp_path: Path, 
     result = runner.invoke(app, ["adopt", "--with-skills"])
     assert result.exit_code == 0, result.output
     assert (tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md").is_file()
+
+
+def test_adopt_already_adopted_installs_cursor_agents_in_every_registered_repo(
+    tmp_path: Path, monkeypatch
+):
+    repo_one = _adopt_env(monkeypatch, tmp_path)
+    first = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert first.exit_code == 0, first.output
+
+    config = load_repo_config(repo_one)
+    repo_two = tmp_path / "repo-two"
+    repo_two.mkdir()
+    _git_init(repo_two)
+    add_repo_v2(config["id"], repo_two)
+    save_repo_config(repo_two, config)
+
+    result = runner.invoke(app, ["adopt", "--with-subagents"])
+
+    assert result.exit_code == 0, result.output
+    for repo in (repo_one, repo_two):
+        for name in AGENT_NAMES:
+            path = _cursor_agent_path(repo, name)
+            assert path.read_text(encoding="utf-8") == render_agent("cursor", name)
 
 
 def test_adopt_aborts_on_same_name_collision(tmp_path: Path, monkeypatch):
@@ -335,29 +363,36 @@ def _codex_agent_path(home: Path, agent: str) -> Path:
     return home / ".codex" / "agents" / f"{agent}.toml"
 
 
+def _cursor_agent_path(repo: Path, agent: str) -> Path:
+    return repo / ".cursor" / "agents" / f"{agent}.md"
+
+
 def test_adopt_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
     """``nauro adopt`` without ``--with-subagents`` must not write any nauro-* agents."""
-    _adopt_env(monkeypatch, tmp_path)
+    repo = _adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
 
     for name in AGENT_NAMES:
         assert not _agent_path(tmp_path, name).exists()
+        assert not _cursor_agent_path(repo, name).exists()
         assert not _codex_agent_path(tmp_path, name).exists()
 
 
 def test_adopt_with_subagents_installs_all_four(tmp_path: Path, monkeypatch):
     """``--with-subagents`` materializes every bundled agent byte-equal to render_agent()."""
-    _adopt_env(monkeypatch, tmp_path)
+    repo = _adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
     assert result.exit_code == 0, result.output
 
     for name in AGENT_NAMES:
         claude = _agent_path(tmp_path, name)
+        cursor = _cursor_agent_path(repo, name)
         codex = _codex_agent_path(tmp_path, name)
         assert claude.read_text(encoding="utf-8") == render_agent("claude_code", name)
+        assert cursor.read_text(encoding="utf-8") == render_agent("cursor", name)
         assert codex.read_text(encoding="utf-8") == render_agent("codex", name)
 
 
@@ -416,8 +451,10 @@ def test_with_subagents_reinstall_is_idempotent(tmp_path: Path, monkeypatch):
     assert result.exit_code == 0, result.output
 
     target = _agent_path(tmp_path, "nauro-planner")
+    cursor_target = _cursor_agent_path(Path.cwd(), "nauro-planner")
     assert "unchanged" in result.output
     assert not (target.parent / (target.name + ".bak")).exists()
+    assert not (cursor_target.parent / (cursor_target.name + ".bak")).exists()
 
 
 def test_adopt_with_subagents_does_not_touch_user_authored_planner_md(tmp_path: Path, monkeypatch):
@@ -497,12 +534,12 @@ def test_adopt_with_skills_installs_ship_task_across_surfaces(tmp_path: Path, mo
 
 
 def test_adopt_with_skills_without_subagents_emits_notice(tmp_path: Path, monkeypatch):
-    """The skill body references @nauro-* subagents; the install path warns."""
+    """The ship-task skill requires the workflow agents, so the install path warns."""
     _adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
     assert result.exit_code == 0, result.output
-    assert "nauro-ship-task references the bundled @nauro-* subagents" in result.output
+    assert "nauro-ship-task requires the bundled nauro-* workflow agents" in result.output
 
 
 def test_adopt_with_skills_and_subagents_does_not_emit_notice(tmp_path: Path, monkeypatch):
@@ -511,7 +548,7 @@ def test_adopt_with_skills_and_subagents_does_not_emit_notice(tmp_path: Path, mo
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills", "--with-subagents"])
     assert result.exit_code == 0, result.output
-    assert "nauro-ship-task references the bundled @nauro-* subagents" not in result.output
+    assert "nauro-ship-task requires the bundled nauro-* workflow agents" not in result.output
 
 
 def test_adopt_remove_clears_ship_task_when_last_project(tmp_path: Path, monkeypatch):

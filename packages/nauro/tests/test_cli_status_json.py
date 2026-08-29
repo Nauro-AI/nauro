@@ -19,11 +19,12 @@ from typer.testing import CliRunner
 
 from nauro.agents import AGENT_NAMES
 from nauro.cli.integrations import codex_config
+from nauro.cli.integrations.agents import materialize_agents_cursor_for_repo
 from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 from nauro.cli.main import app
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.config import save_config
-from nauro.store.registry import register_project_v2
+from nauro.store.registry import add_repo_v2, register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
@@ -110,6 +111,7 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
         },
         "workflow_agents": {
             "claude": _absent_counts(len(AGENT_NAMES)),
+            "cursor": _absent_counts(len(AGENT_NAMES)),
             "codex": _absent_counts(len(AGENT_NAMES)),
         },
         "agents_md": {"repo_count": 1, "generated_repos": 0},
@@ -138,6 +140,20 @@ def test_status_json_probed_and_healthy_when_wired(tmp_path, monkeypatch):
     # The conftest probe stub reports every recorded command healthy.
     assert payload["mcp"]["probed"] is True
     assert payload["mcp"]["healthy"] is True
+
+
+def test_status_json_aggregates_cursor_agents_across_registered_repos(tmp_path, monkeypatch):
+    store, repo_one = _setup_project(tmp_path, monkeypatch)
+    repo_two = tmp_path / "repo-two"
+    repo_two.mkdir()
+    add_repo_v2(store.name, repo_two)
+    materialize_agents_cursor_for_repo(repo_one, remove=False)
+
+    result = runner.invoke(app, ["status", "--json"])
+
+    assert result.exit_code == 0, result.output
+    cursor = json.loads(result.stdout)["workflow_agents"]["cursor"]
+    assert cursor == {"present": 4, "current": 4, "expected": 8}
 
 
 def test_status_json_no_probe_yields_null_health(tmp_path, monkeypatch):

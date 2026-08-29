@@ -51,17 +51,32 @@ _CLAUDE_SHIP_TASK_PREREQUISITES = (
 )
 
 _CURSOR_SHIP_TASK_PREREQUISITES = (
-    "# Nauro ship task skill\n\n"
-    "Cursor cannot dispatch the bundled subagent roles in this release. Bundled "
-    "subagent dispatch is unsupported. Stop before planning or mutation and tell the "
-    "user that the chain is unavailable on this surface. Do not reproduce the roles "
-    "inline. Do not use a generic agent. Do not edit files, write project truth, commit, "
-    "push, or open a PR."
+    "This skill invokes the native Cursor custom agents `/nauro-planner`, "
+    "`/nauro-executor`, `/nauro-reviewer`, and `/nauro-tech-lead`. They install under "
+    "`.cursor/agents/` in every registered repo via `nauro adopt --with-subagents` "
+    "or `nauro setup all --with-subagents`.\n\n"
+    "### Cursor dispatch capability check\n\n"
+    "Before planning or changing files:\n\n"
+    "1. Verify that all four `.cursor/agents/nauro-*.md` files exist in the current "
+    "repo.\n"
+    "2. Verify that the Cursor runtime loaded the native custom-agent definitions and "
+    "can dispatch each configured name. A generic Task agent or prompt mention does not "
+    "qualify.\n"
+    "3. If any definition or native dispatch capability is missing, explain that the "
+    "chain is unavailable and stop before planning, mutation, project-truth writes, "
+    "commit, push, or PR creation. Do not reproduce the roles inline and do not use a "
+    "generic-agent fallback.\n\n"
+    "Cursor custom agents inherit the parent session's MCP tools. The `readonly: true` "
+    "field on planner, reviewer, and tech-lead agents does not deny MCP write tools or "
+    "every indirect shell path. The explicit draft-only instruction and Delivery-parent "
+    "authority contract remain the portable controls. Subagents must not call Nauro write "
+    "tools directly or indirectly. Keep every role in a separate context."
 )
 
 _CURSOR_SHIP_TASK_DESCRIPTION = (
-    "Cursor bundled subagent dispatch is unsupported. This skill stops before planning "
-    "or mutation and does not use inline or generic-agent fallbacks."
+    "Run the full planner -> executor -> reviewer -> tech-lead -> direct-user-confirm -> "
+    "push chain through Cursor's native project workflow agents. Requires the four bundled "
+    "`.cursor/agents/nauro-*.md` definitions and fails closed without native dispatch."
 )
 
 _CODEX_SHIP_TASK_PREREQUISITES = (
@@ -242,10 +257,14 @@ def load_ship_task_body(surface: str = "claude_code") -> str:
     elif surface == "claude_code":
         prerequisites = _CLAUDE_SHIP_TASK_PREREQUISITES
     elif surface == "cursor":
-        return _CURSOR_SHIP_TASK_PREREQUISITES
+        prerequisites = _CURSOR_SHIP_TASK_PREREQUISITES
     else:
         raise ValueError(f"unknown surface: {surface!r}")
-    return body.replace(_SHIP_TASK_PREREQUISITES_TOKEN, prerequisites)
+    body = body.replace(_SHIP_TASK_PREREQUISITES_TOKEN, prerequisites)
+    if surface == "cursor":
+        for name in ("nauro-planner", "nauro-executor", "nauro-reviewer", "nauro-tech-lead"):
+            body = body.replace(f"`@{name}`", f"`/{name}`")
+    return body
 
 
 def load_context_body() -> str:
