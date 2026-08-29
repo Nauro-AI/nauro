@@ -214,7 +214,6 @@ class AgentKind(Enum):
     REFUSED_SYMLINK = auto()
     PRESERVED = auto()
     PRESERVED_MODIFIED = auto()
-    SURFACE_NOT_IMPLEMENTED = auto()
     SURFACE_INVALID = auto()
     UNCHANGED = auto()
     OVERWROTE = auto()
@@ -230,7 +229,7 @@ class AgentOutcome:
 
     kind: AgentKind
     target: Path | None = None
-    refusal: UserSymlinkRefusal | None = None
+    refusal: SymlinkRefusal | UserSymlinkRefusal | None = None
     surface: str | None = None
     detail: str | None = None
     backup_name: str | None = None

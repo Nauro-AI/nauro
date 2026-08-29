@@ -9,8 +9,9 @@ unchanged on the Claude Code surface — no per-surface frontmatter
 wrapping is needed.
 
 ``render_agent(surface, name)`` is the single source of truth for what
-the materializer writes into ``~/.claude/agents/<name>.md`` and
-``~/.codex/agents/<name>.toml``. Cursor remains unsupported.
+the materializer writes into ``~/.claude/agents/<name>.md``,
+``~/.codex/agents/<name>.toml``, and
+``<repo>/.cursor/agents/<name>.md``.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ AGENT_NAMES: tuple[str, ...] = (
     "nauro-tech-lead",
 )
 
-_CODEX_READ_ONLY_AGENTS: frozenset[str] = frozenset(
+_READ_ONLY_AGENTS: frozenset[str] = frozenset(
     {
         "nauro-planner",
         "nauro-reviewer",
@@ -50,8 +51,8 @@ def load_agent_body(name: str) -> str:
 
 def render_agent(surface: str, name: str) -> str:
     """Return the file content for ``name`` on ``surface``.
-    Claude Code gets the body verbatim and Codex a custom-agent TOML; Cursor raises
-    ``NotImplementedError``.
+    Claude Code gets the body verbatim, Codex gets custom-agent TOML, and Cursor gets
+    native custom-agent Markdown.
     """
     body = load_agent_body(name)
     if surface == "claude_code":
@@ -59,12 +60,12 @@ def render_agent(surface: str, name: str) -> str:
     if surface == "codex":
         return _render_codex_agent(name, body)
     if surface == "cursor":
-        raise NotImplementedError(f"surface {surface!r} not yet implemented for subagents")
+        return _render_cursor_agent(name, body)
     raise ValueError(f"unknown surface: {surface!r}")
 
 
-def _render_codex_agent(name: str, claude_body: str) -> str:
-    """Translate one canonical Claude agent file into Codex TOML."""
+def _split_agent_body(name: str, claude_body: str) -> tuple[dict[str, str], str]:
+    """Return validated Claude frontmatter fields and canonical instructions."""
     end = claude_body.find("\n---\n", 4)
     if not claude_body.startswith("---\n") or end < 0:
         raise ValueError(f"agent {name!r} has invalid frontmatter")
@@ -76,18 +77,39 @@ def _render_codex_agent(name: str, claude_body: str) -> str:
         if ":" in line
         for key, value in (line.split(":", 1),)
     }
-    if fields.get("name") != name or not fields.get("description"):
+    if fields.get("name") != name or not fields.get("description") or not fields.get("model"):
         raise ValueError(f"agent {name!r} has incomplete frontmatter")
 
     instructions = claude_body[end + len("\n---\n") :]
+    return fields, instructions
+
+
+def _render_codex_agent(name: str, claude_body: str) -> str:
+    """Translate one canonical Claude agent file into Codex TOML."""
+    fields, instructions = _split_agent_body(name, claude_body)
     lines = [
         f"name = {json.dumps(name, ensure_ascii=False)}",
         f"description = {json.dumps(fields['description'], ensure_ascii=False)}",
     ]
-    if name in _CODEX_READ_ONLY_AGENTS:
+    if name in _READ_ONLY_AGENTS:
         lines.append('sandbox_mode = "read-only"')
     lines.append(f"developer_instructions = {json.dumps(instructions, ensure_ascii=False)}")
     return "\n".join(lines) + "\n"
+
+
+def _render_cursor_agent(name: str, claude_body: str) -> str:
+    """Translate one canonical Claude agent file into Cursor Markdown."""
+    fields, instructions = _split_agent_body(name, claude_body)
+    lines = [
+        "---",
+        f"name: {name}",
+        f"description: {json.dumps(fields['description'], ensure_ascii=False)}",
+        f"model: {fields['model']}",
+    ]
+    if name in _READ_ONLY_AGENTS:
+        lines.append("readonly: true")
+    lines.append("---")
+    return "\n".join(lines) + "\n" + instructions
 
 
 def emit_plugin_agents(dest: Path) -> list[Path]:
