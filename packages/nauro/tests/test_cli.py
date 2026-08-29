@@ -20,7 +20,7 @@ def test_app_shows_help():
     assert "nauro" in result.output.lower()
     normalized = " ".join(strip_ansi(result.output).split())
     assert (
-        "Human Controlled Project Truth: Keep your project's direction in human hands "
+        "What every agent should know. Keep your project's direction in human hands "
         "as agents do more of the work." in normalized
     )
     assert "doctrine once" not in result.output

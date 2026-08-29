@@ -25,7 +25,7 @@ def _version_callback(value: bool) -> None:
 app = typer.Typer(
     name="nauro",
     help=(
-        "Human Controlled Project Truth: Keep your project's direction in human hands "
+        "What every agent should know. Keep your project's direction in human hands "
         "as agents do more of the work."
     ),
     no_args_is_help=True,
@@ -45,7 +45,7 @@ def main(
         help="Show version and exit.",
     ),
 ) -> None:
-    """Human Controlled Project Truth: Keep your project's direction in human hands
+    """What every agent should know. Keep your project's direction in human hands
     as agents do more of the work.
     """
 
