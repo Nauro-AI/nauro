@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "nauro"
 version = "1.18.1"
-description = "Human Controlled Project Truth: Keep your project's direction in human hands as agents do more of the work."
+description = "What every agent should know. Keep your project's direction in human hands as agents do more of the work."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"

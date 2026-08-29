@@ -1,6 +1,6 @@
 # Nauro
 
-Human Controlled Project Truth
+What every agent should know
 
 Keep your project's direction in human hands as agents do more of the work.
 

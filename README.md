@@ -2,7 +2,7 @@
   <img src="docs/images/nauro-wordmark-dark.svg" alt="Nauro" width="180">
 </p>
 
-<p align="center"><strong>Human Controlled Project Truth</strong></p>
+<p align="center"><strong>What every agent should know</strong></p>
 
 <p align="center">
   <a href="https://pypi.org/project/nauro/"><img alt="PyPI" src="https://img.shields.io/pypi/v/nauro.svg"></a>
@@ -12,7 +12,7 @@
 
 Keep your project's direction in human hands as agents do more of the work.
 
-Before work, Nauro surfaces the relevant part of that record. Approved judgment and reported progress carry into later sessions and connected tools.
+Before work, Nauro surfaces relevant parts of that record. Approved judgment and reported progress carry into later sessions and connected tools.
 
 **Status:** Stable (1.x). Semantic versioning covers the CLI, local stdio MCP contract, on-disk store format, and curated `nauro-core` import API. Cloud sync and hosted MCP are versioned separately.
 

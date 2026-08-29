@@ -13,7 +13,7 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[3]
 
-HEADLINE = "Human Controlled Project Truth"
+TAGLINE = "What every agent should know"
 
 SUPPORT_LINE = "Keep your project's direction in human hands as agents do more of the work."
 
@@ -23,7 +23,7 @@ FIT_BOUNDARY = (
 )
 
 COMPACT_DESCRIPTION = (
-    "Human Controlled Project Truth: Keep your project's direction in human hands as "
+    "What every agent should know. Keep your project's direction in human hands as "
     "agents do more of the work."
 )
 
@@ -56,10 +56,10 @@ def test_root_readme_stays_within_first_use_scope() -> None:
     assert "/nauro-adopt" in readme
 
 
-def test_readmes_carry_headline_support_line_and_fit_boundary() -> None:
+def test_readmes_carry_tagline_support_line_and_fit_boundary() -> None:
     for relative in README_PATHS:
         text = (ROOT / relative).read_text(encoding="utf-8")
-        assert HEADLINE in text, relative
+        assert TAGLINE in text, relative
         assert SUPPORT_LINE in text, relative
         assert FIT_BOUNDARY in text, relative
 
@@ -87,7 +87,7 @@ def test_compact_description_contract_across_distribution_surfaces() -> None:
     assert app.info.help is not None
     assert app.info.help.startswith(COMPACT_DESCRIPTION)
     assert server["title"] == "Nauro"
-    assert server["description"] == HEADLINE
+    assert server["description"] == TAGLINE
     assert len(server["description"]) <= 100
     assert {
         surface
