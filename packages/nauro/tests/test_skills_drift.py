@@ -1003,7 +1003,7 @@ def test_program_routing_registry_descriptions():
     assert "PR creation or a terminal blocker" in ship_task
 
 
-@pytest.mark.parametrize("surface", ["claude_code", "codex"])
+@pytest.mark.parametrize("surface", ["claude_code", "cursor", "codex"])
 def test_ship_task_surfaces_decision_drafts_verbatim(surface: str):
     body = load_ship_task_body(surface)
     assert "show the complete proposal exactly as it would be filed" in body
@@ -1050,23 +1050,32 @@ def test_render_skill_cursor_ship_task_frontmatter():
     assert "alwaysApply: false" in fm
     assert "name:" not in fm
     body = rendered.split("\n---\n", 1)[1].lstrip("\n")
-    assert "bundled subagent dispatch is unsupported" in fm
+    assert "Cursor's native project workflow agents" in fm
     assert body == load_ship_task_body("cursor")
-    assert "Cursor cannot dispatch the bundled subagent roles" in body
-    assert "Stop before planning or mutation" in body
-    assert (
-        "Do not reproduce the roles inline. Do not use a generic agent. Do not edit files, "
-        "write project truth, commit, push, or open a PR." in body
-    )
+    assert "all four `.cursor/agents/nauro-*.md` files" in body
+    assert "native custom-agent definitions" in body
+    assert "generic-agent fallback" in body
+    assert "Cursor custom agents inherit the parent session's MCP tools" in body
+    assert "does not deny MCP write tools" in body
+    assert "Subagents must not call Nauro write tools directly or indirectly" in body
     for directive in (
-        "Invoke `@nauro-planner`",
-        "Invoke `@nauro-executor`",
+        "Invoke `/nauro-planner`",
+        "Invoke `/nauro-executor`",
+        "Invoke `/nauro-reviewer`",
+        "invoke `/nauro-tech-lead`",
         "## 4. Local review",
         "commits locally",
         "## 8. Push",
-        "`gh pr create`",
+        "gh pr create --title",
     ):
-        assert directive not in body
+        assert directive in body
+    for claude_invocation in (
+        "Invoke `@nauro-planner`",
+        "Invoke `@nauro-executor`",
+        "Invoke `@nauro-reviewer`",
+        "invoke `@nauro-tech-lead`",
+    ):
+        assert claude_invocation not in body
     assert body != load_ship_task_body("claude_code")
 
 

@@ -71,7 +71,8 @@ def test_readmes_carry_cursor_and_skill_onboarding_contract() -> None:
         assert "nauro setup cursor" in text, relative
         assert ".cursor/mcp.json" in text, relative
         assert "cursor.com/agents" in text, relative
-        assert "does not install workflow-agent definitions for Cursor" in text, relative
+        assert ".cursor/agents/nauro-*.md" in text, relative
+        assert "`nauro-loop` Program Delivery stays on hold" in text, relative
         for skill_name in BUNDLED_SKILL_NAMES:
             assert skill_name in text, (relative, skill_name)
 

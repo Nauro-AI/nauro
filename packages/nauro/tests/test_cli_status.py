@@ -1,6 +1,7 @@
 """Tests for nauro status command."""
 
 import json
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -8,7 +9,7 @@ import nauro.cli.commands.status as status_mod
 from nauro.cli import nauro_command
 from nauro.cli._codex_hooks import _CODEX_HOOK_PROBE_ARGS
 from nauro.cli.integrations import codex_config
-from nauro.cli.integrations.agents import materialize_agents
+from nauro.cli.integrations.agents import materialize_agents, materialize_agents_cursor_for_repo
 from nauro.cli.integrations.skills import (
     materialize_skills_claude_code,
     materialize_skills_codex,
@@ -55,11 +56,13 @@ def _wire_codex_hooks(repo, *, command="nauro", events=("SessionStart", "Subagen
     path.write_text(json.dumps({"hooks": hooks}))
 
 
-def _install_workflow_artifacts() -> None:
+def _install_workflow_artifacts(repos: list[Path] | None = None) -> None:
     materialize_skills_claude_code(remove=False, with_skills=True)
     materialize_skills_codex(remove=False, with_skills=True)
     materialize_agents("claude_code", remove=False)
     materialize_agents("codex", remove=False)
+    for repo in repos if repos is not None else [Path.cwd()]:
+        materialize_agents_cursor_for_repo(repo, remove=False)
 
 
 def test_status_mcp_and_agents_inactive_when_nothing_wired(tmp_path, monkeypatch):
@@ -82,7 +85,7 @@ def test_status_mcp_and_agents_inactive_when_nothing_wired(tmp_path, monkeypatch
     assert "Decisions:" in result.output
 
 
-def test_status_reports_current_skills_and_agents_on_both_surfaces(tmp_path, monkeypatch):
+def test_status_reports_current_skills_and_agents_on_all_surfaces(tmp_path, monkeypatch):
     _setup_project(tmp_path, monkeypatch)
     _install_workflow_artifacts()
 
@@ -90,7 +93,39 @@ def test_status_reports_current_skills_and_agents_on_both_surfaces(tmp_path, mon
 
     assert result.exit_code == 0
     assert "Skills        active (Claude 5/5; Codex 5/5)" in result.output
-    assert "Workflow      active (Claude 4/4; Codex 4/4)" in result.output
+    assert "Workflow      active (Claude 4/4; Cursor 4/4; Codex 4/4)" in result.output
+
+
+def test_status_aggregates_cursor_agents_across_registered_repos(tmp_path, monkeypatch):
+    repo_one = tmp_path / "repo-one"
+    repo_two = tmp_path / "repo-two"
+    repo_one.mkdir()
+    repo_two.mkdir()
+    _setup_project(tmp_path, monkeypatch, [repo_one, repo_two])
+    _install_workflow_artifacts([repo_one])
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert (
+        "Workflow      partial (Claude 4/4; Cursor 4/8; Codex 4/4) - "
+        "run 'nauro setup all --with-subagents'" in result.output
+    )
+
+
+def test_status_reports_stale_cursor_agent(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _install_workflow_artifacts()
+    (tmp_path / ".cursor" / "agents" / "nauro-planner.md").write_text("stale\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert (
+        "Workflow      BROKEN - Claude 4/4; Cursor 3/4; Codex 4/4; installed Nauro "
+        "agent files differ from this release; run 'nauro setup all --with-subagents'"
+        in result.output
+    )
 
 
 def test_status_reports_stale_skill_and_legacy_codex_copy(tmp_path, monkeypatch):

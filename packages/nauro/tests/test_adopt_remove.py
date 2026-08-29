@@ -271,6 +271,28 @@ def test_remove_aborts_when_teardown_target_is_symlinked(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
+def test_remove_aborts_when_cursor_agents_directory_is_symlinked(tmp_path, monkeypatch):
+    repo = _adopt_env(monkeypatch, tmp_path)
+    result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
+    assert result.exit_code == 0, result.output
+
+    agents_dir = repo / ".cursor" / "agents"
+    outside = tmp_path / "outside-agents"
+    agents_dir.rename(outside)
+    agents_dir.symlink_to(outside, target_is_directory=True)
+
+    result = runner.invoke(app, ["adopt", "--remove", "--yes"])
+
+    assert result.exit_code == 1
+    assert "refused to modify" in result.output
+    assert "aborted before any removal" in result.output
+    assert agents_dir.is_symlink()
+    assert (outside / "nauro-planner.md").is_file()
+    assert (repo / ".nauro" / "config.json").is_file()
+    assert find_projects_by_name_v2("alpha") != []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
 def test_remove_symlinked_config_refused_before_read(tmp_path, monkeypatch):
     """The preflight fires before the config is read: a planted link to
     invalid JSON aborts with the refusal, and the unreadable-config warning

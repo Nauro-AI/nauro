@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from nauro.cli.integrations.agents import materialize_agents
+from nauro.cli.integrations.agents import materialize_agents, materialize_agents_cursor_for_repo
 from nauro.cli.integrations.claude_bridge import remove_claude_bridge
 from nauro.cli.integrations.claude_hooks import materialize_hooks_claude_code
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
@@ -267,9 +267,14 @@ def _all_claude_code_lines(
 
 
 def _all_cursor_lines(
-    project_repos: list[Path], *, remove: bool, with_skills: bool, force_overwrite: bool
+    project_repos: list[Path],
+    *,
+    remove: bool,
+    with_subagents: bool,
+    with_skills: bool,
+    force_overwrite: bool,
 ) -> list[ArtifactOutcome]:
-    """Cursor surface lines for ``setup_all_surfaces``: MCP per repo + skills per repo."""
+    """Cursor surface lines for ``setup_all_surfaces``: MCP, skills, and agents per repo."""
     outcomes: list[ArtifactOutcome] = []
     for repo in project_repos:
         if not repo.is_dir():
@@ -289,6 +294,17 @@ def _all_cursor_lines(
             )
         except Exception as exc:
             outcomes.append(HandlerErrorOutcome(f"Cursor skills ({repo}): error - {exc}"))
+        if with_subagents:
+            try:
+                outcomes.extend(
+                    materialize_agents_cursor_for_repo(
+                        repo,
+                        remove=remove,
+                        force_overwrite=force_overwrite,
+                    )
+                )
+            except Exception as exc:
+                outcomes.append(HandlerErrorOutcome(f"Cursor agents ({repo}): error - {exc}"))
     return outcomes
 
 
@@ -432,6 +448,7 @@ def setup_all_surfaces(
         _all_cursor_lines(
             project_repos,
             remove=remove,
+            with_subagents=with_subagents,
             with_skills=with_skills,
             force_overwrite=force_overwrite,
         )
@@ -459,7 +476,7 @@ def setup_all_surfaces(
 
 
 SHIP_TASK_NEEDS_SUBAGENTS_NOTICE = (
-    "nauro-ship-task references the bundled @nauro-* subagents (and nauro-loop "
+    "nauro-ship-task requires the bundled nauro-* workflow agents (and nauro-loop "
     "dispatches that chain); pass `--with-subagents` to install them too."
 )
 

@@ -519,7 +519,7 @@ def test_standalone_codex_remove_message_counts_two_projects(tmp_path: Path, mon
 
 
 def test_setup_all_with_subagents_installs_and_removes_files(tmp_path: Path, monkeypatch):
-    """Round-trip installs and removes Claude Markdown and Codex TOML agents."""
+    """Round-trip installs and removes agents on all three surfaces."""
     from nauro.agents import AGENT_NAMES, render_agent
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -532,14 +532,17 @@ def test_setup_all_with_subagents_installs_and_removes_files(tmp_path: Path, mon
     runner.invoke(app, ["setup", "all", "--with-subagents"])
     for name in AGENT_NAMES:
         claude = tmp_path / ".claude" / "agents" / f"{name}.md"
+        cursor = repo / ".cursor" / "agents" / f"{name}.md"
         codex = tmp_path / ".codex" / "agents" / f"{name}.toml"
         assert claude.read_text(encoding="utf-8") == render_agent("claude_code", name)
+        assert cursor.read_text(encoding="utf-8") == render_agent("cursor", name)
         assert codex.read_text(encoding="utf-8") == render_agent("codex", name)
 
     result = runner.invoke(app, ["setup", "all", "--remove", "--with-subagents"])
     assert result.exit_code == 0, result.output
     for name in AGENT_NAMES:
         assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+        assert not (repo / ".cursor" / "agents" / f"{name}.md").exists()
         assert not (tmp_path / ".codex" / "agents" / f"{name}.toml").exists()
 
 
@@ -561,10 +564,13 @@ def test_setup_all_with_subagents_remove_preserves_customized_files(tmp_path: Pa
     runner.invoke(app, ["setup", "all", "--with-subagents"])
 
     claude_target = tmp_path / ".claude" / "agents" / "nauro-planner.md"
+    cursor_target = repo / ".cursor" / "agents" / "nauro-planner.md"
     codex_target = tmp_path / ".codex" / "agents" / "nauro-planner.toml"
     claude_custom = "---\nname: nauro-planner\n---\n\nlocal tweak\n"
+    cursor_custom = "---\nname: nauro-planner\n---\n\nlocal tweak\n"
     codex_custom = 'name = "nauro-planner"\ndeveloper_instructions = "local tweak"\n'
     claude_target.write_text(claude_custom, encoding="utf-8")
+    cursor_target.write_text(cursor_custom, encoding="utf-8")
     codex_target.write_text(codex_custom, encoding="utf-8")
 
     result = runner.invoke(app, ["setup", "all", "--remove", "--with-subagents"])
@@ -572,12 +578,14 @@ def test_setup_all_with_subagents_remove_preserves_customized_files(tmp_path: Pa
 
     # nauro-planner was modified → preserved
     assert claude_target.read_text(encoding="utf-8") == claude_custom
+    assert cursor_target.read_text(encoding="utf-8") == cursor_custom
     assert codex_target.read_text(encoding="utf-8") == codex_custom
     # The other three matched the bundled content → unlinked
     for name in AGENT_NAMES:
         if name == "nauro-planner":
             continue
         assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+        assert not (repo / ".cursor" / "agents" / f"{name}.md").exists()
         assert not (tmp_path / ".codex" / "agents" / f"{name}.toml").exists()
     assert "preserved" in result.output
     assert "locally modified" in result.output
@@ -598,7 +606,29 @@ def test_setup_all_default_does_not_install_subagents(tmp_path: Path, monkeypatc
     assert result.exit_code == 0, result.output
     for name in AGENT_NAMES:
         assert not (tmp_path / ".claude" / "agents" / f"{name}.md").exists()
+        assert not (repo / ".cursor" / "agents" / f"{name}.md").exists()
         assert not (tmp_path / ".codex" / "agents" / f"{name}.toml").exists()
+
+
+def test_setup_all_with_subagents_installs_cursor_agents_in_every_repo(tmp_path: Path, monkeypatch):
+    from nauro.agents import AGENT_NAMES, render_agent
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo_one = tmp_path / "repo-one"
+    repo_two = tmp_path / "repo-two"
+    repo_one.mkdir()
+    repo_two.mkdir()
+    _, store_path = register_project_v2("myproj", [repo_one, repo_two])
+    scaffold_project_store("myproj", store_path)
+    monkeypatch.chdir(repo_one)
+
+    result = runner.invoke(app, ["setup", "all", "--with-subagents"])
+
+    assert result.exit_code == 0, result.output
+    for repo in (repo_one, repo_two):
+        for name in AGENT_NAMES:
+            path = repo / ".cursor" / "agents" / f"{name}.md"
+            assert path.read_text(encoding="utf-8") == render_agent("cursor", name)
 
 
 def test_setup_all_help_lists_with_subagents():
@@ -979,7 +1009,7 @@ def test_setup_all_with_skills_and_subagents_suppresses_notice(tmp_path: Path, m
 
     result = runner.invoke(app, ["setup", "all", "--with-skills", "--with-subagents"])
     assert result.exit_code == 0, result.output
-    assert "nauro-ship-task references the bundled @nauro-* subagents" not in result.output
+    assert "nauro-ship-task requires the bundled nauro-* workflow agents" not in result.output
 
 
 def test_setup_all_remove_without_with_skills_leaves_interview_intact(tmp_path: Path, monkeypatch):
