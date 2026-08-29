@@ -29,6 +29,14 @@ COMPACT_DESCRIPTION = (
 
 README_PATHS = ("README.md", "packages/nauro/README.md")
 
+BUNDLED_SKILL_NAMES = (
+    "nauro-adopt",
+    "nauro-ship-task",
+    "nauro-context",
+    "nauro-loop",
+    "nauro-interview",
+)
+
 PUBLIC_COPY_PATHS = (
     *README_PATHS,
     "packages/nauro/pyproject.toml",
@@ -54,6 +62,18 @@ def test_readmes_carry_headline_support_line_and_fit_boundary() -> None:
         assert HEADLINE in text, relative
         assert SUPPORT_LINE in text, relative
         assert FIT_BOUNDARY in text, relative
+
+
+def test_readmes_carry_cursor_and_skill_onboarding_contract() -> None:
+    for relative in README_PATHS:
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        assert "@nauro-adopt" in text, relative
+        assert "nauro setup cursor" in text, relative
+        assert ".cursor/mcp.json" in text, relative
+        assert "cursor.com/agents" in text, relative
+        assert "does not install workflow-agent definitions for Cursor" in text, relative
+        for skill_name in BUNDLED_SKILL_NAMES:
+            assert skill_name in text, (relative, skill_name)
 
 
 def test_compact_description_contract_across_distribution_surfaces() -> None:
