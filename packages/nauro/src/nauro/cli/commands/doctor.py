@@ -1,9 +1,10 @@
 """nauro doctor — report deterministic store-integrity defects.
 
 Reads the local store and reports structural defects in the decision set:
-unparseable decision files, dangling or cyclic supersession refs, and status
-contradictions. Report-only, and it exits 0 whether or not it finds defects,
-because a defect is information for the user, not a failed command.
+unparseable decision files, dangling or cyclic supersession refs, status
+contradictions, duplicate decision numbers, and duplicate active titles.
+Report-only, and it exits 0 whether or not it finds defects, because a defect
+is information for the user, not a failed command.
 
 Supersede backref orphans get their own section and their own count: they are
 repairable rather than blocking, and the section names ``nauro repair``.
@@ -84,6 +85,24 @@ def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
             lines.append(f"  {row.stem}: {row.error}")
         lines.append("")
 
+    if diagnosis.duplicate_numbers:
+        lines.append(f"Duplicate decision numbers ({len(diagnosis.duplicate_numbers)}):")
+        for row in diagnosis.duplicate_numbers:
+            carriers = ", ".join(f"decisions/{stem}.md" for stem in row.stems)
+            lines.append(f"  {_label(row.number)}: {carriers}")
+        lines.append("")
+
+    if diagnosis.duplicate_active_titles:
+        lines.append(
+            f"Duplicate active decision titles ({len(diagnosis.duplicate_active_titles)}):"
+        )
+        for row in diagnosis.duplicate_active_titles:
+            carriers = ", ".join(
+                f"{_label(carrier.number)} decisions/{carrier.stem}.md" for carrier in row.carriers
+            )
+            lines.append(f"  {row.normalized_title!r}: {carriers}")
+        lines.append("")
+
     if diagnosis.dangling_refs:
         lines.append(f"Dangling supersession refs ({len(diagnosis.dangling_refs)}):")
         for ref in diagnosis.dangling_refs:
@@ -126,6 +145,8 @@ def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
         + len(diagnosis.dangling_refs)
         + len(diagnosis.cycles)
         + len(diagnosis.contradictions)
+        + len(diagnosis.duplicate_numbers)
+        + len(diagnosis.duplicate_active_titles)
     )
     lines.append(f"Found {total} defect(s).")
     lines.extend(_render_repairable_total(diagnosis))

@@ -28,13 +28,18 @@ def _new_store(tmp_path: Path, name: str = "docproj") -> Path:
     return store
 
 
-def _decision_md(num: int, *, supersedes: str | None = None) -> str:
+def _decision_md(
+    num: int,
+    *,
+    title: str | None = None,
+    supersedes: str | None = None,
+) -> str:
     return format_decision(
         Decision(
             date="2026-03-15",
             confidence="high",
             num=num,
-            title=f"Decision {num}",
+            title=title if title is not None else f"Decision {num}",
             rationale=f"Rationale for decision {num}.",
             supersedes=supersedes,
         )
@@ -61,6 +66,35 @@ def test_defective_store_exits_zero_and_renders_defects(tmp_path: Path) -> None:
     assert "Dangling supersession refs" in result.stdout
     assert "D11" in result.stdout
     assert "D999" in result.stdout
+
+
+def test_duplicate_number_renders_exact_carrier_paths_and_counts_group(tmp_path: Path) -> None:
+    store = _new_store(tmp_path)
+    write_decision_file(store, 10, "zeta", _decision_md(10, title="Zeta"))
+    write_decision_file(store, 10, "alpha", _decision_md(10, title="Alpha"))
+
+    result = runner.invoke(app, ["doctor", "--project", "docproj"])
+
+    assert result.exit_code == 0
+    assert "Duplicate decision numbers (1):" in result.stdout
+    assert "D10: decisions/010-alpha.md, decisions/010-zeta.md" in result.stdout
+    assert "Found 1 defect(s)." in result.stdout
+
+
+def test_duplicate_active_title_renders_numbered_carriers_and_counts_group(
+    tmp_path: Path,
+) -> None:
+    store = _new_store(tmp_path)
+    write_decision_file(store, 30, "zeta", _decision_md(30, title="  Use   FastAPI  "))
+    write_decision_file(store, 10, "alpha", _decision_md(10, title="use fastapi"))
+
+    result = runner.invoke(app, ["doctor", "--project", "docproj"])
+
+    assert result.exit_code == 0
+    assert "Duplicate active decision titles (1):" in result.stdout
+    assert "use fastapi" in result.stdout
+    assert "D10 decisions/010-alpha.md, D30 decisions/030-zeta.md" in result.stdout
+    assert "Found 1 defect(s)." in result.stdout
 
 
 def test_unknown_frontmatter_key_renders_advisory_on_clean_store(tmp_path: Path) -> None:
@@ -100,7 +134,7 @@ def test_supersede_orphan_renders_its_own_section_and_repair_remedy(tmp_path: Pa
 
 def test_clean_store_report_is_unchanged_by_the_orphan_section(tmp_path: Path) -> None:
     store = _new_store(tmp_path)
-    write_decision_file(store, 1, "settled", _decision_md(1))
+    write_decision_file(store, 2, "settled", _decision_md(2))
 
     result = runner.invoke(app, ["doctor", "--project", "docproj"])
 

@@ -1,12 +1,12 @@
 """Deterministic store-integrity diagnosis for ``nauro doctor``.
 
 ``diagnose_store`` reads a store through the :class:`Store` protocol and reports
-four blocking defects: unparseable decision files, dangling supersession refs,
-supersession cycles over both ref directions, and status contradictions.
+six blocking defects: unparseable files, dangling refs, cycles, contradictions,
+duplicate decision numbers, and duplicate normalized active titles.
 
 Alongside those it reports one repairable defect, the supersede backref orphan,
 and advisory unknown frontmatter keys. :attr:`StoreDiagnosis.is_clean` is bound
-to the blocking four only: an orphan is a recoverable half-write surfaced
+to the blocking six only: an orphan is a recoverable half-write surfaced
 through :attr:`StoreDiagnosis.has_repairable_defects` and closed by the gated
 ``nauro repair``, and tolerated unknown keys are accepted by design.
 
@@ -24,9 +24,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from nauro_core.decision_model import Decision, DecisionStatus
-from nauro_core.operations.decision_lookup import scan_decisions
+from nauro_core.operations.decision_lookup import ScannedDecision, scan_decision_records
 from nauro_core.operations.store import Store
 from nauro_core.parsing import extract_decision_number
+from nauro_core.validation import normalize_title
 
 RefField = Literal["supersedes", "superseded_by"]
 
@@ -105,6 +106,33 @@ class UnknownFrontmatterKeys(BaseModel):
     keys: tuple[str, ...]
 
 
+class DuplicateDecisionNumber(BaseModel):
+    """Every decision-file stem carrying one duplicated extracted number."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    number: int
+    stems: tuple[str, ...]
+
+
+class DecisionFileCarrier(BaseModel):
+    """One parsed decision's number and on-disk carrier stem."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    number: int
+    stem: str
+
+
+class DuplicateActiveTitle(BaseModel):
+    """Parsed active decisions sharing one canonical normalized title."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    normalized_title: str
+    carriers: tuple[DecisionFileCarrier, ...]
+
+
 class StoreDiagnosis(BaseModel):
     """The full result of :func:`diagnose_store`. Every list is sorted."""
 
@@ -114,6 +142,8 @@ class StoreDiagnosis(BaseModel):
     dangling_refs: list[DanglingRef] = Field(default_factory=list)
     cycles: list[SupersessionCycle] = Field(default_factory=list)
     contradictions: list[StatusContradiction] = Field(default_factory=list)
+    duplicate_numbers: list[DuplicateDecisionNumber] = Field(default_factory=list)
+    duplicate_active_titles: list[DuplicateActiveTitle] = Field(default_factory=list)
     supersede_orphans: list[SupersedeOrphan] = Field(default_factory=list)
     unknown_frontmatter_keys: list[UnknownFrontmatterKeys] = Field(default_factory=list)
 
@@ -123,7 +153,14 @@ class StoreDiagnosis(BaseModel):
 
         Unknown frontmatter keys are advisory and orphans repairable, so neither counts.
         """
-        return not (self.unparseable or self.dangling_refs or self.cycles or self.contradictions)
+        return not (
+            self.unparseable
+            or self.dangling_refs
+            or self.cycles
+            or self.contradictions
+            or self.duplicate_numbers
+            or self.duplicate_active_titles
+        )
 
     @property
     def has_repairable_defects(self) -> bool:
@@ -133,7 +170,8 @@ class StoreDiagnosis(BaseModel):
 
 def diagnose_store(store: Store) -> StoreDiagnosis:
     """Diagnose store-integrity defects. Pure; reads only through ``store``."""
-    parsed, failures = scan_decisions(store)
+    records, failures, stems = scan_decision_records(store)
+    parsed = [record.decision for record in records]
 
     # Existence is on-disk stems, not parsed nums: a present-but-unparseable
     # file still counts as existing, so a ref to it is reported once (as
@@ -141,9 +179,7 @@ def diagnose_store(store: Store) -> StoreDiagnosis:
     # the set) are kept because the orphan check needs to know a number is
     # carried by exactly one file before it names that file repairable.
     stem_counts = Counter(
-        num
-        for stem in store.list_decisions()
-        if (num := extract_decision_number(stem)) is not None
+        num for stem in stems if (num := extract_decision_number(stem)) is not None
     )
     existing_numbers = set(stem_counts)
     by_num = _index_by_num(parsed)
@@ -155,6 +191,8 @@ def diagnose_store(store: Store) -> StoreDiagnosis:
     dangling_refs = _dangling_refs(parsed, existing_numbers)
     cycles = _cycles(parsed)
     contradictions = _contradictions(parsed, by_num, existing_numbers)
+    duplicate_numbers = _duplicate_numbers(stems)
+    duplicate_active_titles = _duplicate_active_titles(records)
     supersede_orphans = _supersede_orphans(parsed, by_num, stem_counts, cycles)
     unknown_frontmatter_keys = _unknown_frontmatter_keys(parsed)
 
@@ -163,9 +201,46 @@ def diagnose_store(store: Store) -> StoreDiagnosis:
         dangling_refs=dangling_refs,
         cycles=cycles,
         contradictions=contradictions,
+        duplicate_numbers=duplicate_numbers,
+        duplicate_active_titles=duplicate_active_titles,
         supersede_orphans=supersede_orphans,
         unknown_frontmatter_keys=unknown_frontmatter_keys,
     )
+
+
+def _duplicate_numbers(stems: list[str]) -> list[DuplicateDecisionNumber]:
+    """Group every carrier stem for each duplicated extracted number."""
+    by_number: dict[int, list[str]] = {}
+    for stem in stems:
+        number = extract_decision_number(stem)
+        if number is not None:
+            by_number.setdefault(number, []).append(stem)
+    return [
+        DuplicateDecisionNumber(number=number, stems=tuple(sorted(carriers)))
+        for number, carriers in sorted(by_number.items())
+        if len(carriers) > 1
+    ]
+
+
+def _duplicate_active_titles(records: list[ScannedDecision]) -> list[DuplicateActiveTitle]:
+    """Group parsed active carriers by the canonical normalized title."""
+    by_title: dict[str, list[DecisionFileCarrier]] = {}
+    for record in records:
+        decision = record.decision
+        if decision.status is not DecisionStatus.active:
+            continue
+        normalized_title = normalize_title(decision.title)
+        by_title.setdefault(normalized_title, []).append(
+            DecisionFileCarrier(number=decision.num, stem=record.stem)
+        )
+    return [
+        DuplicateActiveTitle(
+            normalized_title=normalized_title,
+            carriers=tuple(sorted(carriers, key=lambda row: (row.number, row.stem))),
+        )
+        for normalized_title, carriers in sorted(by_title.items())
+        if len(carriers) > 1
+    ]
 
 
 def _unknown_frontmatter_keys(parsed: list[Decision]) -> list[UnknownFrontmatterKeys]:
@@ -181,7 +256,7 @@ def _unknown_frontmatter_keys(parsed: list[Decision]) -> list[UnknownFrontmatter
 def _index_by_num(parsed: list[Decision]) -> dict[int, Decision]:
     """Map each decision number to its parsed decision, first stem in scan order wins.
 
-    Duplicate numbers are a separate anomaly this command does not report.
+    Duplicate numbers are reported separately and never resolved here.
     """
     by_num: dict[int, Decision] = {}
     for d in parsed:

@@ -306,13 +306,18 @@ def test_restore_cloud_store_rejects_malformed_presign_result(tmp_path, monkeypa
     assert list(staging.iterdir()) == []
 
 
-def _decision_bytes(num: int, *, supersedes: str | None = None) -> bytes:
+def _decision_bytes(
+    num: int,
+    *,
+    title: str | None = None,
+    supersedes: str | None = None,
+) -> bytes:
     return format_decision(
         Decision(
             date="2026-03-15",
             confidence="high",
             num=num,
-            title=f"Decision {num}",
+            title=title if title is not None else f"Decision {num}",
             rationale=f"Rationale for decision {num}.",
             supersedes=supersedes,
         )
@@ -355,4 +360,34 @@ def test_restore_cloud_store_rejects_damaged_decision_graph(tmp_path, monkeypatc
     assert not destination.exists()
     # The whole record downloaded and still failed validation. Resuming would
     # rebuild the same bad store, so staging is discarded for a clean restart.
+    assert not _staging(destination).exists()
+
+
+def test_restore_cloud_store_rejects_duplicate_decision_numbers(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    files = _store_files(source)
+    files["decisions/019-alpha.md"] = _decision_bytes(19, title="Alpha")
+    files["decisions/019-beta.md"] = _decision_bytes(19, title="Beta")
+    _mock_remote(monkeypatch, files)
+    destination = tmp_path / "projects" / PID
+
+    with pytest.raises(RecoveryError, match="integrity"):
+        restore_cloud_store(PID, destination)
+
+    assert not destination.exists()
+    assert not _staging(destination).exists()
+
+
+def test_restore_cloud_store_rejects_duplicate_active_titles(tmp_path, monkeypatch):
+    source = tmp_path / "source"
+    files = _store_files(source)
+    files["decisions/019-first.md"] = _decision_bytes(19, title="Use FastAPI")
+    files["decisions/020-second.md"] = _decision_bytes(20, title="  use   fastapi  ")
+    _mock_remote(monkeypatch, files)
+    destination = tmp_path / "projects" / PID
+
+    with pytest.raises(RecoveryError, match="integrity"):
+        restore_cloud_store(PID, destination)
+
+    assert not destination.exists()
     assert not _staging(destination).exists()

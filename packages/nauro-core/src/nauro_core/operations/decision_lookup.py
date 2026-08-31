@@ -37,12 +37,21 @@ class ParseFailure(NamedTuple):
     error: str
 
 
-def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
-    """Read every decision, returning the parsed set and the parse failures: a body
-    that fails the v2 parser is recorded as a :class:`ParseFailure`, never raised.
-    The parsed list is ordered by :func:`sort_stems_by_number` and is unfiltered.
+class ScannedDecision(NamedTuple):
+    """A parsed decision paired with its on-disk carrier stem."""
+
+    stem: str
+    decision: Decision
+
+
+def scan_decision_records(
+    store: Store,
+) -> tuple[list[ScannedDecision], list[ParseFailure], list[str]]:
+    """Read every decision once, preserving parsed carrier stems and the full stem set.
+
+    Results follow :func:`sort_stems_by_number`; parse failures never raise.
     """
-    parsed: list[Decision] = []
+    records: list[ScannedDecision] = []
     failures: list[ParseFailure] = []
     stems = sort_stems_by_number(store.list_decisions())
     bodies = store.read_decisions(stems)
@@ -51,11 +60,21 @@ def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
         if body is None:
             continue
         try:
-            parsed.append(parse_decision(body, _decision_filename(stem)))
+            decision = parse_decision(body, _decision_filename(stem))
+            records.append(ScannedDecision(stem=stem, decision=decision))
         except Exception as exc:
             logger.debug("Skipping unparseable decision file: %s.md", stem)
             failures.append(ParseFailure(stem=stem, error=str(exc)))
-    return parsed, failures
+    return records, failures, stems
+
+
+def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
+    """Read every decision, returning the parsed set and parse failures.
+
+    The parsed list is ordered by :func:`sort_stems_by_number` and is unfiltered.
+    """
+    records, failures, _ = scan_decision_records(store)
+    return [record.decision for record in records], failures
 
 
 def parse_all_decisions(store: Store) -> list[Decision]:
