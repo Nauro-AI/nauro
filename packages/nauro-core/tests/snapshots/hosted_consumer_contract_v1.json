@@ -189,6 +189,8 @@
         "contradictions": "list[nauro_core.doctor.StatusContradiction]",
         "cycles": "list[nauro_core.doctor.SupersessionCycle]",
         "dangling_refs": "list[nauro_core.doctor.DanglingRef]",
+        "duplicate_active_titles": "list[nauro_core.doctor.DuplicateActiveTitle]",
+        "duplicate_numbers": "list[nauro_core.doctor.DuplicateDecisionNumber]",
         "supersede_orphans": "list[nauro_core.doctor.SupersedeOrphan]",
         "unknown_frontmatter_keys": "list[nauro_core.doctor.UnknownFrontmatterKeys]",
         "unparseable": "list[nauro_core.doctor.UnparseableDecision]"

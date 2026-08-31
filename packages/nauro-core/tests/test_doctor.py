@@ -27,6 +27,7 @@ def _stem(num: int, slug: str = "decision") -> str:
 def _body(
     num: int,
     *,
+    title: str | None = None,
     status: DecisionStatus = DecisionStatus.active,
     supersedes: str | None = None,
     superseded_by: str | None = None,
@@ -40,7 +41,7 @@ def _body(
             supersedes=supersedes,
             superseded_by=superseded_by,
             num=num,
-            title=f"Decision {num}",
+            title=title if title is not None else f"Decision {num}",
             rationale=f"Rationale for decision {num}.",
         )
     )
@@ -57,6 +58,86 @@ def test_unparseable_file_reported_with_stem_and_error() -> None:
     assert row.stem == _stem(1)
     assert row.error
     assert diagnosis.is_clean is False
+
+
+# ── Duplicate decision numbers ──
+
+
+def test_duplicate_numbers_include_every_carrier_stem_in_order() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(20, "zeta"): _body(20, title="Later title"),
+            _stem(5, "beta"): _body(5, title="Beta title"),
+            _stem(20, "alpha"): "this carrier does not parse",
+            _stem(5, "alpha"): _body(5, title="Alpha title"),
+        }
+    )
+
+    diagnosis = diagnose_store(store)
+
+    assert [(row.number, row.stems) for row in diagnosis.duplicate_numbers] == [
+        (5, (_stem(5, "alpha"), _stem(5, "beta"))),
+        (20, (_stem(20, "alpha"), _stem(20, "zeta"))),
+    ]
+    assert [row.stem for row in diagnosis.unparseable] == [_stem(20, "alpha")]
+    assert diagnosis.is_clean is False
+
+
+# ── Duplicate active titles ──
+
+
+def test_duplicate_active_titles_use_canonical_normalization_and_order_carriers() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(30, "zeta"): _body(30, title="  Use   FastAPI  "),
+            _stem(10, "alpha"): _body(10, title="use fastapi"),
+        }
+    )
+
+    diagnosis = diagnose_store(store)
+
+    assert len(diagnosis.duplicate_active_titles) == 1
+    duplicate = diagnosis.duplicate_active_titles[0]
+    assert duplicate.normalized_title == "use fastapi"
+    assert [(carrier.number, carrier.stem) for carrier in duplicate.carriers] == [
+        (10, _stem(10, "alpha")),
+        (30, _stem(30, "zeta")),
+    ]
+    assert diagnosis.is_clean is False
+
+
+def test_duplicate_active_titles_ignore_superseded_and_unparseable_carriers() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(10, "active"): _body(10, title="Use FastAPI"),
+            _stem(20, "superseded"): _body(
+                20,
+                title="use fastapi",
+                status=DecisionStatus.superseded,
+                superseded_by="30",
+            ),
+            _stem(30, "replacement"): _body(30, title="Use Starlette"),
+            _stem(40, "broken"): "# 040 — USE FASTAPI",
+        }
+    )
+
+    diagnosis = diagnose_store(store)
+
+    assert diagnosis.duplicate_active_titles == []
+    assert [row.stem for row in diagnosis.unparseable] == [_stem(40, "broken")]
+
+
+def test_title_similarity_beyond_normalization_is_not_a_duplicate() -> None:
+    store = InMemoryStore(
+        decisions={
+            _stem(10): _body(10, title="Use FastAPI"),
+            _stem(20): _body(20, title="Use FastAPI for the API"),
+        }
+    )
+
+    diagnosis = diagnose_store(store)
+
+    assert diagnosis.duplicate_active_titles == []
 
 
 # ── Dangling refs ──
@@ -198,6 +279,8 @@ def test_clean_store_yields_empty_diagnosis() -> None:
     assert diagnosis.dangling_refs == []
     assert diagnosis.cycles == []
     assert diagnosis.contradictions == []
+    assert diagnosis.duplicate_numbers == []
+    assert diagnosis.duplicate_active_titles == []
 
 
 def test_deterministic_ordering() -> None:
@@ -217,6 +300,35 @@ def test_deterministic_ordering() -> None:
         _stem(30, "zeta"),
     ]
     assert [(r.source, r.target) for r in diagnosis.dangling_refs] == [(5, 800), (20, 900)]
+
+
+class _ScanCountingStore(InMemoryStore):
+    def __init__(self, decisions: dict[str, str]) -> None:
+        super().__init__(decisions=decisions)
+        self.list_calls = 0
+        self.bulk_read_calls = 0
+
+    def list_decisions(self) -> list[str]:
+        self.list_calls += 1
+        return super().list_decisions()
+
+    def read_decisions(self, stems: list[str]) -> dict[str, str | None]:
+        self.bulk_read_calls += 1
+        return super().read_decisions(stems)
+
+
+def test_diagnosis_uses_one_guarded_store_scan() -> None:
+    store = _ScanCountingStore(
+        decisions={
+            _stem(1): _body(1, title="Use FastAPI"),
+            _stem(2): _body(2, title="use fastapi"),
+        }
+    )
+
+    diagnose_store(store)
+
+    assert store.list_calls == 1
+    assert store.bulk_read_calls == 1
 
 
 # ── Supersede backref orphans (repairable, non-blocking) ──

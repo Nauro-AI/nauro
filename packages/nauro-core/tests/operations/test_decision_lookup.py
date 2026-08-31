@@ -25,6 +25,7 @@ from nauro_core.operations.decision_lookup import (
     ParseFailure,
     find_decision_stem_by_num,
     parse_all_decisions,
+    scan_decision_records,
     scan_decisions,
 )
 
@@ -144,6 +145,25 @@ def test_scan_decisions_returns_parsed_and_failures() -> None:
     assert isinstance(failure, ParseFailure)
     assert failure.stem == "002-broken"
     assert failure.error
+
+
+def test_scan_decision_records_preserves_stem_associations_and_full_stem_set() -> None:
+    store = InMemoryStore(
+        decisions={
+            "010-zeta": _decision_body(10, "Zeta"),
+            "005-broken": "not a decision file",
+            "010-alpha": _decision_body(10, "Alpha"),
+        }
+    )
+
+    records, failures, stems = scan_decision_records(store)
+
+    assert stems == ["005-broken", "010-alpha", "010-zeta"]
+    assert [(record.stem, record.decision.num) for record in records] == [
+        ("010-alpha", 10),
+        ("010-zeta", 10),
+    ]
+    assert [(failure.stem, bool(failure.error)) for failure in failures] == [("005-broken", True)]
 
 
 def test_parse_all_decisions_matches_scan_parsed_half() -> None:
