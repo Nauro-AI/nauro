@@ -18,9 +18,21 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Annotated, Literal, NamedTuple
 
+import pydantic as pyd
+from nauro_core.identifiers import (
+    IdentifierKind,
+    is_identifier,
+    validate_identifier,
+)
+
+from nauro.constants import (
+    REGISTRY_SCHEMA_VERSION_V2,
+    REPO_CONFIG_SCHEMA_VERSION,
+)
 from nauro.onboarding import disconnected_project_guidance
+from nauro.store.home import registry_file
 from nauro.store.registry import (
     RegistryEntryV2,
     StoreBindingError,
@@ -108,6 +120,17 @@ class RepoResolution(NamedTuple):
     display_name: str
 
 
+@dataclass(frozen=True)
+class ResolvedProjectBinding:
+    """A validated local or cloud project binding."""
+
+    store_path: Path
+    project_id: str
+    display_name: str
+    mode: Literal["local", "cloud"]
+    server_url: str | None
+
+
 DisconnectedReason = Literal[
     "not_connected_on_this_machine",
     "connected_record_missing",
@@ -128,6 +151,208 @@ class DisconnectedProject:
     reason_code: DisconnectedReason
     recovery_actions: tuple[RecoveryAction, ...]
     guidance: str
+
+
+def _canonical_project_name(value: str) -> str:
+    if (
+        value != value.strip()
+        or not value
+        or len(value) > 100
+        or "/" in value
+        or "\\" in value
+        or ".." in value
+        or any(not char.isprintable() for char in value)
+    ):
+        raise ValueError("project name is not canonical")
+    return value
+
+
+def _canonical_project_id(value: str) -> str:
+    return validate_identifier(IdentifierKind.ulid, value, field="project_id")
+
+
+_CanonicalProjectName = Annotated[pyd.StrictStr, pyd.AfterValidator(_canonical_project_name)]
+_CanonicalProjectId = Annotated[pyd.StrictStr, pyd.AfterValidator(_canonical_project_id)]
+_RegistrySchemaVersion = Annotated[
+    pyd.StrictInt,
+    pyd.Field(ge=REGISTRY_SCHEMA_VERSION_V2, le=REGISTRY_SCHEMA_VERSION_V2),
+]
+_RepoConfigSchemaVersion = Annotated[
+    pyd.StrictInt,
+    pyd.Field(ge=REPO_CONFIG_SCHEMA_VERSION, le=REPO_CONFIG_SCHEMA_VERSION),
+]
+_STRICT_MODEL_CONFIG = pyd.ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class _StrictRegistryEntry(RegistryEntryV2):
+    model_config = _STRICT_MODEL_CONFIG
+
+    name: _CanonicalProjectName
+
+    @pyd.field_validator("repo_paths")
+    @classmethod
+    def _validate_repo_paths(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        for value in values:
+            candidate = Path(value)
+            try:
+                resolved = candidate.resolve(strict=False)
+            except (OSError, RuntimeError) as exc:
+                raise ValueError("repo path is not canonical") from exc
+            if (
+                not value
+                or not candidate.is_absolute()
+                or str(candidate) != value
+                or resolved != candidate
+            ):
+                raise ValueError("repo path is not canonical")
+        return values
+
+
+class _StrictRegistrySnapshot(pyd.BaseModel):
+    model_config = _STRICT_MODEL_CONFIG
+
+    schema_version: _RegistrySchemaVersion
+    projects: dict[_CanonicalProjectId, _StrictRegistryEntry]
+
+    @pyd.model_validator(mode="after")
+    def _validate_project_map(self) -> _StrictRegistrySnapshot:
+        path_owners: dict[str, str] = {}
+        for project_id, entry in self.projects.items():
+            for repo_path in entry.repo_paths:
+                owner = path_owners.setdefault(repo_path, project_id)
+                if owner != project_id:
+                    raise ValueError("registry repo path has multiple project owners")
+        return self
+
+
+class _StrictRepoConfig(pyd.BaseModel):
+    model_config = _STRICT_MODEL_CONFIG
+
+    schema_version: _RepoConfigSchemaVersion
+    mode: Literal["local", "cloud"]
+    id: _CanonicalProjectId
+    name: _CanonicalProjectName
+    server_url: pyd.StrictStr | None = None
+
+    @pyd.model_validator(mode="after")
+    def _validate_cloud_server(self) -> _StrictRepoConfig:
+        if self.mode == "cloud" and not (self.server_url or "").strip():
+            raise ValueError("cloud repo config requires a nonempty server URL")
+        return self
+
+
+def _strict_registry_entries(
+    target_id: str | None,
+    target_cfg: _StrictRepoConfig | None,
+) -> _StrictRegistrySnapshot:
+    path = registry_file()
+    if not path.exists():
+        return _StrictRegistrySnapshot(schema_version=REGISTRY_SCHEMA_VERSION_V2, projects={})
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise StoreResolutionError("Registry is malformed or unreadable.") from exc
+    try:
+        return _StrictRegistrySnapshot.model_validate_json(raw)
+    except pyd.ValidationError as exc:
+        errors = exc.errors(include_input=False)
+        if (
+            target_id is not None
+            and bool(errors)
+            and all(tuple(error["loc"][:2]) == ("projects", target_id) for error in errors)
+            and is_identifier(IdentifierKind.ulid, target_id)
+        ):
+            cfg = target_cfg or _StrictRepoConfig(
+                schema_version=REPO_CONFIG_SCHEMA_VERSION,
+                id=target_id,
+                name=target_id,
+                mode="local",
+            )
+            raise DisconnectedProjectError(
+                _disconnected(cfg, "connected_record_invalid", get_store_path_v2(target_id))
+            ) from exc
+        if any(error["type"] == "json_invalid" for error in errors):
+            message = "Registry is malformed or unreadable."
+        elif any(error["loc"] and error["loc"][0] == "schema_version" for error in errors):
+            message = "Registry has an invalid schema."
+        elif any(tuple(error["loc"]) == ("projects",) for error in errors):
+            message = "Registry has an invalid projects map."
+        elif any(error["loc"] and error["loc"][0] == "projects" for error in errors):
+            message = "Registry entry is invalid."
+        else:
+            message = "Registry must be a valid JSON object."
+        raise StoreResolutionError(message) from exc
+
+
+def _strict_repo_config_from_cwd(start: Path) -> _StrictRepoConfig | None:
+    config_path = find_repo_config(start=start)
+    if config_path is None:
+        return None
+    repo_root = config_path.parent.parent
+    refusal = find_symlink(repo_root, ".nauro/config.json")
+    if refusal is not None:
+        raise StoreResolutionError(refusal.message)
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise StoreResolutionError(f"Repo config at {config_path} is invalid.") from exc
+    try:
+        return _StrictRepoConfig.model_validate_json(raw)
+    except pyd.ValidationError as exc:
+        fields = {error["loc"][0] for error in exc.errors(include_input=False) if error["loc"]}
+        if "schema_version" in fields:
+            message = f"Repo config at {config_path} has an invalid schema."
+        elif fields.intersection({"id", "name"}):
+            message = f"Repo config at {config_path} has an invalid identity."
+        else:
+            message = f"Repo config at {config_path} is invalid."
+        raise StoreResolutionError(message) from exc
+
+
+def _resolved_binding(
+    project_id: str,
+    entry: _StrictRegistryEntry,
+    cfg: _StrictRepoConfig | None = None,
+) -> ResolvedProjectBinding:
+    if cfg is None:
+        cfg = _StrictRepoConfig(
+            schema_version=REPO_CONFIG_SCHEMA_VERSION,
+            id=project_id,
+            name=entry.name,
+            mode=entry.mode,
+            server_url=entry.server_url,
+        )
+    configured_server = cfg.server_url
+    conflict = (
+        entry.name != cfg.name
+        or entry.mode != cfg.mode
+        or (
+            entry.mode == "local"
+            and (configured_server is not None or entry.server_url is not None)
+        )
+        or (entry.mode == "cloud" and entry.server_url != configured_server)
+    )
+    if conflict:
+        raise DisconnectedProjectError(
+            _disconnected(
+                cfg,
+                "connected_binding_conflict",
+                _store_path_hint(entry, project_id),
+            )
+        )
+    try:
+        store_path = resolve_registered_store_path_v2(project_id, registry_entry=entry)
+    except StoreBindingError as exc:
+        raise DisconnectedProjectError(
+            _disconnected(cfg, exc.reason_code, _store_path_hint(entry, project_id))
+        ) from exc
+    return ResolvedProjectBinding(
+        store_path=store_path,
+        project_id=project_id,
+        display_name=cfg.name,
+        mode=entry.mode,
+        server_url=entry.server_url,
+    )
 
 
 def _resolve_repo_config_from_cwd(start: Path | None) -> tuple[dict, Path] | None:
@@ -163,15 +388,22 @@ def _recovery_actions(
 
 
 def _disconnected(
-    cfg: dict,
+    cfg: dict | _StrictRepoConfig,
     reason_code: DisconnectedReason,
     store_path: Path,
 ) -> DisconnectedProject:
-    mode = cfg["mode"]
+    if isinstance(cfg, _StrictRepoConfig):
+        mode = cfg.mode
+        project_id = cfg.id
+        display_name = cfg.name
+    else:
+        mode = cfg["mode"]
+        project_id = cfg["id"]
+        display_name = cfg.get("name") or project_id
     return DisconnectedProject(
         store_path=store_path,
-        project_id=cfg["id"],
-        display_name=cfg.get("name") or cfg["id"],
+        project_id=project_id,
+        display_name=display_name,
         mode=mode,
         reason_code=reason_code,
         recovery_actions=_recovery_actions(mode, reason_code),
@@ -299,6 +531,82 @@ def _store_path_or_raise(connection: RepoResolution | DisconnectedProject) -> Pa
     return connection.store_path
 
 
+def resolve_project_binding(
+    project_id: str | None,
+    cwd: str | Path | None,
+) -> ResolvedProjectBinding:
+    """Resolve and validate a local or cloud project binding."""
+    cwd_path = Path(cwd) if cwd else Path.cwd()
+    cfg = _strict_repo_config_from_cwd(cwd_path)
+    target_id = cfg.id if cfg is not None else project_id
+    entries = _strict_registry_entries(target_id, cfg).projects
+
+    if cfg is not None:
+        config_id = cfg.id
+        entry = entries.get(config_id)
+        if (
+            project_id
+            and project_id != config_id
+            and (project_id in entries or entry is None or entry.name != project_id)
+        ):
+            raise ProjectIdMismatchError(
+                f"Supplied project_id {project_id!r} does not match the "
+                f"repo config id {config_id!r} in {cwd_path}."
+            )
+        if entry is None:
+            raise DisconnectedProjectError(
+                _disconnected(
+                    cfg,
+                    "not_connected_on_this_machine",
+                    get_store_path_v2(config_id),
+                )
+            )
+        return _resolved_binding(config_id, entry, cfg)
+
+    if project_id:
+        entry = entries.get(project_id)
+        if entry is not None:
+            return _resolved_binding(project_id, entry)
+        name_matches = [(pid, entry) for pid, entry in entries.items() if entry.name == project_id]
+        if len(name_matches) == 1:
+            return _resolved_binding(*name_matches[0])
+        if len(name_matches) > 1:
+            raise MultipleProjectsError(
+                f"Multiple v2 projects named {project_id!r}; pass an "
+                "unambiguous project_id (ULID) instead of the name."
+            )
+        raise ProjectNotFoundError(
+            f"No project named or keyed {project_id!r} found in the "
+            "registry. Run 'nauro init <name>' to create it, or check "
+            "NAURO_HOME if you expected an existing project."
+        )
+
+    if cwd:
+        resolved_cwd = cwd_path.resolve()
+        path_matches = {
+            pid: entry
+            for pid, entry in entries.items()
+            if any(
+                resolved_cwd == Path(repo_path) or Path(repo_path) in resolved_cwd.parents
+                for repo_path in entry.repo_paths
+            )
+        }
+        if len(path_matches) == 1:
+            pid, entry = next(iter(path_matches.items()))
+            return _resolved_binding(pid, entry)
+        if len(path_matches) > 1:
+            raise MultipleProjectsError(
+                f"Multiple v2 projects match cwd {str(cwd_path)!r}; pass an "
+                "unambiguous project_id (ULID) instead."
+            )
+
+    raise NoProjectError(
+        "No Nauro project found. Run 'nauro init <name>' in the current "
+        "directory to create one, or pass 'project_id' / 'cwd' to point at "
+        "an existing project."
+    )
+
+
 def resolve_store(project_id: str | None, cwd: str | Path | None) -> Path:
     """Resolve a ``(project_id, cwd)`` pair to a store path.
 
@@ -359,9 +667,11 @@ __all__ = [
     "ProjectIdMismatchError",
     "ProjectNotFoundError",
     "RepoResolution",
+    "ResolvedProjectBinding",
     "StoreMissingError",
     "StoreResolutionError",
     "resolve_from_cwd",
+    "resolve_project_binding",
     "resolve_registered_project",
     "resolve_store",
     "resolve_via_repo_config",
