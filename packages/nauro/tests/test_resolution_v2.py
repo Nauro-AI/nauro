@@ -184,6 +184,345 @@ def test_stdio_resolve_explicit_id_matching_config(tmp_path, monkeypatch):
     assert store == tmp_path / "projects" / cloud_pid
 
 
+# ── dormant strict project-binding resolution ────────────────────────────────
+
+
+def _binding_state(
+    tmp_path,
+    nauro_home,
+    *,
+    name="Pareto",
+    config_patch=None,
+    entry_patch=None,
+):
+    pid = "01KQ6AZGNA0B3QBF67NBXP3S45"
+    repo = tmp_path / "binding-repo"
+    repo.mkdir()
+    store = nauro_home / "projects" / pid
+    scaffold_project_store(name, store)
+    entry = {"name": name, "mode": "local", "repo_paths": [str(repo.resolve())]}
+    entry.update(entry_patch or {})
+    registry.save_registry_v2(
+        {"schema_version": REGISTRY_SCHEMA_VERSION_V2, "projects": {pid: entry}}
+    )
+    config = {"mode": "local", "id": pid, "name": name}
+    config.update(config_patch or {})
+    save_repo_config(repo, config)
+    return pid, repo, store
+
+
+@pytest.mark.parametrize(("mode", "url"), [("local", None), ("cloud", "https://mcp.nauro.ai/mcp/")])
+def test_resolve_project_binding_returns_validated_binding(
+    tmp_path, monkeypatch, nauro_home, mode, url
+):
+    from nauro.store.resolution import ResolvedProjectBinding, resolve_project_binding
+
+    patch = {"mode": mode}
+    if url is not None:
+        patch["server_url"] = url
+    pid, repo, store = _binding_state(tmp_path, nauro_home, config_patch=patch, entry_patch=patch)
+
+    result = resolve_project_binding(pid, repo)
+
+    assert result == ResolvedProjectBinding(
+        store_path=store,
+        project_id=pid,
+        display_name="Pareto",
+        mode=mode,
+        server_url=url,
+    )
+
+
+def test_resolve_project_binding_reads_one_registry_snapshot(tmp_path, monkeypatch, nauro_home):
+    from nauro.store.resolution import resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    registry_path = nauro_home / REGISTRY_FILENAME
+    path_type = type(registry_path)
+    original_read = path_type.read_text
+    reads = 0
+
+    def counted_read(path, *args, **kwargs):
+        nonlocal reads
+        if path == registry_path:
+            reads += 1
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(path_type, "read_text", counted_read)
+    resolve_project_binding(pid, repo)
+    assert reads == 1
+
+
+@pytest.mark.parametrize(
+    ("config_patch", "entry_patch"),
+    [
+        ({"server_url": "https://mcp.nauro.ai/mcp"}, {}),
+        ({}, {"server_url": "https://mcp.nauro.ai/mcp"}),
+        ({}, {"mode": "cloud", "server_url": "https://mcp.nauro.ai/mcp"}),
+        ({"mode": "cloud", "server_url": "https://mcp.nauro.ai/mcp"}, {}),
+        (
+            {"mode": "cloud", "server_url": "https://mcp.nauro.ai/mcp"},
+            {"mode": "cloud", "server_url": "https://mcp.nauro.ai/mcp/"},
+        ),
+    ],
+)
+def test_resolve_project_binding_rejects_mode_or_url_conflict(
+    tmp_path, monkeypatch, nauro_home, config_patch, entry_patch
+):
+    from nauro.store.resolution import DisconnectedProjectError, resolve_project_binding
+
+    _pid, repo, _store = _binding_state(
+        tmp_path, nauro_home, config_patch=config_patch, entry_patch=entry_patch
+    )
+
+    with pytest.raises(DisconnectedProjectError) as exc:
+        resolve_project_binding(None, repo)
+
+    assert exc.value.state.reason_code == "connected_binding_conflict"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("raw", "not-json"),
+        ("schema_version", 999),
+        ("schema_version", 2.0),
+        ("schema_version", True),
+        ("projects", None),
+        ("projects", []),
+    ],
+    ids=["malformed-json", "unknown-schema", "float-schema", "bool-schema", "null-map", "list-map"],
+)
+def test_resolve_project_binding_rejects_malformed_or_unknown_registry(
+    tmp_path, monkeypatch, nauro_home, field, value
+):
+    from nauro.store.resolution import StoreResolutionError, resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    registry_path = nauro_home / REGISTRY_FILENAME
+    if field == "raw":
+        registry_path.write_text("not-json\n")
+    else:
+        data = json.loads(registry_path.read_text())
+        data[field] = value
+        registry_path.write_text(json.dumps(data))
+
+    with pytest.raises(StoreResolutionError) as exc:
+        resolve_project_binding(pid, repo)
+    assert type(exc.value) is StoreResolutionError
+
+
+def test_resolve_project_binding_prioritizes_global_registry_error(
+    tmp_path, monkeypatch, nauro_home
+):
+    from nauro.store.resolution import StoreResolutionError, resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    registry_path = nauro_home / REGISTRY_FILENAME
+    data = json.loads(registry_path.read_text())
+    data["schema_version"] = 999
+    data["projects"][pid]["name"] = "../bad"
+    registry_path.write_text(json.dumps(data))
+
+    with pytest.raises(StoreResolutionError) as exc:
+        resolve_project_binding(pid, repo)
+    assert type(exc.value) is StoreResolutionError
+
+
+def test_resolve_project_binding_rejects_unreadable_registry(tmp_path, monkeypatch, nauro_home):
+    from nauro.store.resolution import StoreResolutionError, resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    registry_path = nauro_home / REGISTRY_FILENAME
+    path_type = type(registry_path)
+    original_read = path_type.read_text
+
+    def unreadable(path, *args, **kwargs):
+        if path == registry_path:
+            raise OSError("unreadable")
+        return original_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(path_type, "read_text", unreadable)
+    with pytest.raises(StoreResolutionError) as exc:
+        resolve_project_binding(pid, repo)
+    assert type(exc.value) is StoreResolutionError
+
+
+@pytest.mark.parametrize(
+    ("config_patch", "remove_registry"),
+    [
+        ({"schema_version": True}, False),
+        ({"schema_version": 1.0}, False),
+        ({"id": "81KQ6AZGNA0B3QBF67NBXP3S45"}, True),
+        ({"name": "../bad"}, True),
+    ],
+    ids=["bool-schema", "float-schema", "invalid-id", "invalid-name"],
+)
+def test_binding_rejects_invalid_config_boundary(
+    tmp_path, nauro_home, config_patch, remove_registry
+):
+    from nauro.store.resolution import StoreResolutionError, resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home, config_patch=config_patch)
+    if remove_registry:
+        (nauro_home / REGISTRY_FILENAME).unlink()
+
+    with pytest.raises(StoreResolutionError) as exc:
+        resolve_project_binding(pid, repo)
+    assert type(exc.value) is StoreResolutionError
+
+
+@pytest.mark.parametrize(
+    ("case", "value"),
+    [
+        ("repo_path", ""),
+        ("repo_path", "binding-repo"),
+        ("repo_path", "lexical"),
+        pytest.param(
+            "repo_path", "symlink", marks=pytest.mark.skipif(os.name == "nt", reason="symlink")
+        ),
+        ("name", ""),
+        ("name", "../bad"),
+        ("name", "bad\nname"),
+        ("mode", "unknown"),
+        ("project_id", "local-project"),
+    ],
+)
+def test_resolve_project_binding_rejects_invalid_registry_entry(
+    tmp_path, monkeypatch, nauro_home, case, value
+):
+    from nauro.store.resolution import StoreResolutionError, resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    data = registry.load_registry_v2()
+    entry = data["projects"][pid]
+    (repo / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME).unlink()
+    handle, cwd = pid, None
+    if case == "repo_path":
+        handle, cwd = None, repo
+        if value == "lexical":
+            value = str(repo / ".." / repo.name)
+        elif value == "symlink":
+            link = tmp_path / "repo-link"
+            link.symlink_to(repo, target_is_directory=True)
+            value = str(link)
+        entry["repo_paths"] = [value]
+    elif case == "project_id":
+        data["projects"][value] = data["projects"].pop(pid)
+        scaffold_project_store("Pareto", nauro_home / "projects" / value)
+        handle = value
+    else:
+        entry[case] = value
+    registry.save_registry_v2(data)
+
+    with pytest.raises(StoreResolutionError):
+        resolve_project_binding(handle, cwd)
+
+
+def test_resolve_project_binding_prefers_exact_key_over_display_name(
+    tmp_path, monkeypatch, nauro_home
+):
+    from nauro.store.resolution import ProjectIdMismatchError, resolve_project_binding
+
+    other_pid = "01KQ6AZGNA0B3QBF67NBXP3S46"
+    _pid, repo, _store = _binding_state(tmp_path, nauro_home, name=other_pid)
+    data = registry.load_registry_v2()
+    scaffold_project_store("Other", nauro_home / "projects" / other_pid)
+    data["projects"][other_pid] = {"name": "Other", "mode": "local", "repo_paths": []}
+    registry.save_registry_v2(data)
+
+    with pytest.raises(ProjectIdMismatchError):
+        resolve_project_binding(other_pid, repo)
+
+
+def test_resolve_project_binding_rejects_cross_project_path_owner(
+    tmp_path, monkeypatch, nauro_home
+):
+    from nauro.store.resolution import StoreResolutionError, resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    other_pid = "01KQ6AZGNA0B3QBF67NBXP3S46"
+    data = registry.load_registry_v2()
+    scaffold_project_store("Other", nauro_home / "projects" / other_pid)
+    data["projects"][other_pid] = {
+        "name": "Other",
+        "mode": "local",
+        "repo_paths": [str(repo.resolve())],
+    }
+    registry.save_registry_v2(data)
+
+    with pytest.raises(StoreResolutionError) as exc:
+        resolve_project_binding(pid, repo)
+    assert type(exc.value) is StoreResolutionError
+
+
+def test_resolve_project_binding_rejects_nested_cwd_matches(tmp_path, monkeypatch, nauro_home):
+    from nauro.store.resolution import MultipleProjectsError, resolve_project_binding
+
+    _pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    (repo / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME).unlink()
+    nested = repo / "nested"
+    nested.mkdir()
+    other_pid = "01KQ6AZGNA0B3QBF67NBXP3S46"
+    data = registry.load_registry_v2()
+    scaffold_project_store("Other", nauro_home / "projects" / other_pid)
+    data["projects"][other_pid] = {
+        "name": "Other",
+        "mode": "local",
+        "repo_paths": [str(nested.resolve())],
+    }
+    registry.save_registry_v2(data)
+
+    with pytest.raises(MultipleProjectsError):
+        resolve_project_binding(None, nested)
+
+
+def test_resolve_project_binding_preserves_empty_and_unknown_errors(
+    tmp_path, monkeypatch, nauro_home
+):
+    from nauro.store.resolution import (
+        NoProjectError,
+        ProjectNotFoundError,
+        resolve_project_binding,
+    )
+
+    with pytest.raises(NoProjectError):
+        resolve_project_binding(None, None)
+    with pytest.raises(ProjectNotFoundError):
+        resolve_project_binding("missing", None)
+
+
+def test_resolve_project_binding_preserves_duplicate_name_error(tmp_path, monkeypatch, nauro_home):
+    from nauro.store.resolution import MultipleProjectsError, resolve_project_binding
+
+    _pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    (repo / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME).unlink()
+    other_pid = "01KQ6AZGNA0B3QBF67NBXP3S46"
+    data = registry.load_registry_v2()
+    scaffold_project_store("Pareto", nauro_home / "projects" / other_pid)
+    data["projects"][other_pid] = {"name": "Pareto", "mode": "local", "repo_paths": []}
+    registry.save_registry_v2(data)
+
+    with pytest.raises(MultipleProjectsError):
+        resolve_project_binding("Pareto", None)
+
+
+def test_legacy_resolve_store_does_not_use_strict_binding_resolver(
+    tmp_path, monkeypatch, nauro_home
+):
+    from nauro.store import resolution
+
+    cloud = {"mode": "cloud", "server_url": "https://mcp.nauro.ai/mcp"}
+    pid, repo, store = _binding_state(tmp_path, nauro_home, config_patch=cloud, entry_patch=cloud)
+    monkeypatch.setattr(
+        resolution,
+        "_strict_registry_entries",
+        lambda: pytest.fail("legacy resolution must not call the dormant resolver"),
+    )
+
+    assert resolve_store(pid, repo) == store
+
+
 # ── corrupt repo config degrades gracefully (no transport crash) ─────────────
 
 
