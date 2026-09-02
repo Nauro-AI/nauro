@@ -171,8 +171,19 @@ def test_marker_must_match_bound_project() -> None:
         )
 
 
-def test_active_marker_requires_pointer() -> None:
-    with pytest.raises(GenerationControlCorruptError):
+def test_active_marker_without_account_reports_actor_mismatch_before_pointer() -> None:
+    with pytest.raises(ReplicaActorMismatchError) as raised:
+        select_project_authority(
+            _binding(),
+            marker_json=_marker(),
+            pointer_json=None,
+        )
+
+    assert raised.value.code == "replica_actor_mismatch"
+
+
+def test_active_account_without_pointer_requires_refresh() -> None:
+    with pytest.raises(RefreshRequiredError) as raised:
         select_project_authority(
             _binding(),
             marker_json=_marker(),
@@ -180,6 +191,8 @@ def test_active_marker_requires_pointer() -> None:
             active_user_id=USER_ID,
             active_projection_scope_id=PROJECTION_SCOPE_ID,
         )
+
+    assert raised.value.code == "refresh_required"
 
 
 @pytest.mark.parametrize(

@@ -216,8 +216,10 @@ def select_project_authority(
         raise ClientUpgradeRequiredError(
             "This hosted store format requires another client version."
         )
+
+    current_user_id = _active_user_id(active_user_id)
     if pointer_json is None:
-        raise GenerationControlCorruptError("The generation marker has no installed pointer.")
+        raise RefreshRequiredError("The active account has no installed generation pointer.")
 
     pointer = _parse_pointer(pointer_json)
     if pointer.project_id != marker.project_id or pointer.project_id != binding.project_id:
@@ -225,7 +227,6 @@ def select_project_authority(
     if pointer.store_format_version != marker.store_format_version:
         raise GenerationControlCorruptError("The generation marker and pointer formats differ.")
 
-    current_user_id = _active_user_id(active_user_id)
     if current_user_id != pointer.installed_for_user_id:
         raise ReplicaActorMismatchError("The installed replica belongs to another account.")
 
