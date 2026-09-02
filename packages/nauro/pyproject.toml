@@ -27,6 +27,7 @@ dependencies = [
     "httpx>=0.24",
     "mcp>=1.0,<2",
     "filelock>=3.20.3",
+    "portalocker[win32]>=4.2,<5",
     "tomli>=2.0; python_version<'3.11'",
     "tomlkit>=0.13.2",
 ]
