@@ -247,17 +247,16 @@ def _active_projection_scope_id(value: str | None) -> str:
     return value
 
 
-def select_project_authority(
+def _select_actor_generation_authority(
     binding: ResolvedProjectBinding,
     *,
     marker_json: str | bytes | None,
     pointer_json: str | bytes | None,
-    active_user_id: str | None = None,
-    active_projection_scope_id: str | None = None,
-) -> ProjectAuthority:
-    """Select flat or generation authority from one validated project binding."""
+    active_user_id: str | None,
+) -> GenerationProjectAuthority:
+    """Select an actor-bound generation without requiring the prior scope to match."""
     if marker_json is None:
-        return FlatProjectAuthority(binding)
+        raise RefreshRequiredError("The project has not selected generation authority.")
     if binding.mode != "cloud":
         raise GenerationControlCorruptError(
             "A local-only project cannot select hosted generation authority."
@@ -280,15 +279,48 @@ def select_project_authority(
         raise GenerationControlCorruptError("The installed pointer belongs to another project.")
     if pointer.store_format_version != marker.store_format_version:
         raise GenerationControlCorruptError("The generation marker and pointer formats differ.")
-
     if current_user_id != pointer.installed_for_user_id:
         raise ReplicaActorMismatchError("The installed replica belongs to another account.")
-
-    current_scope_id = _active_projection_scope_id(active_projection_scope_id)
-    if current_scope_id != pointer.projection_scope_id:
-        raise RefreshRequiredError("The installed replica requires a fresh authorization view.")
-
     return GenerationProjectAuthority(binding=binding, marker=marker, pointer=pointer)
+
+
+def select_generation_refresh_base(
+    binding: ResolvedProjectBinding,
+    *,
+    marker_json: str | bytes | None,
+    pointer_json: str | bytes | None,
+    active_user_id: str | None,
+) -> InstalledGenerationPointer:
+    """Return an actor-bound pointer as a refresh fence, never as read authority."""
+    return _select_actor_generation_authority(
+        binding,
+        marker_json=marker_json,
+        pointer_json=pointer_json,
+        active_user_id=active_user_id,
+    ).pointer
+
+
+def select_project_authority(
+    binding: ResolvedProjectBinding,
+    *,
+    marker_json: str | bytes | None,
+    pointer_json: str | bytes | None,
+    active_user_id: str | None = None,
+    active_projection_scope_id: str | None = None,
+) -> ProjectAuthority:
+    """Select flat or generation authority from one validated project binding."""
+    if marker_json is None:
+        return FlatProjectAuthority(binding)
+    authority = _select_actor_generation_authority(
+        binding,
+        marker_json=marker_json,
+        pointer_json=pointer_json,
+        active_user_id=active_user_id,
+    )
+    current_scope_id = _active_projection_scope_id(active_projection_scope_id)
+    if current_scope_id != authority.pointer.projection_scope_id:
+        raise RefreshRequiredError("The installed replica requires a fresh authorization view.")
+    return authority
 
 
 __all__ = [
@@ -305,5 +337,6 @@ __all__ = [
     "RefreshRequiredError",
     "ReplicaActorMismatchError",
     "projection_identity_from_pointer",
+    "select_generation_refresh_base",
     "select_project_authority",
 ]

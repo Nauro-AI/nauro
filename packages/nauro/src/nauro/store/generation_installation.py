@@ -14,14 +14,12 @@ import pydantic as pyd
 from nauro.store._atomic import atomic_write_bytes
 from nauro.store.generation_authority import (
     GENERATION_CONTROL_SCHEMA_VERSION,
-    FlatProjectAuthority,
     GenerationAuthorityError,
-    GenerationProjectAuthority,
     GenerationProjectionIdentity,
     InstalledGenerationPointer,
     RefreshRequiredError,
     projection_identity_from_pointer,
-    select_project_authority,
+    select_generation_refresh_base,
 )
 from nauro.store.generation_projection import VerifiedGenerationProjection
 from nauro.store.replica_control import (
@@ -36,12 +34,25 @@ from nauro.store.repo_config import generate_ulid
 _LEASE_CREATE_FLAGS = (
     os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_BINARY", 0)
 )
+_NO_ACTIVE_REPLACEMENT = object()
 
 
 class GenerationInstallationError(GenerationAuthorityError):
     """A verified generation could not be installed safely."""
 
     code = "generation_install_failed"
+
+
+class GenerationRefreshError(GenerationAuthorityError):
+    """A generation refresh could not preserve its local base-pointer fence."""
+
+    code = "generation_refresh_failed"
+
+
+class GenerationRefreshConflictError(GenerationRefreshError):
+    """The local generation pointer changed after a refresh was prepared."""
+
+    code = "generation_refresh_conflict"
 
 
 def _installed_at() -> str:
@@ -227,42 +238,39 @@ def _current_pointer(
     marker_json: bytes | None,
     pointer_json: bytes | None,
 ) -> InstalledGenerationPointer | None:
+    if marker_json is None:
+        return None
     try:
-        authority = select_project_authority(
+        return select_generation_refresh_base(
             projection.target.binding,
             marker_json=marker_json,
             pointer_json=pointer_json,
             active_user_id=projection.target.identity.installed_for_user_id,
-            active_projection_scope_id=projection.target.identity.projection_scope_id,
         )
     except RefreshRequiredError:
-        if pointer_json is None:
-            return None
-        try:
-            return InstalledGenerationPointer.model_validate_json(pointer_json)
-        except pyd.ValidationError as exc:
-            raise GenerationInstallationError(
-                "The current generation pointer cannot be revalidated."
-            ) from exc
-    if isinstance(authority, FlatProjectAuthority):
         return None
-    if isinstance(authority, GenerationProjectAuthority):
-        return authority.pointer
-    raise GenerationInstallationError("The current generation authority is unsupported.")
 
 
-def _is_same_or_refuse_replacement(
+def _same_or_validate_replacement(
     current: InstalledGenerationPointer | None,
     target: GenerationProjectionIdentity,
+    expected_current: InstalledGenerationPointer | object,
 ) -> bool:
-    if current is None:
-        return False
-    current_identity = projection_identity_from_pointer(current)
-    if current_identity == target:
-        return True
-    raise GenerationInstallationError(
-        "Replacing an active generation requires a fresh refresh commit."
-    )
+    if current is not None:
+        current_identity = projection_identity_from_pointer(current)
+        if current_identity == target:
+            return True
+    if expected_current is _NO_ACTIVE_REPLACEMENT:
+        if current is None:
+            return False
+        raise GenerationInstallationError(
+            "Replacing an active generation requires a fresh refresh commit."
+        )
+    if current != expected_current:
+        raise GenerationRefreshConflictError(
+            "The local generation changed after this refresh was prepared."
+        )
+    return False
 
 
 def _build_pointer(
@@ -282,12 +290,12 @@ def _build_pointer(
         ) from exc
 
 
-def install_verified_generation(
+def _install_verified_generation(
     projection: VerifiedGenerationProjection,
     *,
+    expected_current: InstalledGenerationPointer | object,
     lock_timeout: float = -1,
 ) -> InstalledGenerationPointer:
-    """Install a verified projection and publish its local pointer last."""
     if type(projection) is not VerifiedGenerationProjection:
         raise GenerationInstallationError("Generation installation requires verified bytes.")
     layout = ReplicaControlLayout(projection.target.binding.store_path)
@@ -304,9 +312,10 @@ def install_verified_generation(
                 snapshot.marker_json,
                 snapshot.pointer_json,
             )
-            same_identity = _is_same_or_refuse_replacement(
+            same_identity = _same_or_validate_replacement(
                 current,
                 projection.target.identity,
+                expected_current,
             )
             root = layout.generation_root(projection.target.identity)
             manifest = layout.generation_manifest(projection.target.identity)
@@ -334,7 +343,37 @@ def install_verified_generation(
         _discard_staging(staging)
 
 
+def install_verified_generation(
+    projection: VerifiedGenerationProjection,
+    *,
+    lock_timeout: float = -1,
+) -> InstalledGenerationPointer:
+    """Install an initial or dormant verified projection and publish its pointer last."""
+    return _install_verified_generation(
+        projection,
+        expected_current=_NO_ACTIVE_REPLACEMENT,
+        lock_timeout=lock_timeout,
+    )
+
+
+def _install_verified_generation_refresh(
+    projection: VerifiedGenerationProjection,
+    expected_current: InstalledGenerationPointer,
+    *,
+    lock_timeout: float = -1,
+) -> InstalledGenerationPointer:
+    if type(expected_current) is not InstalledGenerationPointer:
+        raise GenerationRefreshError("Generation refresh requires a validated base pointer.")
+    return _install_verified_generation(
+        projection,
+        expected_current=expected_current,
+        lock_timeout=lock_timeout,
+    )
+
+
 __all__ = [
     "GenerationInstallationError",
+    "GenerationRefreshConflictError",
+    "GenerationRefreshError",
     "install_verified_generation",
 ]
