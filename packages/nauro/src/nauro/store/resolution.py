@@ -15,6 +15,7 @@ Resolution order:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -241,6 +242,21 @@ class _StrictRepoConfig(pyd.BaseModel):
         return self
 
 
+def _strict_json_preflight(raw: str) -> None:
+    def object_from_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON object key")
+            result[key] = value
+        return result
+
+    def reject_constant(_value: str) -> None:
+        raise ValueError("non-finite JSON constant")
+
+    json.loads(raw, object_pairs_hook=object_from_pairs, parse_constant=reject_constant)
+
+
 def _strict_registry_entries(
     target_id: str | None,
     target_cfg: _StrictRepoConfig | None,
@@ -251,6 +267,10 @@ def _strict_registry_entries(
     try:
         raw = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
+        raise StoreResolutionError("Registry is malformed or unreadable.") from exc
+    try:
+        _strict_json_preflight(raw)
+    except (ValueError, TypeError, RecursionError) as exc:
         raise StoreResolutionError("Registry is malformed or unreadable.") from exc
     try:
         return _StrictRegistrySnapshot.model_validate_json(raw)
@@ -295,6 +315,10 @@ def _strict_repo_config_from_cwd(start: Path) -> _StrictRepoConfig | None:
     try:
         raw = config_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
+        raise StoreResolutionError(f"Repo config at {config_path} is invalid.") from exc
+    try:
+        _strict_json_preflight(raw)
+    except (ValueError, TypeError, RecursionError) as exc:
         raise StoreResolutionError(f"Repo config at {config_path} is invalid.") from exc
     try:
         return _StrictRepoConfig.model_validate_json(raw)
