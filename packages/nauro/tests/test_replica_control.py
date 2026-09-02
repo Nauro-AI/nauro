@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import stat
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Literal
 
 import pytest
@@ -17,6 +19,7 @@ from nauro.store.replica_control import (
     ReplicaControlLayout,
     ReplicaControlReadError,
     ReplicaControlSnapshot,
+    _refuse_symlinks,
     locked_replica_control_snapshot,
 )
 from nauro.store.resolution import ResolvedProjectBinding
@@ -139,6 +142,23 @@ def test_snapshot_reads_exact_marker_and_active_actor_pointer(tmp_path: Path) ->
             FileLock(str(layout.control_lock)).acquire(timeout=0)
 
 
+def test_pointer_reread_is_available_only_while_control_lock_is_held(tmp_path: Path) -> None:
+    binding = _binding(tmp_path / PROJECT_ID)
+    layout = ReplicaControlLayout(binding.store_path)
+    marker, pointer = _write_control(layout)
+    changed = json.loads(pointer)
+    changed["installed_state_id"] = "01K44444444444444444444444"
+    changed_pointer = json.dumps(changed).encode()
+
+    with locked_replica_control_snapshot(binding, active_user_id=USER_ID) as snapshot:
+        assert snapshot.marker_json == marker
+        layout.actor_pointer(USER_ID).write_bytes(changed_pointer)
+        assert snapshot.reread_pointer() == changed_pointer
+
+    with pytest.raises(ReplicaControlReadError, match="under its control lock"):
+        snapshot.reread_pointer()
+
+
 def test_snapshot_bytes_feed_strict_authority_selection(tmp_path: Path) -> None:
     binding = _binding(tmp_path / PROJECT_ID)
     layout = ReplicaControlLayout(binding.store_path)
@@ -224,6 +244,32 @@ def test_control_snapshot_refuses_symlink_components(tmp_path: Path, target: str
             pass
 
     assert raised.value.code == "generation_control_unavailable"
+
+
+def test_control_paths_refuse_windows_reparse_points(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = tmp_path / PROJECT_ID
+    target = store / ".replica"
+    target.mkdir(parents=True)
+    path_type = type(target)
+    original_lstat = path_type.lstat
+    reparse_flag = 0x400
+
+    def marked_lstat(path: Path):
+        if path == target:
+            return SimpleNamespace(
+                st_mode=stat.S_IFDIR,
+                st_file_attributes=reparse_flag,
+            )
+        return original_lstat(path)
+
+    monkeypatch.setattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", reparse_flag, raising=False)
+    monkeypatch.setattr(path_type, "lstat", marked_lstat)
+
+    with pytest.raises(ReplicaControlReadError, match="reparse"):
+        _refuse_symlinks(store, (target / "authority.json",))
 
 
 @pytest.mark.parametrize("kind", ["marker_directory", "marker_large", "pointer_large"])

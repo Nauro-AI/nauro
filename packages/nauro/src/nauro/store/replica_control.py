@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from filelock import FileLock, Timeout
@@ -111,6 +111,31 @@ class ReplicaControlSnapshot:
 
     marker_json: bytes | None
     pointer_json: bytes | None
+    _reread_pointer: Callable[[], bytes | None] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    def reread_pointer(self) -> bytes | None:
+        """Read the active pointer again while the originating lock remains held."""
+        if self._reread_pointer is None:
+            raise ReplicaControlReadError(
+                "The replica pointer can only be reread under its control lock."
+            )
+        return self._reread_pointer()
+
+
+def _is_link_like(path: Path) -> bool:
+    try:
+        observed = path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise ReplicaControlReadError("Replica control path metadata is unavailable.") from exc
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    file_attributes = getattr(observed, "st_file_attributes", 0)
+    return stat.S_ISLNK(observed.st_mode) or bool(reparse_flag and file_attributes & reparse_flag)
 
 
 def _refuse_symlinks(store_path: Path, paths: tuple[Path, ...]) -> None:
@@ -124,14 +149,10 @@ def _refuse_symlinks(store_path: Path, paths: tuple[Path, ...]) -> None:
         current = store_path
         for part in relative.parts:
             current /= part
-            try:
-                is_link = current.is_symlink()
-            except OSError as exc:
+            if _is_link_like(current):
                 raise ReplicaControlReadError(
-                    "Replica control path metadata is unavailable."
-                ) from exc
-            if is_link:
-                raise ReplicaControlReadError("Replica control paths cannot contain symlinks.")
+                    "Replica control paths cannot contain links or reparse points."
+                )
 
 
 def _read_optional_file(path: Path) -> bytes | None:
@@ -200,16 +221,32 @@ def locked_replica_control_snapshot(
         _refuse_symlinks(binding.store_path, (layout.authority_marker,))
         marker_json = _read_optional_file(layout.authority_marker)
         pointer_json = None
+        pointer: Path | None = None
         if marker_json is not None and is_identifier(IdentifierKind.ulid, active_user_id):
             assert isinstance(active_user_id, str)
             pointer = layout.actor_pointer(active_user_id)
             _refuse_symlinks(binding.store_path, (pointer,))
             pointer_json = _read_optional_file(pointer)
+
+        active = True
+
+        def reread_pointer() -> bytes | None:
+            if not active:
+                raise ReplicaControlReadError(
+                    "The replica pointer can only be reread under its control lock."
+                )
+            if pointer is None:
+                return None
+            _refuse_symlinks(binding.store_path, (pointer,))
+            return _read_optional_file(pointer)
+
         yield ReplicaControlSnapshot(
             marker_json=marker_json,
             pointer_json=pointer_json,
+            _reread_pointer=reread_pointer,
         )
     finally:
+        active = False
         lock.release()
 
 

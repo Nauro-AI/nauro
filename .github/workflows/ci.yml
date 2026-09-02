@@ -65,7 +65,13 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
       - run: uv sync --locked --package nauro --extra dev --python 3.12
-      - run: uv run --no-sync --package nauro python -m pytest packages/nauro/tests/test_generation_lease.py -v --tb=short
+      - run: >-
+          uv run --no-sync --package nauro python -m pytest
+          packages/nauro/tests/test_replica_control.py
+          packages/nauro/tests/test_generation_installation.py
+          packages/nauro/tests/test_generation_lease.py
+          packages/nauro/tests/test_generation_store.py
+          -v --tb=short
 
   distribution:
     runs-on: ubuntu-latest

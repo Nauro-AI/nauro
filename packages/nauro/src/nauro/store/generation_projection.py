@@ -169,10 +169,15 @@ def _invalid_json_constant(value: str) -> object:
     raise ValueError(f"invalid JSON constant: {value}")
 
 
-def _parse_manifest(
+def verify_generation_projection_manifest(
     target: GenerationProjectionTarget,
     manifest_json: bytes,
 ) -> GenerationProjectionManifest:
+    """Verify one canonical manifest against authenticated projection identity."""
+    if type(target) is not GenerationProjectionTarget:
+        raise GenerationProjectionVerificationError(
+            "Generation verification requires a validated projection target."
+        )
     if type(manifest_json) is not bytes:
         raise GenerationProjectionVerificationError("The generation manifest must be exact bytes.")
     if hashlib.sha256(manifest_json).hexdigest() != target.identity.manifest_digest:
@@ -238,7 +243,7 @@ class VerifiedGenerationProjection:
             raise GenerationProjectionVerificationError(
                 "Generation verification requires a validated projection target."
             )
-        manifest = _parse_manifest(self.target, self.manifest_json)
+        manifest = verify_generation_projection_manifest(self.target, self.manifest_json)
         if type(self.artifacts) is not tuple:
             raise GenerationProjectionVerificationError("The generation artifact set is malformed.")
         artifacts = self.artifacts
@@ -312,4 +317,5 @@ __all__ = [
     "VerifiedGenerationArtifact",
     "VerifiedGenerationProjection",
     "verify_generation_projection",
+    "verify_generation_projection_manifest",
 ]
