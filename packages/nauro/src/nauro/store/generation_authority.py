@@ -86,19 +86,16 @@ class GenerationAuthorityMarker(pyd.BaseModel):
         return value
 
 
-class InstalledGenerationPointer(pyd.BaseModel):
-    """The actor-bound pointer for one verified installed generation."""
+class GenerationProjectionIdentity(pyd.BaseModel):
+    """Server-authenticated identity of one actor-scoped generation projection."""
 
     model_config = _STRICT_MODEL_CONFIG
 
-    schema_version: pyd.StrictInt
     project_id: pyd.StrictStr
     store_format_version: pyd.StrictInt = pyd.Field(ge=1)
     generation_id: pyd.StrictStr
     manifest_digest: pyd.StrictStr
     committed_at: pyd.StrictStr
-    installed_at: pyd.StrictStr
-    installed_state_id: pyd.StrictStr
     installed_for_user_id: pyd.StrictStr
     projection_class: Literal["viewer", "contributor_plus"]
     projection_scope_id: pyd.StrictStr
@@ -106,14 +103,24 @@ class InstalledGenerationPointer(pyd.BaseModel):
     _validate_ulids = pyd.field_validator(
         "project_id",
         "generation_id",
-        "installed_state_id",
         "installed_for_user_id",
     )(_ulid)
     _validate_digests = pyd.field_validator(
         "manifest_digest",
         "projection_scope_id",
     )(_sha256)
-    _validate_timestamps = pyd.field_validator("committed_at", "installed_at")(_timestamp)
+    _validate_committed_at = pyd.field_validator("committed_at")(_timestamp)
+
+
+class InstalledGenerationPointer(GenerationProjectionIdentity):
+    """The actor-bound pointer for one verified installed generation."""
+
+    schema_version: pyd.StrictInt
+    installed_at: pyd.StrictStr
+    installed_state_id: pyd.StrictStr
+
+    _validate_installed_state_id = pyd.field_validator("installed_state_id")(_ulid)
+    _validate_installed_at = pyd.field_validator("installed_at")(_timestamp)
 
     @pyd.field_validator("schema_version")
     @classmethod
@@ -243,6 +250,7 @@ __all__ = [
     "GenerationAuthorityError",
     "GenerationAuthorityMarker",
     "GenerationControlCorruptError",
+    "GenerationProjectionIdentity",
     "GenerationProjectAuthority",
     "InstalledGenerationPointer",
     "ProjectAuthority",

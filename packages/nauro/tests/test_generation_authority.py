@@ -12,6 +12,7 @@ from nauro.store.generation_authority import (
     FlatProjectAuthority,
     GenerationControlCorruptError,
     GenerationProjectAuthority,
+    GenerationProjectionIdentity,
     RefreshRequiredError,
     ReplicaActorMismatchError,
     select_project_authority,
@@ -340,6 +341,7 @@ def test_valid_generation_selection_retains_all_bound_facts() -> None:
     )
 
     assert isinstance(result, GenerationProjectAuthority)
+    assert isinstance(result.pointer, GenerationProjectionIdentity)
     assert result.kind == "hosted_generation"
     assert result.binding is binding
     assert result.marker.project_id == PROJECT_ID
