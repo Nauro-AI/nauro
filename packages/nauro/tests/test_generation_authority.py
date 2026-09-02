@@ -150,6 +150,22 @@ def test_marker_rejects_non_json_input_type() -> None:
         )
 
 
+def test_marker_rejects_duplicate_json_keys() -> None:
+    duplicate = _marker().replace(
+        '"schema_version": 1',
+        '"schema_version": 2, "schema_version": 1',
+    )
+
+    with pytest.raises(GenerationControlCorruptError):
+        select_project_authority(
+            _binding(),
+            marker_json=duplicate,
+            pointer_json=_pointer(),
+            active_user_id=USER_ID,
+            active_projection_scope_id=PROJECTION_SCOPE_ID,
+        )
+
+
 def test_unsupported_marker_format_requires_client_upgrade_before_pointer_read() -> None:
     with pytest.raises(ClientUpgradeRequiredError) as raised:
         select_project_authority(
@@ -246,7 +262,6 @@ def test_pointer_must_be_one_strict_closed_json_object(raw: str | bytes) -> None
         ("committed_at", "2026-09-02T01:02:03Z"),
         ("committed_at", "2026-99-02T01:02:03.000004Z"),
         ("installed_at", "2026-09-02T01:03:04.00005Z"),
-        ("installed_at", "2026-09-02T01:02:02.999999Z"),
         ("installed_state_id", "state-1"),
         ("installed_for_user_id", "user-1"),
         ("projection_class", "owner"),
@@ -274,6 +289,35 @@ def test_pointer_rejects_non_json_input_type() -> None:
             active_user_id=USER_ID,
             active_projection_scope_id=PROJECTION_SCOPE_ID,
         )
+
+
+def test_pointer_rejects_duplicate_json_keys() -> None:
+    duplicate = _pointer().replace(
+        f'"installed_for_user_id": "{USER_ID}"',
+        (f'"installed_for_user_id": "{OTHER_USER_ID}", "installed_for_user_id": "{USER_ID}"'),
+    )
+
+    with pytest.raises(GenerationControlCorruptError):
+        select_project_authority(
+            _binding(),
+            marker_json=_marker(),
+            pointer_json=duplicate,
+            active_user_id=USER_ID,
+            active_projection_scope_id=PROJECTION_SCOPE_ID,
+        )
+
+
+def test_pointer_does_not_compare_server_and_local_clocks() -> None:
+    result = select_project_authority(
+        _binding(),
+        marker_json=_marker(),
+        pointer_json=_pointer(installed_at="2026-09-02T01:02:02.999999Z"),
+        active_user_id=USER_ID,
+        active_projection_scope_id=PROJECTION_SCOPE_ID,
+    )
+
+    assert isinstance(result, GenerationProjectAuthority)
+    assert result.pointer.installed_at == "2026-09-02T01:02:02.999999Z"
 
 
 @pytest.mark.parametrize(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Literal
 
@@ -14,6 +15,31 @@ from nauro.store.resolution import ResolvedProjectBinding
 
 _CONTROL_SCHEMA_VERSION = 1
 _STRICT_MODEL_CONFIG = pyd.ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class _DuplicateJsonKeyError(ValueError):
+    pass
+
+
+def _object_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJsonKeyError(key)
+        result[key] = value
+    return result
+
+
+def _invalid_json_constant(value: str) -> object:
+    raise ValueError(f"invalid JSON constant: {value}")
+
+
+def _load_strict_json(raw: str | bytes) -> object:
+    return json.loads(
+        raw,
+        object_pairs_hook=_object_without_duplicates,
+        parse_constant=_invalid_json_constant,
+    )
 
 
 class GenerationAuthorityError(ValueError):
@@ -129,12 +155,6 @@ class InstalledGenerationPointer(GenerationProjectionIdentity):
             raise ValueError("unsupported generation control schema")
         return value
 
-    @pyd.model_validator(mode="after")
-    def _valid_install_order(self) -> InstalledGenerationPointer:
-        if self.installed_at < self.committed_at:
-            raise ValueError("installed_at cannot precede committed_at")
-        return self
-
 
 @dataclass(frozen=True)
 class FlatProjectAuthority:
@@ -167,8 +187,15 @@ def _parse_marker(raw: str | bytes) -> GenerationAuthorityMarker:
     if type(raw) not in (str, bytes):
         raise GenerationControlCorruptError("The generation authority marker is invalid.")
     try:
-        return GenerationAuthorityMarker.model_validate_json(raw)
-    except (pyd.ValidationError, ValueError, TypeError) as exc:
+        return GenerationAuthorityMarker.model_validate(_load_strict_json(raw))
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        _DuplicateJsonKeyError,
+        pyd.ValidationError,
+        ValueError,
+        TypeError,
+    ) as exc:
         raise GenerationControlCorruptError("The generation authority marker is invalid.") from exc
 
 
@@ -176,8 +203,15 @@ def _parse_pointer(raw: str | bytes) -> InstalledGenerationPointer:
     if type(raw) not in (str, bytes):
         raise GenerationControlCorruptError("The installed generation pointer is invalid.")
     try:
-        return InstalledGenerationPointer.model_validate_json(raw)
-    except (pyd.ValidationError, ValueError, TypeError) as exc:
+        return InstalledGenerationPointer.model_validate(_load_strict_json(raw))
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        _DuplicateJsonKeyError,
+        pyd.ValidationError,
+        ValueError,
+        TypeError,
+    ) as exc:
         raise GenerationControlCorruptError("The installed generation pointer is invalid.") from exc
 
 
