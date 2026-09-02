@@ -70,6 +70,7 @@ jobs:
           packages/nauro/tests/test_replica_control.py
           packages/nauro/tests/test_generation_installation.py
           packages/nauro/tests/test_generation_lease.py
+          packages/nauro/tests/test_generation_refresh.py
           packages/nauro/tests/test_generation_store.py
           -v --tb=short
 
