@@ -46,16 +46,9 @@ class GenerationLeaseUnavailableError(GenerationLeaseError):
     code = "generation_lease_unavailable"
 
 
-def _lease_path(
-    layout: ReplicaControlLayout,
-    identity: GenerationProjectionIdentity,
-) -> Path:
-    if (
-        type(layout) is not ReplicaControlLayout
-        or type(identity) is not GenerationProjectionIdentity
-    ):
+def _validated_lease_path(layout: ReplicaControlLayout, path: Path) -> Path:
+    if type(layout) is not ReplicaControlLayout or not isinstance(path, Path):
         raise GenerationLeaseUnavailableError("Generation leases require validated control state.")
-    path = layout.generation_lease(identity)
     try:
         _refuse_symlinks(layout.store_path, (path,))
     except ReplicaControlReadError as exc:
@@ -126,12 +119,12 @@ def _release(handle: BinaryIO) -> None:
 
 
 @contextmanager
-def _generation_lease(
+def _generation_lease_path(
     layout: ReplicaControlLayout,
-    identity: GenerationProjectionIdentity,
+    path: Path,
     kind: _LeaseKind,
 ) -> Iterator[None]:
-    handle = _open_lease(_lease_path(layout, identity))
+    handle = _open_lease(_validated_lease_path(layout, path))
     try:
         _acquire(handle, kind)
     except BaseException:
@@ -152,6 +145,30 @@ def _generation_lease(
         except GenerationLeaseUnavailableError:
             if not body_failed:
                 raise
+
+
+@contextmanager
+def _generation_lease(
+    layout: ReplicaControlLayout,
+    identity: GenerationProjectionIdentity,
+    kind: _LeaseKind,
+) -> Iterator[None]:
+    if (
+        type(layout) is not ReplicaControlLayout
+        or type(identity) is not GenerationProjectionIdentity
+    ):
+        raise GenerationLeaseUnavailableError("Generation leases require validated control state.")
+    with _generation_lease_path(layout, layout.generation_lease(identity), kind):
+        yield
+
+
+@contextmanager
+def _generation_cleanup_lease_path(
+    layout: ReplicaControlLayout,
+    path: Path,
+) -> Iterator[None]:
+    with _generation_lease_path(layout, path, "cleanup"):
+        yield
 
 
 @contextmanager
