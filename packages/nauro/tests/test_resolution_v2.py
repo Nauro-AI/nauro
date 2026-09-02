@@ -253,6 +253,106 @@ def test_resolve_project_binding_reads_one_registry_snapshot(tmp_path, monkeypat
     assert reads == 1
 
 
+def _assert_strict_resolution_error(call, message):
+    from nauro.store.resolution import StoreResolutionError
+
+    with pytest.raises(StoreResolutionError) as exc:
+        call()
+    assert type(exc.value) is StoreResolutionError
+    assert str(exc.value) == message
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        '{"schema_version":1,"schema_version":2,"projects":PROJECTS}',
+        '{"schema_version":2,"projects":[],"projects":PROJECTS}',
+        '{"schema_version":2,"projects":{"PID":{},"PID":ENTRY}}',
+        (
+            '{"schema_version":2,"projects":{"PID":{"n\\u0061me":"../bad",'
+            '"name":"Pareto","mode":"local","repo_paths":[REPO]}}}'
+        ),
+    ],
+    ids=["schema-version", "projects", "project-id", "escaped-entry-field"],
+)
+def test_binding_rejects_duplicate_registry_keys(tmp_path, nauro_home, template):
+    from nauro.store.resolution import resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    entry = json.dumps({"name": "Pareto", "mode": "local", "repo_paths": [str(repo.resolve())]})
+    projects = f'{{"{pid}": {entry}}}'
+    raw = (
+        template.replace("PID", pid)
+        .replace("ENTRY", entry)
+        .replace("PROJECTS", projects)
+        .replace("REPO", json.dumps(str(repo.resolve())))
+    )
+    (nauro_home / REGISTRY_FILENAME).write_text(raw)
+    _assert_strict_resolution_error(
+        lambda: resolve_project_binding(pid, repo),
+        "Registry is malformed or unreadable.",
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "duplicate"),
+    [
+        ("mode", '"mode": "cloud", "mode": "local"'),
+        ("id", '"id": "invalid", "id": "01KQ6AZGNA0B3QBF67NBXP3S45"'),
+    ],
+    ids=["mode", "id"],
+)
+def test_binding_rejects_duplicate_repo_config_keys(tmp_path, nauro_home, field, duplicate):
+    from nauro.store.resolution import resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    config_path = repo / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME
+    raw = config_path.read_text()
+    config_path.write_text(raw.replace(f'"{field}": "{json.loads(raw)[field]}"', duplicate))
+    _assert_strict_resolution_error(
+        lambda: resolve_project_binding(pid, repo),
+        f"Repo config at {config_path} is invalid.",
+    )
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+@pytest.mark.parametrize("boundary", ["registry", "repo-config"])
+def test_binding_rejects_nonfinite_json_constants(tmp_path, nauro_home, constant, boundary):
+    from nauro.store.resolution import resolve_project_binding
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    if boundary == "registry":
+        path = nauro_home / REGISTRY_FILENAME
+        message = "Registry is malformed or unreadable."
+    else:
+        path = repo / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME
+        message = f"Repo config at {path} is invalid."
+    path.write_text(path.read_text().replace('"name": "Pareto"', f'"name": {constant}'))
+    _assert_strict_resolution_error(lambda: resolve_project_binding(pid, repo), message)
+
+
+@pytest.mark.parametrize("error_type", [TypeError, RecursionError])
+@pytest.mark.parametrize("boundary", ["registry", "repo-config"])
+def test_binding_maps_json_preflight_failures(
+    tmp_path, monkeypatch, nauro_home, error_type, boundary
+):
+    from nauro.store import resolution
+
+    pid, repo, _store = _binding_state(tmp_path, nauro_home)
+    config_path = repo / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME
+    if boundary == "registry":
+        config_path.unlink()
+        message = "Registry is malformed or unreadable."
+    else:
+        message = f"Repo config at {config_path} is invalid."
+
+    def fail_preflight(_raw):
+        raise error_type("parser failure")
+
+    monkeypatch.setattr(resolution, "_strict_json_preflight", fail_preflight, raising=False)
+    _assert_strict_resolution_error(lambda: resolution.resolve_project_binding(pid, repo), message)
+
+
 @pytest.mark.parametrize(
     ("config_patch", "entry_patch"),
     [
