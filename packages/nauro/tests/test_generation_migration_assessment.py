@@ -137,6 +137,7 @@ def test_assessment_surfaces_pending_and_unsupported_entries(tmp_path: Path) -> 
     store = binding.store_path
     _write(store, "project.md", b"# Project\n")
     _write(store, ".project.md.0123456789abcdef.tmp", b"pending")
+    (store / ".pull-spool-interrupted").mkdir()
     _write(store, "decisions/.002-two.md.0123456789abcdef.tmp", b"pending")
     _write(store, "decisions/bad.txt", b"unsupported")
     _write(store, "context/bad.txt", b"unsupported")
@@ -148,6 +149,7 @@ def test_assessment_surfaces_pending_and_unsupported_entries(tmp_path: Path) -> 
 
     assert assessment.pending_paths == (
         ".project.md.0123456789abcdef.tmp",
+        ".pull-spool-interrupted",
         "decisions/.002-two.md.0123456789abcdef.tmp",
         "snapshots/.snapshot.json.0123456789abcdef.tmp",
     )

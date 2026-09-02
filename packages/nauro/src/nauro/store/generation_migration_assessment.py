@@ -20,6 +20,7 @@ from nauro.store.replica_control import (
     _refuse_symlinks,
     locked_replica_control_snapshot,
 )
+from nauro.sync.merge import SPOOL_DIR_PREFIX
 
 _READ_FLAGS = (
     os.O_RDONLY
@@ -188,7 +189,7 @@ def _protected_inventory(
     for entry in root_entries:
         if is_protected_generation_member(entry.name):
             files.append(_stamp_file(store_path, entry))
-        elif is_tmp_sibling(entry.name):
+        elif is_tmp_sibling(entry.name) or entry.name.startswith(SPOOL_DIR_PREFIX):
             pending.append(entry.name)
 
     for directory in _PROTECTED_DIRECTORIES:
