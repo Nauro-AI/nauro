@@ -151,6 +151,13 @@ class GenerationProjectAuthority:
 ProjectAuthority = FlatProjectAuthority | GenerationProjectAuthority
 
 
+@dataclass(frozen=True)
+class _PendingGenerationAuthority:
+    binding: ResolvedProjectBinding
+    marker: GenerationAuthorityMarker
+    active_user_id: str
+
+
 def _strict_json_preflight(raw: str | bytes) -> None:
     text = raw.decode("utf-8") if type(raw) is bytes else raw
     if text.startswith("\ufeff"):
@@ -211,15 +218,12 @@ def _active_projection_scope_id(value: str | None) -> str:
     return value
 
 
-def select_project_authority(
+def _select_marker_authority(
     binding: ResolvedProjectBinding,
     *,
     marker_json: str | bytes | None,
-    pointer_json: str | bytes | None,
-    active_user_id: str | None = None,
-    active_projection_scope_id: str | None = None,
-) -> ProjectAuthority:
-    """Select flat or generation authority from one validated project binding."""
+    active_user_id: str | None,
+) -> FlatProjectAuthority | _PendingGenerationAuthority:
     if marker_json is None:
         return FlatProjectAuthority(binding)
     if binding.mode != "cloud":
@@ -234,24 +238,59 @@ def select_project_authority(
         raise ClientUpgradeRequiredError(
             "This hosted store format requires another client version."
         )
+    return _PendingGenerationAuthority(
+        binding=binding,
+        marker=marker,
+        active_user_id=_active_user_id(active_user_id),
+    )
 
-    current_user_id = _active_user_id(active_user_id)
+
+def _select_generation_pointer(
+    pending: _PendingGenerationAuthority,
+    *,
+    pointer_json: str | bytes | None,
+    active_projection_scope_id: str | None,
+) -> GenerationProjectAuthority:
     if pointer_json is None:
         raise RefreshRequiredError("The active account has no installed generation pointer.")
 
     pointer = _parse_pointer(pointer_json)
+    marker = pending.marker
+    binding = pending.binding
     if pointer.project_id != marker.project_id or pointer.project_id != binding.project_id:
         raise GenerationControlCorruptError("The installed pointer belongs to another project.")
     if pointer.store_format_version != marker.store_format_version:
         raise GenerationControlCorruptError("The generation marker and pointer formats differ.")
-    if current_user_id != pointer.installed_for_user_id:
+    if pending.active_user_id != pointer.installed_for_user_id:
         raise ReplicaActorMismatchError("The installed replica belongs to another account.")
 
     current_scope_id = _active_projection_scope_id(active_projection_scope_id)
     if current_scope_id != pointer.projection_scope_id:
         raise RefreshRequiredError("The installed replica requires a fresh authorization view.")
-
     return GenerationProjectAuthority(binding=binding, marker=marker, pointer=pointer)
+
+
+def select_project_authority(
+    binding: ResolvedProjectBinding,
+    *,
+    marker_json: str | bytes | None,
+    pointer_json: str | bytes | None,
+    active_user_id: str | None = None,
+    active_projection_scope_id: str | None = None,
+) -> ProjectAuthority:
+    """Select flat or generation authority from one validated project binding."""
+    selected = _select_marker_authority(
+        binding,
+        marker_json=marker_json,
+        active_user_id=active_user_id,
+    )
+    if isinstance(selected, FlatProjectAuthority):
+        return selected
+    return _select_generation_pointer(
+        selected,
+        pointer_json=pointer_json,
+        active_projection_scope_id=active_projection_scope_id,
+    )
 
 
 __all__ = [

@@ -55,6 +55,21 @@ jobs:
       - run: uv sync --locked --package nauro --all-extras --python ${{ matrix.python-version }}
       - run: uv run --no-sync --package nauro pytest packages/nauro/tests/ --ignore=packages/nauro/tests/cross_surface -v --tb=short
 
+  test-generation-control-platforms:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.12
+      - run: uv sync --locked --package nauro --all-extras --python 3.12
+      - run: >-
+          uv run --no-sync --package nauro pytest
+          packages/nauro/tests/test_generation_authority.py
+          packages/nauro/tests/test_replica_control.py -v --tb=short
+
   distribution:
     runs-on: ubuntu-latest
     steps:

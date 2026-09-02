@@ -961,7 +961,7 @@ embeddings = [
 
 [package.metadata]
 requires-dist = [
-    { name = "filelock", specifier = ">=3.20.3" },
+    { name = "filelock", specifier = ">=3.29.5" },
     { name = "hatchling", marker = "extra == 'dev'" },
     { name = "httpx", specifier = ">=0.24" },
     { name = "mcp", specifier = ">=1.0,<2" },

@@ -355,6 +355,7 @@ def test_unsupported_marker_format_wins_before_actor_and_pointer_handling() -> N
 
     assert type(raised.value) is ClientUpgradeRequiredError
     assert raised.value.code == "client_upgrade_required"
+    assert str(raised.value) == "This hosted store format requires another client version."
 
 
 @pytest.mark.parametrize(
@@ -376,12 +377,14 @@ def test_generation_selection_requires_exact_matching_active_actor(
 
 
 def test_actor_mismatch_wins_before_pointer_handling() -> None:
-    with pytest.raises(ReplicaActorMismatchError):
+    with pytest.raises(ReplicaActorMismatchError) as raised:
         _select(
             marker_json=_marker(),
             pointer_json=HostileStr("not-json"),
             active_user_id=HostileStr(USER_ID),
         )
+
+    assert str(raised.value) == "The installed replica does not match an active account."
 
 
 def test_valid_actor_without_pointer_requires_refresh() -> None:
@@ -390,6 +393,7 @@ def test_valid_actor_without_pointer_requires_refresh() -> None:
 
     assert type(raised.value) is RefreshRequiredError
     assert raised.value.code == "refresh_required"
+    assert str(raised.value) == "The active account has no installed generation pointer."
 
 
 @pytest.mark.parametrize(
@@ -453,6 +457,7 @@ def test_pointer_actor_must_match_the_valid_active_actor() -> None:
 
     assert type(raised.value) is ReplicaActorMismatchError
     assert raised.value.code == "replica_actor_mismatch"
+    assert str(raised.value) == "The installed replica belongs to another account."
 
 
 @pytest.mark.parametrize(
@@ -478,6 +483,7 @@ def test_generation_selection_requires_exact_matching_authorization_scope(
 
     assert type(raised.value) is RefreshRequiredError
     assert raised.value.code == "refresh_required"
+    assert str(raised.value) == "The installed replica requires a fresh authorization view."
 
 
 def test_pointer_does_not_compare_server_and_local_clocks() -> None:
