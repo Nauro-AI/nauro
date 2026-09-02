@@ -156,6 +156,19 @@ class InstalledGenerationPointer(GenerationProjectionIdentity):
         return value
 
 
+def projection_identity_from_pointer(
+    pointer: InstalledGenerationPointer,
+) -> GenerationProjectionIdentity:
+    """Return the server-authenticated identity fields from a validated pointer."""
+    if type(pointer) is not InstalledGenerationPointer:
+        raise GenerationControlCorruptError("The installed generation pointer is invalid.")
+    values = {
+        field_name: getattr(pointer, field_name)
+        for field_name in GenerationProjectionIdentity.model_fields
+    }
+    return GenerationProjectionIdentity.model_validate(values)
+
+
 @dataclass(frozen=True)
 class FlatProjectAuthority:
     """A local-only or pre-epoch hosted flat store."""
@@ -291,5 +304,6 @@ __all__ = [
     "ProjectAuthority",
     "RefreshRequiredError",
     "ReplicaActorMismatchError",
+    "projection_identity_from_pointer",
     "select_project_authority",
 ]

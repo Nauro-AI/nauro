@@ -20,11 +20,14 @@ from nauro.store.generation_authority import (
     GenerationProjectionIdentity,
     InstalledGenerationPointer,
     RefreshRequiredError,
+    projection_identity_from_pointer,
     select_project_authority,
 )
 from nauro.store.generation_projection import VerifiedGenerationProjection
 from nauro.store.replica_control import (
     ReplicaControlLayout,
+    ReplicaControlReadError,
+    _is_link_like,
     _refuse_symlinks,
     locked_replica_control_snapshot,
 )
@@ -49,14 +52,6 @@ def _new_install_state_id() -> str:
     return generate_ulid()
 
 
-def _identity_from_pointer(pointer: InstalledGenerationPointer) -> GenerationProjectionIdentity:
-    values = {
-        field_name: getattr(pointer, field_name)
-        for field_name in GenerationProjectionIdentity.model_fields
-    }
-    return GenerationProjectionIdentity.model_validate(values)
-
-
 def _pointer_bytes(pointer: InstalledGenerationPointer) -> bytes:
     return json.dumps(
         pointer.model_dump(),
@@ -75,7 +70,11 @@ def _expected_directories(projection: VerifiedGenerationProjection) -> set[str]:
 
 
 def _audit_root(root: Path, projection: VerifiedGenerationProjection) -> None:
-    if root.is_symlink() or not root.is_dir():
+    try:
+        unsafe_root = _is_link_like(root)
+    except ReplicaControlReadError as exc:
+        raise GenerationInstallationError("The generation root metadata is unavailable.") from exc
+    if unsafe_root or not root.is_dir():
         raise GenerationInstallationError("The generation root is not a regular directory.")
     expected_files = {artifact.path: artifact.content for artifact in projection.artifacts}
     expected_directories = _expected_directories(projection)
@@ -83,8 +82,16 @@ def _audit_root(root: Path, projection: VerifiedGenerationProjection) -> None:
     try:
         for path in root.rglob("*"):
             relative = path.relative_to(root).as_posix()
-            if path.is_symlink():
-                raise GenerationInstallationError("The generation root contains a symlink.")
+            try:
+                unsafe_path = _is_link_like(path)
+            except ReplicaControlReadError as exc:
+                raise GenerationInstallationError(
+                    "The generation root path metadata is unavailable."
+                ) from exc
+            if unsafe_path:
+                raise GenerationInstallationError(
+                    "The generation root contains a link or reparse point."
+                )
             if path.is_dir():
                 if relative not in expected_directories:
                     raise GenerationInstallationError(
@@ -110,11 +117,11 @@ def _audit_root(root: Path, projection: VerifiedGenerationProjection) -> None:
 
 def _discard_staging(path: Path) -> None:
     try:
-        if path.is_symlink():
+        if _is_link_like(path):
             path.unlink()
         elif path.exists():
             shutil.rmtree(path)
-    except OSError:
+    except (OSError, ReplicaControlReadError):
         pass
 
 
@@ -250,7 +257,7 @@ def _is_same_or_refuse_replacement(
 ) -> bool:
     if current is None:
         return False
-    current_identity = _identity_from_pointer(current)
+    current_identity = projection_identity_from_pointer(current)
     if current_identity == target:
         return True
     raise GenerationInstallationError(
