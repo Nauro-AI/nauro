@@ -13,7 +13,10 @@ from filelock import FileLock, Timeout
 from nauro_core.constants import HOSTED_STORE_FORMAT_VERSION
 from nauro_core.identifiers import IdentifierKind, is_identifier, validate_identifier
 
-from nauro.store.generation_authority import GenerationAuthorityError
+from nauro.store.generation_authority import (
+    GenerationAuthorityError,
+    GenerationProjectionIdentity,
+)
 from nauro.store.resolution import ResolvedProjectBinding
 
 _CONTROL_DIRECTORY = ".replica"
@@ -21,6 +24,11 @@ _CONTROL_LOCK_FILE = ".replica-control.lock"
 _AUTHORITY_MARKER_FILE = "authority.json"
 _ACTORS_DIRECTORY = "actors"
 _POINTER_FILE = "pointer.json"
+_PROJECTIONS_DIRECTORY = "projections"
+_GENERATIONS_DIRECTORY = "generations"
+_MANIFESTS_DIRECTORY = "manifests"
+_LEASES_DIRECTORY = "leases"
+_STAGING_DIRECTORY = "staging"
 _MAX_CONTROL_FILE_BYTES = 16 * 1024
 _READ_FLAGS = (
     os.O_RDONLY
@@ -67,6 +75,34 @@ class ReplicaControlLayout:
     def actor_pointer(self, user_id: str) -> Path:
         canonical = validate_identifier(IdentifierKind.ulid, user_id, field="user_id")
         return self.version_root / _ACTORS_DIRECTORY / canonical / _POINTER_FILE
+
+    def projection_root(self, identity: GenerationProjectionIdentity) -> Path:
+        if type(identity) is not GenerationProjectionIdentity:
+            raise ValueError("projection identity must be validated")
+        actor_root = self.actor_pointer(identity.installed_for_user_id).parent
+        return actor_root / _PROJECTIONS_DIRECTORY / identity.projection_scope_id
+
+    def generation_root(self, identity: GenerationProjectionIdentity) -> Path:
+        return self.projection_root(identity) / _GENERATIONS_DIRECTORY / identity.generation_id
+
+    def generation_manifest(self, identity: GenerationProjectionIdentity) -> Path:
+        filename = f"{identity.generation_id}.json"
+        return self.projection_root(identity) / _MANIFESTS_DIRECTORY / filename
+
+    def generation_lease(self, identity: GenerationProjectionIdentity) -> Path:
+        return self.projection_root(identity) / _LEASES_DIRECTORY / f"{identity.generation_id}.lock"
+
+    def staging_root(
+        self,
+        identity: GenerationProjectionIdentity,
+        install_state_id: str,
+    ) -> Path:
+        canonical_state = validate_identifier(
+            IdentifierKind.ulid,
+            install_state_id,
+            field="install_state_id",
+        )
+        return self.projection_root(identity) / _STAGING_DIRECTORY / canonical_state
 
 
 @dataclass(frozen=True)

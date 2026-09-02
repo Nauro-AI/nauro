@@ -13,7 +13,7 @@ from nauro_core.provenance import validate_utc_timestamp
 
 from nauro.store.resolution import ResolvedProjectBinding
 
-_CONTROL_SCHEMA_VERSION = 1
+GENERATION_CONTROL_SCHEMA_VERSION = 1
 _STRICT_MODEL_CONFIG = pyd.ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
@@ -107,7 +107,7 @@ class GenerationAuthorityMarker(pyd.BaseModel):
     @pyd.field_validator("schema_version")
     @classmethod
     def _supported_schema(cls, value: int) -> int:
-        if value != _CONTROL_SCHEMA_VERSION:
+        if value != GENERATION_CONTROL_SCHEMA_VERSION:
             raise ValueError("unsupported generation control schema")
         return value
 
@@ -151,7 +151,7 @@ class InstalledGenerationPointer(GenerationProjectionIdentity):
     @pyd.field_validator("schema_version")
     @classmethod
     def _supported_schema(cls, value: int) -> int:
-        if value != _CONTROL_SCHEMA_VERSION:
+        if value != GENERATION_CONTROL_SCHEMA_VERSION:
             raise ValueError("unsupported generation control schema")
         return value
 
@@ -283,6 +283,7 @@ __all__ = [
     "FlatProjectAuthority",
     "GenerationAuthorityError",
     "GenerationAuthorityMarker",
+    "GENERATION_CONTROL_SCHEMA_VERSION",
     "GenerationControlCorruptError",
     "GenerationProjectionIdentity",
     "GenerationProjectAuthority",
