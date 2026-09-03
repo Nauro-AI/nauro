@@ -32,10 +32,30 @@ from nauro.constants import DECISIONS_DIR, PROJECT_MD
 from nauro.store._atomic import atomic_write_bytes
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.registry import bind_project_store_v2, get_store_path_v2
+from nauro.store.replica_control import (
+    _REPLICA_CONTROL_LOCK_NAME,
+    _REPLICA_CONTROL_ROOT_NAME,
+)
 from nauro.store.repo_config import load_repo_config
 from nauro.store.resolution import RepoResolution
+from nauro.sync._path_diagnostics import (
+    _escape_path_for_display,
+    _MissingPathPolicy,
+    _NativeKind,
+    _PathClass,
+    _PreparedStoreRoot,
+    _StoreRootPreparationError,
+    _unsafe_reason_text,
+)
 from nauro.sync.cloud_projects import CloudProjectError, list_projects
 from nauro.sync.etag import content_md5
+from nauro.sync.merge import (
+    _admit_native_path,
+    _classify_sync_path,
+    _is_link_or_reparse,
+    _prepare_store_root,
+    _walk_store_files,
+)
 from nauro.sync.remote import (
     PRESIGN_BATCH_LIMIT,
     PresignError,
@@ -213,7 +233,37 @@ def _validate_restored_store(store_path: Path) -> None:
         )
 
 
+def _present_nofollow(path: Path) -> bool:
+    """True when something occupies ``path``, following nothing.
+
+    Unreadable metadata counts as present: nothing may install over it.
+    """
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _links_elsewhere(path: Path) -> bool:
+    """True when ``path`` is a link, a junction, or an entry that cannot be inspected.
+
+    ``Path.is_symlink`` answers False for a junction, which no caller here survives.
+    """
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return _is_link_or_reparse(metadata)
+
+
 def _destination_is_available(destination: Path) -> bool:
+    if _links_elsewhere(destination):
+        return False
     if not destination.exists():
         return True
     if not destination.is_dir():
@@ -391,6 +441,20 @@ def _discard(path: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+def _remove_control_entry(control: Path) -> None:
+    """Remove one control entry at the staging root without following it."""
+    if _links_elsewhere(control):
+        # unlink drops a symlink, rmdir drops a junction, and neither descends
+        # into whatever the entry points at.
+        with suppress(OSError):
+            os.unlink(control)
+        if _present_nofollow(control):
+            with suppress(OSError):
+                os.rmdir(control)
+        return
+    _discard(control)
+
+
 def _sweep_legacy_staging(project_id: str, parent: Path) -> None:
     """Remove staging directories a killed pre-resume run stranded.
 
@@ -405,6 +469,10 @@ def _open_staging(staging: Path) -> None:
 
     Only a directory a restore can resume from may occupy the path, so a file goes.
     """
+    # Discarding a link here would delete through it, and staging it would put
+    # every later write and the install rename on the other side.
+    if _links_elsewhere(staging):
+        raise RecoveryError("The restore staging area is unavailable.")
     if staging.exists() and not (staging.is_dir() and not staging.is_symlink()):
         _discard(staging)
     try:
@@ -414,19 +482,34 @@ def _open_staging(staging: Path) -> None:
 
 
 def _fetch_manifest_entries(
-    project_id: str, session: TransferSession
-) -> dict[str, CloudManifestEntry]:
-    """Return the remote record's files, keyed by store-relative path."""
+    project_id: str, session: TransferSession, reporter: Reporter
+) -> tuple[dict[str, CloudManifestEntry], int]:
+    """Return the remote record's installable files and the count it refused."""
     try:
         rows = fetch_manifest(project_id, session=session)
     except (AuthRefreshError, PresignError) as exc:
         raise RecoveryError(f"Cloud manifest fetch failed: {exc}") from exc
     entries: dict[str, CloudManifestEntry] = {}
+    seen: set[str] = set()
+    skipped = 0
     for entry in _parse_manifest(rows):
-        if entry.path in entries:
+        if entry.path in seen:
             raise RecoveryError(f"Duplicate cloud manifest path: {entry.path!r}.")
+        seen.add(entry.path)
+        admission = _classify_sync_path(entry.path)
+        if admission.path_class is _PathClass.RESERVED_CONTROL:
+            continue
+        if admission.path_class is _PathClass.UNSAFE:
+            reason = admission.reason
+            assert reason is not None
+            reporter.warn(
+                f"skipping manifest entry {_escape_path_for_display(entry.path)}: "
+                f"{_unsafe_reason_text(reason)}"
+            )
+            skipped += 1
+            continue
         entries[entry.path] = entry
-    return entries
+    return entries, skipped
 
 
 class StagedFile(BaseModel):
@@ -446,10 +529,16 @@ class StagingLedger(BaseModel):
     files: dict[str, StagedFile] = Field(default_factory=dict)
 
 
-def _prune_empty_directories(staging: Path) -> None:
+def _prune_empty_directories(staging: Path, candidates: set[Path]) -> None:
     """Drop directories the audit emptied, so no phantom directory installs."""
-    for path in sorted(staging.rglob("*"), reverse=True):
-        if path.is_dir() and not path.is_symlink() and next(path.iterdir(), None) is None:
+    pruned: set[Path] = set()
+    for candidate in candidates:
+        path = candidate
+        while path != staging and staging in path.parents:
+            pruned.add(path)
+            path = path.parent
+    for path in sorted(pruned, key=lambda item: len(item.parts), reverse=True):
+        with suppress(OSError):
             path.rmdir()
 
 
@@ -465,6 +554,7 @@ class _StagingArea:
     path: Path
     ledger_path: Path
     ledger: StagingLedger
+    root: _PreparedStoreRoot
 
     def audit(self, entries: dict[str, CloudManifestEntry]) -> set[str]:
         """Return the staged paths a resume may keep, deleting every other one.
@@ -472,17 +562,26 @@ class _StagingArea:
         An unrecorded file, a rotated remote, local damage, or a non-regular file goes.
         """
         kept: set[str] = set()
+        emptied: set[Path] = set()
+        # Restore removes only what the walker yields inside this staging
+        # directory, the two control names at its root, its own ledger and lock
+        # beside the destination, and the legacy staging directories the sweep
+        # collects. Nothing outside staging is unlinked, and no path reached
+        # through a link is touched.
         try:
-            for path in sorted(self.path.rglob("*")):
-                if path.is_dir() and not path.is_symlink():
+            for staged in _walk_store_files(self.root):
+                if staged.admission.path_class is _PathClass.UNSAFE:
+                    _discard(staged.native_path)
+                    emptied.add(staged.native_path.parent)
                     continue
-                relative = path.relative_to(self.path).as_posix()
+                relative = Path(staged.raw_relative_path).as_posix()
                 entry = entries.get(relative)
-                if entry is not None and self._still_good(path, relative, entry):
+                if entry is not None and self._still_good(staged.native_path, relative, entry):
                     kept.add(relative)
                     continue
-                path.unlink(missing_ok=True)
-            _prune_empty_directories(self.path)
+                staged.native_path.unlink(missing_ok=True)
+                emptied.add(staged.native_path.parent)
+            _prune_empty_directories(self.root.canonical_root, emptied)
         except OSError as exc:
             raise RecoveryError(
                 f"Could not audit the partial restore at {self.path}: {exc}"
@@ -509,8 +608,23 @@ class _StagingArea:
 
         The record trails the write, so a kill costs a re-download, never false trust.
         """
+        admission = _admit_native_path(
+            self.root, relative, missing=_MissingPathPolicy.CREATE_DESTINATION
+        )
+        if admission.path_class is not _PathClass.ORDINARY or (
+            admission.exists and admission.native_kind is not _NativeKind.REGULAR_FILE
+        ):
+            if admission.reason is not None:
+                text = _unsafe_reason_text(admission.reason)
+            elif admission.path_class is _PathClass.RESERVED_CONTROL:
+                text = "reserved path"
+            else:
+                text = "it resolves to a special file"
+            raise RecoveryError(
+                f"Could not stage cloud file {_escape_path_for_display(relative)}: {text}"
+            )
         try:
-            atomic_write_bytes(self.path / relative, content)
+            atomic_write_bytes(self.root.canonical_root / relative, content)
         except OSError as exc:
             raise RecoveryError(f"Could not stage cloud file {relative}: {exc}") from exc
         self.ledger.files[relative] = StagedFile(
@@ -548,6 +662,23 @@ def _open_staging_area(project_id: str, destination: Path, reporter: Reporter) -
     staging = _staging_path(project_id, destination)
     ledger_path = _ledger_path(project_id, destination)
     _open_staging(staging)
+    try:
+        root = _prepare_store_root(staging)
+    except _StoreRootPreparationError:
+        raise RecoveryError("The restore staging area is unavailable.") from None
+    warned = False
+    for name in (_REPLICA_CONTROL_ROOT_NAME, _REPLICA_CONTROL_LOCK_NAME):
+        control = staging / name
+        if not _present_nofollow(control):
+            continue
+        _remove_control_entry(control)
+        if _present_nofollow(control):
+            raise RecoveryError(
+                "The restore staging area held local control state that could not be removed."
+            )
+        if not warned:
+            warned = True
+            reporter.warn("The restore staging area held local control state; it was discarded.")
     ledger = StagingLedger()
     if ledger_path.exists():
         try:
@@ -557,7 +688,7 @@ def _open_staging_area(project_id: str, destination: Path, reporter: Reporter) -
                 f"The record of the partial restore could not be read ({exc}); "
                 "every staged file will be downloaded again."
             )
-    return _StagingArea(staging, ledger_path, ledger)
+    return _StagingArea(staging, ledger_path, ledger, root)
 
 
 def _human_bytes(total: int) -> str:
@@ -695,6 +826,8 @@ def restore_cloud_store(
         and destination.resolve(strict=False) != destination
     ):
         raise RecoveryError(f"Restore destination must be canonical and absolute: {destination}.")
+    if _links_elsewhere(destination):
+        raise RecoveryError(f"Refusing to restore onto a link at the destination: {destination}.")
     if not _destination_is_available(destination):
         raise RecoveryError(f"Refusing to overwrite nonempty destination: {destination}.")
 
@@ -712,7 +845,7 @@ def restore_cloud_store(
 
         _sweep_legacy_staging(project_id, destination.parent)
         with operation_session() as session:
-            entries = _fetch_manifest_entries(project_id, session)
+            entries, skipped = _fetch_manifest_entries(project_id, session, surface)
             if not entries:
                 # A record that is not there cannot complete a partial restore,
                 # so nothing is kept to resume toward.
@@ -764,6 +897,8 @@ def restore_cloud_store(
             raise
         _discard(area.ledger_path)
         surface.info(f"Restored {len(entries)} files.")
+        if skipped:
+            surface.info(f"Skipped {skipped} manifest entries this restore cannot install.")
         return destination
 
 

@@ -593,7 +593,7 @@ def write_backup(project_path: Path, backup_name: str, content: bytes) -> Path:
 def _save_conflict_backup(project_path: Path, relative_path: str, content: bytes) -> Path:
     """Save the losing version to .conflict-backup/."""
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    filename = relative_path.replace("/", "_")
+    filename = relative_path.replace("%", "%25").replace("/", "%2F").replace("\\", "%5C")
     return write_backup(project_path, f"{timestamp}-{filename}", content)
 
 

@@ -528,6 +528,34 @@ def test_conflicting_rows_back_up_under_distinct_flat_names(store):
     }
 
 
+RESOLVER_ROWS = {
+    "context/victim.md": b"local victim\n",
+    "context_victim.md": b"local sibling\n",
+}
+
+
+def test_a_nested_row_and_its_flat_sibling_back_up_under_distinct_names(store, caplog):
+    for rel, body in RESOLVER_ROWS.items():
+        _plant(store, rel, body)
+
+    with caplog.at_level(logging.WARNING, logger="nauro.sync"):
+        report, _reporter, _operations = _run(
+            store, [(rel, b"remote " + body) for rel, body in RESOLVER_ROWS.items()]
+        )
+
+    backups = list((store / CONFLICT_BACKUP_DIR).iterdir())
+    assert report == PullReport(merged=2)
+    assert len({path.name for path in backups}) == 2
+    assert all(path.is_file() for path in backups)
+    assert not any("\\" in path.name or "/" in path.name for path in backups)
+    assert sorted(path.read_bytes() for path in backups) == sorted(RESOLVER_ROWS.values())
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if "context/victim.md" in record.getMessage()
+    ]
+
+
 def test_an_append_only_conflict_still_set_unions_without_a_backup(store):
     rel = "state_history.md"
     _plant(store, rel, b"## History\n\nlocal entry\n")
