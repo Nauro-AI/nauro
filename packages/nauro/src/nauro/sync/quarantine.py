@@ -17,12 +17,27 @@ file for real.
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
 import string
 from dataclasses import dataclass
 from pathlib import Path
 
+from nauro.sync._path_diagnostics import (
+    _MissingPathPolicy,
+    _NativeKind,
+    _PathClass,
+    _StoreRootPreparationError,
+)
 from nauro.sync.collisions import is_canonical_decision_path
-from nauro.sync.merge import CONFLICT_BACKUP_DIR, write_backup
+from nauro.sync.corpus import _is_plain_directory
+from nauro.sync.merge import (
+    CONFLICT_BACKUP_DIR,
+    _admit_native_path,
+    _classify_sync_path,
+    _prepare_store_root,
+    write_backup,
+)
 from nauro.sync.state import SyncState, load_state
 
 _BACKUP_PREFIX = "number-collision-"
@@ -176,15 +191,56 @@ def _parse_backup_name(name: str) -> tuple[str, str] | None:
     return keys[1], decoded
 
 
+def list_conflict_backup_files(store_path: Path) -> list[Path]:
+    """Every regular file directly inside the admitted backup directory, sorted by name."""
+    try:
+        root = _prepare_store_root(store_path)
+    except _StoreRootPreparationError:
+        return []
+    directory = store_path / CONFLICT_BACKUP_DIR
+    # Absence is decided by the node itself, following nothing: admission
+    # answers "absent" for a link whose target is gone, and that link is
+    # present, unlistable, and must not read as "no backups".
+    try:
+        os.lstat(directory)
+    except FileNotFoundError:
+        return []
+    except OSError:
+        raise OSError(f"{directory} cannot be listed") from None
+    admitted = _admit_native_path(
+        root, CONFLICT_BACKUP_DIR, missing=_MissingPathPolicy.OPTIONAL_FIXED_LEAF
+    )
+    # Something occupies the path but may not be listed. Callers report an
+    # unlistable directory as a failure, never as "no backups", so this raises
+    # where the listing it replaced raised.
+    if admitted.path_class is not _PathClass.ORDINARY or not admitted.exists:
+        raise OSError(f"{directory} cannot be listed")
+    if admitted.native_kind is not _NativeKind.DIRECTORY:
+        raise OSError(f"{directory} is not a directory")
+    # Admission answers for the path a link may point at; the listing itself
+    # follows nothing, so the directory has to be plain in its own right.
+    if not _is_plain_directory(directory):
+        raise OSError(f"{directory} is not a plain directory")
+    with os.scandir(directory) as listing:
+        entries = sorted(listing, key=lambda entry: entry.name)
+    files: list[Path] = []
+    for entry in entries:
+        named = _classify_sync_path(f"{CONFLICT_BACKUP_DIR}/{entry.name}")
+        if named.path_class is _PathClass.UNSAFE:
+            continue
+        try:
+            metadata = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        if stat.S_ISREG(metadata.st_mode):
+            files.append(Path(entry.path))
+    return files
+
+
 def list_quarantine_backups(store_path: Path) -> list[QuarantinedCollision]:
     """Every quarantine backup on disk, resolved or not, sorted by remote path."""
-    backup_dir = store_path / CONFLICT_BACKUP_DIR
-    if not backup_dir.is_dir():
-        return []
     found = []
-    for entry in backup_dir.iterdir():
-        if not entry.is_file():
-            continue
+    for entry in list_conflict_backup_files(store_path):
         parsed = _parse_backup_name(entry.name)
         if parsed is not None:
             digest, remote_path = parsed
@@ -212,6 +268,7 @@ def unresolved_quarantines(
 __all__ = [
     "QuarantinedCollision",
     "backup_name",
+    "list_conflict_backup_files",
     "list_quarantine_backups",
     "quarantine_key",
     "save_quarantine_backup",

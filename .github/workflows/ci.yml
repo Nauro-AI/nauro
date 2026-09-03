@@ -72,6 +72,7 @@ jobs:
           packages/nauro/tests/test_sync/test_replica_control_excluded.py
           packages/nauro/tests/test_sync/test_push_admission.py
           packages/nauro/tests/test_sync/test_pull_admission.py
+          packages/nauro/tests/test_sync/test_read_admission.py
           packages/nauro/tests/test_sync/test_restore_admission.py -v --tb=short
 
   test-sync-path-admission-windows-python310:
@@ -86,6 +87,7 @@ jobs:
           packages/nauro/tests/test_sync/test_replica_control_excluded.py
           packages/nauro/tests/test_sync/test_push_admission.py
           packages/nauro/tests/test_sync/test_pull_admission.py
+          packages/nauro/tests/test_sync/test_read_admission.py
           packages/nauro/tests/test_sync/test_restore_admission.py -v --tb=short
 
   distribution:

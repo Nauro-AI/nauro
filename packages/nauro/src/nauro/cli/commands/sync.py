@@ -237,17 +237,14 @@ def _show_status(project_flag: str | None) -> None:
             if len(plan.unsafe) > 5:
                 typer.echo(f"    ... and {len(plan.unsafe) - 5} more")
 
-    from nauro.sync.merge import CONFLICT_BACKUP_DIR
-    from nauro.sync.quarantine import list_quarantine_backups, unresolved_quarantines
+    from nauro.sync.quarantine import (
+        list_conflict_backup_files,
+        list_quarantine_backups,
+        unresolved_quarantines,
+    )
 
-    quarantined = unresolved_quarantines(store_path, state)
-    if quarantined:
-        typer.echo(f"  Quarantined decision-number collisions: {len(quarantined)}")
-        for item in quarantined:
-            typer.echo(f"    - {item.label} (remote copy: {item.backup_path.name})")
-
-    backup_dir = store_path / CONFLICT_BACKUP_DIR
-    if backup_dir.exists():
+    try:
+        quarantined = unresolved_quarantines(store_path, state)
         # Quarantine backups live in the same directory but are already
         # reported above; counting them again would double-report one event.
         # A tmp sibling stranded by a kill mid-write is not a backup at all,
@@ -255,8 +252,17 @@ def _show_status(project_flag: str | None) -> None:
         quarantine_names = {item.backup_path.name for item in list_quarantine_backups(store_path)}
         backups = [
             path
-            for path in backup_dir.iterdir()
+            for path in list_conflict_backup_files(store_path)
             if path.name not in quarantine_names and not is_tmp_sibling(path.name)
         ]
-        if backups:
-            typer.echo(f"  Conflict backups: {len(backups)}")
+    except OSError:
+        # An unlistable backup directory is `nauro status`'s report to make;
+        # this two-state view stays quiet rather than claiming there are none.
+        return
+
+    if quarantined:
+        typer.echo(f"  Quarantined decision-number collisions: {len(quarantined)}")
+        for item in quarantined:
+            typer.echo(f"    - {item.label} (remote copy: {item.backup_path.name})")
+    if backups:
+        typer.echo(f"  Conflict backups: {len(backups)}")
