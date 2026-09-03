@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import shutil
+import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 import pytest
 import typer
 
-from nauro.cli.commands.sync import _pull_via_presign
+from nauro.cli.commands.sync import _pull_via_presign, _unfinished_pull_detail
+from nauro.constants import DECISIONS_DIR
 from nauro.store.replica_control import (
     _REPLICA_CONTROL_LOCK_NAME,
     _REPLICA_CONTROL_ROOT_NAME,
@@ -25,26 +31,32 @@ from nauro.sync._path_diagnostics import (
     _StoreRootPreparationError,
 )
 from nauro.sync.collisions import DecisionOutcome, DecisionVerdict
-from nauro.sync.corpus import DecisionCorpus
+from nauro.sync.corpus import _UNUSABLE_DECISIONS, DecisionCorpus
 from nauro.sync.hooks import pull_before_session
 from nauro.sync.merge import CONFLICT_BACKUP_DIR
 from nauro.sync.pull import PullReport, _Transfer, run_pull
 from nauro.sync.state import SYNC_STATE_FILE, FileState, SyncState, load_state, save_state
 from tests.test_sync.conftest import (
     CLOUD_PID,
+    _manifest,
+    _presign,
     _RecordingReporter,
     _scaffolded_cloud_project,
     _seed_token,
     decision_bytes,
     entry_names,
     pull_report,
+    track,
 )
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="POSIX filename semantics")
+LINK_KINDS = ["symlink", "junction"]
 
 ROOT_TEXT = "The Store root is unavailable."
 OUTSIDE_TEXT = "The path resolves outside the Store root."
 NOTE = "context/note.md"
+DECISION_ROW = f"{DECISIONS_DIR}/003-x.md"
+UNUSABLE = pull_module._DECISIONS_UNUSABLE_TEXT
 AUTHORITY = f"{_REPLICA_CONTROL_ROOT_NAME}/authority.json"
 
 RESERVED_ROWS = [
@@ -74,7 +86,7 @@ def store(tmp_path):
     return store
 
 
-def _run(store, entries, *, reporter=None):
+def _run(store, entries, *, reporter=None, etags=None):
     """Run one pull, also returning the paths it asked the server to presign."""
     operations: list[str] = []
     real = pull_module.request_presigned_urls
@@ -84,8 +96,13 @@ def _run(store, entries, *, reporter=None):
         return real(project_id, ops, session=session)
 
     with patch.object(pull_module, "request_presigned_urls", spy):
-        report, reporter = pull_report(store, entries, reporter=reporter)
+        report, reporter = pull_report(store, entries, reporter=reporter, etags=etags)
     return report, reporter, operations
+
+
+def _md5_etag(body: bytes) -> str:
+    """The S3-style ETag of ``body``, which makes a local copy an adoption."""
+    return f'"{hashlib.md5(body, usedforsecurity=False).hexdigest()}"'
 
 
 def _control_entries(store) -> set[str]:
@@ -135,6 +152,70 @@ def _forbid_target(monkeypatch, target: Path) -> None:
 
     monkeypatch.setattr(Path, "read_bytes", read_bytes)
     monkeypatch.setattr(pull_module, "atomic_write_bytes", write)
+
+
+def _link(link: Path, target: Path, kind: str) -> None:
+    """Point ``link`` at ``target`` as a symlink or as a Windows junction."""
+    if kind == "junction":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            check=True,
+            capture_output=True,
+        )
+        return
+    link.symlink_to(target, target_is_directory=True)
+
+
+def _require_link_kind(kind: str) -> None:
+    if (kind == "junction") != (sys.platform == "win32"):
+        pytest.skip(f"{kind} is not this platform's directory link")
+
+
+def _link_decisions(store: Path, target: str, kind: str = "symlink") -> None:
+    """Replace ``decisions/`` with a directory link at ``target``."""
+    shutil.rmtree(store / DECISIONS_DIR)
+    _link(store / DECISIONS_DIR, store / target, kind)
+
+
+def _alias_decisions(store: Path, kind: str = "symlink") -> Path:
+    """Link ``decisions/`` at a directory no other manifest row resolves into."""
+    aliased = store / "aliased"
+    aliased.mkdir()
+    _link_decisions(store, "aliased", kind)
+    return aliased
+
+
+def _fail(name: str):
+    """A stand-in that fails the test if the pull calls ``name``."""
+
+    def refuse(*args, **kwargs):
+        pytest.fail(f"called {name}")
+
+    return refuse
+
+
+@contextmanager
+def _fake_server(entries):
+    """Serve exactly ``entries`` over the presign transport."""
+    bodies = dict(entries)
+    manifest = _manifest(
+        [
+            {"path": rel, "etag": f'"{rel}-v1"', "size": len(body), "last_modified": "x"}
+            for rel, body in entries
+        ]
+    )
+    presigned = _presign([{"verb": "GET", "path": rel} for rel, _body in entries])
+
+    def fake_get(url, **kwargs):
+        if "/sync/manifest" in url:
+            return manifest
+        return httpx.Response(200, content=bodies[url.split("/GET/", 1)[1]])
+
+    with (
+        patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+        patch("nauro.sync.remote.httpx.Client.post", return_value=presigned),
+    ):
+        yield
 
 
 @pytest.fixture()
@@ -633,3 +714,384 @@ def test_a_decision_destination_swapped_for_an_outside_link_is_refused(
     assert reporter.warns == [f"refusing to write {rel}: {OUTSIDE_TEXT}"]
     with open(target, "rb") as handle:
         assert handle.read() == b"untouched\n"
+
+
+# --- decision-gating table ---
+
+
+GATED_ROWS = [(NOTE, b"note\n"), (DECISION_ROW, decision_bytes(3, "Remote"))]
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_decisions_link_over_context_refuses_every_row_it_aliases(store, kind):
+    _require_link_kind(kind)
+    _link_decisions(store, "context", kind)
+
+    report, reporter, operations = _run(store, GATED_ROWS)
+
+    # The link puts context/ inside the decisions root, so the generic row is
+    # gated too: both rows are decision work this run refuses.
+    assert report == PullReport(refused=2)
+    assert report.left_work_behind is True
+    assert reporter.warns == [UNUSABLE]
+    assert operations == []
+    assert entry_names(store / "context") == set()
+    assert set(load_state(store).files) == set()
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_linked_decisions_directory_refuses_the_decision_row_alone(store, kind):
+    _require_link_kind(kind)
+    aliased = _alias_decisions(store, kind)
+
+    report, reporter, operations = _run(store, GATED_ROWS)
+
+    assert report == PullReport(merged=1, refused=1)
+    assert report.left_work_behind is True
+    assert reporter.warns == [UNUSABLE]
+    assert operations == [NOTE]
+    assert entry_names(aliased) == set()
+    assert entry_names(store / "context") == {"note.md"}
+    assert set(load_state(store).files) == {NOTE}
+
+
+@pytest.mark.parametrize("kind", LINK_KINDS)
+def test_a_tracked_decision_is_refused_through_a_linked_decisions_directory(store, kind):
+    _require_link_kind(kind)
+    aliased = _alias_decisions(store, kind)
+    local = decision_bytes(3, "Local")
+    (aliased / "003-x.md").write_bytes(local)
+    track(store, DECISION_ROW)
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        _forbid_target(monkeypatch, aliased / "003-x.md")
+        monkeypatch.setattr(pull_module, "compare_local_file", _fail("compare_local_file"))
+        monkeypatch.setattr(pull_module, "file_changed_locally", _fail("file_changed_locally"))
+        report, reporter, operations = _run(store, GATED_ROWS)
+    finally:
+        monkeypatch.undo()
+
+    # Tracked and present, so the decision gate would exempt the row and route
+    # it as an install; the domain check refuses it before the reads that
+    # decision would need.
+    assert report == PullReport(merged=1, refused=1)
+    assert reporter.warns == [UNUSABLE]
+    assert operations == [NOTE]
+    assert entry_names(aliased) == {"003-x.md"}
+    assert (aliased / "003-x.md").read_bytes() == local
+    assert set(load_state(store).files) == {NOTE, DECISION_ROW}
+
+
+@POSIX_ONLY
+def test_unchanged_tracked_decisions_still_count_as_work_left_behind(store):
+    aliased = _alias_decisions(store)
+    rows = [(DECISION_ROW, decision_bytes(3, "Same")), (f"{DECISIONS_DIR}/004-y.md", b"same\n")]
+    for rel, body in rows:
+        (aliased / rel.partition("/")[2]).write_bytes(body)
+        track(store, rel)
+    stamp_before = load_state(store).last_full_sync
+
+    # Every etag matches sync state, so each row would be ignored as unchanged;
+    # an unusable decisions/ still owes them to the next run.
+    report, reporter, operations = _run(store, rows, etags={rel: '"pushed"' for rel, _ in rows})
+
+    assert report == PullReport(refused=2)
+    assert report.left_work_behind is True
+    assert reporter.warns == [UNUSABLE]
+    assert operations == []
+    assert load_state(store).last_full_sync == stamp_before
+
+
+@POSIX_ONLY
+def test_a_decision_row_unsafe_by_its_own_spelling_stays_permanently_skipped(store):
+    _alias_decisions(store)
+    hostile = f"{DECISIONS_DIR}/ :stream"
+
+    report, reporter, operations = _run(store, [(NOTE, b"note\n"), (hostile, b"x\n")])
+
+    # The folded-empty component can never install, repaired directory or not,
+    # so it is not work left behind.
+    assert report == PullReport(merged=1, skipped_permanent=1)
+    assert reporter.warns.count(UNUSABLE) == 1
+    assert operations == [NOTE]
+
+
+def test_a_regular_file_at_the_decisions_directory_refuses_the_decision_row(store):
+    shutil.rmtree(store / DECISIONS_DIR)
+    (store / DECISIONS_DIR).write_text("not a directory", encoding="utf-8")
+    stamp_before = load_state(store).last_full_sync
+
+    report, reporter, operations = _run(store, GATED_ROWS)
+
+    # Refused, not permanently skipped: the row installs once decisions/ is
+    # repaired, so the run leaves work behind and does not stamp a full sync.
+    assert report == PullReport(merged=1, refused=1)
+    assert report.left_work_behind is True
+    assert reporter.warns.count(UNUSABLE) == 1
+    assert operations == [NOTE]
+    assert (store / DECISIONS_DIR).read_text(encoding="utf-8") == "not a directory"
+    assert set(load_state(store).files) == {NOTE}
+    assert load_state(store).last_full_sync == stamp_before
+
+
+@POSIX_ONLY
+def test_decisions_linked_at_the_control_root_refuses_decision_work(store):
+    control = store / _REPLICA_CONTROL_ROOT_NAME
+    control.mkdir()
+    (control / "authority.json").write_text("{}", encoding="utf-8")
+    _link_decisions(store, _REPLICA_CONTROL_ROOT_NAME)
+
+    report, reporter, operations = _run(store, GATED_ROWS)
+
+    assert report == PullReport(merged=1)
+    assert reporter.warns == [UNUSABLE]
+    assert operations == [NOTE]
+    assert entry_names(control) == {"authority.json"}
+    assert (store / NOTE).read_bytes() == b"note\n"
+
+
+# --- absent-decisions table ---
+
+
+def test_an_absent_decisions_directory_still_installs_a_decision(store):
+    shutil.rmtree(store / DECISIONS_DIR)
+
+    report, reporter, operations = _run(store, [(DECISION_ROW, decision_bytes(3, "Remote"))])
+
+    assert report == PullReport(merged=1)
+    assert reporter.warns == []
+    assert operations == [DECISION_ROW]
+    assert (store / DECISIONS_DIR).is_dir()
+    assert entry_names(store / DECISIONS_DIR) - {".lock"} == {"003-x.md"}
+
+
+# --- gated access-order table ---
+
+
+@POSIX_ONLY
+def test_nothing_locks_classifies_or_writes_through_a_linked_decisions_directory(
+    store, monkeypatch
+):
+    aliased = _alias_decisions(store)
+    _forbid_target(monkeypatch, aliased / "003-x.md")
+    monkeypatch.setattr(pull_module, "decision_lock", _fail("decision_lock"))
+    monkeypatch.setattr(pull_module, "run_completion_pass", _fail("run_completion_pass"))
+    monkeypatch.setattr(pull_module, "classify_decision", _fail("classify_decision"))
+
+    report, reporter, operations = _run(store, GATED_ROWS)
+
+    assert report == PullReport(merged=1, refused=1)
+    assert reporter.warns == [UNUSABLE]
+    assert operations == [NOTE]
+    assert entry_names(aliased) == set()
+    assert entry_names(store / "context") == {"note.md"}
+
+
+# --- rescan table ---
+
+
+def test_a_decisions_directory_unusable_inside_the_lock_is_refused_there(store, monkeypatch):
+    real_scan = DecisionCorpus.scan
+    scans: list[Path] = []
+
+    class _Rescanned:
+        @staticmethod
+        def scan(store_path):
+            corpus = real_scan(store_path)
+            scans.append(store_path)
+            if len(scans) > 1:
+                corpus.usable = False
+            return corpus
+
+    monkeypatch.setattr(pull_module, "DecisionCorpus", _Rescanned)
+    monkeypatch.setattr(pull_module, "run_completion_pass", _fail("run_completion_pass"))
+    monkeypatch.setattr(pull_module, "classify_decision", _fail("classify_decision"))
+
+    report, reporter, operations = _run(store, GATED_ROWS)
+
+    assert report == PullReport(merged=1, refused=1)
+    assert reporter.warns == [UNUSABLE]
+    assert operations == [DECISION_ROW, NOTE]
+    assert entry_names(store / DECISIONS_DIR) - {".lock"} == {"001-initial-setup.md"}
+    assert set(load_state(store).files) == {NOTE}
+
+
+def _rescan_unusable(monkeypatch, *, before_rescan=None):
+    """Make the in-lock corpus scan report an unusable decisions/."""
+    real_scan = DecisionCorpus.scan
+    scans: list[Path] = []
+
+    class _Rescanned:
+        @staticmethod
+        def scan(store_path):
+            scans.append(store_path)
+            if len(scans) > 1 and before_rescan is not None:
+                before_rescan()
+            corpus = real_scan(store_path)
+            if len(scans) > 1:
+                corpus.usable = False
+            return corpus
+
+    monkeypatch.setattr(pull_module, "DecisionCorpus", _Rescanned)
+    monkeypatch.setattr(pull_module, "run_completion_pass", _fail("run_completion_pass"))
+
+
+@pytest.mark.parametrize("queue", ["pulls", "conflicts", "adopted"])
+def test_a_tracked_decision_in_any_queue_is_refused_by_the_rescan(store, monkeypatch, queue):
+    local = decision_bytes(3, "Local")
+    (store / DECISION_ROW).write_bytes(local)
+    track(store, DECISION_ROW)
+    remote = decision_bytes(3, "Remote")
+    etags = {}
+    if queue == "conflicts":
+        (store / DECISION_ROW).write_bytes(decision_bytes(3, "Edited"))
+    elif queue == "adopted":
+        remote = local
+        etags[DECISION_ROW] = _md5_etag(local)
+    _rescan_unusable(monkeypatch)
+
+    report, reporter, operations = _run(
+        store, [(NOTE, b"note\n"), (DECISION_ROW, remote)], etags=etags
+    )
+
+    # Queued as a plain install, a conflict, or an adoption at triage; the
+    # rescan pulls it back out of that queue before anything is written or
+    # recorded.
+    assert report == PullReport(merged=1, refused=1)
+    assert reporter.warns == [UNUSABLE]
+    assert operations == ([NOTE] if queue == "adopted" else [NOTE, DECISION_ROW])
+    assert (store / DECISION_ROW).read_bytes() == (
+        decision_bytes(3, "Edited") if queue == "conflicts" else local
+    )
+    assert load_state(store).files[DECISION_ROW].remote_etag == '"pushed"'
+    assert set(load_state(store).files) == {NOTE, DECISION_ROW}
+
+
+@POSIX_ONLY
+def test_unchanged_decisions_count_when_the_directory_is_replaced_before_the_lock(
+    store, monkeypatch
+):
+    rows = [(DECISION_ROW, decision_bytes(3, "Same")), (f"{DECISIONS_DIR}/004-y.md", b"same\n")]
+    for rel, body in rows:
+        (store / rel).write_bytes(body)
+        track(store, rel)
+    stamp_before = load_state(store).last_full_sync
+
+    def plant():
+        shutil.rmtree(store / DECISIONS_DIR)
+        (store / "empty").mkdir()
+        (store / DECISIONS_DIR).symlink_to("empty", target_is_directory=True)
+
+    _rescan_unusable(monkeypatch, before_rescan=plant)
+
+    report, reporter, operations = _run(store, rows, etags={rel: '"pushed"' for rel, _ in rows})
+
+    # Both rows were ignored as unchanged at triage and so held nothing to drop;
+    # the counter still owes them to the next run, so no full sync is stamped
+    # over decisions that are no longer present locally.
+    assert report == PullReport(refused=2)
+    assert report.left_work_behind is True
+    assert reporter.warns == [UNUSABLE]
+    assert operations == []
+    assert entry_names(store / "empty") == set()
+    assert set(load_state(store).files) == {rel for rel, _ in rows}
+    assert load_state(store).last_full_sync == stamp_before
+
+
+def test_unchanged_decisions_leave_a_usable_run_exactly_as_before(store):
+    rows = [(DECISION_ROW, decision_bytes(3, "Same")), (f"{DECISIONS_DIR}/004-y.md", b"same\n")]
+    for rel, body in rows:
+        (store / rel).write_bytes(body)
+        track(store, rel)
+    stamp_before = load_state(store).last_full_sync
+
+    report, reporter, operations = _run(store, rows, etags={rel: '"pushed"' for rel, _ in rows})
+
+    assert report == PullReport()
+    assert report.left_work_behind is False
+    assert reporter.warns == []
+    assert operations == []
+    stamp_after = load_state(store).last_full_sync
+    assert stamp_after and stamp_after != stamp_before
+
+
+@POSIX_ONLY
+def test_a_link_planted_between_triage_and_the_lock_drops_the_rows_it_now_covers(
+    store, monkeypatch
+):
+    stamp_before = load_state(store).last_full_sync
+
+    def plant():
+        shutil.rmtree(store / DECISIONS_DIR)
+        (store / DECISIONS_DIR).symlink_to("context", target_is_directory=True)
+
+    _rescan_unusable(monkeypatch, before_rescan=plant)
+
+    report, reporter, operations = _run(store, GATED_ROWS)
+
+    # context/note.md was a plain pull at triage; now it resolves inside the
+    # decisions root, so the rescan drops it with the gated row.
+    assert report == PullReport(refused=2)
+    assert report.left_work_behind is True
+    assert reporter.warns == [UNUSABLE]
+    assert operations == [DECISION_ROW, NOTE]
+    assert entry_names(store / "context") == set()
+    assert set(load_state(store).files) == set()
+    assert load_state(store).last_full_sync == stamp_before
+
+
+def test_a_landed_decision_is_recorded_when_a_later_classification_fails(store, monkeypatch):
+    second = f"{DECISIONS_DIR}/004-y.md"
+    real_classify = pull_module.classify_decision
+
+    def classify(corpus, rel, content, state, paths):
+        if rel == second:
+            raise RuntimeError("classifier fault")
+        return real_classify(corpus, rel, content, state, paths)
+
+    monkeypatch.setattr(pull_module, "classify_decision", classify)
+    rows = [(DECISION_ROW, decision_bytes(3, "Remote")), (second, decision_bytes(4, "Remote"))]
+
+    with _fake_server(rows), pytest.raises(RuntimeError, match="classifier fault"):
+        run_pull(CLOUD_PID, store, _RecordingReporter())
+
+    # The first decision landed under the lock before the fault, so its state
+    # is saved on the way out rather than lost with the run.
+    assert (store / DECISION_ROW).read_bytes() == decision_bytes(3, "Remote")
+    assert DECISION_ROW in load_state(store).files
+    assert not (store / second).exists()
+
+
+# --- gated surface table ---
+
+
+@POSIX_ONLY
+def test_the_cli_pull_reports_the_gated_decision_and_leaves_work_behind(store, capsys):
+    _alias_decisions(store)
+
+    with _fake_server(GATED_ROWS):
+        report = _pull_via_presign(CLOUD_PID, store)
+
+    captured = capsys.readouterr()
+    assert report == PullReport(merged=1, refused=1)
+    assert captured.err.count(f"  {UNUSABLE}\n") == 1
+    assert "Left 1 item(s) for the next sync" in captured.out
+    assert _unfinished_pull_detail(report) == "1 remote file(s) were not written this sync"
+
+
+@POSIX_ONLY
+def test_the_session_hook_returns_the_merged_count_and_logs_the_gate(store, caplog):
+    aliased = _alias_decisions(store)
+
+    with caplog.at_level(logging.WARNING, logger="nauro.sync"), _fake_server(GATED_ROWS):
+        assert pull_before_session(CLOUD_PID, store) == 1
+
+    # The corpus names the unusable directory once and the pull names the
+    # skipped work once; nothing else reaches the log.
+    assert [record.getMessage() for record in caplog.records] == [
+        _UNUSABLE_DECISIONS,
+        f"sync pull: {UNUSABLE}",
+    ]
+    assert entry_names(aliased) == set()
+    assert entry_names(store / "context") == {"note.md"}
