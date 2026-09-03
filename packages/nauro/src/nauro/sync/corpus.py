@@ -17,6 +17,7 @@ claims its number: no proof about a symlink would survive the write it authorize
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from enum import Enum
@@ -27,7 +28,25 @@ from nauro_core.questions import EntryBlock, OpenQuestionsFile
 
 from nauro.constants import DECISIONS_DIR, OPEN_QUESTIONS_MD
 from nauro.store.reader import read_text_lenient
+from nauro.sync._path_diagnostics import (
+    _MissingPathPolicy,
+    _NativeKind,
+    _PathClass,
+    _PreparedStoreRoot,
+    _StoreRootPreparationError,
+)
 from nauro.sync.headings import heading_line_number, heading_number
+from nauro.sync.merge import (
+    _admit_native_path,
+    _classify_sync_path,
+    _is_link_or_reparse,
+    _metadata_kind,
+    _prepare_store_root,
+)
+
+logger = logging.getLogger("nauro.sync")
+
+_UNUSABLE_DECISIONS = "The decisions directory is not usable this run."
 
 # Reading a store file can fail on content (a malformed decision) or on the
 # filesystem (a permission change mid-run). Neither may abort a sync: both mean
@@ -142,6 +161,7 @@ class SkipReason(str, Enum):
 
     not_a_regular_file = "not-a-regular-file"
     unreadable_name = "unreadable-name"
+    unsafe_name = "unsafe-name"
 
 
 @dataclass(frozen=True)
@@ -169,12 +189,34 @@ class DecisionCorpus:
     _names: frozenset[str] = frozenset()
     _references: ReferenceIndex | None = None
     _questions: tuple[frozenset[int], bool] | None = None
+    _root: _PreparedStoreRoot | None = None
 
     @classmethod
     def scan(cls, store_path: Path) -> DecisionCorpus:
         """List ``decisions/`` without reading a single file."""
         corpus = cls(store_path=store_path)
+        try:
+            root = _prepare_store_root(store_path)
+        except _StoreRootPreparationError:
+            return corpus
+        corpus._root = root
+        admitted = _admit_native_path(
+            root, DECISIONS_DIR, missing=_MissingPathPolicy.OPTIONAL_FIXED_LEAF
+        )
+        if admitted.path_class is _PathClass.UNSAFE:
+            logger.warning(_UNUSABLE_DECISIONS)
+            return corpus
+        if admitted.path_class is not _PathClass.ORDINARY or not admitted.exists:
+            return corpus
+        if admitted.native_kind is not _NativeKind.DIRECTORY:
+            return corpus
         directory = store_path / DECISIONS_DIR
+        # Admission follows links, so an ordinary directory result can still be
+        # a link into another admitted directory; listing one would rename and
+        # rewrite files on the other side.
+        if not _is_plain_directory(directory):
+            logger.warning(_UNUSABLE_DECISIONS)
+            return corpus
         names: set[str] = set()
         irregular: list[IrregularEntry] = []
         try:
@@ -183,6 +225,16 @@ class DecisionCorpus:
         except (FileNotFoundError, NotADirectoryError):
             return corpus
         for entry in entries:
+            named = _classify_sync_path(f"{DECISIONS_DIR}/{entry.name}")
+            if named.path_class is _PathClass.UNSAFE:
+                irregular.append(
+                    IrregularEntry(
+                        name=entry.name,
+                        number=extract_decision_number(entry.name),
+                        reason=SkipReason.unsafe_name,
+                    )
+                )
+                continue
             # Case-folded, so a file the store's own readers cannot see is at
             # least visible here: it still occupies its number and its name is
             # still a case variant of something the server may send.
@@ -289,7 +341,14 @@ class DecisionCorpus:
 
     def _question_references(self) -> tuple[frozenset[int], bool]:
         if self._questions is None:
-            self._questions = _read_question_references(self.store_path)
+            root = self._root
+            if root is None:
+                try:
+                    root = _prepare_store_root(self.store_path)
+                except _StoreRootPreparationError:
+                    return frozenset(), False
+                self._root = root
+            self._questions = _read_question_references(self.store_path, root)
         return self._questions
 
     # ── Mutation notices ───────────────────────────────────────────────────
@@ -316,11 +375,27 @@ class DecisionCorpus:
         self._references = None
 
 
-def _read_question_references(store_path: Path) -> tuple[frozenset[int], bool]:
+def _is_plain_directory(path: Path) -> bool:
+    """True when ``path`` is a directory in its own right, following nothing."""
+    try:
+        metadata = os.lstat(path)
+    except OSError:
+        return False
+    return not _is_link_or_reparse(metadata) and _metadata_kind(metadata) is _NativeKind.DIRECTORY
+
+
+def _read_question_references(
+    store_path: Path, root: _PreparedStoreRoot
+) -> tuple[frozenset[int], bool]:
     """Decision numbers named as question resolutions, and whether that is known."""
-    path = store_path / OPEN_QUESTIONS_MD
-    if not path.is_file():
+    admitted = _admit_native_path(
+        root, OPEN_QUESTIONS_MD, missing=_MissingPathPolicy.OPTIONAL_FIXED_LEAF
+    )
+    if admitted.path_class is _PathClass.ORDINARY and not admitted.exists:
         return frozenset(), True
+    if admitted.native_kind is not _NativeKind.REGULAR_FILE:
+        return frozenset(), False
+    path = store_path / OPEN_QUESTIONS_MD
     try:
         parsed = OpenQuestionsFile.parse(read_text_lenient(path))
     except PARSE_FAILURES:

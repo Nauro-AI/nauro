@@ -881,6 +881,11 @@ _SKIP_DETAIL: dict[SkipReason, str] = {
         "back any remote decision claiming its number. Rename it to the lowercase "
         "suffix so it becomes a decision again."
     ),
+    SkipReason.unsafe_name: (
+        "its name is not a safe path - it reads as a parent, a drive, or an empty "
+        "component. Nauro never reads or changes it, and holds back any remote "
+        "decision claiming its number. Rename it to a plain '.md' filename."
+    ),
 }
 
 
@@ -968,14 +973,14 @@ def _resolve_and_record(
 ) -> None:
     """Apply the conflict policy for one path and record the result."""
     local_file = store_path / transfer.rel
-    # This spelling picks the merge policy and names the backup, so it escapes
-    # injectively: a lossy one would let a remote row claim a set-union name or
-    # overwrite another row's backup.
+    # The raw path picks the merge policy and names the conflict log; the
+    # injective escape that turns it into one backup filename lives beside the
+    # naming in merge.py.
     merged_content = resolve_conflict(
         store_path,
         local_file,
         transfer.content,
-        transfer.rel.replace("%", "%25").replace("\\", "%5C"),
+        transfer.rel,
         keeps=keeps,
     )
     atomic_write_bytes(local_file, merged_content)
