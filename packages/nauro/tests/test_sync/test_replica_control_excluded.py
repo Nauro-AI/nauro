@@ -167,7 +167,7 @@ def test_admission_has_exactly_one_enumerating_caller() -> None:
     }
     for source in src_root.rglob("*.py"):
         relative = source.relative_to(src_root / "nauro").as_posix()
-        text = source.read_text()
+        text = source.read_text(encoding="utf-8")
         for name, owners in allowed.items():
             assert name not in text or relative in owners, (name, relative)
 
