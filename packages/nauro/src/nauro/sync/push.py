@@ -23,8 +23,19 @@ from nauro_core.constants import MAX_BRIEF_BYTES
 
 from nauro.auth import AuthRefreshError, load_access_token
 from nauro.store.registry import is_cloud_project
+from nauro.sync._path_diagnostics import (
+    _escape_path_for_display,
+    _PathClass,
+    _StoreRootPreparationError,
+    _unsafe_reason_text,
+)
 from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError, sync_lock
-from nauro.sync.merge import CONFLICT_BACKUP_DIR, should_skip
+from nauro.sync.merge import (
+    CONFLICT_BACKUP_DIR,
+    _prepare_store_root,
+    _walk_store_files,
+    should_skip,
+)
 from nauro.sync.remote import (
     PresignError,
     RetryClassification,
@@ -55,9 +66,16 @@ class OversizedBrief:
 
 
 @dataclass(frozen=True)
+class SkippedUnsafePath:
+    display: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class PushPlan:
     candidates: tuple[PushCandidate, ...]
     oversized_briefs: tuple[OversizedBrief, ...]
+    unsafe: tuple[SkippedUnsafePath, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -100,13 +118,25 @@ def plan_push(store_path: Path, state: SyncState) -> PushPlan:
     """Select existing local files that the legacy PUT path can send."""
     candidates: list[PushCandidate] = []
     oversized_briefs: list[OversizedBrief] = []
-    for local_file in store_path.rglob("*"):
-        if not local_file.is_file():
+    unsafe: list[SkippedUnsafePath] = []
+    root = _prepare_store_root(store_path)
+    for entry in _walk_store_files(root):
+        admission = entry.admission
+        if admission.path_class is _PathClass.UNSAFE:
+            reason = admission.reason
+            if reason is not None:
+                # The walker reports an unscannable Store root as itself, with
+                # an empty relative path.
+                raw = entry.raw_relative_path
+                unsafe.append(
+                    SkippedUnsafePath(
+                        _escape_path_for_display(raw) if raw else "(Store root)",
+                        _unsafe_reason_text(reason),
+                    )
+                )
             continue
-        try:
-            rel = str(local_file.relative_to(store_path))
-        except ValueError:
-            continue
+        rel = entry.raw_relative_path
+        local_file = entry.native_path
         if should_skip(rel) or rel.startswith(CONFLICT_BACKUP_DIR) or rel.startswith("__pycache__"):
             continue
 
@@ -121,7 +151,7 @@ def plan_push(store_path: Path, state: SyncState) -> PushPlan:
         file_state = state.files.get(rel)
         if file_state is None or file_state.local_sha256 != local_sha:
             candidates.append(PushCandidate(rel, local_sha, local_file))
-    return PushPlan(tuple(candidates), tuple(oversized_briefs))
+    return PushPlan(tuple(candidates), tuple(oversized_briefs), tuple(unsafe))
 
 
 def push_store_to_cloud(
@@ -146,6 +176,9 @@ def push_store_to_cloud(
     except SyncLockTimeoutError as exc:
         typer.echo(f"  Warning: {exc}", err=True)
         return PushReport(failed=("sync lock",))
+    except _StoreRootPreparationError as exc:
+        typer.echo(f"  Warning: cloud push failed ({exc})", err=True)
+        return PushReport(failed=("store root",))
     except AuthRefreshError as exc:
         typer.echo(f"  {exc}", err=True)
         return PushReport(failed=("authentication",))
@@ -168,6 +201,9 @@ def push_changed_files(
     session: TransferSession | None = None,
 ) -> PushReport:
     """Upload changed files and checkpoint each verified result."""
+    # The sync lock creates its parent directory, so an unusable Store root is
+    # refused here, before the lock can recreate or trip over it.
+    _prepare_store_root(store_path)
     with operation_session(session) as active:
         with sync_lock(store_path, lock_timeout):
             return _push_changed_files_locked(project_id, store_path, active)
@@ -188,6 +224,8 @@ def _push_changed_files_locked(
             "It stays on your machine; trim it under the cap and re-sync to share it.",
             err=True,
         )
+    for item in plan.unsafe:
+        typer.echo(f"  Warning: {item.display} was not pushed: {item.reason}", err=True)
     planned = tuple(candidate.relative_path for candidate in plan.candidates)
     if not plan.candidates:
         save_state(store_path, state)
@@ -391,6 +429,7 @@ __all__ = [
     "PushCandidate",
     "PushPlan",
     "PushReport",
+    "SkippedUnsafePath",
     "plan_push",
     "push_changed_files",
     "push_store_to_cloud",

@@ -200,6 +200,7 @@ def _show_status(project_flag: str | None) -> None:
             raise
         return
 
+    from nauro.sync._path_diagnostics import _StoreRootPreparationError
     from nauro.sync.push import plan_push
     from nauro.sync.state import load_state
 
@@ -210,12 +211,13 @@ def _show_status(project_flag: str | None) -> None:
     typer.echo(f"  Last successful sync: {state.last_full_sync or 'never'}")
 
     try:
-        pending_local = [
-            candidate.relative_path for candidate in plan_push(store_path, state).candidates
-        ]
+        plan = plan_push(store_path, state)
+    except _StoreRootPreparationError as exc:
+        typer.echo(f"  Pending local changes: unknown ({exc})")
     except OSError as exc:
         typer.echo(f"  Pending local changes: unknown (store scan failed: {exc})")
     else:
+        pending_local = [candidate.relative_path for candidate in plan.candidates]
         if pending_local:
             typer.echo(f"  Pending local changes: {len(pending_local)}")
             for p in pending_local[:5]:
@@ -224,6 +226,12 @@ def _show_status(project_flag: str | None) -> None:
                 typer.echo(f"    ... and {len(pending_local) - 5} more")
         else:
             typer.echo("  Pending local changes: none")
+        if plan.unsafe:
+            typer.echo(f"  Unsafe paths skipped: {len(plan.unsafe)}")
+            for skipped in plan.unsafe[:5]:
+                typer.echo(f"    - {skipped.display}: {skipped.reason}")
+            if len(plan.unsafe) > 5:
+                typer.echo(f"    ... and {len(plan.unsafe) - 5} more")
 
     from nauro.sync.merge import CONFLICT_BACKUP_DIR
     from nauro.sync.quarantine import list_quarantine_backups, unresolved_quarantines

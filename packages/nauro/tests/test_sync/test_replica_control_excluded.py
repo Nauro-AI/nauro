@@ -157,15 +157,19 @@ def test_prepare_store_root_has_fixed_suppressed_failure(tmp_path: Path, kind: s
     assert str(root) not in str(raised.value)
 
 
-def test_classifier_is_dormant() -> None:
-    sync_dir = Path(merge.__file__).parent
-    for source in sync_dir.glob("*.py"):
-        if source.name in {"merge.py", "_path_diagnostics.py", "_windows_long_names.py"}:
-            continue
-        text = source.read_text()
-        assert "_classify_sync_path" not in text
-        assert "_admit_native_path" not in text
-        assert "_walk_store_files" not in text
+def test_admission_has_exactly_one_enumerating_caller() -> None:
+    src_root = Path(merge.__file__).parents[2]
+    allowed = {
+        "_walk_store_files": {"sync/merge.py", "sync/push.py"},
+        "_prepare_store_root": {"sync/merge.py", "sync/push.py"},
+        "_admit_native_path": {"sync/merge.py"},
+        "_classify_sync_path": {"sync/merge.py"},
+    }
+    for source in src_root.rglob("*.py"):
+        relative = source.relative_to(src_root / "nauro").as_posix()
+        text = source.read_text(encoding="utf-8")
+        for name, owners in allowed.items():
+            assert name not in text or relative in owners, (name, relative)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX literal filename semantics")
