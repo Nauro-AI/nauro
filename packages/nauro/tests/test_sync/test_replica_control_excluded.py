@@ -160,25 +160,37 @@ def test_prepare_store_root_has_fixed_suppressed_failure(tmp_path: Path, kind: s
 def test_admission_has_exactly_one_enumerating_caller() -> None:
     src_root = Path(merge.__file__).parents[2]
     allowed = {
-        "_walk_store_files": {"sync/merge.py", "sync/push.py", "sync/pull.py", "store/recovery.py"},
+        "_walk_store_files": {
+            "sync/merge.py",
+            "sync/push.py",
+            "sync/pull.py",
+            "store/recovery.py",
+            "mcp/tools.py",
+        },
         "_prepare_store_root": {
             "sync/merge.py",
             "sync/push.py",
             "sync/pull.py",
             "sync/corpus.py",
+            "sync/quarantine.py",
             "store/recovery.py",
+            "mcp/tools.py",
         },
         "_admit_native_path": {
             "sync/merge.py",
             "sync/pull.py",
             "sync/corpus.py",
+            "sync/quarantine.py",
             "store/recovery.py",
+            "mcp/tools.py",
         },
         "_classify_sync_path": {
             "sync/merge.py",
             "sync/pull.py",
             "sync/corpus.py",
+            "sync/quarantine.py",
             "store/recovery.py",
+            "mcp/tools.py",
         },
     }
     for source in src_root.rglob("*.py"):

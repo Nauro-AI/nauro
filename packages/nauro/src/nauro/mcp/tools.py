@@ -10,8 +10,9 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
+import sys
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 
 from nauro_core.constants import (
@@ -78,6 +79,20 @@ from nauro.store.snapshot import (
     resolve_diff_snapshots,
 )
 from nauro.store.store_lock import store_write_lock
+from nauro.sync._path_diagnostics import (
+    _MissingPathPolicy,
+    _NativeKind,
+    _PathClass,
+    _PreparedStoreRoot,
+    _StoreRootPreparationError,
+    _UnsafeReason,
+)
+from nauro.sync.merge import (
+    _admit_native_path,
+    _classify_sync_path,
+    _prepare_store_root,
+    _walk_store_files,
+)
 
 if TYPE_CHECKING:
     from nauro.sync.push import PushReport
@@ -661,6 +676,8 @@ def _flag_question_resolve(
 # Composed adapter-locally rather than exported from nauro-core: the fixed
 # ordering is a hint-presentation concern of this surface, not a new public
 # store-format constant.
+_ROOT_UNAVAILABLE = "The Store root is unavailable."
+
 _CANONICAL_ROOT_FILES: tuple[str, ...] = (
     PROJECT_MD,
     STATE_CURRENT_FILENAME,
@@ -670,22 +687,39 @@ _CANONICAL_ROOT_FILES: tuple[str, ...] = (
 )
 
 
-def _available_files_hint(store_path: Path, cap: int = 20) -> list[str]:
+def _available_files_hint(
+    store_path: Path, cap: int = 20, *, root: _PreparedStoreRoot | None = None
+) -> list[str]:
     """Ordered miss-envelope ``available_files``: canonical roots in fixed order, remaining root
     markdown ascending, per-dir anchors ascending plus multi-file ``<dir>/ (N files)`` roll-ups;
     no ``snapshots/`` or dot-dirs. The cap applies after ordering, so roots are not crowded out."""
+    try:
+        prepared = root if root is not None else _prepare_store_root(store_path)
+    except _StoreRootPreparationError:
+        return []
     root_files: set[str] = set()
     subdir_files: dict[str, list[str]] = {}
-    for f in store_path.rglob("*.md"):
-        rel = f.relative_to(store_path)
-        if any(part.startswith(".") for part in rel.parts):
+    # The admission walker prunes control paths and never descends a directory
+    # link, so a hint entry is always an ordinary file the caller may fetch.
+    for entry in _walk_store_files(prepared):
+        if entry.admission.path_class is not _PathClass.ORDINARY:
             continue
-        if rel.parts[0] == SNAPSHOTS_DIR:
+        if entry.admission.native_kind is not _NativeKind.REGULAR_FILE:
             continue
-        if len(rel.parts) == 1:
-            root_files.add(rel.name)
+        rel = Path(entry.raw_relative_path).as_posix()
+        # Matched rather than compared, so the suffix folds case exactly where
+        # the platform's own filename matching does.
+        if not PurePath(rel).match("*.md"):
+            continue
+        parts = rel.split("/")
+        if any(part.startswith(".") for part in parts):
+            continue
+        if parts[0] == SNAPSHOTS_DIR:
+            continue
+        if len(parts) == 1:
+            root_files.add(parts[0])
         else:
-            subdir_files.setdefault(rel.parts[0], []).append(str(rel))
+            subdir_files.setdefault(parts[0], []).append(rel)
 
     entries: list[str] = [name for name in _CANONICAL_ROOT_FILES if name in root_files]
     entries.extend(sorted(root_files - set(_CANONICAL_ROOT_FILES)))
@@ -697,6 +731,35 @@ def _available_files_hint(store_path: Path, cap: int = 20) -> list[str]:
     return entries[:cap]
 
 
+def _collapsed_request(path: str) -> str | None:
+    """The request with dot and parent components folded away, None when it escapes."""
+    # Backslash is a separator only where the filesystem says so: folding it on
+    # POSIX would rewrite a literal name into a different file.
+    normalized = path.replace("\\", "/") if sys.platform == "win32" else path
+    components: list[str] = []
+    for component in normalized.split("/"):
+        if component in {"", "."}:
+            continue
+        if component == "..":
+            if not components:
+                return None
+            components.pop()
+            continue
+        components.append(component)
+    return "/".join(components)
+
+
+def _miss_envelope(store_path: Path, path: str, root: _PreparedStoreRoot) -> dict:
+    """The kernel's miss envelope, composed without touching ``path`` on disk."""
+    return {
+        "store": "local",
+        "error": ErrorPayload(kind="error", reason=f"File not found: {path}").model_dump(
+            mode="json", exclude_none=True
+        ),
+        "available_files": _available_files_hint(store_path, root=root),
+    }
+
+
 @_stamp_identity
 def tool_get_raw_file(store_path: Path, path: str) -> dict:
     """Return raw content of any file in the project store."""
@@ -704,31 +767,48 @@ def tool_get_raw_file(store_path: Path, path: str) -> dict:
     if guidance:
         return {"store": "local", "status": "error", "guidance": guidance}
 
-    # Adapter-side traversal check. Distinct from the kernel-side
-    # file-not-found case so callers get a clear "Invalid path" signal
-    # before any Store I/O. ``.resolve()`` is inside the guard because it
-    # itself raises ValueError on a path with an embedded NUL — same clean
-    # "Invalid path" rejection, not a raw traceback.
     try:
-        resolved = (store_path / path).resolve()
-        resolved.relative_to(store_path.resolve())
-    except ValueError:
-        return {
-            "store": "local",
-            "error": {"kind": "error", "reason": f"Invalid path: {path}"},
-        }
+        root = _prepare_store_root(store_path)
+    except _StoreRootPreparationError:
+        return {"store": "local", "error": {"kind": "error", "reason": _ROOT_UNAVAILABLE}}
 
-    result = _get_raw_file_op(FilesystemStore(store_path), path)
-    envelope: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
+    # Classified as a string, then admitted on disk, before any resolve, stat
+    # or read: local control state answers like a miss rather than reporting
+    # whether it is there, and an unsafe path is refused before it is touched.
+    invalid = {"store": "local", "error": {"kind": "error", "reason": f"Invalid path: {path}"}}
+    spelling = _classify_sync_path(path)
+    if spelling.path_class is _PathClass.UNSAFE and spelling.reason is not _UnsafeReason.RAW_PARENT:
+        return invalid
 
-    # On miss, build the "available files" hint locally — file
-    # enumeration outside the decisions/ directory is outside the
-    # Store protocol's locked surface. Cap at 20 entries so the miss
-    # envelope stays bounded for stores with many markdown files.
+    # A parent component folds away here instead of resolving on disk, so an
+    # alias spelling keeps reading the file it names while a link earlier in
+    # that spelling is never traversed.
+    collapsed = _collapsed_request(path)
+    if collapsed is None:
+        return invalid
+
+    lexical = _classify_sync_path(collapsed)
+    if lexical.path_class is _PathClass.UNSAFE:
+        return invalid
+    if lexical.path_class is _PathClass.RESERVED_CONTROL:
+        return _miss_envelope(store_path, path, root)
+
+    admission = _admit_native_path(root, collapsed, missing=_MissingPathPolicy.CREATE_DESTINATION)
+    if admission.path_class is _PathClass.UNSAFE:
+        return invalid
+    if admission.path_class is _PathClass.RESERVED_CONTROL:
+        return _miss_envelope(store_path, path, root)
+    if admission.native_kind is not _NativeKind.REGULAR_FILE:
+        return _miss_envelope(store_path, path, root)
+
+    result = _get_raw_file_op(FilesystemStore(store_path), collapsed)
+
+    # The file can still go away between admission and the read, and that miss
+    # echoes the caller's own spelling rather than the collapsed one.
     if result.error is not None:
-        envelope["available_files"] = _available_files_hint(store_path)
+        return _miss_envelope(store_path, path, root)
 
-    return envelope
+    return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
 @_stamp_identity
