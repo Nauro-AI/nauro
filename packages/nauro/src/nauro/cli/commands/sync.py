@@ -162,6 +162,7 @@ def _pull_via_presign(
     Fails loud when another sync holds the store lock: skipping the pull would push stale
     content over whatever the other run is landing.
     """
+    from nauro.sync._path_diagnostics import _StoreRootPreparationError
     from nauro.sync.lock import SyncLockTimeoutError
     from nauro.sync.pull import run_pull
 
@@ -170,6 +171,9 @@ def _pull_via_presign(
         return run_pull(project_id, store_path, _EchoReporter(), session=session)
     except SyncLockTimeoutError as exc:
         typer.echo(f"Error: {exc}. Try again once it finishes.", err=True)
+        raise typer.Exit(code=1) from exc
+    except _StoreRootPreparationError as exc:
+        typer.echo(f"Error: pull skipped ({exc})", err=True)
         raise typer.Exit(code=1) from exc
 
 

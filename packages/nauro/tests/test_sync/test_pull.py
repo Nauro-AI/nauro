@@ -1196,7 +1196,7 @@ class TestWriteBarrier:
 
         assert merged == 0
         assert (outside / "victim.md").read_bytes() == b"untouched\n"
-        assert any("outside the store" in warning for warning in reporter.warns)
+        assert any("outside the Store root" in warning for warning in reporter.warns)
 
     def test_ordinary_files_are_unaffected(self, collision_store):
         merged, reporter = pull(
@@ -2203,16 +2203,13 @@ class TestStrandedTmpSiblings:
         the walk at any time: the store is one other processes write into.
         """
         stranded = self._strand(collision_store / "stack.md", b"# Stack\n", age_seconds=600)
-        real_rglob = Path.rglob
+        real_walk = pull_module._walk_store_files
 
-        def break_partway(self, *args, **kwargs):
-            if self != collision_store:
-                yield from real_rglob(self, *args, **kwargs)
-                return
-            yield stranded
+        def break_partway(root):
+            yield next(e for e in real_walk(root) if e.native_path == stranded)
             raise OSError(5, "Input/output error")
 
-        monkeypatch.setattr(pull_module.Path, "rglob", break_partway)
+        monkeypatch.setattr(pull_module, "_walk_store_files", break_partway)
 
         merged, reporter = pull(
             collision_store, [("decisions/020-remote.md", decision_bytes(20, "Remote"))]

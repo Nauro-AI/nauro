@@ -34,6 +34,15 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from nauro.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR, SNAPSHOTS_DIR
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
+from nauro.sync._path_diagnostics import (
+    _escape_path_for_display,
+    _MissingPathPolicy,
+    _NativeKind,
+    _PathAdmission,
+    _PathClass,
+    _PreparedStoreRoot,
+    _unsafe_reason_text,
+)
 from nauro.sync.collisions import (
     DecisionOutcome,
     DecisionVerdict,
@@ -49,8 +58,13 @@ from nauro.sync.corpus import DecisionCorpus, SkipReason
 from nauro.sync.etag import ContentMatch, compare_local_file
 from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, decision_lock, sync_lock
 from nauro.sync.merge import (
+    CONFLICT_BACKUP_DIR,
     SPOOL_DIR_PREFIX,
     Side,
+    _admit_native_path,
+    _classify_sync_path,
+    _prepare_store_root,
+    _walk_store_files,
     normalize_rel,
     resolve_conflict,
     should_skip,
@@ -331,8 +345,50 @@ class _Routing:
     local_sha256: str = ""
 
 
+def _display(rel: str) -> str:
+    return _escape_path_for_display(rel)
+
+
+def _destination_admitted(
+    store_path: Path,
+    rel: str,
+    reporter: Reporter,
+    *,
+    root: _PreparedStoreRoot | None = None,
+    verb: str = "skipping manifest entry",
+) -> _PathAdmission | _PathClass:
+    prepared = root or _prepare_store_root(store_path)
+
+    def refuse(admission: _PathAdmission) -> _PathClass:
+        reason = admission.reason
+        assert reason is not None
+        reporter.warn(f"{verb} {_display(rel)}: {_unsafe_reason_text(reason)}")
+        return _PathClass.UNSAFE
+
+    lexical = _classify_sync_path(rel)
+    if lexical.path_class is _PathClass.RESERVED_CONTROL:
+        return _PathClass.RESERVED_CONTROL
+    if lexical.path_class is _PathClass.UNSAFE:
+        return refuse(lexical)
+
+    admission = _admit_native_path(prepared, rel, missing=_MissingPathPolicy.CREATE_DESTINATION)
+    if admission.path_class is _PathClass.RESERVED_CONTROL:
+        return _PathClass.RESERVED_CONTROL
+    if admission.path_class is _PathClass.UNSAFE:
+        return refuse(admission)
+    if admission.native_kind is _NativeKind.IRREGULAR:
+        reporter.warn(f"{verb} {_display(rel)}: it resolves to a special file")
+        return _PathClass.UNSAFE
+    return admission
+
+
 def _route_entry(
-    store_path: Path, entry: _ManifestEntry, state: SyncState, reporter: Reporter
+    store_path: Path,
+    entry: _ManifestEntry,
+    state: SyncState,
+    reporter: Reporter,
+    *,
+    root: _PreparedStoreRoot | None = None,
 ) -> _Routing:
     """Decide what one manifest entry needs, naming the ones it refuses.
     The unchanged-remote shortcut needs the local file present, so a deleted tracked
@@ -345,6 +401,12 @@ def _route_entry(
     # currently trusted — drop suspicious entries before they hit disk.
     if ".." in Path(rel).parts or rel.startswith("/"):
         reporter.warn(f"skipping suspicious manifest entry {rel!r}")
+        return _Routing(_Route.unusable)
+
+    result = _destination_admitted(store_path, rel, reporter, root=root)
+    if result is _PathClass.RESERVED_CONTROL:
+        return _Routing(_Route.ignore)
+    if result is _PathClass.UNSAFE:
         return _Routing(_Route.unusable)
 
     destination = resolve_destination(store_path, rel)
@@ -394,6 +456,8 @@ def _triage(
     manifest: _Manifest,
     state: SyncState,
     reporter: Reporter,
+    *,
+    root: _PreparedStoreRoot | None = None,
 ) -> _Worklists:
     """Split the manifest into gated decision writes, clean pulls, and conflicts.
 
@@ -403,7 +467,7 @@ def _triage(
     listing = DecisionCorpus.scan(store_path)
     contested: list[_RemoteFile] = []
     for entry in manifest.entries:
-        routing = _route_entry(store_path, entry, state, reporter)
+        routing = _route_entry(store_path, entry, state, reporter, root=root)
         route = routing.route
         if route is _Route.ignore:
             continue
@@ -440,6 +504,9 @@ def run_pull(
     Returns a :class:`PullReport` carrying any transport failure, never an empty
     success; exceeding ``lock_timeout`` on either lock raises ``SyncLockTimeoutError``.
     """
+    # The sync lock creates its parent directory, so an unusable Store root is
+    # refused here, before the lock's mkdir can recreate or trip over it.
+    _prepare_store_root(store_path)
     with operation_session(session) as active:
         with sync_lock(store_path, lock_timeout):
             return _run_pull_locked(project_id, store_path, reporter, lock_timeout, active)
@@ -452,7 +519,8 @@ def _run_pull_locked(
     lock_timeout: float,
     session: TransferSession,
 ) -> PullReport:
-    _sweep_interrupted_writes(store_path, reporter)
+    root = _prepare_store_root(store_path)
+    _sweep_interrupted_writes(store_path, reporter, root=root)
 
     # A run that could not read the file list did not sync anything and cannot
     # say how much it missed. It reports that plainly rather than as a count of
@@ -473,10 +541,24 @@ def _run_pull_locked(
 
     manifest = _parse_manifest(rows, reporter)
     state = load_state(store_path)
-    work = _triage(store_path, manifest, state, reporter)
+    work = _triage(store_path, manifest, state, reporter, root=root)
     tally = _Tally(skipped_permanent=manifest.unreadable_rows + work.skipped_permanent)
 
     planned = work.all_files()
+    backup = _admit_native_path(
+        root, CONFLICT_BACKUP_DIR, missing=_MissingPathPolicy.CREATE_DESTINATION
+    )
+    if backup.path_class is not _PathClass.ORDINARY or backup.native_kind not in (
+        None,
+        _NativeKind.DIRECTORY,
+    ):
+        detail = ""
+        if backup.reason is not None:
+            detail = f" ({_unsafe_reason_text(backup.reason)})"
+        reporter.warn(f"pull skipped: the conflict backup directory is not usable{detail}")
+        tally.refused += len(planned)
+        return _report_tally(tally, reporter)
+
     urls = _presign(project_id, planned, reporter, session, tally)
     if urls is None:
         # The request failed as a whole, so every file it was for stays where
@@ -513,7 +595,9 @@ def _run_pull_locked(
                         tally.refused += 1
                         continue
                     with _guarded_step(item.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
-                        _apply_decision(corpus, transfer, state, manifest, reporter, tally)
+                        _apply_decision(
+                            corpus, transfer, state, manifest, reporter, tally, root=root
+                        )
 
         for adopted in work.adopted:
             # No fetch, no write, and no second read of the file: these already
@@ -524,7 +608,7 @@ def _run_pull_locked(
 
         for transfer in _stream(urls, work.pulls, reporter, tally, session):
             with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
-                if _generic_write_allowed(store_path, transfer, state, reporter):
+                if _generic_write_allowed(store_path, transfer, state, reporter, root=root):
                     target = store_path / transfer.rel
                     atomic_write_bytes(target, transfer.content)
                     update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
@@ -534,7 +618,7 @@ def _run_pull_locked(
 
         for transfer in _stream(urls, work.conflicts, reporter, tally, session):
             with _guarded_step(transfer.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
-                if _generic_write_allowed(store_path, transfer, state, reporter):
+                if _generic_write_allowed(store_path, transfer, state, reporter, root=root):
                     _resolve_and_record(
                         store_path, transfer, state, _conflict_side(transfer.rel, state)
                     )
@@ -633,16 +717,25 @@ def _guarded_step(subject: str, detail: str, reporter: Reporter, tally: _Tally) 
 _STRANDED_TMP_MIN_AGE_SECONDS = 60.0
 
 
-def _sweep_interrupted_writes(store_path: Path, reporter: Reporter) -> int:
+def _sweep_interrupted_writes(
+    store_path: Path, reporter: Reporter, *, root: _PreparedStoreRoot | None = None
+) -> int:
     """Remove the tmp siblings killed writes stranded, and say how many.
 
-    Runs first and never raises: hygiene must not cost the caller the sync it asked for.
+    Raises the typed Store-root error only when given no prepared root and an unusable root.
     """
     cutoff = time.time() - _STRANDED_TMP_MIN_AGE_SECONDS
     removed = 0
     try:
-        for path in store_path.rglob("*"):
-            if not is_tmp_sibling(path.name) or not path.is_file():
+        for entry in _walk_store_files(root or _prepare_store_root(store_path)):
+            admission = entry.admission
+            if (
+                admission.path_class is not _PathClass.ORDINARY
+                or admission.native_kind is not _NativeKind.REGULAR_FILE
+            ):
+                continue
+            path = entry.native_path
+            if not is_tmp_sibling(path.name):
                 continue
             try:
                 if path.stat().st_mtime > cutoff:
@@ -825,12 +918,22 @@ def _report_completion(corpus: DecisionCorpus, reporter: Reporter) -> None:
 
 
 def _generic_write_allowed(
-    store_path: Path, transfer: _Transfer, state: SyncState, reporter: Reporter
+    store_path: Path,
+    transfer: _Transfer,
+    state: SyncState,
+    reporter: Reporter,
+    *,
+    root: _PreparedStoreRoot | None = None,
 ) -> bool:
     """Refuse an untyped write that would land somewhere it may not.
 
     The last check before bytes hit disk, asking the same question the planner asked.
     """
+    result = _destination_admitted(
+        store_path, transfer.rel, reporter, root=root, verb="refusing to write"
+    )
+    if isinstance(result, _PathClass):
+        return False
     destination = resolve_destination(store_path, transfer.rel)
     if not destination.inside_store:
         reporter.warn(
@@ -865,8 +968,15 @@ def _resolve_and_record(
 ) -> None:
     """Apply the conflict policy for one path and record the result."""
     local_file = store_path / transfer.rel
+    # This spelling picks the merge policy and names the backup, so it escapes
+    # injectively: a lossy one would let a remote row claim a set-union name or
+    # overwrite another row's backup.
     merged_content = resolve_conflict(
-        store_path, local_file, transfer.content, transfer.rel, keeps=keeps
+        store_path,
+        local_file,
+        transfer.content,
+        transfer.rel.replace("%", "%25").replace("\\", "%5C"),
+        keeps=keeps,
     )
     atomic_write_bytes(local_file, merged_content)
     update_file_state(state, transfer.rel, compute_sha256(local_file), transfer.etag)
@@ -879,6 +989,8 @@ def _apply_decision(
     manifest: _Manifest,
     reporter: Reporter,
     tally: _Tally,
+    *,
+    root: _PreparedStoreRoot | None = None,
 ) -> None:
     """Classify one untracked remote decision and act on the verdict.
 
@@ -936,10 +1048,26 @@ def _apply_decision(
         # The local decision stays, whatever sync state says about the path: the
         # file on disk is byte-unchanged, so the corpus still describes it and
         # the number it holds does not move underneath this batch.
+        if isinstance(
+            _destination_admitted(
+                store_path, transfer.rel, reporter, root=root, verb="refusing to write"
+            ),
+            _PathClass,
+        ):
+            tally.skipped_permanent += 1
+            return
         _resolve_and_record(store_path, transfer, state, Side.local)
         tally.merged += 1
         return
 
+    if isinstance(
+        _destination_admitted(
+            store_path, transfer.rel, reporter, root=root, verb="refusing to write"
+        ),
+        _PathClass,
+    ):
+        tally.skipped_permanent += 1
+        return
     target = store_path / transfer.rel
     atomic_write_bytes(target, transfer.content)
     update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
