@@ -53,6 +53,7 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
     if not is_cloud_project(project_id):
         return 0
 
+    from nauro.sync._path_diagnostics import _StoreRootPreparationError
     from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
     from nauro.sync.pull import run_pull
 
@@ -69,6 +70,9 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
         # Contention is an ordinary outcome here, not a failure: the other
         # process is doing this same work, and session start never waits.
         logger.info("sync pull: skipped, %s", exc)
+        return 0
+    except _StoreRootPreparationError as exc:
+        logger.warning("sync pull: %s", exc)
         return 0
     except Exception:
         # A genuinely unexpected error must not escape session startup.
