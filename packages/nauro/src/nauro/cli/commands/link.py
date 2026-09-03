@@ -143,12 +143,18 @@ def link(
     # failure must not roll back the promotion, so we warn and exit 0 and
     # let the user retry the upload with 'nauro sync'.
     from nauro.auth import AuthRefreshError
+    from nauro.sync._path_diagnostics import _StoreRootPreparationError
     from nauro.sync.lock import SyncLockTimeoutError
     from nauro.sync.remote import PresignError
 
     try:
         pushed = push_changed_files(cloud_id, new_store)
-    except (AuthRefreshError, PresignError, SyncLockTimeoutError) as exc:
+    except (
+        AuthRefreshError,
+        PresignError,
+        SyncLockTimeoutError,
+        _StoreRootPreparationError,
+    ) as exc:
         typer.echo(
             f"  Warning: linked, but the initial cloud push failed ({exc}).\n"
             "  Run 'nauro sync' to upload the project store.",

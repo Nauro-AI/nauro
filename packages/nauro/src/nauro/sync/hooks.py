@@ -89,6 +89,7 @@ def push_after_write(project_id: str, store_path: Path) -> PushReport:
         return PushReport()
 
     from nauro.auth import AuthRefreshError
+    from nauro.sync._path_diagnostics import _StoreRootPreparationError
     from nauro.sync.lock import HOOK_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError
     from nauro.sync.push import push_changed_files
     from nauro.sync.remote import PresignError
@@ -106,6 +107,9 @@ def push_after_write(project_id: str, store_path: Path) -> PushReport:
     except PresignError as exc:
         logger.warning("sync push: presign request failed: %s", exc)
         return PushReport(failed=("transport",))
+    except _StoreRootPreparationError as exc:
+        logger.warning("sync push: %s", exc)
+        return PushReport(failed=("store root",))
     except Exception:
         logger.exception("sync push: unexpected failure for %s", project_id)
         return PushReport(failed=("unexpected failure",))
