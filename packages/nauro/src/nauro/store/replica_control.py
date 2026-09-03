@@ -28,6 +28,8 @@ from nauro.store.resolution import ResolvedProjectBinding
 
 _MAX_CONTROL_FILE_BYTES = 16 * 1024
 _EXPIRED_MESSAGE = "Replica control snapshot is no longer lock-bound."
+_REPLICA_CONTROL_ROOT_NAME = ".replica"
+_REPLICA_CONTROL_LOCK_NAME = ".replica-control.lock"
 _READ_FLAGS = sum(
     getattr(os, name, 0)
     for name in ("O_RDONLY", "O_CLOEXEC", "O_BINARY", "O_NOFOLLOW", "O_NONBLOCK")
@@ -248,8 +250,8 @@ def locked_replica_control_snapshot(
         lock = nullcontext()
     else:
         store_path = _validate_store_path(binding)
-        control_lock = store_path / ".replica-control.lock"
-        control_root = store_path / ".replica"
+        control_lock = store_path / _REPLICA_CONTROL_LOCK_NAME
+        control_root = store_path / _REPLICA_CONTROL_ROOT_NAME
         authority_marker = control_root / "authority.json"
         _validate_managed_path(store_path, control_lock)
         lock = _native_control_lock(store_path, control_lock, timeout)
