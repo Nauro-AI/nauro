@@ -68,7 +68,19 @@ jobs:
       - run: >-
           uv run --no-sync --package nauro pytest
           packages/nauro/tests/test_generation_authority.py
-          packages/nauro/tests/test_replica_control.py -v --tb=short
+          packages/nauro/tests/test_replica_control.py
+          packages/nauro/tests/test_sync/test_replica_control_excluded.py -v --tb=short
+
+  test-sync-path-admission-windows-python310:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.10
+      - run: uv sync --locked --package nauro --all-extras --python 3.10
+      - run: >-
+          uv run --no-sync --package nauro pytest
+          packages/nauro/tests/test_sync/test_replica_control_excluded.py -v --tb=short
 
   distribution:
     runs-on: ubuntu-latest
