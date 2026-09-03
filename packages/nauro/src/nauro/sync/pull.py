@@ -107,6 +107,7 @@ class _RemoteFile:
 
     rel: str
     etag: str
+    decision_domain: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,7 @@ class _AdoptedFile:
     rel: str
     etag: str
     local_sha256: str
+    decision_domain: bool = False
 
 
 @dataclass(frozen=True)
@@ -247,9 +249,28 @@ class _Worklists:
     conflicts: list[_RemoteFile] = field(default_factory=list)
     adopted: list[_AdoptedFile] = field(default_factory=list)
     skipped_permanent: int = 0
+    decisions_usable: bool = True
+    refused_decisions: int = 0
+    ignored_decisions: int = 0
 
     def all_files(self) -> list[_RemoteFile]:
         return self.decisions + self.pulls + self.conflicts
+
+    def drop_decision_domain(self, store_path: Path) -> int:
+        """Remove every decision-domain row still queued for a write; return how many."""
+
+        # Re-derived against the store as it is now: the rescan runs exactly
+        # when decisions/ may have changed since triage.
+        def in_domain(item: _RemoteFile | _AdoptedFile) -> bool:
+            return (
+                item.decision_domain or resolve_destination(store_path, item.rel).inside_decisions
+            )
+
+        before = len(self.pulls) + len(self.conflicts) + len(self.adopted)
+        self.pulls = [item for item in self.pulls if not in_domain(item)]
+        self.conflicts = [item for item in self.conflicts if not in_domain(item)]
+        self.adopted = [item for item in self.adopted if not in_domain(item)]
+        return before - (len(self.pulls) + len(self.conflicts) + len(self.adopted))
 
 
 @dataclass(frozen=True)
@@ -316,6 +337,7 @@ class _Route(Enum):
 
     ignore = auto()
     unusable = auto()
+    refuse = auto()
     gate = auto()
     install = auto()
     adopt = auto()
@@ -343,6 +365,7 @@ class _Routing:
 
     route: _Route
     local_sha256: str = ""
+    decision_domain: bool = False
 
 
 def _display(rel: str) -> str:
@@ -389,6 +412,7 @@ def _route_entry(
     reporter: Reporter,
     *,
     root: _PreparedStoreRoot | None = None,
+    decisions_usable: bool = True,
 ) -> _Routing:
     """Decide what one manifest entry needs, naming the ones it refuses.
     The unchanged-remote shortcut needs the local file present, so a deleted tracked
@@ -403,37 +427,52 @@ def _route_entry(
         reporter.warn(f"skipping suspicious manifest entry {rel!r}")
         return _Routing(_Route.unusable)
 
+    # Domain membership is decided apart from the route: a tracked decision the
+    # gate exempts is still decision work, and an unusable decisions/ must
+    # refuse it before any of the reads below, whatever treatment the rest of
+    # this function would give it.
+    domain = _is_decision_path(rel)
     result = _destination_admitted(store_path, rel, reporter, root=root)
     if result is _PathClass.RESERVED_CONTROL:
         return _Routing(_Route.ignore)
     if result is _PathClass.UNSAFE:
-        return _Routing(_Route.unusable)
+        # A row unsafe by its own spelling never installs; one unsafe only
+        # because of what decisions/ is on disk installs once that is repaired.
+        lexically_sound = _classify_sync_path(rel).path_class is _PathClass.ORDINARY
+        if domain and not decisions_usable and lexically_sound:
+            return _Routing(_Route.refuse, decision_domain=True)
+        return _Routing(_Route.unusable, decision_domain=domain)
 
     destination = resolve_destination(store_path, rel)
+    domain = domain or destination.inside_decisions
+    if domain and not decisions_usable:
+        return _Routing(_Route.refuse, decision_domain=True)
     if not destination.inside_store:
         reporter.warn(f"skipping manifest entry {rel!r}: it resolves outside the store")
-        return _Routing(_Route.unusable)
+        return _Routing(_Route.unusable, decision_domain=domain)
     if _is_canonical_snapshot_path(rel):
         return _Routing(_Route.ignore)
 
     local_file = store_path / rel
     local_exists = local_file.exists()
     if local_exists and not file_changed_remotely(entry.etag, rel, state):
-        return _Routing(_Route.ignore)
+        # An unchanged decision is still decision work the rescan must be able
+        # to count, should decisions/ stop being usable before the lock.
+        return _Routing(_Route.ignore, decision_domain=domain)
 
     if needs_decision_gate(rel, destination, state):
-        return _Routing(_Route.gate)
+        return _Routing(_Route.gate, decision_domain=True)
     if destination.is_directory:
         # Nothing a manifest names as a file may land on a directory: the
         # local-change probe below would hash it and raise.
         reporter.warn(
             f"skipping manifest entry {rel!r}: it resolves to the directory {destination.path}"
         )
-        return _Routing(_Route.unusable)
+        return _Routing(_Route.unusable, decision_domain=domain)
     if not local_exists:
         # A file the user deleted is not a conflict: a conflict protects local
         # content and there is none.
-        return _Routing(_Route.install)
+        return _Routing(_Route.install, decision_domain=domain)
     comparison = compare_local_file(local_file, entry.etag)
     if comparison.match is ContentMatch.matches:
         # The two sides are the same file. Recording that is the whole of the
@@ -441,14 +480,14 @@ def _route_entry(
         # from the cloud, or a push that crashed before its state save, would
         # otherwise re-answer this question on every pull forever. The digest
         # travels with the verdict, from the read that reached it.
-        return _Routing(_Route.adopt, comparison.sha256)
+        return _Routing(_Route.adopt, comparison.sha256, decision_domain=domain)
     if file_changed_locally(store_path, rel, state):
         # Reaching here with a local file means the remote moved too, so both
         # sides have content the other does not - whether or not sync state
         # tracks the file. An untracked one used to match no list at all and be
         # dropped in silence, which lost the remote version without a backup.
-        return _Routing(_Route.conflict)
-    return _Routing(_Route.install)
+        return _Routing(_Route.conflict, decision_domain=domain)
+    return _Routing(_Route.install, decision_domain=domain)
 
 
 def _triage(
@@ -465,20 +504,37 @@ def _triage(
     """
     work = _Worklists()
     listing = DecisionCorpus.scan(store_path)
+    work.decisions_usable = listing.usable
     contested: list[_RemoteFile] = []
     for entry in manifest.entries:
-        routing = _route_entry(store_path, entry, state, reporter, root=root)
+        routing = _route_entry(
+            store_path,
+            entry,
+            state,
+            reporter,
+            root=root,
+            decisions_usable=work.decisions_usable,
+        )
         route = routing.route
         if route is _Route.ignore:
+            if routing.decision_domain:
+                work.ignored_decisions += 1
+            continue
+        if route is _Route.refuse:
+            # Counted as work left behind, not as permanently skipped: the row
+            # installs once decisions/ is repaired, so the run must not sign off.
+            work.refused_decisions += 1
             continue
         if route is _Route.unusable:
             work.skipped_permanent += 1
             continue
         if route is _Route.adopt:
-            work.adopted.append(_AdoptedFile(entry.path, entry.etag, routing.local_sha256))
+            work.adopted.append(
+                _AdoptedFile(entry.path, entry.etag, routing.local_sha256, routing.decision_domain)
+            )
             continue
 
-        item = _RemoteFile(entry.path, entry.etag)
+        item = _RemoteFile(entry.path, entry.etag, routing.decision_domain)
         if route is _Route.gate:
             number = extract_decision_number(_decision_name(entry.path))
             claimed = number is not None and bool(listing.holders(number))
@@ -543,6 +599,9 @@ def _run_pull_locked(
     state = load_state(store_path)
     work = _triage(store_path, manifest, state, reporter, root=root)
     tally = _Tally(skipped_permanent=manifest.unreadable_rows + work.skipped_permanent)
+    if not work.decisions_usable:
+        reporter.warn(_DECISIONS_UNUSABLE_TEXT)
+        tally.refused += work.refused_decisions
 
     planned = work.all_files()
     backup = _admit_native_path(
@@ -567,8 +626,9 @@ def _run_pull_locked(
         tally.refused += len(planned)
         return _report_tally(tally, reporter)
 
-    # Flipped the moment the decision lock is held, which is the moment this run
-    # can start changing the store. Everything before it - the manifest, the
+    # Flipped the moment the decision lock is held, or the moment generic work
+    # begins on a run that skipped decision work: from then on this run can
+    # change the store. Everything before it - the manifest, the
     # triage, the presign, the transfers, the wait for the lock - leaves the
     # store exactly as it found it, and a failure there must not rewrite sync
     # state: a state file that failed to parse loads as empty, and persisting
@@ -579,26 +639,41 @@ def _run_pull_locked(
         # the lock must not span a transfer. It is spooled to disk rather than
         # held: a manifest is server-supplied input, and its total size is not a
         # number this process gets to be surprised by.
-        with _spool(store_path) as spool:
-            gated = _spool_batch(urls, work.decisions, reporter, spool, session, tally)
-            with decision_lock(store_path, lock_timeout):
-                mutating = True
-                corpus = DecisionCorpus.scan(store_path)
-                with _guarded_step(DECISIONS_DIR, _COMPLETION_FAILURE_DETAIL, reporter, tally):
-                    _report_completion(corpus, reporter)
-                for item in work.decisions:
-                    transfer = gated.get(item.rel)
-                    if transfer is None:
-                        # No URL, or a fetch that failed - both already warned
-                        # about, and both counted here rather than where they
-                        # happened so one absent decision is counted once.
-                        tally.refused += 1
-                        continue
-                    with _guarded_step(item.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
-                        _apply_decision(
-                            corpus, transfer, state, manifest, reporter, tally, root=root
+        if work.decisions_usable:
+            with _spool(store_path) as spool:
+                gated = _spool_batch(urls, work.decisions, reporter, spool, session, tally)
+                with decision_lock(store_path, lock_timeout):
+                    mutating = True
+                    corpus = DecisionCorpus.scan(store_path)
+                    # The lock's mkdir already ran against whatever decisions/ became after
+                    # the triage scan, the stated concurrent-mutation limit; the write is refused.
+                    if not corpus.usable:
+                        reporter.warn(_DECISIONS_UNUSABLE_TEXT)
+                        tally.refused += (
+                            len(work.decisions)
+                            + work.drop_decision_domain(store_path)
+                            + work.ignored_decisions
                         )
+                    else:
+                        with _guarded_step(
+                            DECISIONS_DIR, _COMPLETION_FAILURE_DETAIL, reporter, tally
+                        ):
+                            _report_completion(corpus, reporter)
+                        for item in work.decisions:
+                            transfer = gated.get(item.rel)
+                            if transfer is None:
+                                # No URL, or a fetch that failed - both already
+                                # warned about, and both counted here rather than
+                                # where they happened so one absent decision is
+                                # counted once.
+                                tally.refused += 1
+                                continue
+                            with _guarded_step(item.rel, _WRITE_FAILURE_DETAIL, reporter, tally):
+                                _apply_decision(
+                                    corpus, transfer, state, manifest, reporter, tally, root=root
+                                )
 
+        mutating = True
         for adopted in work.adopted:
             # No fetch, no write, and no second read of the file: these already
             # hold the bytes the server published, and triage kept the digest
@@ -688,6 +763,9 @@ _WRITE_FAILURE_DETAIL = (
 _NO_URL_DETAIL = (
     "{rel}: the server minted no download URL for it, so this run could not fetch it. "
     "It stays for the next sync."
+)
+_DECISIONS_UNUSABLE_TEXT = (
+    "pull skipped decision work: the decisions directory is not usable this run"
 )
 _COMPLETION_FAILURE_DETAIL = (
     "the pass that finishes an interrupted renumber could not write here ({error}), so "

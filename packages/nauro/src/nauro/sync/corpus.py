@@ -183,6 +183,7 @@ class DecisionCorpus:
     """The decision store as one sync run sees it, kept current by its writer."""
 
     store_path: Path
+    usable: bool = True
     _files: dict[str, DecisionFile] = field(default_factory=dict)
     _irregular: tuple[IrregularEntry, ...] = ()
     _irregular_names: frozenset[str] = frozenset()
@@ -198,23 +199,30 @@ class DecisionCorpus:
         try:
             root = _prepare_store_root(store_path)
         except _StoreRootPreparationError:
+            corpus.usable = False
             return corpus
         corpus._root = root
         admitted = _admit_native_path(
             root, DECISIONS_DIR, missing=_MissingPathPolicy.OPTIONAL_FIXED_LEAF
         )
         if admitted.path_class is _PathClass.UNSAFE:
+            corpus.usable = False
             logger.warning(_UNUSABLE_DECISIONS)
             return corpus
-        if admitted.path_class is not _PathClass.ORDINARY or not admitted.exists:
+        if admitted.path_class is not _PathClass.ORDINARY:
+            corpus.usable = False
+            return corpus
+        if not admitted.exists:
             return corpus
         if admitted.native_kind is not _NativeKind.DIRECTORY:
+            corpus.usable = False
             return corpus
         directory = store_path / DECISIONS_DIR
         # Admission follows links, so an ordinary directory result can still be
         # a link into another admitted directory; listing one would rename and
         # rewrite files on the other side.
         if not _is_plain_directory(directory):
+            corpus.usable = False
             logger.warning(_UNUSABLE_DECISIONS)
             return corpus
         names: set[str] = set()
@@ -223,6 +231,7 @@ class DecisionCorpus:
             with os.scandir(directory) as listing:
                 entries = sorted(listing, key=lambda entry: entry.name)
         except (FileNotFoundError, NotADirectoryError):
+            corpus.usable = False
             return corpus
         for entry in entries:
             named = _classify_sync_path(f"{DECISIONS_DIR}/{entry.name}")

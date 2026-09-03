@@ -28,6 +28,7 @@ from nauro.store.replica_control import (
 from nauro.store.repo_config import save_repo_config
 from nauro.sync import corpus as corpus_module
 from nauro.sync import merge as merge_module
+from nauro.sync import pull as pull_module
 from nauro.sync._path_diagnostics import (
     _escape_path_for_display,
     _StoreRootPreparationError,
@@ -608,7 +609,7 @@ def test_a_pull_over_a_linked_decisions_directory_writes_nothing(tmp_path, monke
     )
 
     assert report.merged == 0
-    # The pull's decision lock still lands here through the link; it is the one
-    # known stray, so the filter must not absorb a second.
-    assert entry_names(control) == {"003-x.md", ".lock"}
+    assert report.refused == 0
+    assert _reporter.warns == [pull_module._DECISIONS_UNUSABLE_TEXT]
+    assert entry_names(control) == {"003-x.md"}
     assert (control / "003-x.md").read_bytes() == decision_bytes(3, "X")
