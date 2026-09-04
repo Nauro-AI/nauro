@@ -40,12 +40,13 @@ GOLDEN_ARTIFACTS = {"project.md": b"# Project\n"}
 GOLDEN_ENVELOPE = (
     b'{"artifacts":{"project.md":'
     b'"aef277fb6a70a89681a85e1b6d23f44ee2a6cc58490f9f5c95fc99db6d2d3542"},'
+    b'"committed_at":"2999-12-31T23:59:59.999999Z",'
     b'"generation_id":"01K11111111111111111111111",'
     b'"project_id":"01KQ6AZGNA0B3QBF67NBXP3S45",'
     b'"projection_class":"contributor_plus",'
     b'"projection_scope_id":"' + b"a" * 64 + b'","store_format_version":1}'
 )
-GOLDEN_DIGEST = "32c59ab83e93cb28ea902441e86ce4ae125091ab79328d563a5a7f0eab0be967"
+GOLDEN_DIGEST = "94f488a870f6549bea395828dc077a46023cd8fc36667e4f4c65ce0d471298cd"
 THREE_ARTIFACTS = {"state.md": b"# State\n", "project.md": b"# Project\n", SIDECAR: b"{}"}
 BINDING = ResolvedProjectBinding(Path("store"), PROJECT_ID, "Nauro", "cloud", "https://api.test")
 LOCAL_BINDING = ResolvedProjectBinding(Path("store"), PROJECT_ID, "Nauro", "local", None)
@@ -78,6 +79,7 @@ class FakeServer:
         self.artifacts = dict(GOLDEN_ARTIFACTS if artifacts is None else artifacts)
         self.projection_class = projection_class
         self.generation_id = GENERATION_ID
+        self.manifest_committed_at: str | None = COMMITTED_AT
         self.identity_override: dict[str, object] = {}
         self.projection_hook = self.presign_hook = self.object_hook = None
         self.requests: list[tuple[str, str, object, str | None]] = []
@@ -90,6 +92,7 @@ class FakeServer:
             "project_id": PROJECT_ID,
             "store_format_version": 1,
             "generation_id": self.generation_id,
+            "committed_at": self.manifest_committed_at,
             "projection_class": self.projection_class,
             "projection_scope_id": SCOPE_ID,
             "artifacts": {
@@ -97,6 +100,8 @@ class FakeServer:
                 for path, content in self.artifacts.items()
             },
         }
+        if self.manifest_committed_at is None:
+            body.pop("committed_at")
         text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         return text.encode("utf-8")
 
@@ -190,11 +195,29 @@ def test_happy_path_orders_projection_presign_then_sorted_gets() -> None:
 
 def test_golden_envelope_bytes_and_digest_are_pinned() -> None:
     server = FakeServer()
-    assert server.envelope() == GOLDEN_ENVELOPE and len(GOLDEN_ENVELOPE) == 334
+    assert server.envelope() == GOLDEN_ENVELOPE and len(GOLDEN_ENVELOPE) == 379
     assert hashlib.sha256(GOLDEN_ENVELOPE).hexdigest() == GOLDEN_DIGEST
     proof = acquire(server)
     assert proof.manifest_json == GOLDEN_ENVELOPE
     assert proof.target.identity.manifest_digest == GOLDEN_DIGEST
+
+
+@pytest.mark.parametrize(
+    "manifest_committed_at",
+    [None, "2998-12-31T23:59:59.999999Z"],
+    ids=["current-six-field-server", "divergent-time"],
+)
+def test_manifest_commit_time_is_bound_before_presign(manifest_committed_at) -> None:
+    server = FakeServer()
+    server.manifest_committed_at = manifest_committed_at
+    if manifest_committed_at is None:
+        assert len(server.envelope()) == 334
+        assert hashlib.sha256(server.envelope()).hexdigest() == (
+            "32c59ab83e93cb28ea902441e86ce4ae125091ab79328d563a5a7f0eab0be967"
+        )
+    with pytest.raises(GenerationProjectionVerificationError):
+        acquire(server)
+    assert server.calls() == [PROJECTION]
 
 
 @pytest.mark.parametrize(

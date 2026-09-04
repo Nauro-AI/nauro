@@ -10,18 +10,26 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import FrozenInstanceError, fields, replace
+from datetime import datetime, timezone
 from inspect import signature
 from pathlib import Path
 
 import pytest
 from filelock import FileLock
 
-from nauro.mcp.tools import tool_get_raw_file
+from nauro.mcp.tools import tool_check_decision, tool_get_raw_file
 from nauro.store import generation_installation as installation
 from nauro.store import replica_control
-from nauro.store.generation_authority import FlatProjectAuthority, GenerationAuthorityError
+from nauro.store.generation_authority import (
+    FlatProjectAuthority,
+    GenerationAuthorityError,
+    GenerationControlCorruptError,
+    GenerationProjectAuthority,
+    InstalledGenerationPointer,
+)
 from nauro.store.generation_installation import (
+    GenerationControlPublicationError,
     GenerationInstallError,
     GenerationRootAudit,
     GenerationRootDivergedError,
@@ -29,6 +37,7 @@ from nauro.store.generation_installation import (
     StagedGenerationRoot,
     audit_generation_tree,
     install_generation_root,
+    publish_generation_control,
     stage_generation_root,
 )
 from nauro.store.generation_projection import (
@@ -48,6 +57,7 @@ from nauro.store.resolution import ResolvedProjectBinding
 from nauro.sync import merge
 from nauro.sync.corpus import DecisionCorpus
 from nauro.sync.pull import PullReport
+from nauro.sync.quarantine import list_conflict_backup_files, list_quarantine_backups
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.test_sync.conftest import (
     _scaffolded_cloud_project,
@@ -63,6 +73,10 @@ GENERATION_ID = "01K11111111111111111111111"
 USER_ID = "01K33333333333333333333333"
 SCOPE_ID = "a" * 64
 COMMITTED_AT = "2999-12-31T23:59:59.999999Z"
+OTHER_COMMITTED_AT = "2998-12-31T23:59:59.999999Z"
+INSTALLED_AT = "2026-09-04T01:02:03.000004Z"
+INSTALLED_STATE_ID = "01K22222222222222222222222"
+OTHER_STATE_ID = "01K44444444444444444444444"
 ROOT_KEY = "868847269e6f3c829a569ad5d6655bd5"
 CODE = "generation_install_failed"
 ACTOR = f".replica/v1/actors/{USER_ID}"
@@ -121,11 +135,16 @@ def _actor(store: Path) -> Path:
     return store / ".replica" / "v1" / "actors" / USER_ID
 
 
-def _manifest(artifacts: dict[str, bytes], scope_id: str = SCOPE_ID) -> bytes:
+def _manifest(
+    artifacts: dict[str, bytes],
+    scope_id: str = SCOPE_ID,
+    committed_at: str = COMMITTED_AT,
+) -> bytes:
     body = {
         "project_id": PROJECT_ID,
         "store_format_version": 1,
         "generation_id": GENERATION_ID,
+        "committed_at": committed_at,
         "projection_class": "contributor_plus",
         "projection_scope_id": scope_id,
         "artifacts": {path: hashlib.sha256(body).hexdigest() for path, body in artifacts.items()},
@@ -133,9 +152,11 @@ def _manifest(artifacts: dict[str, bytes], scope_id: str = SCOPE_ID) -> bytes:
     return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def _projection(artifacts: dict[str, bytes] | None = None) -> VerifiedGenerationProjection:
+def _projection(
+    artifacts: dict[str, bytes] | None = None, *, committed_at: str = COMMITTED_AT
+) -> VerifiedGenerationProjection:
     artifacts = ARTIFACTS if artifacts is None else artifacts
-    manifest = _manifest(artifacts)
+    manifest = _manifest(artifacts, committed_at=committed_at)
     binding = ResolvedProjectBinding(
         get_store_path_v2(PROJECT_ID), PROJECT_ID, "Nauro", "cloud", "https://mcp.nauro.ai"
     )
@@ -144,7 +165,7 @@ def _projection(artifacts: dict[str, bytes] | None = None) -> VerifiedGeneration
         store_format_version=1,
         generation_id=GENERATION_ID,
         manifest_digest=hashlib.sha256(manifest).hexdigest(),
-        committed_at=COMMITTED_AT,
+        committed_at=committed_at,
         installed_for_user_id=USER_ID,
         projection_class="contributor_plus",
         projection_scope_id=SCOPE_ID,
@@ -196,6 +217,67 @@ def _bytes(root: Path) -> dict[str, bytes]:
         for relative in _tree(root)
         if stat.S_ISREG(os.lstat(root / relative).st_mode)
     }
+
+
+def _control_files(store: Path) -> tuple[Path, Path]:
+    return store / ".replica" / "authority.json", _actor(store) / "pointer.json"
+
+
+def _guard_occupant(kind: str) -> None:
+    if kind in LINK_KINDS:
+        _require_link_kind(kind)
+    if sys.platform == "win32" and kind in ("dangling", "fifo", "unreadable"):
+        pytest.skip(f"{kind} is a POSIX proof")
+
+
+def _plant_occupant(path: Path, kind: str, outside: Path) -> None:
+    if kind == "missing":
+        return
+    if kind in LINK_KINDS:
+        _link(path, outside, kind)
+    elif kind == "dangling":
+        path.symlink_to(outside / "gone", target_is_directory=True)
+    elif kind == "hardlink":
+        os.link(outside / "victim", path)
+    elif kind == "directory":
+        path.mkdir()
+    elif kind == "fifo":
+        os.mkfifo(path)
+    else:
+        path.write_bytes(b"x" * (16 * 1024 + 1) if kind == "oversized" else b"occupant")
+        if kind == "unreadable":
+            path.chmod(0)
+
+
+def _fingerprint(path: Path) -> tuple[int, int, int, int] | None:
+    if not os.path.lexists(path):
+        return None
+    value = os.lstat(path)
+    return value.st_mode, value.st_ino, value.st_nlink, value.st_size
+
+
+def _pointer_bytes(projection: VerifiedGenerationProjection, **changes: object) -> bytes:
+    identity = projection.target.identity
+    body: dict[str, object] = {
+        "schema_version": 1,
+        **{field: getattr(identity, field) for field in installation._TARGET_POINTER_FIELDS},
+        "installed_at": INSTALLED_AT,
+        "installed_state_id": OTHER_STATE_ID,
+    }
+    body.update(changes)
+    return InstalledGenerationPointer(**body).canonical_bytes()
+
+
+class _FailDateTime:
+    @classmethod
+    def now(cls, _tz=None):
+        pytest.fail("publication acquired a new clock value")
+
+
+def _forbid_publication_effects(monkeypatch) -> None:
+    monkeypatch.setattr(installation, "atomic_write_bytes", lambda *_a: pytest.fail("wrote"))
+    monkeypatch.setattr(installation, "datetime", _FailDateTime)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: pytest.fail("minted"))
 
 
 def _age(path: Path, seconds: float) -> None:
@@ -615,16 +697,21 @@ def _plant(store: Path, divergent: bool) -> dict[str, bytes]:
 
 def _wrap_lock(monkeypatch, before_yield, events: list[str] | None = None) -> None:
     real = installation._native_control_lock
+    calls = 0
 
     @contextmanager
     def wrapped(store_path, path, timeout):
+        nonlocal calls
+        calls += 1
+        if calls != 1:
+            pytest.fail("publication acquired a second native lock")
         with real(store_path, path, timeout):
             if events is not None:
-                events.append("lock")
+                events.append("lock-entered")
             before_yield()
             yield
         if events is not None:
-            events.append("release")
+            events.append("lock-released")
 
     monkeypatch.setattr(installation, "_native_control_lock", wrapped)
 
@@ -746,10 +833,12 @@ def test_publication_order(store: Path, monkeypatch, planted: bool) -> None:
     _wrap_lock(monkeypatch, (lambda: _plant(store, False)) if planted else (lambda: None), events)
     assert install_generation_root(_projection()).reused is planted
     if planted:
-        expected = "probe create write audit:staging lock audit:root release remove".split()
+        expected = (
+            "probe create write audit:staging lock-entered audit:root lock-released remove".split()
+        )
         assert "rename" not in events
     else:
-        expected = "probe create write audit:staging lock rename release".split()
+        expected = "probe create write audit:staging lock-entered rename lock-released".split()
         assert "remove" not in events
     positions = [events.index(kind) for kind in expected]
     assert positions == sorted(positions), events
@@ -832,7 +921,9 @@ def test_installed_root_coexists_with_legacy_surfaces(tmp_path: Path) -> None:
     assert store == get_store_path_v2(PROJECT_ID)
     (store / "context").mkdir(exist_ok=True)
     projection = _projection()
-    root = install_generation_root(projection).root_path
+    installed = install_generation_root(projection)
+    root = installed.root_path
+    authority = publish_generation_control(installed)
     before = _bytes(root)
     walked = [
         entry.raw_relative_path
@@ -850,13 +941,16 @@ def test_installed_root_coexists_with_legacy_surfaces(tmp_path: Path) -> None:
     )
     assert (report, reporter.warns) == (PullReport(merged=1), [])
     assert (store / "context" / "note.md").read_bytes() == b"note\n"
-    assert entry_names(store / ".replica") == {"v1"}
+    assert entry_names(store / ".replica") == {"authority.json", "v1"}
     assert _bytes(root) == before
     assert DecisionCorpus.scan(store).usable is True
+    assert list_conflict_backup_files(store) == []
+    assert list_quarantine_backups(store) == []
+    assert ".replica" not in json.dumps(tool_check_decision(store, "Keep project intent stable"))
     with locked_replica_control_snapshot(
         projection.target.binding, active_user_id=USER_ID, active_projection_scope_id=SCOPE_ID
     ) as snapshot:
-        assert snapshot.authority == FlatProjectAuthority(projection.target.binding)
+        assert snapshot.authority == authority
 
 
 def test_installer_is_dormant_and_private(store: Path, monkeypatch) -> None:
@@ -864,7 +958,587 @@ def test_installer_is_dormant_and_private(store: Path, monkeypatch) -> None:
     assert [item.name for item in fields(InstalledGenerationRoot)] == (
         "target root_key root_path audit reused".split()
     )
+    assert list(signature(publish_generation_control).parameters) == ["installed", "timeout"]
+    assert "locked_replica_control_snapshot" not in Path(installation.__file__).read_text()
+    for path in Path(installation.__file__).parents[2].rglob("*.py"):
+        if path != Path(installation.__file__):
+            assert "publish_generation_control(" not in path.read_text(encoding="utf-8")
     monkeypatch.setattr("nauro.sync.state.save_state", lambda *_a, **_k: pytest.fail("state"))
     installed = install_generation_root(_projection())
     with pytest.raises(FrozenInstanceError):
         installed.reused = True
+
+
+@pytest.mark.parametrize("state", ["absent", "malformed", "noncanonical", "divergent"])
+def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
+    store: Path, monkeypatch, state: str
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer_path = _control_files(store)
+    if state != "absent":
+        raw = _pointer_bytes(projection)
+        if state == "malformed":
+            raw = b"{"
+        elif state == "noncanonical":
+            raw = json.dumps(json.loads(raw)).encode()
+        elif state == "divergent":
+            raw = _pointer_bytes(projection, generation_id="01K55555555555555555555555")
+        pointer_path.write_bytes(raw)
+    events: list[str] = []
+    real_audit = installation._audit_installed_root
+    real_stream = installation._stream_digest
+    real_parse = installation._parse_manifest
+    real_read = installation._read_control_file
+    real_write = installation.atomic_write_bytes
+    real_select = installation.select_project_authority
+    real_mkdir = Path.mkdir
+
+    def audit(*args):
+        result = real_audit(*args)
+        assert result == COMMITTED_AT
+        events.append("audit-complete")
+        return result
+
+    def stream(*args):
+        result = real_stream(*args)
+        if args[4] == "manifest.json":
+            events.append("manifest-digest-verified")
+        return result
+
+    def parse(*args):
+        assert events[-1] == "manifest-digest-verified"
+        result = real_parse(*args)
+        events.append("manifest-committed-at-bound")
+        return result
+
+    def read(store_path, path):
+        result = real_read(store_path, path)
+        if "marker-write" in events and path in (marker, pointer_path):
+            events.append("marker-read" if path == marker else "final-read")
+        elif path == pointer_path and "pointer-write" in events:
+            events.append("pointer-read")
+        return result
+
+    def write(path, content):
+        event = "pointer-write" if path == pointer_path else "marker-write"
+        if event == "marker-write":
+            assert "pointer-read" in events and "select" in events
+        events.append(event)
+        real_write(path, content)
+
+    def mint() -> str:
+        assert events.count("lock-entered") == 1
+        assert events.count("audit-complete") == 1
+        assert "pointer-write" not in events
+        events.append("ulid")
+        return INSTALLED_STATE_ID
+
+    def select(*args, **kwargs):
+        if "marker-write" in events:
+            events.append("final-select")
+        elif "pointer-write" in events:
+            events.append("select")
+        return real_select(*args, **kwargs)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            assert events.count("lock-entered") == 1
+            assert events.count("audit-complete") == 1
+            assert "pointer-write" not in events
+            events.append("clock")
+            return cls(2026, 9, 4, 1, 2, 3, 4, tzinfo=tz)
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        if self in (pointer_path.parent, marker.parent) and parents:
+            metadata = os.lstat(self)
+            assert stat.S_ISDIR(metadata.st_mode) and not _is_link_or_reparse(metadata)
+            events.append("pointer-parent" if self == pointer_path.parent else "marker-parent")
+        return real_mkdir(self, mode, parents, exist_ok)
+
+    _wrap_lock(monkeypatch, lambda: None, events)
+    monkeypatch.setattr(installation, "_audit_installed_root", audit)
+    monkeypatch.setattr(installation, "_stream_digest", stream)
+    monkeypatch.setattr(installation, "_parse_manifest", parse)
+    monkeypatch.setattr(installation, "_read_control_file", read)
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "generate_ulid", mint, raising=False)
+    monkeypatch.setattr(installation, "datetime", Clock)
+    monkeypatch.setattr(installation, "select_project_authority", select)
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(
+        replica_control,
+        "locked_replica_control_snapshot",
+        lambda *_a, **_k: pytest.fail("publication nested a locked snapshot"),
+    )
+
+    authority = installation.publish_generation_control(installed)
+
+    assert (authority.pointer.installed_at, authority.pointer.installed_state_id) == (
+        INSTALLED_AT,
+        INSTALLED_STATE_ID,
+    )
+    assert events.count("lock-entered") == events.count("audit-complete") == 1
+    assert events.count("clock") == events.count("ulid") == 1
+    proof_order = "manifest-digest-verified manifest-committed-at-bound audit-complete".split()
+    assert [events.index(item) for item in proof_order] == sorted(map(events.index, proof_order))
+    assert events.index("audit-complete") < events.index("clock") < events.index("pointer-write")
+    assert events.index("audit-complete") < events.index("ulid") < events.index("pointer-write")
+    order = (
+        "pointer-write pointer-read select marker-write marker-read final-read final-select".split()
+    )
+    assert [events.index(item) for item in order] == sorted(map(events.index, order))
+    assert events.count("pointer-parent") == events.count("marker-parent") == 1
+
+
+def test_matching_dormant_pointer_is_reused_without_mint_or_rewrite(
+    store: Path, monkeypatch
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    dormant = _pointer_bytes(projection)
+    pointer.write_bytes(dormant)
+    real_write = installation.atomic_write_bytes
+
+    def write(path, content):
+        if path == pointer:
+            pytest.fail("pointer rewritten")
+        real_write(path, content)
+
+    events: list[str] = []
+    _wrap_lock(monkeypatch, lambda: None, events)
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: pytest.fail("minted"))
+    monkeypatch.setattr(installation, "datetime", _FailDateTime)
+    authority = publish_generation_control(installed)
+    assert (pointer.read_bytes(), marker.read_bytes()) == (
+        dormant,
+        authority.marker.canonical_bytes(),
+    )
+    assert authority.pointer.installed_state_id == OTHER_STATE_ID
+    assert events == ["lock-entered", "lock-released"]
+
+
+def test_active_repeat_reaudits_without_mint_or_write(store: Path, monkeypatch) -> None:
+    installed = install_generation_root(_projection())
+    expected = publish_generation_control(installed)
+    events: list[str] = []
+    _wrap_lock(monkeypatch, lambda: None, events)
+    _forbid_publication_effects(monkeypatch)
+    assert publish_generation_control(installed) == expected
+    assert events == ["lock-entered", "lock-released"]
+
+
+@pytest.mark.parametrize("branch", ["absent", "dormant-replacement", "active"])
+def test_changed_only_target_commit_time_fails_before_publication_effects(
+    store: Path, monkeypatch, branch: str
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    if branch == "dormant-replacement":
+        pointer.write_bytes(b"{")
+    elif branch == "active":
+        publish_generation_control(installed)
+        pointer.write_bytes(_pointer_bytes(projection, committed_at=OTHER_COMMITTED_AT))
+    identity = installed.target.identity.model_copy(update={"committed_at": OTHER_COMMITTED_AT})
+    target = GenerationProjectionTarget(installed.target.binding, identity)
+    forged = replace(installed, target=target)
+    before = tuple(path.read_bytes() if path.exists() else None for path in (marker, pointer))
+    _forbid_publication_effects(monkeypatch)
+
+    _diverges(
+        "The generation manifest does not match the projection target.",
+        lambda: publish_generation_control(forged),
+    )
+
+    assert (
+        tuple(path.read_bytes() if path.exists() else None for path in (marker, pointer)) == before
+    )
+
+
+def test_same_root_with_another_bound_commit_time_is_not_reused(store: Path) -> None:
+    original = install_generation_root(_projection())
+    changed = _projection(committed_at=OTHER_COMMITTED_AT)
+    assert installation._root_key(changed.target) == original.root_key
+    _diverges(
+        "The generation root manifest diverges.",
+        lambda: install_generation_root(changed),
+    )
+    assert (original.root_path / "manifest.json").read_bytes() == _projection().manifest_json
+
+
+def test_pre_binding_installed_manifest_fails_closed_without_migration(
+    store: Path, monkeypatch
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    manifest_path = installed.root_path / "manifest.json"
+    body = json.loads(projection.manifest_json)
+    body.pop("committed_at")
+    old_manifest = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    manifest_path.write_bytes(old_manifest)
+    old_digest = hashlib.sha256(old_manifest).hexdigest()
+    identity = installed.target.identity.model_copy(update={"manifest_digest": old_digest})
+    target = GenerationProjectionTarget(installed.target.binding, identity)
+    audit = replace(
+        installed.audit,
+        manifest_digest=old_digest,
+        byte_total=installed.audit.byte_total - len(projection.manifest_json) + len(old_manifest),
+    )
+    forged = replace(installed, target=target, audit=audit)
+    before = _bytes(installed.root_path)
+    _forbid_publication_effects(monkeypatch)
+
+    _diverges("The generation manifest is malformed.", lambda: publish_generation_control(forged))
+
+    assert _bytes(installed.root_path) == before
+    assert all(not os.path.lexists(path) for path in _control_files(store))
+
+
+@pytest.mark.parametrize(
+    "case",
+    "root-key root-path audit-digest audit-count audit-total reused-type target-subclass "
+    "target-partial target-extra binding-malformed identity-malformed identity-stale".split(),
+)
+def test_forged_installed_root_is_rederived_or_rejected(
+    store: Path, tmp_path: Path, monkeypatch, case: str
+) -> None:
+    installed = install_generation_root(_projection())
+    completed, real_stream = [], installation._stream_digest
+
+    def stream(*args):
+        result = real_stream(*args)
+        completed.append(args[4])
+        return result
+
+    monkeypatch.setattr(installation, "_stream_digest", stream)
+    target = installed.target
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "victim").write_bytes(b"victim")
+    if case == "root-key":
+        forged = replace(installed, root_key="0" * 32)
+    elif case == "root-path":
+        forged = replace(installed, root_path=outside)
+    elif case.startswith("audit-"):
+        field = {"audit-digest": "manifest_digest", "audit-count": "artifact_count"}.get(
+            case, "byte_total"
+        )
+        value = "b" * 64 if field == "manifest_digest" else getattr(installed.audit, field) + 1
+        forged = replace(installed, audit=replace(installed.audit, **{field: value}))
+    elif case == "reused-type":
+        forged = replace(installed, reused=1)
+    else:
+        if case == "target-subclass":
+
+            class TargetSubclass(GenerationProjectionTarget):
+                pass
+
+            bad_target = object.__new__(TargetSubclass)
+        else:
+            bad_target = object.__new__(GenerationProjectionTarget)
+        if case != "target-partial":
+            binding = target.binding
+            if case == "binding-malformed":
+                binding = replace(binding, project_id=1)
+            update = {"project_id": 1} if case == "identity-malformed" else {}
+            if case == "identity-stale":
+                update = {"generation_id": "01K55555555555555555555555"}
+            identity = target.identity.model_copy(update=update)
+            object.__setattr__(bad_target, "binding", binding)
+            object.__setattr__(bad_target, "identity", identity)
+            if case == "target-extra":
+                object.__setattr__(bad_target, "extra", True)
+        forged = replace(installed, target=bad_target)
+    _forbid_publication_effects(monkeypatch)
+    with pytest.raises(GenerationControlPublicationError) as raised:
+        publish_generation_control(forged)
+    assert raised.value.code == "generation_control_publication_failed"
+    assert _control_files(store)[0].exists() is False
+    assert (outside / "victim").read_bytes() == b"victim"
+    if case.startswith("audit-"):
+        assert completed == ["manifest.json", *sorted(ARTIFACTS)]
+
+
+def test_valid_reused_flag_is_irrelevant(tmp_path: Path, monkeypatch) -> None:
+    fixed = datetime.fromisoformat(INSTALLED_AT.replace("Z", "+00:00"))
+    real_read, real_write = installation._read_control_file, installation.atomic_write_bytes
+
+    def run(reused: bool):
+        monkeypatch.setenv("NAURO_HOME", str(tmp_path / str(reused)))
+        monkeypatch.setattr(installation, "atomic_write_bytes", real_write)
+        local_store, projection = get_store_path_v2(PROJECT_ID), _projection()
+        scaffold_project_store("nauro", local_store)
+        installed = install_generation_root(projection)
+        installed = install_generation_root(projection) if reused else installed
+        assert installed.reused is reused
+        seen = []
+        clock = type("Clock", (), {"now": classmethod(lambda *_a: seen.append("clock") or fixed)})
+        ids = iter([INSTALLED_STATE_ID])
+        monkeypatch.setattr(installation, "datetime", clock)
+        monkeypatch.setattr(installation, "generate_ulid", lambda: seen.append("ulid") or next(ids))
+
+        def read(store_path, path):
+            seen.append(("read", path.relative_to(local_store).as_posix()))
+            return real_read(store_path, path)
+
+        def write(path, content):
+            seen.append(("write", path.relative_to(local_store).as_posix()))
+            real_write(path, content)
+
+        monkeypatch.setattr(installation, "_read_control_file", read)
+        monkeypatch.setattr(installation, "atomic_write_bytes", write)
+        authority = publish_generation_control(installed)
+        control = tuple(path.read_bytes() for path in _control_files(local_store))
+        expected = authority.marker.canonical_bytes(), authority.pointer.canonical_bytes()
+        assert control == expected
+        assert control[1] == _pointer_bytes(projection, installed_state_id=INSTALLED_STATE_ID)
+        return control, seen, type(authority)
+
+    assert run(False) == run(True)
+
+
+def test_installed_proof_changed_while_waiting_is_rejected(store: Path, monkeypatch) -> None:
+    installed = install_generation_root(_projection())
+    _wrap_lock(monkeypatch, lambda: object.__setattr__(installed, "root_key", "0" * 32))
+    _forbid_publication_effects(monkeypatch)
+    with pytest.raises(GenerationControlPublicationError):
+        publish_generation_control(installed)
+    assert _control_files(store)[0].exists() is False
+
+
+def test_control_publication_refuses_a_busy_native_lock(store: Path) -> None:
+    installed = install_generation_root(_projection())
+    with FileLock(str(store / LOCK_NAME)):
+        with pytest.raises(ReplicaControlBusyError) as raised:
+            publish_generation_control(installed, timeout=0.1)
+    assert raised.value.code == "generation_control_busy"
+    assert all(not os.path.lexists(path) for path in _control_files(store))
+
+
+@pytest.mark.parametrize("timing", ["before", "locked"])
+@pytest.mark.parametrize("boundary", ["lock", "pointer", "marker"])
+@pytest.mark.parametrize(
+    "kind",
+    "symlink dangling junction hardlink directory fifo oversized unreadable".split(),
+)
+def test_control_publication_preserves_unsafe_control_occupants(
+    store: Path, tmp_path: Path, monkeypatch, boundary: str, kind: str, timing: str
+) -> None:
+    if boundary == "lock" and timing == "locked":
+        pytest.skip("leaf timing applies to pointer and marker")
+    if boundary == "lock" and kind in {"dangling", "fifo", "oversized"}:
+        pytest.skip("not a lock occupant row")
+    _guard_occupant(kind)
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    path = {"lock": store / LOCK_NAME, "pointer": pointer, "marker": marker}[boundary]
+    if boundary == "lock":
+        path.unlink()
+    if boundary == "marker":
+        pointer.write_bytes(b"keep")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "victim").write_bytes(b"victim")
+    planted = []
+
+    def plant() -> None:
+        _plant_occupant(path, kind, outside)
+        planted.append(_fingerprint(path))
+
+    plant() if timing == "before" else _wrap_lock(monkeypatch, plant)
+    _forbid_publication_effects(monkeypatch)
+    with pytest.raises(ReplicaControlReadError) as raised:
+        publish_generation_control(installed)
+    assert raised.value.code == "generation_control_unavailable"
+    assert _fingerprint(path) == planted[0]
+    assert (outside / "victim").read_bytes() == b"victim"
+    if boundary == "marker":
+        assert pointer.read_bytes() == b"keep"
+    else:
+        assert not os.path.lexists(marker)
+
+
+@pytest.mark.parametrize("timing", ["before", "locked"])
+@pytest.mark.parametrize("kind", ["missing", "file", "symlink", "junction", "fifo"])
+@pytest.mark.parametrize(
+    "boundary",
+    "store control version actors actor generations root pointer-parent marker-parent".split(),
+)
+def test_control_publication_refuses_path_substitution(
+    store: Path, tmp_path: Path, monkeypatch, boundary: str, kind: str, timing: str
+) -> None:
+    _guard_occupant(kind)
+    if sys.platform == "win32" and timing == "locked" and boundary == "store":
+        pytest.skip("Windows holds the lock path open")
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    pointer.write_bytes(_pointer_bytes(projection))
+    actor = _actor(store)
+    path = {
+        "store": store,
+        "control": store / ".replica",
+        "version": store / ".replica" / "v1",
+        "actors": actor.parent,
+        "actor": actor,
+        "generations": actor / "generations",
+        "root": installed.root_path,
+        "pointer-parent": pointer.parent,
+        "marker-parent": marker.parent,
+    }[boundary]
+    backup = tmp_path / "original"
+    saved_pointer = backup / pointer.relative_to(path) if pointer.is_relative_to(path) else pointer
+    saved_marker = backup / marker.relative_to(path) if marker.is_relative_to(path) else marker
+
+    def substitute() -> None:
+        path.rename(backup)
+        (backup / "victim").write_bytes(b"victim")
+        _plant_occupant(path, kind, backup)
+
+    if timing == "before":
+        substitute()
+    else:
+        _wrap_lock(monkeypatch, substitute)
+    _forbid_publication_effects(monkeypatch)
+    with pytest.raises((ReplicaControlReadError, GenerationRootDivergedError)) as raised:
+        publish_generation_control(installed)
+    root_occupant = boundary == "root" and kind in {"missing", "file", "fifo"}
+    assert raised.value.code == (DIVERGED if root_occupant else "generation_control_unavailable")
+    assert _fingerprint(path) is None if kind == "missing" else _fingerprint(path) is not None
+    assert saved_pointer.read_bytes() == _pointer_bytes(projection)
+    assert not os.path.lexists(saved_marker)
+    assert (backup / "victim").read_bytes() == b"victim"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("project_id", "01K00000000000000000000000"),
+        ("store_format_version", 2),
+        ("generation_id", "01K55555555555555555555555"),
+        ("manifest_digest", "b" * 64),
+        ("committed_at", "2998-12-31T23:59:59.999999Z"),
+        ("installed_for_user_id", "01K44444444444444444444444"),
+        ("projection_class", "viewer"),
+        ("projection_scope_id", "b" * 64),
+    ],
+)
+def test_active_target_mismatch_never_mutates(
+    store: Path, monkeypatch, field: str, value: object
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    publish_generation_control(installed)
+    marker, pointer = _control_files(store)
+    pointer.write_bytes(_pointer_bytes(projection, **{field: value}))
+    before = marker.read_bytes(), pointer.read_bytes()
+    monkeypatch.setattr(installation, "atomic_write_bytes", lambda *_a: pytest.fail("wrote"))
+    with pytest.raises(GenerationAuthorityError):
+        publish_generation_control(installed)
+    assert (marker.read_bytes(), pointer.read_bytes()) == before
+
+
+@pytest.mark.parametrize(
+    "state", ["ptr-none", "ptr-bad", "ptr-spaced", "marker-bad", "marker-spaced", "marker-v2"]
+)
+def test_active_incomplete_or_noncanonical_state_fails_closed(
+    store: Path, monkeypatch, state: str
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    authority = publish_generation_control(installed)
+    marker, pointer = _control_files(store)
+    if state == "ptr-none":
+        pointer.unlink()
+    elif state == "ptr-bad":
+        pointer.write_bytes(b"{")
+    elif state == "ptr-spaced":
+        pointer.write_bytes(json.dumps(authority.pointer.model_dump()).encode())
+    elif state == "marker-bad":
+        marker.write_bytes(b"{")
+    elif state == "marker-spaced":
+        marker.write_bytes(json.dumps(authority.marker.model_dump()).encode())
+    else:
+        body = authority.marker.model_dump()
+        body["store_format_version"] = 2
+        marker.write_bytes(json.dumps(body, separators=(",", ":")).encode())
+    before = (marker.read_bytes(), pointer.read_bytes() if pointer.exists() else None)
+    monkeypatch.setattr(installation, "atomic_write_bytes", lambda *_a: pytest.fail("wrote"))
+    with pytest.raises(GenerationAuthorityError):
+        publish_generation_control(installed)
+    assert (marker.read_bytes(), pointer.read_bytes() if pointer.exists() else None) == before
+
+
+@pytest.mark.parametrize("branch", ["absent", "dormant", "active"])
+@pytest.mark.parametrize(("mutation", "message"), AUDIT_ROWS)
+def test_control_publication_reaudits_every_installed_byte(
+    store, tmp_path, monkeypatch, mutation, message, branch
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    if branch == "dormant":
+        pointer.write_bytes(_pointer_bytes(projection))
+    elif branch == "active":
+        publish_generation_control(installed)
+    before = tuple(path.read_bytes() if path.exists() else None for path in (marker, pointer))
+    if mutation in LINK_KINDS:
+        _require_link_kind(mutation)
+    _mutate(installed.root_path, mutation, projection, tmp_path, monkeypatch)
+    _forbid_publication_effects(monkeypatch)
+    _diverges(message, lambda: publish_generation_control(installed))
+    assert (
+        tuple(path.read_bytes() if path.exists() else None for path in (marker, pointer)) == before
+    )
+
+
+@pytest.mark.parametrize(
+    "outcome", ["pointer-fails", "marker-fails", "marker-landed", "marker-corrupt"]
+)
+def test_control_publication_resolves_crash_visible_boundaries(
+    store: Path, monkeypatch, outcome: str
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    real_write = installation.atomic_write_bytes
+
+    def write(path, content):
+        if path == pointer and outcome == "pointer-fails":
+            raise OSError("pointer outcome")
+        if path == marker:
+            if outcome == "marker-fails":
+                raise OSError("marker outcome")
+            if outcome == "marker-corrupt":
+                path.write_bytes(b"{")
+                raise OSError("marker outcome")
+            if outcome == "marker-landed":
+                real_write(path, content)
+                raise OSError("marker outcome")
+        real_write(path, content)
+
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    if outcome == "marker-landed":
+        assert isinstance(publish_generation_control(installed), GenerationProjectAuthority)
+    else:
+        expected = (
+            GenerationControlCorruptError
+            if outcome == "marker-corrupt"
+            else GenerationControlPublicationError
+        )
+        with pytest.raises(expected):
+            publish_generation_control(installed)
+    if outcome in ("pointer-fails", "marker-fails"):
+        assert marker.exists() is False
+        with locked_replica_control_snapshot(
+            projection.target.binding,
+            active_user_id=USER_ID,
+            active_projection_scope_id=SCOPE_ID,
+        ) as snapshot:
+            assert isinstance(snapshot.authority, FlatProjectAuthority)

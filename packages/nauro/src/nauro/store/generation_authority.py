@@ -17,6 +17,12 @@ _CONTROL_SCHEMA_VERSION = 1
 _STRICT_MODEL_CONFIG = pyd.ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
+def _canonical_control_bytes(model: pyd.BaseModel) -> bytes:
+    return json.dumps(
+        model.model_dump(), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+
+
 class GenerationAuthorityError(ValueError):
     """Base class for generation authority selection failures."""
 
@@ -86,6 +92,9 @@ class GenerationAuthorityMarker(pyd.BaseModel):
             raise ValueError("unsupported generation control schema")
         return value
 
+    def canonical_bytes(self) -> bytes:
+        return _canonical_control_bytes(self)
+
 
 class InstalledGenerationPointer(pyd.BaseModel):
     """The actor-bound pointer for one verified installed generation."""
@@ -122,6 +131,9 @@ class InstalledGenerationPointer(pyd.BaseModel):
         if value != _CONTROL_SCHEMA_VERSION:
             raise ValueError("unsupported generation control schema")
         return value
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical_control_bytes(self)
 
 
 @dataclass(frozen=True)
@@ -160,6 +172,7 @@ class _PendingGenerationAuthority:
 
 def _strict_json_preflight(raw: str | bytes) -> None:
     text = raw.decode("utf-8") if type(raw) is bytes else raw
+    assert type(text) is str
     if text.startswith("\ufeff"):
         raise ValueError("JSON byte order marks are not allowed")
 
