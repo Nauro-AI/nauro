@@ -67,6 +67,7 @@ jobs:
       - run: uv sync --locked --package nauro --all-extras --python 3.12
       - run: >-
           uv run --no-sync --package nauro pytest
+          packages/nauro/tests/test_auth.py
           packages/nauro/tests/test_generation_authority.py
           packages/nauro/tests/test_generation_installation.py
           packages/nauro/tests/test_replica_control.py

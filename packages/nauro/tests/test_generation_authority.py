@@ -15,6 +15,7 @@ from nauro.store.generation_authority import (
     GenerationAuthorityMarker,
     GenerationControlCorruptError,
     GenerationProjectAuthority,
+    InstalledAuthorizationView,
     InstalledGenerationPointer,
     RefreshRequiredError,
     ReplicaActorMismatchError,
@@ -92,6 +93,23 @@ def _pointer(**changes: object) -> str:
     return json.dumps(raw)
 
 
+def _authorization_view(**changes: object) -> bytes:
+    raw: dict[str, object] = {
+        "schema_version": 1,
+        "project_id": PROJECT_ID,
+        "store_format_version": 1,
+        "generation_id": GENERATION_ID,
+        "manifest_digest": MANIFEST_DIGEST,
+        "committed_at": COMMITTED_AT,
+        "installed_state_id": INSTALL_STATE_ID,
+        "installed_for_user_id": USER_ID,
+        "projection_class": "contributor_plus",
+        "projection_scope_id": PROJECTION_SCOPE_ID,
+    }
+    raw.update(changes)
+    return json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()
+
+
 def _select(
     *,
     marker_json: str | bytes | None = None,
@@ -138,6 +156,72 @@ def test_control_models_emit_exact_canonical_bytes() -> None:
     assert isinstance(selected, GenerationProjectAuthority)
     assert selected.marker.canonical_bytes() == marker_bytes
     assert selected.pointer.canonical_bytes() == pointer_bytes
+
+
+def test_authorization_view_has_exact_canonical_frozen_contract() -> None:
+    raw = _authorization_view()
+    view = generation_authority._parse_authorization_view(raw)
+
+    assert type(view) is InstalledAuthorizationView
+    assert view.canonical_bytes() == raw
+    assert view.model_dump() == json.loads(raw)
+    assert not raw.startswith(b"\xef\xbb\xbf") and not raw.endswith(b"\n")
+    with pytest.raises(pyd.ValidationError):
+        view.generation_id = OTHER_PROJECT_ID
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {},
+        pytest.param(HostileStr(_authorization_view().decode()), id="hostile-str"),
+        b"not-json",
+        b"[]",
+        b"\xff",
+        ("[" * 1100 + "0" + "]" * 1100).encode(),
+        b"\xef\xbb\xbf" + _authorization_view(),
+        _authorization_view() + b"\n",
+        _authorization_view().replace(b'"schema_version":1', b'"schema_version":1.0'),
+        _authorization_view().replace(b'"schema_version":1', b'"schema_version":2'),
+        _authorization_view().replace(b'"schema_version":1', b'"schema_version":1,"extra":1'),
+        _authorization_view().replace(
+            b'"schema_version":1', b'"schema_version":2,"schema_\\u0076ersion":1'
+        ),
+        _authorization_view().replace(b'"schema_version":1', b'"schema_version":NaN'),
+        _authorization_view(project_id=PROJECT_ID.lower()),
+        _authorization_view(store_format_version=0),
+        _authorization_view(generation_id="generation-1"),
+        _authorization_view(manifest_digest="A" * 64),
+        _authorization_view(committed_at="2026-09-02T01:02:03Z"),
+        _authorization_view(installed_state_id="state-1"),
+        _authorization_view(installed_for_user_id="user-1"),
+        _authorization_view(projection_class="owner"),
+        _authorization_view(projection_scope_id="B" * 64),
+    ],
+)
+def test_authorization_view_rejects_noncanonical_or_invalid_input(raw: object) -> None:
+    with pytest.raises(GenerationControlCorruptError) as raised:
+        generation_authority._parse_authorization_view(raw)  # type: ignore[arg-type]
+
+    assert (type(raised.value), raised.value.code, str(raised.value)) == (
+        GenerationControlCorruptError,
+        "generation_control_corrupt",
+        "The installed authorization view is invalid.",
+    )
+
+
+@pytest.mark.parametrize("error_type", [ValueError, TypeError, RecursionError])
+def test_authorization_view_hides_parser_failures(monkeypatch, error_type) -> None:
+    monkeypatch.setattr(
+        generation_authority,
+        "_strict_json_preflight",
+        lambda _raw: (_ for _ in ()).throw(error_type("secret parser detail")),
+    )
+
+    with pytest.raises(GenerationControlCorruptError) as raised:
+        generation_authority._parse_authorization_view(_authorization_view())
+
+    assert str(raised.value) == "The installed authorization view is invalid."
 
 
 def _assert_corrupt(

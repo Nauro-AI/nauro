@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 import threading
 from dataclasses import FrozenInstanceError
@@ -18,6 +19,8 @@ from nauro.store.generation_authority import (
     GenerationControlCorruptError,
     RefreshRequiredError,
     ReplicaActorMismatchError,
+    _parse_marker,
+    _PendingGenerationAuthority,
 )
 from nauro.store.replica_control import (
     ReplicaControlBusyError,
@@ -82,6 +85,20 @@ def _pointer_path(path: Path) -> Path:
     return path / ".replica" / "v1" / "actors" / USER_ID / "pointer.json"
 
 
+def _view_path(path: Path) -> Path:
+    return path / ".replica" / "v1" / "actors" / USER_ID / "authorization-view.json"
+
+
+def _pending(binding: ResolvedProjectBinding) -> _PendingGenerationAuthority:
+    return _PendingGenerationAuthority(binding, _parse_marker(_marker()), USER_ID)
+
+
+def _view() -> bytes:
+    value = json.loads(_pointer())
+    del value["installed_at"]
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
 def _write_control(path: Path, marker: bytes | None = None, pointer: bytes | None = None):
     marker, pointer = marker or _marker(), pointer or _pointer()
     layout = _layout(path)
@@ -108,6 +125,7 @@ def test_local_mode_performs_no_lock_or_control_io(tmp_path, monkeypatch):
     binding = _binding(tmp_path / PROJECT_ID, "local")
     monkeypatch.setattr(control, "_validate_store_path", lambda *_: pytest.fail("path I/O"))
     monkeypatch.setattr(control, "_new_native_lock", lambda *_: pytest.fail("lock I/O"))
+    monkeypatch.setattr(control, "_read_actor_authorization_view", lambda *_: pytest.fail("view"))
     with _locked(binding, active_user_id=HostileStr(USER_ID)) as snapshot:
         assert snapshot.authority == FlatProjectAuthority(binding)
         assert (snapshot.marker_json, snapshot.pointer_json) == (None, None)
@@ -120,9 +138,125 @@ def test_absent_marker_ignores_a_poisoned_dormant_pointer(tmp_path, monkeypatch)
     pointer.parent.mkdir(parents=True)
     _symlink(pointer, tmp_path / "outside")
     monkeypatch.setattr(control, "_actor_pointer", lambda *_: pytest.fail("pointer path"))
+    monkeypatch.setattr(control, "_read_actor_authorization_view", lambda *_: pytest.fail("view"))
     with _locked(binding) as snapshot:
         assert snapshot.authority == FlatProjectAuthority(binding)
         assert (snapshot.marker_json, snapshot.pointer_json) == (None, None)
+
+
+def test_actor_authorization_view_path_and_read_contract(tmp_path: Path) -> None:
+    binding = _binding(tmp_path / PROJECT_ID)
+    pending = _pending(binding)
+    path = _view_path(binding.store_path)
+
+    assert (
+        control._actor_authorization_view(_layout(binding.store_path).control_root, pending) == path
+    )
+    assert control._read_actor_authorization_view(pending) == (None, None)
+    assert not path.exists() and not path.parent.exists()
+    path.parent.mkdir(parents=True)
+    raw = _view()
+    path.write_bytes(raw)
+
+    exact, parsed = control._read_actor_authorization_view(pending)
+    assert exact == raw
+    assert parsed is not None and parsed.canonical_bytes() == raw
+
+
+def test_actor_authorization_view_rejects_malformed_bytes(tmp_path: Path) -> None:
+    binding = _binding(tmp_path / PROJECT_ID)
+    path = _view_path(binding.store_path)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"{}")
+
+    with pytest.raises(GenerationControlCorruptError) as raised:
+        control._read_actor_authorization_view(_pending(binding))
+    assert str(raised.value) == "The installed authorization view is invalid."
+
+
+@pytest.mark.parametrize("target", ["marker", "pointer", "carrier"])
+def test_control_readers_reject_hard_links(tmp_path: Path, target: str) -> None:
+    binding = _binding(tmp_path / PROJECT_ID)
+    _write_control(binding.store_path)
+    path = {
+        "marker": _layout(binding.store_path).authority_marker,
+        "pointer": _pointer_path(binding.store_path),
+        "carrier": _view_path(binding.store_path),
+    }[target]
+    if target == "carrier":
+        path.write_bytes(_view())
+    os.link(path, tmp_path / "second-link")
+
+    with pytest.raises(ReplicaControlReadError) as raised:
+        if target == "carrier":
+            control._read_actor_authorization_view(_pending(binding))
+        else:
+            with _locked(binding):
+                pass
+    assert (raised.value.code, str(raised.value)) == (
+        "generation_control_unavailable",
+        "Replica control file is not a bounded regular file.",
+    )
+
+
+@pytest.mark.parametrize(
+    "kind", ["symlink", "directory", "fifo", "oversized", "reparse", "device", "socket"]
+)
+def test_authorization_view_rejects_unsafe_occupants(tmp_path, monkeypatch, kind) -> None:
+    binding = _binding(tmp_path / PROJECT_ID)
+    path = _view_path(binding.store_path)
+    path.parent.mkdir(parents=True)
+    if kind == "directory":
+        path.mkdir()
+    elif kind == "fifo":
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("FIFO creation is unavailable")
+        os.mkfifo(path)
+    elif kind == "symlink":
+        _symlink(path, tmp_path / "outside")
+    else:
+        path.write_bytes(b"x" * (16 * 1024 + 1) if kind == "oversized" else _view())
+        if kind != "oversized":
+            real_lstat = os.lstat
+
+            def lstat(candidate):
+                value = real_lstat(candidate)
+                if Path(candidate) == path:
+                    mode = {"device": stat.S_IFCHR, "socket": stat.S_IFSOCK}.get(
+                        kind, value.st_mode
+                    )
+                    return SimpleNamespace(
+                        st_mode=mode,
+                        st_file_attributes=0x400 if kind == "reparse" else 0,
+                    )
+                return value
+
+            monkeypatch.setattr(control.os, "lstat", lstat)
+
+    with pytest.raises(ReplicaControlReadError):
+        control._read_actor_authorization_view(_pending(binding))
+
+
+def test_control_reader_rejects_final_path_replacement(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "control.json"
+    path.write_bytes(b"{}")
+    real_lstat, calls = os.lstat, 0
+
+    def lstat(candidate):
+        nonlocal calls
+        calls += 1
+        value = real_lstat(candidate)
+        if calls == 2:
+            values, attributes = value.__reduce__()[1]
+            values = list(values)
+            values[1] += 1
+            return os.stat_result(values, attributes)
+        return value
+
+    monkeypatch.setattr(control.os, "lstat", lstat)
+    with pytest.raises(ReplicaControlReadError) as raised:
+        control._read_optional_file(path)
+    assert str(raised.value) == "Replica control file changed during read."
 
 
 @pytest.mark.parametrize(
@@ -374,7 +508,18 @@ def test_control_files_are_bounded_and_regular(tmp_path: Path, kind: str) -> Non
 
 
 @pytest.mark.parametrize(
-    "operation", ["metadata", "open", "open-replace", "read-replace", "read", "flags"]
+    "operation",
+    [
+        "metadata",
+        "open",
+        "open-replace",
+        "read-replace",
+        "open-link",
+        "read-link",
+        "short",
+        "read",
+        "flags",
+    ],
 )
 def test_control_io_and_replacement_failures_are_typed(tmp_path, monkeypatch, operation):
     path = tmp_path / "control.json"
@@ -387,18 +532,22 @@ def test_control_io_and_replacement_failures_are_typed(tmp_path, monkeypatch, op
         monkeypatch.setattr(control.os, "lstat", lambda _: (_ for _ in ()).throw(OSError()))
     elif operation == "open":
         monkeypatch.setattr(control.os, "open", lambda *_: (_ for _ in ()).throw(OSError()))
-    elif "replace" in operation:
+    elif "replace" in operation or "link" in operation:
         original, calls = os.fstat, 0
+        field = 3 if "link" in operation else 1
+        target = 1 if operation.startswith("open") else 2
 
         def fstat(fd: int):
             nonlocal calls
             calls += 1
             values, attributes = original(fd).__reduce__()[1]
             values = list(values)
-            values[1] += calls == (1 if operation == "open-replace" else 2)
+            values[field] += calls == target
             return os.stat_result(values, attributes)
 
         monkeypatch.setattr(control.os, "fstat", fstat)
+    elif operation == "short":
+        monkeypatch.setattr(control.os, "read", lambda *_: b"{")
     else:
         monkeypatch.setattr(control.os, "read", lambda *_: (_ for _ in ()).throw(OSError()))
     with pytest.raises(ReplicaControlReadError) as raised:

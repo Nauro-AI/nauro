@@ -18,7 +18,9 @@ from nauro_core.constants import HOSTED_STORE_FORMAT_VERSION
 from nauro.store.generation_authority import (
     FlatProjectAuthority,
     GenerationAuthorityError,
+    InstalledAuthorizationView,
     ProjectAuthority,
+    _parse_authorization_view,
     _PendingGenerationAuthority,
     _select_generation_pointer,
     _select_marker_authority,
@@ -69,6 +71,11 @@ class ReplicaControlSnapshot:
 def _actor_pointer(control_root: Path, pending: _PendingGenerationAuthority) -> Path:
     version = f"v{HOSTED_STORE_FORMAT_VERSION}"
     return control_root / version / "actors" / pending.active_user_id / "pointer.json"
+
+
+def _actor_authorization_view(control_root: Path, pending: _PendingGenerationAuthority) -> Path:
+    version = f"v{pending.marker.store_format_version}"
+    return control_root / version / "actors" / pending.active_user_id / "authorization-view.json"
 
 
 def _is_link_or_reparse(metadata: Any) -> bool:
@@ -131,6 +138,7 @@ def _read_optional_file(path: Path) -> bytes | None:
     if (
         _is_link_or_reparse(observed)
         or not stat.S_ISREG(observed.st_mode)
+        or observed.st_nlink != 1
         or observed.st_size > _MAX_CONTROL_FILE_BYTES
     ):
         raise ReplicaControlReadError("Replica control file is not a bounded regular file.")
@@ -142,7 +150,9 @@ def _read_optional_file(path: Path) -> bytes | None:
         if (
             _is_link_or_reparse(opened)
             or not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
             or (opened.st_dev, opened.st_ino) != (observed.st_dev, observed.st_ino)
+            or opened.st_size != observed.st_size
             or opened.st_size > _MAX_CONTROL_FILE_BYTES
         ):
             raise ReplicaControlReadError("Replica control file changed during open.")
@@ -151,10 +161,23 @@ def _read_optional_file(path: Path) -> bytes | None:
         if (
             _is_link_or_reparse(finished)
             or not stat.S_ISREG(finished.st_mode)
+            or finished.st_nlink != 1
             or len(content) > _MAX_CONTROL_FILE_BYTES
             or (finished.st_dev, finished.st_ino) != (opened.st_dev, opened.st_ino)
             or finished.st_size != opened.st_size
             or len(content) != finished.st_size
+        ):
+            raise ReplicaControlReadError("Replica control file changed during read.")
+        try:
+            final = os.lstat(path)
+        except OSError as exc:
+            raise ReplicaControlReadError("Replica control file changed during read.") from exc
+        if (
+            _is_link_or_reparse(final)
+            or not stat.S_ISREG(final.st_mode)
+            or final.st_nlink != 1
+            or (final.st_dev, final.st_ino, final.st_size)
+            != (observed.st_dev, observed.st_ino, observed.st_size)
         ):
             raise ReplicaControlReadError("Replica control file changed during read.")
         return content
@@ -164,6 +187,19 @@ def _read_optional_file(path: Path) -> bytes | None:
         if descriptor is not None:
             with suppress(OSError):
                 os.close(descriptor)
+
+
+def _read_actor_authorization_view(
+    pending: _PendingGenerationAuthority,
+) -> tuple[bytes | None, InstalledAuthorizationView | None]:
+    store_path = _validate_store_path(pending.binding)
+    control_root = store_path / _REPLICA_CONTROL_ROOT_NAME
+    path = _actor_authorization_view(control_root, pending)
+    _validate_managed_path(store_path, path)
+    raw = _read_optional_file(path)
+    if raw is None:
+        return None, None
+    return raw, _parse_authorization_view(raw)
 
 
 def _new_native_lock(path: Path, timeout: float):

@@ -136,6 +136,45 @@ class InstalledGenerationPointer(pyd.BaseModel):
         return _canonical_control_bytes(self)
 
 
+class InstalledAuthorizationView(pyd.BaseModel):
+    """The authenticated authorization view installed beside a generation pointer."""
+
+    model_config = _STRICT_MODEL_CONFIG
+
+    schema_version: pyd.StrictInt
+    project_id: pyd.StrictStr
+    store_format_version: pyd.StrictInt = pyd.Field(ge=1)
+    generation_id: pyd.StrictStr
+    manifest_digest: pyd.StrictStr
+    committed_at: pyd.StrictStr
+    installed_state_id: pyd.StrictStr
+    installed_for_user_id: pyd.StrictStr
+    projection_class: Literal["viewer", "contributor_plus"]
+    projection_scope_id: pyd.StrictStr
+
+    _validate_ulids = pyd.field_validator(
+        "project_id",
+        "generation_id",
+        "installed_state_id",
+        "installed_for_user_id",
+    )(_ulid)
+    _validate_digests = pyd.field_validator(
+        "manifest_digest",
+        "projection_scope_id",
+    )(_sha256)
+    _validate_timestamp = pyd.field_validator("committed_at")(_timestamp)
+
+    @pyd.field_validator("schema_version")
+    @classmethod
+    def _supported_schema(cls, value: int) -> int:
+        if value != _CONTROL_SCHEMA_VERSION:
+            raise ValueError("unsupported authorization view schema")
+        return value
+
+    def canonical_bytes(self) -> bytes:
+        return _canonical_control_bytes(self)
+
+
 @dataclass(frozen=True)
 class FlatProjectAuthority:
     """A local-only or pre-epoch hosted flat store."""
@@ -208,6 +247,20 @@ def _parse_pointer(raw: str | bytes) -> InstalledGenerationPointer:
         return InstalledGenerationPointer.model_validate_json(raw)
     except (pyd.ValidationError, ValueError, TypeError, RecursionError) as exc:
         raise GenerationControlCorruptError("The installed generation pointer is invalid.") from exc
+
+
+def _parse_authorization_view(raw: str | bytes) -> InstalledAuthorizationView:
+    if type(raw) not in (str, bytes):
+        raise GenerationControlCorruptError("The installed authorization view is invalid.")
+    try:
+        _strict_json_preflight(raw)
+        view = InstalledAuthorizationView.model_validate_json(raw)
+        encoded = raw if isinstance(raw, bytes) else raw.encode("utf-8")
+        if encoded != view.canonical_bytes():
+            raise ValueError("authorization view bytes are not canonical")
+        return view
+    except (pyd.ValidationError, ValueError, TypeError, RecursionError) as exc:
+        raise GenerationControlCorruptError("The installed authorization view is invalid.") from exc
 
 
 def _active_user_id(value: str | None) -> str:
@@ -313,6 +366,7 @@ __all__ = [
     "GenerationAuthorityMarker",
     "GenerationControlCorruptError",
     "GenerationProjectAuthority",
+    "InstalledAuthorizationView",
     "InstalledGenerationPointer",
     "ProjectAuthority",
     "RefreshRequiredError",
