@@ -8,6 +8,7 @@ import os
 import secrets
 import shutil
 import stat
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,8 +21,10 @@ from nauro.store.generation_projection import (
 )
 from nauro.store.replica_control import (
     _READ_FLAGS,
+    _REPLICA_CONTROL_LOCK_NAME,
     _REPLICA_CONTROL_ROOT_NAME,
     _is_link_or_reparse,
+    _native_control_lock,
     _validate_managed_path,
     _validate_store_path,
 )
@@ -35,6 +38,9 @@ _ROOT_KEY_HEX = 32
 _STAGING_TOKEN_BYTES = 8
 _NOT_DIRECTORY = "The generation root component is not a directory."
 _LAYOUT_FAILED = "The generation root layout could not be prepared."
+_PUBLISH_FAILED = "The generation root could not be published."
+_OCCUPIED = "The generation root is occupied by a non-directory entry."
+_STALE_STAGING_SECONDS = 3600
 
 
 class GenerationInstallError(GenerationAuthorityError):
@@ -59,6 +65,15 @@ class StagedGenerationRoot:
     root_path: Path
     staging_path: Path
     audit: GenerationRootAudit
+
+
+@dataclass(frozen=True)
+class InstalledGenerationRoot:
+    target: GenerationProjectionTarget
+    root_key: str
+    root_path: Path
+    audit: GenerationRootAudit
+    reused: bool
 
 
 @dataclass(frozen=True)
@@ -290,7 +305,9 @@ def audit_generation_tree(
     return GenerationRootAudit(manifest_digest, len(projection.artifacts), byte_total)
 
 
-def stage_generation_root(projection: VerifiedGenerationProjection) -> StagedGenerationRoot:
+def _prepare_layout(
+    projection: VerifiedGenerationProjection,
+) -> tuple[Path, _GenerationLayout]:
     if type(projection) is not VerifiedGenerationProjection:
         raise GenerationInstallError("Generation installation requires a verified projection.")
     store_path = _validate_store_path(projection.target.binding)
@@ -304,6 +321,12 @@ def stage_generation_root(projection: VerifiedGenerationProjection) -> StagedGen
         layout.staging_dir,
     ):
         _ensure_directory(store_path, directory)
+    return store_path, layout
+
+
+def _stage(
+    store_path: Path, layout: _GenerationLayout, projection: VerifiedGenerationProjection
+) -> StagedGenerationRoot:
     staging = _create_staging(store_path, layout)
     _stage_tree(store_path, staging, projection)
     try:
@@ -316,7 +339,98 @@ def stage_generation_root(projection: VerifiedGenerationProjection) -> StagedGen
     )
 
 
+def stage_generation_root(projection: VerifiedGenerationProjection) -> StagedGenerationRoot:
+    store_path, layout = _prepare_layout(projection)
+    return _stage(store_path, layout, projection)
+
+
+def _lstat_optional(path: Path) -> os.stat_result | None:
+    try:
+        return os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise GenerationInstallError(_LAYOUT_FAILED) from exc
+
+
+def _sweep_stale_staging(staging_dir: Path) -> None:
+    try:
+        with os.scandir(staging_dir) as entries:
+            listed = [(entry.path, entry.stat(follow_symlinks=False)) for entry in entries]
+    except OSError:
+        return
+    cutoff = time.time() - _STALE_STAGING_SECONDS
+    for native, metadata in listed:
+        if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+            continue
+        if metadata.st_mtime < cutoff:
+            _discard_staging(Path(native))
+
+
+def _rename_into_place(staging: Path, root_path: Path) -> None:
+    try:
+        os.replace(staging, root_path)
+        metadata = os.lstat(root_path)
+    except OSError as exc:
+        raise GenerationInstallError(_PUBLISH_FAILED) from exc
+    if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+        raise GenerationInstallError(_PUBLISH_FAILED)
+
+
+def _publish_or_reuse(
+    store_path: Path,
+    layout: _GenerationLayout,
+    staged: StagedGenerationRoot | None,
+    projection: VerifiedGenerationProjection,
+    lock_path: Path,
+    timeout: float,
+) -> tuple[GenerationRootAudit, bool]:
+    with _native_control_lock(store_path, lock_path, timeout):
+        _validate_managed_path(store_path, layout.root_path)
+        if staged is not None:
+            _validate_managed_path(store_path, staged.staging_path)
+        metadata = _lstat_optional(layout.root_path)
+        if metadata is None:
+            if staged is None:
+                raise GenerationInstallError(_PUBLISH_FAILED)
+            _rename_into_place(staged.staging_path, layout.root_path)
+            return staged.audit, False
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise GenerationRootDivergedError(_OCCUPIED)
+        try:
+            return audit_generation_tree(layout.root_path, projection), True
+        except GenerationInstallError as exc:
+            raise GenerationRootDivergedError(str(exc)) from None
+
+
+def install_generation_root(
+    projection: VerifiedGenerationProjection, *, timeout: float = -1
+) -> InstalledGenerationRoot:
+    store_path, layout = _prepare_layout(projection)
+    lock_path = store_path / _REPLICA_CONTROL_LOCK_NAME
+    _validate_managed_path(store_path, lock_path)
+    _sweep_stale_staging(layout.staging_dir)
+    _validate_managed_path(store_path, layout.root_path)
+    staged: StagedGenerationRoot | None = None
+    if _lstat_optional(layout.root_path) is None:
+        staged = _stage(store_path, layout, projection)
+    try:
+        audit, reused = _publish_or_reuse(
+            store_path, layout, staged, projection, lock_path, timeout
+        )
+    except GenerationAuthorityError:
+        if staged is not None:
+            _discard_staging(staged.staging_path)
+        raise
+    if reused and staged is not None:
+        _discard_staging(staged.staging_path)
+    return InstalledGenerationRoot(
+        projection.target, layout.root_key, layout.root_path, audit, reused
+    )
+
+
 __all__ = (
     "GenerationInstallError GenerationRootAudit GenerationRootDivergedError "
-    "StagedGenerationRoot audit_generation_tree stage_generation_root"
+    "InstalledGenerationRoot StagedGenerationRoot audit_generation_tree "
+    "install_generation_root stage_generation_root"
 ).split()
