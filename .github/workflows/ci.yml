@@ -69,6 +69,7 @@ jobs:
           uv run --no-sync --package nauro pytest
           packages/nauro/tests/test_generation_authority.py
           packages/nauro/tests/test_replica_control.py
+          packages/nauro/tests/test_sync/test_generation_acquisition.py
           packages/nauro/tests/test_sync/test_replica_control_excluded.py
           packages/nauro/tests/test_sync/test_push_admission.py
           packages/nauro/tests/test_sync/test_pull_admission.py
