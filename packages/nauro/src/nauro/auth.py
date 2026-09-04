@@ -18,14 +18,18 @@ from __future__ import annotations
 import base64
 import json
 import os
+import stat
 import threading
 import time
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 
 import filelock
 import httpx
+from nauro_core.identifiers import IdentifierKind, validate_identifier
 
 from nauro.store.config import _config_lock, config_transaction, load_config
+from nauro.store.home import config_file
 
 # Public OAuth identifiers — safe to ship; not secrets. Do not strip.
 DEFAULT_AUTH0_DOMAIN = "dev-q1kuoa1a154u26iw.us.auth0.com"
@@ -42,6 +46,10 @@ class AuthRefreshError(Exception):
     """Raised when an Auth0 refresh-token exchange fails."""
 
 
+class ActiveUserReadError(ValueError):
+    code = "auth_state_unavailable"
+
+
 RATE_LIMITED_MESSAGE = (
     "Auth0 is rate-limiting logins right now. Wait a few seconds and re-run 'nauro auth login'."
 )
@@ -51,6 +59,13 @@ RATE_LIMITED_MESSAGE = (
 _RETRY_AFTER_CEILING_SECONDS = 10.0
 # Fixed backoff per attempt when Retry-After is absent or unparseable.
 _DEFAULT_BACKOFF_SECONDS = (1.0, 2.0)
+_MAX_ACTIVE_AUTH_BYTES = 64 * 1024
+_ACTIVE_AUTH_READ_FLAGS = sum(
+    getattr(os, name, 0)
+    for name in ("O_RDONLY", "O_CLOEXEC", "O_BINARY", "O_NOFOLLOW", "O_NONBLOCK")
+)
+_NO_ACTIVE_ACCOUNT = "No active account is available."
+_AUTH_STATE_UNAVAILABLE = "The active authentication state is unavailable."
 
 
 def _retry_after_seconds(response: httpx.Response, attempt: int) -> float:
@@ -120,6 +135,90 @@ def resolve_auth_config(
         or DEFAULT_AUTH0_AUDIENCE
     )
     return domain, client_id, api_url, audience
+
+
+def _auth_file_state(metadata: os.stat_result) -> tuple[int, int, int, int, int, bool]:
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if stat.S_ISLNK(metadata.st_mode) or bool(attributes & reparse):
+        return 0, 0, 0, 0, 0, True
+    return (
+        stat.S_IFMT(metadata.st_mode),
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_nlink,
+        False,
+    )
+
+
+def _read_active_config() -> bytes:
+    path = config_file()
+    try:
+        observed = os.lstat(path)
+    except FileNotFoundError:
+        raise ActiveUserReadError(_NO_ACTIVE_ACCOUNT) from None
+    except OSError as exc:
+        raise ActiveUserReadError(_AUTH_STATE_UNAVAILABLE) from exc
+    state = _auth_file_state(observed)
+    if state[0] != stat.S_IFREG or state[3] > _MAX_ACTIVE_AUTH_BYTES or state[4] != 1 or state[5]:
+        raise ActiveUserReadError(_AUTH_STATE_UNAVAILABLE)
+
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, _ACTIVE_AUTH_READ_FLAGS)
+        if _auth_file_state(os.fstat(descriptor)) != state:
+            raise ActiveUserReadError(_AUTH_STATE_UNAVAILABLE)
+        content = bytearray()
+        while len(content) <= _MAX_ACTIVE_AUTH_BYTES:
+            chunk = os.read(descriptor, min(8192, _MAX_ACTIVE_AUTH_BYTES + 1 - len(content)))
+            if not chunk:
+                break
+            content.extend(chunk)
+        if _auth_file_state(os.fstat(descriptor)) != state or len(content) != state[3]:
+            raise ActiveUserReadError(_AUTH_STATE_UNAVAILABLE)
+        try:
+            final = os.lstat(path)
+        except OSError as exc:
+            raise ActiveUserReadError(_AUTH_STATE_UNAVAILABLE) from exc
+        if _auth_file_state(final) != state:
+            raise ActiveUserReadError(_AUTH_STATE_UNAVAILABLE)
+        return bytes(content)
+    except OSError as exc:
+        raise ActiveUserReadError(_AUTH_STATE_UNAVAILABLE) from exc
+    finally:
+        if descriptor is not None:
+            with suppress(OSError):
+                os.close(descriptor)
+
+
+def read_active_user_id() -> str:
+    raw = _read_active_config()
+
+    def object_from_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result = dict(pairs)
+        if len(result) != len(pairs):
+            raise ValueError("duplicate JSON object key")
+        return result
+
+    try:
+        text = raw.decode("utf-8")
+        if text.startswith("\ufeff"):
+            raise ValueError("JSON byte order marks are not allowed")
+        config = json.loads(
+            text,
+            object_pairs_hook=object_from_pairs,
+            parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
+        )
+        if type(config) is not dict or type(config.get("auth")) is not dict:
+            raise ValueError("invalid authentication state")
+        auth = config["auth"]
+        token, user_id = auth.get("access_token"), auth.get("user_id")
+        if type(token) is not str or not token or type(user_id) is not str or not user_id:
+            raise ValueError("invalid authentication state")
+        return validate_identifier(IdentifierKind.ulid, user_id, field="auth.user_id")
+    except (UnicodeError, json.JSONDecodeError, ValueError, TypeError, RecursionError) as exc:
+        raise ActiveUserReadError(_NO_ACTIVE_ACCOUNT) from exc
 
 
 def load_access_token() -> str | None:

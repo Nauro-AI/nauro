@@ -2,6 +2,9 @@
 
 import base64
 import json
+import os
+import stat
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -9,7 +12,8 @@ import pytest
 from nauro_core import sanitize_sub
 from typer.testing import CliRunner
 
-from nauro.auth import decode_jwt_payload
+from nauro import auth as auth_domain
+from nauro.auth import ActiveUserReadError, decode_jwt_payload, read_active_user_id
 from nauro.cli.commands import auth as auth_module
 from nauro.cli.commands.auth import (
     _CallbackHandler,
@@ -17,8 +21,10 @@ from nauro.cli.commands.auth import (
 )
 from nauro.cli.main import app
 from nauro.store.config import load_config, save_config
+from nauro.store.home import config_file
 
 runner = CliRunner()
+USER_ID = "01K33333333333333333333333"
 
 
 def _json_bytes(value: object) -> bytes:
@@ -31,6 +37,106 @@ def _make_jwt(payload: dict) -> str:
     body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
     sig = base64.urlsafe_b64encode(b"fakesig").rstrip(b"=").decode()
     return f"{header}.{body}.{sig}"
+
+
+def _active_config(raw: bytes | None = None) -> None:
+    path = config_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    value = raw or json.dumps({"auth": {"access_token": "token", "user_id": USER_ID}}).encode()
+    path.write_bytes(value)
+
+
+def _assert_active_error(message: str) -> None:
+    with pytest.raises(ActiveUserReadError) as raised:
+        read_active_user_id()
+    assert type(raised.value) is ActiveUserReadError
+    assert (raised.value.code, str(raised.value)) == ("auth_state_unavailable", message)
+
+
+def test_active_user_reader_returns_strict_server_user_id(monkeypatch) -> None:
+    _active_config()
+    read = os.read
+    monkeypatch.setattr(auth_domain.os, "read", lambda fd, size: read(fd, min(size, 7)))
+    assert read_active_user_id() == USER_ID
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        b"not-json",
+        b"[]",
+        b"\xef\xbb\xbf{}",
+        b'{"a":1,"\\u0061":2}',
+        b'{"number":NaN}',
+        json.dumps({"auth": {"access_token": "token", "sanitized_sub": USER_ID}}).encode(),
+        json.dumps({"auth": {"access_token": "", "user_id": USER_ID}}).encode(),
+        json.dumps({"auth": {"access_token": "token", "user_id": USER_ID.lower()}}).encode(),
+    ],
+)
+def test_active_user_reader_rejects_missing_or_invalid_state_without_effects(tmp_path, raw) -> None:
+    if raw is not None:
+        _active_config(raw)
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()}
+    _assert_active_error("No active account is available.")
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()} == before
+
+
+@pytest.mark.parametrize(
+    ("index", "value"),
+    [
+        (0, stat.S_IFLNK),
+        (0, stat.S_IFDIR),
+        (0, stat.S_IFIFO),
+        (0, stat.S_IFCHR),
+        (0, stat.S_IFSOCK),
+        (3, 2),
+        (6, 64 * 1024 + 1),
+        (None, None),
+    ],
+)
+def test_active_user_reader_rejects_unsafe_config_occupants(monkeypatch, index, value) -> None:
+    _active_config()
+    metadata = os.lstat(config_file())
+    if index is None:
+        changed = SimpleNamespace(st_mode=metadata.st_mode, st_file_attributes=0x400)
+    else:
+        values, attributes = metadata.__reduce__()[1]
+        values = list(values)
+        values[index] = value
+        changed = os.stat_result(values, attributes)
+    monkeypatch.setattr(auth_domain.os, "lstat", lambda _: changed)
+    _assert_active_error("The active authentication state is unavailable.")
+
+
+@pytest.mark.parametrize(
+    ("api", "at"),
+    [("fstat", 1), ("fstat", 2), ("lstat", 2)],
+)
+def test_active_user_reader_rejects_unstable_or_irregular_reads(monkeypatch, api, at) -> None:
+    _active_config()
+    original, calls = getattr(os, api), 0
+
+    def changed(*args):
+        nonlocal calls
+        calls += 1
+        value = original(*args)
+        if calls != at:
+            return value
+        values, attributes = value.__reduce__()[1]
+        values = list(values)
+        values[1] += 1
+        return os.stat_result(values, attributes)
+
+    monkeypatch.setattr(auth_domain.os, api, changed)
+
+    _assert_active_error("The active authentication state is unavailable.")
+
+
+def test_active_user_reader_rejects_partial_input(monkeypatch) -> None:
+    _active_config()
+    monkeypatch.setattr(auth_domain.os, "read", MagicMock(side_effect=[b"{", b""]))
+    _assert_active_error("The active authentication state is unavailable.")
 
 
 # --- sanitize_sub wiring ---
@@ -518,6 +624,7 @@ class TestAuthLogout:
         assert result.exit_code == 0
         assert "Not authenticated" in result.output
 
+    @pytest.mark.skipif(os.name == "nt", reason="Windows does not enforce POSIX modes")
     def test_config_permissions(self, tmp_path, monkeypatch):
         """Config file should have restricted permissions (0o600) after auth write."""
         import os
