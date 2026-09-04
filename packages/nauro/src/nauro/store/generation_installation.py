@@ -11,23 +11,39 @@ import stat
 import time
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
-from nauro.store.generation_authority import GenerationAuthorityError
+from nauro.store.generation_authority import (
+    FlatProjectAuthority,
+    GenerationAuthorityError,
+    GenerationAuthorityMarker,
+    GenerationControlCorruptError,
+    GenerationProjectAuthority,
+    InstalledGenerationPointer,
+    _select_marker_authority,
+    select_project_authority,
+)
 from nauro.store.generation_projection import (
     GenerationProjectionTarget,
+    GenerationProjectionVerificationError,
     VerifiedGenerationProjection,
+    _parse_manifest,
+    _target_parts,
 )
 from nauro.store.replica_control import (
     _READ_FLAGS,
     _REPLICA_CONTROL_LOCK_NAME,
     _REPLICA_CONTROL_ROOT_NAME,
+    ReplicaControlReadError,
     _is_link_or_reparse,
     _native_control_lock,
+    _read_optional_file,
     _validate_managed_path,
     _validate_store_path,
 )
+from nauro.store.repo_config import generate_ulid
 from nauro.sync._path_diagnostics import _escape_path_for_display
 
 _GENERATIONS_DIR = "generations"
@@ -41,6 +57,14 @@ _LAYOUT_FAILED = "The generation root layout could not be prepared."
 _PUBLISH_FAILED = "The generation root could not be published."
 _OCCUPIED = "The generation root is occupied by a non-directory entry."
 _STALE_STAGING_SECONDS = 3600
+_AUTHORITY_MARKER_NAME = "authority.json"
+_POINTER_NAME = "pointer.json"
+_INSTALLED_FIELDS = frozenset({"target", "root_key", "root_path", "audit", "reused"})
+_AUDIT_FIELDS = frozenset({"manifest_digest", "artifact_count", "byte_total"})
+_TARGET_POINTER_FIELDS = (
+    "project_id store_format_version generation_id manifest_digest committed_at "
+    "installed_for_user_id projection_class projection_scope_id"
+).split()
 
 
 class GenerationInstallError(GenerationAuthorityError):
@@ -49,6 +73,10 @@ class GenerationInstallError(GenerationAuthorityError):
 
 class GenerationRootDivergedError(GenerationAuthorityError):
     code = "generation_root_diverged"
+
+
+class GenerationControlPublicationError(GenerationAuthorityError):
+    code = "generation_control_publication_failed"
 
 
 @dataclass(frozen=True)
@@ -429,8 +457,430 @@ def install_generation_root(
     )
 
 
+def _publication_failure() -> GenerationControlPublicationError:
+    return GenerationControlPublicationError("The generation control state could not be published.")
+
+
+def _exact_state(
+    value: object, expected_type: type[object], fields: frozenset[str]
+) -> dict[str, object]:
+    try:
+        state = object.__getattribute__(value, "__dict__")
+    except (AttributeError, TypeError):
+        state = None
+    if (
+        type(value) is not expected_type
+        or type(state) is not dict
+        or not all(type(key) is str for key in state)
+        or set(state) != fields
+    ):
+        raise _publication_failure()
+    return state
+
+
+def _rebuild_installed_root(value: object) -> InstalledGenerationRoot:
+    state = _exact_state(value, InstalledGenerationRoot, _INSTALLED_FIELDS)
+    try:
+        binding, identity = _target_parts(state["target"])
+    except GenerationProjectionVerificationError as exc:
+        raise _publication_failure() from exc
+    target = GenerationProjectionTarget(binding, identity)
+    audit_state = _exact_state(state["audit"], GenerationRootAudit, _AUDIT_FIELDS)
+    digest = audit_state["manifest_digest"]
+    count = audit_state["artifact_count"]
+    total = audit_state["byte_total"]
+    root_key = state["root_key"]
+    root_path = state["root_path"]
+    reused = state["reused"]
+    if (
+        type(digest) is not str
+        or type(count) is not int
+        or count < 0
+        or type(total) is not int
+        or total < 0
+        or type(root_key) is not str
+        or type(root_path) is not type(Path())
+        or type(reused) is not bool
+    ):
+        raise _publication_failure()
+    return InstalledGenerationRoot(
+        target, root_key, root_path, GenerationRootAudit(digest, count, total), reused
+    )
+
+
+def _derive_publication(value: object) -> tuple[InstalledGenerationRoot, Path, _GenerationLayout]:
+    installed = _rebuild_installed_root(value)
+    store_path = _validate_store_path(installed.target.binding)
+    layout = _layout(store_path, installed.target)
+    if installed.root_key != layout.root_key or installed.root_path != layout.root_path:
+        raise _publication_failure()
+    return installed, store_path, layout
+
+
+def _require_directory(store_path: Path, path: Path, *, root: bool = False) -> None:
+    _validate_managed_path(store_path, path)
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        if root:
+            raise GenerationRootDivergedError("The generation root is missing.") from None
+        raise ReplicaControlReadError("Replica control path metadata is unavailable.") from None
+    except OSError as exc:
+        raise ReplicaControlReadError("Replica control path metadata is unavailable.") from exc
+    if _is_link_or_reparse(metadata):
+        raise ReplicaControlReadError("Replica control paths cannot contain links.")
+    if not stat.S_ISDIR(metadata.st_mode):
+        if root:
+            raise GenerationRootDivergedError(_OCCUPIED)
+        raise ReplicaControlReadError("Replica control path is not a plain directory.")
+
+
+def _validate_lock_path(store_path: Path, path: Path, *, required: bool) -> None:
+    _validate_managed_path(store_path, path)
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        if not required:
+            return
+        raise ReplicaControlReadError("Replica control lock is unavailable.") from None
+    except OSError as exc:
+        raise ReplicaControlReadError("Replica control lock is unavailable.") from exc
+    if (
+        _is_link_or_reparse(metadata)
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+    ):
+        raise ReplicaControlReadError("Replica control lock path is unsafe.")
+
+
+def _reprove_publication_paths(
+    installed: InstalledGenerationRoot,
+    store_path: Path,
+    layout: _GenerationLayout,
+    lock_path: Path,
+) -> None:
+    _validate_store_path(installed.target.binding)
+    _validate_lock_path(store_path, lock_path, required=True)
+    for directory in (
+        layout.control_root,
+        layout.actor.parent.parent,
+        layout.actor.parent,
+        layout.actor,
+        layout.generations,
+    ):
+        _require_directory(store_path, directory)
+    _require_directory(store_path, layout.root_path, root=True)
+
+
+def _read_control_file(store_path: Path, path: Path) -> bytes | None:
+    _require_directory(store_path, path.parent)
+    _validate_managed_path(store_path, path)
+    try:
+        before = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ReplicaControlReadError("Replica control file metadata is unavailable.") from exc
+    if before.st_nlink != 1:
+        raise ReplicaControlReadError("Replica control file is not a bounded regular file.")
+    content = _read_optional_file(path)
+    try:
+        after = os.lstat(path)
+    except OSError as exc:
+        raise ReplicaControlReadError("Replica control file changed during read.") from exc
+    if (
+        _is_link_or_reparse(after)
+        or not stat.S_ISREG(after.st_mode)
+        or after.st_nlink != 1
+        or (after.st_dev, after.st_ino, after.st_size)
+        != (before.st_dev, before.st_ino, before.st_size)
+    ):
+        raise ReplicaControlReadError("Replica control file changed during read.")
+    return content
+
+
+def _installed_file(path: Path, display: str) -> tuple[tuple[int, int], int]:
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        raise GenerationInstallError(
+            f"The generation root is missing an entry: {display}."
+        ) from None
+    except OSError as exc:
+        raise GenerationInstallError(f"The generation root is unreadable: {display}.") from exc
+    if _is_link_or_reparse(metadata):
+        raise GenerationInstallError(f"The generation root holds a link: {display}.")
+    if not stat.S_ISREG(metadata.st_mode):
+        raise GenerationInstallError(f"The generation root holds an irregular entry: {display}.")
+    if metadata.st_nlink > 1:
+        raise GenerationInstallError(f"The generation root holds a linked file: {display}.")
+    return (metadata.st_dev, metadata.st_ino), metadata.st_size
+
+
+def _stream_digest(
+    path: Path,
+    identity: tuple[int, int],
+    size: int,
+    expected: str,
+    display: str,
+    mismatch: str,
+) -> int:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(path, _READ_FLAGS)
+        opened = os.fstat(descriptor)
+        if (
+            _is_link_or_reparse(opened)
+            or not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or (opened.st_dev, opened.st_ino) != identity
+            or opened.st_size != size
+        ):
+            raise GenerationInstallError(f"The generation root changed during audit: {display}.")
+        hashed, total = hashlib.sha256(), 0
+        while chunk := os.read(descriptor, 64 * 1024):
+            hashed.update(chunk)
+            total += len(chunk)
+        finished = os.fstat(descriptor)
+        if (
+            _is_link_or_reparse(finished)
+            or not stat.S_ISREG(finished.st_mode)
+            or finished.st_nlink != 1
+            or (finished.st_dev, finished.st_ino) != identity
+            or finished.st_size != size
+            or total != size
+        ):
+            raise GenerationInstallError(f"The generation root changed during audit: {display}.")
+        if hashed.hexdigest() != expected:
+            raise GenerationInstallError(mismatch)
+        return total
+    except OSError as exc:
+        raise GenerationInstallError(f"The generation root is unreadable: {display}.") from exc
+    finally:
+        if descriptor is not None:
+            with suppress(OSError):
+                os.close(descriptor)
+
+
+def _audit_installed_root(
+    store_path: Path, layout: _GenerationLayout, installed: InstalledGenerationRoot
+) -> str:
+    _require_directory(store_path, layout.root_path, root=True)
+    try:
+        manifest_path = layout.root_path / _MANIFEST_NAME
+        manifest_identity, manifest_size = _installed_file(manifest_path, _MANIFEST_NAME)
+        _stream_digest(
+            manifest_path,
+            manifest_identity,
+            manifest_size,
+            installed.target.identity.manifest_digest,
+            _MANIFEST_NAME,
+            "The generation root manifest diverges.",
+        )
+        manifest_json = _read_expected(
+            manifest_path, manifest_size, manifest_identity, _MANIFEST_NAME
+        )
+        if len(manifest_json) != manifest_size or _installed_file(
+            manifest_path, _MANIFEST_NAME
+        ) != (manifest_identity, manifest_size):
+            raise GenerationInstallError("The generation root changed during audit: manifest.json.")
+        manifest = _parse_manifest(installed.target, manifest_json)
+        files = {_MANIFEST_NAME: len(manifest_json)}
+        directories = {_STORE_DIR}
+        for artifact in manifest.artifacts:
+            relative = f"{_STORE_DIR}/{artifact}"
+            files[relative] = 0
+            parts = relative.split("/")
+            directories.update("/".join(parts[:depth]) for depth in range(1, len(parts)))
+        observed = _walk_tree(layout.root_path, files, directories)
+        if observed[_MANIFEST_NAME] != manifest_identity:
+            raise GenerationInstallError("The generation root changed during audit: manifest.json.")
+        byte_total = len(manifest_json)
+        for artifact, digest in manifest.artifacts.items():
+            relative = f"{_STORE_DIR}/{artifact}"
+            display = _escape_path_for_display(artifact)
+            identity, size = _installed_file(layout.root_path / relative, display)
+            if identity != observed[relative]:
+                raise GenerationInstallError(
+                    f"The generation root changed during audit: {display}."
+                )
+            byte_total += _stream_digest(
+                layout.root_path / relative,
+                identity,
+                size,
+                digest,
+                display,
+                f"The generation artifact diverges: {display}.",
+            )
+        audit = GenerationRootAudit(
+            installed.target.identity.manifest_digest, len(manifest.artifacts), byte_total
+        )
+    except (GenerationInstallError, GenerationProjectionVerificationError) as exc:
+        raise GenerationRootDivergedError(str(exc)) from None
+    if audit != installed.audit:
+        raise _publication_failure()
+    return manifest.committed_at
+
+
+def _expected_marker(target: GenerationProjectionTarget) -> GenerationAuthorityMarker:
+    identity = target.identity
+    return GenerationAuthorityMarker.model_validate(
+        {
+            "schema_version": 1,
+            "authority": "generation",
+            "project_id": identity.project_id,
+            "store_format_version": identity.store_format_version,
+        }
+    )
+
+
+def _require_target(
+    authority: GenerationProjectAuthority, target: GenerationProjectionTarget
+) -> None:
+    pointer, identity = authority.pointer, target.identity
+    if any(getattr(pointer, field) != getattr(identity, field) for field in _TARGET_POINTER_FIELDS):
+        raise _publication_failure()
+
+
+def _select_exact(
+    target: GenerationProjectionTarget, marker_json: bytes, pointer_json: bytes | None
+) -> GenerationProjectAuthority:
+    selected = select_project_authority(
+        target.binding,
+        marker_json=marker_json,
+        pointer_json=pointer_json,
+        active_user_id=target.identity.installed_for_user_id,
+        active_projection_scope_id=target.identity.projection_scope_id,
+    )
+    if not isinstance(selected, GenerationProjectAuthority):
+        raise _publication_failure()
+    if (
+        marker_json != selected.marker.canonical_bytes()
+        or pointer_json != selected.pointer.canonical_bytes()
+    ):
+        raise GenerationControlCorruptError("Generation control state is not canonical.")
+    _require_target(selected, target)
+    return selected
+
+
+def _read_active_marker(target: GenerationProjectionTarget, marker_json: bytes) -> None:
+    selected = _select_marker_authority(
+        target.binding,
+        marker_json=marker_json,
+        active_user_id=target.identity.installed_for_user_id,
+    )
+    if (
+        isinstance(selected, FlatProjectAuthority)
+        or marker_json != selected.marker.canonical_bytes()
+    ):
+        raise GenerationControlCorruptError("The generation authority marker is not canonical.")
+
+
+def _final_selection(
+    target: GenerationProjectionTarget,
+    store_path: Path,
+    marker_path: Path,
+    pointer_path: Path,
+    marker_bytes: bytes,
+    pointer_bytes: bytes,
+    failure: Exception | None = None,
+) -> GenerationProjectAuthority:
+    observed_marker = _read_control_file(store_path, marker_path)
+    if observed_marker is None:
+        raise _publication_failure() from failure
+    _read_active_marker(target, observed_marker)
+    observed_pointer = _read_control_file(store_path, pointer_path)
+    selected = _select_exact(target, observed_marker, observed_pointer)
+    if observed_marker != marker_bytes or observed_pointer != pointer_bytes:
+        raise _publication_failure()
+    return selected
+
+
+def publish_generation_control(
+    installed: InstalledGenerationRoot, *, timeout: float = -1
+) -> GenerationProjectAuthority:
+    initial, store_path, layout = _derive_publication(installed)
+    lock_path = store_path / _REPLICA_CONTROL_LOCK_NAME
+    _validate_lock_path(store_path, lock_path, required=False)
+    marker_path = layout.control_root / _AUTHORITY_MARKER_NAME
+    pointer_path = layout.actor / _POINTER_NAME
+    with _native_control_lock(store_path, lock_path, timeout):
+        locked, locked_store, locked_layout = _derive_publication(installed)
+        if locked != initial or locked_store != store_path or locked_layout != layout:
+            raise _publication_failure()
+        _reprove_publication_paths(locked, store_path, layout, lock_path)
+        marker_json = _read_control_file(store_path, marker_path)
+        if marker_json is not None:
+            _read_active_marker(locked.target, marker_json)
+            pointer_json = _read_control_file(store_path, pointer_path)
+            selected = _select_exact(locked.target, marker_json, pointer_json)
+            _audit_installed_root(store_path, layout, locked)
+            return selected
+
+        target = locked.target
+        identity = target.identity
+        marker = _expected_marker(target)
+        marker_bytes = marker.canonical_bytes()
+        dormant = _read_control_file(store_path, pointer_path)
+        pointer: InstalledGenerationPointer | None = None
+        if dormant is not None:
+            try:
+                pointer = _select_exact(target, marker_bytes, dormant).pointer
+            except GenerationAuthorityError:
+                pointer = None
+        committed_at = _audit_installed_root(store_path, layout, locked)
+        if pointer is None:
+            pointer = InstalledGenerationPointer.model_validate(
+                {
+                    "schema_version": 1,
+                    **{
+                        field: committed_at if field == "committed_at" else getattr(identity, field)
+                        for field in _TARGET_POINTER_FIELDS
+                    },
+                    "installed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                    "installed_state_id": generate_ulid(),
+                }
+            )
+            pointer_bytes = pointer.canonical_bytes()
+            _require_directory(store_path, pointer_path.parent)
+            if _read_control_file(store_path, marker_path) is not None:
+                raise _publication_failure()
+            try:
+                atomic_write_bytes(pointer_path, pointer_bytes)
+            except Exception as exc:
+                raise _publication_failure() from exc
+        else:
+            pointer_bytes = pointer.canonical_bytes()
+        observed_pointer = _read_control_file(store_path, pointer_path)
+        if observed_pointer != pointer_bytes:
+            raise _publication_failure()
+        _select_exact(target, marker_bytes, observed_pointer)
+        _reprove_publication_paths(locked, store_path, layout, lock_path)
+        observed_pointer = _read_control_file(store_path, pointer_path)
+        if observed_pointer != pointer_bytes:
+            raise _publication_failure()
+        _select_exact(target, marker_bytes, observed_pointer)
+        if _read_control_file(store_path, marker_path) is not None:
+            raise _publication_failure()
+        failure = None
+        try:
+            atomic_write_bytes(marker_path, marker_bytes)
+        except Exception as exc:
+            failure = exc
+        return _final_selection(
+            target,
+            store_path,
+            marker_path,
+            pointer_path,
+            marker_bytes,
+            pointer_bytes,
+            failure,
+        )
+
+
 __all__ = (
-    "GenerationInstallError GenerationRootAudit GenerationRootDivergedError "
-    "InstalledGenerationRoot StagedGenerationRoot audit_generation_tree "
-    "install_generation_root stage_generation_root"
+    "GenerationControlPublicationError GenerationInstallError GenerationRootAudit "
+    "GenerationRootDivergedError InstalledGenerationRoot StagedGenerationRoot "
+    "audit_generation_tree install_generation_root publish_generation_control "
+    "stage_generation_root"
 ).split()

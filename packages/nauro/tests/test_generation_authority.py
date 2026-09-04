@@ -109,6 +109,37 @@ def _select(
     )
 
 
+def test_control_models_emit_exact_canonical_bytes() -> None:
+    marker = GenerationAuthorityMarker.model_validate_json(_marker())
+    pointer = InstalledGenerationPointer.model_validate_json(_pointer())
+
+    marker_bytes = (
+        b'{"authority":"generation","project_id":"01KQ6AZGNA0B3QBF67NBXP3S45",'
+        b'"schema_version":1,"store_format_version":1}'
+    )
+    pointer_bytes = (
+        b'{"committed_at":"2026-09-02T01:02:03.000004Z",'
+        b'"generation_id":"01K11111111111111111111111",'
+        b'"installed_at":"2026-09-02T01:03:04.000005Z",'
+        b'"installed_for_user_id":"01K33333333333333333333333",'
+        b'"installed_state_id":"01K22222222222222222222222",'
+        b'"manifest_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+        b'"project_id":"01KQ6AZGNA0B3QBF67NBXP3S45",'
+        b'"projection_class":"contributor_plus",'
+        b'"projection_scope_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",'
+        b'"schema_version":1,"store_format_version":1}'
+    )
+
+    assert marker.canonical_bytes() == marker_bytes
+    assert pointer.canonical_bytes() == pointer_bytes
+    assert not marker_bytes.endswith(b"\n")
+    assert not pointer_bytes.endswith(b"\n")
+    selected = _select(marker_json=marker_bytes, pointer_json=pointer_bytes)
+    assert isinstance(selected, GenerationProjectAuthority)
+    assert selected.marker.canonical_bytes() == marker_bytes
+    assert selected.pointer.canonical_bytes() == pointer_bytes
+
+
 def _assert_corrupt(
     *,
     boundary: Literal["marker", "pointer"],

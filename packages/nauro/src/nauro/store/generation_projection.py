@@ -26,7 +26,10 @@ _IDENTITY_FIELDS = frozenset(
     "installed_for_user_id projection_class projection_scope_id".split()
 )
 _TARGET_FIELDS = frozenset({"binding", "identity"})
-_BOUND = "project_id store_format_version generation_id projection_class projection_scope_id"
+_BOUND = (
+    "project_id store_format_version generation_id committed_at projection_class "
+    "projection_scope_id"
+)
 _BINDING_FIELDS = frozenset({"store_path", "project_id", "display_name", "mode", "server_url"})
 _BAD_TARGET = "Generation verification requires a validated projection target."
 _BAD_IDENTITY = "Generation projection targets require a validated projection identity."
@@ -181,6 +184,7 @@ class GenerationProjectionManifest(pyd.BaseModel):
     project_id: pyd.StrictStr
     store_format_version: pyd.StrictInt = pyd.Field(ge=1)
     generation_id: pyd.StrictStr
+    committed_at: pyd.StrictStr
     projection_class: Literal["viewer", "contributor_plus"]
     projection_scope_id: pyd.StrictStr
     artifacts: Mapping[pyd.StrictStr, pyd.StrictStr]
@@ -188,6 +192,7 @@ class GenerationProjectionManifest(pyd.BaseModel):
     _exact_types = pyd.field_validator("*", mode="before")(_exact)
     _validate_ulids = pyd.field_validator("project_id", "generation_id")(_ulid)
     _validate_scope = pyd.field_validator("projection_scope_id")(_digest)
+    _validate_timestamp = pyd.field_validator("committed_at")(_timestamp)
 
     @pyd.field_validator("artifacts")
     @classmethod

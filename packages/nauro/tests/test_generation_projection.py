@@ -85,7 +85,8 @@ def _identity_values(raw: bytes, **changes: object) -> dict[str, object]:
 def _manifest_object(**changes: object) -> dict[str, object]:
     body: dict[str, object] = {
         "project_id": PROJECT_ID, "store_format_version": 1,
-        "generation_id": GENERATION_ID, "projection_class": "contributor_plus",
+        "generation_id": GENERATION_ID, "committed_at": COMMITTED_AT,
+        "projection_class": "contributor_plus",
         "projection_scope_id": SCOPE_ID,
         "artifacts": {"project.md": hashlib.sha256(CONTENT).hexdigest()},
     }
@@ -133,7 +134,7 @@ def test_exact_public_fields_and_valid_target_bound_projection() -> None:
         "installed_for_user_id projection_class projection_scope_id".split()
     )
     assert set(GenerationProjectionManifest.model_fields) == set(
-        "project_id store_format_version generation_id projection_class "
+        "project_id store_format_version generation_id committed_at projection_class "
         "projection_scope_id artifacts".split()
     )
     assert [item.name for item in fields(GenerationProjectionTarget)] == ["binding", "identity"]
@@ -142,6 +143,7 @@ def test_exact_public_fields_and_valid_target_bound_projection() -> None:
         PROJECT_ID,
         GENERATION_ID,
     )
+    assert proof.manifest.committed_at == COMMITTED_AT
 
 
 # fmt: off
@@ -342,7 +344,8 @@ def test_invalid_path_and_lone_surrogate_fail_as_malformed_manifest() -> None:
 
 @pytest.mark.parametrize("changes", [
     {"project_id": OTHER_PROJECT_ID}, {"store_format_version": 2},
-    {"generation_id": "01K22222222222222222222222"}, {"projection_class": "viewer"},
+    {"generation_id": "01K22222222222222222222222"},
+    {"committed_at": "2998-12-31T23:59:59.999999Z"}, {"projection_class": "viewer"},
     {"projection_scope_id": "b" * 64},
 ])
 def test_envelope_must_match_target(changes: dict[str, object]) -> None:
@@ -367,6 +370,8 @@ def test_d501_role_seam_precedes_artifact_handling() -> None:
 
 @pytest.mark.parametrize("changes", [
     {"project_id": False}, {"store_format_version": False}, {"projection_class": False},
+    {"committed_at": False}, {"committed_at": "2026-09-02T01:02:03Z"},
+    {"committed_at": StrSub(COMMITTED_AT)},
     {"artifacts": []}, {"artifacts": type("DictSubclass", (dict,), {})({"project.md": "b" * 64})},
     {"artifacts": {StrSub("project.md"): "b" * 64}},
     {"artifacts": {"project.md": StrSub("b" * 64)}}, {"snapshot_digest": "b" * 64},
