@@ -12,72 +12,83 @@
 
 Keep your project's direction in human hands as agents do more of the work.
 
-Before work, Nauro surfaces relevant parts of that record. Approved judgment and reported progress carry into later sessions and connected tools.
+Nauro records the project decisions you approve, including their reasons and rejected alternatives. It brings those reasons into later agent sessions.
 
-**Status:** Stable (1.x). Semantic versioning covers the CLI, local stdio MCP contract, on-disk store format, and curated `nauro-core` import API. Cloud sync and hosted MCP are versioned separately.
+**Status:** Stable (1.x).
 
 ## See it in practice
 
 https://github.com/user-attachments/assets/f75ede99-db11-4460-bc09-801c86df1e19
 
-*A real Codex session, then a Claude session in Pareto, Nauro's development mock project.*
+*A Codex session, then a Claude session in Pareto, Nauro's development mock project.*
 
-## Install
+## Is Nauro a fit?
+
+Nauro supports longer-lived work across sessions, tools, and handoffs. If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Nauro may be more than you need.
+
+Retrieval is advisory. New or revised decisions require your explicit approval. Local use needs no account; the record is plain Markdown on your machine. Cloud sync is optional. Nauro sends no product analytics.
+
+## Get started
+
+### Desktop app (macOS)
+
+The free app installs the CLI, connects agents, and sets up a project. Its read-only viewer shows the project record.
+
+[Download for macOS (Apple silicon)](https://github.com/Nauro-AI/nauro-app-releases/releases/latest/download/Nauro-macOS-arm64.dmg), signed and notarized. [Setup guide](https://nauro.ai/docs/desktop-app).
+
+<details>
+<summary>Watch the desktop app tour</summary>
+
+https://github.com/user-attachments/assets/e23d3d7f-2d5b-4ce4-be18-fcaff74e7973
+
+</details>
+
+### CLI
 
 ```bash
 uv tool install nauro
 ```
 
-Install `uv` with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS or Linux, or use the [Windows instructions](https://docs.astral.sh/uv/getting-started/installation/). With Python 3.10 or newer, `pipx install nauro` also works.
+[Install uv](https://docs.astral.sh/uv/getting-started/installation/), or use `pipx install nauro` with Python 3.10 or newer.
 
-## Try the demo
+## Try the demo (optional)
 
-Pennykeep, the bundled demo, needs no account or agent setup:
+Pennykeep is the bundled fictional budgeting app.
+
+- **Request:** Replace envelope budgeting with spending charts to simplify onboarding.
+- **Prior decision:** In the fictional tester history, passive tracking did not help users control spending. The team accepted extra setup so users assign income before spending.
+- **Possible plan:** Simplify envelope setup, or ask whether to revisit the budgeting model.
+
+No account or agent setup required. On macOS or Linux:
 
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
 nauro init --demo
-nauro check-decision "Store dollar amounts as decimal numbers"
+nauro check-decision "Replace envelope budgeting with a passive spending tracker and charts"
 ```
 
-The top result is `D001`, **Amounts stored in integer cents, never floating point**. Its rationale explains why floating point makes money totals drift.
+Look for **Envelope budgeting method** in the related decisions. This retrieves prior reasoning; it does not run an agent or change decisions. [PowerShell and demo guide](https://nauro.ai/docs/quickstart#demo).
 
 ## Use it on your repo
+
+For CLI setup:
 
 ```bash
 cd your-repo
 nauro adopt --with-skills --with-subagents
 ```
 
-Restart, then seed the store with `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat.
+Skip this command if the desktop wizard already adopted your repository. Restart your agent, then run `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor. Review the proposed project record.
 
-Plain adopt installs `nauro-adopt`. `--with-skills` adds `nauro-ship-task`, `nauro-context`, `nauro-loop`, and `nauro-interview`. `--with-subagents` adds four workflow agents for Claude Code, Cursor, and Codex. Cursor stores its native project agents under `.cursor/agents/`.
+Approve one existing decision you want future sessions to remember. Start a fresh session and ask about a task where it matters. Check how the agent uses the reason.
 
-Cursor runs `nauro-ship-task` natively. `nauro-loop` Program Delivery stays on hold.
+Run `nauro status` to check the connection. See [agent workflows](https://nauro.ai/docs/agents-and-skills) and [setup details](https://nauro.ai/docs/quickstart).
 
-On a new machine, run `nauro setup cursor`, then restart Cursor. Commit `.nauro/config.json`, `.cursor/rules/nauro-*.mdc`, and `.cursor/agents/nauro-*.md`, not the gitignored, machine-local `.cursor/mcp.json`. Cursor Cloud Agents need separate MCP configuration at `cursor.com/agents`.
+An existing `AGENTS.md` is preserved unless you run `nauro sync`. Its `# Manual` section survives replacement.
 
-Run `nauro status` to check MCP, skills, and workflow agents. Run `nauro doctor` to check the project store.
+## Documentation
 
-Nauro surfaces prior judgment for the agent to assess. Retrieval is advisory. New or revised judgment requires your explicit approval. Local use needs no account, and the record is plain Markdown on your machine. Cloud sync and remote MCP access are optional. Nauro sends no product analytics.
-
-Nauro preserves an existing `AGENTS.md` unless you explicitly run `nauro sync`. A `# Manual` section survives replacement.
-
-## Desktop app (macOS)
-
-A free, read-only viewer for the project record: timeline, map, list, activity, and docs. First launch installs the CLI, connects your agents, and adopts or attaches a project.
-
-https://github.com/user-attachments/assets/e23d3d7f-2d5b-4ce4-be18-fcaff74e7973
-
-[Download for macOS (Apple silicon)](https://github.com/Nauro-AI/nauro-app-releases/releases/latest/download/Nauro-macOS-arm64.dmg), signed and notarized.
-
-## Fit
-
-If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Nauro may be more than you need.
-
-Nauro is intended for longer-lived work where context can decay across sessions, tools, repositories, machines, or repeated handoffs.
-
-Read the [documentation](https://nauro.ai/docs) for setup variants, concepts, command references, storage, and cloud access.
+[Documentation](https://nauro.ai/docs) covers commands, storage, and cloud access. Semantic versioning covers the CLI, local stdio MCP contract, store format, and curated `nauro-core` API. Cloud sync and hosted MCP are versioned separately.
 
 ## Development
 

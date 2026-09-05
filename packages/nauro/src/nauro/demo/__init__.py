@@ -200,20 +200,22 @@ DEMO_DECISIONS: list[Decision] = [
         DecisionConfidence.medium,
         DecisionType.pattern,
         Reversibility.moderate,
-        "The core model is envelope budgeting: every dollar of income is assigned to a "
-        "named category envelope before it is spent, and spending draws down a specific "
-        "envelope. The alternative, showing people where their money went after the "
-        "fact, is easier to build and easier to sell, but a rear-view report does not "
-        "change behavior. Committing each dollar in advance is what turns a tracker "
-        "into a budget.",
+        "Every dollar of income is assigned to a named category envelope before it is "
+        "spent, and spending draws down that envelope. This adds setup effort during "
+        "onboarding. In this fictional project's tester history, people who only saw "
+        "charts of past spending kept overspending; people who assigned money in "
+        "advance changed their spending. The team chose envelope budgeting to help "
+        "users plan what they can spend, accepting the extra allocation step. Simplify "
+        "that step when improving onboarding. Replacing it with a passive spending "
+        "tracker would require revisiting this product choice.",
         [
             RejectedAlternative(
                 name="Passive spending tracker",
                 reason=(
-                    "Categorizing past transactions into charts is lower-friction and demos "
-                    "well, but it answers 'where did it go?' rather than 'what is this for?'. "
-                    "Testers who only saw past spend kept overspending; the ones who had to "
-                    "assign money up front changed what they did."
+                    "Past-spending charts need less onboarding because users do not assign "
+                    "income before spending. In the fictional tester history, that simpler "
+                    "flow did not help users control spending. The team accepted more "
+                    "setup effort to keep the focus on planning future spending."
                 ),
             ),
         ],
