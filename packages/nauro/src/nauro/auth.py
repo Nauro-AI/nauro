@@ -23,6 +23,7 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from contextlib import suppress
+from dataclasses import dataclass, field
 
 import filelock
 import httpx
@@ -192,7 +193,13 @@ def _read_active_config() -> bytes:
                 os.close(descriptor)
 
 
-def read_active_user_id() -> str:
+@dataclass(frozen=True)
+class ActiveCredentials:
+    user_id: str
+    access_token: str = field(repr=False)
+
+
+def read_active_credentials() -> ActiveCredentials:
     raw = _read_active_config()
 
     def object_from_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -216,9 +223,15 @@ def read_active_user_id() -> str:
         token, user_id = auth.get("access_token"), auth.get("user_id")
         if type(token) is not str or not token or type(user_id) is not str or not user_id:
             raise ValueError("invalid authentication state")
-        return validate_identifier(IdentifierKind.ulid, user_id, field="auth.user_id")
+        return ActiveCredentials(
+            validate_identifier(IdentifierKind.ulid, user_id, field="auth.user_id"), token
+        )
     except (UnicodeError, json.JSONDecodeError, ValueError, TypeError, RecursionError) as exc:
         raise ActiveUserReadError(_NO_ACTIVE_ACCOUNT) from exc
+
+
+def read_active_user_id() -> str:
+    return read_active_credentials().user_id
 
 
 def load_access_token() -> str | None:
@@ -407,4 +420,7 @@ def decode_jwt_payload(token: str) -> dict:
     if padding != 4:
         payload_b64 += "=" * padding
     payload_bytes = base64.urlsafe_b64decode(payload_b64)
-    return json.loads(payload_bytes)
+    payload = json.loads(payload_bytes)
+    if not isinstance(payload, dict):
+        raise ValueError("JWT payload must be an object")
+    return payload
