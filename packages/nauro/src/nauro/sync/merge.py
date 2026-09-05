@@ -25,6 +25,7 @@ from nauro.store.replica_control import (
     _REPLICA_CONTROL_ROOT_NAME,
 )
 from nauro.store.store_lock import DIR_LOCK_NAME, RMW_LOCK_SUFFIX
+from nauro.store.submission_records import SUBMISSION_RECORDS_DIR
 from nauro.sync._path_diagnostics import (
     _MissingPathPolicy,
     _NativeKind,
@@ -147,6 +148,8 @@ def _classify_component_path(
         return _unsafe(raw_identity, reason)
     if not view.semantic_components:
         return _unsafe(raw_identity, _UnsafeReason.EMPTY_PATH)
+    if SUBMISSION_RECORDS_DIR in view.semantic_components:
+        return _classified(raw_identity, _PathClass.RESERVED_CONTROL)
     if view.semantic_components[0] in {
         _REPLICA_CONTROL_ROOT_NAME.casefold(),
         _REPLICA_CONTROL_LOCK_NAME.casefold(),
@@ -557,6 +560,9 @@ def normalize_rel(relative_path: str) -> str:
 def should_skip(relative_path: str) -> bool:
     """Return True if this file should never be synced."""
     normalized = normalize_rel(relative_path)
+    admission = _classify_sync_path(relative_path)
+    if admission.path_class is _PathClass.RESERVED_CONTROL:
+        return True
     if normalized in NEVER_SYNC:
         return True
     if normalized.split("/", 1)[0].startswith(SPOOL_DIR_PREFIX):
