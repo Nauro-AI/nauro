@@ -450,6 +450,13 @@ def request_presigned_urls(
         return []
     api_url = resolve_api_url()
     endpoint = f"{api_url}/sync/presign"
+    from nauro.sync.writer_credential import writer_headers
+
+    upload_headers = (
+        writer_headers(project_id, api_url)
+        if any(op.get("verb") == "PUT" for op in operations)
+        else {}
+    )
     all_urls: list[dict[str, Any]] = []
     with operation_session(session) as active:
         for start in range(0, len(operations), PRESIGN_BATCH_LIMIT):
@@ -461,7 +468,7 @@ def request_presigned_urls(
                     endpoint,
                     TransferOperation.PRESIGN,
                     json={"project_id": project_id, "operations": chunk},
-                    headers={"Authorization": f"Bearer {token}"},
+                    headers={"Authorization": f"Bearer {token}", **upload_headers},
                     timeout=_DEFAULT_API_TIMEOUT,
                 )
 

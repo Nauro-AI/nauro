@@ -1556,6 +1556,17 @@
           {
             "default": false,
             "flags": [
+              "--push-only"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "push_only",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "default": false,
+            "flags": [
               "--status"
             ],
             "is_flag": true,
