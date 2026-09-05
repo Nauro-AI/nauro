@@ -26,6 +26,8 @@ jobs:
           packages/nauro/src/nauro/store/replica_control.py
           packages/nauro/src/nauro/store/generation_installation.py
           packages/nauro/src/nauro/sync/generation_acquisition.py
+          packages/nauro/src/nauro/store/submission_records.py
+          packages/nauro/src/nauro/sync/judgment_submission.py
           scripts/check_ruff_budget.py
       - run: python scripts/check_single_sourced.py packages/nauro/src
       - run: python scripts/check_docstring_budget.py packages/nauro/src packages/nauro-core/src
