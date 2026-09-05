@@ -978,7 +978,7 @@ provides-extras = ["dev", "embeddings"]
 
 [[package]]
 name = "nauro-core"
-version = "1.16.0"
+version = "1.16.1"
 source = { editable = "packages/nauro-core" }
 dependencies = [
     { name = "bm25s" },
