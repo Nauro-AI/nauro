@@ -51,7 +51,8 @@ def test_root_readme_stays_within_first_use_scope() -> None:
     assert "uv tool install nauro" in readme
     assert "nauro init --demo" in readme
     assert (
-        'nauro check-decision "Replace envelope budgeting with a passive spending tracker and charts"'
+        'nauro check-decision "Replace envelope budgeting '
+        'with a passive spending tracker and charts"'
         in readme
     )
     assert "Envelope budgeting method" in readme
