@@ -6,6 +6,7 @@ defaults, and similarity thresholds.
 """
 
 from nauro_core.protocol import (
+    _PROPOSAL_ADMISSION,
     APPROVAL_BEFORE_PROPOSE,
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -316,9 +317,8 @@ CONTEXT_GUARD_REPORT = (
 # `initialize.instructions` field.
 # MCP_INSTRUCTIONS remains as a backward-compatible alias.
 MCP_INSTRUCTIONS_STATIC = (
-    "Nauro carries human-ratified project judgment across agent sessions. "
-    "Use it to surface relevant prior judgment before choosing an approach, "
-    "and record only decisions the user approves.\n"
+    "Nauro carries human-ratified project judgment across sessions. "
+    "Consult it before choosing; record only approved decisions.\n"
     "\n"
     "## When to check decisions\n"
     "\n"
@@ -332,14 +332,11 @@ MCP_INSTRUCTIONS_STATIC = (
     "\n"
     "## When to propose decisions\n"
     "\n"
-    "Call `propose_decision` when a user chooses between approaches, replaces "
-    "or removes a dependency, establishes a pattern, or cuts scope. Record it "
-    "when decided, not at session end, and include what was rejected and why.\n"
+    f"{_PROPOSAL_ADMISSION}\n"
     "\n"
     f"{APPROVAL_BEFORE_PROPOSE}\n"
     "\n"
-    f"{NO_INVENT_RATIONALE} Do NOT propose decisions for obvious bug fixes, "
-    "adding tests for existing behavior, or renaming variables.\n"
+    f"{NO_INVENT_RATIONALE}\n"
     "\n"
     "## When to get context\n"
     "\n"

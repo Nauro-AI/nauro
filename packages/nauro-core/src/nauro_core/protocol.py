@@ -47,6 +47,14 @@ NO_INVENT_RATIONALE = (
     "reasoning that supports it."
 )
 
+_PROPOSAL_ADMISSION = (
+    "Use `propose_decision` for a consequential future choice another task could "
+    "get wrong without this judgment, or material evidence about an existing decision. "
+    "State when it matters again and the consequence. Apply existing judgment without "
+    "filing routine execution. Easy reversibility or code coverage does not disqualify "
+    "a rule; honor explicit owner requests."
+)
+
 APPROVAL_BEFORE_PROPOSE = (
     "Present the complete add, update, or supersede draft as readable "
     "Markdown with related decisions, end the turn, and get explicit user "
