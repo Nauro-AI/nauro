@@ -17,46 +17,35 @@ Nauro keeps a living project record. It combines project scope, current state, a
 
 The markdown store, context summaries, BM25 retrieval, advisory checks, and optional sync support this loop. They do not replace your judgment or silently change project truth.
 
+## Why project history matters
+
+Pennykeep is the fictional budgeting app bundled with Nauro. Suppose an agent is asked to simplify onboarding by replacing envelope budgeting with a passive spending tracker and charts.
+
+The recorded decision, **Envelope budgeting method**, explains the tradeoff. In the fictional tester history, people who only saw past spending kept overspending. Assigning income before spending helped them change their behavior. The team accepted more setup effort to support that goal.
+
+With that context, an agent can suggest simpler envelope setup or ask you whether to revisit the budgeting model. This is an illustrative outcome, not a recorded agent response.
+
 ## Install
 
 ```bash
-uv tool install nauro     # uv fetches its own Python — nothing else needed
+uv tool install nauro
 ```
 
 No `uv`? Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` (macOS/Linux) or the [PowerShell line](https://docs.astral.sh/uv/getting-started/installation/) on Windows. Already on Python 3.10+? `pipx install nauro` (or `pip install nauro`) works too.
 
 ## Quickstart
 
-See a prior decision in about 30 seconds. No account, MCP wiring, or restart required:
+Try the Pennykeep example without an account or agent setup. On macOS or Linux:
 
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
 nauro init --demo
-nauro check-decision "Store dollar amounts as decimal numbers"
+nauro check-decision "Replace envelope budgeting with a passive spending tracker and charts"
 ```
 
-`nauro init --demo` also generates `AGENTS.md` in the current directory so a coding agent can load the Nauro preflight and demo context before its first task. If the repo already has a hand-authored `AGENTS.md`, Nauro warns and leaves it unchanged.
+Look for **Envelope budgeting method** in the related decisions. Its rationale explains why the team accepted more onboarding effort to help users plan spending. The command retrieves prior decisions; it does not run an agent or change the recorded decision.
 
-You'll see a JSON envelope with the related decisions and a deterministic assessment, e.g.:
-
-```json
-{
-  "store": "local",
-  "related_decisions": [
-    {
-      "id": "decision-001",
-      "title": "Amounts stored in integer cents, never floating point",
-      "score": 8.462,
-      "status": "active",
-      "date": "2026-03-15",
-      "rationale_preview": "Every monetary amount (transactions, budgets, balances) is stored as an integer number of cents and formatted to dollars only for display..."
-    }
-  ],
-  "assessment": "Found 5 related decisions. Top match: D001 \"Amounts stored in integer cents, never floating point\"..."
-}
-```
-
-The demo project ruled out storing money as floating-point dollars because binary floating point cannot represent a value like 0.10 exactly, so totals accumulate rounding error and a balance that should read 0.00 shows -0.01. This protective example isolates Nauro's retrieval mechanism: it brings a recorded constraint into the proposal flow before an agent can re-propose the rejected field.
+See the [demo guide](https://nauro.ai/docs/quickstart#demo) for PowerShell commands and more ways to explore the sample.
 
 If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Nauro may be more than you need. Nauro is designed for context that must persist across longer histories, sessions, tools, repos, machines, or repeated handoffs.
 
@@ -84,7 +73,7 @@ Nauro supports a human-ratified project-judgment loop. It captures what you deci
 
 No model judges your decisions. The check uses deterministic keyword retrieval (BM25), is advisory, and never blocks a change. Agents draft additions, updates, and supersessions; you explicitly approve each one before `propose_decision` commits it in one call.
 
-`check_decision` returns the related prior decisions (the `related_decisions` list shown above) so the agent can weigh them before proposing; Nauro ranks by keyword relevance and does not judge the proposal. On the approved `propose_decision` call, near-matches surface as advisory `similar_decisions`, and a clean proposal commits in one call. What you approve in one tool, every connected agent inherits; for example, a decision recorded in Claude Code is available later in Perplexity. The store is plain markdown in a folder you own. Run it fully locally with no account; cloud sync is opt-in.
+`check_decision` returns the related prior decisions (the `related_decisions` list in the response) so the agent can weigh them before proposing; Nauro ranks by keyword relevance and does not judge the proposal. On the approved `propose_decision` call, near-matches surface as advisory `similar_decisions`, and a clean proposal commits in one call. What you approve in one tool, every connected agent inherits; for example, a decision recorded in Claude Code is available later in Perplexity. The store is plain markdown in a folder you own. Run it fully locally with no account; cloud sync is opt-in.
 
 ## Hosted allowance
 
