@@ -52,8 +52,7 @@ def test_root_readme_stays_within_first_use_scope() -> None:
     assert "nauro init --demo" in readme
     assert (
         'nauro check-decision "Replace envelope budgeting '
-        'with a passive spending tracker and charts"'
-        in readme
+        'with a passive spending tracker and charts"' in readme
     )
     assert "Envelope budgeting method" in readme
     assert readme.index("## See it in practice") < readme.index("## Try the demo (optional)")
