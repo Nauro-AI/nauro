@@ -11,9 +11,10 @@ here rather than inside either operation module.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from typing import NamedTuple
 
-from nauro_core.decision_model import Decision, parse_decision
+from nauro_core.decision_model import Decision, DecisionStatus, parse_decision
 from nauro_core.operations.store import Store
 from nauro_core.parsing import (
     _decision_filename,
@@ -51,9 +52,17 @@ def scan_decision_records(
 
     Results follow :func:`sort_stems_by_number`; parse failures never raise.
     """
+    stems = sort_stems_by_number(store.list_decisions())
+    records, failures = _parse_stems(store, stems)
+    return records, failures, stems
+
+
+def _parse_stems(
+    store: Store, stems: list[str]
+) -> tuple[list[ScannedDecision], list[ParseFailure]]:
+    """Read and parse ``stems`` in the given order, skipping missing and unparseable files."""
     records: list[ScannedDecision] = []
     failures: list[ParseFailure] = []
-    stems = sort_stems_by_number(store.list_decisions())
     bodies = store.read_decisions(stems)
     for stem in stems:
         body = bodies.get(stem)
@@ -65,7 +74,7 @@ def scan_decision_records(
         except Exception as exc:
             logger.debug("Skipping unparseable decision file: %s.md", stem)
             failures.append(ParseFailure(stem=stem, error=str(exc)))
-    return records, failures, stems
+    return records, failures
 
 
 def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
@@ -84,6 +93,44 @@ def parse_all_decisions(store: Store) -> list[Decision]:
     """
     parsed, _ = scan_decisions(store)
     return parsed
+
+
+# Tail-walk batch size: one bulk read per batch, and a batch grows past this
+# size rather than split a run of stems that share one number.
+_TAIL_WALK_BATCH = 32
+
+
+def parse_recent_active_decisions(store: Store, count: int) -> list[Decision]:
+    """Parse the newest active decisions, walking down from the highest number and
+    stopping once ``count`` are in hand. Returns them in corpus order, so any
+    projection of the full active scan that keeps only its tail is unchanged.
+    """
+    stems = sort_stems_by_number(store.list_decisions())
+    if any(extract_decision_number(stem) is None for stem in stems):
+        return [d for d in parse_all_decisions(store) if d.status is DecisionStatus.active]
+    active: list[Decision] = []
+    if count <= 0:
+        return active
+    for batch in _tail_batches(stems):
+        records, _ = _parse_stems(store, batch)
+        active[:0] = [r.decision for r in records if r.decision.status is DecisionStatus.active]
+        if len(active) >= count:
+            break
+    return active
+
+
+def _tail_batches(stems: list[str]) -> Iterator[list[str]]:
+    """Yield ``stems`` from the end in ascending-order batches of roughly
+    ``_TAIL_WALK_BATCH``, never splitting stems that share one decision number.
+    """
+    end = len(stems)
+    while end > 0:
+        start = max(end - _TAIL_WALK_BATCH, 0)
+        boundary_num = extract_decision_number(stems[start])
+        while start > 0 and extract_decision_number(stems[start - 1]) == boundary_num:
+            start -= 1
+        yield stems[start:end]
+        end = start
 
 
 def parse_decision_or_none(body: str, filename: str) -> Decision | None:
