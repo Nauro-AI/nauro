@@ -18,8 +18,10 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
+from nauro_core import decision_model
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
@@ -1040,3 +1042,91 @@ class TestApprovalProvenance:
     def test_partial_group_rejects(self) -> None:
         with pytest.raises(ValidationError, match="partial approval provenance"):
             _minimal_decision(proposed_by="01K00000000000000000000002")
+
+
+# ── Frontmatter loader parity ──
+
+
+def _with_frontmatter(*lines: str) -> str:
+    return (
+        "---\n"
+        + "".join(f"{line}\n" for line in lines)
+        + "---\n\n"
+        + "# 001 \u2014 Loader parity\n\n"
+        + "## Decision\n\nSomething.\n"
+    )
+
+
+# Blocks where libyaml and the pure loader disagree on their own: a tab in a
+# plain scalar, a colon inside a flow sequence, a lone surrogate escape.
+DIVERGENT_BLOCKS = [
+    _with_frontmatter("date: 2026-04-01", "confidence:\thigh"),
+    _with_frontmatter("date: 2026-04-01", "confidence: high", "files_affected: [a:]"),
+    _with_frontmatter("date: 2026-04-01", "confidence: high", 'note: "\\uD800"'),
+]
+
+
+def _outcome(text: str) -> object:
+    try:
+        return parse_decision(text, "001-test.md").model_dump()
+    except (ValueError, ValidationError) as exc:
+        return type(exc)
+
+
+class TestFrontmatterLoaderParity:
+    """Whatever the install's loader, a decision parses to the same values or fails
+    with the same error, because only plain blocks reach the fast loader."""
+
+    @pytest.mark.parametrize("text,filename", ALL_FIXTURES)
+    def test_fixtures_take_the_fast_path_and_agree_with_the_pure_loader(
+        self, text: str, filename: str, monkeypatch
+    ) -> None:
+        block, _body = _split_frontmatter(text, filename)
+        assert decision_model._is_plain_block(block)
+        fast = parse_decision(text, filename).model_dump()
+        monkeypatch.setattr(decision_model, "_FAST_YAML_LOADER", yaml.SafeLoader)
+        assert parse_decision(text, filename).model_dump() == fast
+
+    @pytest.mark.parametrize("text", DIVERGENT_BLOCKS)
+    def test_divergent_blocks_are_routed_past_the_fast_loader(
+        self, text: str, monkeypatch
+    ) -> None:
+        block, _body = _split_frontmatter(text, "001-test.md")
+        assert not decision_model._is_plain_block(block)
+        with_fast = _outcome(text)
+        monkeypatch.setattr(decision_model, "_FAST_YAML_LOADER", yaml.SafeLoader)
+        assert _outcome(text) == with_fast
+
+    @pytest.mark.skipif(not yaml.__with_libyaml__, reason="libyaml not bound")
+    @pytest.mark.parametrize("text", DIVERGENT_BLOCKS)
+    def test_routing_is_load_bearing_on_this_install(self, text: str) -> None:
+        """Handed straight to libyaml, each block parses differently from the pure loader."""
+        block, _body = _split_frontmatter(text, "001-test.md")
+
+        def load(loader: type) -> object:
+            try:
+                return yaml.load(block, Loader=loader)
+            except yaml.YAMLError as exc:
+                return type(exc).__name__
+
+        assert load(yaml.CSafeLoader) != load(yaml.SafeLoader)
+
+    @pytest.mark.parametrize(
+        "value",
+        ["[]", "''", "'70'", "2026-08-05T10:11:12Z", "src/a b.py", "a:b", "-1", "x (y), z~"],
+    )
+    def test_plain_values(self, value: str) -> None:
+        assert decision_model._is_plain_block(f"key: {value}")
+        assert decision_model._is_plain_block(f"- {value}")
+
+    @pytest.mark.parametrize(
+        "value",
+        ["[a]", "a: b", "a:", " a", "a ", "- a", "-", "a #b", "'it''s'", '"a"', "a?", "\\", "é"],
+    )
+    def test_values_outside_the_plain_grammar(self, value: str) -> None:
+        assert not decision_model._is_plain_block(f"key: {value}")
+        assert not decision_model._is_plain_block(f"- {value}")
+
+    @pytest.mark.parametrize("line", ["Key: a", "a b: c", "key:a", "  key: a", "key", "? key"])
+    def test_lines_outside_the_plain_grammar(self, line: str) -> None:
+        assert not decision_model._is_plain_block(line)
