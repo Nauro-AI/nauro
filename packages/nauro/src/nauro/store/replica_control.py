@@ -6,7 +6,7 @@ import os
 import stat
 import sys
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, nullcontext, suppress
+from contextlib import AbstractContextManager, contextmanager, nullcontext, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
@@ -202,7 +202,7 @@ def _read_actor_authorization_view(
     return raw, _parse_authorization_view(raw)
 
 
-def _new_native_lock(path: Path, timeout: float):
+def _new_native_lock(path: Path, timeout: float) -> UnixFileLock | WindowsFileLock:
     lock = FileLock(str(path), timeout=timeout)
     if isinstance(lock, SoftFileLock) or type(lock) not in (UnixFileLock, WindowsFileLock):
         raise ReplicaControlReadError("Native replica control locking is unavailable.")
@@ -282,6 +282,8 @@ def locked_replica_control_snapshot(
     timeout: float = -1,
 ) -> Iterator[ReplicaControlSnapshot]:
     """Yield resolved control state while holding its stable native project lock."""
+    lock: AbstractContextManager[None]
+    authority: ProjectAuthority
     if binding.mode == "local":
         lock = nullcontext()
     else:
@@ -304,6 +306,7 @@ def locked_replica_control_snapshot(
             if isinstance(selected, FlatProjectAuthority):
                 authority, pointer_json = selected, None
             else:
+                pending = selected
                 pointer_path = _actor_pointer(control_root, selected)
                 _validate_managed_path(store_path, pointer_path)
                 pointer_json = _read_optional_file(pointer_path)
@@ -323,7 +326,7 @@ def locked_replica_control_snapshot(
                     return authority
                 _validate_managed_path(store_path, pointer_path)
                 return _select_generation_pointer(
-                    selected,
+                    pending,
                     pointer_json=_read_optional_file(pointer_path),
                     active_projection_scope_id=active_projection_scope_id,
                 )
