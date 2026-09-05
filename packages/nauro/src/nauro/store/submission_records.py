@@ -35,6 +35,7 @@ from nauro.auth import read_active_user_id
 from nauro.store.home import nauro_home
 
 Digest = Annotated[StrictStr, Field(min_length=64, max_length=64, pattern="[0-9a-f]{64}")]
+SUBMISSION_RECORDS_DIR = "submission-records"
 _MAX_RECORD_BYTES = 2 * 1024 * 1024
 
 
@@ -177,7 +178,7 @@ def _ensure_directory(path: Path) -> None:
 def _scope_directory(project_id: str, user_id: str) -> Path:
     validate_identifier(IdentifierKind.ulid, project_id, field="project_id")
     validate_identifier(IdentifierKind.ulid, user_id, field="user_id")
-    return nauro_home() / "submission-records" / project_id / user_id
+    return nauro_home() / SUBMISSION_RECORDS_DIR / project_id / user_id
 
 
 def _record_path(scope: SubmissionScope) -> Path:
