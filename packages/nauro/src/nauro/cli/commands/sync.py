@@ -31,6 +31,9 @@ def sync(
         help="Target project name. Overrides cwd resolution.",
     ),
     status: bool = typer.Option(False, "--status", help="Show sync status."),
+    push_only: bool = typer.Option(
+        False, "--push-only", help="Push local changes without pulling remote files."
+    ),
 ) -> None:
     """Capture a snapshot and regenerate AGENTS.md in each associated repo, pulling before pushing
     when cloud sync is configured. The only command that overwrites an unmanaged AGENTS.md, and
@@ -46,7 +49,13 @@ def sync(
     trigger = message or "manual sync"
 
     with operation_session() as session:
-        pulled = _pull_from_cloud(project_key, store_path, session=session)
+        from nauro.sync.pull import PullReport
+
+        pulled = (
+            PullReport()
+            if push_only
+            else _pull_from_cloud(project_key, store_path, session=session)
+        )
 
         version = capture_snapshot(store_path, trigger=trigger)
 

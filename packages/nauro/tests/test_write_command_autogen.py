@@ -435,3 +435,33 @@ class TestFlagQuestionArgumentShapes:
         envelope = json.loads(result.stdout)
         assert envelope["status"] == "ok"
         assert "[Resolved by D42 on " in (store_path / "open-questions.md").read_text()
+
+
+def test_cli_and_mcp_hold_allocation_lock(seeded_repo, monkeypatch):
+    import filelock
+
+    _pid, store_path, _repo = seeded_repo
+    original = mcp_tools._propose_decision_op
+    checked = []
+
+    def locked_operation(*args, **kwargs):
+        contender = filelock.FileLock(str(store_path / "decisions" / ".lock"))
+        with pytest.raises(filelock.Timeout):
+            contender.acquire(timeout=0)
+        checked.append(kwargs["title"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(mcp_tools, "_propose_decision_op", locked_operation)
+    result = runner.invoke(
+        app, ["propose-decision", "Keep allocation serialized.", "--title", "First allocation"]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["status"] == "confirmed"
+    result = mcp_tools.tool_propose_decision(
+        store_path, title="Second allocation", rationale="Keep allocation serialized."
+    )
+    assert result["status"] == "confirmed"
+    assert checked == ["First allocation", "Second allocation"]
+    assert sorted(
+        int(path.name.split("-", 1)[0]) for path in (store_path / "decisions").glob("*.md")
+    ) == [1, 2, 3]

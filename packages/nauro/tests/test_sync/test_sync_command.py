@@ -559,3 +559,17 @@ class TestLinkCloudRefusesWithoutAuth:
         assert result.exit_code == 1, combined
         assert "Cannot link 'blockedlink' to the cloud" in combined
         assert "Run 'nauro auth login'" in combined
+
+
+def test_push_only_skips_pull_and_reports_failure(project_store):
+    from nauro.cli.commands import sync as sync_mod
+
+    for report, expected in [(PushReport(), 0), (PushReport(failed=("upload",)), 1)]:
+        with (
+            patch.object(sync_mod, "_pull_from_cloud") as pull,
+            patch.object(sync_mod, "push_store_to_cloud", return_value=report) as push,
+        ):
+            result = runner.invoke(app, ["sync", "--push-only"])
+        assert result.exit_code == expected, result.output
+        pull.assert_not_called()
+        push.assert_called_once()
