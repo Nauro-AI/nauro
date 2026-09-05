@@ -12,7 +12,7 @@
 
 Keep your project's direction in human hands as agents do more of the work.
 
-Nauro records the project decisions you approve, including their reasons and rejected alternatives. It brings relevant decisions into later agent sessions so you do not have to explain them again. Project scope, current state, and open questions travel with that record.
+Nauro records the project decisions you approve, including their reasons and rejected alternatives. It brings those reasons into later agent sessions.
 
 **Status:** Stable (1.x).
 
@@ -20,23 +20,21 @@ Nauro records the project decisions you approve, including their reasons and rej
 
 https://github.com/user-attachments/assets/f75ede99-db11-4460-bc09-801c86df1e19
 
-*A real Codex session, then a Claude session in Pareto, Nauro's development mock project, showing project judgment across agent sessions.*
+*A Codex session, then a Claude session in Pareto, Nauro's development mock project.*
 
 ## Is Nauro a fit?
 
-Nauro is intended for longer-lived work where context can decay across sessions, tools, repositories, machines, or repeated handoffs. If a small repo plus a reliable `AGENTS.md` or `CLAUDE.md` keeps agents oriented, Nauro may be more than you need.
+Nauro supports longer-lived work across sessions, tools, and handoffs. If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Nauro may be more than you need.
 
-Nauro surfaces prior judgment for the agent to assess. Retrieval is advisory. New or revised judgment requires your explicit approval. Local use needs no account, and the record is plain Markdown on your machine. Cloud sync and remote MCP access are optional. Nauro sends no product analytics.
+Retrieval is advisory. New or revised decisions require your explicit approval. Local use needs no account; the record is plain Markdown on your machine. Cloud sync is optional. Nauro sends no product analytics.
 
 ## Get started
 
-Choose the desktop app for guided setup on macOS, or install the CLI to work from your shell.
-
 ### Desktop app (macOS)
 
-The free app walks you through installing the CLI, connecting your agents, and adopting or attaching a project. It also provides a read-only viewer for the project record: timeline, map, list, activity, and docs.
+The free app installs the CLI, connects agents, and sets up a project. Its read-only viewer shows the project record.
 
-[Download for macOS (Apple silicon)](https://github.com/Nauro-AI/nauro-app-releases/releases/latest/download/Nauro-macOS-arm64.dmg), signed and notarized. See the [desktop app guide](https://nauro.ai/docs/desktop-app) for setup details.
+[Download for macOS (Apple silicon)](https://github.com/Nauro-AI/nauro-app-releases/releases/latest/download/Nauro-macOS-arm64.dmg), signed and notarized. [Setup guide](https://nauro.ai/docs/desktop-app).
 
 <details>
 <summary>Watch the desktop app tour</summary>
@@ -51,17 +49,17 @@ https://github.com/user-attachments/assets/e23d3d7f-2d5b-4ce4-be18-fcaff74e7973
 uv tool install nauro
 ```
 
-Install `uv` with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS or Linux, or use the [Windows instructions](https://docs.astral.sh/uv/getting-started/installation/). With Python 3.10 or newer, `pipx install nauro` also works.
+[Install uv](https://docs.astral.sh/uv/getting-started/installation/), or use `pipx install nauro` with Python 3.10 or newer.
 
 ## Try the demo (optional)
 
-Pennykeep is the fictional budgeting app bundled with Nauro.
+Pennykeep is the bundled fictional budgeting app.
 
 - **Request:** Replace envelope budgeting with spending charts to simplify onboarding.
-- **Prior decision:** In the fictional tester history, passive tracking did not help users control spending. The team accepted more setup effort so users assign income before spending.
-- **Effect on the plan:** An agent could suggest simpler envelope setup or ask whether to revisit the budgeting model.
+- **Prior decision:** In the fictional tester history, passive tracking did not help users control spending. The team accepted extra setup so users assign income before spending.
+- **Possible plan:** Simplify envelope setup, or ask whether to revisit the budgeting model.
 
-Try this example without an account or agent setup. With the CLI installed, run these commands in a temporary directory on macOS or Linux:
+No account or agent setup required. On macOS or Linux:
 
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
@@ -69,34 +67,28 @@ nauro init --demo
 nauro check-decision "Replace envelope budgeting with a passive spending tracker and charts"
 ```
 
-Look for **Envelope budgeting method** in the related decisions. The command retrieves the prior reasoning; it does not run an agent or change the recorded decision.
-
-See the [demo guide](https://nauro.ai/docs/quickstart#demo) for PowerShell commands and more ways to explore the sample. Keep agent setup in your own repository.
+Look for **Envelope budgeting method** in the related decisions. This retrieves prior reasoning; it does not run an agent or change decisions. [PowerShell and demo guide](https://nauro.ai/docs/quickstart#demo).
 
 ## Use it on your repo
 
-For CLI setup, enter your repository and run:
+For CLI setup:
 
 ```bash
 cd your-repo
 nauro adopt --with-skills --with-subagents
 ```
 
-If the desktop wizard already adopted your repository, continue with the agent step below.
+Skip this command if the desktop wizard already adopted your repository. Restart your agent, then run `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor. Review the proposed project record.
 
-Restart your agent, then run `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat. The agent reviews the repository and helps you build its project record. Review proposed decisions and approve only those that reflect your intent.
+Approve one existing decision you want future sessions to remember. Start a fresh session and ask about a task where it matters. Check how the agent uses the reason.
 
-For a first useful result, choose one existing decision you want future sessions to remember. After approving its record, start a fresh agent session and ask about a task where that decision matters. Check that the agent finds the reason and explains how it affects the approach.
+Run `nauro status` to check the connection. See [agent workflows](https://nauro.ai/docs/agents-and-skills) and [setup details](https://nauro.ai/docs/quickstart).
 
-Run `nauro status` to check the connection. See the [agent and skill guide](https://nauro.ai/docs/agents-and-skills) for optional workflows and the [setup guide](https://nauro.ai/docs/quickstart) for agent-specific configuration and troubleshooting.
-
-Nauro preserves an existing `AGENTS.md` unless you explicitly run `nauro sync`. A `# Manual` section survives replacement.
+An existing `AGENTS.md` is preserved unless you run `nauro sync`. Its `# Manual` section survives replacement.
 
 ## Documentation
 
-Read the [documentation](https://nauro.ai/docs) for concepts, command references, storage, and cloud access.
-
-Semantic versioning covers the CLI, local stdio MCP contract, on-disk store format, and curated `nauro-core` import API. Cloud sync and hosted MCP are versioned separately.
+[Documentation](https://nauro.ai/docs) covers commands, storage, and cloud access. Semantic versioning covers the CLI, local stdio MCP contract, store format, and curated `nauro-core` API. Cloud sync and hosted MCP are versioned separately.
 
 ## Development
 

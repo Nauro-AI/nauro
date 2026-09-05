@@ -50,8 +50,13 @@ def test_root_readme_stays_within_first_use_scope() -> None:
     assert 400 <= len(readme.split()) <= 520
     assert "uv tool install nauro" in readme
     assert "nauro init --demo" in readme
-    assert 'nauro check-decision "Store dollar amounts as decimal numbers"' in readme
-    assert "D001" in readme
+    assert (
+        'nauro check-decision "Replace envelope budgeting with a passive spending tracker and charts"'
+        in readme
+    )
+    assert "Envelope budgeting method" in readme
+    assert readme.index("## See it in practice") < readme.index("## Try the demo (optional)")
+    assert readme.index("## Try the demo (optional)") < readme.index("Pennykeep")
     assert "nauro adopt" in readme
     assert "/nauro-adopt" in readme
 
@@ -68,6 +73,13 @@ def test_readmes_carry_cursor_and_skill_onboarding_contract() -> None:
     for relative in README_PATHS:
         text = (ROOT / relative).read_text(encoding="utf-8")
         assert "@nauro-adopt" in text, relative
+        assert "nauro adopt --with-skills --with-subagents" in text, relative
+        assert "/nauro-adopt" in text, relative
+        assert "$nauro-adopt" in text, relative
+        if relative == "README.md":
+            assert "https://nauro.ai/docs/agents-and-skills" in text
+            assert "https://nauro.ai/docs/quickstart" in text
+            continue
         assert "nauro setup cursor" in text, relative
         assert ".cursor/mcp.json" in text, relative
         assert "cursor.com/agents" in text, relative
