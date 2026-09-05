@@ -13,19 +13,6 @@
       "kind": "value",
       "type": "str"
     },
-    "nauro_core.QuestionResolutionOutcome": {
-      "bases": [
-        "builtins.object"
-      ],
-      "fields": [
-        "result",
-        "updated_open_questions_bytes",
-        "resolved_question_ids"
-      ],
-      "kind": "class",
-      "module": "nauro_core.question_resolution",
-      "qualname": "QuestionResolutionOutcome"
-    },
     "nauro_core.ResolutionDecisionDocument": {
       "bases": [
         "builtins.object"
@@ -104,6 +91,14 @@
       "type": "str"
     },
     "nauro_core.constants.STATE_CURRENT_FILENAME": {
+      "kind": "value",
+      "type": "str"
+    },
+    "nauro_core.constants.STATE_HISTORY_FILENAME": {
+      "kind": "value",
+      "type": "str"
+    },
+    "nauro_core.constants.STATE_LEGACY_FILENAME": {
       "kind": "value",
       "type": "str"
     },
@@ -333,6 +328,10 @@
       "module": "nauro_core.operations.commit_plan",
       "qualname": "AbsentTitleClaimProbe"
     },
+    "nauro_core.operations.commit_plan.ApprovalAttestation": {
+      "kind": "value",
+      "type": "UnionType"
+    },
     "nauro_core.operations.commit_plan.ApprovalAttestationRejected": {
       "bases": [
         "nauro_core.operations.commit_plan.JudgmentCommitError"
@@ -375,6 +374,10 @@
       "qualname": "ClaimIntent"
     },
     "nauro_core.operations.commit_plan.ClaimObservation": {
+      "kind": "value",
+      "type": "_AnnotatedAlias"
+    },
+    "nauro_core.operations.commit_plan.ClaimProbe": {
       "kind": "value",
       "type": "_AnnotatedAlias"
     },
@@ -457,6 +460,21 @@
       "kind": "class",
       "module": "nauro_core.operations.commit_plan",
       "qualname": "ContentClaimConflict"
+    },
+    "nauro_core.operations.commit_plan.DecisionProvenance": {
+      "bases": [
+        "builtins.object"
+      ],
+      "fields": [
+        "proposed_by",
+        "approved_by",
+        "approved_at",
+        "proposal_id",
+        "proposed_base_commit"
+      ],
+      "kind": "class",
+      "module": "nauro_core.operations._decision_transitions",
+      "qualname": "DecisionProvenance"
     },
     "nauro_core.operations.commit_plan.DuplicateClaimObservation": {
       "bases": [
@@ -563,6 +581,34 @@
       "kind": "class",
       "module": "nauro_core.operations.commit_plan",
       "qualname": "PreTeamApprovalAttestation"
+    },
+    "nauro_core.operations.commit_plan.PreparedBase": {
+      "bases": [
+        "nauro_core.operations.commit_plan._FrozenModel"
+      ],
+      "fields": {
+        "decision_counter": "int",
+        "generation_id": "str",
+        "observed_manifest_digest": "str"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.commit_plan",
+      "qualname": "PreparedBase"
+    },
+    "nauro_core.operations.commit_plan.PrimaryDecision": {
+      "bases": [
+        "nauro_core.operations.commit_plan._FrozenModel"
+      ],
+      "fields": {
+        "decision_id": "str",
+        "path": "str",
+        "sha256": "str"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.commit_plan",
+      "qualname": "PrimaryDecision"
     },
     "nauro_core.operations.commit_plan.ProposalRejected": {
       "bases": [
@@ -779,6 +825,36 @@
       "module": "nauro_core.operations.results",
       "qualname": "StackRevisionConflict"
     },
+    "nauro_core.operations.results.StateRevisionConflict": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "current_revision": "str",
+        "expected_revision": "str",
+        "status": "Literal['stale_revision']"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.results",
+      "qualname": "StateRevisionConflict"
+    },
+    "nauro_core.operations.results.SubmitReportAccepted": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "body_digest": "str",
+        "event_id": "str",
+        "receipt_id": "str",
+        "report_id": "str",
+        "status": "Literal['accepted']"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.results",
+      "qualname": "SubmitReportAccepted"
+    },
     "nauro_core.operations.results.UpdateStackAccepted": {
       "bases": [
         "pydantic.main.BaseModel"
@@ -794,6 +870,20 @@
       "kind": "class",
       "module": "nauro_core.operations.results",
       "qualname": "UpdateStackAccepted"
+    },
+    "nauro_core.operations.results.UpdateStateResult": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "error": "None | nauro_core.operations.results.ErrorPayload",
+        "status": "Literal['ok', 'noop']",
+        "warning": "None | str"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.results",
+      "qualname": "UpdateStateResult"
     },
     "nauro_core.operations.results.WorkflowExpired": {
       "bases": [
@@ -853,6 +943,28 @@
       "qualname": "share_context",
       "signature": "(slug: str, content: str, pointer_kind: str, summary: str) -> ShareContextPlan"
     },
+    "nauro_core.operations.submit_report.SubmitReportPlan": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "body": "str",
+        "body_bytes": "bytes",
+        "body_digest": "str",
+        "operation": "Literal['submit_report']",
+        "payload_bytes": "bytes"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.submit_report",
+      "qualname": "SubmitReportPlan"
+    },
+    "nauro_core.operations.submit_report.submit_report": {
+      "kind": "function",
+      "module": "nauro_core.operations.submit_report",
+      "qualname": "submit_report",
+      "signature": "(body: str) -> SubmitReportPlan"
+    },
     "nauro_core.operations.update_stack.UpdateStackPlan": {
       "bases": [
         "pydantic.main.BaseModel"
@@ -888,6 +1000,31 @@
       "qualname": "update_state",
       "signature": "(store: Store, delta: str) -> UpdateStateResult"
     },
+    "nauro_core.operations.update_state.UpdateStatePlan": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "delta": "str",
+        "expected_revision": "None | str",
+        "legacy_state_bytes": "None | bytes",
+        "payload_bytes": "bytes",
+        "result": "nauro_core.operations.results.StateRevisionConflict | nauro_core.operations.results.UpdateStateResult",
+        "state_current_effect": "nauro_core.operations.update_state.StateFileEffect",
+        "state_history_effect": "nauro_core.operations.update_state.StateFileEffect",
+        "updated_at": "None | datetime.datetime"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.update_state",
+      "qualname": "UpdateStatePlan"
+    },
+    "nauro_core.operations.update_state.plan_state_update": {
+      "kind": "function",
+      "module": "nauro_core.operations.update_state",
+      "qualname": "plan_state_update",
+      "signature": "(*, delta: str, state_current_bytes: bytes | None, state_history_bytes: bytes | None, legacy_state_bytes: bytes | None, updated_at: datetime, expected_revision: str | None = None) -> UpdateStatePlan"
+    },
     "nauro_core.parse_decision": {
       "kind": "function",
       "module": "nauro_core.decision_model",
@@ -900,6 +1037,14 @@
       "qualname": "extract_decision_number",
       "signature": "(identifier: str) -> int | None"
     },
+    "nauro_core.protected_generation_membership.InvalidGenerationPath": {
+      "bases": [
+        "builtins.ValueError"
+      ],
+      "kind": "class",
+      "module": "nauro_core.protected_generation_membership",
+      "qualname": "InvalidGenerationPath"
+    },
     "nauro_core.protected_generation_membership.is_hosted_snapshot_content_member": {
       "kind": "function",
       "module": "nauro_core.protected_generation_membership",
@@ -911,6 +1056,26 @@
       "module": "nauro_core.protected_generation_membership",
       "qualname": "is_protected_generation_member",
       "signature": "(path: object) -> bool"
+    },
+    "nauro_core.protected_generation_membership.validate_protected_generation_path": {
+      "kind": "function",
+      "module": "nauro_core.protected_generation_membership",
+      "qualname": "validate_protected_generation_path",
+      "signature": "(path: object) -> str"
+    },
+    "nauro_core.provenance.InvalidUtcTimestamp": {
+      "bases": [
+        "builtins.ValueError"
+      ],
+      "kind": "class",
+      "module": "nauro_core.provenance",
+      "qualname": "InvalidUtcTimestamp"
+    },
+    "nauro_core.provenance.validate_utc_timestamp": {
+      "kind": "function",
+      "module": "nauro_core.provenance",
+      "qualname": "validate_utc_timestamp",
+      "signature": "(value: object, *, field: str) -> str"
     },
     "nauro_core.question_append.allocate_question_number": {
       "kind": "function",
