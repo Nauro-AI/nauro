@@ -14,9 +14,19 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: pip install ruff==0.15.8
-      - run: ruff check packages/ benchmarks/ scripts/
-      - run: ruff format --check packages/ benchmarks/ scripts/
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked --package nauro --extra dev --python 3.12
+      - run: uv run --no-sync ruff check packages/ benchmarks/ scripts/
+      - run: uv run --no-sync ruff format --check packages/ benchmarks/ scripts/
+      - run: uv run --no-sync python scripts/check_ruff_budget.py packages/nauro/src packages/nauro-core/src
+      - run: uv run --no-sync python -m unittest discover -s scripts -p test_check_ruff_budget.py
+      - run: >-
+          uv run --no-sync mypy --disallow-untyped-defs --config-file packages/nauro/pyproject.toml
+          packages/nauro/src/nauro/store/generation_authority.py
+          packages/nauro/src/nauro/store/replica_control.py
+          packages/nauro/src/nauro/store/generation_installation.py
+          packages/nauro/src/nauro/sync/generation_acquisition.py
+          scripts/check_ruff_budget.py
       - run: python scripts/check_single_sourced.py packages/nauro/src
       - run: python scripts/check_docstring_budget.py packages/nauro/src packages/nauro-core/src
       - run: python scripts/check_server_json_version.py

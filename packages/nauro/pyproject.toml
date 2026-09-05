@@ -35,8 +35,8 @@ dependencies = [
 dev = [
     "hatchling",
     "pytest>=7.0",
-    "ruff>=0.1",
-    "mypy>=1.0",
+    "ruff==0.15.20",
+    "mypy==2.1.0",
 ]
 embeddings = ["nauro-core[embeddings]"]
 
