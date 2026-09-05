@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from nauro.auth import ActiveUserReadError, read_active_user_id
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
 from nauro.store.generation_authority import (
     FlatProjectAuthority,
@@ -21,7 +22,13 @@ from nauro.store.generation_authority import (
     GenerationAuthorityMarker,
     GenerationControlCorruptError,
     GenerationProjectAuthority,
+    InstalledAuthorizationView,
     InstalledGenerationPointer,
+    RefreshRequiredError,
+    ReplicaActorMismatchError,
+    _parse_authorization_view,
+    _parse_pointer,
+    _PendingGenerationAuthority,
     _select_marker_authority,
     select_project_authority,
 )
@@ -37,8 +44,10 @@ from nauro.store.replica_control import (
     _REPLICA_CONTROL_LOCK_NAME,
     _REPLICA_CONTROL_ROOT_NAME,
     ReplicaControlReadError,
+    _actor_authorization_view,
     _is_link_or_reparse,
     _native_control_lock,
+    _read_actor_authorization_view,
     _read_optional_file,
     _validate_managed_path,
     _validate_store_path,
@@ -65,6 +74,14 @@ _TARGET_POINTER_FIELDS = (
     "project_id store_format_version generation_id manifest_digest committed_at "
     "installed_for_user_id projection_class projection_scope_id"
 ).split()
+_NON_ACTOR_FIELDS = tuple(
+    field for field in _TARGET_POINTER_FIELDS if field != "installed_for_user_id"
+)
+_ACTOR_UNAVAILABLE = "The installed replica does not match an active account."
+_ACTOR_DIFFERENT = "The installed replica belongs to another account."
+_AUTHORIZATION_INVALID = "The installed authorization view is invalid."
+_POINTER_INVALID = "The installed generation pointer is invalid."
+_REFRESH_REQUIRED = "The installed replica requires a fresh authorization view."
 
 
 class GenerationInstallError(GenerationAuthorityError):
@@ -742,6 +759,154 @@ def _require_target(
         raise _publication_failure()
 
 
+def _require_active_actor(expected: str) -> str:
+    try:
+        actor = read_active_user_id()
+    except ActiveUserReadError:
+        raise ReplicaActorMismatchError(_ACTOR_UNAVAILABLE) from None
+    if actor != expected:
+        raise ReplicaActorMismatchError(_ACTOR_DIFFERENT) from None
+    return actor
+
+
+def _validate_carrier(
+    target: GenerationProjectionTarget,
+    active_actor: str,
+    marker_json: bytes | None,
+    carrier: InstalledAuthorizationView,
+) -> bool:
+    identity = target.identity
+    if (
+        carrier.installed_for_user_id != active_actor
+        or carrier.installed_for_user_id != identity.installed_for_user_id
+    ):
+        raise ReplicaActorMismatchError(_ACTOR_DIFFERENT)
+    exact = all(getattr(carrier, field) == getattr(identity, field) for field in _NON_ACTOR_FIELDS)
+    if marker_json is not None and not exact:
+        raise RefreshRequiredError(_REFRESH_REQUIRED)
+    return exact
+
+
+def _validate_control_pair(
+    target: GenerationProjectionTarget,
+    active_actor: str,
+    marker_json: bytes | None,
+    carrier: InstalledAuthorizationView,
+    pointer: InstalledGenerationPointer,
+) -> bool:
+    carrier_exact = _validate_carrier(target, active_actor, marker_json, carrier)
+    identity = target.identity
+    if (
+        pointer.installed_for_user_id != active_actor
+        or pointer.installed_for_user_id != identity.installed_for_user_id
+        or pointer.installed_for_user_id != carrier.installed_for_user_id
+    ):
+        if marker_json is not None:
+            raise ReplicaActorMismatchError(_ACTOR_DIFFERENT)
+        return False
+    exact = carrier_exact and all(
+        getattr(pointer, field) == getattr(identity, field) == getattr(carrier, field)
+        for field in _NON_ACTOR_FIELDS
+    )
+    exact = exact and pointer.installed_state_id == carrier.installed_state_id
+    if marker_json is not None and not exact:
+        raise RefreshRequiredError(_REFRESH_REQUIRED)
+    return exact
+
+
+def _projection_fields(
+    target: GenerationProjectionTarget, active_actor: str, committed_at: str
+) -> dict[str, object]:
+    identity = target.identity
+    return {
+        field: (
+            active_actor
+            if field == "installed_for_user_id"
+            else committed_at
+            if field == "committed_at"
+            else getattr(identity, field)
+        )
+        for field in _TARGET_POINTER_FIELDS
+    }
+
+
+def _build_carrier(
+    target: GenerationProjectionTarget,
+    active_actor: str,
+    committed_at: str,
+    installed_state_id: str,
+) -> InstalledAuthorizationView:
+    return InstalledAuthorizationView.model_validate(
+        {
+            "schema_version": 1,
+            **_projection_fields(target, active_actor, committed_at),
+            "installed_state_id": installed_state_id,
+        }
+    )
+
+
+def _build_pointer(
+    target: GenerationProjectionTarget,
+    active_actor: str,
+    committed_at: str,
+    installed_at: str,
+    installed_state_id: str,
+) -> InstalledGenerationPointer:
+    return InstalledGenerationPointer.model_validate(
+        {
+            "schema_version": 1,
+            **_projection_fields(target, active_actor, committed_at),
+            "installed_at": installed_at,
+            "installed_state_id": installed_state_id,
+        }
+    )
+
+
+def _parse_exact_pointer(raw: bytes) -> InstalledGenerationPointer:
+    try:
+        pointer = _parse_pointer(raw)
+    except GenerationControlCorruptError:
+        raise GenerationControlCorruptError(_POINTER_INVALID) from None
+    if raw != pointer.canonical_bytes():
+        raise GenerationControlCorruptError(_POINTER_INVALID)
+    return pointer
+
+
+def _require_published_carrier(
+    target: GenerationProjectionTarget,
+    active_actor: str,
+    raw: bytes,
+    intended: bytes,
+) -> InstalledAuthorizationView:
+    try:
+        carrier = _parse_authorization_view(raw)
+    except GenerationControlCorruptError:
+        raise GenerationControlCorruptError(_AUTHORIZATION_INVALID) from None
+    if raw != carrier.canonical_bytes():
+        raise GenerationControlCorruptError(_AUTHORIZATION_INVALID)
+    exact = _validate_carrier(target, active_actor, None, carrier)
+    if raw != intended or not exact:
+        raise _publication_failure()
+    return carrier
+
+
+def _require_published_pair(
+    target: GenerationProjectionTarget,
+    active_actor: str,
+    carrier: InstalledAuthorizationView,
+    pointer: InstalledGenerationPointer,
+) -> None:
+    identity = target.identity
+    if (
+        carrier.installed_for_user_id != active_actor
+        or pointer.installed_for_user_id != active_actor
+        or identity.installed_for_user_id != active_actor
+    ):
+        raise ReplicaActorMismatchError(_ACTOR_DIFFERENT)
+    if not _validate_control_pair(target, active_actor, None, carrier, pointer):
+        raise _publication_failure()
+
+
 def _select_exact(
     target: GenerationProjectionTarget, marker_json: bytes, pointer_json: bytes | None
 ) -> GenerationProjectAuthority:
@@ -776,34 +941,126 @@ def _read_active_marker(target: GenerationProjectionTarget, marker_json: bytes) 
         raise GenerationControlCorruptError("The generation authority marker is not canonical.")
 
 
-def _final_selection(
+def _active_selection(
     target: GenerationProjectionTarget,
     store_path: Path,
-    marker_path: Path,
+    pending: _PendingGenerationAuthority,
     pointer_path: Path,
-    marker_bytes: bytes,
-    pointer_bytes: bytes,
-    failure: Exception | None = None,
-) -> GenerationProjectAuthority:
-    observed_marker = _read_control_file(store_path, marker_path)
-    if observed_marker is None:
-        raise _publication_failure() from failure
-    _read_active_marker(target, observed_marker)
-    observed_pointer = _read_control_file(store_path, pointer_path)
-    selected = _select_exact(target, observed_marker, observed_pointer)
-    if observed_marker != marker_bytes or observed_pointer != pointer_bytes:
+    marker_json: bytes,
+) -> tuple[GenerationProjectAuthority, bytes, bytes]:
+    _read_active_marker(target, marker_json)
+    carrier_json, carrier = _read_actor_authorization_view(pending)
+    if carrier_json is None or carrier is None:
+        raise RefreshRequiredError(_REFRESH_REQUIRED)
+    _validate_carrier(target, pending.active_user_id, marker_json, carrier)
+    pointer_json = _read_control_file(store_path, pointer_path)
+    if pointer_json is None:
+        raise RefreshRequiredError("The active account has no installed generation pointer.")
+    pointer = _parse_exact_pointer(pointer_json)
+    _validate_control_pair(target, pending.active_user_id, marker_json, carrier, pointer)
+    return _select_exact(target, marker_json, pointer_json), carrier_json, pointer_json
+
+
+def _write_carrier(
+    installed: InstalledGenerationRoot,
+    store_path: Path,
+    layout: _GenerationLayout,
+    lock_path: Path,
+    marker_path: Path,
+    carrier_path: Path,
+    active_actor: str,
+    prior: bytes | None,
+    intended: bytes,
+) -> InstalledAuthorizationView:
+    _reprove_publication_paths(installed, store_path, layout, lock_path)
+    if _read_control_file(store_path, carrier_path) != prior:
         raise _publication_failure()
-    return selected
+    if _read_control_file(store_path, marker_path) is not None:
+        raise _publication_failure()
+    _require_published_carrier(installed.target, active_actor, intended, intended)
+    _require_active_actor(active_actor)
+    failure: Exception | None = None
+    try:
+        atomic_write_bytes(carrier_path, intended)
+    except Exception as exc:
+        failure = exc
+    observed = _read_control_file(store_path, carrier_path)
+    if observed != intended:
+        raise _publication_failure() from None
+    carrier = _require_published_carrier(installed.target, active_actor, observed, intended)
+    if failure is not None:
+        _require_active_actor(active_actor)
+    return carrier
 
 
-def publish_generation_control(
-    installed: InstalledGenerationRoot, *, timeout: float = -1
+def _write_pointer(
+    installed: InstalledGenerationRoot,
+    store_path: Path,
+    layout: _GenerationLayout,
+    lock_path: Path,
+    marker_path: Path,
+    carrier_path: Path,
+    pointer_path: Path,
+    active_actor: str,
+    carrier_bytes: bytes,
+    prior: bytes | None,
+    intended: bytes,
+) -> InstalledGenerationPointer:
+    _reprove_publication_paths(installed, store_path, layout, lock_path)
+    observed_carrier = _read_control_file(store_path, carrier_path)
+    if observed_carrier != carrier_bytes:
+        raise _publication_failure()
+    carrier = _require_published_carrier(
+        installed.target, active_actor, observed_carrier, carrier_bytes
+    )
+    if _read_control_file(store_path, pointer_path) != prior:
+        raise _publication_failure()
+    if _read_control_file(store_path, marker_path) is not None:
+        raise _publication_failure()
+    intended_pointer = _parse_exact_pointer(intended)
+    _require_published_pair(installed.target, active_actor, carrier, intended_pointer)
+    _require_active_actor(active_actor)
+    failure: Exception | None = None
+    try:
+        atomic_write_bytes(pointer_path, intended)
+    except Exception as exc:
+        failure = exc
+    observed_carrier = _read_control_file(store_path, carrier_path)
+    observed_pointer = _read_control_file(store_path, pointer_path)
+    if observed_carrier is None or observed_pointer != intended:
+        raise _publication_failure() from None
+    carrier = _require_published_carrier(
+        installed.target, active_actor, observed_carrier, carrier_bytes
+    )
+    pointer = _parse_exact_pointer(observed_pointer)
+    _require_published_pair(installed.target, active_actor, carrier, pointer)
+    if failure is not None:
+        _require_active_actor(active_actor)
+    return pointer
+
+
+def _publish_generation_control(
+    installed: InstalledGenerationRoot, timeout: float
 ) -> GenerationProjectAuthority:
+    rebuilt = _rebuild_installed_root(installed)
+    active_actor = _require_active_actor(rebuilt.target.identity.installed_for_user_id)
     initial, store_path, layout = _derive_publication(installed)
+    if initial != rebuilt:
+        raise _publication_failure()
     lock_path = store_path / _REPLICA_CONTROL_LOCK_NAME
     _validate_lock_path(store_path, lock_path, required=False)
     marker_path = layout.control_root / _AUTHORITY_MARKER_NAME
+    marker_bytes = _expected_marker(initial.target).canonical_bytes()
+    pending = _select_marker_authority(
+        initial.target.binding,
+        marker_json=marker_bytes,
+        active_user_id=active_actor,
+    )
+    if isinstance(pending, FlatProjectAuthority):
+        raise _publication_failure()
+    carrier_path = _actor_authorization_view(layout.control_root, pending)
     pointer_path = layout.actor / _POINTER_NAME
+    verified: GenerationProjectAuthority
     with _native_control_lock(store_path, lock_path, timeout):
         locked, locked_store, locked_layout = _derive_publication(installed)
         if locked != initial or locked_store != store_path or locked_layout != layout:
@@ -811,71 +1068,129 @@ def publish_generation_control(
         _reprove_publication_paths(locked, store_path, layout, lock_path)
         marker_json = _read_control_file(store_path, marker_path)
         if marker_json is not None:
-            _read_active_marker(locked.target, marker_json)
-            pointer_json = _read_control_file(store_path, pointer_path)
-            selected = _select_exact(locked.target, marker_json, pointer_json)
-            _audit_installed_root(store_path, layout, locked)
-            return selected
-
-        target = locked.target
-        identity = target.identity
-        marker = _expected_marker(target)
-        marker_bytes = marker.canonical_bytes()
-        dormant = _read_control_file(store_path, pointer_path)
-        pointer: InstalledGenerationPointer | None = None
-        if dormant is not None:
-            try:
-                pointer = _select_exact(target, marker_bytes, dormant).pointer
-            except GenerationAuthorityError:
-                pointer = None
-        committed_at = _audit_installed_root(store_path, layout, locked)
-        if pointer is None:
-            pointer = InstalledGenerationPointer.model_validate(
-                {
-                    "schema_version": 1,
-                    **{
-                        field: committed_at if field == "committed_at" else getattr(identity, field)
-                        for field in _TARGET_POINTER_FIELDS
-                    },
-                    "installed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                    "installed_state_id": generate_ulid(),
-                }
+            verified, _, _ = _active_selection(
+                locked.target, store_path, pending, pointer_path, marker_json
             )
-            pointer_bytes = pointer.canonical_bytes()
-            _require_directory(store_path, pointer_path.parent)
+            _audit_installed_root(store_path, layout, locked)
+        else:
+            carrier_json, carrier = _read_actor_authorization_view(pending)
+            if carrier is not None and (
+                carrier.installed_for_user_id != active_actor
+                or carrier.installed_for_user_id != locked.target.identity.installed_for_user_id
+            ):
+                raise ReplicaActorMismatchError(_ACTOR_DIFFERENT)
+            committed_at = _audit_installed_root(store_path, layout, locked)
+            if carrier is not None:
+                carrier_exact = _validate_carrier(locked.target, active_actor, marker_json, carrier)
+            else:
+                carrier_exact = False
+            pointer_json = _read_control_file(store_path, pointer_path)
+            pointer: InstalledGenerationPointer | None = None
+            if carrier_exact and carrier is not None and pointer_json is not None:
+                try:
+                    candidate = _parse_exact_pointer(pointer_json)
+                except GenerationControlCorruptError:
+                    candidate = None
+                if candidate is not None and _validate_control_pair(
+                    locked.target, active_actor, marker_json, carrier, candidate
+                ):
+                    pointer = candidate
+
+            installed_at: str | None = None
+            if not carrier_exact or carrier is None:
+                installed_state_id = generate_ulid()
+                installed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                carrier = _build_carrier(
+                    locked.target, active_actor, committed_at, installed_state_id
+                )
+                intended_carrier = carrier.canonical_bytes()
+                carrier = _write_carrier(
+                    locked,
+                    store_path,
+                    layout,
+                    lock_path,
+                    marker_path,
+                    carrier_path,
+                    active_actor,
+                    carrier_json,
+                    intended_carrier,
+                )
+                carrier_json = intended_carrier
+                pointer = None
+            else:
+                installed_state_id = carrier.installed_state_id
+
+            assert carrier_json is not None
+            if pointer is None:
+                if installed_at is None:
+                    installed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+                pointer = _build_pointer(
+                    locked.target,
+                    active_actor,
+                    committed_at,
+                    installed_at,
+                    installed_state_id,
+                )
+                pointer_bytes = pointer.canonical_bytes()
+                pointer = _write_pointer(
+                    locked,
+                    store_path,
+                    layout,
+                    lock_path,
+                    marker_path,
+                    carrier_path,
+                    pointer_path,
+                    active_actor,
+                    carrier_json,
+                    pointer_json,
+                    pointer_bytes,
+                )
+            else:
+                pointer_bytes = pointer.canonical_bytes()
+
+            _reprove_publication_paths(locked, store_path, layout, lock_path)
+            observed_carrier = _read_control_file(store_path, carrier_path)
+            observed_pointer = _read_control_file(store_path, pointer_path)
+            if observed_carrier != carrier_json or observed_pointer != pointer_bytes:
+                raise _publication_failure()
+            assert observed_carrier is not None
+            carrier = _require_published_carrier(
+                locked.target, active_actor, observed_carrier, carrier_json
+            )
+            pointer = _parse_exact_pointer(observed_pointer)
+            _require_published_pair(locked.target, active_actor, carrier, pointer)
+            _audit_installed_root(store_path, layout, locked)
             if _read_control_file(store_path, marker_path) is not None:
                 raise _publication_failure()
+            _require_active_actor(active_actor)
             try:
-                atomic_write_bytes(pointer_path, pointer_bytes)
-            except Exception as exc:
-                raise _publication_failure() from exc
-        else:
-            pointer_bytes = pointer.canonical_bytes()
-        observed_pointer = _read_control_file(store_path, pointer_path)
-        if observed_pointer != pointer_bytes:
-            raise _publication_failure()
-        _select_exact(target, marker_bytes, observed_pointer)
-        _reprove_publication_paths(locked, store_path, layout, lock_path)
-        observed_pointer = _read_control_file(store_path, pointer_path)
-        if observed_pointer != pointer_bytes:
-            raise _publication_failure()
-        _select_exact(target, marker_bytes, observed_pointer)
-        if _read_control_file(store_path, marker_path) is not None:
-            raise _publication_failure()
-        failure = None
-        try:
-            atomic_write_bytes(marker_path, marker_bytes)
-        except Exception as exc:
-            failure = exc
-        return _final_selection(
-            target,
-            store_path,
-            marker_path,
-            pointer_path,
-            marker_bytes,
-            pointer_bytes,
-            failure,
-        )
+                atomic_write_bytes(marker_path, marker_bytes)
+            except Exception:
+                pass
+            observed_marker = _read_control_file(store_path, marker_path)
+            if observed_marker != marker_bytes:
+                raise _publication_failure() from None
+            verified, final_carrier, final_pointer = _active_selection(
+                locked.target,
+                store_path,
+                pending,
+                pointer_path,
+                observed_marker,
+            )
+            if final_carrier != carrier_json or final_pointer != pointer_bytes:
+                raise _publication_failure() from None
+            _audit_installed_root(store_path, layout, locked)
+    _require_active_actor(active_actor)
+    return verified
+
+
+def publish_generation_control(
+    installed: InstalledGenerationRoot, *, timeout: float = -1
+) -> GenerationProjectAuthority:
+    try:
+        return _publish_generation_control(installed, timeout)
+    except GenerationAuthorityError as exc:
+        raise type(exc)(str(exc)) from None
 
 
 __all__ = (

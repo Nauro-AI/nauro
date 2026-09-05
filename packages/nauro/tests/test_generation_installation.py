@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from filelock import FileLock
 
+from nauro.auth import ActiveUserReadError
 from nauro.mcp.tools import tool_check_decision, tool_get_raw_file
 from nauro.store import generation_installation as installation
 from nauro.store import replica_control
@@ -26,7 +27,10 @@ from nauro.store.generation_authority import (
     GenerationAuthorityError,
     GenerationControlCorruptError,
     GenerationProjectAuthority,
+    InstalledAuthorizationView,
     InstalledGenerationPointer,
+    RefreshRequiredError,
+    ReplicaActorMismatchError,
 )
 from nauro.store.generation_installation import (
     GenerationControlPublicationError,
@@ -75,6 +79,8 @@ SCOPE_ID = "a" * 64
 COMMITTED_AT = "2999-12-31T23:59:59.999999Z"
 OTHER_COMMITTED_AT = "2998-12-31T23:59:59.999999Z"
 INSTALLED_AT = "2026-09-04T01:02:03.000004Z"
+FIXED_DATETIME = datetime.fromisoformat(INSTALLED_AT.replace("Z", "+00:00"))
+FIXED_CLOCK = type("Clock", (), {"now": classmethod(lambda *_: FIXED_DATETIME)})
 INSTALLED_STATE_ID = "01K22222222222222222222222"
 OTHER_STATE_ID = "01K44444444444444444444444"
 ROOT_KEY = "868847269e6f3c829a569ad5d6655bd5"
@@ -223,6 +229,10 @@ def _control_files(store: Path) -> tuple[Path, Path]:
     return store / ".replica" / "authority.json", _actor(store) / "pointer.json"
 
 
+def _authorization_view(store: Path) -> Path:
+    return _actor(store) / "authorization-view.json"
+
+
 def _guard_occupant(kind: str) -> None:
     if kind in LINK_KINDS:
         _require_link_kind(kind)
@@ -268,6 +278,22 @@ def _pointer_bytes(projection: VerifiedGenerationProjection, **changes: object) 
     return InstalledGenerationPointer(**body).canonical_bytes()
 
 
+def _authorization_bytes(projection: VerifiedGenerationProjection, **changes: object) -> bytes:
+    identity = projection.target.identity
+    body: dict[str, object] = {
+        "schema_version": 1,
+        **{field: getattr(identity, field) for field in installation._TARGET_POINTER_FIELDS},
+        "installed_state_id": OTHER_STATE_ID,
+    }
+    body.update(changes)
+    return InstalledAuthorizationView(**body).canonical_bytes()
+
+
+@pytest.fixture(autouse=True)
+def _active_publication_actor(monkeypatch) -> None:
+    monkeypatch.setattr(installation, "read_active_user_id", lambda: USER_ID, raising=False)
+
+
 class _FailDateTime:
     @classmethod
     def now(cls, _tz=None):
@@ -278,6 +304,30 @@ def _forbid_publication_effects(monkeypatch) -> None:
     monkeypatch.setattr(installation, "atomic_write_bytes", lambda *_a: pytest.fail("wrote"))
     monkeypatch.setattr(installation, "datetime", _FailDateTime)
     monkeypatch.setattr(installation, "generate_ulid", lambda: pytest.fail("minted"))
+
+
+def _forbid_pointer_access(monkeypatch, pointer: Path) -> None:
+    real_read = installation._read_control_file
+    real_validate = installation._validate_managed_path
+    real_lstat = os.lstat
+
+    def reject(candidate, call, *args):
+        if Path(candidate) == pointer:
+            pytest.fail("pointer accessed")
+        return call(candidate, *args)
+
+    monkeypatch.setattr(
+        installation,
+        "_read_control_file",
+        lambda store_path, path: reject(path, lambda value: real_read(store_path, value)),
+    )
+    monkeypatch.setattr(
+        installation,
+        "_validate_managed_path",
+        lambda store_path, path: reject(path, lambda value: real_validate(store_path, value)),
+    )
+    monkeypatch.setattr(installation.os, "lstat", lambda path: reject(path, real_lstat))
+    monkeypatch.setattr(installation, "_parse_pointer", lambda *_: pytest.fail("pointer parsed"))
 
 
 def _age(path: Path, seconds: float) -> None:
@@ -969,6 +1019,32 @@ def test_installer_is_dormant_and_private(store: Path, monkeypatch) -> None:
         installed.reused = True
 
 
+def test_control_publication_writes_carrier_pointer_then_marker(store: Path, monkeypatch) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    writes: list[tuple[Path, bytes]] = []
+    real_write = installation.atomic_write_bytes
+
+    def write(path: Path, content: bytes) -> None:
+        writes.append((path, content))
+        real_write(path, content)
+
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
+    monkeypatch.setattr(installation, "datetime", FIXED_CLOCK)
+
+    authority = publish_generation_control(installed)
+
+    assert [path for path, _content in writes] == [carrier, pointer, marker]
+    assert carrier.read_bytes() == _authorization_bytes(
+        projection, installed_state_id=INSTALLED_STATE_ID
+    )
+    assert authority.pointer.installed_state_id == INSTALLED_STATE_ID
+    assert pointer.read_bytes() == authority.pointer.canonical_bytes()
+
+
 @pytest.mark.parametrize("state", ["absent", "malformed", "noncanonical", "divergent"])
 def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
     store: Path, monkeypatch, state: str
@@ -976,6 +1052,7 @@ def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
     projection = _projection()
     installed = install_generation_root(projection)
     marker, pointer_path = _control_files(store)
+    carrier_path = _authorization_view(store)
     if state != "absent":
         raw = _pointer_bytes(projection)
         if state == "malformed":
@@ -1014,31 +1091,36 @@ def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
 
     def read(store_path, path):
         result = real_read(store_path, path)
-        if "marker-write" in events and path in (marker, pointer_path):
+        if "marker-write" in events and path in (marker, pointer_path, carrier_path):
             events.append("marker-read" if path == marker else "final-read")
+        elif path == carrier_path and "carrier-write" in events:
+            events.append("carrier-read")
         elif path == pointer_path and "pointer-write" in events:
             events.append("pointer-read")
         return result
 
     def write(path, content):
-        event = "pointer-write" if path == pointer_path else "marker-write"
+        event = {
+            carrier_path: "carrier-write",
+            pointer_path: "pointer-write",
+            marker: "marker-write",
+        }[path]
+        assert events[-1] == "actor"
         if event == "marker-write":
-            assert "pointer-read" in events and "select" in events
+            assert events.count("pointer-read") >= 2
         events.append(event)
         real_write(path, content)
 
     def mint() -> str:
         assert events.count("lock-entered") == 1
         assert events.count("audit-complete") == 1
-        assert "pointer-write" not in events
+        assert "carrier-write" not in events
         events.append("ulid")
         return INSTALLED_STATE_ID
 
     def select(*args, **kwargs):
         if "marker-write" in events:
             events.append("final-select")
-        elif "pointer-write" in events:
-            events.append("select")
         return real_select(*args, **kwargs)
 
     class Clock(datetime):
@@ -1047,7 +1129,7 @@ def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
             assert tz is timezone.utc
             assert events.count("lock-entered") == 1
             assert events.count("audit-complete") == 1
-            assert "pointer-write" not in events
+            assert "carrier-write" not in events
             events.append("clock")
             return cls(2026, 9, 4, 1, 2, 3, 4, tzinfo=tz)
 
@@ -1067,6 +1149,11 @@ def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
     monkeypatch.setattr(installation, "generate_ulid", mint, raising=False)
     monkeypatch.setattr(installation, "datetime", Clock)
     monkeypatch.setattr(installation, "select_project_authority", select)
+    monkeypatch.setattr(
+        installation,
+        "read_active_user_id",
+        lambda: events.append("actor") or USER_ID,
+    )
     monkeypatch.setattr(Path, "mkdir", mkdir)
     monkeypatch.setattr(
         replica_control,
@@ -1080,17 +1167,21 @@ def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
         INSTALLED_AT,
         INSTALLED_STATE_ID,
     )
-    assert events.count("lock-entered") == events.count("audit-complete") == 1
+    assert events.count("lock-entered") == 1
+    assert events.count("audit-complete") == 3
     assert events.count("clock") == events.count("ulid") == 1
     proof_order = "manifest-digest-verified manifest-committed-at-bound audit-complete".split()
     assert [events.index(item) for item in proof_order] == sorted(map(events.index, proof_order))
     assert events.index("audit-complete") < events.index("clock") < events.index("pointer-write")
     assert events.index("audit-complete") < events.index("ulid") < events.index("pointer-write")
     order = (
-        "pointer-write pointer-read select marker-write marker-read final-read final-select".split()
-    )
+        "carrier-write carrier-read pointer-write pointer-read marker-write marker-read "
+        "final-read final-select"
+    ).split()
     assert [events.index(item) for item in order] == sorted(map(events.index, order))
-    assert events.count("pointer-parent") == events.count("marker-parent") == 1
+    assert events.count("pointer-parent") == 2
+    assert events.count("marker-parent") == 1
+    assert events[-2:] == ["lock-released", "actor"]
 
 
 def test_matching_dormant_pointer_is_reused_without_mint_or_rewrite(
@@ -1099,13 +1190,15 @@ def test_matching_dormant_pointer_is_reused_without_mint_or_rewrite(
     projection = _projection()
     installed = install_generation_root(projection)
     marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
     dormant = _pointer_bytes(projection)
     pointer.write_bytes(dormant)
+    carrier.write_bytes(_authorization_bytes(projection))
     real_write = installation.atomic_write_bytes
 
     def write(path, content):
-        if path == pointer:
-            pytest.fail("pointer rewritten")
+        if path in (carrier, pointer):
+            pytest.fail("dormant pair rewritten")
         real_write(path, content)
 
     events: list[str] = []
@@ -1114,7 +1207,8 @@ def test_matching_dormant_pointer_is_reused_without_mint_or_rewrite(
     monkeypatch.setattr(installation, "generate_ulid", lambda: pytest.fail("minted"))
     monkeypatch.setattr(installation, "datetime", _FailDateTime)
     authority = publish_generation_control(installed)
-    assert (pointer.read_bytes(), marker.read_bytes()) == (
+    assert (carrier.read_bytes(), pointer.read_bytes(), marker.read_bytes()) == (
+        _authorization_bytes(projection),
         dormant,
         authority.marker.canonical_bytes(),
     )
@@ -1150,10 +1244,15 @@ def test_changed_only_target_commit_time_fails_before_publication_effects(
     before = tuple(path.read_bytes() if path.exists() else None for path in (marker, pointer))
     _forbid_publication_effects(monkeypatch)
 
-    _diverges(
-        "The generation manifest does not match the projection target.",
-        lambda: publish_generation_control(forged),
-    )
+    if branch == "active":
+        with pytest.raises(RefreshRequiredError) as raised:
+            publish_generation_control(forged)
+        assert str(raised.value) == "The installed replica requires a fresh authorization view."
+    else:
+        _diverges(
+            "The generation manifest does not match the projection target.",
+            lambda: publish_generation_control(forged),
+        )
 
     assert (
         tuple(path.read_bytes() if path.exists() else None for path in (marker, pointer)) == before
@@ -1311,33 +1410,43 @@ def test_installed_proof_changed_while_waiting_is_rejected(store: Path, monkeypa
     assert _control_files(store)[0].exists() is False
 
 
-def test_control_publication_refuses_a_busy_native_lock(store: Path) -> None:
+def test_control_publication_refuses_a_busy_native_lock(store: Path, monkeypatch) -> None:
     installed = install_generation_root(_projection())
+    _forbid_publication_effects(monkeypatch)
     with FileLock(str(store / LOCK_NAME)):
         with pytest.raises(ReplicaControlBusyError) as raised:
             publish_generation_control(installed, timeout=0.1)
     assert raised.value.code == "generation_control_busy"
-    assert all(not os.path.lexists(path) for path in _control_files(store))
+    assert not any(map(os.path.lexists, (*_control_files(store), _authorization_view(store))))
 
 
-@pytest.mark.parametrize("timing", ["before", "locked"])
-@pytest.mark.parametrize("boundary", ["lock", "pointer", "marker"])
+@pytest.mark.parametrize("timing", ["before", "locked", "active"])
+@pytest.mark.parametrize("boundary", ["lock", "carrier", "pointer", "marker"])
 @pytest.mark.parametrize(
     "kind",
-    "symlink dangling junction hardlink directory fifo oversized unreadable".split(),
+    "symlink dangling junction hardlink directory fifo device socket oversized unreadable".split(),
 )
 def test_control_publication_preserves_unsafe_control_occupants(
     store: Path, tmp_path: Path, monkeypatch, boundary: str, kind: str, timing: str
 ) -> None:
     if boundary == "lock" and timing == "locked":
         pytest.skip("leaf timing applies to pointer and marker")
+    if timing == "active" and boundary not in {"carrier", "pointer"}:
+        pytest.skip("active marker proof applies to actor control files")
     if boundary == "lock" and kind in {"dangling", "fifo", "oversized"}:
         pytest.skip("not a lock occupant row")
     _guard_occupant(kind)
     projection = _projection()
     installed = install_generation_root(projection)
     marker, pointer = _control_files(store)
-    path = {"lock": store / LOCK_NAME, "pointer": pointer, "marker": marker}[boundary]
+    path = {
+        "lock": store / LOCK_NAME,
+        "carrier": _authorization_view(store),
+        "pointer": pointer,
+        "marker": marker,
+    }[boundary]
+    if timing == "active":
+        publish_generation_control(installed)
     if boundary == "lock":
         path.unlink()
     if boundary == "marker":
@@ -1348,18 +1457,53 @@ def test_control_publication_preserves_unsafe_control_occupants(
     planted = []
 
     def plant() -> None:
+        if timing == "active":
+            path.unlink()
         _plant_occupant(path, kind, outside)
         planted.append(_fingerprint(path))
 
-    plant() if timing == "before" else _wrap_lock(monkeypatch, plant)
+    plant() if timing != "locked" else _wrap_lock(monkeypatch, plant)
+    if kind in {"device", "socket"}:
+        real_lstat = os.lstat
+
+        def lstat(candidate):
+            value = real_lstat(candidate)
+            if Path(candidate) == path:
+                fields, attributes = value.__reduce__()[1]
+                fields = list(fields)
+                fields[0] = stat.S_IFCHR if kind == "device" else stat.S_IFSOCK
+                return os.stat_result(fields, attributes)
+            return value
+
+        monkeypatch.setattr(installation.os, "lstat", lstat)
+        if timing != "locked":
+            planted[0] = _fingerprint(path)
+    if boundary == "carrier":
+        _forbid_pointer_access(monkeypatch, pointer)
     _forbid_publication_effects(monkeypatch)
-    with pytest.raises(ReplicaControlReadError) as raised:
-        publish_generation_control(installed)
-    assert raised.value.code == "generation_control_unavailable"
+    message = (
+        "Replica control paths cannot contain links."
+        if kind in (*LINK_KINDS, "dangling")
+        else "Replica control lock path is unsafe."
+        if boundary == "lock" and kind != "unreadable"
+        else "Replica control lock is unavailable."
+        if boundary == "lock"
+        else "Replica control file is unreadable."
+        if kind == "unreadable"
+        else "Replica control file is not a bounded regular file."
+    )
+    _assert_control_error(
+        ReplicaControlReadError,
+        "generation_control_unavailable",
+        message,
+        lambda: publish_generation_control(installed),
+    )
     assert _fingerprint(path) == planted[0]
     assert (outside / "victim").read_bytes() == b"victim"
     if boundary == "marker":
         assert pointer.read_bytes() == b"keep"
+    elif timing == "active":
+        assert marker.exists()
     else:
         assert not os.path.lexists(marker)
 
@@ -1429,19 +1573,33 @@ def test_control_publication_refuses_path_substitution(
         ("projection_scope_id", "b" * 64),
     ],
 )
+@pytest.mark.parametrize("control_name", ["carrier", "pointer"])
 def test_active_target_mismatch_never_mutates(
-    store: Path, monkeypatch, field: str, value: object
+    store: Path, monkeypatch, control_name: str, field: str, value: object
 ) -> None:
     projection = _projection()
     installed = install_generation_root(projection)
     publish_generation_control(installed)
     marker, pointer = _control_files(store)
-    pointer.write_bytes(_pointer_bytes(projection, **{field: value}))
-    before = marker.read_bytes(), pointer.read_bytes()
+    carrier = _authorization_view(store)
+    control = carrier if control_name == "carrier" else pointer
+    body = json.loads(control.read_bytes())
+    body[field] = value
+    control.write_bytes(json.dumps(body, sort_keys=True, separators=(",", ":")).encode())
+    before = marker.read_bytes(), carrier.read_bytes(), pointer.read_bytes()
     monkeypatch.setattr(installation, "atomic_write_bytes", lambda *_a: pytest.fail("wrote"))
-    with pytest.raises(GenerationAuthorityError):
-        publish_generation_control(installed)
-    assert (marker.read_bytes(), pointer.read_bytes()) == before
+    expected = (
+        ReplicaActorMismatchError if field == "installed_for_user_id" else RefreshRequiredError
+    )
+    message = (
+        "The installed replica belongs to another account."
+        if field == "installed_for_user_id"
+        else "The installed replica requires a fresh authorization view."
+    )
+    _assert_control_error(
+        expected, expected.code, message, lambda: publish_generation_control(installed)
+    )
+    assert (marker.read_bytes(), carrier.read_bytes(), pointer.read_bytes()) == before
 
 
 @pytest.mark.parametrize(
@@ -1499,7 +1657,33 @@ def test_control_publication_reaudits_every_installed_byte(
 
 
 @pytest.mark.parametrize(
-    "outcome", ["pointer-fails", "marker-fails", "marker-landed", "marker-corrupt"]
+    "outcome",
+    [
+        "carrier-fails",
+        "carrier-prior",
+        "carrier-landed",
+        "carrier-third",
+        "carrier-unsafe",
+        "carrier-actor",
+        "carrier-return-fails",
+        "carrier-return-prior",
+        "carrier-return-third",
+        "carrier-return-unsafe",
+        "pointer-fails",
+        "pointer-prior",
+        "pointer-landed",
+        "pointer-third",
+        "pointer-unsafe",
+        "pointer-actor",
+        "pointer-return-fails",
+        "pointer-return-prior",
+        "pointer-return-third",
+        "pointer-return-unsafe",
+        "marker-fails",
+        "marker-unsafe",
+        "marker-landed",
+        "marker-corrupt",
+    ],
 )
 def test_control_publication_resolves_crash_visible_boundaries(
     store: Path, monkeypatch, outcome: str
@@ -1507,13 +1691,36 @@ def test_control_publication_resolves_crash_visible_boundaries(
     projection = _projection()
     installed = install_generation_root(projection)
     marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    prior_carrier = _authorization_bytes(projection, manifest_digest="b" * 64)
+    if outcome.startswith("carrier") and outcome.endswith("prior"):
+        carrier.write_bytes(prior_carrier)
+    if outcome.startswith("pointer") and outcome.endswith("prior"):
+        pointer.write_bytes(b"prior")
     real_write = installation.atomic_write_bytes
+    real_read = installation._read_control_file
+    failed = False
 
     def write(path, content):
-        if path == pointer and outcome == "pointer-fails":
-            raise OSError("pointer outcome")
+        nonlocal failed
+        stage = "carrier" if path == carrier else "pointer" if path == pointer else "marker"
+        if stage != "marker" and outcome.startswith(stage):
+            result = outcome.removeprefix(f"{stage}-")
+            returns = result.startswith("return-")
+            result = result.removeprefix("return-")
+            if result in ("landed", "actor"):
+                real_write(path, content)
+            elif result == "third":
+                path.write_bytes(b"third")
+            failed = True
+            if returns:
+                return
+            raise OSError(f"{stage} outcome")
         if path == marker:
             if outcome == "marker-fails":
+                raise OSError("marker outcome")
+            if outcome == "marker-unsafe":
+                failed = True
                 raise OSError("marker outcome")
             if outcome == "marker-corrupt":
                 path.write_bytes(b"{")
@@ -1523,22 +1730,824 @@ def test_control_publication_resolves_crash_visible_boundaries(
                 raise OSError("marker outcome")
         real_write(path, content)
 
+    def read(store_path, path):
+        if failed and outcome.endswith("unsafe") and path in (carrier, pointer, marker):
+            raise ReplicaControlReadError("Replica control file changed during read.")
+        return real_read(store_path, path)
+
     monkeypatch.setattr(installation, "atomic_write_bytes", write)
-    if outcome == "marker-landed":
+    monkeypatch.setattr(installation, "_read_control_file", read)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
+    monkeypatch.setattr(installation, "datetime", FIXED_CLOCK)
+    if outcome.endswith("actor"):
+        changed_at, calls = (3 if outcome.startswith("carrier") else 4), 0
+
+        def actor():
+            nonlocal calls
+            calls += 1
+            return INSTALLED_STATE_ID if calls == changed_at else USER_ID
+
+        monkeypatch.setattr(installation, "read_active_user_id", actor)
+    if outcome.endswith("landed"):
         assert isinstance(publish_generation_control(installed), GenerationProjectAuthority)
     else:
         expected = (
-            GenerationControlCorruptError
-            if outcome == "marker-corrupt"
+            ReplicaActorMismatchError
+            if outcome.endswith("actor")
+            else ReplicaControlReadError
+            if outcome.endswith("unsafe")
             else GenerationControlPublicationError
         )
-        with pytest.raises(expected):
-            publish_generation_control(installed)
-    if outcome in ("pointer-fails", "marker-fails"):
-        assert marker.exists() is False
+        message = (
+            "The installed replica belongs to another account."
+            if outcome.endswith("actor")
+            else "Replica control file changed during read."
+            if outcome.endswith("unsafe")
+            else "The generation control state could not be published."
+        )
+        _assert_control_error(
+            expected, expected.code, message, lambda: publish_generation_control(installed)
+        )
+    if outcome == "marker-corrupt":
+        assert marker.read_bytes() == b"{"
+    elif not outcome.endswith("landed"):
+        assert not marker.exists()
         with locked_replica_control_snapshot(
             projection.target.binding,
             active_user_id=USER_ID,
             active_projection_scope_id=SCOPE_ID,
         ) as snapshot:
             assert isinstance(snapshot.authority, FlatProjectAuthority)
+    if outcome.endswith("landed"):
+        return
+    intended_carrier = _authorization_bytes(projection, installed_state_id=INSTALLED_STATE_ID)
+    intended_pointer = _pointer_bytes(projection, installed_state_id=INSTALLED_STATE_ID)
+    expected_carrier = (
+        b"third"
+        if outcome.startswith("carrier") and outcome.endswith("third")
+        else prior_carrier
+        if outcome.startswith("carrier") and outcome.endswith("prior")
+        else None
+        if outcome.startswith("carrier") and outcome.endswith(("fails", "unsafe"))
+        else intended_carrier
+    )
+    expected_pointer = (
+        b"third"
+        if outcome.startswith("pointer") and outcome.endswith("third")
+        else b"prior"
+        if outcome.startswith("pointer") and outcome.endswith("prior")
+        else None
+        if outcome.startswith("carrier")
+        or outcome.startswith("pointer")
+        and outcome.endswith(("fails", "unsafe"))
+        else intended_pointer
+    )
+    expected_marker = b"{" if outcome == "marker-corrupt" else None
+    assert tuple(
+        path.read_bytes() if path.exists() else None for path in (carrier, pointer, marker)
+    ) == (expected_carrier, expected_pointer, expected_marker)
+    monkeypatch.setattr(installation, "atomic_write_bytes", real_write)
+    monkeypatch.setattr(installation, "_read_control_file", real_read)
+    monkeypatch.setattr(installation, "read_active_user_id", lambda: USER_ID)
+    if outcome.startswith("carrier") and outcome.endswith("third"):
+
+        def retry():
+            return publish_generation_control(installed)
+
+        _assert_control_error(
+            GenerationControlCorruptError,
+            "generation_control_corrupt",
+            "The installed authorization view is invalid.",
+            retry,
+        )
+    elif outcome == "marker-corrupt":
+        _assert_control_error(
+            GenerationControlCorruptError,
+            "generation_control_corrupt",
+            "The generation authority marker is invalid.",
+            lambda: publish_generation_control(installed),
+        )
+    else:
+        assert isinstance(publish_generation_control(installed), GenerationProjectAuthority)
+
+
+@pytest.mark.parametrize(
+    ("proof", "expected", "message"),
+    [
+        (
+            "carrier-parse",
+            GenerationControlCorruptError,
+            "The installed authorization view is invalid.",
+        ),
+        (
+            "carrier-canonical",
+            GenerationControlCorruptError,
+            "The installed authorization view is invalid.",
+        ),
+        (
+            "carrier-actor",
+            ReplicaActorMismatchError,
+            "The installed replica belongs to another account.",
+        ),
+        (
+            "carrier-nonactor",
+            GenerationControlPublicationError,
+            "The generation control state could not be published.",
+        ),
+        (
+            "pointer-parse",
+            GenerationControlCorruptError,
+            "The installed generation pointer is invalid.",
+        ),
+        (
+            "pointer-canonical",
+            GenerationControlCorruptError,
+            "The installed generation pointer is invalid.",
+        ),
+        (
+            "pointer-actor",
+            ReplicaActorMismatchError,
+            "The installed replica belongs to another account.",
+        ),
+        (
+            "pointer-nonactor",
+            GenerationControlPublicationError,
+            "The generation control state could not be published.",
+        ),
+    ],
+)
+def test_exact_intended_write_outcome_requires_each_proof(
+    store: Path, monkeypatch, proof: str, expected, message: str
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    stage, check = proof.split("-")
+    real_write = installation.atomic_write_bytes
+    real_carrier_parse = installation._parse_authorization_view
+    real_pointer_parse = installation._parse_pointer
+    real_carrier_validate = installation._validate_carrier
+    real_pair_validate = installation._validate_control_pair
+    after = False
+
+    def write(path, content):
+        nonlocal after
+        current = "carrier" if path == carrier else "pointer" if path == pointer else "marker"
+        real_write(path, content)
+        if current == stage:
+            after = True
+            raise OSError("injected writer failure")
+
+    def parse_carrier(raw):
+        value = real_carrier_parse(raw)
+        if after and stage == "carrier" and check == "canonical":
+            return value.model_copy(update={"manifest_digest": "b" * 64})
+        if after and stage == "carrier" and check == "parse":
+            raise GenerationControlCorruptError("injected parser failure")
+        return value
+
+    def parse_pointer(raw):
+        value = real_pointer_parse(raw)
+        if after and stage == "pointer" and check == "canonical":
+            return value.model_copy(update={"manifest_digest": "b" * 64})
+        if after and stage == "pointer" and check == "parse":
+            raise GenerationControlCorruptError("injected parser failure")
+        return value
+
+    def validate_carrier(*args):
+        if after and stage == "carrier" and check == "actor":
+            raise ReplicaActorMismatchError("The installed replica belongs to another account.")
+        if after and stage == "carrier" and check == "nonactor":
+            return False
+        return real_carrier_validate(*args)
+
+    def validate_pair(*args):
+        if after and stage == "pointer" and check == "actor":
+            raise ReplicaActorMismatchError("The installed replica belongs to another account.")
+        if after and stage == "pointer" and check == "nonactor":
+            return False
+        return real_pair_validate(*args)
+
+    def actor():
+        if after:
+            raise ActiveUserReadError("ambiguous")
+        return USER_ID
+
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "_parse_authorization_view", parse_carrier)
+    monkeypatch.setattr(installation, "_parse_pointer", parse_pointer)
+    monkeypatch.setattr(installation, "_validate_carrier", validate_carrier)
+    monkeypatch.setattr(installation, "_validate_control_pair", validate_pair)
+    monkeypatch.setattr(installation, "read_active_user_id", actor)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
+    monkeypatch.setattr(installation, "datetime", FIXED_CLOCK)
+    _assert_control_error(
+        expected, expected.code, message, lambda: publish_generation_control(installed)
+    )
+    assert not marker.exists()
+    assert carrier.read_bytes() == _authorization_bytes(
+        projection, installed_state_id=INSTALLED_STATE_ID
+    )
+    assert pointer.exists() is (stage == "pointer")
+    if pointer.exists():
+        assert pointer.read_bytes() == _pointer_bytes(
+            projection, installed_state_id=INSTALLED_STATE_ID
+        )
+    assert expected is not RefreshRequiredError
+
+
+@pytest.mark.parametrize("stage", ["carrier", "pointer"])
+@pytest.mark.parametrize(
+    ("field", "expected", "message"),
+    [
+        (
+            "manifest_digest",
+            GenerationControlPublicationError,
+            "The generation control state could not be published.",
+        ),
+        (
+            "installed_for_user_id",
+            ReplicaActorMismatchError,
+            "The installed replica belongs to another account.",
+        ),
+    ],
+)
+def test_intended_control_bytes_are_proved_before_their_write(
+    store: Path, monkeypatch, stage: str, field: str, expected, message: str
+) -> None:
+    installed = install_generation_root(_projection())
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    builder_name = f"_build_{stage}"
+    real_builder = getattr(installation, builder_name)
+    real_write = installation.atomic_write_bytes
+    writes = []
+
+    def build(*args):
+        value = real_builder(*args)
+        changed = "b" * 64 if field == "manifest_digest" else INSTALLED_STATE_ID
+        return value.model_copy(update={field: changed})
+
+    def write(path, content):
+        writes.append(path)
+        real_write(path, content)
+
+    monkeypatch.setattr(installation, builder_name, build)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(installation, "atomic_write_bytes", write)
+        _assert_control_error(
+            expected, expected.code, message, lambda: publish_generation_control(installed)
+        )
+    assert (carrier in writes, pointer in writes, marker in writes) == (
+        stage == "pointer",
+        False,
+        False,
+    )
+
+
+@pytest.mark.parametrize("stage", ["carrier", "pointer"])
+@pytest.mark.parametrize("reason", ["missing", "invalid", "unsafe", "ambiguous", "next"])
+def test_landed_outcome_requires_available_active_authentication(
+    store: Path, monkeypatch, stage: str, reason: str
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    real_write = installation.atomic_write_bytes
+    real_reprove = installation._reprove_publication_paths
+    failed = False
+    next_check = False
+
+    def write(path, content):
+        nonlocal failed
+        current = "carrier" if path == carrier else "pointer" if path == pointer else "marker"
+        real_write(path, content)
+        if current == stage:
+            failed = True
+            raise OSError("injected writer failure")
+
+    def actor():
+        if failed:
+            if reason != "next":
+                raise ActiveUserReadError(reason)
+            return USER_ID
+        return INSTALLED_STATE_ID if next_check else USER_ID
+
+    def reprove(*args):
+        nonlocal failed, next_check
+        result = real_reprove(*args)
+        if failed:
+            failed = False
+            next_check = reason == "next"
+        return result
+
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "read_active_user_id", actor)
+    monkeypatch.setattr(installation, "_reprove_publication_paths", reprove)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
+    _assert_control_error(
+        ReplicaActorMismatchError,
+        "replica_actor_mismatch",
+        "The installed replica belongs to another account."
+        if reason == "next"
+        else "The installed replica does not match an active account.",
+        lambda: publish_generation_control(installed),
+    )
+    assert not marker.exists()
+    assert (carrier.exists(), pointer.exists()) == (True, stage == "pointer")
+
+
+def test_pointer_outcome_actor_divergence_precedes_raw_carrier_inequality(
+    store: Path, monkeypatch
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    real_write = installation.atomic_write_bytes
+    real_read = installation._read_control_file
+    pointer_failed = False
+
+    def write(path, content):
+        nonlocal pointer_failed
+        real_write(path, content)
+        if path == pointer:
+            pointer_failed = True
+            raise OSError("injected writer failure")
+
+    def read(store_path, path):
+        if pointer_failed and path == carrier:
+            return _authorization_bytes(projection, installed_for_user_id=INSTALLED_STATE_ID)
+        return real_read(store_path, path)
+
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "_read_control_file", read)
+    _assert_control_error(
+        ReplicaActorMismatchError,
+        "replica_actor_mismatch",
+        "The installed replica belongs to another account.",
+        lambda: publish_generation_control(installed),
+    )
+    assert carrier.exists() and pointer.exists() and not marker.exists()
+
+
+def _assert_control_error(expected, code: str, message: str, call) -> None:
+    with pytest.raises(expected) as raised:
+        call()
+    assert (raised.value.code, str(raised.value)) == (code, message)
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__ is True
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_writes", "expected_id"),
+    [
+        ("carrier-only", "pointer marker", OTHER_STATE_ID),
+        ("pointer-only", "carrier pointer marker", INSTALLED_STATE_ID),
+        ("state-mismatch", "pointer marker", OTHER_STATE_ID),
+        ("actor-pointer", "pointer marker", OTHER_STATE_ID),
+        ("malformed-pointer", "pointer marker", OTHER_STATE_ID),
+        ("noncanonical-pointer", "pointer marker", OTHER_STATE_ID),
+        ("divergent-carrier", "carrier pointer marker", INSTALLED_STATE_ID),
+    ],
+)
+def test_dormant_recovery_is_carrier_anchored(
+    store: Path, monkeypatch, state: str, expected_writes: str, expected_id: str
+) -> None:
+    projection, installed = _projection(), None
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    if state != "pointer-only":
+        carrier.write_bytes(
+            _authorization_bytes(
+                projection,
+                **({"manifest_digest": "b" * 64} if state == "divergent-carrier" else {}),
+            )
+        )
+    if state != "carrier-only" and state != "divergent-carrier":
+        changes = {}
+        if state == "pointer-only":
+            changes["installed_for_user_id"] = INSTALLED_STATE_ID
+            changes["projection_scope_id"] = "b" * 64
+        elif state == "state-mismatch":
+            changes["installed_state_id"] = INSTALLED_STATE_ID
+        elif state == "actor-pointer":
+            changes["installed_for_user_id"] = INSTALLED_STATE_ID
+        raw = _pointer_bytes(projection, **changes)
+        if state == "malformed-pointer":
+            raw = b"{"
+        elif state == "noncanonical-pointer":
+            raw = json.dumps(json.loads(raw)).encode()
+        pointer.write_bytes(raw)
+    real_write, writes = installation.atomic_write_bytes, []
+
+    def write(path, content):
+        writes.append({carrier: "carrier", pointer: "pointer", marker: "marker"}[path])
+        real_write(path, content)
+
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
+    monkeypatch.setattr(installation, "datetime", FIXED_CLOCK)
+    authority = publish_generation_control(installed)
+    view = InstalledAuthorizationView.model_validate_json(carrier.read_bytes())
+    assert (writes, view.installed_state_id, authority.pointer.installed_state_id) == (
+        expected_writes.split(),
+        expected_id,
+        expected_id,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("project_id", "01K00000000000000000000000"),
+        ("store_format_version", 2),
+        ("generation_id", "01K55555555555555555555555"),
+        ("manifest_digest", "b" * 64),
+        ("committed_at", OTHER_COMMITTED_AT),
+        ("installed_for_user_id", INSTALLED_STATE_ID),
+        ("projection_class", "viewer"),
+        ("projection_scope_id", "b" * 64),
+        ("installed_state_id", INSTALLED_STATE_ID),
+    ],
+)
+def test_exact_dormant_carrier_wins_over_each_safe_pointer_field(
+    store: Path, monkeypatch, field: str, value: object
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    carrier.write_bytes(_authorization_bytes(projection))
+    pointer.write_bytes(_pointer_bytes(projection, **{field: value}))
+    writes = []
+    real_write = installation.atomic_write_bytes
+
+    def write(path, content):
+        writes.append(path)
+        real_write(path, content)
+
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: pytest.fail("minted"))
+
+    authority = publish_generation_control(installed)
+
+    assert writes == [pointer, marker]
+    assert carrier.read_bytes() == _authorization_bytes(projection)
+    assert authority.pointer.installed_state_id == OTHER_STATE_ID
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("project_id", "01K00000000000000000000000"),
+        ("store_format_version", 2),
+        ("generation_id", "01K55555555555555555555555"),
+        ("manifest_digest", "b" * 64),
+        ("committed_at", OTHER_COMMITTED_AT),
+        ("projection_class", "viewer"),
+        ("projection_scope_id", "b" * 64),
+    ],
+)
+def test_target_divergent_dormant_carrier_starts_a_new_pair_after_pointer_safety(
+    store: Path, monkeypatch, field: str, value: object
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    carrier.write_bytes(_authorization_bytes(projection, **{field: value}))
+    pointer.write_bytes(b"{")
+    real_read = installation._read_control_file
+    real_write = installation.atomic_write_bytes
+    events = []
+
+    def read(store_path, path):
+        if path == pointer:
+            events.append("pointer-read")
+        return real_read(store_path, path)
+
+    def write(path, content):
+        events.append(path)
+        real_write(path, content)
+
+    monkeypatch.setattr(installation, "_read_control_file", read)
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
+    authority = publish_generation_control(installed)
+    assert events.index("pointer-read") < events.index(carrier)
+    view = InstalledAuthorizationView.model_validate_json(carrier.read_bytes())
+    assert all(
+        getattr(view, item) == getattr(projection.target.identity, item)
+        for item in installation._TARGET_POINTER_FIELDS
+    )
+    assert view.installed_state_id == authority.pointer.installed_state_id == INSTALLED_STATE_ID
+    assert [event for event in events if isinstance(event, Path)] == [carrier, pointer, marker]
+
+
+@pytest.mark.parametrize("state", ["malformed", "noncanonical", "actor"])
+def test_dormant_carrier_refusal_precedes_pointer_access(
+    store: Path, tmp_path: Path, monkeypatch, state: str
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    carrier, pointer = _authorization_view(store), _control_files(store)[1]
+    raw = _authorization_bytes(
+        projection, **({"installed_for_user_id": INSTALLED_STATE_ID} if state == "actor" else {})
+    )
+    carrier.write_bytes(
+        b"{"
+        if state == "malformed"
+        else json.dumps(json.loads(raw)).encode()
+        if state == "noncanonical"
+        else raw
+    )
+    pointer.write_bytes(b"pointer")
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"outside")
+    before = _bytes(installed.root_path), carrier.read_bytes(), pointer.read_bytes()
+    _forbid_pointer_access(monkeypatch, pointer)
+    _forbid_publication_effects(monkeypatch)
+    expected = ReplicaActorMismatchError if state == "actor" else GenerationControlCorruptError
+    message = (
+        "The installed replica belongs to another account."
+        if state == "actor"
+        else "The installed authorization view is invalid."
+    )
+    _assert_control_error(
+        expected, expected.code, message, lambda: publish_generation_control(installed)
+    )
+    assert (_bytes(installed.root_path), carrier.read_bytes(), pointer.read_bytes()) == before
+    assert outside.read_bytes() == b"outside"
+
+
+@pytest.mark.parametrize(
+    ("state", "expected", "message"),
+    [
+        (
+            "carrier-missing",
+            RefreshRequiredError,
+            "The installed replica requires a fresh authorization view.",
+        ),
+        (
+            "carrier-malformed",
+            GenerationControlCorruptError,
+            "The installed authorization view is invalid.",
+        ),
+        (
+            "carrier-noncanonical",
+            GenerationControlCorruptError,
+            "The installed authorization view is invalid.",
+        ),
+        (
+            "carrier-actor",
+            ReplicaActorMismatchError,
+            "The installed replica belongs to another account.",
+        ),
+        (
+            "carrier-digest",
+            RefreshRequiredError,
+            "The installed replica requires a fresh authorization view.",
+        ),
+        (
+            "pointer-missing",
+            RefreshRequiredError,
+            "The active account has no installed generation pointer.",
+        ),
+        (
+            "pointer-malformed",
+            GenerationControlCorruptError,
+            "The installed generation pointer is invalid.",
+        ),
+        (
+            "pointer-noncanonical",
+            GenerationControlCorruptError,
+            "The installed generation pointer is invalid.",
+        ),
+        (
+            "pointer-actor",
+            ReplicaActorMismatchError,
+            "The installed replica belongs to another account.",
+        ),
+        (
+            "pointer-state",
+            RefreshRequiredError,
+            "The installed replica requires a fresh authorization view.",
+        ),
+    ],
+)
+def test_active_pair_failures_never_repair(
+    store: Path, monkeypatch, state: str, expected, message: str
+) -> None:
+    installed = install_generation_root(_projection())
+    publish_generation_control(installed)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    path = carrier if state.startswith("carrier") else pointer
+    if state in {"carrier-missing", "pointer-missing"}:
+        path.unlink()
+    elif state.endswith("malformed"):
+        path.write_bytes(b"{")
+    else:
+        body = json.loads(path.read_bytes())
+        field, value = (
+            ("installed_for_user_id", INSTALLED_STATE_ID)
+            if state.endswith("actor")
+            else ("installed_state_id", INSTALLED_STATE_ID)
+            if state == "pointer-state"
+            else ("manifest_digest", "b" * 64)
+        )
+        body[field] = value
+        path.write_bytes(
+            json.dumps(
+                body,
+                sort_keys=not state.endswith("noncanonical"),
+                separators=(",", ":") if not state.endswith("noncanonical") else None,
+            ).encode()
+        )
+    before = tuple(p.read_bytes() if p.exists() else None for p in (marker, carrier, pointer))
+    if state.startswith("carrier"):
+        _forbid_pointer_access(monkeypatch, pointer)
+    _forbid_publication_effects(monkeypatch)
+    _assert_control_error(
+        expected, expected.code, message, lambda: publish_generation_control(installed)
+    )
+    assert (
+        tuple(p.read_bytes() if p.exists() else None for p in (marker, carrier, pointer)) == before
+    )
+
+
+@pytest.mark.parametrize(("switch", "residual"), [(1, 0), (2, 0), (3, 1), (4, 2), (5, 3)])
+@pytest.mark.parametrize("failure", [None, "missing", "invalid", "unsafe", "ambiguous"])
+def test_actor_switch_stops_at_each_publication_boundary(
+    store: Path, monkeypatch, switch: int, residual: int, failure: str | None
+) -> None:
+    installed = install_generation_root(_projection())
+    calls = 0
+
+    def actor() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == switch:
+            if failure is not None:
+                raise ActiveUserReadError(failure)
+            return INSTALLED_STATE_ID
+        return USER_ID
+
+    monkeypatch.setattr(installation, "read_active_user_id", actor)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: OTHER_STATE_ID)
+    _assert_control_error(
+        ReplicaActorMismatchError,
+        "replica_actor_mismatch",
+        "The installed replica does not match an active account."
+        if failure is not None
+        else "The installed replica belongs to another account.",
+        lambda: publish_generation_control(installed),
+    )
+    marker, pointer = _control_files(store)
+    paths = (_authorization_view(store), pointer, marker)
+    assert sum(path.exists() for path in paths) == residual
+
+
+@pytest.mark.parametrize(
+    ("timing", "audit_call", "active", "residual"),
+    [
+        ("lock", 0, False, 0),
+        ("carrier", 0, False, 0),
+        ("root", 1, False, 0),
+        ("final", 3, False, 3),
+        ("active", 1, True, 3),
+    ],
+)
+def test_actor_switch_during_each_verification_phase(
+    store: Path, monkeypatch, timing: str, audit_call: int, active: bool, residual: int
+) -> None:
+    installed = install_generation_root(_projection())
+    if active:
+        publish_generation_control(installed)
+    switched = False
+    audits = 0
+    real_audit = installation._audit_installed_root
+    real_carrier_read = installation._read_actor_authorization_view
+    real_lock_validation = installation._validate_lock_path
+
+    def switch() -> None:
+        nonlocal switched
+        switched = True
+
+    def audit(*args):
+        nonlocal audits
+        result = real_audit(*args)
+        audits += 1
+        if audits == audit_call:
+            switch()
+        return result
+
+    def carrier_read(*args):
+        result = real_carrier_read(*args)
+        switch()
+        return result
+
+    def validate_lock(*args, **kwargs):
+        result = real_lock_validation(*args, **kwargs)
+        switch()
+        return result
+
+    if timing == "lock":
+        monkeypatch.setattr(installation, "_validate_lock_path", validate_lock)
+    elif timing == "carrier":
+        monkeypatch.setattr(installation, "_read_actor_authorization_view", carrier_read)
+    else:
+        monkeypatch.setattr(installation, "_audit_installed_root", audit)
+    monkeypatch.setattr(
+        installation, "read_active_user_id", lambda: INSTALLED_STATE_ID if switched else USER_ID
+    )
+    _assert_control_error(
+        ReplicaActorMismatchError,
+        "replica_actor_mismatch",
+        "The installed replica belongs to another account.",
+        lambda: publish_generation_control(installed),
+    )
+    marker, pointer = _control_files(store)
+    assert sum(path.exists() for path in (_authorization_view(store), pointer, marker)) == residual
+
+
+@pytest.mark.parametrize("boundary", ["carrier", "pointer"])
+@pytest.mark.parametrize(
+    "race",
+    ["replacement", "deletion", "hard-link", "partial-read", "size-change", "identity-change"],
+)
+def test_publication_reread_races_fail_without_a_later_mutation(
+    store: Path, monkeypatch, boundary: str, race: str
+) -> None:
+    projection = _projection()
+    installed = install_generation_root(projection)
+    marker, pointer = _control_files(store)
+    carrier = _authorization_view(store)
+    target = carrier if boundary == "carrier" else pointer
+    before = _bytes(installed.root_path)
+    message = f"Replica control file changed during {'open' if race == 'replacement' else 'read'}."
+    real_write = installation.atomic_write_bytes
+    real_open, real_os_read, real_lstat = os.open, os.read, os.lstat
+    writes = []
+    target_fd = None
+    read_done = fired = False
+    raced = target.with_suffix(".race")
+
+    def open_file(path, *args, **kwargs):
+        nonlocal target_fd, fired
+        if Path(path) == target and target in writes:
+            if race == "replacement":
+                raced.write_bytes(target.read_bytes())
+                os.replace(raced, target)
+                fired = True
+            target_fd = real_open(path, *args, **kwargs)
+            return target_fd
+        return real_open(path, *args, **kwargs)
+
+    def read_file(descriptor, length):
+        nonlocal read_done, fired
+        content = real_os_read(descriptor, length)
+        if descriptor == target_fd:
+            if race == "partial-read":
+                fired = True
+                return content[:-1]
+            read_done = True
+        return content
+
+    def lstat(path, *args, **kwargs):
+        nonlocal fired
+        metadata = real_lstat(path, *args, **kwargs)
+        field = {"hard-link": 3, "size-change": 6, "identity-change": 1}.get(race)
+        if read_done and Path(path) == target and not fired:
+            fired = True
+            if race == "deletion":
+                raise FileNotFoundError(path)
+            values, attributes = metadata.__reduce__()[1]
+            values = list(values)
+            values[field] += 1
+            return os.stat_result(values, attributes)
+        return metadata
+
+    def write(path, content):
+        real_write(path, content)
+        writes.append(path)
+
+    monkeypatch.setattr(installation.os, "open", open_file)
+    monkeypatch.setattr(installation.os, "read", read_file)
+    monkeypatch.setattr(installation.os, "lstat", lstat)
+    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
+    _assert_control_error(
+        ReplicaControlReadError,
+        "generation_control_unavailable",
+        message,
+        lambda: publish_generation_control(installed),
+    )
+    assert _bytes(installed.root_path) == before
+    assert fired is True
+    assert writes == ([carrier] if boundary == "carrier" else [carrier, pointer])
+    assert not marker.exists()
