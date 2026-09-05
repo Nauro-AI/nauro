@@ -1,7 +1,8 @@
 """BM25 search over decisions.
 
-Builds an in-memory BM25 index per call using bm25s + PyStemmer.
-Index text per decision: title + rationale + rejected-alternative names.
+Builds an in-memory BM25 index with bm25s + PyStemmer, kept across calls while
+the indexed text is unchanged. Index text per decision: title + rationale +
+rejected-alternative names.
 
 Rejected names are indexed because they carry the vocabulary of paths the
 project declined — the bridge for two conflict classes the title+rationale
@@ -16,7 +17,7 @@ declined path's identity).
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from nauro_core.decision_model import Decision, DecisionStatus
 from nauro_core.parsing import _first_sentence_snippet, extract_relevance_snippet
@@ -64,6 +65,34 @@ def _index_text(d: Decision) -> str:
     return f"{d.title} {d.rationale} {names}" if names else f"{d.title} {d.rationale}"
 
 
+# Built indexes kept across calls in a long-lived process, one per stopword
+# setting, each holding the exact corpus text it was built from. A hit needs
+# the corpus rebuilt from the current decisions to equal that text, so any
+# edit, supersession or removal rebuilds. Retrieval never mutates the index.
+_INDEX_BY_STOPWORDS: dict[str | tuple[str, ...], tuple[tuple[str, ...], Any]] = {}
+
+
+def _indexed(corpus: list[str], stopwords: str | list[str]) -> Any:
+    """Return a bm25s retriever over ``corpus``, reusing the last one built for
+    ``stopwords`` when the corpus text is unchanged.
+    """
+    key = stopwords if isinstance(stopwords, str) else tuple(stopwords)
+    text = tuple(corpus)
+    cached = _INDEX_BY_STOPWORDS.get(key)
+    if cached is not None and cached[0] == text:
+        return cached[1]
+
+    import bm25s
+
+    # show_progress=False: bm25s defaults to True; the tqdm output is invisible
+    # in MCP server stderr but pollutes the `nauro check-decision` CLI surface.
+    tokens = bm25s.tokenize(corpus, stopwords=stopwords, stemmer=_stemmer(), show_progress=False)
+    retriever = bm25s.BM25()
+    retriever.index(tokens, show_progress=False)
+    _INDEX_BY_STOPWORDS[key] = (text, retriever)
+    return retriever
+
+
 def bm25_search(
     decisions: list[Decision],
     query: str,
@@ -78,13 +107,7 @@ def bm25_search(
 
     import bm25s
 
-    corpus = [_index_text(d) for d in decisions]
-    # show_progress=False — bm25s defaults to True; the tqdm output is invisible
-    # in MCP server stderr but pollutes the `nauro check-decision` CLI surface.
-    corpus_tokens = bm25s.tokenize(corpus, stopwords="en", stemmer=_stemmer(), show_progress=False)
-
-    retriever = bm25s.BM25()
-    retriever.index(corpus_tokens, show_progress=False)
+    retriever = _indexed([_index_text(d) for d in decisions], "en")
 
     # Clamp k into [0, N]: bm25s/numpy argpartition raises ValueError on a
     # negative k, which a negative limit would otherwise pass straight through.
@@ -137,13 +160,7 @@ def bm25_retrieve(
 
     import bm25s
 
-    corpus = [_index_text(d) for d in active]
-    corpus_tokens = bm25s.tokenize(
-        corpus, stopwords=stopwords, stemmer=_stemmer(), show_progress=False
-    )
-
-    retriever = bm25s.BM25()
-    retriever.index(corpus_tokens, show_progress=False)
+    retriever = _indexed([_index_text(d) for d in active], stopwords)
 
     k = min(top_k, len(active))
     query_tokens = bm25s.tokenize(
