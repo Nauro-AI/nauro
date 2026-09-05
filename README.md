@@ -16,22 +16,6 @@ Nauro records the project decisions you approve, including their reasons and rej
 
 **Status:** Stable (1.x).
 
-## Why project history matters
-
-Pennykeep, the fictional budgeting app bundled with Nauro, helps users assign income to category envelopes before they spend it.
-
-Imagine asking an agent:
-
-> Simplify onboarding by replacing envelope budgeting with a passive spending tracker and charts.
-
-That could be a reasonable product change. But Pennykeep's recorded decision, **Envelope budgeting method**, explains why the team chose its current approach. In the fictional tester history, people who only saw past spending kept overspending. Assigning money before spending helped them change their behavior. The team accepted more setup effort to support that goal.
-
-Nauro can surface that decision before the agent plans the change. An illustrative response would be:
-
-> Pennykeep chose upfront allocation because passive tracking did not help its testers control spending. I suggest simplifying envelope setup while keeping allocation. Removing it would change the product's budgeting model and needs your approval.
-
-The useful context is the project's reason for choosing an approach. A later session can use it, and you can still decide to change it.
-
 ## See it in practice
 
 https://github.com/user-attachments/assets/f75ede99-db11-4460-bc09-801c86df1e19
@@ -71,7 +55,13 @@ Install `uv` with `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS or 
 
 ## Try the demo (optional)
 
-Try the Pennykeep example above without an account or agent setup. With the CLI installed, run these commands in a temporary directory on macOS or Linux:
+Pennykeep is the fictional budgeting app bundled with Nauro.
+
+- **Request:** Replace envelope budgeting with spending charts to simplify onboarding.
+- **Prior decision:** In the fictional tester history, passive tracking did not help users control spending. The team accepted more setup effort so users assign income before spending.
+- **Effect on the plan:** An agent could suggest simpler envelope setup or ask whether to revisit the budgeting model.
+
+Try this example without an account or agent setup. With the CLI installed, run these commands in a temporary directory on macOS or Linux:
 
 ```bash
 mkdir -p /tmp/nauro-demo && cd /tmp/nauro-demo
@@ -79,7 +69,7 @@ nauro init --demo
 nauro check-decision "Replace envelope budgeting with a passive spending tracker and charts"
 ```
 
-Look for **Envelope budgeting method** in the related decisions. Its rationale explains the tradeoff between simpler onboarding and assigning money before spending. This command retrieves prior decisions; an agent uses that context to assess a plan. It does not run an agent or change the recorded decision.
+Look for **Envelope budgeting method** in the related decisions. The command retrieves the prior reasoning; it does not run an agent or change the recorded decision.
 
 See the [demo guide](https://nauro.ai/docs/quickstart#demo) for PowerShell commands and more ways to explore the sample. Keep agent setup in your own repository.
 
