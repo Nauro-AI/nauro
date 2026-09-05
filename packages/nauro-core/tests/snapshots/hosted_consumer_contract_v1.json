@@ -329,8 +329,11 @@
       "qualname": "AbsentTitleClaimProbe"
     },
     "nauro_core.operations.commit_plan.ApprovalAttestation": {
-      "kind": "value",
-      "type": "UnionType"
+      "kind": "union",
+      "members": [
+        "nauro_core.operations.commit_plan.PreTeamApprovalAttestation",
+        "nauro_core.operations.commit_plan.TeamRatificationAttestation"
+      ]
     },
     "nauro_core.operations.commit_plan.ApprovalAttestationRejected": {
       "bases": [

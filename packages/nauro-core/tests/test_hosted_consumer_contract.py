@@ -224,6 +224,11 @@ def _value_shape(obj: object) -> dict[str, Any]:
 
 def symbol_shape(obj: object) -> dict[str, Any]:
     """Return the JSON-serializable frozen shape of one resolved symbol."""
+    if typing.get_origin(obj) in _UNION_ORIGINS:
+        return {
+            "kind": "union",
+            "members": sorted(_render_annotation(arg) for arg in typing.get_args(obj)),
+        }
     if isinstance(obj, types.ModuleType):
         return {"kind": "module"}
     if inspect.isclass(obj):
@@ -239,6 +244,13 @@ def build_contract() -> dict[str, Any]:
         "contract_version": CONTRACT_VERSION,
         "symbols": {name: symbol_shape(resolve_symbol(name)) for name in manifest_symbols()},
     }
+
+
+def test_union_shapes_preserve_members_across_spellings() -> None:
+    expected = {"kind": "union", "members": ["int", "str"]}
+    assert symbol_shape(int | str) == expected
+    assert symbol_shape(typing.Union[str, int]) == expected  # noqa: UP007 - Test both runtime forms.
+    assert symbol_shape(int | bytes) == {"kind": "union", "members": ["bytes", "int"]}
 
 
 def _dumps(contract: dict[str, Any]) -> str:
