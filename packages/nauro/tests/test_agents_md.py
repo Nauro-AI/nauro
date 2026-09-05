@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
-from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
+from nauro_core.protocol import _PROPOSAL_ADMISSION, APPROVAL_BEFORE_PROPOSE
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -53,6 +53,8 @@ def test_generate_includes_behavioral_instructions():
     )
     assert result.count(anchored_boundary) == 1
     assert result.count(APPROVAL_BEFORE_PROPOSE) == 1
+    assert result.count(_PROPOSAL_ADMISSION) == 1
+    assert MCP_INSTRUCTIONS_STATIC.count(_PROPOSAL_ADMISSION) == 1
     assert "advisory conflict checks" not in result
 
 

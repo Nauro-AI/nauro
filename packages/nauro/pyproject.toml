@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "nauro-core>=1.16.0,<2",
+    "nauro-core>=1.16.1,<2",
     "typer>=0.9",
     "httpx>=0.24",
     "mcp>=1.0,<2",

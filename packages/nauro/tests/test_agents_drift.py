@@ -411,6 +411,9 @@ def test_planner_steps_reference_the_proposal_template() -> None:
     body = load_agent_body("nauro-planner")
     assert body.count("Render it in the proposal template below") == 1
     assert body.count("Return the draft rendered in the proposal template below") == 1
+    assert "Apply existing decisions without drafting routine execution." in body
+    assert "never mark or edit claims in place" in body
+    assert "Draft a decision if non-trivial" not in body
 
 
 def test_tech_lead_mode_c_preserves_surface_first_merge_posture() -> None:
