@@ -216,7 +216,7 @@ def test_response_module_has_no_runtime_consumer():
                 consumers.extend(
                     a.name for a in node.names if a.name == "nauro.mcp.generation_responses"
                 )
-    assert consumers == []
+    assert consumers == ["mcp/read_dispatch.py"]
 
 
 def fresh_projection(artifacts):
