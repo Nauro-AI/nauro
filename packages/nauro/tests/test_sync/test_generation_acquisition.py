@@ -491,3 +491,17 @@ def test_acquisition_touches_no_disk_control_state_or_sync_state(monkeypatch) ->
         elif isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
     assert not {name for name in imported if name.rsplit(".", 1)[-1] in EXCLUDED_MODULES}
+
+
+def test_projection_authorization_check_fetches_each_time_without_downloading():
+    server = FakeServer()
+    first = acquisition.check_generation_projection(
+        BINDING, active_user_id=USER_ID, session=server.session
+    )
+    server.generation_id = "01K77777777777777777777777"
+    second = acquisition.check_generation_projection(
+        BINDING, active_user_id=USER_ID, session=server.session
+    )
+    assert first.identity.generation_id == GENERATION_ID
+    assert second.identity.generation_id == "01K77777777777777777777777"
+    assert server.counts == {"projection": 2, "presign": 0, "object": 0}
