@@ -128,3 +128,43 @@ def test_changed_marker_conflicts(transition):
         )
         == "conflict"
     )
+
+
+@pytest.mark.parametrize("scope", ["b" * 64, "c" * 64])
+@pytest.mark.parametrize("state", ["base_present", "carrier_published", "target_present"])
+def test_changed_scope_target_keeps_byte_state_separate_from_permission(transition, scope, state):
+    projection = _projection()
+    changes = {
+        "projection_scope_id": scope,
+        "installed_state_id": "01K99999999999999999999999",
+    }
+    target = RefreshControlPair(
+        _pointer_bytes(projection, **changes), _authorization_bytes(projection, **changes)
+    )
+    changed = replace(transition, target=target)
+    pointer = target.pointer_json if state == "target_present" else changed.base.pointer_json
+    carrier = (
+        changed.base.authorization_json if state == "base_present" else target.authorization_json
+    )
+    assert (
+        classify_refresh_control(
+            changed,
+            marker_json=changed.marker_json,
+            pointer_json=pointer,
+            authorization_json=carrier,
+        )
+        == state
+    )
+
+
+def test_repeated_target_observation_does_not_become_completion(transition):
+    observed = dict(
+        marker_json=transition.marker_json,
+        pointer_json=transition.target.pointer_json,
+        authorization_json=transition.target.authorization_json,
+    )
+    assert [classify_refresh_control(transition, **observed) for _ in range(3)] == [
+        "target_present",
+        "target_present",
+        "target_present",
+    ]

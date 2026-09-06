@@ -96,7 +96,7 @@ def classify_refresh_control(
     pointer_json: bytes,
     authorization_json: bytes,
 ) -> RefreshControlState:
-    """Classify exact observations without granting authority to read or write."""
+    """Classify bytes only; target_present proves neither permission nor durability."""
     if type(transition) is not RefreshControlTransition:
         raise GenerationRefreshEvidenceError("Refresh requires a validated transition.")
     checked = RefreshControlTransition(transition.marker_json, transition.base, transition.target)
