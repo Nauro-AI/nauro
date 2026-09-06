@@ -13,10 +13,13 @@ from nauro.auth import ActiveUserReadError, read_active_user_id
 from nauro.mcp import generation_responses as generation
 from nauro.mcp import tools as legacy
 from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
+from nauro.mcp.resolution_errors import resolution_error_envelope
 from nauro.store.config import resolve_embeddings_flag
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.read_authority import observe_generation_marker
 from nauro.store.resolution import (
+    DisconnectedProjectError,
+    NoProjectError,
     ResolvedProjectBinding,
     StoreResolutionError,
     resolve_project_binding,
@@ -40,7 +43,7 @@ def _unavailable() -> CallToolResult:
 
 
 def _legacy_result(
-    name: str, envelope: dict[str, object], options: dict[str, object], path: Path
+    name: str, envelope: dict[str, object], options: dict[str, object], path: Path | None
 ) -> CallToolResult:
     rendered = try_render_envelope(name, envelope, resolve_renderer_kwargs(name, options, path))
     if rendered.failure is not None:
@@ -68,6 +71,11 @@ def _read(
 ) -> CallToolResult:
     try:
         binding = resolve_project_binding(project_id, cwd)
+    except (NoProjectError, DisconnectedProjectError) as exc:
+        return _legacy_result(name, resolution_error_envelope(exc), options or {}, None)
+    except (StoreResolutionError, OSError):
+        return _unavailable()
+    try:
         marker = observe_generation_marker(binding)
         if marker is not None:
             actor = read_active_user_id()
