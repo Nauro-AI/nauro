@@ -175,15 +175,13 @@ def test_context_limit_keeps_authority_frame(admitted):
 
 
 def test_history_refusal_is_explicit():
-    result = responses.diff_since_last_session()
+    result = responses.diff_since_last_session(_projection().target.binding, actor=USER_ID)
     assert result.is_error is True
     assert result.envelope == {
         "store": "local",
         "error": {
             "kind": "error",
-            "reason": (
-                "Generation session history is unavailable until authorized history is supported."
-            ),
+            "reason": "Generation history requires an explicit authenticated transport.",
         },
     }
 

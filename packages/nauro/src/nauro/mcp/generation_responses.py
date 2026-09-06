@@ -8,14 +8,16 @@ from nauro_core.protected_generation_membership import (
     validate_protected_generation_path,
 )
 
+from nauro.auth import ActiveUserReadError
 from nauro.mcp import generation_reads as reads
 from nauro.mcp.generation_reads import GenerationReadResult, _Result
 from nauro.mcp.rendering import try_render_envelope
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.generation_projection import GenerationProjectionTarget
 from nauro.store.resolution import ResolvedProjectBinding
-from nauro.sync.generation_refresh import _authorize
-from nauro.sync.remote import TransferBoundaryError, TransferSession
+from nauro.sync.generation_refresh import _authorize, admit_generation_store
+from nauro.sync.history_transport import HttpHistoryTransport
+from nauro.sync.remote import TransferBoundaryError, TransferSession, resolve_api_url
 
 _READ_FAILURES = (GenerationAuthorityError, TransferBoundaryError)
 
@@ -206,7 +208,34 @@ def check_decision(
         return _unavailable()
 
 
-def diff_since_last_session() -> GenerationToolResponse:
-    return _error(
-        "Generation session history is unavailable until authorized history is supported."
-    )
+def diff_since_last_session(
+    binding: ResolvedProjectBinding,
+    days: int | None = None,
+    *,
+    actor: str,
+    transport: HttpHistoryTransport | None = None,
+    session: TransferSession | None = None,
+) -> GenerationToolResponse:
+    if transport is None:
+        return _error("Generation history requires an explicit authenticated transport.")
+    if days is not None and type(days) is not int:
+        return _error("History days must be an integer.", kind="rejected")
+    try:
+        transport.require_binding(binding, resolve_api_url())
+        store = admit_generation_store(binding, actor=actor, session=session)
+        result = transport.fetch(store.target, days)
+        identity = store.target.identity
+        envelope: dict[str, object] = {
+            "store": "local",
+            "diff": result.diff,
+            "project": {"id": identity.project_id, "name": identity.project_id},
+            "read_authority": result.read_authority.model_dump(mode="json"),
+        }
+        if result.cutoff_date_used is not None:
+            envelope["cutoff_date_used"] = result.cutoff_date_used
+        final = admit_generation_store(binding, actor=actor, session=session)
+        if final.target != store.target:
+            return _unavailable()
+        return GenerationToolResponse(envelope, result.text, False)
+    except (GenerationAuthorityError, TransferBoundaryError, ActiveUserReadError, OSError):
+        return _unavailable()
