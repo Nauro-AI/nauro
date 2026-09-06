@@ -239,7 +239,7 @@ def test_resolution_failure_never_calls_legacy(monkeypatch):
 def test_dispatch_is_dormant_and_keeps_public_arguments():
     root = Path(dispatch.__file__).parents[1]
     for path in root.rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Import):
                 assert all(a.name != "nauro.mcp.read_dispatch" for a in node.names)
             elif isinstance(node, ast.ImportFrom):
