@@ -24,6 +24,7 @@ from nauro.store.resolution import (
     StoreResolutionError,
     resolve_project_binding,
 )
+from nauro.sync.history_transport import HttpHistoryTransport
 from nauro.sync.remote import TransferBoundaryError
 
 logger = logging.getLogger(__name__)
@@ -195,13 +196,31 @@ def check_decision(
     )
 
 
-def diff_since_last_session(
-    project_id: str | None = None, cwd: str | None = None, days: int | None = None
+def _history_diff(
+    project_id: str | None,
+    cwd: str | None,
+    days: int | None,
+    transport: HttpHistoryTransport | None,
 ) -> CallToolResult:
     return _read(
         "diff_since_last_session",
         project_id,
         cwd,
         lambda p: legacy.tool_diff_since_last_session(p, days),
-        lambda b, a: generation.diff_since_last_session(),
+        lambda b, a: generation.diff_since_last_session(b, days, actor=a, transport=transport),
     )
+
+
+def diff_since_last_session(
+    project_id: str | None = None, cwd: str | None = None, days: int | None = None
+) -> CallToolResult:
+    return _history_diff(project_id, cwd, days, None)
+
+
+def history_dispatch(transport: HttpHistoryTransport) -> Callable[..., CallToolResult]:
+    def diff_since_last_session(
+        project_id: str | None = None, cwd: str | None = None, days: int | None = None
+    ) -> CallToolResult:
+        return _history_diff(project_id, cwd, days, transport)
+
+    return diff_since_last_session

@@ -172,7 +172,7 @@ def test_generation_history_never_reads_flat_snapshots(cloud, monkeypatch):
     binding, _, _ = cloud
     monkeypatch.setattr(dispatch.legacy, "tool_diff_since_last_session", forbidden)
     result = dispatch.diff_since_last_session(project_id=binding.project_id)
-    assert result == dispatch._prepared(generation.diff_since_last_session())
+    assert result == dispatch._prepared(generation.diff_since_last_session(binding, actor=USER_ID))
     assert result.isError is True
 
 
