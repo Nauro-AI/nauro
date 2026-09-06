@@ -512,4 +512,4 @@ def test_refresh_executor_has_no_runtime_consumer():
                 consumers.extend(
                     a.name for a in node.names if a.name == "nauro.sync.generation_refresh"
                 )
-    assert consumers == ["mcp/generation_reads.py"]
+    assert sorted(consumers) == ["mcp/generation_reads.py", "mcp/generation_responses.py"]

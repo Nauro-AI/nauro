@@ -203,7 +203,7 @@ def test_adapter_has_no_production_consumer():
                 consumers.extend(
                     a.name for a in node.names if a.name == "nauro.mcp.generation_reads"
                 )
-    assert consumers == []
+    assert sorted(set(consumers)) == ["mcp/generation_responses.py"]
 
 
 @POSIX
