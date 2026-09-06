@@ -129,7 +129,7 @@ def test_capture_composition_survives_removed_disk_root(projection, monkeypatch)
     assert store.read_file("context/brief.md") == "Context\n"
 
 
-def test_store_has_no_runtime_consumers():
+def test_store_has_only_the_dormant_refresh_consumer():
     root = Path(generation_store.__file__).parents[1]
     consumers = []
     for path in root.rglob("*.py"):
@@ -142,4 +142,4 @@ def test_store_has_no_runtime_consumers():
                     for alias in node.names
                     if alias.name == "nauro.store.generation_store"
                 )
-    assert consumers == []
+    assert consumers == ["sync/generation_refresh.py"]

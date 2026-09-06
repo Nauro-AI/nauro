@@ -319,6 +319,21 @@ def acquire_generation_projection(
                     raise
 
 
+def check_generation_projection(
+    binding: ResolvedProjectBinding,
+    *,
+    active_user_id: str,
+    session: TransferSession | None = None,
+) -> GenerationProjectionTarget:
+    if binding.mode != "cloud":
+        raise GenerationAcquisitionError("Generation acquisition requires a cloud project binding.")
+    user_id = validate_identifier(IdentifierKind.ulid, active_user_id, field="active_user_id")
+    with operation_session(session) as active:
+        target, manifest = _fetch_projection(active, resolve_api_url(), binding, user_id)
+        _parse_manifest(target, manifest)
+        return target
+
+
 __all__ = [
     "GenerationAcquisitionError",
     "GenerationSupersededError",

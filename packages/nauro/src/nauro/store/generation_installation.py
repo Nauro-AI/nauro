@@ -1066,6 +1066,10 @@ def _publish_generation_control(
         if locked != initial or locked_store != store_path or locked_layout != layout:
             raise _publication_failure()
         _reprove_publication_paths(locked, store_path, layout, lock_path)
+        intent_path = layout.actor / "refresh-intent.json"
+        _validate_managed_path(store_path, intent_path)
+        if _lstat_optional(intent_path) is not None:
+            raise RefreshRequiredError("Existing refresh evidence requires explicit recovery.")
         marker_json = _read_control_file(store_path, marker_path)
         if marker_json is not None:
             verified, _, _ = _active_selection(

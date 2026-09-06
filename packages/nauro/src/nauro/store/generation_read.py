@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nauro.store.generation_authority import GenerationAuthorityError, GenerationProjectAuthority
+from nauro.store.generation_authority import (
+    GenerationAuthorityError,
+    GenerationProjectAuthority,
+    RefreshRequiredError,
+)
 from nauro.store.generation_installation import (
     GenerationInstallError,
     _installed_file,
     _layout,
+    _lstat_optional,
     _read_expected,
     _require_directory,
     audit_generation_tree,
@@ -88,6 +93,15 @@ def read_installed_generation(
         authority = snapshot.authority
         if not isinstance(authority, GenerationProjectAuthority):
             raise GenerationReadError("The project has no installed generation authority.")
+        intent = (
+            binding.store_path
+            / ".replica/v1/actors"
+            / authority.pointer.installed_for_user_id
+            / "refresh-intent.json"
+        )
+        _validate_managed_path(binding.store_path, intent)
+        if _lstat_optional(intent) is not None:
+            raise RefreshRequiredError("Refresh completion admission is required.")
         try:
             projection = _capture(authority)
         except (GenerationInstallError, GenerationProjectionVerificationError) as exc:
