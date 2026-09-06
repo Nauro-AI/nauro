@@ -60,6 +60,11 @@ UNUSABLE = pull_module._DECISIONS_UNUSABLE_TEXT
 AUTHORITY = f"{_REPLICA_CONTROL_ROOT_NAME}/authority.json"
 
 RESERVED_ROWS = [
+    "submission-records/record.json",
+    "context/SUBMISSION-RECORDS/record.json",
+    " submission-records. /record.json",
+    "submission-records:stream/record.json",
+    "submission-records\\record.json",
     AUTHORITY,
     _REPLICA_CONTROL_LOCK_NAME,
     ".REPLICA/x",
