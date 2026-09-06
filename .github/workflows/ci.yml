@@ -25,6 +25,7 @@ jobs:
           packages/nauro/src/nauro/store/generation_authority.py
           packages/nauro/src/nauro/store/replica_control.py
           packages/nauro/src/nauro/store/generation_installation.py
+          packages/nauro/src/nauro/store/generation_read.py
           packages/nauro/src/nauro/sync/generation_acquisition.py
           packages/nauro/src/nauro/store/submission_records.py
           packages/nauro/src/nauro/sync/judgment_submission.py
@@ -85,6 +86,7 @@ jobs:
           packages/nauro/tests/test_auth.py
           packages/nauro/tests/test_generation_authority.py
           packages/nauro/tests/test_generation_installation.py
+          packages/nauro/tests/test_generation_read.py
           packages/nauro/tests/test_replica_control.py
           packages/nauro/tests/test_sync/test_generation_acquisition.py
           packages/nauro/tests/test_sync/test_submission_records_excluded.py
