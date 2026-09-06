@@ -15,8 +15,10 @@ rationale stays inspectable.
 
 from __future__ import annotations
 
-from nauro_core.decision_model import DecisionStatus
-from nauro_core.operations.decision_lookup import parse_all_decisions
+from nauro_core.operations.decision_lookup import (
+    parse_all_decisions,
+    parse_recent_active_decisions,
+)
 from nauro_core.operations.results import DecisionSummary, ListDecisionsResult
 from nauro_core.operations.store import Store
 
@@ -30,10 +32,10 @@ def list_decisions(
 
     ``include_superseded`` retains ``superseded`` rows; the default drops them.
     """
-    decisions = parse_all_decisions(store)
-
-    if not include_superseded:
-        decisions = [d for d in decisions if d.status is DecisionStatus.active]
+    if include_superseded:
+        decisions = parse_all_decisions(store)
+    else:
+        decisions = parse_recent_active_decisions(store, max(limit, 0))
 
     decisions.sort(key=lambda d: d.num, reverse=True)
 

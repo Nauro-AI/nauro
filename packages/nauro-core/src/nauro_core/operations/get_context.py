@@ -15,6 +15,9 @@ outside the kernel's storage protocol.
 from __future__ import annotations
 
 from nauro_core.constants import (
+    L0_DECISIONS_SUMMARY_LIMIT,
+    L1_DECISIONS_LIMIT,
+    L1_DECISIONS_SUMMARY_LIMIT,
     OPEN_QUESTIONS_MD,
     PROJECT_MD,
     STACK_MD,
@@ -23,7 +26,11 @@ from nauro_core.constants import (
     STATE_MD,
 )
 from nauro_core.context import build_l0, build_l1, build_l2
-from nauro_core.operations.decision_lookup import parse_all_decisions
+from nauro_core.decision_model import Decision
+from nauro_core.operations.decision_lookup import (
+    parse_all_decisions,
+    parse_recent_active_decisions,
+)
 from nauro_core.operations.results import ErrorPayload, GetContextResult
 from nauro_core.operations.store import Store
 
@@ -34,6 +41,13 @@ _BUILDERS = {
     0: build_l0,
     1: build_l1,
     2: build_l2,
+}
+
+# Levels 0 and 1 render only the newest active decisions, so they read just
+# that tail; level 2 renders the whole corpus.
+_RECENT_ACTIVE_COUNTS = {
+    0: L0_DECISIONS_SUMMARY_LIMIT,
+    1: L1_DECISIONS_LIMIT + L1_DECISIONS_SUMMARY_LIMIT,
 }
 
 
@@ -88,5 +102,13 @@ def get_context(store: Store, level: int) -> GetContextResult:
         )
 
     files = _load_context_files(store, level)
-    decisions = parse_all_decisions(store)
+    decisions = _load_decisions(store, level)
     return GetContextResult(content=builder(files, decisions))
+
+
+def _load_decisions(store: Store, level: int) -> list[Decision]:
+    """Parse the decisions ``level`` renders: the recent active tail, or everything."""
+    count = _RECENT_ACTIVE_COUNTS.get(level)
+    if count is None:
+        return parse_all_decisions(store)
+    return parse_recent_active_decisions(store, count)
