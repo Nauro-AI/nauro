@@ -120,14 +120,14 @@ def test_capture_refuses_flat_authority(installed):
         )
 
 
-def test_capture_has_no_runtime_consumers():
+def test_capture_has_only_the_dormant_store_consumer():
     root = Path(reader.__file__).parents[1]
     consumers = []
     for path in root.rglob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom) and node.module == "nauro.store.generation_read":
                 consumers.append(path.relative_to(root).as_posix())
-    assert consumers == []
+    assert consumers == ["store/generation_store.py"]
 
 
 def test_capture_refuses_a_replaced_file(installed, monkeypatch):
