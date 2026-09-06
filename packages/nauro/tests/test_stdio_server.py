@@ -760,13 +760,8 @@ class TestContentSizeLimits:
 
 
 class TestPullOnStartup:
-    """Auth and cloud-mode gating moved into hooks.py; stdio_server only
-    resolves the project from cwd and delegates. These tests cover the
-    resolution flow — silent-no-op-when-not-authenticated and
-    silent-no-op-for-non-cloud are exercised in test_sync/test_hooks.py."""
-
     def test_calls_pull_when_project_resolves(self, store: Path, monkeypatch, tmp_path):
-        """pull_before_session is invoked unconditionally when a project resolves."""
+        """A legacy store with verified marker absence reaches the pull hook."""
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir(exist_ok=True)
         monkeypatch.chdir(repo_dir)
