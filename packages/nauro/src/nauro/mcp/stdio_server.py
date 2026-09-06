@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -47,14 +46,13 @@ from nauro.mcp.tools import (
 from nauro.mcp.write_status import render_write_status
 from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.journal import OriginDescriptor
+from nauro.store.read_authority import observe_generation_marker
 from nauro.store.repo_head import resolve_repo_head
 from nauro.store.resolution import (
-    DisconnectedProject,
     DisconnectedProjectError,
     NoProjectError,
-    RepoResolution,
     StoreResolutionError,
-    resolve_from_cwd,
+    resolve_project_binding,
     resolve_store,
 )
 
@@ -466,15 +464,11 @@ def _pull_on_startup() -> None:
     Never raises: a failed pull is logged and the server starts on local state.
     """
     try:
-        resolution = resolve_from_cwd(Path(os.getcwd()))
-        if resolution is None or isinstance(resolution, DisconnectedProject):
-            logger.debug("session-start pull: no project found in cwd, skipping")
+        binding = resolve_project_binding(None, Path.cwd())
+        if observe_generation_marker(binding) is not None:
+            logger.debug("session-start pull: generation authority, skipping")
             return
-        assert isinstance(resolution, RepoResolution)
-        project_key, store_path = resolution.project_id, resolution.store_path
-        if not store_path.exists():
-            logger.debug("session-start pull: store not found for %s, skipping", project_key)
-            return
+        project_key, store_path = binding.project_id, binding.store_path
 
         from nauro.sync.hooks import pull_before_session
 
@@ -483,8 +477,10 @@ def _pull_on_startup() -> None:
             logger.info("session-start pull: pulled %d file(s) for %s", pulled, project_key)
         else:
             logger.debug("session-start pull: nothing to do for %s", project_key)
-    except Exception as e:
-        logger.warning("session-start pull: failed, continuing with local state: %s", e)
+    except NoProjectError:
+        logger.debug("session-start pull: no project found in cwd, skipping")
+    except Exception:
+        logger.warning("session-start pull: unavailable, continuing with local state")
 
 
 def run_stdio() -> None:
