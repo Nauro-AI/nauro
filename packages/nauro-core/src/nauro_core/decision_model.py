@@ -95,11 +95,11 @@ class RejectedAlternative(BaseModel):
 
 
 class Decision(BaseModel):
-    """Parsed, validated representation of a decision markdown file.
-
-    Frontmatter fields round-trip through YAML; ``num``, ``title``, ``rationale``,
-    ``body`` and ``content`` are derived by the parser. ``extra="allow"`` captures
-    unknown frontmatter keys in ``model_extra`` and preserves them on format.
+    """Parsed, validated decision file. Frontmatter fields round-trip through
+    YAML; ``num``, ``title``, ``rationale``, ``body`` and ``content`` are derived by
+    the parser; ``extra="allow"`` keeps unknown frontmatter keys in ``model_extra``.
+    Store scans share instances across calls: derive changes with ``model_copy``
+    and never mutate an instance or its lists in place.
     """
 
     model_config = ConfigDict(extra="allow", validate_assignment=True)

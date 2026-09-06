@@ -25,6 +25,13 @@ from nauro_core.parsing import (
 
 logger = logging.getLogger("nauro_core.operations.decision_lookup")
 
+# Parsed decisions kept across calls in a long-lived process, keyed by stem and
+# holding the exact body text each one was parsed from. A hit needs the freshly
+# read body to equal the stored one, so an edit, a restore or a same-size swap
+# is a miss; a parse failure is never stored. The Decision objects handed out
+# are shared: callers derive changes with ``model_copy`` and never mutate them.
+_PARSED_BY_STEM: dict[str, tuple[str, Decision]] = {}
+
 
 class ParseFailure(NamedTuple):
     """A decision file that did not round-trip through the v2 parser.
@@ -54,6 +61,7 @@ def scan_decision_records(
     """
     stems = sort_stems_by_number(store.list_decisions())
     records, failures = _parse_stems(store, stems)
+    _forget_unlisted(stems)
     return records, failures, stems
 
 
@@ -69,12 +77,32 @@ def _parse_stems(
         if body is None:
             continue
         try:
-            decision = parse_decision(body, _decision_filename(stem))
+            decision = _parse_memoized(stem, body)
             records.append(ScannedDecision(stem=stem, decision=decision))
         except Exception as exc:
             logger.debug("Skipping unparseable decision file: %s.md", stem)
             failures.append(ParseFailure(stem=stem, error=str(exc)))
     return records, failures
+
+
+def _parse_memoized(stem: str, body: str) -> Decision:
+    """Return the parsed decision for ``body``, reusing the last parse of ``stem``
+    when the body is unchanged. Raises whatever ``parse_decision`` raises.
+    """
+    cached = _PARSED_BY_STEM.get(stem)
+    if cached is not None and cached[0] == body:
+        return cached[1]
+    decision = parse_decision(body, _decision_filename(stem))
+    _PARSED_BY_STEM[stem] = (body, decision)
+    return decision
+
+
+def _forget_unlisted(stems: list[str]) -> None:
+    """Drop memoized parses for stems the store no longer lists."""
+    listed = set(stems)
+    for stem in list(_PARSED_BY_STEM):
+        if stem not in listed:
+            _PARSED_BY_STEM.pop(stem, None)
 
 
 def scan_decisions(store: Store) -> tuple[list[Decision], list[ParseFailure]]:
@@ -108,6 +136,7 @@ def parse_recent_active_decisions(store: Store, count: int) -> list[Decision]:
     stems = sort_stems_by_number(store.list_decisions())
     if any(extract_decision_number(stem) is None for stem in stems):
         return [d for d in parse_all_decisions(store) if d.status is DecisionStatus.active]
+    _forget_unlisted(stems)
     active: list[Decision] = []
     if count <= 0:
         return active
