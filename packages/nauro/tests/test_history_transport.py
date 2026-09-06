@@ -100,7 +100,7 @@ def test_exact_request_and_bound_response(target, days):
         ("cutoff_date_used", "invalid"),
         ("archive", {}),
         ("text", "forged frame"),
-        ("diff", "x" * 12001),
+        pytest.param("diff", "x" * 12001, id="oversized-diff"),
     ],
 )
 def test_malformed_or_unbound_response_is_refused(target, field, value):
@@ -153,7 +153,15 @@ def test_all_response_fields_are_required(target, field):
 
 
 @pytest.mark.parametrize(
-    "raw", [b"null", b"[]", b"NaN", b"\xff", b'{"version":1,"version":1}', b"x" * 170001]
+    "raw",
+    [
+        b"null",
+        b"[]",
+        b"NaN",
+        b"\xff",
+        b'{"version":1,"version":1}',
+        pytest.param(b"x" * 170001, id="oversized-response"),
+    ],
 )
 def test_strict_bounded_json(target, raw):
     with pytest.raises(transport.HistoryTransportError):
