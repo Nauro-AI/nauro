@@ -18,6 +18,7 @@ deterministic representation in an already-canonical file.
 from __future__ import annotations
 
 import re
+import string
 from datetime import date as _date
 from enum import Enum
 
@@ -279,6 +280,62 @@ _FM_OPEN_FENCE = "---\n"
 _FM_CLOSE_FENCE = "\n---\n"
 _H1_FORMAT = "# {num:03d} \u2014 {title}"
 
+# libyaml parses the frontmatter several times faster than the pure-Python
+# scanner, but the two disagree on exotic input (a tab in a plain scalar, a
+# colon inside a flow sequence, a lone surrogate escape). Only a block made of
+# plain ``key: value``, ``key:`` and ``- item`` lines over a closed character
+# set takes the fast loader; anything else takes the pure loader, so store
+# validity and parsed values never depend on which loader the install carries.
+_FAST_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+_PLAIN_KEY_CHARS = string.ascii_lowercase + string.digits + "_"
+_PLAIN_VALUE_CHARS = string.ascii_letters + string.digits + " -_./:~(),+"
+
+
+def _load_frontmatter_mapping(frontmatter_block: str) -> object:
+    """Parse a frontmatter block with the fast loader when it is plain enough for
+    both loaders to agree, else with the pure loader. Raises ``yaml.YAMLError``.
+    """
+    loader = _FAST_YAML_LOADER if _is_plain_block(frontmatter_block) else yaml.SafeLoader
+    return yaml.load(frontmatter_block, Loader=loader)
+
+
+def _is_plain_block(block: str) -> bool:
+    """True when every line is a plain ``key: value``, ``key:`` or ``- item`` line."""
+    for line in block.split("\n"):
+        if line == "":
+            continue
+        if line.startswith("- "):
+            if not _is_plain_value(line[2:]):
+                return False
+            continue
+        key, colon, rest = line.partition(":")
+        if not colon or not key or key.strip(_PLAIN_KEY_CHARS):
+            return False
+        if rest and (rest[0] != " " or not _is_plain_value(rest[1:])):
+            return False
+    return True
+
+
+def _is_plain_value(value: str) -> bool:
+    """True for ``[]``, a single-quoted run of plain characters, or an unquoted run
+    that no loader could read as a comment, a nested key or a sequence item.
+    """
+    if value in ("", "[]"):
+        return True
+    if value[0] == "'":
+        inner = value[1:-1]
+        return (
+            len(value) >= 2
+            and value[-1] == "'"
+            and "'" not in inner
+            and not inner.strip(_PLAIN_VALUE_CHARS)
+        )
+    if value.strip(_PLAIN_VALUE_CHARS):
+        return False
+    if value[0] == " " or value[-1] in " :" or ": " in value:
+        return False
+    return not (value[0] == "-" and value[1:2] in ("", " "))
+
 
 def parse_decision(text: str, filename: str) -> Decision:
     """Parse a decision markdown file into a validated ``Decision``: strict on
@@ -288,7 +345,7 @@ def parse_decision(text: str, filename: str) -> Decision:
     frontmatter_block, body = _split_frontmatter(text, filename)
 
     try:
-        metadata = yaml.safe_load(frontmatter_block)
+        metadata = _load_frontmatter_mapping(frontmatter_block)
     except yaml.YAMLError as e:
         raise ValueError(f"{filename}: invalid YAML frontmatter: {e}") from e
 
