@@ -258,6 +258,7 @@ def test_transport_preserves_body_and_refuses_redirect(home):
 def test_no_production_consumers():
     root = Path(__file__).parents[1] / "src" / "nauro"
     modules = {
+        "nauro.mcp.question_responses",
         "nauro.store.question_contract",
         "nauro.store.question_records",
         "nauro.sync.question_submission",
