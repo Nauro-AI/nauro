@@ -25,12 +25,12 @@ from mcp.server.fastmcp import Context
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
-from nauro_core.operations import ErrorPayload
 from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field
 
 from nauro import __version__
 from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
+from nauro.mcp.resolution_errors import resolution_error_envelope
 from nauro.mcp.tools import (
     tool_check_decision,
     tool_diff_since_last_session,
@@ -44,12 +44,10 @@ from nauro.mcp.tools import (
     tool_update_state,
 )
 from nauro.mcp.write_status import render_write_status
-from nauro.onboarding import WELCOME_NO_PROJECT
 from nauro.store.journal import OriginDescriptor
 from nauro.store.read_authority import observe_generation_marker
 from nauro.store.repo_head import resolve_repo_head
 from nauro.store.resolution import (
-    DisconnectedProjectError,
     NoProjectError,
     StoreResolutionError,
     resolve_project_binding,
@@ -118,25 +116,8 @@ def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
     """
     try:
         return resolve_store(project_id, cwd), None
-    except NoProjectError:
-        return None, {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
-    except DisconnectedProjectError as exc:
-        state = exc.state
-        return None, {
-            "store": "local",
-            "status": "error",
-            "error": ErrorPayload(kind="error", reason=state.guidance).model_dump(
-                exclude_none=True
-            ),
-            "guidance": state.guidance,
-            "project_id": state.project_id,
-            "project_name": state.display_name,
-            "project_mode": state.mode,
-            "reason_code": state.reason_code,
-            "recovery_actions": list(state.recovery_actions),
-        }
     except StoreResolutionError as exc:
-        return None, {"store": "local", "status": "error", "guidance": str(exc)}
+        return None, resolution_error_envelope(exc)
 
 
 def _origin_from_ctx(mcp_ctx: Context | None) -> OriginDescriptor | None:
