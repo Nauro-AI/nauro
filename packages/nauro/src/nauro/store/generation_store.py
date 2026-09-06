@@ -12,6 +12,7 @@ from nauro_core.protected_generation_membership import (
 
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.generation_projection import (
+    GenerationProjectionTarget,
     VerifiedGenerationProjection,
     verify_generation_projection,
 )
@@ -29,6 +30,7 @@ class GenerationStorePathError(GenerationAuthorityError):
 
 @dataclass(frozen=True, init=False)
 class GenerationSnapshotStore:
+    target: GenerationProjectionTarget = field(repr=False)
     _contents: Mapping[str, str] = field(repr=False)
 
     def __init__(self, projection: VerifiedGenerationProjection) -> None:
@@ -41,6 +43,7 @@ class GenerationSnapshotStore:
             artifact.path: artifact.content.decode("utf-8", errors="replace")
             for artifact in verified.artifacts
         }
+        object.__setattr__(self, "target", verified.target)
         object.__setattr__(self, "_contents", MappingProxyType(contents))
 
     def read_file(self, path: str) -> str | None:
