@@ -541,6 +541,7 @@ def test_state_modules_have_no_production_consumers():
 
     root = Path(__file__).parents[1] / "src" / "nauro"
     modules = {
+        "nauro.mcp.state_responses",
         "nauro.store.state_contract",
         "nauro.store.state_records",
         "nauro.sync.state_submission",

@@ -31,6 +31,7 @@ jobs:
           packages/nauro/src/nauro/mcp/generation_responses.py
           packages/nauro/src/nauro/mcp/resolution_errors.py
           packages/nauro/src/nauro/mcp/read_dispatch.py
+          packages/nauro/src/nauro/mcp/state_responses.py
           packages/nauro/src/nauro/store/read_authority.py
           packages/nauro/src/nauro/store/generation_refresh_state.py
           packages/nauro/src/nauro/store/generation_refresh_intent.py
