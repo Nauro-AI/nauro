@@ -26,6 +26,7 @@ CASES = [
     ("get_decision", (1,), {}),
     ("get_decision", (1, "header"), {}),
     ("get_raw_file", ("state.md",), {}),
+    ("get_raw_file", ("project.md",), {}),
     ("list_decisions", (), {"limit": 1, "include_superseded": True}),
     ("search_decisions", ("durability",), {"limit": 1, "include_superseded": True}),
     ("check_decision", ("Use durability barriers", "interrupted refresh"), {}),
@@ -298,3 +299,17 @@ def test_corrupt_installed_bytes_refuse_before_rendering(admitted, monkeypatch):
     with pytest.raises(GenerationProjectionVerificationError) as raised:
         reads.get_raw_file(binding, "state.md", actor=USER_ID)
     assert raised.value.code == "generation_verification_failed"
+
+
+@POSIX
+def test_project_frame_read_preserves_unpublished_flat_edits(admitted):
+    binding, current, _ = admitted
+    edited = b"# Project\n\nUnpublished local scope changes.\n"
+    flat = binding.store_path / "project.md"
+    flat.write_bytes(edited)
+    expected = operations.get_raw_file(GenerationSnapshotStore(current[0]), "project.md")
+    response = reads.get_raw_file(binding, "project.md", actor=USER_ID)
+    assert response.result == expected
+    assert response.projection == current[0].target.identity
+    assert flat.read_bytes() == edited
+    assert "Unpublished" not in repr(response)

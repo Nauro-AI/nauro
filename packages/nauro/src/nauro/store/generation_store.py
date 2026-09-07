@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from nauro_core.constants import DECISIONS_DIR
+from nauro_core.constants import DECISIONS_DIR, PROJECT_MD
 from nauro_core.protected_generation_membership import (
     InvalidGenerationPath,
     validate_protected_generation_path,
@@ -18,6 +18,12 @@ from nauro.store.generation_projection import (
 )
 from nauro.store.generation_read import read_installed_generation
 from nauro.store.resolution import ResolvedProjectBinding
+
+_PROJECT_FRAME_READ_ONLY = (
+    "project.md is read-only for generation projects. Preserve local edits in a separate "
+    "quarantine directory outside the replica and sync roots. Do not copy them into the "
+    "active generation or upload them through raw sync."
+)
 
 
 class GenerationStoreReadOnlyError(GenerationAuthorityError):
@@ -56,9 +62,13 @@ class GenerationSnapshotStore:
         return self._contents.get(canonical)
 
     def write_file(self, path: str, content: str) -> None:
+        if path == PROJECT_MD:
+            raise GenerationStoreReadOnlyError(_PROJECT_FRAME_READ_ONLY)
         raise GenerationStoreReadOnlyError("Generation snapshots do not permit file writes.")
 
     def delete_file(self, path: str) -> None:
+        if path == PROJECT_MD:
+            raise GenerationStoreReadOnlyError(_PROJECT_FRAME_READ_ONLY)
         raise GenerationStoreReadOnlyError("Generation snapshots do not permit file deletion.")
 
     def list_decisions(self) -> list[str]:
