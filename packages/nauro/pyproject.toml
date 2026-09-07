@@ -25,6 +25,7 @@ dependencies = [
     "nauro-core>=1.16.1,<2",
     "typer>=0.9",
     "httpx>=0.24",
+    "PyJWT[crypto]>=2.13,<3",
     "mcp>=1.0,<2",
     "filelock>=3.29.5",
     "tomli>=2.0; python_version<'3.11'",

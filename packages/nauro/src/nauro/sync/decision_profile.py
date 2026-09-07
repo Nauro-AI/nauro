@@ -6,9 +6,11 @@ import os
 import stat
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict
+from nauro_core.identifiers import IdentifierKind, validate_identifier
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from nauro.auth import ActiveCredentials
 from nauro.sync.decision_reference import DecisionReferenceTransport
@@ -23,6 +25,49 @@ class ReferenceProfile(BaseModel):
     project_id: str
     actor_id: str
     credentials_file: str
+
+
+class RenewalProfile(ReferenceProfile):
+    version: Literal[2]  # type: ignore[assignment]
+    issuer: str
+    client_id: str
+    audience: str
+    expected_subject: str
+    redirect_uri: str
+
+    @model_validator(mode="after")
+    def validate_endpoints(self) -> RenewalProfile:
+        for value in (self.project_id, self.actor_id):
+            validate_identifier(IdentifierKind.ulid, value, field="reference_scope")
+        issuer, endpoint, redirect = map(urlsplit, (self.issuer, self.endpoint, self.redirect_uri))
+        for url in (issuer, endpoint):
+            if (
+                url.scheme != "https"
+                or not url.hostname
+                or url.username
+                or url.password
+                or url.query
+                or url.fragment
+            ):
+                raise ValueError("HTTPS authentication endpoints required")
+        if endpoint.path != "/mcp":
+            raise ValueError("MCP endpoint path required")
+        if issuer.path != "/" or not self.issuer.endswith("/"):
+            raise ValueError("Issuer must be an HTTPS origin with a trailing slash")
+        if (
+            redirect.scheme != "http"
+            or redirect.hostname != "127.0.0.1"
+            or not redirect.port
+            or redirect.path != "/callback"
+            or redirect.username
+            or redirect.password
+            or redirect.query
+            or redirect.fragment
+        ):
+            raise ValueError("Explicit IPv4 loopback callback required")
+        if not all((self.client_id, self.audience, self.expected_subject)):
+            raise ValueError("Authentication pins are required")
+        return self
 
 
 class ReferenceCredentials(BaseModel):
@@ -57,7 +102,11 @@ def read_reference_credentials(path: Path) -> ActiveCredentials:
 
 
 def load_reference_profile(path: Path) -> ReferenceProfile:
-    profile = ReferenceProfile.model_validate(_private_json(path))
+    raw = _private_json(path)
+    model = (
+        RenewalProfile if isinstance(raw, dict) and raw.get("version") == 2 else ReferenceProfile
+    )
+    profile = model.model_validate(raw)
     if not Path(profile.credentials_file).is_absolute():
         raise ValueError("Credentials path must be absolute")
     return profile
@@ -71,5 +120,28 @@ def profile_transport(
         profile.project_id,
         profile.actor_id,
         client,
-        lambda: read_reference_credentials(Path(profile.credentials_file)),
+        lambda: profile_credentials(profile),
     )
+
+
+def profile_credentials(profile: ReferenceProfile) -> ActiveCredentials:
+    if not isinstance(profile, RenewalProfile):
+        return read_reference_credentials(Path(profile.credentials_file))
+    from nauro.sync.reference_credentials import CredentialStore, profile_binding
+
+    try:
+        store = CredentialStore(
+            Path(profile.credentials_file), profile_binding(profile), profile.actor_id
+        )
+        with store.locked():
+            record = store.read()
+            if (
+                store.incomplete()
+                or record is None
+                or record.state != "active"
+                or not record.access_token
+            ):
+                raise ValueError("Reference login required")
+            return ActiveCredentials(record.user_id, record.access_token)
+    except (ValueError, OSError, ImportError):
+        raise ValueError("Reference credentials unavailable; use profile auth status") from None
