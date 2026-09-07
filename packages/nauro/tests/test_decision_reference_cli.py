@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 from nauro.cli import autogen
 from nauro.cli import decision_reference as reference
 from nauro.cli.main import app
+from nauro.sync import decision_profile
 from nauro.sync.decision_reference import DecisionReferenceError
 
 PROJECT = "01KQ6AZGNA0B3QBF67NBXP3S45"
@@ -166,16 +167,16 @@ def test_reference_mode_without_profile_refuses_local_dispatch(configured):
 
 def test_credentials_are_reloaded_and_private(configured):
     _, path = configured
-    assert reference._credentials(path).access_token == "synthetic"
+    assert decision_profile.read_reference_credentials(path).access_token == "synthetic"
     path.write_text(json.dumps({"user_id": ACTOR, "access_token": "replacement"}))
-    assert reference._credentials(path).access_token == "replacement"
+    assert decision_profile.read_reference_credentials(path).access_token == "replacement"
     path.chmod(0o644)
-    with pytest.raises(ValueError, match="owner-only"):
-        reference._credentials(path)
+    with pytest.raises(ValueError, match="Reference credentials unavailable"):
+        decision_profile.read_reference_credentials(path)
 
 
 def test_unsupported_platform_refuses_before_open(configured, monkeypatch):
-    monkeypatch.delattr(reference.os, "O_NOFOLLOW")
+    monkeypatch.delattr(decision_profile.os, "O_NOFOLLOW")
     with pytest.raises(ValueError, match="unsupported on this platform"):
-        reference._private_json(configured[0])
+        decision_profile._private_json(configured[0])
     assert invoke(configured[0], "--request-mode", "discover").exit_code == 2

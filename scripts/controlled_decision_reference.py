@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from mcp.types import CallToolResult, TextContent
 from nauro.auth import ActiveCredentials
 from nauro.mcp.decision_reference import bind_decision_reference
 from nauro.mcp.stdio_server import mcp
@@ -114,10 +115,18 @@ def main() -> int:
                 bind_decision_reference(mcp, transport)
                 tool = mcp._tool_manager.get_tool("propose_decision")
                 assert tool is not None
-                result = asyncio.run(tool.run(request))
+                response = asyncio.run(tool.run(request))
+                if (
+                    not isinstance(response, CallToolResult)
+                    or len(response.content) != 1
+                    or not isinstance(response.content[0], TextContent)
+                ):
+                    raise ValueError("Unexpected decision tool response")
+                result = _json(response.content[0].text)
             outcome = {
                 "status": "verified",
                 "result": result,
+                "mcp_is_error": response.isError,
                 "elapsed_seconds": time.monotonic() - started,
                 "initialization_seconds": initialized - started,
                 "tool_seconds": time.monotonic() - initialized,

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import create_model, model_validator
 
 from nauro.sync.decision_reference import DecisionReferenceTransport
@@ -24,6 +25,26 @@ INSTRUCTIONS = (
 
 def bind_decision_reference(server: FastMCP, transport: DecisionReferenceTransport) -> None:
     """Replace only propose_decision on an explicitly supplied server instance."""
+    if server._tool_manager.get_tool("propose_decision") is None:
+        raise ValueError("The existing decision tool must be registered first")
+    server.remove_tool("propose_decision")
+    _register_decision_reference(server, transport)
+
+
+def reference_server(transport: DecisionReferenceTransport) -> FastMCP:
+    from nauro import __version__
+
+    server = FastMCP(
+        "nauro",
+        instructions=f"{INSTRUCTIONS} Project ID: {transport.project}.",
+        log_level="WARNING",
+    )
+    server._mcp_server.version = __version__
+    _register_decision_reference(server, transport)
+    return server
+
+
+def _register_decision_reference(server: FastMCP, transport: DecisionReferenceTransport) -> None:
 
     def propose_decision(
         project_id: str,
@@ -41,17 +62,19 @@ def bind_decision_reference(server: FastMCP, transport: DecisionReferenceTranspo
         reversibility: str | None = None,
         files_affected: list[str] | None = None,
         resolves_questions: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> CallToolResult:
         arguments = {
             key: value
             for key, value in locals().items()
             if value is not None and key != "transport"
         }
-        return transport.propose_decision(**arguments)
+        result = transport.propose_decision(**arguments)
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(result, ensure_ascii=False))],
+            isError=result.get("status")
+            in {"stale", "unresolved", "pending", "expired", "conflict", "disposed"},
+        )
 
-    if server._tool_manager.get_tool("propose_decision") is None:
-        raise ValueError("The existing decision tool must be registered first")
-    server.remove_tool("propose_decision")
     server.add_tool(
         propose_decision,
         name="propose_decision",

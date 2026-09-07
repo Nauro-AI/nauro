@@ -66,6 +66,8 @@ jobs:
           packages/nauro/src/nauro/sync/decision_reference_contract.py
           packages/nauro/src/nauro/mcp/decision_reference.py
           packages/nauro/src/nauro/cli/decision_reference.py
+          packages/nauro/src/nauro/sync/decision_profile.py
+          packages/nauro/src/nauro/mcp/decision_reference_startup.py
           scripts/controlled_decision_reference.py
           packages/nauro/src/nauro/auth.py
           packages/nauro/src/nauro/sync/merge.py

@@ -39,7 +39,8 @@ def installed(probe):
     tool = mcp._tool_manager.get_tool("propose_decision")
 
     def invoke(**arguments):
-        return asyncio.run(tool.run({"project_id": TEST_PROJECT_ID, **arguments}))
+        response = asyncio.run(tool.run({"project_id": TEST_PROJECT_ID, **arguments}))
+        return json.loads(response.content[0].text)
 
     yield invoke, transport
     mcp._tool_manager._tools["propose_decision"] = original
