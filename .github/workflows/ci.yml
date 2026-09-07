@@ -62,6 +62,10 @@ jobs:
           packages/nauro/src/nauro/sync/history_contract.py
           packages/nauro/src/nauro/sync/history_transport.py
           packages/nauro/src/nauro/sync/judgment_transport.py
+          packages/nauro/src/nauro/sync/decision_reference.py
+          packages/nauro/src/nauro/sync/decision_reference_contract.py
+          packages/nauro/src/nauro/mcp/decision_reference.py
+          scripts/controlled_decision_reference.py
           packages/nauro/src/nauro/auth.py
           packages/nauro/src/nauro/sync/merge.py
           scripts/check_ruff_budget.py
