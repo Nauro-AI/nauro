@@ -1020,6 +1020,15 @@
             "type": "text"
           },
           {
+            "flags": [
+              "--after"
+            ],
+            "kind": "option",
+            "name": "after",
+            "required": false,
+            "type": "text"
+          },
+          {
             "choices": [
               "high",
               "low",
@@ -1088,6 +1097,15 @@
             "type": "choice"
           },
           {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
+          },
+          {
             "choices": [
               "json",
               "text"
@@ -1103,6 +1121,15 @@
           },
           {
             "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
               "--project"
             ],
             "kind": "option",
@@ -1113,8 +1140,17 @@
           {
             "kind": "argument",
             "name": "rationale",
-            "required": true,
+            "required": false,
             "type": "text"
+          },
+          {
+            "flags": [
+              "--reference-profile"
+            ],
+            "kind": "option",
+            "name": "reference_profile",
+            "required": false,
+            "type": "path"
           },
           {
             "flags": [
@@ -1124,6 +1160,22 @@
             "name": "rejected",
             "required": false,
             "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "prepare",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
           },
           {
             "flags": [

@@ -48,6 +48,8 @@ class RequestMode(str, enum.Enum):
 
 
 def _private_json(path: Path) -> Any:
+    if not all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_NONBLOCK", "getuid")):
+        raise ValueError("Private reference files are unsupported on this platform")
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as stream:
         info = os.fstat(stream.fileno())

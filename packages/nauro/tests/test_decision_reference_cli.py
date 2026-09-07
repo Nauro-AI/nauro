@@ -172,3 +172,10 @@ def test_credentials_are_reloaded_and_private(configured):
     path.chmod(0o644)
     with pytest.raises(ValueError, match="owner-only"):
         reference._credentials(path)
+
+
+def test_unsupported_platform_refuses_before_open(configured, monkeypatch):
+    monkeypatch.delattr(reference.os, "O_NOFOLLOW")
+    with pytest.raises(ValueError, match="unsupported on this platform"):
+        reference._private_json(configured[0])
+    assert invoke(configured[0], "--request-mode", "discover").exit_code == 2
