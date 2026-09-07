@@ -67,7 +67,8 @@ def test_startup_connection_recovers_after_restart(probe, tmp_path, monkeypatch,
 
     def invoke(server, **arguments):
         tool = server._tool_manager.get_tool("propose_decision")
-        return asyncio.run(tool.run({"project_id": TEST_PROJECT_ID, **arguments}))
+        response = asyncio.run(tool.run({"project_id": TEST_PROJECT_ID, **arguments}))
+        return json.loads(response.content[0].text)
 
     def first(server, *, transport):
         assert transport == "stdio"

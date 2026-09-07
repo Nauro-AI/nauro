@@ -196,3 +196,95 @@ app()
                 }
 
     asyncio.run(asyncio.wait_for(session(), timeout=15))
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_error"),
+    [
+        ("stale", True),
+        ("unresolved", True),
+        ("pending", True),
+        ("expired", True),
+        ("conflict", True),
+        ("disposed", True),
+        ("committed", False),
+        ("prepared", False),
+        (None, False),
+    ],
+)
+def test_protocol_outcome_flags_preserve_verified_evidence(status, expected_error):
+    from mcp.types import CallToolRequest, CallToolRequestParams
+
+    receipt = '{"receipt_id":"synthetic","result":"committed"}'
+    value = (
+        {"version": 1, "requests": [], "next_after": None}
+        if status is None
+        else {"status": status, "execution": {"receipt_json": receipt}, "title": "Décision"}
+    )
+    transport = SimpleNamespace(project=PROJECT, propose_decision=lambda **_: value)
+    server = reference_server(transport)
+    request = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(
+            name="propose_decision", arguments={"project_id": PROJECT, "request_mode": "discover"}
+        ),
+    )
+    response = asyncio.run(server._mcp_server.request_handlers[CallToolRequest](request)).root
+    assert response.isError is expected_error
+    assert len(response.content) == 1
+    assert response.content[0].type == "text"
+    assert response.content[0].text == json.dumps(value, ensure_ascii=False)
+    assert json.loads(response.content[0].text) == value
+
+
+@pytest.mark.parametrize(("status", "expected_error"), [("committed", False), ("stale", True)])
+def test_controlled_driver_retains_domain_evidence(profile, monkeypatch, status, expected_error):
+    import runpy
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    main = runpy.run_path(str(root / "scripts" / "controlled_decision_reference.py"))["main"]
+    project_dir = profile[0].parent
+    manifest, request, evidence = (
+        project_dir / name for name in ("manifest.json", "request.json", "evidence.jsonl")
+    )
+    manifest.write_text(
+        json.dumps(
+            {
+                "endpoint": "https://decision-probe.nauro.ai/mcp",
+                "project_id": PROJECT,
+                "actor_id": ACTOR,
+                "isolated": True,
+            }
+        )
+    )
+    request.write_text(json.dumps({"project_id": PROJECT, "rationale": "Synthetic draft"}))
+    value = {"status": status, "execution": {"receipt_json": "exact saved receipt"}}
+    transport = SimpleNamespace(
+        project=PROJECT, initialize=lambda: None, propose_decision=lambda **_: value
+    )
+    monkeypatch.setitem(main.__globals__, "DecisionReferenceTransport", lambda *_: transport)
+    monkeypatch.setitem(main.__globals__, "mcp", reference_server(transport))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "driver",
+            "--manifest",
+            str(manifest),
+            "--request",
+            str(request),
+            "--evidence",
+            str(evidence),
+            "--credentials",
+            str(profile[1]),
+            "--execute",
+        ],
+    )
+    assert main() == 0
+    rows = [json.loads(row) for row in evidence.read_text().splitlines()]
+    assert len(rows) == 2
+    assert rows[1]["status"] == "verified"
+    assert rows[1]["result"] == value
+    assert rows[1]["mcp_is_error"] is expected_error

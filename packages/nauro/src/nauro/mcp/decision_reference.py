@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal, cast
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import create_model, model_validator
 
 from nauro.sync.decision_reference import DecisionReferenceTransport
@@ -61,13 +62,18 @@ def _register_decision_reference(server: FastMCP, transport: DecisionReferenceTr
         reversibility: str | None = None,
         files_affected: list[str] | None = None,
         resolves_questions: list[str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> CallToolResult:
         arguments = {
             key: value
             for key, value in locals().items()
             if value is not None and key != "transport"
         }
-        return transport.propose_decision(**arguments)
+        result = transport.propose_decision(**arguments)
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(result, ensure_ascii=False))],
+            isError=result.get("status")
+            in {"stale", "unresolved", "pending", "expired", "conflict", "disposed"},
+        )
 
     server.add_tool(
         propose_decision,
