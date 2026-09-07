@@ -9,6 +9,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import create_model, model_validator
 
+from nauro.mcp.reference_reads import register_reference_reads
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.decision_reference_contract import reference_schema, validate_arguments
 
@@ -41,6 +42,7 @@ def reference_server(transport: DecisionReferenceTransport) -> FastMCP:
     )
     server._mcp_server.version = __version__
     _register_decision_reference(server, transport)
+    register_reference_reads(server, transport)
     return server
 
 

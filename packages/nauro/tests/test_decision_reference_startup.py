@@ -221,7 +221,9 @@ def test_protocol_outcome_flags_preserve_verified_evidence(status, expected_erro
         if status is None
         else {"status": status, "execution": {"receipt_json": receipt}, "title": "Décision"}
     )
-    transport = SimpleNamespace(project=PROJECT, propose_decision=lambda **_: value)
+    transport = SimpleNamespace(
+        project=PROJECT, reads_available=False, propose_decision=lambda **_: value
+    )
     server = reference_server(transport)
     request = CallToolRequest(
         method="tools/call",
@@ -262,7 +264,10 @@ def test_controlled_driver_retains_domain_evidence(profile, monkeypatch, status,
     request.write_text(json.dumps({"project_id": PROJECT, "rationale": "Synthetic draft"}))
     value = {"status": status, "execution": {"receipt_json": "exact saved receipt"}}
     transport = SimpleNamespace(
-        project=PROJECT, initialize=lambda: None, propose_decision=lambda **_: value
+        project=PROJECT,
+        reads_available=False,
+        initialize=lambda: None,
+        propose_decision=lambda **_: value,
     )
     monkeypatch.setitem(main.__globals__, "DecisionReferenceTransport", lambda *_: transport)
     monkeypatch.setitem(main.__globals__, "mcp", reference_server(transport))
