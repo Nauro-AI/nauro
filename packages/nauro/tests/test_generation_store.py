@@ -143,3 +143,20 @@ def test_store_has_only_dormant_generation_consumers():
                     if alias.name == "nauro.store.generation_store"
                 )
     assert sorted(consumers) == ["mcp/generation_reads.py", "sync/generation_refresh.py"]
+
+
+def test_project_frame_refusal_preserves_bytes_and_gives_quarantine_guidance():
+    content = b"# Project\n\nOriginal scope.\n"
+    store = GenerationSnapshotStore(_projection({"project.md": content}))
+    message = (
+        "project.md is read-only for generation projects. Preserve local edits in a separate "
+        "quarantine directory outside the replica and sync roots. Do not copy them into the "
+        "active generation or upload them through raw sync."
+    )
+    with pytest.raises(GenerationStoreReadOnlyError) as write:
+        store.write_file("project.md", "Changed scope")
+    with pytest.raises(GenerationStoreReadOnlyError) as delete:
+        store.delete_file("project.md")
+    assert str(write.value) == str(delete.value) == message
+    assert write.value.code == delete.value.code == "generation_store_read_only"
+    assert store.read_file("project.md").encode() == content

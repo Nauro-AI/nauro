@@ -23,6 +23,7 @@ CASES = [("get_context", {"level": level}) for level in ("L0", "L1", "L2")] + [
     ("get_decision", {"number": 1, "mode": "full"}),
     ("get_decision", {"number": 1, "mode": "header"}),
     ("get_raw_file", {"path": "state.md"}),
+    ("get_raw_file", {"path": "project.md"}),
     ("list_decisions", {"limit": 1, "include_superseded": True}),
     ("search_decisions", {"query": "durability", "limit": 1}),
     ("check_decision", {"proposed_approach": "durability", "context": "refresh"}),
