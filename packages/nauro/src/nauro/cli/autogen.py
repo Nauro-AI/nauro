@@ -519,4 +519,8 @@ def register_autogen_commands(app: typer.Typer) -> None:
             continue
         command_name = _command_name(spec["name"])
         callback = _make_command(spec)
+        if spec["name"] == "propose_decision":
+            from nauro.cli.decision_reference import with_reference_options
+
+            callback = with_reference_options(callback, spec)
         app.command(name=command_name, help=spec["description"].split("\n\n", 1)[0])(callback)
