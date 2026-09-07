@@ -22,6 +22,7 @@ import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -147,8 +148,15 @@ def _run_callback_flow(domain: str, client_id: str, audience: str) -> tuple[str,
 
 
 @auth_app.command()
-def login() -> None:
+def login(
+    reference_profile: Path | None = typer.Option(
+        None, "--reference-profile", help="Use an explicit reference authentication profile."
+    ),
+) -> None:
     """Authenticate with Auth0 using Authorization Code + PKCE."""
+    if isinstance(reference_profile, Path):
+        _reference_auth("login", reference_profile)
+        return
     try:
         domain, client_id, api_url, audience = resolve_auth_config(os.environ, load_config())
     except PartialAuthConfigError as exc:
@@ -246,8 +254,15 @@ def login() -> None:
 
 
 @auth_app.command()
-def status() -> None:
+def status(
+    reference_profile: Path | None = typer.Option(
+        None, "--reference-profile", help="Use an explicit reference authentication profile."
+    ),
+) -> None:
     """Show current authentication state."""
+    if isinstance(reference_profile, Path):
+        _reference_auth("status", reference_profile)
+        return
     config = load_config()
     auth = config.get("auth")
     if not isinstance(auth, dict):
@@ -269,8 +284,15 @@ def status() -> None:
 
 
 @auth_app.command()
-def logout() -> None:
+def logout(
+    reference_profile: Path | None = typer.Option(
+        None, "--reference-profile", help="Use an explicit reference authentication profile."
+    ),
+) -> None:
     """Clear stored authentication credentials."""
+    if isinstance(reference_profile, Path):
+        _reference_auth("logout", reference_profile)
+        return
     config = load_config()
     if "auth" not in config:
         typer.echo("Not authenticated - nothing to clear.")
@@ -279,3 +301,23 @@ def logout() -> None:
     with config_transaction() as config:
         config.pop("auth", None)
     typer.echo("Logged out. Auth credentials removed from config.")
+
+
+def _reference_auth(action: str, path: Path) -> None:
+    from nauro.sync.reference_auth import run_reference_auth
+
+    try:
+        typer.echo(run_reference_auth(action, path, typer.echo))
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
+
+
+@auth_app.command()
+def refresh(
+    reference_profile: Path = typer.Option(
+        ..., "--reference-profile", help="Select reference credentials to renew."
+    ),
+) -> None:
+    """Renew selected reference credentials without replaying a request."""
+    _reference_auth("refresh", reference_profile)

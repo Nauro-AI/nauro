@@ -151,17 +151,62 @@
           {
             "kind": "command",
             "name": "login",
-            "params": []
+            "params": [
+              {
+                "flags": [
+                  "--reference-profile"
+                ],
+                "kind": "option",
+                "name": "reference_profile",
+                "required": false,
+                "type": "path"
+              }
+            ]
           },
           {
             "kind": "command",
             "name": "logout",
-            "params": []
+            "params": [
+              {
+                "flags": [
+                  "--reference-profile"
+                ],
+                "kind": "option",
+                "name": "reference_profile",
+                "required": false,
+                "type": "path"
+              }
+            ]
+          },
+          {
+            "kind": "command",
+            "name": "refresh",
+            "params": [
+              {
+                "flags": [
+                  "--reference-profile"
+                ],
+                "kind": "option",
+                "name": "reference_profile",
+                "required": true,
+                "type": "path"
+              }
+            ]
           },
           {
             "kind": "command",
             "name": "status",
-            "params": []
+            "params": [
+              {
+                "flags": [
+                  "--reference-profile"
+                ],
+                "kind": "option",
+                "name": "reference_profile",
+                "required": false,
+                "type": "path"
+              }
+            ]
           }
         ],
         "kind": "group",
