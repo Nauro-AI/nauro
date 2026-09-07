@@ -12,7 +12,6 @@ from nauro.auth import ActiveCredentials, read_active_credentials
 from nauro.sync.decision_reference_contract import (
     MAX_RESPONSE,
     _json,
-    reference_schema,
     validate_arguments,
     verify_observation,
 )
@@ -20,6 +19,7 @@ from nauro.sync.decision_reference_contract import (
     DecisionReferenceError as DecisionReferenceError,
 )
 from nauro.sync.judgment_transport import JudgmentTransportError
+from nauro.sync.reference_reads import negotiate_registry, validate_read, verify_read_result
 
 
 class DecisionReferenceTransport:
@@ -47,6 +47,7 @@ class DecisionReferenceTransport:
         self.client, self.credentials = client, credentials
         self._sequence = 0
         self._initialized = False
+        self.reads_available = False
 
     def _credentials(self) -> ActiveCredentials:
         credentials = self.credentials()
@@ -88,14 +89,15 @@ class DecisionReferenceTransport:
             self._credentials()
             result = _json(bytes(raw))
             if (
-                result.get("jsonrpc") != "2.0"
+                not isinstance(result, dict)
+                or result.get("jsonrpc") != "2.0"
                 or type(result.get("id")) is not int
                 or result.get("id") != request_id
                 or "error" in result
             ):
                 raise ValueError("Invalid RPC response")
             return result["result"]
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError, RecursionError) as exc:
             raise DecisionReferenceError(
                 "No verified result. Discover or recover the original request"
             ) from exc
@@ -111,14 +113,10 @@ class DecisionReferenceTransport:
                 "clientInfo": {"name": "nauro-decision-reference", "version": "1"},
             },
         )
-        if result.get("protocolVersion") != "2025-06-18":
+        if not isinstance(result, dict) or result.get("protocolVersion") != "2025-06-18":
             raise DecisionReferenceError("Unsupported MCP protocol")
         self._rpc("notifications/initialized", {}, notification=True)
-        tools = self._rpc("tools/list", {})["tools"]
-        if [tool["name"] for tool in tools] != ["propose_decision"] or tools[0].get(
-            "inputSchema"
-        ) != reference_schema():
-            raise DecisionReferenceError("Unexpected isolated tool registry")
+        self.reads_available = negotiate_registry(self._rpc("tools/list", {}))
         self._initialized = True
 
     def propose_decision(self, **arguments: Any) -> dict[str, Any]:
@@ -154,3 +152,14 @@ class DecisionReferenceTransport:
             return value
         except (ValueError, KeyError, TypeError, AttributeError, JudgmentTransportError) as exc:
             raise DecisionReferenceError("Invalid saved request or receipt evidence") from exc
+
+    def read(self, name: str, **arguments: Any) -> dict[str, Any]:
+        validate_read(name, arguments, self.project)
+        self.initialize()
+        if not self.reads_available:
+            raise DecisionReferenceError("The selected endpoint does not expose generation reads")
+        try:
+            result = self._rpc("tools/call", {"name": name, "arguments": arguments})
+            return verify_read_result(result)
+        except ValueError:
+            raise DecisionReferenceError("No verified read result. No retry was sent") from None
