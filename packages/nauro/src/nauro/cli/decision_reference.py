@@ -5,38 +5,18 @@ from __future__ import annotations
 import enum
 import inspect
 import json
-import os
-import stat
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 import typer
 from nauro_core.mcp_tools import ToolSpec
-from pydantic import BaseModel, ConfigDict
 
-from nauro.auth import ActiveCredentials
 from nauro.cli._json_input import parse_json_list_of_dicts
-from nauro.sync.decision_reference import DecisionReferenceError, DecisionReferenceTransport
-from nauro.sync.decision_reference_contract import _json, validate_arguments
-
-
-class ReferenceProfile(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    version: Literal[1]
-    endpoint: str
-    project_id: str
-    actor_id: str
-    credentials_file: str
-
-
-class ReferenceCredentials(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    user_id: str
-    access_token: str
+from nauro.sync.decision_profile import ReferenceProfile, load_reference_profile, profile_transport
+from nauro.sync.decision_reference import DecisionReferenceError
+from nauro.sync.decision_reference_contract import validate_arguments
 
 
 class RequestMode(str, enum.Enum):
@@ -47,40 +27,13 @@ class RequestMode(str, enum.Enum):
     retry = "retry"
 
 
-def _private_json(path: Path) -> Any:
-    if not all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_NONBLOCK", "getuid")):
-        raise ValueError("Private reference files are unsupported on this platform")
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as stream:
-        info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-            raise ValueError("Use an owner-only regular file")
-        raw = stream.read(65537)
-        if len(raw) > 65536:
-            raise ValueError("File exceeds size limit")
-        return _json(raw)
-
-
-def _credentials(path: Path) -> ActiveCredentials:
-    record = ReferenceCredentials.model_validate(_private_json(path))
-    if not record.user_id or not record.access_token:
-        raise ValueError("Missing credentials")
-    return ActiveCredentials(record.user_id, record.access_token)
-
-
 def reference_client() -> httpx.Client:
     return httpx.Client()
 
 
 def _execute(profile: ReferenceProfile, request: dict[str, Any]) -> dict[str, Any]:
     with reference_client() as client:
-        transport = DecisionReferenceTransport(
-            profile.endpoint,
-            profile.project_id,
-            profile.actor_id,
-            client,
-            lambda: _credentials(Path(profile.credentials_file)),
-        )
+        transport = profile_transport(profile, client)
         return transport.propose_decision(**request)
 
 
@@ -90,9 +43,7 @@ def _reference_call(
     if kwargs["project"] is not None or kwargs["output_format"].value != "json":
         raise typer.BadParameter("Reference delivery uses the profile project and JSON output")
     try:
-        profile = ReferenceProfile.model_validate(_private_json(path))
-        if not Path(profile.credentials_file).is_absolute():
-            raise ValueError("Credentials path must be absolute")
+        profile = load_reference_profile(path)
     except (ValueError, OSError):
         raise typer.BadParameter("Invalid reference profile; use an owner-only file") from None
     request: dict[str, Any] = {"project_id": profile.project_id}
