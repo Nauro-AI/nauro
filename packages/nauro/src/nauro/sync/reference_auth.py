@@ -84,20 +84,9 @@ class ReferenceAuth:
                 raise
 
     def refresh(self) -> None:
-        with self.store.locked():
-            record = self.store.read()
-            if (
-                self.store.incomplete()
-                or record is None
-                or record.state != "active"
-                or not record.refresh_token
-            ):
-                raise ValueError("Reference login required")
-            pending = self.store.empty("renewal_in_progress")
-            self.store.begin()
-            self.store.write(pending)
-            try:
-                tokens = exchange(
+        def replacement(record: CredentialRecord) -> CredentialRecord:
+            return self._record(
+                exchange(
                     self.profile,
                     self.client,
                     {
@@ -105,12 +94,9 @@ class ReferenceAuth:
                         "refresh_token": record.refresh_token,
                     },
                 )
-                self.store.write(self._record(tokens))
-                self.store.finish()
-            except AUTH_ERRORS:
-                self.store.begin()
-                self.store.write(pending)
-                raise ValueError("Renewal incomplete; reference login required") from None
+            )
+
+        renew_credentials(self.store, replacement)
 
     def logout(self) -> None:
         with self.store.locked():
@@ -151,3 +137,27 @@ def run_reference_auth(action: str, path: Path, present_url: Callable[[str], Non
         raise ValueError(
             "Reference authentication failed; inspect profile auth status or log in again"
         ) from None
+
+
+def renew_credentials(
+    store: CredentialStore, replacement: Callable[[CredentialRecord], CredentialRecord]
+) -> None:
+    with store.locked():
+        record = store.read()
+        if (
+            store.incomplete()
+            or record is None
+            or record.state != "active"
+            or not record.refresh_token
+        ):
+            raise ValueError("Reference login required")
+        pending = store.empty("renewal_in_progress")
+        store.begin()
+        store.write(pending)
+        try:
+            store.write(replacement(record))
+            store.finish()
+        except AUTH_ERRORS:
+            store.begin()
+            store.write(pending)
+            raise ValueError("Renewal incomplete; reference login required") from None

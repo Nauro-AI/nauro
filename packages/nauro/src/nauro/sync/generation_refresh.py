@@ -55,6 +55,7 @@ from nauro.sync.generation_acquisition import (
     acquire_generation_projection,
     check_generation_projection,
 )
+from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.remote import TransferSession
 
 
@@ -71,14 +72,25 @@ class PreparedGenerationRefresh:
     prior_intent: bytes | None
 
 
+def _require_actor(actor: str, session: TransferSession | None) -> None:
+    if isinstance(session, GenerationTransferSession):
+        session.require_actor(actor)
+    else:
+        _require_active_actor(actor)
+
+
 @contextmanager
-def _locked(binding: ResolvedProjectBinding, actor: str) -> Iterator[RefreshPaths]:
+def _locked(
+    binding: ResolvedProjectBinding, actor: str, session: TransferSession | None
+) -> Iterator[RefreshPaths]:
+    if isinstance(session, GenerationTransferSession):
+        session.require_binding(binding)
     paths = refresh_paths(binding, actor)
     lock_path = paths.store / ".replica-control.lock"
     _validate_managed_path(paths.store, lock_path)
     try:
         with _native_control_lock(paths.store, lock_path, -1):
-            _require_active_actor(actor)
+            _require_actor(actor, session)
             yield paths
     except OSError as exc:
         raise GenerationRefreshDurabilityError("Refresh persistence requires recovery.") from exc
@@ -119,9 +131,9 @@ def _target(binding: ResolvedProjectBinding, intent: RefreshIntent) -> Generatio
 
 def _authorize(target: GenerationProjectionTarget, session: TransferSession | None) -> None:
     actor = target.identity.installed_for_user_id
-    _require_active_actor(actor)
+    _require_actor(actor, session)
     current = check_generation_projection(target.binding, active_user_id=actor, session=session)
-    _require_active_actor(actor)
+    _require_actor(actor, session)
     if current != target:
         raise RefreshRequiredError("The current authorized projection requires reconciliation.")
 
@@ -129,7 +141,7 @@ def _authorize(target: GenerationProjectionTarget, session: TransferSession | No
 def _prepare(
     binding: ResolvedProjectBinding, actor: str, session: TransferSession | None, *, bootstrap: bool
 ) -> PreparedGenerationRefresh:
-    with _locked(binding, actor) as paths:
+    with _locked(binding, actor, session) as paths:
         marker, pointer, carrier = _controls(paths)
         raw = read_evidence(paths, paths.intent)
         if bootstrap:
@@ -235,13 +247,13 @@ def _resume(
     _authorize(projection.target, session)
     state = intent.classify(*_controls(paths))
     if state == "base_present":
-        _require_active_actor(projection.target.identity.installed_for_user_id)
+        _require_actor(projection.target.identity.installed_for_user_id, session)
         durable_replace(paths, paths.carrier, intent.target_authorization_json.encode())
         state = intent.classify(*_controls(paths))
     if state == "carrier_published":
         sync_file(paths, paths.carrier)
         sync_parents(paths, paths.actor)
-        _require_active_actor(projection.target.identity.installed_for_user_id)
+        _require_actor(projection.target.identity.installed_for_user_id, session)
         durable_replace(paths, paths.pointer, intent.target_pointer_json.encode())
     return _complete(paths, intent, projection, session)
 
@@ -258,7 +270,7 @@ def commit_generation_refresh(
     actor = target.identity.installed_for_user_id
     _authorize(target, session)
     install_generation_root(projection)
-    with _locked(target.binding, actor) as paths:
+    with _locked(target.binding, actor, session) as paths:
         if _controls(paths) != (prepared.marker, prepared.pointer, prepared.carrier):
             raise GenerationRefreshEvidenceError("The prepared refresh base is stale.")
         if read_evidence(paths, paths.intent) != prepared.prior_intent:
@@ -284,7 +296,7 @@ def commit_generation_refresh(
 def admit_generation_store(
     binding: ResolvedProjectBinding, *, actor: str, session: TransferSession | None = None
 ) -> GenerationSnapshotStore:
-    with _locked(binding, actor) as paths:
+    with _locked(binding, actor, session) as paths:
         _, intent = _intent(paths)
         if intent.classify(*_controls(paths)) != "target_present":
             raise RefreshRequiredError("Explicit refresh recovery is required before admission.")

@@ -9,7 +9,7 @@ from typing import Literal
 from mcp.types import CallToolResult, TextContent
 from nauro_core.renderers import disconnected_reason_code
 
-from nauro.auth import ActiveUserReadError, read_active_user_id
+from nauro.auth import ActiveUserReadError
 from nauro.mcp import generation_responses as generation
 from nauro.mcp import tools as legacy
 from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
@@ -24,6 +24,7 @@ from nauro.store.resolution import (
     StoreResolutionError,
     resolve_project_binding,
 )
+from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.history_transport import HttpHistoryTransport
 from nauro.sync.remote import TransferBoundaryError
 
@@ -62,16 +63,52 @@ def _legacy_result(
     )
 
 
+GENERATION_READS = frozenset(
+    {
+        "get_context",
+        "get_raw_file",
+        "list_decisions",
+        "get_decision",
+        "search_decisions",
+        "check_decision",
+        "diff_since_last_session",
+    }
+)
+
+
+def generation_response(
+    binding: ResolvedProjectBinding,
+    name: str,
+    options: dict[str, object],
+    transport: HttpHistoryTransport | None = None,
+) -> generation.GenerationToolResponse:
+    if name not in GENERATION_READS:
+        raise ValueError("Unsupported generation read")
+    with GenerationTransferSession(binding) as session:
+        arguments = dict(options)
+        if name in {"search_decisions", "check_decision"}:
+            arguments["use_embeddings"] = resolve_embeddings_flag()
+        if name == "diff_since_last_session":
+            arguments["transport"] = transport or HttpHistoryTransport(
+                session.api_url, session.client, session.credentials
+            )
+        response: generation.GenerationToolResponse = getattr(generation, name)(
+            binding, **arguments, actor=session.actor, session=session
+        )
+        session.credentials()
+        return response
+
+
 def _read(
     name: str,
     project_id: str | None,
     cwd: str | None,
     flat: Callable[[Path], dict[str, object]],
-    projected: Callable[[ResolvedProjectBinding, str], generation.GenerationToolResponse],
     options: dict[str, object] | None = None,
+    transport: HttpHistoryTransport | None = None,
 ) -> CallToolResult:
     try:
-        binding = resolve_project_binding(project_id, cwd)
+        binding = resolve_project_binding(project_id, cwd or Path.cwd())
     except (NoProjectError, DisconnectedProjectError) as exc:
         return _legacy_result(name, resolution_error_envelope(exc), options or {}, None)
     except (StoreResolutionError, OSError):
@@ -79,9 +116,8 @@ def _read(
     try:
         marker = observe_generation_marker(binding)
         if marker is not None:
-            actor = read_active_user_id()
-            response = projected(binding, actor)
-            if read_active_user_id() != actor or observe_generation_marker(binding) != marker:
+            response = generation_response(binding, name, options or {}, transport)
+            if observe_generation_marker(binding) != marker:
                 return _unavailable()
             return _prepared(response)
         result = _legacy_result(name, flat(binding.store_path), options or {}, binding.store_path)
@@ -106,7 +142,6 @@ def get_context(
         project_id,
         cwd,
         lambda p: legacy.tool_get_context(p, level),
-        lambda b, a: generation.get_context(b, level, actor=a),
         {"level": level},
     )
 
@@ -115,12 +150,7 @@ def get_raw_file(
     path: str, project_id: str | None = None, cwd: str | None = None
 ) -> CallToolResult:
     return _read(
-        "get_raw_file",
-        project_id,
-        cwd,
-        lambda p: legacy.tool_get_raw_file(p, path),
-        lambda b, a: generation.get_raw_file(b, path, actor=a),
-        {"path": path},
+        "get_raw_file", project_id, cwd, lambda p: legacy.tool_get_raw_file(p, path), {"path": path}
     )
 
 
@@ -135,7 +165,7 @@ def list_decisions(
         project_id,
         cwd,
         lambda p: legacy.tool_list_decisions(p, limit, include_superseded),
-        lambda b, a: generation.list_decisions(b, limit, include_superseded, actor=a),
+        {"limit": limit, "include_superseded": include_superseded},
     )
 
 
@@ -150,8 +180,7 @@ def get_decision(
         project_id,
         cwd,
         lambda p: legacy.tool_get_decision(p, number, mode),
-        lambda b, a: generation.get_decision(b, number, mode, actor=a),
-        {"mode": mode},
+        {"number": number, "mode": mode},
     )
 
 
@@ -167,15 +196,7 @@ def search_decisions(
         project_id,
         cwd,
         lambda p: legacy.tool_search_decisions(p, query, limit, include_superseded),
-        lambda b, a: generation.search_decisions(
-            b,
-            query,
-            limit,
-            include_superseded,
-            actor=a,
-            use_embeddings=resolve_embeddings_flag(),
-        ),
-        {"query": query},
+        {"query": query, "limit": limit, "include_superseded": include_superseded},
     )
 
 
@@ -190,9 +211,7 @@ def check_decision(
         project_id,
         cwd,
         lambda p: legacy.tool_check_decision(p, proposed_approach, context),
-        lambda b, a: generation.check_decision(
-            b, proposed_approach, context, actor=a, use_embeddings=resolve_embeddings_flag()
-        ),
+        {"proposed_approach": proposed_approach, "context": context},
     )
 
 
@@ -207,7 +226,8 @@ def _history_diff(
         project_id,
         cwd,
         lambda p: legacy.tool_diff_since_last_session(p, days),
-        lambda b, a: generation.diff_since_last_session(b, days, actor=a, transport=transport),
+        {"days": days},
+        transport,
     )
 
 

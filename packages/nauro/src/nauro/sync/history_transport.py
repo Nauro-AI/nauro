@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
 import httpx
 
-from nauro.auth import read_active_credentials
+from nauro.auth import ActiveCredentials, read_active_credentials
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.generation_projection import GenerationProjectionTarget, _target_parts
 from nauro.store.resolution import ResolvedProjectBinding
@@ -85,9 +86,15 @@ def verify_history_response(
 class HttpHistoryTransport:
     """Use a caller-owned HTTP client without redirects or automatic resends."""
 
-    def __init__(self, base_url: str, client: httpx.Client) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.Client,
+        credentials: Callable[[], ActiveCredentials] | None = None,
+    ) -> None:
         self._origin = _origin(base_url)
         self._client = client
+        self._credentials = credentials or (lambda: read_active_credentials())
 
     def require_binding(self, binding: ResolvedProjectBinding, api_url: str | None = None) -> None:
         if (
@@ -104,7 +111,7 @@ class HttpHistoryTransport:
         self.require_binding(binding)
         if days is not None and type(days) is not int:
             raise HistoryTransportError("History days must be an integer.")
-        credentials = read_active_credentials()
+        credentials = self._credentials()
         if credentials.user_id != identity.installed_for_user_id:
             raise HistoryTransportError("The active account differs from the installed projection.")
         body = {
@@ -135,6 +142,6 @@ class HttpHistoryTransport:
         except (httpx.HTTPError, ValueError) as exc:
             raise HistoryTransportError("Authorized history is unavailable.") from exc
         result = verify_history_response(bytes(raw), target, days)
-        if read_active_credentials().user_id != identity.installed_for_user_id:
+        if self._credentials().user_id != identity.installed_for_user_id:
             raise HistoryTransportError("The active account changed during the history read.")
         return result

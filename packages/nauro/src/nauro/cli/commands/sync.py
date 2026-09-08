@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import typer
 
 from nauro.auth import load_access_token
+from nauro.cli.generation_reads import refresh_command
 from nauro.cli.integrations.outcomes import BridgeOutcome
 from nauro.cli.integrations.render import render
 from nauro.cli.utils import resolve_target_project
@@ -46,6 +47,8 @@ def sync(
     project_name, store_path = resolve_target_project(project)
     # store_path.name is the project_id (the store directory is id-keyed).
     project_key = store_path.name
+    if refresh_command(project_key, push_only=push_only):
+        return
     trigger = message or "manual sync"
 
     with operation_session() as session:

@@ -27,6 +27,7 @@ import typer
 from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 
 from nauro.cli._json_input import parse_json_list_of_dicts
+from nauro.cli.generation_reads import read_command, require_legacy_read
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.mcp import tools as mcp_tools
 from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
@@ -464,6 +465,10 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
                 kwargs[name] = value.value
 
         adapter_kwargs = {name: kwargs[name] for name in schema_arg_names if name in kwargs}
+        if read_command(
+            tool_name, store_path.name, adapter_kwargs, text=output_format is OutputFormat.text
+        ):
+            return
         if accepts_origin:
             adapter_kwargs["origin"] = cli_origin()
         if accepts_base_commit:
@@ -480,11 +485,13 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
             if rendered is not None:
                 # Rendered stdout is the sole carrier of error/guidance prose;
                 # no stderr duplicate. Exit codes stay format-independent.
+                require_legacy_read(tool_name, store_path)
                 typer.echo(rendered)
                 code = _exit_code_for_envelope(envelope)
                 if code:
                     raise typer.Exit(code=code)
                 return
+        require_legacy_read(tool_name, store_path)
         _emit_json_mode(envelope)
 
     command.__signature__ = inspect.Signature(parameters=params)  # type: ignore[attr-defined]

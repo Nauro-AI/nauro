@@ -188,7 +188,7 @@
                 ],
                 "kind": "option",
                 "name": "reference_profile",
-                "required": true,
+                "required": false,
                 "type": "path"
               }
             ]

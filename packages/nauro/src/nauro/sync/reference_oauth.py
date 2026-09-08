@@ -8,7 +8,7 @@ import secrets
 import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
@@ -16,6 +16,13 @@ import jwt
 
 from nauro.sync.decision_profile import RenewalProfile
 from nauro.sync.decision_reference_contract import _json
+
+
+class OAuthSettings(Protocol):
+    issuer: str
+    client_id: str
+    audience: str
+    redirect_uri: str
 
 
 def response_json(client: httpx.Client, method: str, url: str, **kwargs: Any) -> Any:
@@ -33,7 +40,7 @@ def response_json(client: httpx.Client, method: str, url: str, **kwargs: Any) ->
         return value
 
 
-def verify_access(profile: RenewalProfile, token: str, client: httpx.Client) -> int:
+def verified_claims(profile: OAuthSettings, token: str, client: httpx.Client) -> dict[str, Any]:
     header = jwt.get_unverified_header(token)
     if header.get("alg") != "RS256" or not isinstance(header.get("kid"), str):
         raise ValueError("Unsupported token signing key")
@@ -61,19 +68,30 @@ def verify_access(profile: RenewalProfile, token: str, client: httpx.Client) -> 
         audience=profile.audience,
         options={"require": ["exp", "iat", "iss", "aud", "sub", "azp", "scope"]},
     )
-    if claims["sub"] != profile.expected_subject or claims["azp"] != profile.client_id:
+    if (
+        not isinstance(claims["sub"], str)
+        or not claims["sub"]
+        or claims["azp"] != profile.client_id
+    ):
         raise ValueError("Token identity differs from profile")
     scope = claims["scope"]
     if not isinstance(scope, str) or not {"read:context", "write:context"} <= set(scope.split()):
         raise ValueError("Required token scopes missing")
     if type(claims["exp"]) is not int:
         raise ValueError("Invalid token expiry")
+    return claims
+
+
+def verify_access(profile: RenewalProfile, token: str, client: httpx.Client) -> int:
+    claims = verified_claims(profile, token, client)
+    if claims["sub"] != profile.expected_subject:
+        raise ValueError("Token identity differs from profile")
     return int(claims["exp"])
 
 
-def exchange(
-    profile: RenewalProfile, client: httpx.Client, grant: dict[str, str]
-) -> tuple[str, str, int]:
+def exchange_tokens(
+    profile: OAuthSettings, client: httpx.Client, grant: dict[str, str]
+) -> tuple[str, str]:
     body = response_json(
         client,
         "POST",
@@ -90,11 +108,18 @@ def exchange(
         or body["token_type"].lower() != "bearer"
     ):
         raise ValueError("Incomplete rotating credentials")
+    return access, refresh
+
+
+def exchange(
+    profile: RenewalProfile, client: httpx.Client, grant: dict[str, str]
+) -> tuple[str, str, int]:
+    access, refresh = exchange_tokens(profile, client, grant)
     return access, refresh, verify_access(profile, access, client)
 
 
 def callback_code(
-    profile: RenewalProfile,
+    profile: OAuthSettings,
     present_url: Callable[[str], None],
     timeout: float = 120,
 ) -> tuple[str, str]:

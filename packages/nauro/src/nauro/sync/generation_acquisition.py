@@ -25,6 +25,7 @@ from nauro.store.generation_projection import (
     verify_generation_projection,
 )
 from nauro.store.resolution import ResolvedProjectBinding
+from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.remote import (
     _DEFAULT_API_TIMEOUT,
     _DEFAULT_TRANSFER_TIMEOUT,
@@ -121,7 +122,13 @@ def _api_response(
         )
         return response
 
-    response = with_token_refresh(call, client=session.client)
+    if isinstance(session, GenerationTransferSession):
+        if endpoint not in {session.api_url + _PROJECTION_ROUTE, session.api_url + _PRESIGN_ROUTE}:
+            raise GenerationAcquisitionError("Generation endpoint differs from the connection.")
+        response = call(session.credentials().access_token)
+        session.credentials()
+    else:
+        response = with_token_refresh(call, client=session.client)
     if response.status_code == 200:
         return response
     # Typed refusals are mapped ahead of the status classifier because a
@@ -308,7 +315,11 @@ def acquire_generation_projection(
     except ValueError as exc:
         raise ReplicaActorMismatchError(_NO_ACTOR) from exc
     with operation_session(session) as active:
-        api_url = resolve_api_url()
+        if isinstance(active, GenerationTransferSession):
+            active.require_binding(binding)
+        api_url = (
+            active.api_url if isinstance(active, GenerationTransferSession) else resolve_api_url()
+        )
         attempts = 0
         while True:
             attempts += 1
@@ -329,7 +340,12 @@ def check_generation_projection(
         raise GenerationAcquisitionError("Generation acquisition requires a cloud project binding.")
     user_id = validate_identifier(IdentifierKind.ulid, active_user_id, field="active_user_id")
     with operation_session(session) as active:
-        target, manifest = _fetch_projection(active, resolve_api_url(), binding, user_id)
+        if isinstance(active, GenerationTransferSession):
+            active.require_binding(binding)
+        api_url = (
+            active.api_url if isinstance(active, GenerationTransferSession) else resolve_api_url()
+        )
+        target, manifest = _fetch_projection(active, api_url, binding, user_id)
         _parse_manifest(target, manifest)
         return target
 
