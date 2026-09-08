@@ -97,11 +97,15 @@ def test_generation_uses_prepared_text_without_legacy_render(cloud, monkeypatch,
 
 
 @pytest.mark.parametrize("name,kwargs", CASES + [("diff_since_last_session", {})])
-def test_flat_matches_live_stdio_without_credentials(flat, monkeypatch, name, kwargs):
+def test_flat_matches_legacy_adapter_without_credentials(flat, monkeypatch, name, kwargs):
     monkeypatch.setattr(dispatch, "GenerationTransferSession", forbidden)
-    expected = getattr(stdio_server, name)(project_id=flat.project_id, **kwargs)
+    envelope = getattr(dispatch.legacy, f"tool_{name}")(flat.store_path, **kwargs)
+    expected = stdio_server._wrap_with_renderer(
+        name, envelope, dispatch.resolve_renderer_kwargs(name, kwargs, flat.store_path)
+    )
     actual = getattr(dispatch, name)(project_id=flat.project_id, **kwargs)
     assert actual == expected
+    assert getattr(stdio_server, name)(project_id=flat.project_id, **kwargs) == expected
 
 
 @pytest.mark.parametrize("phase", ["handler", "renderer"])
