@@ -157,6 +157,8 @@ def login(
     if isinstance(reference_profile, Path):
         _reference_auth("login", reference_profile)
         return
+    if _generation_auth("login"):
+        return
     try:
         domain, client_id, api_url, audience = resolve_auth_config(os.environ, load_config())
     except PartialAuthConfigError as exc:
@@ -263,6 +265,8 @@ def status(
     if isinstance(reference_profile, Path):
         _reference_auth("status", reference_profile)
         return
+    if _generation_auth("status"):
+        return
     config = load_config()
     auth = config.get("auth")
     if not isinstance(auth, dict):
@@ -293,6 +297,8 @@ def logout(
     if isinstance(reference_profile, Path):
         _reference_auth("logout", reference_profile)
         return
+    if _generation_auth("logout"):
+        return
     config = load_config()
     if "auth" not in config:
         typer.echo("Not authenticated - nothing to clear.")
@@ -315,9 +321,26 @@ def _reference_auth(action: str, path: Path) -> None:
 
 @auth_app.command()
 def refresh(
-    reference_profile: Path = typer.Option(
-        ..., "--reference-profile", help="Select reference credentials to renew."
+    reference_profile: Path | None = typer.Option(
+        None, "--reference-profile", help="Select reference credentials to renew."
     ),
 ) -> None:
     """Renew selected reference credentials without replaying a request."""
-    _reference_auth("refresh", reference_profile)
+    if isinstance(reference_profile, Path):
+        _reference_auth("refresh", reference_profile)
+    elif not _generation_auth("refresh"):
+        raise typer.BadParameter("Select a migrated project or --reference-profile")
+
+
+def _generation_auth(action: str) -> bool:
+    from nauro.cli.generation_auth import run_generation_auth
+
+    try:
+        result = run_generation_auth(action, REDIRECT_URI, typer.echo)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
+    if result is None:
+        return False
+    typer.echo(result)
+    return True
