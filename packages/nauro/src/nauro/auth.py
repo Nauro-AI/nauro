@@ -35,6 +35,7 @@ from nauro.store.home import config_file
 # Public OAuth identifiers — safe to ship; not secrets. Do not strip.
 DEFAULT_AUTH0_DOMAIN = "dev-q1kuoa1a154u26iw.us.auth0.com"
 DEFAULT_AUTH0_CLIENT_ID = "FoVl59QaztJou17Xqr3e2QYOupAr1Ke3"
+DEFAULT_AUTH_REDIRECT_URI = "http://localhost:18457/callback"
 DEFAULT_API_URL = "https://mcp.nauro.ai"
 DEFAULT_AUTH0_AUDIENCE = "https://mcp.nauro.ai/mcp"
 

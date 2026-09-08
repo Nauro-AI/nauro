@@ -30,6 +30,7 @@ import typer
 from nauro_core import sanitize_sub
 
 from nauro.auth import (
+    DEFAULT_AUTH_REDIRECT_URI,
     RATE_LIMITED_MESSAGE,
     PartialAuthConfigError,
     decode_jwt_payload,
@@ -44,7 +45,7 @@ auth_app = typer.Typer(help="Manage authentication for remote sync.")
 
 AUTH0_SCOPES = "openid profile email offline_access read:context write:context"
 REDIRECT_PORT = 18457
-REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
+REDIRECT_URI = DEFAULT_AUTH_REDIRECT_URI
 
 
 def _generate_pkce() -> tuple[str, str]:

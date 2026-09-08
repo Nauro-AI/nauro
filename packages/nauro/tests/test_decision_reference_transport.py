@@ -104,12 +104,13 @@ def test_http_failure_does_not_retry_or_follow_redirect():
     assert seen == ["https://probe.example/mcp"]
 
 
-def test_reference_import_does_not_change_normal_tool_schema():
+def test_normal_tool_adds_reference_modes_without_new_tools():
     from nauro.mcp.stdio_server import mcp
 
     tool = mcp._tool_manager.get_tool("propose_decision")
-    assert "request_mode" not in tool.parameters["properties"]
-    assert "rationale" in tool.parameters["required"]
+    assert "request_mode" in tool.parameters["properties"]
+    assert "rationale" not in tool.parameters.get("required", [])
+    assert tool.parameters["oneOf"][0]["required"] == ["rationale"]
     assert len(mcp._tool_manager.list_tools()) == 10
     assert reference_schema()["properties"]["request_mode"]["default"] == "prepare"
 

@@ -558,10 +558,12 @@ def _store_path_or_raise(connection: RepoResolution | DisconnectedProject) -> Pa
 def resolve_project_binding(
     project_id: str | None,
     cwd: str | Path | None,
+    *,
+    use_cwd: bool = True,
 ) -> ResolvedProjectBinding:
     """Resolve and validate a local or cloud project binding."""
     cwd_path = Path(cwd) if cwd else Path.cwd()
-    cfg = _strict_repo_config_from_cwd(cwd_path)
+    cfg = _strict_repo_config_from_cwd(cwd_path) if use_cwd else None
     target_id = cfg.id if cfg is not None else project_id
     entries = _strict_registry_entries(target_id, cfg).projects
 
@@ -605,7 +607,7 @@ def resolve_project_binding(
             "NAURO_HOME if you expected an existing project."
         )
 
-    if cwd:
+    if cwd and use_cwd:
         resolved_cwd = cwd_path.resolve()
         path_matches = {
             pid: entry

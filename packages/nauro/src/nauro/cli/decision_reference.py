@@ -46,7 +46,22 @@ def _reference_call(
         profile = load_reference_profile(path)
     except (ValueError, OSError):
         raise typer.BadParameter("Invalid reference profile; use an owner-only file") from None
-    request: dict[str, Any] = {"project_id": profile.project_id}
+    request = _request(profile.project_id, kwargs, spec, context)
+    try:
+        result = _execute(profile, request)
+    except (DecisionReferenceError, ValueError, OSError):
+        typer.echo(
+            "No verified result. Use discover or recover with this profile. No retry was sent.",
+            err=True,
+        )
+        raise typer.Exit(1) from None
+    typer.echo(json.dumps(result, indent=2))
+
+
+def _request(
+    project_id: str, kwargs: dict[str, Any], spec: ToolSpec, context: typer.Context
+) -> dict[str, Any]:
+    request: dict[str, Any] = {"project_id": project_id}
     names = set(spec["input_schema"]["properties"]) - {"project_id", "cwd"}
     names.update({"request_mode", "operation_id", "payload_digest", "after"})
     for name in names:
@@ -60,20 +75,40 @@ def _reference_call(
             value = parse_json_list_of_dicts(value, "--rejected")
         request[name] = value
     try:
-        validate_arguments(request, profile.project_id)
+        validate_arguments(request, project_id)
     except ValueError:
         raise typer.BadParameter(
             "Invalid reference arguments for the selected request mode"
         ) from None
+    return request
+
+
+def _generation_call(kwargs: dict[str, Any], spec: ToolSpec, context: typer.Context) -> bool:
+    from nauro.sync.generation_decision import (
+        REFUSED_STATUSES,
+        execute_decision,
+        select_decision_connection,
+    )
+
     try:
-        result = _execute(profile, request)
-    except (DecisionReferenceError, ValueError, OSError):
+        selected = select_decision_connection(
+            kwargs.get("project"), use_cwd=kwargs.get("project") is None
+        )
+        if selected is None:
+            return False
+        request = _request(selected[1], kwargs, spec, context)
+        result = execute_decision(selected, request, use_cwd=kwargs.get("project") is None)
+    except (ValueError, OSError):
         typer.echo(
-            "No verified result. Use discover or recover with this profile. No retry was sent.",
+            "No verified result. Check auth status or log in, then discover or recover "
+            "in this project. No retry was sent.",
             err=True,
         )
         raise typer.Exit(1) from None
     typer.echo(json.dumps(result, indent=2))
+    if result.get("status") in REFUSED_STATUSES or result.get("unresolved") is True:
+        raise typer.Exit(1)
+    return True
 
 
 def with_reference_options(command: Callable[..., None], spec: ToolSpec) -> Callable[..., None]:
@@ -118,6 +153,8 @@ def with_reference_options(command: Callable[..., None], spec: ToolSpec) -> Call
         profile = kwargs.pop("reference_profile")
         if profile is not None:
             _reference_call(profile, kwargs, spec, context)
+            return
+        if _generation_call(kwargs, spec, context):
             return
         reference_values = [kwargs.pop(name) for name, _, _ in options[1:]]
         if any(value is not None for value in reference_values):

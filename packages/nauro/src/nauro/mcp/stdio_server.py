@@ -18,17 +18,20 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 from mcp.server import FastMCP
 from mcp.server.fastmcp import Context
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
+from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field
 
 from nauro import __version__
+from nauro.mcp.decision_reference import INSTRUCTIONS as REFERENCE_INSTRUCTIONS
+from nauro.mcp.generation_decision import decision_session, register_argument_validation
 from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
 from nauro.mcp.resolution_errors import resolution_error_envelope
 from nauro.mcp.tools import (
@@ -55,7 +58,17 @@ from nauro.store.resolution import (
 )
 
 logger = logging.getLogger("nauro.stdio")
-mcp = FastMCP("nauro", instructions=MCP_INSTRUCTIONS_STATIC, log_level="WARNING")
+mcp = FastMCP(
+    "nauro",
+    instructions=MCP_INSTRUCTIONS_STATIC.replace(
+        APPROVAL_BEFORE_PROPOSE,
+        "For local and legacy projects: "
+        + APPROVAL_BEFORE_PROPOSE
+        + "\nFor generation-backed projects: "
+        + REFERENCE_INSTRUCTIONS,
+    ),
+    log_level="WARNING",
+)
 # FastMCP does not forward a version to the underlying low-level server, which
 # otherwise reports the mcp framework version in the initialize response. Set
 # the nauro package version so connecting clients see the release in use.
@@ -106,7 +119,7 @@ def _param_desc(tool_name: str, param: str) -> str:
             f"ToolSpec for {tool_name!r} has no description for {param!r}; "
             "either add one in nauro_core.mcp_tools or omit the Annotated."
         )
-    return props[param]["description"]
+    return cast(str, props[param]["description"])
 
 
 def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
@@ -302,8 +315,12 @@ def check_decision(
 
 @mcp.tool(**_spec_kwargs("propose_decision"))
 def propose_decision(
-    rationale: Annotated[str, Field(description=_param_desc("propose_decision", "rationale"))],
-    title: Annotated[str, Field(description=_param_desc("propose_decision", "title"))] = "",
+    rationale: Annotated[
+        str | None, Field(description=_param_desc("propose_decision", "rationale"))
+    ] = None,
+    title: Annotated[
+        str | None, Field(description=_param_desc("propose_decision", "title"))
+    ] = None,
     operation: Annotated[
         Literal["add", "update", "supersede"],
         Field(description=_param_desc("propose_decision", "operation")),
@@ -352,14 +369,25 @@ def propose_decision(
         Field(description=_param_desc("propose_decision", "project_id")),
     ] = None,
     cwd: _CWD_PARAM = None,
+    request_mode: Literal["prepare", "submit", "recover", "discover", "retry"] | None = None,
+    operation_id: str | None = None,
+    payload_digest: str | None = None,
+    after: str | None = None,
     mcp_ctx: Context | None = None,
-) -> dict:
+) -> Any:
+    from nauro.mcp.generation_decision import generation_proposal
+
+    result = generation_proposal(locals())
+    if result is not None:
+        return result
+    if rationale is None:
+        raise ValueError("Legacy decisions require rationale")
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
         return err
     return tool_propose_decision(
         store_path,
-        title=title,
+        title=title if title is not None else "",
         rationale=rationale,
         operation=operation,
         affected_decision_id=affected_decision_id,
@@ -394,6 +422,12 @@ def flag_question(
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
 ) -> str | dict:
+    from nauro.mcp.generation_decision import refuse_unadapted_write
+
+    refusal = refuse_unadapted_write(project_id, cwd)
+    if refusal is not None:
+        return refusal if disconnected_reason_code(refusal) is not None else refusal["guidance"]
+
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
         return err if disconnected_reason_code(err) is not None else err["guidance"]
@@ -426,6 +460,12 @@ def update_state(
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
 ) -> str | dict:
+    from nauro.mcp.generation_decision import refuse_unadapted_write
+
+    refusal = refuse_unadapted_write(project_id, cwd)
+    if refusal is not None:
+        return refusal if disconnected_reason_code(refusal) is not None else refusal["guidance"]
+
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
         return err if disconnected_reason_code(err) is not None else err["guidance"]
@@ -437,6 +477,9 @@ def update_state(
         return f"State updated. {warning}" if warning else "State updated."
 
     return render_write_status(result, updated)
+
+
+register_argument_validation(mcp)
 
 
 def _pull_on_startup() -> None:
@@ -467,4 +510,7 @@ def _pull_on_startup() -> None:
 def run_stdio() -> None:
     """Run the MCP server over stdio (called by `nauro serve --stdio`)."""
     _pull_on_startup()
-    mcp.run(transport="stdio")
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        decision_session.close()
