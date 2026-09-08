@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from nauro_core.mcp_tools import GET_CONTEXT, GET_DECISION
+from nauro_core.mcp_tools import GET_CONTEXT, GET_DECISION, HOSTED_TOOLS
 
 from nauro.sync.decision_reference_contract import (
     MAX_RESPONSE,
@@ -35,6 +35,14 @@ def negotiate_registry(result: Any) -> bool:
     tools = result["tools"]
     if len(tools) == 3:
         schemas.update({name: read_schema(name) for name in READ_SPECS})
+    if len(tools) == len(HOSTED_TOOLS):
+        schemas.update(
+            {
+                spec["name"]: spec["input_schema"]
+                for spec in HOSTED_TOOLS
+                if spec["name"] != "propose_decision"
+            }
+        )
     if len(tools) != len(schemas):
         raise DecisionReferenceError("Unexpected isolated tool registry")
     for tool in tools:
