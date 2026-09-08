@@ -135,7 +135,7 @@ class DecisionReferenceTransport:
                     or type(value["version"]) is not int
                     or value["version"] != 1
                     or not isinstance(value["requests"], list)
-                    or len(value["requests"]) > 1
+                    or len(value["requests"]) > 10
                 ):
                     raise ValueError("Invalid discovery page")
                 if value["next_after"] is not None and not isinstance(value["next_after"], str):
