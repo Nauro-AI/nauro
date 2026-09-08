@@ -300,7 +300,7 @@ def check_decision(
     )
 
 
-@mcp.tool(**_spec_kwargs("propose_decision"))
+@mcp.tool(**_spec_kwargs("propose_decision"), structured_output=False)
 def propose_decision(
     rationale: Annotated[
         str | None, Field(description=_param_desc("propose_decision", "rationale"))

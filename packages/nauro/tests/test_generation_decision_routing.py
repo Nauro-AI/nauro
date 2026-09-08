@@ -376,7 +376,9 @@ run_stdio()
             await session.initialize()
             listing = await session.list_tools()
             assert len(listing.tools) == 10
-            schema = next(t.inputSchema for t in listing.tools if t.name == "propose_decision")
+            decision_tool = next(t for t in listing.tools if t.name == "propose_decision")
+            assert decision_tool.outputSchema is None
+            schema = decision_tool.inputSchema
             assert "cwd" in schema["properties"]
             assert "request_mode" in schema["properties"]
             found = await session.call_tool("propose_decision", {"request_mode": "discover"})
