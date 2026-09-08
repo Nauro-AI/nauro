@@ -51,7 +51,7 @@ def test_binding_diagnostic_matches_live_result(tmp_path, monkeypatch, name, kwa
         save_repo_config(repo, config)
     expected = getattr(stdio_server, name)(cwd=str(repo), **kwargs)
     monkeypatch.setattr(dispatch, "observe_generation_marker", forbidden)
-    monkeypatch.setattr(dispatch, "read_active_user_id", forbidden)
+    monkeypatch.setattr(dispatch, "GenerationTransferSession", forbidden)
     monkeypatch.setattr(dispatch.legacy, f"tool_{name}", forbidden)
     monkeypatch.setattr(dispatch.generation, name, forbidden)
     actual = getattr(dispatch, name)(cwd=str(repo), **kwargs)
@@ -114,8 +114,7 @@ def test_post_binding_error_never_becomes_diagnostic(tmp_path, monkeypatch, phas
         monkeypatch.setattr(dispatch, "observe_generation_marker", Mock(side_effect=error))
     else:
         monkeypatch.setattr(dispatch, "observe_generation_marker", lambda *args: b"marker")
-        monkeypatch.setattr(dispatch, "read_active_user_id", lambda: "actor")
-        monkeypatch.setattr(dispatch.generation, "get_context", Mock(side_effect=error))
+        monkeypatch.setattr(dispatch, "generation_response", Mock(side_effect=error))
     result = dispatch.get_context(project_id=pid)
     assert result.isError is True
     assert result.structuredContent is None

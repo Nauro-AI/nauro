@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from nauro.auth import resolve_auth_config
 from nauro.store.config import load_config
 from nauro.store.read_authority import observe_generation_marker
-from nauro.store.resolution import NoProjectError, resolve_project_binding
+from nauro.store.resolution import NoProjectError, ResolvedProjectBinding, resolve_project_binding
 from nauro.sync.generation_credentials import GenerationConnection
 
 
@@ -43,6 +43,12 @@ def selected_connection(
         return None
     if observe_generation_marker(binding) is None:
         return None
+    return connection_for(binding, redirect_uri), binding.project_id
+
+
+def connection_for(binding: ResolvedProjectBinding, redirect_uri: str) -> GenerationConnection:
+    if observe_generation_marker(binding) is None:
+        raise ValueError("Generation authority required")
     domain, client, api, audience = resolve_auth_config(os.environ, load_config())
     if binding.server_url is None or _origin(binding.server_url) != _origin(api):
         raise ValueError("Project and trusted authentication endpoints differ")
@@ -52,4 +58,4 @@ def selected_connection(
         client_id=client,
         audience=audience,
         redirect_uri=redirect_uri,
-    ), binding.project_id
+    )

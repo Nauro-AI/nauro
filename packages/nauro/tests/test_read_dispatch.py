@@ -5,6 +5,7 @@ import inspect
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 from mcp.types import CallToolResult, TextContent
 
@@ -15,6 +16,8 @@ from nauro.store import read_authority
 from nauro.store.config import save_config
 from nauro.store.registry import register_project_v2
 from nauro.store.resolution import resolve_project_binding
+from nauro.sync.generation_session import GenerationTransferSession
+from tests.generation_account import seed_generation_account
 from tests.test_generation_installation import USER_ID
 from tests.test_generation_reads import POSIX
 from tests.test_generation_reads import admitted as admitted
@@ -42,7 +45,7 @@ def isolated_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def cloud(admitted):
+def cloud(admitted, monkeypatch):
     binding, current, checks = admitted
     register_project_v2(
         binding.display_name,
@@ -51,8 +54,12 @@ def cloud(admitted):
         project_id=binding.project_id,
         server_url=binding.server_url,
     )
-    save_config({"auth": {"user_id": USER_ID, "access_token": "synthetic"}})
-    return binding, current, checks
+    seed_generation_account(binding, USER_ID, monkeypatch)
+    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(404))) as client:
+        monkeypatch.setattr(
+            dispatch, "GenerationTransferSession", lambda b: GenerationTransferSession(b, client)
+        )
+        yield binding, current, checks
 
 
 @pytest.fixture
@@ -74,7 +81,8 @@ def test_generation_uses_prepared_text_without_legacy_render(cloud, monkeypatch,
     binding, _, checks = cloud
     assert resolve_project_binding(binding.project_id, None) == binding
     assert read_authority.observe_generation_marker(binding) is not None
-    assert dispatch.read_active_user_id() == USER_ID
+    with GenerationTransferSession(binding) as session:
+        assert session.credentials().user_id == USER_ID
     expected = getattr(generation, name)(binding, **kwargs, actor=USER_ID)
     assert expected.is_error is False
     monkeypatch.setattr(dispatch, "_legacy_result", forbidden)
@@ -90,7 +98,7 @@ def test_generation_uses_prepared_text_without_legacy_render(cloud, monkeypatch,
 
 @pytest.mark.parametrize("name,kwargs", CASES + [("diff_since_last_session", {})])
 def test_flat_matches_live_stdio_without_credentials(flat, monkeypatch, name, kwargs):
-    monkeypatch.setattr(dispatch, "read_active_user_id", forbidden)
+    monkeypatch.setattr(dispatch, "GenerationTransferSession", forbidden)
     expected = getattr(stdio_server, name)(project_id=flat.project_id, **kwargs)
     actual = getattr(dispatch, name)(project_id=flat.project_id, **kwargs)
     assert actual == expected
@@ -173,7 +181,7 @@ def test_generation_history_never_reads_flat_snapshots(cloud, monkeypatch):
     binding, _, _ = cloud
     monkeypatch.setattr(dispatch.legacy, "tool_diff_since_last_session", forbidden)
     result = dispatch.diff_since_last_session(project_id=binding.project_id)
-    assert result == dispatch._prepared(generation.diff_since_last_session(binding, actor=USER_ID))
+    assert "Generation read unavailable" in result.content[0].text
     assert result.isError is True
 
 
@@ -237,9 +245,11 @@ def test_resolution_failure_never_calls_legacy(monkeypatch):
     assert dispatch.get_context(project_id="missing") == ERROR
 
 
-def test_dispatch_is_dormant_and_keeps_public_arguments():
+def test_dispatch_has_only_named_consumers_and_keeps_public_arguments():
     root = Path(dispatch.__file__).parents[1]
     for path in root.rglob("*.py"):
+        if path.relative_to(root).as_posix() in {"cli/generation_reads.py", "mcp/stdio_server.py"}:
+            continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Import):
                 assert all(a.name != "nauro.mcp.read_dispatch" for a in node.names)

@@ -30,20 +30,14 @@ from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field
 
 from nauro import __version__
+from nauro.mcp import read_dispatch
 from nauro.mcp.decision_reference import INSTRUCTIONS as REFERENCE_INSTRUCTIONS
 from nauro.mcp.generation_decision import decision_session, register_argument_validation
-from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
+from nauro.mcp.rendering import try_render_envelope
 from nauro.mcp.resolution_errors import resolution_error_envelope
 from nauro.mcp.tools import (
-    tool_check_decision,
-    tool_diff_since_last_session,
     tool_flag_question,
-    tool_get_context,
-    tool_get_decision,
-    tool_get_raw_file,
-    tool_list_decisions,
     tool_propose_decision,
-    tool_search_decisions,
     tool_update_state,
 )
 from nauro.mcp.write_status import render_write_status
@@ -188,14 +182,10 @@ def get_context(
         Field(description=_param_desc("get_context", "level")),
     ] = "L0",
 ) -> CallToolResult:
-    store_path, err = _resolve_or_error(project_id, cwd)
-    # tool_get_context accepts both int and string levels.
-    result = err if err is not None else tool_get_context(store_path, level)
-    return _wrap_with_renderer(
-        "get_context",
-        result,
-        resolve_renderer_kwargs("get_context", {"level": level}, store_path),
-    )
+    _, error = _resolve_or_error(project_id, cwd)
+    if error is not None:
+        return _wrap_with_renderer("get_context", error)
+    return read_dispatch.get_context(project_id=project_id, cwd=cwd, level=level)
 
 
 @mcp.tool(**_spec_kwargs("get_raw_file"))
@@ -206,13 +196,10 @@ def get_raw_file(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
-    store_path, err = _resolve_or_error(project_id, cwd)
-    result = err if err is not None else tool_get_raw_file(store_path, path)
-    return _wrap_with_renderer(
-        "get_raw_file",
-        result,
-        resolve_renderer_kwargs("get_raw_file", {"path": path}, store_path),
-    )
+    _, error = _resolve_or_error(project_id, cwd)
+    if error is not None:
+        return _wrap_with_renderer("get_raw_file", error)
+    return read_dispatch.get_raw_file(path=path, project_id=project_id, cwd=cwd)
 
 
 @mcp.tool(**_spec_kwargs("list_decisions"))
@@ -226,9 +213,12 @@ def list_decisions(
         bool, Field(description=_param_desc("list_decisions", "include_superseded"))
     ] = False,
 ) -> CallToolResult:
-    store_path, err = _resolve_or_error(project_id, cwd)
-    result = err if err is not None else tool_list_decisions(store_path, limit, include_superseded)
-    return _wrap_with_renderer("list_decisions", result)
+    _, error = _resolve_or_error(project_id, cwd)
+    if error is not None:
+        return _wrap_with_renderer("list_decisions", error)
+    return read_dispatch.list_decisions(
+        project_id=project_id, cwd=cwd, limit=limit, include_superseded=include_superseded
+    )
 
 
 @mcp.tool(**_spec_kwargs("get_decision"))
@@ -242,13 +232,10 @@ def get_decision(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
-    store_path, err = _resolve_or_error(project_id, cwd)
-    result = err if err is not None else tool_get_decision(store_path, number, mode)
-    return _wrap_with_renderer(
-        "get_decision",
-        result,
-        resolve_renderer_kwargs("get_decision", {"mode": mode}, store_path),
-    )
+    _, error = _resolve_or_error(project_id, cwd)
+    if error is not None:
+        return _wrap_with_renderer("get_decision", error)
+    return read_dispatch.get_decision(number=number, mode=mode, project_id=project_id, cwd=cwd)
 
 
 @mcp.tool(**_spec_kwargs("diff_since_last_session"))
@@ -262,9 +249,10 @@ def diff_since_last_session(
         int | None, Field(description=_param_desc("diff_since_last_session", "days"))
     ] = None,
 ) -> CallToolResult:
-    store_path, err = _resolve_or_error(project_id, cwd)
-    result = err if err is not None else tool_diff_since_last_session(store_path, days)
-    return _wrap_with_renderer("diff_since_last_session", result)
+    _, error = _resolve_or_error(project_id, cwd)
+    if error is not None:
+        return _wrap_with_renderer("diff_since_last_session", error)
+    return read_dispatch.diff_since_last_session(project_id=project_id, cwd=cwd, days=days)
 
 
 @mcp.tool(**_spec_kwargs("search_decisions"))
@@ -279,19 +267,15 @@ def search_decisions(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
-    store_path, err = _resolve_or_error(project_id, cwd)
-    result = (
-        err
-        if err is not None
-        else tool_search_decisions(store_path, query, limit, include_superseded)
-    )
-    # The kernel envelope omits the echoed query; thread it to the renderer
-    # so the local header shows the term, matching the remote transport,
-    # which carries query in its envelope.
-    return _wrap_with_renderer(
-        "search_decisions",
-        result,
-        resolve_renderer_kwargs("search_decisions", {"query": query}, store_path),
+    _, error = _resolve_or_error(project_id, cwd)
+    if error is not None:
+        return _wrap_with_renderer("search_decisions", error)
+    return read_dispatch.search_decisions(
+        query=query,
+        limit=limit,
+        include_superseded=include_superseded,
+        project_id=project_id,
+        cwd=cwd,
     )
 
 
@@ -308,9 +292,12 @@ def check_decision(
     ] = None,
     cwd: _CWD_PARAM = None,
 ) -> CallToolResult:
-    store_path, err = _resolve_or_error(project_id, cwd)
-    result = err if err is not None else tool_check_decision(store_path, proposed_approach, context)
-    return _wrap_with_renderer("check_decision", result)
+    _, error = _resolve_or_error(project_id, cwd)
+    if error is not None:
+        return _wrap_with_renderer("check_decision", error)
+    return read_dispatch.check_decision(
+        proposed_approach=proposed_approach, context=context, project_id=project_id, cwd=cwd
+    )
 
 
 @mcp.tool(**_spec_kwargs("propose_decision"))

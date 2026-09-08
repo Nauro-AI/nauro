@@ -498,7 +498,7 @@ refresh.commit_generation_refresh(prepared)
     )
 
 
-def test_refresh_executor_has_no_runtime_consumer():
+def test_refresh_executor_has_only_named_runtime_consumers():
     import ast
     from pathlib import Path
 
@@ -512,4 +512,8 @@ def test_refresh_executor_has_no_runtime_consumer():
                 consumers.extend(
                     a.name for a in node.names if a.name == "nauro.sync.generation_refresh"
                 )
-    assert sorted(consumers) == ["mcp/generation_reads.py", "mcp/generation_responses.py"]
+    assert sorted(consumers) == [
+        "cli/generation_reads.py",
+        "mcp/generation_reads.py",
+        "mcp/generation_responses.py",
+    ]
