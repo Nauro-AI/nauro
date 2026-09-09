@@ -593,6 +593,7 @@ class PreparedJudgmentCommit(_FrozenModel):
     new_decision_counter: StrictInt = Field(ge=0)
     planned_artifacts: tuple[PlannedArtifact, ...]
     snapshot: PlannedSnapshot
+    snapshot_format: Literal["serialized", "references"] = "serialized"
     primary_decision: PrimaryDecision
     claim_probes: tuple[ClaimProbe, ...]
     claim_intents: ClaimIntents
@@ -658,6 +659,7 @@ class PreparedJudgmentCommit(_FrozenModel):
                 self.planned_artifacts,
                 payload=self.payload,
                 effective_at=self.effective_at,
+                snapshot_format=self.snapshot_format,
             )
             != self.snapshot.content
         ):
@@ -792,6 +794,7 @@ def _derive_snapshot_bytes(
     *,
     payload: ApprovedPayload,
     effective_at: str,
+    snapshot_format: Literal["serialized", "references"] = "serialized",
 ) -> bytes:
     from . import _commit_prepare
 
@@ -799,6 +802,7 @@ def _derive_snapshot_bytes(
         artifacts,
         payload=payload,
         effective_at=effective_at,
+        snapshot_format=snapshot_format,
     )
 
 
@@ -812,6 +816,7 @@ def _build_artifacts(
     evaluation: ProposalEvaluation,
     target: Decision | None,
     target_stem: str | None,
+    snapshot_format: Literal["serialized", "references"] = "serialized",
 ) -> tuple[
     tuple[PlannedArtifact, ...],
     PlannedSnapshot,
@@ -832,6 +837,7 @@ def _build_artifacts(
         evaluation=evaluation,
         target=target,
         target_stem=target_stem,
+        snapshot_format=snapshot_format,
     )
 
 
@@ -850,6 +856,8 @@ def prepare_judgment_commit(
     approval_attestation: ApprovalAttestation,
     committed_generation: CommittedGeneration,
     expected_payload_digest: str | None = None,
+    *,
+    snapshot_format: Literal["serialized", "references"] = "serialized",
 ) -> PreparedJudgmentCommit:
     """Prepare immutable artifacts and semantic claim reads without I/O."""
     from . import _commit_prepare
@@ -859,6 +867,7 @@ def prepare_judgment_commit(
         approval_attestation,
         committed_generation,
         expected_payload_digest,
+        snapshot_format=snapshot_format,
     )
 
 

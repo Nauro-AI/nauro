@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from . import commit_plan as contract
 
 
@@ -165,7 +167,10 @@ def _derive_snapshot_bytes_impl(
     *,
     payload: contract.ApprovedPayload,
     effective_at: str,
+    snapshot_format: Literal["serialized", "references"] = "serialized",
 ) -> bytes:
+    if snapshot_format not in {"serialized", "references"}:
+        raise ValueError("unsupported snapshot format")
     snapshot_files = {
         artifact.path: artifact.content.decode("utf-8")
         for artifact in artifacts
@@ -177,6 +182,12 @@ def _derive_snapshot_bytes_impl(
         "update": "update: ",
         "supersede": f"supersede: {title}",
     }[payload.content.operation]
+    if snapshot_format == "references":
+        from nauro_core.snapshot_references import snapshot_descriptor
+
+        return snapshot_descriptor(
+            {a.path: a.content for a in artifacts}, timestamp=effective_at, trigger=trigger
+        )
     snapshot = contract.serialize_snapshot(
         timestamp=effective_at,
         trigger=trigger,
@@ -200,6 +211,7 @@ def _build_artifacts_impl(
     evaluation: contract.ProposalEvaluation,
     target: contract.Decision | None,
     target_stem: str | None,
+    snapshot_format: Literal["serialized", "references"] = "serialized",
 ) -> tuple[
     tuple[contract.PlannedArtifact, ...],
     contract.PlannedSnapshot,
@@ -300,7 +312,7 @@ def _build_artifacts_impl(
     )
     snapshot = contract.PlannedSnapshot(
         content=contract._derive_snapshot_bytes(
-            artifacts, payload=payload, effective_at=effective_at
+            artifacts, payload=payload, effective_at=effective_at, snapshot_format=snapshot_format
         )
     )
     primary_bytes = planned[primary_path]
@@ -451,6 +463,8 @@ def prepare_judgment_commit_impl(
     approval_attestation: contract.ApprovalAttestation,
     committed_generation: contract.CommittedGeneration,
     expected_payload_digest: str | None = None,
+    *,
+    snapshot_format: Literal["serialized", "references"] = "serialized",
 ) -> contract.PreparedJudgmentCommit:
     """Prepare immutable artifacts and semantic claim reads without I/O."""
     payload_bytes = bytes(payload_bytes)
@@ -522,6 +536,7 @@ def prepare_judgment_commit_impl(
             evaluation=evaluation,
             target=target,
             target_stem=target_stem,
+            snapshot_format=snapshot_format,
         )
     )
     probes, intents = contract._claim_contract(payload.content.operation, target, primary_model)
@@ -541,6 +556,7 @@ def prepare_judgment_commit_impl(
         new_decision_counter=new_counter,
         planned_artifacts=artifacts,
         snapshot=snapshot,
+        snapshot_format=snapshot_format,
         primary_decision=primary,
         claim_probes=probes,
         claim_intents=intents,

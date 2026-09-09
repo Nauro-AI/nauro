@@ -14,6 +14,7 @@ from nauro_core.decision_model import (
     format_decision,
     parse_decision,
 )
+from nauro_core.operations._in_memory_store import InMemoryStore
 from nauro_core.operations.commit_plan import (
     AbsentContentClaimObservation,
     AbsentTitleClaimObservation,
@@ -45,8 +46,11 @@ from nauro_core.operations.commit_plan import (
     finalize_judgment_commit,
     prepare_judgment_commit,
 )
+from nauro_core.operations.get_context import get_context
+from nauro_core.operations.l0_inputs import capture_l0_inputs
 from nauro_core.operations.results import ProposeDecisionResult
 from nauro_core.snapshot import serialize_snapshot
+from nauro_core.snapshot_references import snapshot_descriptor
 
 GENERATION_ID = "01K00000000000000000000000"
 PROPOSAL_ID = "01K00000000000000000000001"
@@ -1041,14 +1045,17 @@ _MOVED_FUNCTION_METADATA = {
     ),
     "_derive_snapshot_bytes": (
         "(artifacts: 'tuple[PlannedArtifact, ...]', *, payload: 'ApprovedPayload', "
-        "effective_at: 'str') -> 'bytes'",
+        "effective_at: 'str', "
+        "snapshot_format: \"Literal['serialized', 'references']\" = 'serialized') -> 'bytes'",
         None,
     ),
     "_build_artifacts": (
         "(*, payload: 'ApprovedPayload', provenance: 'DecisionProvenance | None', "
         "effective_at: 'str', generation: 'CommittedGeneration', current: 'dict[str, bytes]', "
         "evaluation: 'ProposalEvaluation', target: 'Decision | None', "
-        "target_stem: 'str | None') -> 'tuple[tuple[PlannedArtifact, ...], PlannedSnapshot, "
+        "target_stem: 'str | None', "
+        "snapshot_format: \"Literal['serialized', 'references']\" = 'serialized') "
+        "-> 'tuple[tuple[PlannedArtifact, ...], PlannedSnapshot, "
         "PrimaryDecision, ProposeDecisionResult, int | None, int, Decision]'",
         None,
     ),
@@ -1060,7 +1067,9 @@ _MOVED_FUNCTION_METADATA = {
     "prepare_judgment_commit": (
         "(payload_bytes: 'bytes', approval_attestation: 'ApprovalAttestation', "
         "committed_generation: 'CommittedGeneration', expected_payload_digest: 'str | None' = "
-        "None) -> 'PreparedJudgmentCommit'",
+        "None, *, "
+        "snapshot_format: \"Literal['serialized', 'references']\" = 'serialized') "
+        "-> 'PreparedJudgmentCommit'",
         "Prepare immutable artifacts and semantic claim reads without I/O.",
     ),
     "_probe_key": ("(probe: 'ClaimProbe') -> 'tuple[str, str]'", None),
@@ -1400,7 +1409,7 @@ def test_commit_plan_facade_model_contract_digest_is_stable() -> None:
         }
     ]
     assert hashlib.sha256(projection_bytes).hexdigest() == (
-        "762393c65fc7098fb5835077de6a23815160845e02a5dd2ad9c2986bf0a8440a"
+        "b63af3167830ec9d0fdd17a5ab946b547707f23bf209078c3b3c4294e523a7b7"
     )
 
 
@@ -1584,3 +1593,56 @@ def test_commit_plan_import_order_is_cycle_free_in_clean_subprocess(
     assert importlib.import_module("nauro_core.operations.commit_plan").PreparedJudgmentCommit is (
         PreparedJudgmentCommit
     )
+
+
+def test_reference_snapshot_is_bound_to_exact_plan_without_changing_judgment():
+    generation = _generation(("project.md", b"# Test\n"))
+    payload = _preteam_payload(generation)
+    old = prepare_judgment_commit(payload, _preteam_attestation(), generation)
+    new = prepare_judgment_commit(
+        payload, _preteam_attestation(), generation, snapshot_format="references"
+    )
+    assert new.planned_artifacts == old.planned_artifacts
+    assert new.payload_bytes == old.payload_bytes
+    descriptor = json.loads(new.snapshot.content)
+    assert descriptor["schema"] == "nauro.snapshot.references.v1"
+    assert descriptor["files"] == {
+        a.path: {"sha256": a.sha256, "length": len(a.content)} for a in new.planned_artifacts
+    }
+    raw = {name: getattr(new, name) for name in type(new).model_fields}
+    raw["snapshot"] = old.snapshot
+    with pytest.raises(ValueError, match="snapshot bytes"):
+        PreparedJudgmentCommit.model_validate(raw)
+
+
+def test_archive_membership_excludes_control_and_api_material():
+    body = snapshot_descriptor(
+        {
+            "project.md": b"abc",
+            ".decision-hashes.json": b"{}",
+            "snapshots/x.json": b"{}",
+            "question-provenance.json": b"{}",
+        },
+        timestamp="2026-09-09T00:00:00Z",
+        trigger="test",
+    )
+    assert set(json.loads(body)["files"]) == {"project.md"}
+
+
+def test_l0_inputs_preserve_output_without_retaining_full_corpus():
+    files = {"project.md": b"# Project\n", "state_history.md": b"private history"}
+    for number in range(1, 101):
+        path, body = _decision(number, f"Choice {number}")
+        files[path] = body
+    inputs = capture_l0_inputs(files)
+    original = InMemoryStore(
+        decisions={p[10:-3]: b.decode() for p, b in files.items() if p.startswith("decisions/")},
+        files={p: b.decode() for p, b in files.items() if not p.startswith("decisions/")},
+    )
+    reduced = InMemoryStore(
+        decisions={p[10:-3]: b for p, b in inputs.items() if p.startswith("decisions/")},
+        files={p: b for p, b in inputs.items() if not p.startswith("decisions/")},
+    )
+    assert get_context(original, 0).content == get_context(reduced, 0).content
+    assert len(inputs) == 33
+    assert "state_history.md" not in inputs
