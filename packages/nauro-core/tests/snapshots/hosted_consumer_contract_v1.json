@@ -681,7 +681,7 @@
       "kind": "function",
       "module": "nauro_core.operations.commit_plan",
       "qualname": "prepare_judgment_commit",
-      "signature": "(payload_bytes: bytes, approval_attestation: ApprovalAttestation, committed_generation: CommittedGeneration, expected_payload_digest: str | None = None) -> PreparedJudgmentCommit"
+      "signature": "(payload_bytes: bytes, approval_attestation: ApprovalAttestation, committed_generation: CommittedGeneration, expected_payload_digest: str | None = None, *, snapshot_format: Literal['serialized', 'references'] = 'serialized') -> PreparedJudgmentCommit"
     },
     "nauro_core.operations.decision_lookup.scan_decisions": {
       "kind": "function",

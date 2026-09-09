@@ -265,6 +265,32 @@ def test_legacy_authority_refusal_is_typed_and_leaves_the_origin_open() -> None:
     assert server.counts["projection"] == 2
 
 
+def test_shared_format_server_refusal_does_not_fall_back_to_legacy_reads() -> None:
+    server = FakeServer()
+    server.projection_hook = lambda _n, _p: _json(500, {"error": "project_data_unavailable"})
+    with pytest.raises(TransferBoundaryError):
+        acquire(server)
+    assert server.calls() == [PROJECTION]
+
+
+def test_shared_fields_are_rejected_even_with_a_matching_envelope_digest() -> None:
+    server = FakeServer()
+
+    def shared(_count, payload):
+        envelope = json.loads(server.envelope())
+        envelope["representation"] = "shared.v1"
+        envelope["planning_packs"] = {}
+        body = json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode()
+        payload["manifest_base64"] = base64.b64encode(body).decode()
+        payload["projection"]["manifest_digest"] = hashlib.sha256(body).hexdigest()
+        return payload
+
+    server.projection_hook = shared
+    with pytest.raises(GenerationProjectionVerificationError):
+        acquire(server)
+    assert server.calls() == [PROJECTION]
+
+
 def test_wrong_manifest_digest_is_refused_before_presign() -> None:
     # Without the digest check the envelope parses and the raises assertion fails.
     server = FakeServer()
