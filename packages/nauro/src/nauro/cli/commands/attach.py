@@ -86,6 +86,9 @@ def _refuse_attach_collision(repo_path: Path, project_id: str) -> None:
 def attach(
     project_id: str = typer.Argument(..., help="Cloud project_id (ULID)."),
     repo_path: Path | None = _Opt_repo_path,
+    generation: bool = typer.Option(
+        False, "--generation", help="Install an initial generation replica."
+    ),
 ) -> None:
     """Attach the current repo to an existing cloud project."""
     repo_path = repo_path if repo_path is not None else Path.cwd()
@@ -97,6 +100,25 @@ def attach(
     refuse_global_config_collision(repo_path)
     refuse_repo_config_symlink(repo_path)
     _refuse_attach_collision(repo_path, project_id)
+    if generation is True:
+        from filelock import Timeout
+
+        from nauro.auth import PartialAuthConfigError
+        from nauro.store.generation_authority import GenerationAuthorityError
+        from nauro.sync.generation_attachment import attach_generation
+        from nauro.sync.reference_auth import AUTH_ERRORS
+
+        try:
+            binding = attach_generation(
+                project_id,
+                repo_path,
+                lambda url: typer.echo(f"Sign in to attach this generation project:\n{url}"),
+            )
+        except (*AUTH_ERRORS, GenerationAuthorityError, PartialAuthConfigError, Timeout) as exc:
+            typer.echo(f"Attachment incomplete: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"Attached generation project '{binding.display_name}' to {repo_path.resolve()}")
+        return
     try:
         name = require_cloud_membership(project_id)
         entry = get_project_entry_v2(project_id)
