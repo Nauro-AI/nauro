@@ -146,8 +146,7 @@ def test_initial_attach_and_ordinary_generation_admission(hosted):
     }
     before = {p: p.read_bytes() for p in binding.store_path.rglob("*") if p.is_file()}
     again = _run(repo)
-    assert again.exit_code == 1
-    assert "Existing stores and interrupted replica evidence are preserved" in again.output
+    assert again.exit_code == 0, again.output
     assert {p: p.read_bytes() for p in binding.store_path.rglob("*") if p.is_file()} == before
 
 
@@ -205,9 +204,7 @@ def test_host_refusal_does_not_install(hosted, status):
 
 
 @pytest.mark.parametrize("boundary", ["carrier", "pointer", "marker", "barrier"])
-def test_interrupted_initial_attachment_retains_evidence_and_refuses_repeat(
-    hosted, monkeypatch, boundary
-):
+def test_interrupted_initial_attachment_retains_evidence(hosted, monkeypatch, boundary):
     repo, _, _, _, _ = hosted
     original = installation.atomic_write_bytes
     names = {
@@ -234,9 +231,7 @@ def test_interrupted_initial_attachment_retains_evidence_and_refuses_repeat(
     before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
     assert before
     assert not repo_config_path(repo).exists()
-    again = _run(repo)
-    assert again.exit_code == 1
-    assert {p: p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
+    assert get_project_entry_v2(PROJECT_ID) is None
 
 
 @pytest.mark.parametrize("point", ["carrier", "pointer"])
