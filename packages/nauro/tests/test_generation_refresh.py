@@ -516,4 +516,5 @@ def test_refresh_executor_has_only_named_runtime_consumers():
         "cli/generation_reads.py",
         "mcp/generation_reads.py",
         "mcp/generation_responses.py",
+        "sync/generation_attachment.py",
     ]

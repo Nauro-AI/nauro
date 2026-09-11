@@ -1003,15 +1003,19 @@ def test_installed_root_coexists_with_legacy_surfaces(tmp_path: Path) -> None:
         assert snapshot.authority == authority
 
 
-def test_installer_is_dormant_and_private(store: Path, monkeypatch) -> None:
+def test_installer_has_only_explicit_attachment_consumer(store: Path, monkeypatch) -> None:
     assert list(signature(install_generation_root).parameters) == ["projection", "timeout"]
     assert [item.name for item in fields(InstalledGenerationRoot)] == (
         "target root_key root_path audit reused".split()
     )
-    assert list(signature(publish_generation_control).parameters) == ["installed", "timeout"]
+    assert list(signature(publish_generation_control).parameters) == [
+        "installed",
+        "timeout",
+        "session",
+    ]
     assert "locked_replica_control_snapshot" not in Path(installation.__file__).read_text()
     for path in Path(installation.__file__).parents[2].rglob("*.py"):
-        if path != Path(installation.__file__):
+        if path != Path(installation.__file__) and path.name != "generation_attachment.py":
             assert "publish_generation_control(" not in path.read_text(encoding="utf-8")
     monkeypatch.setattr("nauro.sync.state.save_state", lambda *_a, **_k: pytest.fail("state"))
     installed = install_generation_root(_projection())

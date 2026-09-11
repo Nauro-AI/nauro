@@ -9,10 +9,15 @@ import secrets
 import shutil
 import stat
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nauro.sync.generation_session import GenerationTransferSession
 
 from nauro.auth import ActiveUserReadError, read_active_user_id
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
@@ -971,6 +976,7 @@ def _write_carrier(
     active_actor: str,
     prior: bytes | None,
     intended: bytes,
+    require_actor: Callable[[], str],
 ) -> InstalledAuthorizationView:
     _reprove_publication_paths(installed, store_path, layout, lock_path)
     if _read_control_file(store_path, carrier_path) != prior:
@@ -978,7 +984,7 @@ def _write_carrier(
     if _read_control_file(store_path, marker_path) is not None:
         raise _publication_failure()
     _require_published_carrier(installed.target, active_actor, intended, intended)
-    _require_active_actor(active_actor)
+    require_actor()
     failure: Exception | None = None
     try:
         atomic_write_bytes(carrier_path, intended)
@@ -989,7 +995,7 @@ def _write_carrier(
         raise _publication_failure() from None
     carrier = _require_published_carrier(installed.target, active_actor, observed, intended)
     if failure is not None:
-        _require_active_actor(active_actor)
+        require_actor()
     return carrier
 
 
@@ -1005,6 +1011,7 @@ def _write_pointer(
     carrier_bytes: bytes,
     prior: bytes | None,
     intended: bytes,
+    require_actor: Callable[[], str],
 ) -> InstalledGenerationPointer:
     _reprove_publication_paths(installed, store_path, layout, lock_path)
     observed_carrier = _read_control_file(store_path, carrier_path)
@@ -1019,7 +1026,7 @@ def _write_pointer(
         raise _publication_failure()
     intended_pointer = _parse_exact_pointer(intended)
     _require_published_pair(installed.target, active_actor, carrier, intended_pointer)
-    _require_active_actor(active_actor)
+    require_actor()
     failure: Exception | None = None
     try:
         atomic_write_bytes(pointer_path, intended)
@@ -1035,15 +1042,15 @@ def _write_pointer(
     pointer = _parse_exact_pointer(observed_pointer)
     _require_published_pair(installed.target, active_actor, carrier, pointer)
     if failure is not None:
-        _require_active_actor(active_actor)
+        require_actor()
     return pointer
 
 
 def _publish_generation_control(
-    installed: InstalledGenerationRoot, timeout: float
+    installed: InstalledGenerationRoot, timeout: float, require_actor: Callable[[], str]
 ) -> GenerationProjectAuthority:
     rebuilt = _rebuild_installed_root(installed)
-    active_actor = _require_active_actor(rebuilt.target.identity.installed_for_user_id)
+    active_actor = require_actor()
     initial, store_path, layout = _derive_publication(installed)
     if initial != rebuilt:
         raise _publication_failure()
@@ -1118,6 +1125,7 @@ def _publish_generation_control(
                     active_actor,
                     carrier_json,
                     intended_carrier,
+                    require_actor,
                 )
                 carrier_json = intended_carrier
                 pointer = None
@@ -1148,6 +1156,7 @@ def _publish_generation_control(
                     carrier_json,
                     pointer_json,
                     pointer_bytes,
+                    require_actor,
                 )
             else:
                 pointer_bytes = pointer.canonical_bytes()
@@ -1166,7 +1175,7 @@ def _publish_generation_control(
             _audit_installed_root(store_path, layout, locked)
             if _read_control_file(store_path, marker_path) is not None:
                 raise _publication_failure()
-            _require_active_actor(active_actor)
+            require_actor()
             try:
                 atomic_write_bytes(marker_path, marker_bytes)
             except Exception:
@@ -1184,15 +1193,34 @@ def _publish_generation_control(
             if final_carrier != carrier_json or final_pointer != pointer_bytes:
                 raise _publication_failure() from None
             _audit_installed_root(store_path, layout, locked)
-    _require_active_actor(active_actor)
+    require_actor()
     return verified
 
 
 def publish_generation_control(
-    installed: InstalledGenerationRoot, *, timeout: float = -1
+    installed: InstalledGenerationRoot,
+    *,
+    timeout: float = -1,
+    session: GenerationTransferSession | None = None,
 ) -> GenerationProjectAuthority:
+    def require_actor() -> str:
+        actor = installed.target.identity.installed_for_user_id
+        if session is None:
+            return _require_active_actor(actor)
+        from nauro.sync.generation_acquisition import check_generation_projection
+
+        session.require_binding(installed.target.binding)
+        session.require_actor(actor)
+        current = check_generation_projection(
+            installed.target.binding, active_user_id=actor, session=session
+        )
+        session.require_actor(actor)
+        if current != installed.target:
+            raise RefreshRequiredError("The authorized generation changed during installation.")
+        return actor
+
     try:
-        return _publish_generation_control(installed, timeout)
+        return _publish_generation_control(installed, timeout, require_actor)
     except GenerationAuthorityError as exc:
         raise type(exc)(str(exc)) from None
 

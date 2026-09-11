@@ -49,9 +49,16 @@ def selected_connection(
 def connection_for(binding: ResolvedProjectBinding, redirect_uri: str) -> GenerationConnection:
     if observe_generation_marker(binding) is None:
         raise ValueError("Generation authority required")
-    domain, client, api, audience = resolve_auth_config(os.environ, load_config())
-    if binding.server_url is None or _origin(binding.server_url) != _origin(api):
+    connection = attachment_connection(redirect_uri)
+    if binding.server_url is None or _origin(
+        binding.server_url
+    ) != connection.endpoint.removesuffix("/mcp"):
         raise ValueError("Project and trusted authentication endpoints differ")
+    return connection
+
+
+def attachment_connection(redirect_uri: str) -> GenerationConnection:
+    domain, client, api, audience = resolve_auth_config(os.environ, load_config())
     return GenerationConnection(
         endpoint=_origin(api) + "/mcp",
         issuer=f"https://{domain}/",
