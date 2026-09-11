@@ -90,6 +90,9 @@ jobs:
       - run: uv sync --locked --package nauro-core --all-extras --python 3.12
       - run: uv run --no-sync --package nauro-core lint-imports
         working-directory: packages/nauro-core
+      - run: uv sync --locked --package nauro --extra dev --python 3.12
+      - run: uv run --no-sync --package nauro lint-imports
+        working-directory: packages/nauro
 
   test-nauro-core:
     runs-on: ubuntu-latest

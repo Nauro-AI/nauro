@@ -1,0 +1,45 @@
+[importlinter]
+root_packages =
+    nauro
+    nauro_core
+
+[importlinter:contract:packages]
+name = nauro packages depend downward only
+type = layers
+layers =
+    nauro.cli
+    nauro.mcp
+    nauro.templates
+    nauro.skills | nauro.agents | nauro.graph | nauro.demo
+    nauro.sync
+    nauro.store : nauro.auth
+    nauro.constants | nauro.onboarding
+    nauro_core
+ignore_imports =
+    nauro.sync.merge -> nauro.graph
+    nauro.store.validator -> nauro.mcp.payloads
+    nauro.store.generation_installation -> nauro.sync._path_diagnostics
+    nauro.store.generation_installation -> nauro.sync.generation_acquisition
+    nauro.store.generation_installation -> nauro.sync.generation_session
+    nauro.store.recovery -> nauro.sync._path_diagnostics
+    nauro.store.recovery -> nauro.sync.cloud_projects
+    nauro.store.recovery -> nauro.sync.etag
+    nauro.store.recovery -> nauro.sync.merge
+    nauro.store.recovery -> nauro.sync.remote
+    nauro.store.recovery -> nauro.sync.state
+    nauro.store.recovery -> nauro.sync.transfer
+    nauro.store.post_commit -> nauro.templates.agents_md_regen
+    nauro.store.post_commit -> nauro.sync.push
+    nauro.templates.agents_md -> nauro.mcp.payloads
+    nauro.templates.agents_md -> nauro.cli.integrations.claude_bridge
+    nauro.templates.agents_md -> nauro.cli.integrations.outcomes
+    nauro.templates.agents_md_regen -> nauro.cli.git_hygiene
+    nauro.templates.agents_md_regen -> nauro.cli.integrations.outcomes
+    nauro.templates.agents_md_regen -> nauro.cli.integrations.render
+
+[importlinter:contract:store-foundation]
+name = store foundation modules stay below auth
+type = layers
+layers =
+    nauro.auth
+    nauro.store._atomic : nauro.store.config : nauro.store.decision_lock : nauro.store.filesystem_store : nauro.store.generation_authority : nauro.store.generation_projection : nauro.store.generation_refresh_intent : nauro.store.generation_refresh_state : nauro.store.home : nauro.store.journal : nauro.store.read_authority : nauro.store.reader : nauro.store.registry : nauro.store.replica_control : nauro.store.repo_config : nauro.store.repo_head : nauro.store.resolution : nauro.store.snapshot : nauro.store.store_lock : nauro.store.write_safety
