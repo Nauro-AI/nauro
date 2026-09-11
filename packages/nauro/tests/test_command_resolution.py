@@ -368,3 +368,7 @@ def test_probe_safe_rejects_a_symlinked_ancestor_inside_the_repo(tmp_path):
     (repo / ".venv").symlink_to(tmp_path / "outside")
 
     assert not nauro_command.is_probe_safe(str(repo / ".venv" / "bin" / "nauro"), [repo])
+
+
+def test_probe_safe_treats_an_unresolvable_path_as_unsafe(tmp_path):
+    assert not nauro_command.is_probe_safe("/opt/nauro\0/bin/nauro", [tmp_path])

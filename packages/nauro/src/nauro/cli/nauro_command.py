@@ -58,6 +58,7 @@ def is_nauro_entrypoint(command: str) -> bool:
 def is_probe_safe(command: str, repo_roots: Iterable[Path]) -> bool:
     """True when status may execute a recorded ``command``.
     It must be Nauro's entrypoint and must not be a file that any of ``repo_roots`` ships.
+    A path that cannot be resolved (NUL bytes, symlink loops, unreadable parents) is unsafe.
     """
     if not is_nauro_entrypoint(command):
         return False
@@ -67,9 +68,9 @@ def is_probe_safe(command: str, repo_roots: Iterable[Path]) -> bool:
     roots = list(repo_roots)
     try:
         candidates = {Path(target), Path(target).resolve()}
-    except OSError:
+        return not any(_is_repo_shipped(path, root) for path in candidates for root in roots)
+    except (OSError, RuntimeError, ValueError):
         return False
-    return not any(_is_repo_shipped(path, root) for path in candidates for root in roots)
 
 
 def _is_repo_shipped(target: Path, root: Path) -> bool:

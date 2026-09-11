@@ -352,13 +352,10 @@ def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
 
 
 def _untrusted_commands(commands: frozenset[str], repo_paths: list[Path]) -> frozenset[str]:
-    """Recorded commands status must never execute. Any doubt counts as untrusted."""
-    try:
-        return frozenset(
-            command for command in commands if not nauro_command.is_probe_safe(command, repo_paths)
-        )
-    except Exception:
-        return commands
+    """Recorded commands status must never execute."""
+    return frozenset(
+        command for command in commands if not nauro_command.is_probe_safe(command, repo_paths)
+    )
 
 
 def _probe_wiring(snapshot: _WiringSnapshot, *, no_probe: bool) -> _WiringProbeResults:
