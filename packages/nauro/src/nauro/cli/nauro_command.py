@@ -1,4 +1,9 @@
-"""Resolve and validate the durable nauro command for recorded MCP/hook wiring."""
+"""Resolve and validate the durable nauro command for recorded MCP/hook wiring.
+
+Wiring files arrive with a clone, so a command read back from one is evidence of wiring,
+never an instruction: status executes a recorded command only when ``is_probe_safe`` says
+it is Nauro's own entrypoint and not a file the repo itself ships.
+"""
 
 from __future__ import annotations
 
@@ -6,11 +11,16 @@ import functools
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 import typer
 
 from nauro.cli._codex_hooks import _CODEX_HOOK_PROBE_ARGS
+from nauro.cli.git_hygiene import wiring_path_is_tracked
+from nauro.store.write_safety import find_symlink
+
+_ENTRYPOINT_NAMES = frozenset({"nauro", "nauro.exe"})
 
 
 def probe_nauro_command(
@@ -33,6 +43,49 @@ def probe_nauro_command(
     except (OSError, subprocess.TimeoutExpired):
         return False
     return proc.returncode == 0
+
+
+def is_nauro_entrypoint(command: str) -> bool:
+    """True when ``command`` is bare ``nauro`` or an absolute path to a ``nauro`` console script.
+    A relative path or any other program is never Nauro's own entrypoint.
+    """
+    if command.lower() in _ENTRYPOINT_NAMES:
+        return True
+    path = Path(command)
+    return path.is_absolute() and path.name.lower() in _ENTRYPOINT_NAMES
+
+
+def is_probe_safe(command: str, repo_roots: Iterable[Path]) -> bool:
+    """True when status may execute a recorded ``command``.
+    It must be Nauro's entrypoint and must not be a file that any of ``repo_roots`` ships.
+    A path that cannot be resolved (NUL bytes, symlink loops, unreadable parents) is unsafe.
+    """
+    if not is_nauro_entrypoint(command):
+        return False
+    target = command if Path(command).is_absolute() else shutil.which(command)
+    if target is None:
+        return True
+    roots = list(repo_roots)
+    try:
+        candidates = {Path(target), Path(target).resolve()}
+        return not any(_is_repo_shipped(path, root) for path in candidates for root in roots)
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _is_repo_shipped(target: Path, root: Path) -> bool:
+    """True when ``target`` lies inside ``root`` and is git-tracked or reached through a symlink.
+    Either shape arrived with the clone, so it is the repo author's program, not a Nauro install.
+    """
+    try:
+        rel = target.relative_to(root)
+    except ValueError:
+        try:
+            rel = target.relative_to(root.resolve())
+        except (OSError, ValueError):
+            return False
+    relative = rel.as_posix()
+    return find_symlink(root, relative) is not None or wiring_path_is_tracked(root, relative)
 
 
 _DURABLE_PATH_MARKERS: tuple[tuple[str, str], ...] = (("pipx", "venvs"), ("uv", "tools"))

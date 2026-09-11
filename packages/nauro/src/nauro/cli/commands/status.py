@@ -2,7 +2,7 @@
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -212,6 +212,7 @@ class _WiringSnapshot:
     hook_states: tuple[_CodexHookState, ...]
     agents_generated: int
     workflow: _WorkflowArtifacts
+    untrusted_commands: frozenset[str] = frozenset()
 
     @property
     def configured_hooks(self) -> tuple[_CodexHookState, ...]:
@@ -225,6 +226,14 @@ class _WiringSnapshot:
             for command in state.recorded_commands
             if command
         )
+
+    @property
+    def untrusted_mcp_commands(self) -> frozenset[str]:
+        return self.mcp_commands & self.untrusted_commands
+
+    @property
+    def untrusted_hook_commands(self) -> frozenset[str]:
+        return self.hook_commands & self.untrusted_commands
 
 
 @dataclass(frozen=True)
@@ -329,7 +338,7 @@ def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
     mcp_commands = {command for commands in repo_commands for command in commands if command}
     if codex_command:
         mcp_commands.add(codex_command)
-    return _WiringSnapshot(
+    snapshot = _WiringSnapshot(
         repo_count=len(repo_paths),
         mcp_wired=sum(1 for commands in repo_commands if commands),
         codex_global=codex_global,
@@ -338,13 +347,23 @@ def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
         agents_generated=agents_generated,
         workflow=workflow,
     )
+    recorded = snapshot.mcp_commands | snapshot.hook_commands
+    return replace(snapshot, untrusted_commands=_untrusted_commands(recorded, repo_paths))
+
+
+def _untrusted_commands(commands: frozenset[str], repo_paths: list[Path]) -> frozenset[str]:
+    """Recorded commands status must never execute."""
+    return frozenset(
+        command for command in commands if not nauro_command.is_probe_safe(command, repo_paths)
+    )
 
 
 def _probe_wiring(snapshot: _WiringSnapshot, *, no_probe: bool) -> _WiringProbeResults:
     if no_probe:
         return _WiringProbeResults(True, None, None)
-    mcp_results = _probe_commands(snapshot.mcp_commands, args=("--version",))
-    hook_results = _probe_commands(snapshot.hook_commands, args=_CODEX_HOOK_PROBE_ARGS)
+    untrusted = snapshot.untrusted_commands
+    mcp_results = _probe_commands(snapshot.mcp_commands - untrusted, args=("--version",))
+    hook_results = _probe_commands(snapshot.hook_commands - untrusted, args=_CODEX_HOOK_PROBE_ARGS)
     return _WiringProbeResults(False, mcp_results, hook_results)
 
 
@@ -373,12 +392,20 @@ def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> 
     healthy = probes.mcp is None or all(
         probes.mcp.get(command, True) for command in snapshot.mcp_commands
     )
-    if healthy:
-        return f"  MCP           active ({detail})"
-    return (
-        f"  MCP           BROKEN - {detail} but the recorded command won't run; "
-        "re-run 'nauro setup all'"
-    )
+    if not healthy:
+        return (
+            f"  MCP           BROKEN - {detail} but the recorded command won't run; "
+            "re-run 'nauro setup all'"
+        )
+    if snapshot.untrusted_mcp_commands:
+        untrusted = _untrusted_detail(snapshot.untrusted_mcp_commands)
+        return f"  MCP           active ({detail}; {untrusted})"
+    return f"  MCP           active ({detail})"
+
+
+def _untrusted_detail(commands: frozenset[str]) -> str:
+    listed = ", ".join(repr(command) for command in sorted(commands))
+    return f"{listed} is not a nauro install, not probed"
 
 
 def _codex_hooks_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
@@ -395,17 +422,22 @@ def _codex_hooks_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResu
             f"  Codex hooks   BROKEN - {detail} but the lifecycle wiring is incomplete; "
             "re-run 'nauro setup all --with-hooks'"
         )
+    healthy = probes.hooks is None or all(
+        probes.hooks.get(command, True) for command in snapshot.hook_commands
+    )
+    if not healthy:
+        return (
+            f"  Codex hooks   BROKEN - {detail} but the recorded command won't run; "
+            "re-run 'nauro setup all --with-hooks'"
+        )
+    if snapshot.untrusted_hook_commands:
+        untrusted = _untrusted_detail(snapshot.untrusted_hook_commands)
+        return f"  Codex hooks   configured ({detail}; {untrusted})"
     if probes.skipped:
         return f"  Codex hooks   configured ({detail}; liveness not probed)"
     if probes.hooks is None:
         return f"  Codex hooks   configured ({detail}; liveness unknown)"
-    healthy = all(probes.hooks.get(command, True) for command in snapshot.hook_commands)
-    if healthy:
-        return f"  Codex hooks   configured ({detail}; command healthy)"
-    return (
-        f"  Codex hooks   BROKEN - {detail} but the recorded command won't run; "
-        "re-run 'nauro setup all --with-hooks'"
-    )
+    return f"  Codex hooks   configured ({detail}; command healthy)"
 
 
 def _agents_status_line(snapshot: _WiringSnapshot) -> str:
@@ -718,6 +750,7 @@ class _McpPayload(BaseModel):
     codex_global: bool
     probed: bool
     healthy: bool | None
+    untrusted_commands: int
 
 
 class _CodexHooksPayload(BaseModel):
@@ -726,6 +759,7 @@ class _CodexHooksPayload(BaseModel):
     complete: bool | None
     probed: bool
     healthy: bool | None
+    untrusted_commands: int
 
 
 class _SkillsPayload(BaseModel):
@@ -833,6 +867,7 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
             codex_global=snapshot.codex_global,
             probed=mcp_probed,
             healthy=mcp_healthy,
+            untrusted_commands=len(snapshot.untrusted_mcp_commands),
         ),
         codex_hooks=_CodexHooksPayload(
             repo_count=snapshot.repo_count,
@@ -840,6 +875,7 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
             complete=hooks_complete,
             probed=hooks_probed,
             healthy=hooks_healthy,
+            untrusted_commands=len(snapshot.untrusted_hook_commands),
         ),
         skills=_SkillsPayload(
             core=_surface_counts_payload(workflow.core_skills),
