@@ -19,6 +19,8 @@ from nauro.store.config import load_config
 
 _DEFAULT_API_TIMEOUT = 15.0
 _DEFAULT_TRANSFER_TIMEOUT = 60.0
+# Store files are markdown and small JSON; one object past this is refused, not installed.
+MAX_OBJECT_BYTES = 16 * 1024 * 1024
 _CLIENT_LIMITS = httpx.Limits(max_connections=10, max_keepalive_connections=10)
 _TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
 _EXPIRED_STATUS = 403
@@ -125,6 +127,13 @@ class TransferBoundaryError(PresignError):
             and self.retry is RetryClassification.PERMANENT
             and self.operation in {TransferOperation.MANIFEST, TransferOperation.PRESIGN}
         )
+
+
+class ObjectTooLargeError(PresignError):
+    """A presigned GET body exceeds the per-object cap; refused outright, never retried."""
+
+    def __init__(self, url: str, limit: int) -> None:
+        super().__init__(f"GET refused at {canonical_origin(url)}: object exceeds {limit} bytes")
 
 
 @dataclass(frozen=True)
@@ -530,16 +539,36 @@ def urls_by_path(entries: list[Any], verb: str) -> tuple[dict[str, str], tuple[s
 
 
 def fetch_via_presigned_url(url: str, *, session: TransferSession | None = None) -> FetchedObject:
+    """Stream one object into memory, refusing it once it exceeds ``MAX_OBJECT_BYTES``."""
     with operation_session(session) as active:
-        response = _get(
-            active,
-            url,
-            TransferOperation.GET,
-            timeout=_DEFAULT_TRANSFER_TIMEOUT,
-        )
-    if response.status_code != 200:
-        raise _status_error(active, url, TransferOperation.GET, response.status_code)
-    return FetchedObject(response.content, response.headers.get("ETag", "").strip())
+        active.guard(url, TransferOperation.GET)
+        try:
+            with active.client.stream("GET", url, timeout=_DEFAULT_TRANSFER_TIMEOUT) as response:
+                if response.status_code != 200:
+                    raise _status_error(active, url, TransferOperation.GET, response.status_code)
+                body = _read_bounded_body(response, url)
+                etag = response.headers.get("ETag", "").strip()
+        except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError) as exc:
+            error = active.boundary_error(url, TransferOperation.GET, exc)
+        else:
+            return FetchedObject(body, etag)
+    raise error from None
+
+
+def _read_bounded_body(response: httpx.Response, url: str) -> bytes:
+    """Read a streamed body up to the cap, refusing early on a larger declared length."""
+    declared = response.headers.get("Content-Length", "")
+    if declared.isascii() and declared.isdigit():
+        if len(declared) > len(str(MAX_OBJECT_BYTES)) or int(declared) > MAX_OBJECT_BYTES:
+            raise ObjectTooLargeError(url, MAX_OBJECT_BYTES)
+    chunks: list[bytes] = []
+    received = 0
+    for chunk in response.iter_bytes():
+        received += len(chunk)
+        if received > MAX_OBJECT_BYTES:
+            raise ObjectTooLargeError(url, MAX_OBJECT_BYTES)
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def put_via_presigned_url(

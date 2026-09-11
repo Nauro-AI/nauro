@@ -12,7 +12,7 @@ from nauro.sync.pull import PullReport
 from nauro.sync.push import PushReport
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config
-from tests.test_sync.conftest import _scaffolded_cloud_project
+from tests.test_sync.conftest import _scaffolded_cloud_project, patched_remote_get
 
 runner = CliRunner()
 
@@ -447,7 +447,7 @@ class TestSyncHonesty:
 
         put_response = httpx.Response(200, headers={"ETag": '"uploaded"'})
         with (
-            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch("nauro.sync.remote.httpx.Client.post", side_effect=fake_post) as mock_post,
             patch("nauro.sync.remote.httpx.Client.put", return_value=put_response) as mock_put,
         ):
@@ -525,7 +525,7 @@ class TestSyncPullSurfacesAndMerges:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         with (
-            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch("nauro.sync.remote.httpx.Client.post", side_effect=fake_post),
             patch("nauro.sync.remote.httpx.Client.put", return_value=put_response),
         ):

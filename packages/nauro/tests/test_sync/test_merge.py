@@ -517,3 +517,13 @@ class TestWriteBackupIsAtomic:
 
         assert first.read_bytes() == b"the first copy\n"
         assert list((tmp_path / CONFLICT_BACKUP_DIR).iterdir()) == [first]
+
+
+def test_set_union_carries_undecodable_bytes_through_unchanged():
+    """A collaborator's non-UTF-8 line must not crash the pull; its bytes survive the union."""
+    local = b"# State History\n\n- local entry\n"
+    remote = b"# State History\n\n- remote \xff\xfe entry\n"
+    merged = _set_union_markdown(local, remote)
+    assert b"- local entry\n" in merged
+    assert b"- remote \xff\xfe entry\n" in merged
+    assert merged.count(b"# State History") == 1

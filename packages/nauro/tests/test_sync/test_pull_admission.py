@@ -45,6 +45,7 @@ from tests.test_sync.conftest import (
     _seed_token,
     decision_bytes,
     entry_names,
+    patched_remote_get,
     pull_report,
     track,
 )
@@ -217,7 +218,7 @@ def _fake_server(entries):
         return httpx.Response(200, content=bodies[url.split("/GET/", 1)[1]])
 
     with (
-        patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+        patched_remote_get(fake_get),
         patch("nauro.sync.remote.httpx.Client.post", return_value=presigned),
     ):
         yield

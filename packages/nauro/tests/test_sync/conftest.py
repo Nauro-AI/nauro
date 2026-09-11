@@ -9,6 +9,7 @@ made the import graph say something about the tests that is not true.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -183,11 +184,27 @@ def pull_report(store, entries, *, reporter=None, etags=None):
         return httpx.Response(200, content=bodies[url.split("/GET/", 1)[1]])
 
     with (
-        patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+        patched_remote_get(fake_get),
         patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
     ):
         report = run_pull(CLOUD_PID, store, reporter)
     return report, reporter
+
+
+@contextmanager
+def patched_remote_get(fake):
+    """Serve one URL-dispatching fake for both buffered (manifest) and streamed (object) GETs.
+    Yields the buffered-GET mock so callers can inspect manifest calls.
+    """
+
+    def stream(_method, url, **kwargs):
+        return nullcontext(fake(url, **kwargs))
+
+    with (
+        patch("nauro.sync.remote.httpx.Client.get", side_effect=fake) as buffered,
+        patch("nauro.sync.remote.httpx.Client.stream", side_effect=stream),
+    ):
+        yield buffered
 
 
 def pull(store, entries, *, reporter=None, etags=None):

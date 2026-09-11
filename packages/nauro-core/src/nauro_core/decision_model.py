@@ -289,13 +289,25 @@ _H1_FORMAT = "# {num:03d} \u2014 {title}"
 _FAST_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 _PLAIN_KEY_CHARS = string.ascii_lowercase + string.digits + "_"
 _PLAIN_VALUE_CHARS = string.ascii_letters + string.digits + " -_./:~(),+"
+# A frontmatter block is a few dozen short lines; this bounds parse work per file.
+MAX_FRONTMATTER_CHARS = 64 * 1024
+
+
+class _NoAliasSafeLoader(yaml.SafeLoader):
+    """SafeLoader that refuses alias nodes, so a block can never expand beyond its own size."""
+
+    def compose_node(self, parent: yaml.Node | None, index: object) -> yaml.Node:
+        if self.check_event(yaml.AliasEvent):
+            mark = self.peek_event().start_mark
+            raise yaml.composer.ComposerError(None, None, "aliases are not allowed", mark)
+        return super().compose_node(parent, index)
 
 
 def _load_frontmatter_mapping(frontmatter_block: str) -> object:
     """Parse a frontmatter block with the fast loader when it is plain enough for
-    both loaders to agree, else with the pure loader. Raises ``yaml.YAMLError``.
+    both loaders to agree, else with the alias-free pure loader. Raises ``yaml.YAMLError``.
     """
-    loader = _FAST_YAML_LOADER if _is_plain_block(frontmatter_block) else yaml.SafeLoader
+    loader = _FAST_YAML_LOADER if _is_plain_block(frontmatter_block) else _NoAliasSafeLoader
     return yaml.load(frontmatter_block, Loader=loader)
 
 
@@ -400,6 +412,10 @@ def _split_frontmatter(text: str, filename: str) -> tuple[str, str]:
     fm_end = text.find(_FM_CLOSE_FENCE, len(_FM_OPEN_FENCE))
     if fm_end == -1:
         raise ValueError(f"{filename}: unterminated YAML frontmatter")
+    if fm_end - len(_FM_OPEN_FENCE) > MAX_FRONTMATTER_CHARS:
+        raise ValueError(
+            f"{filename}: YAML frontmatter exceeds {MAX_FRONTMATTER_CHARS} characters"
+        )
     return text[len(_FM_OPEN_FENCE) : fm_end], text[fm_end + len(_FM_CLOSE_FENCE) :]
 
 

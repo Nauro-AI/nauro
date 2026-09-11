@@ -54,22 +54,33 @@ class InvalidLegacyQuestionIdentifier(ValueError):
         super().__init__(f"{field} must use valid YYYY-MM-DD HH:MM UTC form.")
 
 
+# Question numbers are allocated sequentially, so a bounded width costs nothing and
+# keeps every parse, format, and JSON round-trip linear in a store's real size.
+MAX_QUESTION_ID_DIGITS = 18
+MAX_QUESTION_NUMBER = 10**MAX_QUESTION_ID_DIGITS - 1
+
+
 def format_question_id(number: object, *, field: str = "question_number") -> str:
-    """Return the canonical unpadded Q-form for a positive integer."""
+    """Return the canonical unpadded Q-form for a positive integer within the width bound."""
     if isinstance(number, bool) or not isinstance(number, int) or number < 1:
         raise InvalidQuestionIdentifier(field, "a positive integer")
+    if number > MAX_QUESTION_NUMBER:
+        raise InvalidQuestionIdentifier(field, f"at most {MAX_QUESTION_ID_DIGITS} digits")
     return "Q" + _format_positive_ascii_decimal(number)
 
 
 def parse_question_id(value: object, *, field: str = "question_id") -> int:
-    """Return the numeric identity of a compatible Q-form input."""
+    """Return the numeric identity of a compatible Q-form input within the width bound."""
     if not isinstance(value, str) or len(value) < 2 or value[0] != "Q":
         raise InvalidQuestionIdentifier(field, "Q followed by positive ASCII decimal digits")
     digits = value[1:]
     if not is_ascii_decimal(digits):
         raise InvalidQuestionIdentifier(field, "Q followed by positive ASCII decimal digits")
+    significant = digits.lstrip("0")
+    if len(significant) > MAX_QUESTION_ID_DIGITS:
+        raise InvalidQuestionIdentifier(field, f"at most {MAX_QUESTION_ID_DIGITS} digits")
     number = 0
-    for digit in digits:
+    for digit in significant:
         number = number * 10 + ord(digit) - ord("0")
     if number < 1:
         raise InvalidQuestionIdentifier(field, "Q followed by positive ASCII decimal digits")
@@ -147,7 +158,7 @@ class QuestionEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    num: int | None = Field(default=None, ge=1)
+    num: int | None = Field(default=None, ge=1, le=MAX_QUESTION_NUMBER)
     timestamp: datetime | None = None
     body: str
     continuation: list[str] = Field(default_factory=list)

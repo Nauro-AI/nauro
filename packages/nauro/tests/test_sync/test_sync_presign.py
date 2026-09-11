@@ -32,7 +32,7 @@ from nauro.sync.state import (
     save_state,
 )
 from tests.conftest import seed_auth_config
-from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
+from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project, patched_remote_get
 
 
 def _ok(status: int, payload: dict) -> httpx.Response:
@@ -181,7 +181,7 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx.Client, "get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch.object(
                 remote.httpx.Client,
                 "post",
@@ -249,7 +249,7 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx.Client, "get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch.object(remote.httpx.Client, "post", return_value=presign) as mock_post,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
@@ -300,7 +300,7 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx.Client, "get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch.object(remote.httpx.Client, "post", return_value=presign),
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
@@ -338,7 +338,7 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx.Client, "get", side_effect=fake_get) as mock_get,
+            patched_remote_get(fake_get) as mock_get,
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
@@ -376,7 +376,7 @@ class TestPullViaPresign:
         from nauro.sync import remote
 
         with (
-            patch.object(remote.httpx.Client, "get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
         ):
             from nauro.cli.commands.sync import _pull_from_cloud
@@ -753,9 +753,11 @@ class TestPresignedGetFailures:
     def test_a_transport_fault_never_escapes_as_a_raw_httpx_error(self):
         from nauro.sync.remote import PresignError, TransferBoundaryError, fetch_via_presigned_url
 
-        with patch.object(httpx.Client, "get", side_effect=httpx.ConnectError("no route")):
-            with pytest.raises(TransferBoundaryError) as caught:
-                fetch_via_presigned_url("https://s3/a")
+        def handler(_request):
+            raise httpx.ConnectError("no route")
+
+        with pytest.raises(TransferBoundaryError) as caught:
+            fetch_via_presigned_url("https://s3/a", session=_mock_session(handler))
 
         # The pull core guards its transfers with `except PresignError`; a bare
         # ConnectError past that guard used to crash the whole sync.
@@ -767,9 +769,8 @@ class TestPresignedGetFailures:
         from nauro.sync.remote import TransferBoundaryError, fetch_via_presigned_url
 
         refusal = httpx.Response(403, content=b"<Error>\n  <Code>AccessDenied</Code>\n</Error>")
-        with patch.object(httpx.Client, "get", return_value=refusal):
-            with pytest.raises(TransferBoundaryError) as caught:
-                fetch_via_presigned_url("https://s3/a")
+        with pytest.raises(TransferBoundaryError) as caught:
+            fetch_via_presigned_url("https://s3/a", session=_mock_session(lambda _r: refusal))
 
         assert caught.value.status == 403
         assert caught.value.kind.value == "http-status"
@@ -782,6 +783,56 @@ class TestPresignedGetFailures:
 
         assert caught.value.status is None
         assert caught.value.transport is False
+
+
+def _mock_session(handler):
+    from nauro.sync.remote import TransferSession
+
+    return TransferSession(httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+class TestPresignedGetSizeCap:
+    """One object past the cap is refused as a permanent fault, streamed or declared."""
+
+    def test_body_under_the_cap_is_returned_with_its_etag(self):
+        from nauro.sync.remote import fetch_via_presigned_url
+
+        response = httpx.Response(200, content=b"file body", headers={"ETag": '"abc"'})
+        fetched = fetch_via_presigned_url(
+            "https://s3/a", session=_mock_session(lambda _r: response)
+        )
+        assert fetched.body == b"file body"
+        assert fetched.etag == '"abc"'
+
+    def test_declared_length_over_the_cap_is_refused_before_reading(self, monkeypatch):
+        from nauro.sync import remote
+        from nauro.sync.transfer import TransferFault, classify_fault
+
+        monkeypatch.setattr(remote, "MAX_OBJECT_BYTES", 64)
+        reads: list[int] = []
+
+        def handler(_request):
+            reads.append(1)
+            return httpx.Response(
+                200, stream=httpx.ByteStream(b"x" * 65), headers={"Content-Length": "65"}
+            )
+
+        with pytest.raises(remote.ObjectTooLargeError) as caught:
+            remote.fetch_via_presigned_url("https://s3/a", session=_mock_session(handler))
+        assert classify_fault(caught.value) is TransferFault.PERMANENT
+        assert "exceeds 64 bytes" in str(caught.value)
+
+    def test_undeclared_stream_over_the_cap_is_refused_mid_read(self, monkeypatch):
+        from nauro.sync import remote
+
+        monkeypatch.setattr(remote, "MAX_OBJECT_BYTES", 64)
+        chunks = iter([b"a" * 40, b"b" * 40, b"c" * 40])
+
+        def handler(_request):
+            return httpx.Response(200, stream=httpx.ByteStream(b"".join(chunks)))
+
+        with pytest.raises(remote.ObjectTooLargeError):
+            remote.fetch_via_presigned_url("https://s3/a", session=_mock_session(handler))
 
 
 def _get_status_fault(status: int) -> TransferBoundaryError:
