@@ -18,7 +18,7 @@ jobs:
       - run: uv sync --locked --package nauro --extra dev --python 3.12
       - run: uv run --no-sync ruff check packages/ benchmarks/ scripts/
       - run: uv run --no-sync ruff format --check packages/ benchmarks/ scripts/
-      - run: uv run --no-sync python scripts/check_ruff_budget.py packages/nauro/src packages/nauro-core/src
+      - run: uv run --no-sync python scripts/check_ruff_budget.py
       - run: uv run --no-sync python -m unittest discover -s scripts -p test_check_ruff_budget.py
       - run: >-
           uv run --no-sync mypy --disallow-untyped-defs --config-file packages/nauro/pyproject.toml

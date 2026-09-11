@@ -116,8 +116,9 @@ uv run pytest packages/nauro-core/tests/ -x -q
 uv run pytest packages/nauro/tests/ -x -q
 
 # Lint
-uv run ruff check packages/
-uv run ruff format --check packages/
+uv run ruff check packages/ benchmarks/ scripts/
+uv run ruff format --check packages/ benchmarks/ scripts/
+uv run python scripts/check_ruff_budget.py
 ```
 
 ### Hosted-consumer symbols
@@ -134,7 +135,7 @@ Nauro holds a high code bar. These apply to every change and are enforced in rev
 - Modules organize code accurately: shared pure logic lives in its own module (see `store/resolution.py`, `cli/_codex_hooks.py`), never as private helpers imported across command modules.
 - Errors are typed; no sentinel strings for control flow.
 - A multi-round fix cycle owes a design-coherent end state before merge: the result must read as designed, not patched.
-- Code prose has a budget: 3 lines for a function or method docstring, 5 for a class, 15 for a module, and the module docstring is the only place in code a design note belongs. Code carries no history: no dates, PR or issue references, prior breakages, rejected alternatives, or audit findings; that material belongs in the commit message, the PR body, and the decision store. A comment exists only where the code cannot say it, and a docstring longer than its function body is a restructure signal, so split, name, or type the function instead. `scripts/check_docstring_budget.py` enforces this in CI against `scripts/docstring_budget_baseline.txt`, a checked-in list of pre-existing overruns that may only shrink.
+- Code prose has a budget: 3 lines for a function or method docstring, 5 for a class, 15 for a module, and the module docstring is the only place in code a design note belongs. Code carries no history: no dates, PR or issue references, prior breakages, rejected alternatives, or audit findings; that material belongs in the commit message, the PR body, and the decision store. A comment exists only where the code cannot say it, and a docstring longer than its function body is a restructure signal, so split, name, or type the function instead. `scripts/check_docstring_budget.py` enforces this in CI against `scripts/docstring_budget_baseline.txt`, a checked-in list of pre-existing overruns that may only shrink. Ruff rules listed as ratcheted in the root `pyproject.toml` are gated the same way by `scripts/check_ruff_budget.py` against `scripts/ruff_budget_baseline.jsonl`; regenerate it with `--write-baseline` only when a count drops.
 
 ## Conventions
 

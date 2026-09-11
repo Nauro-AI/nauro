@@ -12,10 +12,37 @@ nauro-core = { workspace = true }
 
 [tool.ruff]
 target-version = "py310"
-line-length = 99
+line-length = 100
+# nauro_core is a separately distributed package, so it sorts as a dependency everywhere.
+src = ["packages/nauro/src", "packages/nauro", "packages/nauro-core", "benchmarks", "scripts"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "SIM", "BLE", "TRY", "C90", "RET",
+    "PLR0911", "PLR0912", "PLR0915",
+    "PLW0120", "PLW0602", "PLW0603", "PLW2901",
+    "PERF401", "PERF403",
+    "S110", "S112",
+]
+# Rules gated by scripts/check_ruff_budget.py against its shrink-only baseline
+# are ignored here and re-selected by that script.
+ignore = [
+    "TRY003", "PLR0913",
+    "B008", "B904", "B905", "BLE001", "C901", "E501",
+    "N818", "PERF401", "PERF403", "PLR0911", "PLR0912", "PLR0915",
+    "PLW0603", "PLW2901", "RET501", "RET504", "RET505", "S110",
+    "S112", "SIM102", "SIM103", "SIM105", "SIM108", "SIM117",
+    "SIM300", "SIM905", "TRY004", "TRY201", "TRY300", "TRY301",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+"packages/*/tests/**" = ["PLR0915", "C901", "BLE001"]
+
+[tool.ruff.format]
+quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["packages/nauro/tests", "packages/nauro-core/tests"]
