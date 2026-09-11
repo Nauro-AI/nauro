@@ -477,7 +477,16 @@ def _pull_on_startup() -> None:
     try:
         binding = resolve_project_binding(None, Path.cwd())
         if observe_generation_marker(binding) is not None:
-            logger.debug("session-start pull: generation authority, skipping")
+            from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica
+
+            try:
+                refresh_replica(binding)
+                logger.info("session-start refresh: completed")
+            except REFRESH_FAILURES:
+                logger.warning(
+                    "session-start refresh: incomplete; run 'nauro status' "
+                    "and check generation login."
+                )
             return
         project_key, store_path = binding.project_id, binding.store_path
 

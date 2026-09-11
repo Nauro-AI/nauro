@@ -513,8 +513,8 @@ def test_refresh_executor_has_only_named_runtime_consumers():
                     a.name for a in node.names if a.name == "nauro.sync.generation_refresh"
                 )
     assert sorted(consumers) == [
-        "cli/generation_reads.py",
         "mcp/generation_reads.py",
         "mcp/generation_responses.py",
         "sync/generation_attachment.py",
+        "sync/generation_refresh_status.py",
     ]
