@@ -940,6 +940,10 @@ def status(
             typer.echo(json.dumps(envelope, indent=2))
         raise typer.Exit(exc.exit_code) from exc
 
+    from nauro.cli.generation_reads import status_command
+
+    if status_command(store_path.name, json_output=json_output):
+        return
     facts = _collect_status(project_name, store_path, no_probe=no_probe)
     if json_output:
         typer.echo(json.dumps(_build_status_payload(facts).model_dump(), indent=2))

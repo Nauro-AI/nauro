@@ -24,6 +24,7 @@ from nauro.store.resolution import (
     StoreResolutionError,
     resolve_project_binding,
 )
+from nauro.sync.generation_refresh_status import replica_status
 from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.history_transport import HttpHistoryTransport
 from nauro.sync.remote import TransferBoundaryError
@@ -33,7 +34,9 @@ logger = logging.getLogger(__name__)
 
 def _prepared(response: generation.GenerationToolResponse) -> CallToolResult:
     return CallToolResult(
-        content=[TextContent(type="text", text=response.text)], isError=response.is_error
+        content=[TextContent(type="text", text=response.text)],
+        isError=response.is_error,
+        structuredContent=response.envelope,
     )
 
 
@@ -95,7 +98,9 @@ def generation_response(
         response: generation.GenerationToolResponse = getattr(generation, name)(
             binding, **arguments, actor=session.actor, session=session
         )
+        status = replica_status(binding)
         session.credentials()
+        response.envelope["replica_status"] = status
         return response
 
 

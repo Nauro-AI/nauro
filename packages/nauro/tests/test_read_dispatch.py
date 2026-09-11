@@ -89,10 +89,13 @@ def test_generation_uses_prepared_text_without_legacy_render(cloud, monkeypatch,
     monkeypatch.setattr(dispatch.legacy, f"tool_{name}", forbidden)
     checks.clear()
     actual = getattr(dispatch, name)(project_id=binding.project_id, **kwargs)
+    expected.envelope["replica_status"] = dispatch.replica_status(binding)
     assert actual == CallToolResult(
-        content=[TextContent(type="text", text=expected.text)], isError=False
+        content=[TextContent(type="text", text=expected.text)],
+        isError=False,
+        structuredContent=expected.envelope,
     )
-    assert actual.structuredContent is None
+    assert actual.structuredContent["replica_status"]["last_refresh_attempt_at"] is None
     assert len(checks) == 5
 
 
@@ -174,7 +177,11 @@ def test_generation_failures_never_fall_back(cloud, monkeypatch, defect):
     monkeypatch.setattr(dispatch.legacy, "tool_get_raw_file", forbidden)
     result = dispatch.get_raw_file("state.md", project_id=binding.project_id)
     assert result.isError is True
-    assert result.structuredContent is None
+    if defect in {"missing_intent", "renderer"}:
+        assert set(result.structuredContent) == {"store", "error", "replica_status"}
+        assert result.structuredContent["replica_status"]["authorization_checked"] is False
+    else:
+        assert result.structuredContent is None
     assert len(result.content) == 1
     assert "Verified generation state" not in str(result)
     assert "PRIVATE" not in str(result)
@@ -313,9 +320,9 @@ def test_generation_raw_exclusions_survive_dispatch(cloud, path):
     binding, _, checks = cloud
     checks.clear()
     result = dispatch.get_raw_file(path, project_id=binding.project_id)
-    assert result == dispatch._prepared(
-        generation._error("Invalid or unavailable generation path.", kind="rejected")
-    )
+    expected = generation._error("Invalid or unavailable generation path.", kind="rejected")
+    expected.envelope["replica_status"] = dispatch.replica_status(binding)
+    assert result == dispatch._prepared(expected)
     assert checks == []
 
 
