@@ -18,6 +18,12 @@ from nauro.store.replica_control import _validate_managed_path
 from nauro.store.repo_config import load_repo_config, repo_config_path, save_repo_config
 from nauro.store.resolution import ResolvedProjectBinding
 from nauro.sync.generation_acquisition import acquire_generation_projection
+from nauro.sync.generation_attachment_record import (
+    AttachmentRecord,
+    read_record,
+    save_record,
+    validate_retained_projection,
+)
 from nauro.sync.generation_connection import attachment_connection
 from nauro.sync.generation_credentials import (
     GenerationAuth,
@@ -26,6 +32,7 @@ from nauro.sync.generation_credentials import (
 )
 from nauro.sync.generation_refresh import (
     commit_generation_refresh,
+    prepare_generation_refresh,
     prepare_initial_generation_refresh,
 )
 from nauro.sync.generation_session import GenerationConnectionError, GenerationTransferSession
@@ -136,7 +143,11 @@ def _attach(project: str, repo: Path, present_url: Callable[[str], None]) -> Res
     entry = get_project_entry_v2(project)
     if entry and (entry.mode != "cloud" or entry.server_url != endpoint or entry.has_store_path):
         raise GenerationConnectionError("The registered project conflicts with initial attachment.")
-    _empty_destination(path)
+    retained = read_record(project)
+    if retained is None:
+        _empty_destination(path)
+    else:
+        retained.require_binding(repo, path, connection)
     binding = ResolvedProjectBinding(
         path, project, entry.name if entry else project, "cloud", endpoint
     )
@@ -152,17 +163,35 @@ def _attach(project: str, repo: Path, present_url: Callable[[str], None]) -> Res
         ):
             raise GenerationConnectionError("The project association changed during login.")
         with InitialAttachmentSession(binding, repo, connection, client) as session:
+            if retained is not None and retained.projection.installed_for_user_id != session.actor:
+                raise GenerationConnectionError("Retained attachment belongs to another actor.")
             projection = acquire_generation_projection(
                 binding, active_user_id=session.actor, session=session
             )
             session.require_binding(binding)
-            _empty_destination(path)
-            path.mkdir(parents=True, exist_ok=True)
-            installed = install_generation_root(projection, timeout=0)
-            publish_generation_control(installed, timeout=0, session=session)
-            prepared = prepare_initial_generation_refresh(
-                binding, actor=session.actor, session=session
+            record = AttachmentRecord(
+                repo=str(repo.resolve()),
+                store=str(path),
+                connection=connection.binding(),
+                projection=projection.target.identity,
             )
+            if read_record(project) != retained or (retained is not None and retained != record):
+                raise RefreshRequiredError(
+                    "The saved attachment projection changed; evidence retained."
+                )
+            if retained is None:
+                _empty_destination(path)
+            has_refresh = validate_retained_projection(projection)
+            save_record(record)
+            path.mkdir(parents=True, exist_ok=True)
+            if has_refresh:
+                prepared = prepare_generation_refresh(binding, actor=session.actor, session=session)
+            else:
+                installed = install_generation_root(projection, timeout=0)
+                publish_generation_control(installed, timeout=0, session=session)
+                prepared = prepare_initial_generation_refresh(
+                    binding, actor=session.actor, session=session
+                )
             if prepared.projection.target != projection.target:
                 raise RefreshRequiredError("The generation changed during initial attachment.")
             commit_generation_refresh(prepared, session=session)
