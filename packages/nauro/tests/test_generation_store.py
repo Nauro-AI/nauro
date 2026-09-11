@@ -142,7 +142,11 @@ def test_store_has_only_dormant_generation_consumers():
                     for alias in node.names
                     if alias.name == "nauro.store.generation_store"
                 )
-    assert sorted(consumers) == ["mcp/generation_reads.py", "sync/generation_refresh.py"]
+    assert sorted(consumers) == [
+        "mcp/generation_reads.py",
+        "sync/generation_refresh.py",
+        "sync/generation_refresh_status.py",
+    ]
 
 
 def test_project_frame_refusal_preserves_bytes_and_gives_quarantine_guidance():

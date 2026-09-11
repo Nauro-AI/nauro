@@ -12,6 +12,7 @@ from nauro.mcp import generation_responses as responses
 from nauro.mcp import read_dispatch as dispatch
 from nauro.store import generation_installation as installation
 from nauro.sync import generation_refresh as refresh
+from nauro.sync import generation_refresh_status as refresh_status
 from nauro.sync import history_transport as transport
 from tests.test_generation_installation import USER_ID
 from tests.test_generation_reads import POSIX
@@ -60,7 +61,12 @@ def test_response_and_dispatch_keep_authority_without_private_wire_fields(cloud,
     }
     assert actual.isError is False
     assert actual.content[0].text == result.text
-    assert actual.structuredContent is None
+    assert actual.structuredContent == {
+        **result.envelope,
+        "replica_status": refresh_status.replica_status(binding),
+    }
+    assert USER_ID not in actual.content[0].text
+    assert target.identity.projection_scope_id not in actual.content[0].text
     assert USER_ID not in repr(result)
     assert target.identity.projection_scope_id not in repr(result)
     assert "POISON" not in repr(result)

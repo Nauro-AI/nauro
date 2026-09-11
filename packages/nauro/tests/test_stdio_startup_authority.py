@@ -50,6 +50,21 @@ def marker_bytes(pid: str, version: int = 1) -> bytes:
     ).encode()
 
 
+@pytest.mark.parametrize("json_output", [False, True])
+def test_local_status_does_not_probe_replica_controls(tmp_path, monkeypatch, json_output):
+    from nauro.cli.generation_reads import status_command
+
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    pid, _ = register_project_v2("Local status", [repo], mode="local")
+    probe = Mock(side_effect=AssertionError("Local status probed replica controls"))
+    monkeypatch.setattr("nauro.cli.generation_reads.observe_generation_marker", probe)
+
+    assert status_command(pid, json_output=json_output) is False
+    probe.assert_not_called()
+
+
 @pytest.mark.parametrize("empty_control", [False, True])
 def test_cloud_legacy_reaches_existing_pull(startup, empty_control):
     pid, store, pull = startup

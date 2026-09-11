@@ -7,7 +7,6 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from nauro.cli import generation_reads as cli
 from nauro.cli.main import app
 from nauro.mcp import read_dispatch, stdio_server
 from nauro.store import generation_installation as installation
@@ -18,7 +17,7 @@ from nauro.store.generation_projection import (
 )
 from nauro.store.registry import register_project_v2
 from nauro.store.resolution import resolve_project_binding
-from nauro.sync import generation_acquisition, generation_refresh
+from nauro.sync import generation_acquisition, generation_refresh, generation_refresh_status
 from nauro.sync.generation_session import GenerationTransferSession
 from tests.generation_account import seed_generation_account
 from tests.test_sync.test_generation_acquisition import PROJECT_ID, USER_ID, FakeServer
@@ -56,7 +55,7 @@ def normal(tmp_path, monkeypatch):
         return GenerationTransferSession(b, server.session.client)
 
     monkeypatch.setattr(read_dispatch, "GenerationTransferSession", factory)
-    monkeypatch.setattr(cli, "GenerationTransferSession", factory)
+    monkeypatch.setattr(generation_refresh_status, "GenerationTransferSession", factory)
     with factory(binding) as session:
         generation_refresh.commit_generation_refresh(
             generation_refresh.prepare_initial_generation_refresh(

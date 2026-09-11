@@ -64,6 +64,8 @@ def require_legacy_read(name: str, store_path: Path) -> None:
 def status_command(project: str, *, json_output: bool) -> bool:
     try:
         binding = resolve_project_binding(project, None, use_cwd=False)
+        if binding.mode == "local":
+            return False
         if observe_generation_marker(binding) is None:
             return False
         status = replica_status(binding)

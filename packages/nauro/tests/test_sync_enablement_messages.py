@@ -31,8 +31,8 @@ from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
 
-_CLOUD_PID = "01TESTCLOUDPID000000000001"
-_LOCAL_PID = "01TESTLOCALPID000000000001"
+_CLOUD_PID = "01K11111111111111111111111"
+_LOCAL_PID = "01K22222222222222222222222"
 
 
 def _make_jwt(payload: dict) -> str:
