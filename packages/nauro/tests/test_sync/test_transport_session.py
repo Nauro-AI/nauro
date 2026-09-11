@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ssl
 import traceback
+from contextlib import nullcontext
 from unittest.mock import MagicMock
 
 import httpx
@@ -19,7 +20,10 @@ def test_operation_session_reuses_and_closes_one_client(monkeypatch):
     from nauro.sync.remote import TransferSession, fetch_via_presigned_url
 
     client = MagicMock(spec=httpx.Client)
-    client.get.side_effect = [_response(content=b"one"), _response(content=b"two")]
+    client.stream.side_effect = [
+        nullcontext(_response(content=b"one")),
+        nullcontext(_response(content=b"two")),
+    ]
     monkeypatch.setattr(httpx, "Client", lambda **_kwargs: client)
 
     with TransferSession() as session:
@@ -28,7 +32,7 @@ def test_operation_session_reuses_and_closes_one_client(monkeypatch):
 
     assert first.body == b"one"
     assert second.body == b"two"
-    assert client.get.call_count == 2
+    assert client.stream.call_count == 2
     client.close.assert_called_once_with()
 
 
@@ -55,10 +59,8 @@ def test_one_session_reuses_the_client_across_api_and_object_calls(monkeypatch):
 
     seed_auth_config(variant="sync")
     client = MagicMock(spec=httpx.Client)
-    client.get.side_effect = [
-        httpx.Response(200, json={"files": [], "next_cursor": None}),
-        _response(content=b"body"),
-    ]
+    client.get.return_value = httpx.Response(200, json={"files": [], "next_cursor": None})
+    client.stream.return_value = nullcontext(_response(content=b"body"))
     client.post.return_value = httpx.Response(
         200,
         json={
@@ -81,7 +83,8 @@ def test_one_session_reuses_the_client_across_api_and_object_calls(monkeypatch):
         fetched = fetch_via_presigned_url(urls[0]["url"], session=session)
 
     assert fetched.body == b"body"
-    assert client.get.call_count == 2
+    assert client.get.call_count == 1
+    assert client.stream.call_count == 1
     assert client.post.call_count == 1
     client.close.assert_called_once_with()
 
@@ -127,7 +130,7 @@ def test_certificate_failure_trips_only_its_origin_and_sanitizes_error(monkeypat
     nested.__cause__ = certificate_error
 
     client = MagicMock(spec=httpx.Client)
-    client.get.side_effect = [nested, _response(content=b"other")]
+    client.stream.side_effect = [nested, nullcontext(_response(content=b"other"))]
     monkeypatch.setattr(httpx, "Client", lambda **_kwargs: client)
     first_url = "https://a.test/object?X-Amz-Signature=secret"
     second_url = "https://a.test/other?X-Amz-Signature=other"
@@ -146,7 +149,7 @@ def test_certificate_failure_trips_only_its_origin_and_sanitizes_error(monkeypat
     assert first.value.__context__ is None
     assert second.value.kind.value == "origin-aborted"
     assert fetched.body == b"other"
-    assert client.get.call_count == 2
+    assert client.stream.call_count == 2
     rendered = f"{first.value!r} {first.value} {second.value!r} {second.value}"
     rendered += "".join(
         traceback.format_exception(type(first.value), first.value, first.value.__traceback__)
@@ -169,10 +172,8 @@ def test_permanent_manifest_http_failure_blocks_same_origin_push_but_not_other_o
     store.mkdir()
     (store / "stack.md").write_bytes(b"local")
     client = MagicMock(spec=httpx.Client)
-    client.get.side_effect = [
-        httpx.Response(403),
-        _response(content=b"other"),
-    ]
+    client.get.return_value = httpx.Response(403)
+    client.stream.return_value = nullcontext(_response(content=b"other"))
     client.post.return_value = httpx.Response(
         200,
         json={
@@ -203,9 +204,9 @@ def test_object_404_does_not_trip_the_origin_for_another_object():
     from nauro.sync.remote import TransferBoundaryError, TransferSession, fetch_via_presigned_url
 
     client = MagicMock(spec=httpx.Client)
-    client.get.side_effect = [
-        httpx.Response(404),
-        _response(content=b"present"),
+    client.stream.side_effect = [
+        nullcontext(httpx.Response(404)),
+        nullcontext(_response(content=b"present")),
     ]
 
     with TransferSession(client=client) as session:
@@ -216,7 +217,7 @@ def test_object_404_does_not_trip_the_origin_for_another_object():
     assert caught.value.status == 404
     assert not caught.value.aborts_origin
     assert fetched.body == b"present"
-    assert client.get.call_count == 2
+    assert client.stream.call_count == 2
 
 
 @pytest.mark.parametrize(

@@ -699,8 +699,9 @@ def _set_union_markdown(local: bytes, remote: bytes) -> bytes:
     Emits the union of the preambles, then per-header body unions in local order with
     remote-only sections appended last; non-blank lines are deduped at document scope.
     """
-    local_text = local.decode("utf-8")
-    remote_text = remote.decode("utf-8")
+    # surrogateescape carries undecodable bytes through the line union unchanged.
+    local_text = local.decode("utf-8", errors="surrogateescape")
+    remote_text = remote.decode("utf-8", errors="surrogateescape")
 
     local_lines = local_text.split("\n")
     remote_lines = remote_text.split("\n")
@@ -746,4 +747,4 @@ def _set_union_markdown(local: bytes, remote: bytes) -> bytes:
     result = "\n".join(deduped)
     if local_trailing_nl or remote_trailing_nl:
         result += "\n"
-    return result.encode("utf-8")
+    return result.encode("utf-8", errors="surrogateescape")

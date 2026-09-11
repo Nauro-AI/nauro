@@ -44,6 +44,7 @@ from tests.test_sync.conftest import (
     _RecordingReporter,
     _seed_token,
     decision_bytes,
+    patched_remote_get,
 )
 
 runner = CliRunner()
@@ -135,7 +136,7 @@ class _Remote:
             return _presign(kwargs["json"]["operations"])
 
         with (
-            patch("nauro.sync.remote.httpx.Client.get", side_effect=get),
+            patched_remote_get(get),
             patch("nauro.sync.remote.httpx.Client.post", side_effect=post),
         ):
             yield

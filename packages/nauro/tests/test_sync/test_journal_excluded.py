@@ -16,7 +16,7 @@ import httpx
 from nauro.sync.pull import run_pull
 from nauro.sync.push import push_changed_files
 from tests.conftest import seed_auth_config
-from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
+from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project, patched_remote_get
 
 
 def _ok(status: int, payload: dict) -> httpx.Response:
@@ -79,7 +79,7 @@ def test_pull_skips_remote_journal_path(tmp_path):
         raise AssertionError("journal path must never be fetched")
 
     reporter = _RecordingReporter()
-    with patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get):
+    with patched_remote_get(fake_get):
         merged = run_pull(CLOUD_PID, store, reporter).merged
 
     assert merged == 0

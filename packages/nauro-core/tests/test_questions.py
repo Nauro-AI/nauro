@@ -580,14 +580,25 @@ class TestQuestionIdentifierSeam:
     def test_format_emits_canonical_unpadded_form(self):
         assert format_question_id(17) == "Q17"
 
-    def test_parse_and_format_have_no_identifier_width_limit(self):
-        canonical = "Q1" + "0" * 4999
+    def test_parse_and_format_cap_identifier_width_at_eighteen_digits(self):
+        canonical = "Q1" + "0" * 17
         padded = "Q000" + canonical[1:]
         number = parse_question_id(padded)
         assert format_question_id(number) == canonical
         assert validate_question_id(canonical) == canonical
         with pytest.raises(InvalidQuestionIdentifier):
             validate_question_id(padded)
+        with pytest.raises(InvalidQuestionIdentifier, match="18 digits"):
+            parse_question_id("Q1" + "0" * 18)
+        with pytest.raises(InvalidQuestionIdentifier, match="18 digits"):
+            format_question_id(10**18)
+
+    def test_oversized_id_line_degrades_to_a_non_entry_in_linear_time(self):
+        from nauro_core.questions import OpenQuestionsFile
+
+        text = "# Open Questions\n\n- [Q" + "9" * 200_000 + "] giant\n- [Q7] real\n"
+        parsed = OpenQuestionsFile.parse(text)
+        assert [entry.num for entry in parsed.numbered_entries] == [7]
 
     @pytest.mark.parametrize(
         "value",

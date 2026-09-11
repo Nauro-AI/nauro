@@ -1,6 +1,6 @@
 # Nauro
 
-What every agent should know
+Decision system for software built with AI
 
 Keep your project's direction in human hands as agents do more of the work.
 

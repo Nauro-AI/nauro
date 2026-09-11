@@ -13,7 +13,7 @@ except ModuleNotFoundError:
 
 ROOT = Path(__file__).resolve().parents[3]
 
-TAGLINE = "What every agent should know"
+TAGLINE = "Decision system for software built with AI"
 
 SUPPORT_LINE = "Keep your project's direction in human hands as agents do more of the work."
 

@@ -34,7 +34,7 @@ from nauro.sync.state import (
 )
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config
-from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project
+from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project, patched_remote_get
 
 
 def _ok(status: int, payload: dict) -> httpx.Response:
@@ -210,7 +210,7 @@ class TestPullBeforeSessionPresign:
             return httpx.Response(200, content=b"# 099\nfresh remote body\n")
 
         with (
-            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
         ):
             result = pull_before_session(CLOUD_PID, cloud_store)

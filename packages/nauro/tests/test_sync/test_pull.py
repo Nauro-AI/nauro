@@ -56,6 +56,7 @@ from tests.test_sync.conftest import (
     _seed_token,
     decision_bytes,
     entry_names,
+    patched_remote_get,
     pull,
     pull_report,
     track,
@@ -84,7 +85,7 @@ class TestRunPullCleanPull:
 
         reporter = _RecordingReporter()
         with (
-            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
         ):
             merged = run_pull(CLOUD_PID, cloud_store, reporter).merged
@@ -107,7 +108,7 @@ class TestRunPullCleanPull:
             return httpx.Response(200, content=_STAMPED_DECISION)
 
         with (
-            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
         ):
             merged = run_pull(CLOUD_PID, cloud_store, _RecordingReporter()).merged
@@ -180,7 +181,7 @@ class TestRunPullCleanPull:
 
         reporter = _RecordingReporter()
         with (
-            patch("nauro.sync.remote.httpx.Client.get", side_effect=fake_get),
+            patched_remote_get(fake_get),
             patch("nauro.sync.remote.httpx.Client.post", return_value=presign),
         ):
             merged = run_pull(CLOUD_PID, cloud_store, reporter).merged

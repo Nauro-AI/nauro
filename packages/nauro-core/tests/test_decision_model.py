@@ -559,6 +559,35 @@ class TestNegativeValidation:
         with pytest.raises(ValueError, match="invalid YAML"):
             parse_decision(text, "001-test.md")
 
+    def test_yaml_aliases_are_refused_before_expansion(self) -> None:
+        # A merge-key bomb: each level references the previous one many times.
+        levels = ["a0: &a0 [x, x, x, x, x, x, x, x]"]
+        for depth in range(1, 9):
+            refs = ", ".join([f"*a{depth - 1}"] * 8)
+            levels.append(f"a{depth}: &a{depth} [{refs}]")
+        text = "---\ndate: 2026-04-01\n" + "\n".join(levels) + "\n---\n\n# 001 \u2014 Bomb\n\n"
+        with pytest.raises(ValueError, match="invalid YAML.*alias"):
+            parse_decision(text, "001-test.md")
+
+    def test_quoted_asterisks_still_parse_without_the_fast_loader(self) -> None:
+        text = (
+            "---\n"
+            "date: 2026-04-01\n"
+            "confidence: high\n"
+            "files_affected:\n"
+            "- 'src/**/*.py'\n"
+            "---\n\n"
+            "# 001 \u2014 Globs\n\n"
+            "## Decision\n\nSomething.\n"
+        )
+        assert parse_decision(text, "001-test.md").files_affected == ["src/**/*.py"]
+
+    def test_oversized_frontmatter_is_refused_before_parsing(self) -> None:
+        padding = "".join(f"k{i}: v\n" for i in range(20_000))
+        text = "---\n" + padding + "---\n\n# 001 \u2014 Big\n\n## Decision\n\nx.\n"
+        with pytest.raises(ValueError, match="frontmatter exceeds"):
+            parse_decision(text, "001-test.md")
+
     def test_missing_frontmatter_raises(self) -> None:
         text = "# 001 \u2014 No frontmatter\n\n## Decision\n\nSomething.\n"
         with pytest.raises(ValueError, match="missing YAML frontmatter"):
