@@ -2,7 +2,7 @@
   <img src="docs/images/nauro-wordmark-dark.svg" alt="Nauro" width="180">
 </p>
 
-<p align="center"><strong>What every agent should know</strong></p>
+<p align="center"><strong>Decision system for software built with AI</strong></p>
 
 <p align="center">
   <a href="https://pypi.org/project/nauro/"><img alt="PyPI" src="https://img.shields.io/pypi/v/nauro.svg"></a>
