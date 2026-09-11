@@ -130,6 +130,17 @@
         "name": "attach",
         "params": [
           {
+            "default": false,
+            "flags": [
+              "--generation"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "generation",
+            "required": false,
+            "type": "boolean"
+          },
+          {
             "kind": "argument",
             "name": "project_id",
             "required": true,
