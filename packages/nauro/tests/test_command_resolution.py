@@ -274,3 +274,97 @@ def test_setup_all_resolves_command_once(tmp_path, monkeypatch):
     # Two repos × two JSON surfaces + codex would be five _find_nauro_command
     # calls; memoization collapses them to a single probe.
     assert len(calls) == 1
+
+
+# ── is_nauro_entrypoint / is_probe_safe ────────────────────────────────────────
+
+
+def _git_commit_file(repo, rel: str, content: str = "#!/bin/sh\nexit 0\n"):
+    path = repo / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    path.chmod(0o755)
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([*git, "add", rel], cwd=repo, check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "ship"], cwd=repo, check=True)
+    return path
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["nauro", "NAURO", "nauro.exe", "/opt/pipx/venvs/nauro/bin/nauro", "/x/Nauro.EXE"],
+)
+def test_entrypoint_accepts_bare_nauro_and_absolute_nauro_paths(command):
+    assert nauro_command.is_nauro_entrypoint(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["./nauro", "tools/nauro", "./setup-helper.sh", "uvx", "/usr/bin/python3", "/bin/sh", ""],
+)
+def test_entrypoint_rejects_relative_paths_and_other_programs(command):
+    assert not nauro_command.is_nauro_entrypoint(command)
+
+
+def test_probe_safe_rejects_non_entrypoint_without_touching_disk(tmp_path):
+    assert not nauro_command.is_probe_safe("./setup-helper.sh", [tmp_path])
+
+
+def test_probe_safe_accepts_absolute_nauro_outside_every_repo(tmp_path):
+    assert nauro_command.is_probe_safe("/opt/pipx/venvs/nauro/bin/nauro", [tmp_path])
+
+
+def test_probe_safe_rejects_nauro_tracked_inside_a_repo(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shipped = _git_commit_file(repo, "tools/nauro")
+
+    assert not nauro_command.is_probe_safe(str(shipped), [repo])
+
+
+def test_probe_safe_accepts_untracked_nauro_inside_a_repo(tmp_path):
+    """A project-venv install lives inside the repo but did not arrive with the clone."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_commit_file(repo, "README.md", "hi\n")
+    venv_nauro = repo / ".venv" / "bin" / "nauro"
+    venv_nauro.parent.mkdir(parents=True)
+    venv_nauro.write_text("#!/bin/sh\nexit 0\n")
+
+    assert nauro_command.is_probe_safe(str(venv_nauro), [repo])
+
+
+def test_probe_safe_resolves_bare_nauro_through_path_before_judging(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shipped = _git_commit_file(repo, "nauro")
+    monkeypatch.setattr(nauro_command.shutil, "which", lambda name: str(shipped))
+
+    assert not nauro_command.is_probe_safe("nauro", [repo])
+
+    monkeypatch.setattr(nauro_command.shutil, "which", lambda name: "/opt/uv/tools/nauro/bin/nauro")
+    assert nauro_command.is_probe_safe("nauro", [repo])
+
+
+def test_probe_safe_rejects_a_repo_symlink_named_nauro_even_when_it_points_outside(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_commit_file(repo, "README.md", "hi\n")
+    link = repo / "tools" / "nauro"
+    link.parent.mkdir()
+    link.symlink_to("/bin/sh")
+
+    assert not nauro_command.is_probe_safe(str(link), [repo])
+
+
+def test_probe_safe_rejects_a_symlinked_ancestor_inside_the_repo(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git_commit_file(repo, "README.md", "hi\n")
+    outside = tmp_path / "outside" / "bin"
+    outside.mkdir(parents=True)
+    (outside / "nauro").write_text("#!/bin/sh\nexit 0\n")
+    (repo / ".venv").symlink_to(tmp_path / "outside")
+
+    assert not nauro_command.is_probe_safe(str(repo / ".venv" / "bin" / "nauro"), [repo])

@@ -1,6 +1,7 @@
 """Tests for nauro status command."""
 
 import json
+import subprocess
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -20,6 +21,9 @@ from nauro.templates.agents_md import FOOTER_MARKER
 from nauro.templates.scaffolds import scaffold_project_store
 
 runner = CliRunner()
+
+# The real subprocess seam, captured before the autouse fixture stubs it.
+_REAL_PROBE = nauro_command.probe_nauro_command
 
 
 def _setup_project(tmp_path, monkeypatch, repos=None):
@@ -533,6 +537,116 @@ def test_status_treats_empty_windows_override_as_inactive(tmp_path, monkeypatch)
 
     assert result.exit_code == 0
     assert "Codex hooks   inactive" in result.output
+
+
+def test_status_never_executes_a_non_nauro_recorded_command(tmp_path, monkeypatch):
+    """A repo's own .mcp.json / .codex/hooks.json command is reported, never run."""
+    _setup_project(tmp_path, monkeypatch)
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nauro": {"command": "./setup-helper.sh"}}})
+    )
+    _wire_codex_hooks(tmp_path, command="./setup-helper.sh")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        nauro_command, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert calls == []
+    assert (
+        "MCP           active (wired in 1/1 repos; './setup-helper.sh' is not a nauro install, "
+        "not probed)"
+    ) in result.output
+    assert (
+        "Codex hooks   configured (wired in 1/1 repos; './setup-helper.sh' is not a nauro "
+        "install, not probed)"
+    ) in result.output
+
+
+def test_status_leaves_a_repo_shipped_script_unexecuted_end_to_end(tmp_path, monkeypatch):
+    """With the real subprocess seam in place, a cloned repo's script still never runs."""
+    _setup_project(tmp_path, monkeypatch)
+    marker = tmp_path / "executed"
+    script = tmp_path / "setup-helper.sh"
+    script.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n")
+    script.chmod(0o755)
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nauro": {"command": "./setup-helper.sh"}}})
+    )
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", _REAL_PROBE)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert not marker.exists()
+    assert "not probed" in result.output
+
+
+def test_status_does_not_probe_nauro_tracked_inside_the_repo(tmp_path, monkeypatch):
+    """An absolute path to a git-tracked file is the repo author's program, not this machine's."""
+    _setup_project(tmp_path, monkeypatch)
+    shipped = tmp_path / "tools" / "nauro"
+    shipped.parent.mkdir()
+    shipped.write_text("#!/bin/sh\nexit 0\n")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "add", "tools/nauro"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "ship"], cwd=tmp_path, check=True)
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nauro": {"command": str(shipped)}}})
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        nauro_command, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert calls == []
+    assert "is not a nauro install, not probed" in result.output
+
+
+def test_status_still_probes_an_untracked_project_venv_nauro(tmp_path, monkeypatch):
+    """The fragile project-venv install keeps its liveness row."""
+    _setup_project(tmp_path, monkeypatch)
+    venv_nauro = tmp_path / ".venv" / "bin" / "nauro"
+    venv_nauro.parent.mkdir(parents=True)
+    venv_nauro.write_text("#!/bin/sh\nexit 0\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nauro": {"command": str(venv_nauro)}}})
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        nauro_command, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert calls == [str(venv_nauro)]
+    assert "MCP           active (wired in 1/1 repos)" in result.output
+
+
+def test_status_dead_trusted_command_still_wins_over_untrusted_caveat(tmp_path, monkeypatch):
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    repo1.mkdir()
+    repo2.mkdir()
+    _setup_project(tmp_path, monkeypatch, repos=[repo1, repo2])
+    _wire_repo_mcp(repo1)
+    (repo2 / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nauro": {"command": "./setup-helper.sh"}}})
+    )
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda cmd, **kwargs: False)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "MCP           BROKEN" in result.output
 
 
 def test_status_dedupes_shared_command_to_one_probe(tmp_path, monkeypatch):

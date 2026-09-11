@@ -18,6 +18,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.agents import AGENT_NAMES
+from nauro.cli import nauro_command
 from nauro.cli.integrations import codex_config
 from nauro.cli.integrations.agents import materialize_agents_cursor_for_repo
 from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
@@ -89,6 +90,7 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
             "codex_global": False,
             "probed": False,
             "healthy": None,
+            "untrusted_commands": 0,
         },
         # No hooks configured: completeness is not applicable.
         "codex_hooks": {
@@ -97,6 +99,7 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
             "complete": None,
             "probed": False,
             "healthy": None,
+            "untrusted_commands": 0,
         },
         "skills": {
             "core": {
@@ -341,3 +344,33 @@ def test_status_json_reports_null_when_quarantines_cannot_be_listed(tmp_path, mo
 
     payload = json.loads(result.stdout)
     assert payload["decisions"]["quarantined_collisions"] is None
+
+
+def test_status_json_counts_untrusted_commands_and_never_probes_them(tmp_path, monkeypatch):
+    """A non-nauro recorded command is counted, not executed; healthy stays null."""
+    _, repo = _setup_project(tmp_path, monkeypatch)
+    (repo / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nauro": {"command": "./setup-helper.sh"}}})
+    )
+    _wire_codex_hooks(repo, command="./setup-helper.sh")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        nauro_command, "probe_nauro_command", lambda cmd, **kwargs: calls.append(cmd) or True
+    )
+
+    result = runner.invoke(app, ["status", "--json"])
+    assert result.exit_code == 0, result.output
+
+    payload = json.loads(result.stdout)
+    assert calls == []
+    assert payload["mcp"] == {
+        "repo_count": 1,
+        "wired_repos": 1,
+        "codex_global": False,
+        "probed": False,
+        "healthy": None,
+        "untrusted_commands": 1,
+    }
+    assert payload["codex_hooks"]["untrusted_commands"] == 1
+    assert payload["codex_hooks"]["probed"] is False
+    assert payload["codex_hooks"]["healthy"] is None
