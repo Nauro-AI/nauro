@@ -93,9 +93,8 @@
 {"path":"packages/nauro/src/nauro/cli/integrations/json_mcp.py","rule":"PLR0911","count":1}
 {"path":"packages/nauro/src/nauro/cli/integrations/json_mcp.py","rule":"PLR0912","count":1}
 {"path":"packages/nauro/src/nauro/cli/integrations/legacy.py","rule":"RET505","count":1}
-{"path":"packages/nauro/src/nauro/cli/integrations/orchestrator.py","rule":"B905","count":2}
-{"path":"packages/nauro/src/nauro/cli/integrations/orchestrator.py","rule":"BLE001","count":16}
-{"path":"packages/nauro/src/nauro/cli/integrations/orchestrator.py","rule":"C901","count":2}
+{"path":"packages/nauro/src/nauro/cli/integrations/orchestrator.py","rule":"B905","count":1}
+{"path":"packages/nauro/src/nauro/cli/integrations/orchestrator.py","rule":"BLE001","count":1}
 {"path":"packages/nauro/src/nauro/cli/nauro_command.py","rule":"SIM103","count":1}
 {"path":"packages/nauro/src/nauro/cli/utils.py","rule":"PLR0912","count":1}
 {"path":"packages/nauro/src/nauro/graph/html_render.py","rule":"C901","count":1}
@@ -116,7 +115,7 @@
 {"path":"packages/nauro/src/nauro/setup/claude_bridge.py","rule":"PLR0911","count":2}
 {"path":"packages/nauro/src/nauro/setup/git_hygiene.py","rule":"PLR0911","count":3}
 {"path":"packages/nauro/src/nauro/setup/git_hygiene.py","rule":"PLR0912","count":1}
-{"path":"packages/nauro/src/nauro/setup/render.py","rule":"PLR0911","count":9}
+{"path":"packages/nauro/src/nauro/setup/render.py","rule":"PLR0911","count":7}
 {"path":"packages/nauro/src/nauro/store/generation_authority.py","rule":"TRY300","count":1}
 {"path":"packages/nauro/src/nauro/store/generation_authority.py","rule":"TRY301","count":1}
 {"path":"packages/nauro/src/nauro/store/generation_installation.py","rule":"BLE001","count":3}

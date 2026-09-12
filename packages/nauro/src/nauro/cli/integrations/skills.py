@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nauro.setup.outcomes import SkillKind, SkillOutcome
+from nauro.setup.outcomes import SkillKind, SkillOutcome, WriteFailure
 from nauro.store.write_safety import (
     SymlinkRefusal,
     UserSymlinkRefusal,
@@ -33,6 +33,12 @@ def _codex_skill_dir() -> Path:
     return Path.home() / ".agents" / "skills"
 
 
+# The legacy ~/.codex/skills copy is moved aside only once its replacement exists.
+_REPLACEMENT_IN_PLACE = frozenset(
+    {SkillKind.WROTE, SkillKind.UNCHANGED, SkillKind.OVERWROTE, SkillKind.UPDATED}
+)
+
+
 def _skill_refusal(target: Path, repo: Path | None) -> SymlinkRefusal | UserSymlinkRefusal | None:
     if repo is None:
         return find_file_symlink(target)
@@ -40,6 +46,29 @@ def _skill_refusal(target: Path, repo: Path | None) -> SymlinkRefusal | UserSyml
 
 
 def _install_bundled_skill(
+    target: Path,
+    bundled: str,
+    *,
+    force_overwrite: bool,
+    repo: Path | None = None,
+) -> SkillOutcome:
+    try:
+        return _install_bundled_skill_io(
+            target, bundled, force_overwrite=force_overwrite, repo=repo
+        )
+    except UnicodeDecodeError:
+        return SkillOutcome(SkillKind.PRESERVED_UNDECODABLE, target=target, repo=repo)
+    except OSError as exc:
+        return _skill_write_failed(target, repo, exc)
+
+
+def _skill_write_failed(target: Path, repo: Path | None, exc: OSError) -> SkillOutcome:
+    return SkillOutcome(
+        SkillKind.WRITE_FAILED, target=target, repo=repo, write_failure=WriteFailure.of(target, exc)
+    )
+
+
+def _install_bundled_skill_io(
     target: Path,
     bundled: str,
     *,
@@ -91,6 +120,21 @@ def _remove_bundled_skill(
     Without the bound the parent walk could rmdir the surface base (``~/.claude/skills/``,
     ``<repo>/.cursor/rules/``).
     """
+    try:
+        return _remove_bundled_skill_io(target, bundled, stop_above=stop_above, repo=repo)
+    except UnicodeDecodeError:
+        return SkillOutcome(SkillKind.PRESERVED_UNDECODABLE, target=target, repo=repo)
+    except OSError as exc:
+        return _skill_write_failed(target, repo, exc)
+
+
+def _remove_bundled_skill_io(
+    target: Path,
+    bundled: str,
+    *,
+    stop_above: Path,
+    repo: Path | None = None,
+) -> SkillOutcome:
     refusal = _skill_refusal(target, repo)
     if refusal is not None:
         return SkillOutcome(SkillKind.REFUSED_SYMLINK, target=target, refusal=refusal, repo=repo)
@@ -111,6 +155,15 @@ def _remove_bundled_skill(
 
 def _migrate_legacy_codex_skill(name: str) -> SkillOutcome | None:
     source = Path.home() / ".codex" / "skills" / name
+    try:
+        return _migrate_legacy_codex_skill_io(source, name)
+    except OSError as exc:
+        return SkillOutcome(
+            SkillKind.WRITE_FAILED, source=source, write_failure=WriteFailure.of(source, exc)
+        )
+
+
+def _migrate_legacy_codex_skill_io(source: Path, name: str) -> SkillOutcome | None:
     if source.is_symlink():
         return SkillOutcome(
             SkillKind.REFUSED_SYMLINK,
@@ -213,7 +266,7 @@ def materialize_skills_codex(
                 force_overwrite=force_overwrite,
             )
             results.append(installed)
-            if installed.kind is not SkillKind.REFUSED_SYMLINK:
+            if installed.kind in _REPLACEMENT_IN_PLACE:
                 migrated = _migrate_legacy_codex_skill(name)
                 if migrated is not None:
                     results.append(migrated)

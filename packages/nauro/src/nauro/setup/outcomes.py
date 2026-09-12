@@ -9,8 +9,8 @@ codecs stay free of presentation and of Typer.
 
 ``RawLine`` remains for the orchestrator's own policy text (section headers,
 advisory paragraphs, the standalone codex count-phrase) that no codec owns.
-``HandlerErrorOutcome`` carries the message an orchestrator ``except`` arm
-built at the catch site.
+A write that did not land is a ``WRITE_FAILED`` kind carrying a ``WriteFailure``;
+``is_failure`` is the one test the commands use to decide their exit code.
 """
 
 from __future__ import annotations
@@ -20,7 +20,25 @@ from enum import Enum, auto
 from pathlib import Path
 
 from nauro.setup.git_hygiene import GitIgnoreResult
+from nauro.store._atomic import is_tmp_sibling
 from nauro.store.write_safety import SymlinkRefusal, UserSymlinkRefusal
+
+
+@dataclass(frozen=True)
+class WriteFailure:
+    """An OS error on a codec's write path: the file it names, its errno and its reason."""
+
+    path: Path | None
+    errno: int | None
+    reason: str
+
+    @classmethod
+    def of(cls, path: Path | None, exc: OSError) -> WriteFailure:
+        """Name the file ``exc`` reports unless that is a tmp sibling, else the codec's ``path``."""
+        named = Path(exc.filename) if isinstance(exc.filename, str) else None
+        if named is None or is_tmp_sibling(named.name):
+            named = path
+        return cls(named, exc.errno, exc.strerror or str(exc))
 
 
 @dataclass(frozen=True)
@@ -39,6 +57,7 @@ class JsonMcpKind(Enum):
     WROTE = auto()
     REMOVED = auto()
     NOTHING_TO_REMOVE = auto()
+    WRITE_FAILED = auto()
 
 
 @dataclass(frozen=True)
@@ -52,6 +71,7 @@ class JsonMcpOutcome:
     detail: str | None = None
     git_warnings: tuple[str, ...] = ()
     gitignore: GitIgnoreResult | None = None
+    write_failure: WriteFailure | None = None
 
 
 class ClaudeHookKind(Enum):
@@ -66,6 +86,7 @@ class ClaudeHookKind(Enum):
     REMOVED = auto()
     NOTHING_TO_REMOVE = auto()
     SHARED_STRIP_FAILED = auto()
+    WRITE_FAILED = auto()
 
 
 @dataclass(frozen=True)
@@ -91,6 +112,7 @@ class ClaudeHookOutcome:
     legacy_cleaned: bool = False
     local_cleaned: bool = False
     shared_strip: SharedStripFailed | None = None
+    write_failure: WriteFailure | None = None
 
 
 class ClaudeUserConfigKind(Enum):
@@ -158,6 +180,7 @@ class CodexConfigKind(Enum):
     REMOVED = auto()
     ALREADY_CONFIGURED = auto()
     WROTE = auto()
+    WRITE_FAILED = auto()
 
 
 @dataclass(frozen=True)
@@ -168,6 +191,7 @@ class CodexConfigOutcome:
     config_path: Path
     refusal: UserSymlinkRefusal | None = None
     detail: str | None = None
+    write_failure: WriteFailure | None = None
 
 
 class CodexHookKind(Enum):
@@ -180,6 +204,7 @@ class CodexHookKind(Enum):
     WROTE = auto()
     REMOVED = auto()
     NOTHING_TO_REMOVE = auto()
+    WRITE_FAILED = auto()
 
 
 @dataclass(frozen=True)
@@ -192,12 +217,14 @@ class CodexHookOutcome:
     detail: str | None = None
     git_warnings: tuple[str, ...] = ()
     gitignore: GitIgnoreResult | None = None
+    write_failure: WriteFailure | None = None
 
 
 class SkillKind(Enum):
     REFUSED_SYMLINK = auto()
     PRESERVED = auto()
     PRESERVED_MODIFIED = auto()
+    PRESERVED_UNDECODABLE = auto()
     WROTE = auto()
     UNCHANGED = auto()
     OVERWROTE = auto()
@@ -205,6 +232,7 @@ class SkillKind(Enum):
     MIGRATED_LEGACY = auto()
     REMOVED = auto()
     ABSENT = auto()
+    WRITE_FAILED = auto()
 
 
 @dataclass(frozen=True)
@@ -219,12 +247,14 @@ class SkillOutcome:
     source: Path | None = None
     backup_path: Path | None = None
     backup_name: str | None = None
+    write_failure: WriteFailure | None = None
 
 
 class AgentKind(Enum):
     REFUSED_SYMLINK = auto()
     PRESERVED = auto()
     PRESERVED_MODIFIED = auto()
+    PRESERVED_UNDECODABLE = auto()
     SURFACE_INVALID = auto()
     UNCHANGED = auto()
     OVERWROTE = auto()
@@ -232,6 +262,7 @@ class AgentKind(Enum):
     INSTALLED = auto()
     ABSENT = auto()
     REMOVED = auto()
+    WRITE_FAILED = auto()
 
 
 @dataclass(frozen=True)
@@ -244,17 +275,25 @@ class AgentOutcome:
     surface: str | None = None
     detail: str | None = None
     backup_name: str | None = None
+    write_failure: WriteFailure | None = None
+
+
+class AgentsMdKind(Enum):
+    WRITE_FAILED = auto()
 
 
 @dataclass(frozen=True)
-class HandlerErrorOutcome:
-    """A caught per-handler failure the orchestrator reports as one line."""
+class AgentsMdOutcome:
+    """Result of an AGENTS.md regeneration or removal the orchestrator drives itself."""
 
-    message: str
+    kind: AgentsMdKind
+    repo: Path | None = None
+    write_failure: WriteFailure | None = None
 
 
 ArtifactOutcome = (
     RawLine
+    | AgentsMdOutcome
     | JsonMcpOutcome
     | ClaudeHookOutcome
     | ClaudeUserConfigOutcome
@@ -264,5 +303,25 @@ ArtifactOutcome = (
     | CodexHookOutcome
     | SkillOutcome
     | AgentOutcome
-    | HandlerErrorOutcome
 )
+
+
+_FAILED_KINDS: frozenset[Enum] = frozenset(
+    {
+        JsonMcpKind.WRITE_FAILED,
+        ClaudeHookKind.WRITE_FAILED,
+        CodexConfigKind.WRITE_FAILED,
+        CodexHookKind.WRITE_FAILED,
+        SkillKind.WRITE_FAILED,
+        AgentKind.WRITE_FAILED,
+        AgentsMdKind.WRITE_FAILED,
+        BridgeKind.FAILED,
+    }
+)
+
+
+def is_failure(outcome: ArtifactOutcome) -> bool:
+    """Whether ``outcome`` reports a write that did not land."""
+    if isinstance(outcome, RawLine):
+        return False
+    return outcome.kind in _FAILED_KINDS

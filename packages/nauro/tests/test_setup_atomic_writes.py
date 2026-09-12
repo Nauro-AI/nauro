@@ -280,18 +280,21 @@ def test_interrupted_write_leaves_target_and_no_temps(driver, tmp_path: Path, mo
     """A write that fails mid-flight leaves the original bytes and no temps.
 
     Same seam as ``test_atomic.py``: ``os.replace`` raising stands in for any
-    failure between temp write and rename. The prune sink must additionally
-    keep its soft-fail contract and report ``None`` instead of raising.
+    failure between temp write and rename. A codec reports the failure as a
+    typed WRITE_FAILED outcome naming the file; the prune sink keeps its
+    soft-fail contract and reports ``None``.
     """
     target = driver.seed(tmp_path)
     before = target.read_bytes()
     monkeypatch.setattr(_atomic.os, "replace", _failing_replace)
 
+    outcome = driver.run(tmp_path)
     if driver.soft_fails:
-        assert driver.run(tmp_path) is None
+        assert outcome is None
     else:
-        with pytest.raises(OSError, match="replace failed"):
-            driver.run(tmp_path)
+        assert outcome.kind.name == "WRITE_FAILED"
+        assert outcome.write_failure is not None
+        assert "replace failed" in outcome.write_failure.reason
 
     assert target.read_bytes() == before
     assert _tmp_siblings(target) == []
@@ -330,8 +333,8 @@ def test_interrupted_fresh_add_leaves_no_partial_target(tmp_path: Path, monkeypa
     repo.mkdir()
     monkeypatch.setattr(_atomic.os, "replace", _failing_replace)
 
-    with pytest.raises(OSError, match="replace failed"):
-        _configure_mcp(repo, remove=False)
+    outcome = _configure_mcp(repo, remove=False)
 
+    assert outcome.kind.name == "WRITE_FAILED"
     assert not (repo / ".mcp.json").exists()
     assert _tmp_siblings(repo / ".mcp.json") == []

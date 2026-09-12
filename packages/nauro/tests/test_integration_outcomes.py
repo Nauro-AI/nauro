@@ -17,6 +17,8 @@ from nauro.setup.git_hygiene import GitIgnoreKind, GitIgnoreResult
 from nauro.setup.outcomes import (
     AgentKind,
     AgentOutcome,
+    AgentsMdKind,
+    AgentsMdOutcome,
     BridgeKind,
     BridgeOutcome,
     ClaudeHookKind,
@@ -27,7 +29,6 @@ from nauro.setup.outcomes import (
     CodexConfigOutcome,
     CodexHookKind,
     CodexHookOutcome,
-    HandlerErrorOutcome,
     JsonMcpKind,
     JsonMcpOutcome,
     LegacyKind,
@@ -36,6 +37,7 @@ from nauro.setup.outcomes import (
     SharedStripFailed,
     SkillKind,
     SkillOutcome,
+    WriteFailure,
 )
 from nauro.setup.render import render
 from nauro.store.write_safety import SymlinkRefusal, UserSymlinkRefusal
@@ -69,9 +71,51 @@ def test_rawline_is_frozen():
 
 # One entry per (outcome, exact rendered lines). Covers every Kind member of
 # every codec, so a wording change to any branch fails here.
+WRITE_FAILURE = WriteFailure(REPO / "AGENTS.md", 13, "Permission denied")
+
 RENDER_CASES = [
     (RawLine("verbatim"), ["verbatim"]),
-    (HandlerErrorOutcome("handler blew up"), ["handler blew up"]),
+    (
+        AgentsMdOutcome(AgentsMdKind.WRITE_FAILED, REPO, write_failure=WRITE_FAILURE),
+        [f"  {REPO}: could not write {REPO / 'AGENTS.md'} - Permission denied"],
+    ),
+    (
+        AgentsMdOutcome(AgentsMdKind.WRITE_FAILED, write_failure=WRITE_FAILURE),
+        [f"AGENTS.md regeneration: could not write {REPO / 'AGENTS.md'} - Permission denied"],
+    ),
+    (
+        AgentsMdOutcome(
+            AgentsMdKind.WRITE_FAILED,
+            write_failure=WriteFailure(None, 28, "No space left on device"),
+        ),
+        ["AGENTS.md regeneration: write failed - No space left on device"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.WRITE_FAILED, REPO, ".mcp.json", write_failure=WRITE_FAILURE),
+        [f"  {REPO}: could not write {REPO / 'AGENTS.md'} - Permission denied"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.WRITE_FAILED, REPO, write_failure=WRITE_FAILURE),
+        [f"  {REPO}: could not write {REPO / 'AGENTS.md'} - Permission denied"],
+    ),
+    (
+        CodexConfigOutcome(
+            CodexConfigKind.WRITE_FAILED, REPO / "config.toml", write_failure=WRITE_FAILURE
+        ),
+        [f"Codex: could not write {REPO / 'AGENTS.md'} - Permission denied"],
+    ),
+    (
+        CodexHookOutcome(CodexHookKind.WRITE_FAILED, REPO, write_failure=WRITE_FAILURE),
+        [f"  {REPO}: could not write {REPO / 'AGENTS.md'} - Permission denied"],
+    ),
+    (
+        SkillOutcome(SkillKind.WRITE_FAILED, target=TARGET, write_failure=WRITE_FAILURE),
+        [f"  could not write {REPO / 'AGENTS.md'} - Permission denied"],
+    ),
+    (
+        AgentOutcome(AgentKind.WRITE_FAILED, target=TARGET, write_failure=WRITE_FAILURE),
+        [f"  could not write {REPO / 'AGENTS.md'} - Permission denied"],
+    ),
     # ── JsonMcp ──
     (
         JsonMcpOutcome(JsonMcpKind.REFUSED_SYMLINK, REPO, ".mcp.json", refusal=REPO_REFUSAL),
@@ -527,6 +571,10 @@ RENDER_CASES = [
         SkillOutcome(SkillKind.PRESERVED_MODIFIED, target=TARGET),
         [f"  preserved {TARGET} (locally modified)"],
     ),
+    (
+        SkillOutcome(SkillKind.PRESERVED_UNDECODABLE, target=TARGET),
+        [f"  preserved {TARGET} (not UTF-8 text, left alone)"],
+    ),
     (SkillOutcome(SkillKind.WROTE, target=TARGET), [f"  wrote {TARGET}"]),
     (SkillOutcome(SkillKind.UNCHANGED, target=TARGET), [f"  unchanged {TARGET}"]),
     (SkillOutcome(SkillKind.OVERWROTE, target=TARGET), [f"  overwrote {TARGET}"]),
@@ -574,6 +622,10 @@ RENDER_CASES = [
         AgentOutcome(AgentKind.PRESERVED_MODIFIED, target=TARGET),
         [f"  preserved {TARGET} (locally modified)"],
     ),
+    (
+        AgentOutcome(AgentKind.PRESERVED_UNDECODABLE, target=TARGET),
+        [f"  preserved {TARGET} (not UTF-8 text, left alone)"],
+    ),
 ]
 
 
@@ -594,6 +646,7 @@ def test_render_covers_every_kind_member():
         CodexHookKind,
         SkillKind,
         AgentKind,
+        AgentsMdKind,
     ]
     covered = {outcome.kind for outcome, _ in RENDER_CASES if hasattr(outcome, "kind")}
     for enum in kind_enums:

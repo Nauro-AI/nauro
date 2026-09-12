@@ -28,7 +28,6 @@ from nauro.setup.outcomes import (
     ClaudeHookKind,
     ClaudeHookOutcome,
     CodexHookKind,
-    HandlerErrorOutcome,
 )
 from tests.conftest import register_v2_repo
 
@@ -833,9 +832,11 @@ def test_add_writes_local_before_stripping_shared(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(claude_hooks_mod, "write_json_config", failing_write)
 
-    with pytest.raises(OSError, match="disk full"):
-        materialize_hooks_claude_code(repo, remove=False)
+    line = materialize_hooks_claude_code(repo, remove=False)
 
+    assert line.kind is ClaudeHookKind.WRITE_FAILED
+    assert line.write_failure is not None
+    assert line.write_failure.reason == "disk full"
     assert shared.read_text(encoding="utf-8") == before
     assert not _settings(repo).exists()
 
@@ -1195,23 +1196,19 @@ def test_setup_all_with_hooks_prints_codex_trust_guidance(tmp_path: Path, monkey
     assert "review and trust" in result.output
 
 
-def test_setup_all_hook_failure_does_not_abort(tmp_path: Path, monkeypatch):
-    """A hook-wiring failure is caught and reported, not propagated."""
+def test_setup_all_hook_write_failure_is_typed_and_does_not_abort(tmp_path: Path, monkeypatch):
+    """A hook file that cannot be written is a typed WRITE_FAILED outcome with its path;
+    the rest of setup still runs."""
     repo, _store = _make_project(tmp_path)
+    (repo / ".claude" / "settings.local.json").mkdir(parents=True)
 
-    import nauro.cli.integrations.orchestrator as orchestrator_mod
-
-    def boom(repo, *, remove):
-        raise RuntimeError("simulated wiring failure")
-
-    monkeypatch.setattr(orchestrator_mod, "materialize_hooks_claude_code", boom)
-
-    # Must not raise; the rest of setup still produces its lines.
     lines = setup_all_surfaces([repo], with_hooks=True)
-    assert any(
-        isinstance(line, HandlerErrorOutcome) and "hook" in line.message and "error" in line.message
-        for line in lines
-    )
+
+    failed = [line for line in lines if getattr(line, "kind", None) is ClaudeHookKind.WRITE_FAILED]
+    assert len(failed) == 1
+    assert failed[0].write_failure is not None
+    assert failed[0].write_failure.path == repo / ".claude" / "settings.local.json"
+    assert failed[0].write_failure.errno is not None
     # MCP wiring still happened despite the hook failure.
     assert (repo / ".mcp.json").is_file()
 
