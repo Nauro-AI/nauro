@@ -218,9 +218,7 @@ class JudgmentContent(_FrozenModel):
     rejected: tuple[RejectedSelection, ...]
     confidence: Literal["high", "medium", "low"] | None
     decision_type: (
-        Literal[
-            "architecture", "api_design", "infrastructure", "pattern", "refactor", "data_model"
-        ]
+        Literal["architecture", "api_design", "infrastructure", "pattern", "refactor", "data_model"]
         | None
     )
     reversibility: Literal["easy", "moderate", "hard"] | None
@@ -722,9 +720,7 @@ class JudgmentCommitPlan(_FrozenModel):
             self.claim_plan.publication != self.prepared.claim_intents.publication
         ):
             raise ValueError("finalized claim plan does not derive from prepared intents.")
-        if self.plan_record_bytes != _plan_record(
-            self.prepared, self.validated_claim_observations
-        ):
+        if self.plan_record_bytes != _plan_record(self.prepared, self.validated_claim_observations):
             raise ValueError("plan record bytes do not derive from the prepared plan.")
         return self
 

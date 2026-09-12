@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-
 from nauro_core.question_resolution import (
     QuestionResolutionOutcome,
     ResolutionDecisionDocument,
@@ -72,9 +71,7 @@ def test_resolves_and_reports_only_actual_transition() -> None:
 
 def test_different_decision_no_op_does_not_report_requested_anchor() -> None:
     content = (
-        "# Open Questions\n\n"
-        "## Resolved\n\n"
-        "- [Resolved by D41 on 2026-08-17] [Q5] already closed\n"
+        "# Open Questions\n\n## Resolved\n\n- [Resolved by D41 on 2026-08-17] [Q5] already closed\n"
     )
     outcome = _resolve(content)
 

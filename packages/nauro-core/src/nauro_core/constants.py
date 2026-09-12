@@ -102,8 +102,7 @@ NO_RELATED_DECISIONS = (
 # the retrieval method's nature without grading the match — the BM25 score is a
 # keyword-overlap fact, not a confidence judgement.
 LEXICAL_RANK_CAVEAT = (
-    "Ranked by keyword overlap, not meaning — judge relevance from the decision "
-    "body, not the rank."
+    "Ranked by keyword overlap, not meaning — judge relevance from the decision body, not the rank."
 )
 
 # ── State field patterns (used in parsing and diffing) ──
@@ -272,9 +271,7 @@ OPEN_QUESTIONS_POST_ELIDED_MARKER = (
     "[{count} section(s) after ## Resolved elided ({omitted} chars) - {recovery}]"
 )
 POINTER_BLOCK_HEADER = "[discovery pointers from the omitted content above:]"
-POINTER_OVERFLOW_TRAILER = (
-    "[... {overflow} more omitted discovery pointers not shown - {recovery}]"
-)
+POINTER_OVERFLOW_TRAILER = "[... {overflow} more omitted discovery pointers not shown - {recovery}]"
 
 # Guard report returned instead of an over-budget get_context body. Size-keyed,
 # not level-keyed: any over-budget body gates on every transport; {level_clause}

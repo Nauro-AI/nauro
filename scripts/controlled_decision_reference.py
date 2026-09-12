@@ -14,6 +14,7 @@ from pathlib import Path
 
 import httpx
 from mcp.types import CallToolResult, TextContent
+
 from nauro.auth import ActiveCredentials
 from nauro.mcp.decision_reference import bind_decision_reference
 from nauro.mcp.stdio_server import mcp

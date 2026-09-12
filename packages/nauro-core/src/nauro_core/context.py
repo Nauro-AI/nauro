@@ -174,9 +174,7 @@ def _render_stack_projection(stack: str) -> str:
 
     block = STACK_NON_AUTHORITATIVE_FRAMING + "\n" + joiner.join(rendered)
     if omitted:
-        block += (
-            f'\n(+{omitted} more stack items — see get_raw_file("stack.md") for the full file)'
-        )
+        block += f'\n(+{omitted} more stack items — see get_raw_file("stack.md") for the full file)'
     return block
 
 

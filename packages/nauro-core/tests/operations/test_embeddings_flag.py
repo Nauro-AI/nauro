@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from datetime import date
 
+import nauro_core.embeddings as embeddings_mod
 import numpy as np
 import pytest
-
-import nauro_core.embeddings as embeddings_mod
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,

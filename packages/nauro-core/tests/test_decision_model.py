@@ -19,8 +19,6 @@ from datetime import date
 
 import pytest
 import yaml
-from pydantic import ValidationError
-
 from nauro_core import decision_model
 from nauro_core.decision_model import (
     Decision,
@@ -34,6 +32,7 @@ from nauro_core.decision_model import (
     format_decision,
     parse_decision,
 )
+from pydantic import ValidationError
 
 # ── Fixtures: three representative v2 shapes ──
 
@@ -1117,9 +1116,7 @@ class TestFrontmatterLoaderParity:
         assert parse_decision(text, filename).model_dump() == fast
 
     @pytest.mark.parametrize("text", DIVERGENT_BLOCKS)
-    def test_divergent_blocks_are_routed_past_the_fast_loader(
-        self, text: str, monkeypatch
-    ) -> None:
+    def test_divergent_blocks_are_routed_past_the_fast_loader(self, text: str, monkeypatch) -> None:
         block, _body = _split_frontmatter(text, "001-test.md")
         assert not decision_model._is_plain_block(block)
         with_fast = _outcome(text)

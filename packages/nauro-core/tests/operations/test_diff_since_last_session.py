@@ -14,13 +14,12 @@ import ast
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.operations import (
     DiffSinceLastSessionResult,
     InMemoryStore,
     diff_since_last_session,
 )
+from pydantic import ValidationError
 
 
 def _snapshot(version: int, timestamp: str, files: dict[str, str]) -> dict:

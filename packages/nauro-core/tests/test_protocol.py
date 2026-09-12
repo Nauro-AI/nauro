@@ -8,7 +8,6 @@ Lives in nauro-core so the package is self-defending even when the downstream
 from __future__ import annotations
 
 import pytest
-
 from nauro_core import protocol
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.mcp_tools import get_tool_spec

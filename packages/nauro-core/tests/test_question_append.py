@@ -9,7 +9,6 @@ behavior, these pin the helpers' own contract.
 from __future__ import annotations
 
 import pytest
-
 from nauro_core.question_append import (
     allocate_question_number,
     compose_question_entry,

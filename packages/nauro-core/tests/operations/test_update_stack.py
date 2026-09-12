@@ -6,8 +6,6 @@ import hashlib
 import json
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.constants import STACK_DOC_CHAR_LIMIT, STACK_REVISION_ABSENT
 from nauro_core.operations.planning import PlanRejected, canonical_payload_bytes
 from nauro_core.operations.update_stack import (
@@ -15,6 +13,7 @@ from nauro_core.operations.update_stack import (
     compute_stack_revision,
     update_stack,
 )
+from pydantic import ValidationError
 
 DOC = "# Stack\n- **Python 3.11** — primary language\n"
 

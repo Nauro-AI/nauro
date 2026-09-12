@@ -1117,10 +1117,7 @@ class TestBuildL1StackProjection:
 
     def test_unstructured_file_walks_nonblank_paragraphs(self):
         stack = (
-            "We run Python on Lambda.\n"
-            "The gateway fronts it.\n"
-            "\n"
-            "Postgres holds the primary data.\n"
+            "We run Python on Lambda.\nThe gateway fronts it.\n\nPostgres holds the primary data.\n"
         )
         result = build_l1(self._files(stack), [])
         assert "We run Python on Lambda.\nThe gateway fronts it." in result

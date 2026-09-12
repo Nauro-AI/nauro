@@ -388,8 +388,7 @@ class TestOpenQuestionsSplit:
 
     def test_extraction_capped_at_twenty_in_file_order_with_trailer(self):
         pointers = "".join(
-            f"- [Q{100 + i}] BRIEF: context/p{i}.md - stranded item number {i}\n"
-            for i in range(23)
+            f"- [Q{100 + i}] BRIEF: context/p{i}.md - stranded item number {i}\n" for i in range(23)
         )
         content = _lines(302, "oa") + pointers + _lines(110, "ob")
         out = _raw(content, OQ)

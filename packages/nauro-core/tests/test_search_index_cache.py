@@ -7,7 +7,6 @@ serve each other's index.
 from __future__ import annotations
 
 from conftest import make_decision
-
 from nauro_core.decision_model import DecisionStatus
 from nauro_core.search import _INDEX_BY_STOPWORDS, bm25_retrieve, bm25_search
 

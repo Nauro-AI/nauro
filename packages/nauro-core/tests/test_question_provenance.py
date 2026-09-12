@@ -9,8 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.question_provenance import (
     LegacyQuestionProvenanceRecord,
     QuestionProvenanceConflict,
@@ -29,6 +27,7 @@ from nauro_core.question_provenance import (
     serialize_question_provenance,
 )
 from nauro_core.questions import OpenQuestionsFile
+from pydantic import ValidationError
 
 ACTOR_ID = "0" + "A" * 25
 EVENT_ID = "1" + "B" * 25
@@ -59,9 +58,7 @@ def _empty_document() -> QuestionProvenanceDocument:
 
 def _canonical(value: object) -> bytes:
     return (
-        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-            "utf-8"
-        )
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         + b"\n"
     )
 

@@ -339,9 +339,7 @@ PROPOSE_DECISION: ToolSpec = {
             },
             "rationale": {
                 "type": "string",
-                "description": (
-                    "Why this decision was made, including constraints and tradeoffs."
-                ),
+                "description": ("Why this decision was made, including constraints and tradeoffs."),
             },
             "operation": {
                 "type": "string",
@@ -389,9 +387,7 @@ PROPOSE_DECISION: ToolSpec = {
             "decision_type": {
                 "type": "string",
                 "enum": list(DECISION_TYPE_VALUES),
-                "description": (
-                    "Optional architectural category; omit when none applies cleanly."
-                ),
+                "description": ("Optional architectural category; omit when none applies cleanly."),
             },
             "reversibility": {
                 "type": "string",

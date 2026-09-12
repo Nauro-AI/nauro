@@ -3,7 +3,6 @@
 from datetime import date
 
 from conftest import make_decision
-
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,

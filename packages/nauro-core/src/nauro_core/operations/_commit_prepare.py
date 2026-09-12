@@ -246,9 +246,7 @@ def _build_artifacts_impl(
         planned[primary_path] = contract.format_decision(primary_model).encode("utf-8")
         touched = [primary_stem]
     else:
-        assert (
-            assigned is not None and content.title is not None and content.confidence is not None
-        )
+        assert assigned is not None and content.title is not None and content.confidence is not None
         primary_model = contract.build_new_decision(
             number=assigned,
             decision_date=decision_date,
@@ -483,9 +481,7 @@ def prepare_judgment_commit_impl(
         raise contract.ApprovedBaseStale(
             "approved base generation and counter do not match the observed committed generation."
         )
-    current, decisions, stems_by_number = contract._parse_committed_generation(
-        committed_generation
-    )
+    current, decisions, stems_by_number = contract._parse_committed_generation(committed_generation)
     target, target_stem = contract._target(payload.content, decisions, stems_by_number)
     questions_bytes = current.get("open-questions.md")
     proposal = {

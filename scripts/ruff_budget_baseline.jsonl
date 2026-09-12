@@ -177,6 +177,8 @@
 {"path":"packages/nauro/src/nauro/sync/generation_attachment.py","rule":"TRY300","count":1}
 {"path":"packages/nauro/src/nauro/sync/generation_attachment.py","rule":"TRY301","count":1}
 {"path":"packages/nauro/src/nauro/sync/generation_credentials.py","rule":"TRY004","count":1}
+{"path":"packages/nauro/src/nauro/sync/generation_refresh_status.py","rule":"TRY300","count":2}
+{"path":"packages/nauro/src/nauro/sync/generation_refresh_status.py","rule":"TRY301","count":1}
 {"path":"packages/nauro/src/nauro/sync/generation_session.py","rule":"TRY301","count":2}
 {"path":"packages/nauro/src/nauro/sync/history_transport.py","rule":"TRY300","count":1}
 {"path":"packages/nauro/src/nauro/sync/history_transport.py","rule":"TRY301","count":5}

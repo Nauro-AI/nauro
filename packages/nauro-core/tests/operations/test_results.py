@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.operations.results import (
     DecisionSummary,
     DiffSinceLastSessionResult,
@@ -19,6 +17,7 @@ from nauro_core.operations.results import (
     SearchHit,
     UpdateStateResult,
 )
+from pydantic import ValidationError
 
 
 def test_related_decision_model_dump_shape() -> None:

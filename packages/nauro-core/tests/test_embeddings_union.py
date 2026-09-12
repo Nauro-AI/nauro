@@ -13,11 +13,10 @@ against a deterministic encoder.
 
 from __future__ import annotations
 
+import nauro_core.embeddings as embeddings_mod
 import numpy as np
 import pytest
 from conftest import make_decision
-
-import nauro_core.embeddings as embeddings_mod
 from nauro_core.search import bm25_retrieve, union_retrieve
 
 DECISIONS = [

@@ -7,7 +7,6 @@ file, and a stem with no number that forces the full-scan fallback.
 from __future__ import annotations
 
 from conftest import _seed_decision
-
 from nauro_core.context import build_l0, build_l1
 from nauro_core.decision_model import DecisionStatus
 from nauro_core.operations import InMemoryStore, get_context, list_decisions

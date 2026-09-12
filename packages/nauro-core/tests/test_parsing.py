@@ -1,7 +1,6 @@
 """Tests for nauro_core.parsing."""
 
 import pytest
-
 from nauro_core.constants import DECISIONS_DIR, PROJECT_MD_SCAFFOLD_BODY
 from nauro_core.parsing import (
     _canonical_decision_id,

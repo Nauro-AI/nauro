@@ -1,7 +1,6 @@
 """Tests for the centralized MCP tool registry."""
 
 import pytest
-
 from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.instructions import (
     MAX_INLINE_PROJECTS,

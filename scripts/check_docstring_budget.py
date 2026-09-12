@@ -50,8 +50,7 @@ class Violation:
     def describe(self) -> str:
         """Return the one-line report form of this violation."""
         return (
-            f"{self.identifier}: {self.kind} docstring is "
-            f"{self.lines} lines (budget {self.budget})"
+            f"{self.identifier}: {self.kind} docstring is {self.lines} lines (budget {self.budget})"
         )
 
 

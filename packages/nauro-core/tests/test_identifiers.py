@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from nauro_core.constants import STATE_REVISION_ABSENT
 from nauro_core.identifiers import (
     IdentifierKind,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from nauro_core.protected_generation_membership import (
     NoncanonicalGenerationPath,
     UnknownGenerationPath,
