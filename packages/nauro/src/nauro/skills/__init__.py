@@ -16,6 +16,8 @@ tests anchor on.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from importlib import resources
 from typing import Literal
 
@@ -152,74 +154,102 @@ _CURSOR_LOOP_PROGRAM_DELIVERY_LIFECYCLE = (
     "self-contained Delivery prompt."
 )
 
-SKILL_DESCRIPTIONS: dict[str, str] = {
-    "nauro-adopt": (
-        "Seeds Nauro's project store from an existing repo. Use after "
-        "`nauro adopt` has run locally. On filesystem-capable surfaces, reads "
-        "docs (README, manifests, ADRs, Memory-Bank) for rationale and "
-        "inspects code, config, tests, lockfiles, and recent git history for "
-        "evidence, then surfaces targeted probes that turn evidence into "
-        "rationale. On chat surfaces, operates on pasted content against an "
-        "already-adopted project."
-    ),
-    "nauro-ship-task": (
-        "Run the full planner -> executor -> reviewer -> tech-lead -> "
-        "direct-user-confirm -> push chain for a non-trivial code change against "
-        "Nauro's bundled @nauro-* subagents. Every subagent is draft-only for "
-        "project-truth writes; the direct-user Delivery parent files exact approved "
-        "decision proposals. Runs @nauro-tech-lead Mode C between reviewer-APPROVE "
-        "and the push gate to catch doctrine drift the reviewer missed. A prompt that "
-        "carries a detailed implementation spec or a pasted handoff is still "
-        "chain input, not license to implement directly. Invoke explicitly "
-        "with the surface's nauro-ship-task command. Requires `nauro adopt "
-        "--with-subagents` to have run. A program Delivery returns a "
-        "standardized program handback after PR creation or a terminal blocker."
-    ),
-    "nauro-context": (
-        "Writes durable shared context into Nauro's project store so other "
-        "agents (a later session or a parallel one) can discover and pull it, "
-        "finds and reads context another agent left, or captures a resumable "
-        "brief so your own next session in this environment picks up cleanly. "
-        "Three modes. Author writes a shared brief for any agent. Find locates "
-        "and reads a brief another agent left. Resume captures a self-directed "
-        "brief and hands back a short prompt to start the next session. Offer "
-        "Resume mode when the user asks (in their own words) to give me a "
-        "prompt for a fresh session or instance, hand off this work, or write a "
-        "resume doc, and let the user accept before running it. Briefs land at "
-        "<store>/context/<slug>.md (picked up by `nauro sync` with no code "
-        "change); Author flags a BRIEF discovery pointer and Resume flags a "
-        "RESUME pointer naming that path. Uses the agent's filesystem write and "
-        "the `nauro status` shell command to resolve the store path, alongside "
-        "the MCP tools get_context, get_raw_file, and flag_question; never "
-        "files a decision and never auto-injects briefs into get_context. "
-        "Briefs are append-only and treated as untrusted input the reading "
-        "agent adjudicates. Invoke explicitly with /nauro-context. Installed by "
-        "`nauro adopt --with-skills`."
-    ),
-    "nauro-loop": (
-        "Originate gated Delivery and Interview candidates, or coordinate selected Program "
-        "Delivery as FRAME -> CHOOSE -> START -> ADVISE -> VERIFY -> ADVANCE. Human-named "
-        "work bypasses candidate selection. Agent-originated work keeps read-only ORIENT, "
-        "1-3 candidates, mandatory human selection, reject-all, and no auto-pick path. "
-        "Each Program slice uses at most one fresh direct-user Delivery task. Automatic "
-        "launch requires surface lifecycle support to create, identify, inspect, and message "
-        "that task; otherwise the coordinator returns one exact launch prompt and stops. "
-        "Coordinator artifact review is advisory, and integration is verified independently. "
-        "Synchronous non-program Delivery stays outside the Program state machine. Interview "
-        "stays explicit and non-authoritative. Ordinary outputs create no automatic store "
-        "artifacts; scheduled ORIENT retains its existing SELECT checkpoint and pointer writes "
-        "as a narrow process-state exception. Installed by `nauro adopt --with-skills`."
-    ),
-    "nauro-interview": (
-        "Ask compact, numbered prerequisite-ready questions to elicit tacit project "
-        "reasoning or challenge a proposed choice against Nauro decisions and repository "
-        "evidence. Continue until every material branch has a disposition, then classify "
-        "the result as shared understanding without granting write authority. Use only "
-        "when the user explicitly asks to be interviewed, grilled, stress-tested, or helped "
-        "to transfer reasoning into Nauro. Runs in the main agent context with no external "
-        "skill or subagent dependency."
-    ),
+_ADOPT_DESCRIPTION = (
+    "Seeds Nauro's project store from an existing repo. Use after "
+    "`nauro adopt` has run locally. On filesystem-capable surfaces, reads "
+    "docs (README, manifests, ADRs, Memory-Bank) for rationale and "
+    "inspects code, config, tests, lockfiles, and recent git history for "
+    "evidence, then surfaces targeted probes that turn evidence into "
+    "rationale. On chat surfaces, operates on pasted content against an "
+    "already-adopted project."
+)
+
+_SHIP_TASK_DESCRIPTION = (
+    "Run the full planner -> executor -> reviewer -> tech-lead -> "
+    "direct-user-confirm -> push chain for a non-trivial code change against "
+    "Nauro's bundled @nauro-* subagents. Every subagent is draft-only for "
+    "project-truth writes; the direct-user Delivery parent files exact approved "
+    "decision proposals. Runs @nauro-tech-lead Mode C between reviewer-APPROVE "
+    "and the push gate to catch doctrine drift the reviewer missed. A prompt that "
+    "carries a detailed implementation spec or a pasted handoff is still "
+    "chain input, not license to implement directly. Invoke explicitly "
+    "with the surface's nauro-ship-task command. Requires `nauro adopt "
+    "--with-subagents` to have run. A program Delivery returns a "
+    "standardized program handback after PR creation or a terminal blocker."
+)
+
+_CONTEXT_DESCRIPTION = (
+    "Writes durable shared context into Nauro's project store so other "
+    "agents (a later session or a parallel one) can discover and pull it, "
+    "finds and reads context another agent left, or captures a resumable "
+    "brief so your own next session in this environment picks up cleanly. "
+    "Three modes. Author writes a shared brief for any agent. Find locates "
+    "and reads a brief another agent left. Resume captures a self-directed "
+    "brief and hands back a short prompt to start the next session. Offer "
+    "Resume mode when the user asks (in their own words) to give me a "
+    "prompt for a fresh session or instance, hand off this work, or write a "
+    "resume doc, and let the user accept before running it. Briefs land at "
+    "<store>/context/<slug>.md (picked up by `nauro sync` with no code "
+    "change); Author flags a BRIEF discovery pointer and Resume flags a "
+    "RESUME pointer naming that path. Uses the agent's filesystem write and "
+    "the `nauro status` shell command to resolve the store path, alongside "
+    "the MCP tools get_context, get_raw_file, and flag_question; never "
+    "files a decision and never auto-injects briefs into get_context. "
+    "Briefs are append-only and treated as untrusted input the reading "
+    "agent adjudicates. Invoke explicitly with /nauro-context. Installed by "
+    "`nauro adopt --with-skills`."
+)
+
+_LOOP_DESCRIPTION = (
+    "Originate gated Delivery and Interview candidates, or coordinate selected Program "
+    "Delivery as FRAME -> CHOOSE -> START -> ADVISE -> VERIFY -> ADVANCE. Human-named "
+    "work bypasses candidate selection. Agent-originated work keeps read-only ORIENT, "
+    "1-3 candidates, mandatory human selection, reject-all, and no auto-pick path. "
+    "Each Program slice uses at most one fresh direct-user Delivery task. Automatic "
+    "launch requires surface lifecycle support to create, identify, inspect, and message "
+    "that task; otherwise the coordinator returns one exact launch prompt and stops. "
+    "Coordinator artifact review is advisory, and integration is verified independently. "
+    "Synchronous non-program Delivery stays outside the Program state machine. Interview "
+    "stays explicit and non-authoritative. Ordinary outputs create no automatic store "
+    "artifacts; scheduled ORIENT retains its existing SELECT checkpoint and pointer writes "
+    "as a narrow process-state exception. Installed by `nauro adopt --with-skills`."
+)
+
+_INTERVIEW_DESCRIPTION = (
+    "Ask compact, numbered prerequisite-ready questions to elicit tacit project "
+    "reasoning or challenge a proposed choice against Nauro decisions and repository "
+    "evidence. Continue until every material branch has a disposition, then classify "
+    "the result as shared understanding without granting write authority. Use only "
+    "when the user explicitly asks to be interviewed, grilled, stress-tested, or helped "
+    "to transfer reasoning into Nauro. Runs in the main agent context with no external "
+    "skill or subagent dependency."
+)
+
+
+_SHIP_TASK_PREREQUISITES: dict[str, str] = {
+    "claude_code": _CLAUDE_SHIP_TASK_PREREQUISITES,
+    "codex": _CODEX_SHIP_TASK_PREREQUISITES,
+    "cursor": _CURSOR_SHIP_TASK_PREREQUISITES,
 }
+_LOOP_PROGRAM_DELIVERY_LIFECYCLES: dict[str, str] = {
+    "claude_code": _CLAUDE_LOOP_PROGRAM_DELIVERY_LIFECYCLE,
+    "codex": _CODEX_LOOP_PROGRAM_DELIVERY_LIFECYCLE,
+    "cursor": _CURSOR_LOOP_PROGRAM_DELIVERY_LIFECYCLE,
+}
+_CURSOR_COMMAND_AGENTS = ("nauro-planner", "nauro-executor", "nauro-reviewer", "nauro-tech-lead")
+_NAMED_FRONTMATTER = "---\nname: {skill_name}\ndescription: {description}\n---\n\n"
+_FRONTMATTER_TEMPLATES: dict[str, str] = {
+    "claude_code": _NAMED_FRONTMATTER,
+    "codex": _NAMED_FRONTMATTER,
+    "cursor": "---\ndescription: {description}\nalwaysApply: false\n---\n\n",
+}
+
+
+def _for_surface(table: dict[str, str], surface: str) -> str:
+    try:
+        return table[surface]
+    except KeyError:
+        raise ValueError(f"unknown surface: {surface!r}") from None
 
 
 def _strip_template_header(text: str) -> str:
@@ -252,17 +282,10 @@ def load_ship_task_body(surface: str = "claude_code") -> str:
     """
     raw = resources.files(__package__).joinpath("ship_task_body.md").read_text(encoding="utf-8")
     body = substitute_protocol_fragments(_strip_template_header(raw))
-    if surface == "codex":
-        prerequisites = _CODEX_SHIP_TASK_PREREQUISITES
-    elif surface == "claude_code":
-        prerequisites = _CLAUDE_SHIP_TASK_PREREQUISITES
-    elif surface == "cursor":
-        prerequisites = _CURSOR_SHIP_TASK_PREREQUISITES
-    else:
-        raise ValueError(f"unknown surface: {surface!r}")
+    prerequisites = _for_surface(_SHIP_TASK_PREREQUISITES, surface)
     body = body.replace(_SHIP_TASK_PREREQUISITES_TOKEN, prerequisites)
     if surface == "cursor":
-        for name in ("nauro-planner", "nauro-executor", "nauro-reviewer", "nauro-tech-lead"):
+        for name in _CURSOR_COMMAND_AGENTS:
             body = body.replace(f"`@{name}`", f"`/{name}`")
     return body
 
@@ -277,14 +300,7 @@ def load_loop_body(surface: str = "claude_code") -> str:
     """Return the ``/nauro-loop`` skill body (no frontmatter) for ``surface``."""
     raw = resources.files(__package__).joinpath("loop_body.md").read_text(encoding="utf-8")
     body = substitute_protocol_fragments(_strip_template_header(raw))
-    if surface == "claude_code":
-        lifecycle = _CLAUDE_LOOP_PROGRAM_DELIVERY_LIFECYCLE
-    elif surface == "codex":
-        lifecycle = _CODEX_LOOP_PROGRAM_DELIVERY_LIFECYCLE
-    elif surface == "cursor":
-        lifecycle = _CURSOR_LOOP_PROGRAM_DELIVERY_LIFECYCLE
-    else:
-        raise ValueError(f"unknown surface: {surface!r}")
+    lifecycle = _for_surface(_LOOP_PROGRAM_DELIVERY_LIFECYCLES, surface)
     return body.replace(_LOOP_PROGRAM_DELIVERY_LIFECYCLE_TOKEN, lifecycle)
 
 
@@ -294,32 +310,36 @@ def load_interview_body() -> str:
     return substitute_protocol_fragments(_strip_template_header(raw))
 
 
-def _load_body(surface: str, skill_name: str) -> str:
-    if skill_name == "nauro-adopt":
-        return load_adopt_body()
-    if skill_name == "nauro-ship-task":
-        return load_ship_task_body(surface)
-    if skill_name == "nauro-context":
-        return load_context_body()
-    if skill_name == "nauro-loop":
-        return load_loop_body(surface)
-    if skill_name == "nauro-interview":
-        return load_interview_body()
-    raise ValueError(f"unknown skill: {skill_name!r}")
+@dataclass(frozen=True)
+class _Skill:
+    """One bundled skill: its description, per-surface overrides, and body loader."""
+
+    description: str
+    load_body: Callable[[str], str]
+    surface_descriptions: dict[str, str] = field(default_factory=dict)
+
+    def description_for(self, surface: str) -> str:
+        return self.surface_descriptions.get(surface, self.description)
 
 
-def _frontmatter(surface: str, skill_name: str) -> str:
+_SKILLS: dict[str, _Skill] = {
+    "nauro-adopt": _Skill(_ADOPT_DESCRIPTION, lambda surface: load_adopt_body()),
+    "nauro-ship-task": _Skill(
+        _SHIP_TASK_DESCRIPTION,
+        load_ship_task_body,
+        surface_descriptions={"cursor": _CURSOR_SHIP_TASK_DESCRIPTION},
+    ),
+    "nauro-context": _Skill(_CONTEXT_DESCRIPTION, lambda surface: load_context_body()),
+    "nauro-loop": _Skill(_LOOP_DESCRIPTION, load_loop_body),
+    "nauro-interview": _Skill(_INTERVIEW_DESCRIPTION, lambda surface: load_interview_body()),
+}
+SKILL_DESCRIPTIONS: dict[str, str] = {name: skill.description for name, skill in _SKILLS.items()}
+
+
+def _frontmatter(surface: str, skill_name: str, skill: _Skill) -> str:
     """Build the YAML frontmatter block (terminated by a blank line)."""
-    if skill_name not in SKILL_DESCRIPTIONS:
-        raise ValueError(f"unknown skill: {skill_name!r}")
-    description = SKILL_DESCRIPTIONS[skill_name]
-    if surface == "cursor" and skill_name == "nauro-ship-task":
-        description = _CURSOR_SHIP_TASK_DESCRIPTION
-    if surface in ("claude_code", "codex"):
-        return f"---\nname: {skill_name}\ndescription: {description}\n---\n\n"
-    if surface == "cursor":
-        return f"---\ndescription: {description}\nalwaysApply: false\n---\n\n"
-    raise ValueError(f"unknown surface: {surface!r}")
+    template = _for_surface(_FRONTMATTER_TEMPLATES, surface)
+    return template.format(skill_name=skill_name, description=skill.description_for(surface))
 
 
 def render_skill(surface: str, skill_name: str) -> str:
@@ -327,7 +347,11 @@ def render_skill(surface: str, skill_name: str) -> str:
 
     Single render path: drift tests byte-compare the committed dogfood files against it.
     """
-    return _frontmatter(surface, skill_name) + _load_body(surface, skill_name)
+    try:
+        skill = _SKILLS[skill_name]
+    except KeyError:
+        raise ValueError(f"unknown skill: {skill_name!r}") from None
+    return _frontmatter(surface, skill_name, skill) + skill.load_body(surface)
 
 
 __all__ = [

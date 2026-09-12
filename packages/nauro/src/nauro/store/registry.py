@@ -78,6 +78,19 @@ class RegistryEntryV2(BaseModel):
     def has_store_path(self) -> bool:
         return "store_path" in self.model_fields_set
 
+    def bound_store_path(self, project_id: str) -> Path | None:
+        """The registered store path, or None when the entry leaves it to the default home.
+        A store path that is present but blank is a binding error, not an absent path.
+        """
+        if not self.has_store_path:
+            return None
+        if self.store_path is None or not self.store_path.strip():
+            raise StoreBindingError(
+                "connected_record_invalid",
+                f"Registered store path for {project_id!r} must be a nonempty string.",
+            )
+        return Path(self.store_path)
+
 
 def validate_registry_entry_v2(project_id: str, raw_entry: object) -> RegistryEntryV2:
     """Parse an untrusted registry entry into its typed in-memory form."""
@@ -300,40 +313,26 @@ def resolve_registered_store_path_v2(
     # structurally incomplete default store resolves, and downstream tools
     # degrade gracefully, instead of dead-ending every command in a
     # connected_record_invalid state that reconnect cannot restore.
-    if not entry.has_store_path:
+    bound = entry.bound_store_path(project_id)
+    if bound is None:
         return _validate_store_structure(
             project_id,
             get_store_path_v2(project_id),
             require_store=require_store,
             strict_store=False,
         )
-
-    raw_store_path = entry.store_path
-    if raw_store_path is None or not raw_store_path.strip():
-        raise StoreBindingError(
-            "connected_record_invalid",
-            f"Registered store path for {project_id!r} must be a nonempty string.",
-        )
     return _validate_registered_store_path(
-        project_id,
-        Path(raw_store_path),
-        require_store=require_store,
-        strict_store=True,
+        project_id, bound, require_store=require_store, strict_store=True
     )
 
 
 def registered_store_path_hint_v2(project_id: str, entry: object) -> Path | None:
     """Return a display-only store hint without trusting malformed registry data."""
     try:
-        typed_entry = validate_registry_entry_v2(project_id, entry)
+        bound = validate_registry_entry_v2(project_id, entry).bound_store_path(project_id)
     except StoreBindingError:
         return None
-    if not typed_entry.has_store_path:
-        return get_store_path_v2(project_id)
-    raw_store_path = typed_entry.store_path
-    if raw_store_path is None or not raw_store_path.strip():
-        return None
-    return Path(raw_store_path)
+    return get_store_path_v2(project_id) if bound is None else bound
 
 
 def bind_project_store_v2(
@@ -615,8 +614,8 @@ def rename_project_id_v2(
 
         existing = validate_registry_entry_v2(old_id, registry["projects"].pop(old_id))
         entry = existing.model_dump(mode="json", exclude_unset=True)
-        if not existing.has_store_path:
-            raw_store_path = None
+        bound_store = existing.bound_store_path(old_id)
+        if bound_store is None:
             old_store = _validate_store_structure(
                 old_id,
                 get_store_path_v2(old_id),
@@ -624,17 +623,8 @@ def rename_project_id_v2(
                 strict_store=True,
             )
         else:
-            raw_store_path = existing.store_path
-            if raw_store_path is None or not raw_store_path.strip():
-                raise StoreBindingError(
-                    "connected_record_invalid",
-                    f"Registered store path for {old_id!r} must be a nonempty string.",
-                )
             old_store = _validate_registered_store_path(
-                old_id,
-                Path(raw_store_path),
-                require_store=rename_store,
-                strict_store=True,
+                old_id, bound_store, require_store=rename_store, strict_store=True
             )
         if mode is not None:
             if mode not in _VALID_MODES_V2:
@@ -652,8 +642,10 @@ def rename_project_id_v2(
             mode="json", exclude_unset=True
         )
 
-        new_store = old_store.with_name(new_id) if raw_store_path else get_store_path_v2(new_id)
-        if raw_store_path and get_store_path_v2(new_id).exists():
+        new_store = (
+            get_store_path_v2(new_id) if bound_store is None else old_store.with_name(new_id)
+        )
+        if bound_store is not None and get_store_path_v2(new_id).exists():
             raise StoreBindingError(
                 "connected_binding_conflict",
                 f"Default store already exists for new project id {new_id!r}.",
@@ -662,7 +654,7 @@ def rename_project_id_v2(
             if new_store.exists():
                 raise ValueError(f"Cannot rename store: destination already exists at {new_store}.")
             shutil.move(str(old_store), str(new_store))
-        if raw_store_path:
+        if bound_store is not None:
             entry["store_path"] = str(new_store)
         else:
             entry.pop("store_path", None)

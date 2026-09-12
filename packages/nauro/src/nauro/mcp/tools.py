@@ -122,15 +122,34 @@ def _stamp_identity(func: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         result = func(*args, **kwargs)
-        store_path = args[0] if args else kwargs.get("store_path")
+        store_path = _store_path_argument(args, kwargs)
         if (
             isinstance(result, dict)
-            and isinstance(store_path, Path)
+            and store_path is not None
             and result.get("store") == "local"
             and "project" not in result
         ):
             result["project"] = _project_identity(store_path)
         return result
+
+    return wrapper
+
+
+def _store_path_argument(args: tuple, kwargs: dict) -> Path | None:
+    """The adapter's leading ``store_path`` argument, or None when the call carries none."""
+    store_path = args[0] if args else kwargs.get("store_path")
+    return store_path if isinstance(store_path, Path) else None
+
+
+def requires_store(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Answer with the no-project guidance envelope when ``store_path`` does not exist."""
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        store_path = _store_path_argument(args, kwargs)
+        if store_path is not None and not store_path.exists():
+            return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+        return func(*args, **kwargs)
 
     return wrapper
 
@@ -239,13 +258,6 @@ def _reject_if_envelope_token(value: str, field_name: str) -> dict | None:
     }
 
 
-def _check_store_exists(store_path: Path) -> str | None:
-    """Return guidance string if the store is missing, None if it exists."""
-    if not store_path.exists():
-        return WELCOME_NO_PROJECT
-    return None
-
-
 def _has_decisions(store_path: Path) -> bool:
     """Check whether the store has any decision files."""
     decisions_dir = store_path / "decisions"
@@ -324,12 +336,9 @@ def _snapshot_diff_section(store_path: Path) -> str:
 
 
 @_stamp_identity
+@requires_store
 def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
     """Return project context at the requested detail level."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
     level_int = _coerce_level(level)
     result = _get_context_op(FilesystemStore(store_path), level_int)
     envelope: dict = {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
@@ -360,6 +369,7 @@ def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
 
 @_stamp_identity
 @journaled(operation="propose_decision", target=DECISIONS_DIR)
+@requires_store
 def tool_propose_decision(
     store_path: Path,
     title: str = "",
@@ -377,10 +387,6 @@ def tool_propose_decision(
     base_commit: str | None = None,
 ) -> dict:
     """Propose a new decision through the validation pipeline."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
     for err in (
         _reject_if_too_long(title, "Title", MAX_TITLE_LENGTH),
         _reject_if_too_long(rationale, "Rationale", MAX_RATIONALE_LENGTH),
@@ -521,16 +527,13 @@ Args:
 
 
 @_stamp_identity
+@requires_store
 def tool_check_decision(
     store_path: Path,
     proposed_approach: str,
     context: str | None = None,
 ) -> dict:
     """Surface related existing decisions without writing anything."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
     result = _check_decision_op(
         FilesystemStore(store_path),
         proposed_approach,
@@ -555,6 +558,7 @@ Surface related existing decisions without writing anything.
 
 @_stamp_identity
 @journaled(operation="flag_question", target=OPEN_QUESTIONS_MD)
+@requires_store
 def tool_flag_question(
     store_path: Path,
     question: str | None = None,
@@ -567,10 +571,6 @@ def tool_flag_question(
     """With ``resolved_by`` set, resolve the ``targets`` entries; otherwise append
     ``question`` as a new flag. Both are writes: snapshot and push run on success
     and neither runs on rejection."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
     if resolved_by is not None:
         return _flag_question_resolve(store_path, question, targets, resolved_by)
 
@@ -761,12 +761,9 @@ def _miss_envelope(store_path: Path, path: str, root: _PreparedStoreRoot) -> dic
 
 
 @_stamp_identity
+@requires_store
 def tool_get_raw_file(store_path: Path, path: str) -> dict:
     """Return raw content of any file in the project store."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
     try:
         root = _prepare_store_root(store_path)
     except _StoreRootPreparationError:
@@ -812,39 +809,32 @@ def tool_get_raw_file(store_path: Path, path: str) -> dict:
 
 
 @_stamp_identity
+@requires_store
 def tool_list_decisions(
     store_path: Path,
     limit: int = 20,
     include_superseded: bool = False,
 ) -> dict:
     """List decision summaries, sorted by number descending."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
     result = _list_decisions_op(FilesystemStore(store_path), limit, include_superseded)
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
 @_stamp_identity
+@requires_store
 def tool_get_decision(store_path: Path, number: int, mode: str = "full") -> dict:
     """Return a specific decision by number (full body, or header projection)."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
     result = _get_decision_op(FilesystemStore(store_path), number, mode)
     return {"store": "local", **result.model_dump(mode="json", exclude_none=True)}
 
 
 @_stamp_identity
+@requires_store
 def tool_diff_since_last_session(
     store_path: Path,
     days: int | None = None,
 ) -> dict:
     """Show what changed since the last session or N days ago."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
     baseline, latest, cutoff = resolve_diff_snapshots(store_path, days)
 
     # Days-based one-snapshot-covers-range case: resolve_diff_snapshots
@@ -882,6 +872,7 @@ def tool_diff_since_last_session(
 
 
 @_stamp_identity
+@requires_store
 def tool_search_decisions(
     store_path: Path,
     query: str,
@@ -889,9 +880,6 @@ def tool_search_decisions(
     include_superseded: bool = False,
 ) -> dict:
     """Search decisions by keyword. Returns matching decisions with snippets."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
     result = _search_decisions_op(
         FilesystemStore(store_path),
         query,
@@ -904,6 +892,7 @@ def tool_search_decisions(
 
 @_stamp_identity
 @journaled(operation="update_state", target=STATE_CURRENT_FILENAME)
+@requires_store
 def tool_update_state(
     store_path: Path,
     delta: str,
@@ -911,10 +900,6 @@ def tool_update_state(
     origin: OriginDescriptor | None = None,
 ) -> dict:
     """Update current project state. Returns a warning on keyword overlap."""
-    guidance = _check_store_exists(store_path)
-    if guidance:
-        return {"store": "local", "status": "error", "guidance": guidance}
-
     # Length validation stays adapter-side — the kernel writes whatever the
     # adapter passes through.
     err = _reject_if_too_long(delta, "Delta", MAX_DELTA_LENGTH)

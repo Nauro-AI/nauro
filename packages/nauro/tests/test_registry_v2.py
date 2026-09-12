@@ -362,3 +362,26 @@ class TestIsCloudProject:
         gate degrades to False rather than crashing."""
         _write_v1_registry(tmp_path, {"v1name": {"repo_paths": [str(tmp_path)]}})
         assert is_cloud_project("v1name") is False
+
+
+@pytest.mark.parametrize("store_path", [None, "", "   "])
+def test_present_blank_store_path_is_rejected_when_binding(store_path):
+    """A registry entry that sets store_path to nothing usable still parses, so
+    recovery can rewrite it, but binding to it is refused in one place."""
+    entry = validate_registry_entry_v2(
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        {"name": "demo", "mode": "local", "store_path": store_path},
+    )
+    with pytest.raises(StoreBindingError, match="must be a nonempty string") as excinfo:
+        entry.bound_store_path("01ARZ3NDEKTSV4RRFFQ69G5FAV")
+    assert excinfo.value.reason_code == "connected_record_invalid"
+
+
+def test_absent_store_path_binds_to_nothing_and_present_path_binds_typed():
+    project_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    absent = validate_registry_entry_v2(project_id, {"name": "d", "mode": "local"})
+    assert absent.bound_store_path(project_id) is None
+    present = validate_registry_entry_v2(
+        project_id, {"name": "d", "mode": "local", "store_path": "/tmp/s"}
+    )
+    assert present.bound_store_path(project_id) == Path("/tmp/s")
