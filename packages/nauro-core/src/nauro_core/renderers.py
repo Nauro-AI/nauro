@@ -17,6 +17,9 @@ not-found line plus the ``available_files`` hint.
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Callable
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from nauro_core.bounded_read import render_bounded_file
 from nauro_core.constants import (
@@ -64,46 +67,62 @@ def _error_block(error) -> str:
     return f"Error: {reason}"
 
 
-def _guidance(result: dict) -> str:
-    """Return the envelope's stripped ``guidance`` string, or ``""`` when absent.
-    A non-string value is ignored rather than raised on: a raising renderer would
-    trigger the callers' JSON fallback and bypass the bounded-read guards.
+class _EnvelopePrologue(BaseModel):
+    """The envelope fields every read-tool renderer inspects before its body.
+    A non-string status, reason code or guidance is ignored rather than raised on: a raising
+    renderer would trigger the callers' JSON fallback and bypass the bounded-read guards.
     """
-    guidance = result.get("guidance")
-    if not isinstance(guidance, str):
-        return ""
-    return guidance.strip()
+
+    model_config = ConfigDict(extra="ignore")
+
+    status: str | None = None
+    reason_code: str | None = None
+    guidance: str | None = None
+    error: object = None
+    available_files: list[str] = []
+
+    @field_validator("status", "reason_code", "guidance", mode="before")
+    @classmethod
+    def text_or_none(cls, value: object) -> str | None:
+        return value if isinstance(value, str) else None
+
+    @field_validator("available_files", mode="before")
+    @classmethod
+    def string_entries(cls, value: object) -> list[str]:
+        if not isinstance(value, (list, tuple)):
+            return []
+        return [entry for entry in value if isinstance(entry, str)]
+
+    @property
+    def guidance_text(self) -> str:
+        return (self.guidance or "").strip()
+
+    @property
+    def disconnected_reason_code(self) -> str | None:
+        """The single definition of the disconnected-envelope discriminator."""
+        return self.reason_code if self.status == "error" and self.reason_code else None
+
+    @property
+    def has_error(self) -> bool:
+        return "error" in self.model_fields_set
+
+
+def _prologue(result: dict) -> _EnvelopePrologue:
+    return _EnvelopePrologue.model_validate(result)
 
 
 def disconnected_reason_code(result: dict) -> str | None:
     """Return the reason code when ``result`` is a disconnected-error envelope:
     ``status == "error"`` with a nonempty string ``reason_code``; else None.
-    This is the single definition of the envelope's discriminator.
     """
-    if result.get("status") != "error":
-        return None
-    reason_code = result.get("reason_code")
-    if isinstance(reason_code, str) and reason_code:
-        return reason_code
-    return None
+    return _prologue(result).disconnected_reason_code
 
 
-def _connection_guidance(result: dict) -> str:
-    if disconnected_reason_code(result) is not None:
-        return _guidance(result)
-    return ""
-
-
-def render_check_decision(result: dict) -> str:
+def _check_decision_body(result: dict, prologue: _EnvelopePrologue) -> str:
     """Render a related-decision result for chat-UI consumption. Empty-store and
     zero-hit assessments pass through unchanged; structure comes from
     ``related_decisions``, so the markers survive an assessment-string edit.
     """
-    if guidance := _connection_guidance(result):
-        return guidance
-    if "error" in result:
-        return _error_block(result["error"])
-
     related = result.get("related_decisions") or []
     assessment = result.get("assessment", "")
 
@@ -111,7 +130,7 @@ def render_check_decision(result: dict) -> str:
         # No-project guidance first, then the kernel's NO_DECISIONS_TO_CHECK
         # (empty store) / NO_RELATED_DECISIONS (no keyword match) assessment.
         # The literal fallback only fires if the envelope carries neither.
-        return _guidance(result) or assessment.strip() or NO_RELATED_DECISIONS
+        return prologue.guidance_text or assessment.strip() or NO_RELATED_DECISIONS
 
     lines: list[str] = []
     count = len(related)
@@ -198,19 +217,14 @@ def _extract_call_to_action(assessment: str) -> str:
     return assessment[idx:].strip()
 
 
-def render_get_decision(result: dict, mode: str = "full") -> str:
+def _get_decision_body(result: dict, prologue: _EnvelopePrologue, mode: str = "full") -> str:
     """Render a decision body.
 
     ``mode="full"`` gets a one-line title header; ``mode="header"`` is emitted as-is.
     """
-    if guidance := _connection_guidance(result):
-        return guidance
-    if "error" in result:
-        return _error_block(result["error"])
-
     content = result.get("content", "") or ""
     if not content:
-        guidance = _guidance(result)
+        guidance = prologue.guidance_text
         if guidance:
             return guidance
     if mode == "header":
@@ -238,23 +252,20 @@ def _decision_title_header(body: str) -> str:
     return ""
 
 
-def render_search_decisions(result: dict, query: str | None = None) -> str:
+def _search_decisions_body(
+    result: dict, prologue: _EnvelopePrologue, query: str | None = None
+) -> str:
     """Render BM25 search results. The ``query`` kwarg is display context for the
     header and takes precedence; the envelope's ``query`` key is the fallback for
     transports that carry the echo on the wire.
     """
-    if guidance := _connection_guidance(result):
-        return guidance
-    if "error" in result:
-        return _error_block(result["error"])
-
     query = query if query is not None else result.get("query", "")
     hits = result.get("results") or []
     total = result.get("total_matches", len(hits))
     truncated = bool(result.get("truncated"))
 
     if not hits:
-        return _guidance(result) or f'No matches for "{query}".'
+        return prologue.guidance_text or f'No matches for "{query}".'
 
     lines: list[str] = []
     header = f'Found {total} match{"" if total == 1 else "es"} for "{query}":'
@@ -283,19 +294,14 @@ def render_search_decisions(result: dict, query: str | None = None) -> str:
     return "\n".join(lines).rstrip()
 
 
-def render_list_decisions(result: dict) -> str:
+def _list_decisions_body(result: dict, prologue: _EnvelopePrologue) -> str:
     """Render the project's decision list."""
-    if guidance := _connection_guidance(result):
-        return guidance
-    if "error" in result:
-        return _error_block(result["error"])
-
     decisions = result.get("decisions") or []
     total = result.get("total", len(decisions))
     truncated = bool(result.get("truncated"))
 
     if not decisions:
-        return _guidance(result) or "No decisions recorded yet."
+        return prologue.guidance_text or "No decisions recorded yet."
 
     lines: list[str] = []
     lines.append(f"Decisions ({total} total):")
@@ -315,21 +321,19 @@ def render_list_decisions(result: dict) -> str:
     return "\n".join(lines).rstrip()
 
 
-def render_get_context(result: dict, level: str | int | None = None) -> str:
+def _get_context_body(
+    result: dict, prologue: _EnvelopePrologue, level: str | int | None = None
+) -> str:
     """Render context from either envelope key (remote ``context``, local ``content``);
     an in-budget body passes through rstripped. Over :data:`L2_CHAR_BUDGET` chars the
     size-keyed guard report renders instead on every transport; ``level`` only words it.
     """
-    if guidance := _connection_guidance(result):
-        return guidance
-    if "error" in result:
-        return _error_block(result["error"])
     body = result.get("context") or result.get("content") or ""
     if not isinstance(body, str):
         body = str(body)
     if len(body) > L2_CHAR_BUDGET:
         return _context_guard_report(len(body), level)
-    return body.rstrip() or _guidance(result)
+    return body.rstrip() or prologue.guidance_text
 
 
 def _context_guard_report(size: int, level: str | int | None) -> str:
@@ -350,32 +354,14 @@ def _context_guard_report(size: int, level: str | int | None) -> str:
     )
 
 
-def render_get_raw_file(result: dict, path: str | None = None) -> str:
+def _get_raw_file_body(result: dict, prologue: _EnvelopePrologue, path: str | None = None) -> str:
     """Render a raw-file read. A hit renders via the bounded-read rules; ``path`` is a
     renderer kwarg, never an envelope field. A miss renders the error line, then the
     ``available_files`` hint in the adapter's exact order - a cross-surface contract.
     """
-    if guidance := _connection_guidance(result):
-        return guidance
-    if "error" in result:
-        lines = [_error_block(result["error"])]
-        # Tolerate a malformed hint: a non-list value or non-string entries
-        # are dropped rather than raised on — a raising renderer would fall
-        # back to the full JSON envelope and defeat the bounded render.
-        available = result.get("available_files")
-        hint_paths = (
-            [entry for entry in available if isinstance(entry, str)]
-            if isinstance(available, (list, tuple))
-            else []
-        )
-        if hint_paths:
-            lines.append("")
-            lines.append("Available files:")
-            lines.extend(f"  - {path}" for path in hint_paths)
-        return "\n".join(lines)
     content = result.get("content")
     if content is None:
-        return _guidance(result)
+        return prologue.guidance_text
     if not isinstance(content, str):
         content = str(content)
     if not isinstance(path, str):
@@ -383,20 +369,16 @@ def render_get_raw_file(result: dict, path: str | None = None) -> str:
     return render_bounded_file(content, path)
 
 
-def render_diff_since_last_session(result: dict) -> str:
+def _diff_since_last_session_body(result: dict, prologue: _EnvelopePrologue) -> str:
     """Render a session diff.
 
     The ``diff`` body passes through verbatim; its sentinels are cross-surface contracts.
     """
-    if guidance := _connection_guidance(result):
-        return guidance
-    if "error" in result:
-        return _error_block(result["error"])
     diff = result.get("diff") or ""
-    return diff or _guidance(result)
+    return diff or prologue.guidance_text
 
 
-def render_list_projects(result: dict) -> str:
+def _list_projects_body(result: dict, prologue: _EnvelopePrologue) -> str:
     """Render the user's project list as a short tabular block."""
     projects = result.get("projects") or []
     if not projects:
@@ -416,6 +398,92 @@ def render_list_projects(result: dict) -> str:
     return "\n".join(lines).rstrip()
 
 
+_BODIES: dict[str, Callable[..., str]] = {
+    "check_decision": _check_decision_body,
+    "get_decision": _get_decision_body,
+    "search_decisions": _search_decisions_body,
+    "list_decisions": _list_decisions_body,
+    "get_context": _get_context_body,
+    "get_raw_file": _get_raw_file_body,
+    "diff_since_last_session": _diff_since_last_session_body,
+    "list_projects": _list_projects_body,
+}
+
+
+def _error_line(prologue: _EnvelopePrologue) -> str:
+    return _error_block(prologue.error)
+
+
+def _error_with_available_files(prologue: _EnvelopePrologue) -> str:
+    """The error line, then the ``available_files`` hint in the adapter's exact order."""
+    lines = [_error_block(prologue.error)]
+    if prologue.available_files:
+        lines.append("")
+        lines.append("Available files:")
+        lines.extend(f"  - {path}" for path in prologue.available_files)
+    return "\n".join(lines)
+
+
+# Tools whose error envelope carries more than the error line.
+_ERROR_RENDERERS: dict[str, Callable[[_EnvelopePrologue], str]] = {
+    "get_raw_file": _error_with_available_files,
+}
+
+
+def render(tool: str, result: dict, **options: object) -> str:
+    """Render one read-tool envelope: disconnected guidance, then an error, then the body."""
+    try:
+        body = _BODIES[tool]
+    except KeyError:
+        raise ValueError(f"no renderer for tool {tool!r}") from None
+    prologue = _prologue(result)
+    if prologue.disconnected_reason_code is not None and prologue.guidance_text:
+        return prologue.guidance_text
+    if prologue.has_error:
+        return _ERROR_RENDERERS.get(tool, _error_line)(prologue)
+    return body(result, prologue, **options)
+
+
+def render_check_decision(result: dict) -> str:
+    """Render a related-decision result for chat-UI consumption."""
+    return render("check_decision", result)
+
+
+def render_get_decision(result: dict, mode: str = "full") -> str:
+    """Render a decision body; ``mode="header"`` is emitted as-is."""
+    return render("get_decision", result, mode=mode)
+
+
+def render_search_decisions(result: dict, query: str | None = None) -> str:
+    """Render BM25 search results; ``query`` is display context for the header."""
+    return render("search_decisions", result, query=query)
+
+
+def render_list_decisions(result: dict) -> str:
+    """Render the project's decision list."""
+    return render("list_decisions", result)
+
+
+def render_get_context(result: dict, level: str | int | None = None) -> str:
+    """Render context from either envelope key; ``level`` only words a guard report."""
+    return render("get_context", result, level=level)
+
+
+def render_get_raw_file(result: dict, path: str | None = None) -> str:
+    """Render a raw-file read; ``path`` is a renderer kwarg, never an envelope field."""
+    return render("get_raw_file", result, path=path)
+
+
+def render_diff_since_last_session(result: dict) -> str:
+    """Render a session diff; the body passes through verbatim."""
+    return render("diff_since_last_session", result)
+
+
+def render_list_projects(result: dict) -> str:
+    """Render the user's project list as a short tabular block."""
+    return render("list_projects", result)
+
+
 # Renderer registry used by the dispatcher: every read tool renders a
 # single human-readable text block through it.
 RENDERERS = {
@@ -432,6 +500,7 @@ RENDERERS = {
 
 __all__ = [
     "RENDERERS",
+    "render",
     "disconnected_reason_code",
     "render_check_decision",
     "render_diff_since_last_session",
