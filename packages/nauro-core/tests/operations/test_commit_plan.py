@@ -810,208 +810,36 @@ def test_final_plan_constructor_rejects_tampered_record_bytes() -> None:
         plan.__class__(**fields)
 
 
-_FACADE_NAME_MANIFEST = (
-    "AbsentContentClaimObservation",
-    "AbsentContentClaimProbe",
-    "AbsentTitleClaimObservation",
-    "AbsentTitleClaimProbe",
-    "Annotated",
-    "ApprovalAttestation",
-    "ApprovalAttestationRejected",
-    "ApprovedBaseStale",
-    "ApprovedPayload",
-    "ApprovedPayloadDigestMismatch",
-    "BaseModel",
-    "CanonicalPayloadRejected",
-    "ClaimIntent",
-    "ClaimIntents",
-    "ClaimObservation",
-    "ClaimObservationError",
-    "ClaimProbe",
-    "ClaimUnavailable",
-    "CommittedArtifact",
-    "CommittedContentClaimObservation",
-    "CommittedGeneration",
-    "CommittedGenerationCorrupt",
-    "CommittedTitleClaimObservation",
-    "ConfigDict",
-    "ContentClaimConflict",
-    "Decision",
-    "DecisionConfidence",
-    "DecisionProvenance",
-    "DecisionSource",
-    "DecisionType",
-    "DuplicateClaimObservation",
-    "ErrorPayload",
-    "Field",
-    "FinalizedClaimPlan",
-    "HostedPreTeamApprovalPayloadV1",
-    "IdentifierKind",
-    "JudgmentCommitError",
-    "JudgmentCommitPlan",
-    "JudgmentContent",
-    "Literal",
-    "MAX_RATIONALE_LENGTH",
-    "MAX_TITLE_LENGTH",
-    "MalformedClaimObservation",
-    "Mapping",
-    "MismatchedClaimObservation",
-    "MissingClaimObservation",
-    "OpenQuestionsFile",
-    "OwnedTitleClaimProbe",
-    "PlannedArtifact",
-    "PlannedSnapshot",
-    "PreTeamApprovalAttestation",
-    "PreparedBase",
-    "PreparedJudgmentCommit",
-    "PrimaryDecision",
-    "ProposalEvaluation",
-    "ProposalRejected",
-    "ProposeDecisionResult",
-    "RejectedAlternative",
-    "RejectedSelection",
-    "RelatedDecision",
-    "Reversibility",
-    "Sequence",
-    "StrictInt",
-    "StrictStr",
-    "TeamProposalPayloadV1",
-    "TeamRatificationAttestation",
-    "TitleClaimConflict",
-    "TypeAdapter",
-    "TypeAlias",
-    "UnavailableContentClaimObservation",
-    "UnavailableTitleClaimObservation",
-    "UnexpectedClaimObservation",
-    "ValidationError",
-    "_CommittedResultProjection",
-    "_FrozenModel",
-    "_ImmutableResultList",
-    "_OBSERVATION_ADAPTER",
-    "_PAYLOAD_ADAPTER",
-    "_SHA256_HEX_LENGTH",
+_CONTRACT_HELPERS = (
     "_artifact_inventory",
-    "_build_artifacts",
-    "_claim_contract",
-    "_decision_number_prefix",
-    "_derive_snapshot_bytes",
-    "_observation_key",
-    "_parse_committed_generation",
-    "_parse_payload",
-    "_plan_record",
-    "_probe_key",
-    "_provenance",
+    "build_claim_contract",
+    "derive_snapshot_bytes",
+    "observation_key",
+    "parse_payload",
+    "build_plan_record",
+    "probe_key",
+    "derive_provenance",
     "_reject_duplicate_keys",
-    "_rejected_result",
-    "_sha256",
-    "_target",
+    "sha256_hex",
     "_validate_normalized_title",
-    "_validate_observation",
-    "_validate_sha256",
-    "annotations",
-    "append_decision_update",
-    "attach_supersedes",
-    "build_new_decision",
+    "validate_observation",
+    "validate_sha256",
     "canonical_judgment_payload_bytes",
-    "compute_hash",
-    "computed_field",
-    "date",
-    "evaluate_parsed_proposal",
-    "field_validator",
-    "finalize_judgment_commit",
-    "format_decision",
-    "hashlib",
-    "is_hosted_snapshot_content_member",
-    "json",
-    "mark_superseded",
-    "model_validator",
-    "normalize_title",
-    "parse_decision",
-    "prepare_judgment_commit",
-    "resolve_questions_content",
-    "serialize_snapshot",
-    "slugify_decision_title",
-    "validate_commit_sha",
-    "validate_identifier",
-    "validate_proposal_request",
-    "validate_protected_generation_path",
-    "validate_utc_timestamp",
 )
 
-_FACADE_DEFINED_CLASSES = (
-    "AbsentContentClaimObservation",
-    "AbsentContentClaimProbe",
-    "AbsentTitleClaimObservation",
-    "AbsentTitleClaimProbe",
-    "ApprovalAttestationRejected",
-    "ApprovedBaseStale",
-    "ApprovedPayloadDigestMismatch",
-    "CanonicalPayloadRejected",
-    "ClaimIntent",
-    "ClaimIntents",
-    "ClaimObservationError",
-    "ClaimUnavailable",
-    "CommittedArtifact",
-    "CommittedContentClaimObservation",
-    "CommittedGeneration",
-    "CommittedGenerationCorrupt",
-    "CommittedTitleClaimObservation",
-    "ContentClaimConflict",
-    "DuplicateClaimObservation",
-    "FinalizedClaimPlan",
-    "HostedPreTeamApprovalPayloadV1",
-    "JudgmentCommitError",
-    "JudgmentCommitPlan",
-    "JudgmentContent",
-    "MalformedClaimObservation",
-    "MismatchedClaimObservation",
-    "MissingClaimObservation",
-    "OwnedTitleClaimProbe",
-    "PlannedArtifact",
-    "PlannedSnapshot",
-    "PreTeamApprovalAttestation",
-    "PreparedBase",
-    "PreparedJudgmentCommit",
-    "PrimaryDecision",
-    "ProposalRejected",
-    "RejectedSelection",
-    "TeamProposalPayloadV1",
-    "TeamRatificationAttestation",
-    "TitleClaimConflict",
-    "UnavailableContentClaimObservation",
-    "UnavailableTitleClaimObservation",
-    "UnexpectedClaimObservation",
-    "_CommittedResultProjection",
-    "_FrozenModel",
-    "_ImmutableResultList",
-)
-
-_FACADE_DEFINED_FUNCTIONS = (
-    "_artifact_inventory",
+_PREPARE_HELPERS = (
     "_build_artifacts",
-    "_claim_contract",
-    "_derive_snapshot_bytes",
-    "_observation_key",
     "_parse_committed_generation",
-    "_parse_payload",
-    "_plan_record",
-    "_probe_key",
-    "_provenance",
-    "_reject_duplicate_keys",
     "_rejected_result",
-    "_sha256",
     "_target",
-    "_validate_normalized_title",
-    "_validate_observation",
-    "_validate_sha256",
-    "canonical_judgment_payload_bytes",
-    "finalize_judgment_commit",
     "prepare_judgment_commit",
 )
+
+_FINALIZE_HELPERS = ("finalize_judgment_commit",)
 
 _MOVED_FUNCTION_METADATA = {
     "_reject_duplicate_keys": ("(pairs: 'list[tuple[str, object]]') -> 'dict[str, object]'", None),
-    "_parse_payload": ("(payload_bytes: 'bytes') -> 'ApprovedPayload'", None),
+    "parse_payload": ("(payload_bytes: 'bytes') -> 'ApprovedPayload'", None),
     "_parse_committed_generation": (
         "(generation: 'CommittedGeneration') -> "
         "'tuple[dict[str, bytes], list[Decision], dict[int, str]]'",
@@ -1027,12 +855,12 @@ _MOVED_FUNCTION_METADATA = {
         "stems_by_number: 'dict[int, str]') -> 'tuple[Decision | None, str | None]'",
         None,
     ),
-    "_provenance": (
+    "derive_provenance": (
         "(payload: 'ApprovedPayload', attestation: 'ApprovalAttestation') -> "
         "'tuple[str, DecisionProvenance | None]'",
         None,
     ),
-    "_derive_snapshot_bytes": (
+    "derive_snapshot_bytes": (
         "(artifacts: 'tuple[PlannedArtifact, ...]', *, payload: 'ApprovedPayload', "
         "effective_at: 'str', "
         "snapshot_format: \"Literal['serialized', 'references']\" = 'serialized') -> 'bytes'",
@@ -1048,7 +876,7 @@ _MOVED_FUNCTION_METADATA = {
         "PrimaryDecision, ProposeDecisionResult, int | None, int, Decision]'",
         None,
     ),
-    "_claim_contract": (
+    "build_claim_contract": (
         "(operation: 'str', target: 'Decision | None', primary: 'Decision') -> "
         "'tuple[tuple[ClaimProbe, ...], ClaimIntents]'",
         None,
@@ -1061,12 +889,12 @@ _MOVED_FUNCTION_METADATA = {
         "-> 'PreparedJudgmentCommit'",
         "Prepare immutable artifacts and semantic claim reads without I/O.",
     ),
-    "_probe_key": ("(probe: 'ClaimProbe') -> 'tuple[str, str]'", None),
-    "_observation_key": (
+    "probe_key": ("(probe: 'ClaimProbe') -> 'tuple[str, str]'", None),
+    "observation_key": (
         "(observation: 'ClaimObservation') -> 'tuple[str, str]'",
         None,
     ),
-    "_validate_observation": (
+    "validate_observation": (
         "(probe: 'ClaimProbe', observation: 'ClaimObservation') -> 'None'",
         None,
     ),
@@ -1074,7 +902,7 @@ _MOVED_FUNCTION_METADATA = {
         "(prepared: 'PreparedJudgmentCommit') -> 'dict[str, object]'",
         None,
     ),
-    "_plan_record": (
+    "build_plan_record": (
         "(prepared: 'PreparedJudgmentCommit', observations: "
         "'tuple[ClaimObservation, ...]') -> 'bytes'",
         None,
@@ -1110,17 +938,32 @@ def _observations_for(prepared):
     return observations
 
 
-def test_commit_plan_facade_manifest_and_module_identity_are_stable() -> None:
+def test_commit_plan_facade_exports_only_contract_and_phase_entry_points() -> None:
     import inspect
 
     import nauro_core.operations.commit_plan as contract
-    from nauro_core.operations import _commit_finalize, _commit_prepare
+    from nauro_core.operations import _commit_contract, _commit_finalize, _commit_prepare
+    from nauro_core.operations._decision_transitions import DecisionProvenance
 
-    assert tuple(sorted(name for name in vars(contract) if not name.startswith("__"))) == (
-        _FACADE_NAME_MANIFEST
-    )
-    for name in _FACADE_DEFINED_CLASSES + _FACADE_DEFINED_FUNCTIONS:
-        assert getattr(contract, name).__module__ == contract.__name__
+    exported = sorted(name for name in vars(contract) if not name.startswith("_"))
+    assert exported == sorted(contract.__all__)
+    assert "prepare_judgment_commit" in exported and "finalize_judgment_commit" in exported
+    assert contract.prepare_judgment_commit is _commit_prepare.prepare_judgment_commit
+    assert contract.finalize_judgment_commit is _commit_finalize.finalize_judgment_commit
+    for name in exported:
+        value = getattr(contract, name)
+        if value is DecisionProvenance:
+            continue
+        if inspect.isclass(value):
+            assert value.__module__ == _commit_contract.__name__, name
+        elif inspect.isfunction(value):
+            owner = {
+                "prepare_judgment_commit": _commit_prepare,
+                "finalize_judgment_commit": _commit_finalize,
+            }.get(name, _commit_contract)
+            assert value.__module__ == owner.__name__, name
+        else:
+            assert value is getattr(_commit_contract, name), name
     for private_module in (_commit_prepare, _commit_finalize):
         assert not [
             name
@@ -1132,12 +975,15 @@ def test_commit_plan_facade_manifest_and_module_identity_are_stable() -> None:
 def test_commit_plan_moved_function_metadata_is_stable() -> None:
     import inspect
 
-    import nauro_core.operations.commit_plan as contract
+    from nauro_core.operations import _commit_contract, _commit_finalize, _commit_prepare
 
+    owners = {name: _commit_contract for name in _CONTRACT_HELPERS}
+    owners.update({name: _commit_prepare for name in _PREPARE_HELPERS})
+    owners.update({name: _commit_finalize for name in _FINALIZE_HELPERS})
     actual = {
         name: (
-            str(inspect.signature(getattr(contract, name))),
-            inspect.getdoc(getattr(contract, name)),
+            str(inspect.signature(getattr(owners[name], name))),
+            inspect.getdoc(getattr(owners[name], name)),
         )
         for name in _MOVED_FUNCTION_METADATA
     }
@@ -1355,10 +1201,32 @@ def _facade_model_contract_projection(contract):
     return models
 
 
-def test_commit_plan_facade_model_contract_digest_is_stable() -> None:
-    import nauro_core.operations.commit_plan as contract
+def _with_module(value, *, source: str, target: str):
+    """Rewrite every ``module`` key equal to ``source`` into ``target``, recursively."""
+    if isinstance(value, dict):
+        return {
+            key: (
+                target
+                if key == "module" and item == source
+                else _with_module(item, source=source, target=target)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_with_module(item, source=source, target=target) for item in value]
+    return value
 
-    projection = _facade_model_contract_projection(contract)
+
+def test_commit_plan_facade_model_contract_digest_is_stable() -> None:
+    import nauro_core.operations.commit_plan as facade
+    from nauro_core.operations import _commit_contract
+
+    # The digest pins model shape, not location: module keys normalize to the facade.
+    projection = _with_module(
+        _facade_model_contract_projection(_commit_contract),
+        source=_commit_contract.__name__,
+        target=facade.__name__,
+    )
     projection_bytes = json.dumps(
         projection,
         sort_keys=True,
@@ -1400,61 +1268,9 @@ def test_commit_plan_facade_model_contract_digest_is_stable() -> None:
     )
 
 
-@pytest.mark.parametrize("operation", ["add", "supersede"])
-def test_private_implementation_matches_facade_for_two_phase_plans(operation: str) -> None:
-    import nauro_core.operations.commit_plan as contract
-    from nauro_core.operations import _commit_finalize, _commit_prepare
-
-    if operation == "add":
-        generation = _generation(("project.md", b"# Test\n"), counter=4)
-        payload = _preteam_payload(generation)
-    else:
-        existing = _decision(3, "Existing decision")
-        generation = _generation(existing, counter=8)
-        target = existing[0].removeprefix("decisions/").removesuffix(".md")
-        payload = _preteam_payload(
-            generation,
-            operation="supersede",
-            target=target,
-            title="Replacement decision",
-        )
-    attestation = _preteam_attestation()
-    facade_prepared = contract.prepare_judgment_commit(payload, attestation, generation)
-    private_prepared = _commit_prepare.prepare_judgment_commit_impl(
-        payload,
-        attestation,
-        generation,
-    )
-
-    assert private_prepared == facade_prepared
-    assert private_prepared.payload_bytes == facade_prepared.payload_bytes
-    assert private_prepared.payload_digest == facade_prepared.payload_digest
-    assert private_prepared.planned_artifacts == facade_prepared.planned_artifacts
-    assert private_prepared.snapshot == facade_prepared.snapshot
-    assert private_prepared.claim_probes == facade_prepared.claim_probes
-    assert private_prepared.claim_intents == facade_prepared.claim_intents
-    assert private_prepared.committed_result == facade_prepared.committed_result
-
-    observations = _observations_for(facade_prepared)
-    facade_plan = contract.finalize_judgment_commit(
-        facade_prepared,
-        list(reversed(observations)),
-    )
-    private_plan = _commit_finalize.finalize_judgment_commit_impl(
-        private_prepared,
-        list(reversed(observations)),
-    )
-
-    assert private_plan == facade_plan
-    assert private_plan.validated_claim_observations == tuple(observations)
-    assert private_plan.claim_plan == facade_plan.claim_plan
-    assert private_plan.plan_record_bytes == facade_plan.plan_record_bytes
-    assert private_plan.plan_record_digest == facade_plan.plan_record_digest
-    assert private_plan.committed_result == facade_plan.committed_result
-
-
 def test_prepare_validation_precedence_survives_delegation(monkeypatch) -> None:
     import nauro_core.operations.commit_plan as contract
+    from nauro_core.operations import _commit_prepare
 
     generation = _generation(("project.md", b"# Test\n"), counter=2)
     with pytest.raises(ApprovedPayloadDigestMismatch):
@@ -1468,7 +1284,7 @@ def test_prepare_validation_precedence_survives_delegation(monkeypatch) -> None:
     raw = json.loads(_preteam_payload(generation))
     raw["base_generation_id"] = PROPOSAL_ID
     monkeypatch.setattr(
-        contract,
+        _commit_prepare,
         "_parse_committed_generation",
         lambda value: pytest.fail("committed generation parsed before stale-base rejection"),
     )
@@ -1564,7 +1380,8 @@ def test_commit_plan_import_order_is_cycle_free_in_clean_subprocess(
         "import importlib, pickle\n"
         f"modules = [importlib.import_module(name) for name in {module_order!r}]\n"
         "contract = importlib.import_module('nauro_core.operations.commit_plan')\n"
-        "assert contract.PreparedJudgmentCommit.__module__ == contract.__name__\n"
+        "assert contract.PreparedJudgmentCommit.__module__ == "
+        "'nauro_core.operations._commit_contract'\n"
         "assert pickle.loads(pickle.dumps(contract.prepare_judgment_commit)) is "
         "contract.prepare_judgment_commit\n"
     )

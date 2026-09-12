@@ -278,7 +278,7 @@
     },
     "nauro_core.operations.commit_plan.AbsentContentClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "content_hash": "str",
@@ -286,12 +286,12 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "AbsentContentClaimObservation"
     },
     "nauro_core.operations.commit_plan.AbsentContentClaimProbe": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "content_hash": "str",
@@ -299,12 +299,12 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "AbsentContentClaimProbe"
     },
     "nauro_core.operations.commit_plan.AbsentTitleClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "kind": "Literal['absent_title']",
@@ -312,12 +312,12 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "AbsentTitleClaimObservation"
     },
     "nauro_core.operations.commit_plan.AbsentTitleClaimProbe": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "kind": "Literal['absent_title']",
@@ -325,43 +325,43 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "AbsentTitleClaimProbe"
     },
     "nauro_core.operations.commit_plan.ApprovalAttestation": {
       "kind": "union",
       "members": [
-        "nauro_core.operations.commit_plan.PreTeamApprovalAttestation",
-        "nauro_core.operations.commit_plan.TeamRatificationAttestation"
+        "nauro_core.operations._commit_contract.PreTeamApprovalAttestation",
+        "nauro_core.operations._commit_contract.TeamRatificationAttestation"
       ]
     },
     "nauro_core.operations.commit_plan.ApprovalAttestationRejected": {
       "bases": [
-        "nauro_core.operations.commit_plan.JudgmentCommitError"
+        "nauro_core.operations._commit_contract.JudgmentCommitError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "ApprovalAttestationRejected"
     },
     "nauro_core.operations.commit_plan.ApprovedBaseStale": {
       "bases": [
-        "nauro_core.operations.commit_plan.JudgmentCommitError"
+        "nauro_core.operations._commit_contract.JudgmentCommitError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "ApprovedBaseStale"
     },
     "nauro_core.operations.commit_plan.CanonicalPayloadRejected": {
       "bases": [
-        "nauro_core.operations.commit_plan.JudgmentCommitError"
+        "nauro_core.operations._commit_contract.JudgmentCommitError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "CanonicalPayloadRejected"
     },
     "nauro_core.operations.commit_plan.ClaimIntent": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "content_hash": "None | str",
@@ -373,7 +373,7 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "ClaimIntent"
     },
     "nauro_core.operations.commit_plan.ClaimObservation": {
@@ -386,15 +386,15 @@
     },
     "nauro_core.operations.commit_plan.ClaimUnavailable": {
       "bases": [
-        "nauro_core.operations.commit_plan.ClaimObservationError"
+        "nauro_core.operations._commit_contract.ClaimObservationError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "ClaimUnavailable"
     },
     "nauro_core.operations.commit_plan.CommittedArtifact": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "content": "bytes",
@@ -403,12 +403,12 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "CommittedArtifact"
     },
     "nauro_core.operations.commit_plan.CommittedContentClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "content_hash": "str",
@@ -416,35 +416,35 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "CommittedContentClaimObservation"
     },
     "nauro_core.operations.commit_plan.CommittedGeneration": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
-        "artifacts": "tuple[nauro_core.operations.commit_plan.CommittedArtifact, Ellipsis]",
+        "artifacts": "tuple[nauro_core.operations._commit_contract.CommittedArtifact, Ellipsis]",
         "decision_counter": "int",
         "generation_id": "str",
         "observed_manifest_digest": "str"
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "CommittedGeneration"
     },
     "nauro_core.operations.commit_plan.CommittedGenerationCorrupt": {
       "bases": [
-        "nauro_core.operations.commit_plan.JudgmentCommitError"
+        "nauro_core.operations._commit_contract.JudgmentCommitError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "CommittedGenerationCorrupt"
     },
     "nauro_core.operations.commit_plan.CommittedTitleClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "kind": "Literal['committed_title']",
@@ -453,15 +453,15 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "CommittedTitleClaimObservation"
     },
     "nauro_core.operations.commit_plan.ContentClaimConflict": {
       "bases": [
-        "nauro_core.operations.commit_plan.ClaimObservationError"
+        "nauro_core.operations._commit_contract.ClaimObservationError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "ContentClaimConflict"
     },
     "nauro_core.operations.commit_plan.DecisionProvenance": {
@@ -481,85 +481,85 @@
     },
     "nauro_core.operations.commit_plan.DuplicateClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan.ClaimObservationError"
+        "nauro_core.operations._commit_contract.ClaimObservationError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "DuplicateClaimObservation"
     },
     "nauro_core.operations.commit_plan.FinalizedClaimPlan": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
-        "entry": "tuple[nauro_core.operations.commit_plan.ClaimIntent, Ellipsis]",
-        "publication": "tuple[nauro_core.operations.commit_plan.ClaimIntent, Ellipsis]"
+        "entry": "tuple[nauro_core.operations._commit_contract.ClaimIntent, Ellipsis]",
+        "publication": "tuple[nauro_core.operations._commit_contract.ClaimIntent, Ellipsis]"
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "FinalizedClaimPlan"
     },
     "nauro_core.operations.commit_plan.HostedPreTeamApprovalPayloadV1": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "approval_mode": "Literal['pre_team_session']",
         "base_decision_counter": "int",
         "base_generation_id": "str",
-        "content": "nauro_core.operations.commit_plan.JudgmentContent",
+        "content": "nauro_core.operations._commit_contract.JudgmentContent",
         "payload_schema": "Literal['nauro.judgment_commit.pre_team.v1']",
         "proposed_base_commit": "None"
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "HostedPreTeamApprovalPayloadV1"
     },
     "nauro_core.operations.commit_plan.JudgmentCommitPlan": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
-        "claim_plan": "nauro_core.operations.commit_plan.FinalizedClaimPlan",
+        "claim_plan": "nauro_core.operations._commit_contract.FinalizedClaimPlan",
         "plan_record_bytes": "bytes",
-        "prepared": "nauro_core.operations.commit_plan.PreparedJudgmentCommit",
+        "prepared": "nauro_core.operations._commit_contract.PreparedJudgmentCommit",
         "schema_version": "Literal[1]",
-        "validated_claim_observations": "tuple[nauro_core.operations.commit_plan.AbsentContentClaimObservation | nauro_core.operations.commit_plan.AbsentTitleClaimObservation | nauro_core.operations.commit_plan.CommittedContentClaimObservation | nauro_core.operations.commit_plan.CommittedTitleClaimObservation | nauro_core.operations.commit_plan.UnavailableContentClaimObservation | nauro_core.operations.commit_plan.UnavailableTitleClaimObservation, Ellipsis]"
+        "validated_claim_observations": "tuple[nauro_core.operations._commit_contract.AbsentContentClaimObservation | nauro_core.operations._commit_contract.AbsentTitleClaimObservation | nauro_core.operations._commit_contract.CommittedContentClaimObservation | nauro_core.operations._commit_contract.CommittedTitleClaimObservation | nauro_core.operations._commit_contract.UnavailableContentClaimObservation | nauro_core.operations._commit_contract.UnavailableTitleClaimObservation, Ellipsis]"
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "JudgmentCommitPlan"
     },
     "nauro_core.operations.commit_plan.MalformedClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan.ClaimObservationError"
+        "nauro_core.operations._commit_contract.ClaimObservationError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "MalformedClaimObservation"
     },
     "nauro_core.operations.commit_plan.MismatchedClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan.ClaimObservationError"
+        "nauro_core.operations._commit_contract.ClaimObservationError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "MismatchedClaimObservation"
     },
     "nauro_core.operations.commit_plan.MissingClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan.ClaimObservationError"
+        "nauro_core.operations._commit_contract.ClaimObservationError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "MissingClaimObservation"
     },
     "nauro_core.operations.commit_plan.OwnedTitleClaimProbe": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "expected_owner_decision_number": "int",
@@ -568,12 +568,12 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "OwnedTitleClaimProbe"
     },
     "nauro_core.operations.commit_plan.PreTeamApprovalAttestation": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "actor_id": "str",
@@ -582,12 +582,12 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "PreTeamApprovalAttestation"
     },
     "nauro_core.operations.commit_plan.PreparedBase": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "decision_counter": "int",
@@ -596,12 +596,12 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "PreparedBase"
     },
     "nauro_core.operations.commit_plan.PrimaryDecision": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "decision_id": "str",
@@ -610,28 +610,28 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "PrimaryDecision"
     },
     "nauro_core.operations.commit_plan.ProposalRejected": {
       "bases": [
-        "nauro_core.operations.commit_plan.JudgmentCommitError"
+        "nauro_core.operations._commit_contract.JudgmentCommitError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "ProposalRejected"
     },
     "nauro_core.operations.commit_plan.TitleClaimConflict": {
       "bases": [
-        "nauro_core.operations.commit_plan.ClaimObservationError"
+        "nauro_core.operations._commit_contract.ClaimObservationError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "TitleClaimConflict"
     },
     "nauro_core.operations.commit_plan.UnavailableContentClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "content_hash": "str",
@@ -640,12 +640,12 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "UnavailableContentClaimObservation"
     },
     "nauro_core.operations.commit_plan.UnavailableTitleClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan._FrozenModel"
+        "nauro_core.operations._commit_contract._FrozenModel"
       ],
       "fields": {
         "kind": "Literal['unavailable_title']",
@@ -654,32 +654,32 @@
       },
       "frozen": true,
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "UnavailableTitleClaimObservation"
     },
     "nauro_core.operations.commit_plan.UnexpectedClaimObservation": {
       "bases": [
-        "nauro_core.operations.commit_plan.ClaimObservationError"
+        "nauro_core.operations._commit_contract.ClaimObservationError"
       ],
       "kind": "class",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "UnexpectedClaimObservation"
     },
     "nauro_core.operations.commit_plan.canonical_judgment_payload_bytes": {
       "kind": "function",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_contract",
       "qualname": "canonical_judgment_payload_bytes",
       "signature": "(payload: Mapping[str, object]) -> bytes"
     },
     "nauro_core.operations.commit_plan.finalize_judgment_commit": {
       "kind": "function",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_finalize",
       "qualname": "finalize_judgment_commit",
       "signature": "(prepared: PreparedJudgmentCommit, claim_observations: Sequence[ClaimObservation | Mapping[str, object]]) -> JudgmentCommitPlan"
     },
     "nauro_core.operations.commit_plan.prepare_judgment_commit": {
       "kind": "function",
-      "module": "nauro_core.operations.commit_plan",
+      "module": "nauro_core.operations._commit_prepare",
       "qualname": "prepare_judgment_commit",
       "signature": "(payload_bytes: bytes, approval_attestation: ApprovalAttestation, committed_generation: CommittedGeneration, expected_payload_digest: str | None = None, *, snapshot_format: Literal['serialized', 'references'] = 'serialized') -> PreparedJudgmentCommit"
     },
