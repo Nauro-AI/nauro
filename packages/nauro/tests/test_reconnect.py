@@ -194,3 +194,17 @@ def test_reconnect_without_repo_config_does_not_adopt(tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "No Nauro project config found" in result.output
     assert registry.load_registry_v2()["projects"] == {}
+
+
+def test_reconnect_reports_an_unreadable_mcp_config_instead_of_the_setup_hint(tmp_path, capsys):
+    """An unreadable .mcp.json is named on stderr; it is never read as "unwired"."""
+    from nauro.cli.commands.reconnect import _echo_setup_hint_if_unwired
+
+    repo = _local_repo(tmp_path)
+    (repo / ".mcp.json").write_bytes(b"\xff\xfe not utf-8")
+
+    _echo_setup_hint_if_unwired(repo)
+
+    captured = capsys.readouterr()
+    assert f"Could not read {repo / '.mcp.json'}" in captured.err
+    assert "Next: run" not in captured.out

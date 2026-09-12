@@ -45,7 +45,10 @@ def _echo_setup_hint_if_unwired(repo_root: Path) -> None:
     Wiring is machine-local, so a fresh clone lands connected but unwired. The probe is
     read-only and soft-failing, and a wired repo stays silent.
     """
-    if recorded_mcp_commands(repo_root):
+    wiring = recorded_mcp_commands(repo_root)
+    for failure in wiring.unreadable:
+        typer.echo(f"Could not read {failure.path}: {failure.reason}", err=True)
+    if wiring.unreadable or wiring.wired:
         return
     typer.echo("Next: run 'nauro setup all' to wire this machine's agents.")
 

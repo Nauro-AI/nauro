@@ -91,6 +91,7 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
             "probed": False,
             "healthy": None,
             "untrusted_commands": 0,
+            "unreadable": [],
         },
         # No hooks configured: completeness is not applicable.
         "codex_hooks": {
@@ -100,6 +101,7 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
             "probed": False,
             "healthy": None,
             "untrusted_commands": 0,
+            "unreadable": [],
         },
         "skills": {
             "core": {
@@ -111,13 +113,15 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
                 "codex": _absent_counts(len(OPT_IN_SKILL_NAMES)),
             },
             "legacy_codex_copies": 0,
+            "unreadable": [],
         },
         "workflow_agents": {
             "claude": _absent_counts(len(AGENT_NAMES)),
             "cursor": _absent_counts(len(AGENT_NAMES)),
             "codex": _absent_counts(len(AGENT_NAMES)),
+            "unreadable": [],
         },
-        "agents_md": {"repo_count": 1, "generated_repos": 0},
+        "agents_md": {"repo_count": 1, "generated_repos": 0, "unreadable": []},
         # Local-only project: no remote comparison. The scaffold seeds one
         # decision.
         "decisions": {
@@ -370,7 +374,21 @@ def test_status_json_counts_untrusted_commands_and_never_probes_them(tmp_path, m
         "probed": False,
         "healthy": None,
         "untrusted_commands": 1,
+        "unreadable": [],
     }
     assert payload["codex_hooks"]["untrusted_commands"] == 1
     assert payload["codex_hooks"]["probed"] is False
     assert payload["codex_hooks"]["healthy"] is None
+
+
+def test_status_json_names_the_files_it_could_not_read(tmp_path, monkeypatch):
+    """An unreadable wiring file is listed under its section instead of counting as unwired."""
+    _, repo = _setup_project(tmp_path, monkeypatch)
+    (repo / ".mcp.json").write_bytes(b"\xff\xfe not utf-8")
+
+    result = runner.invoke(app, ["status", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["mcp"]["unreadable"] == [str(repo / ".mcp.json")]
+    assert payload["mcp"]["wired_repos"] == 0
+    assert payload["codex_hooks"]["unreadable"] == []

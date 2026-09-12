@@ -12,6 +12,7 @@ from tomlkit.items import InlineTable
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.setup.outcomes import CodexConfigKind, CodexConfigOutcome
 from nauro.store._atomic import atomic_write_text
+from nauro.store.local_files import UnreadableFileError
 from nauro.store.write_safety import find_file_symlink
 
 
@@ -156,8 +157,8 @@ def _configure_codex(
 
 def recorded_codex_command() -> tuple[bool, str | None]:
     """Return ``(wired, recorded command)`` for the user-global Codex config.
-    ``(True, None)`` means a nauro entry exists but records no usable command. Any read or parse
-    failure counts as not wired.
+    ``(True, None)`` means a nauro entry exists but records no usable command. A missing config
+    is not wired; one that cannot be read or parsed raises UnreadableFileError.
     """
     import sys
 
@@ -166,11 +167,14 @@ def recorded_codex_command() -> tuple[bool, str | None]:
     else:
         import tomli as tomllib
 
+    path = codex_config_path()
     try:
-        with codex_config_path().open("rb") as f:
+        with path.open("rb") as f:
             config = tomllib.load(f)
-    except Exception:
+    except (FileNotFoundError, NotADirectoryError):
         return (False, None)
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise UnreadableFileError(path, str(exc)) from exc
     servers = config.get("mcp_servers")
     if not isinstance(servers, dict) or "nauro" not in servers:
         return (False, None)

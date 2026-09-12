@@ -278,8 +278,9 @@ def test_status_agents_md_without_footer_counts_not_generated(tmp_path, monkeypa
     assert "AGENTS.md     inactive - run 'nauro sync'" in result.output
 
 
-def test_status_corrupt_mcp_config_soft_fails(tmp_path, monkeypatch):
-    """Unparseable wiring configs count as unwired; status never crashes."""
+def test_status_unparseable_mcp_configs_render_unknown_not_unwired(tmp_path, monkeypatch):
+    """A wiring config that exists but cannot be parsed is reported as unknown with its
+    path; the setup remedy would be wrong advice. Status still exits 0."""
     _setup_project(tmp_path, monkeypatch)
     (tmp_path / ".mcp.json").write_text("{not valid json")
     codex_config = tmp_path / "codex-home" / "config.toml"
@@ -288,7 +289,74 @@ def test_status_corrupt_mcp_config_soft_fails(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "MCP           inactive - run 'nauro setup all'" in result.output
+    assert f"MCP           unknown - could not read {tmp_path / '.mcp.json'}" in result.output
+    assert "(+1 more)" in result.output
+    assert "MCP           inactive" not in result.output
+
+
+def test_status_unreadable_agents_md_is_unknown_not_hand_written(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    (tmp_path / "AGENTS.md").mkdir()
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert f"AGENTS.md     unknown - could not read {tmp_path / 'AGENTS.md'}" in result.output
+    assert "AGENTS.md     inactive" not in result.output
+
+
+def test_status_unreadable_codex_hooks_is_unknown_not_inactive(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    hooks = tmp_path / ".codex" / "hooks.json"
+    hooks.parent.mkdir(parents=True)
+    hooks.write_bytes(b"\xff\xfe not utf-8")
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert f"Codex hooks   unknown - could not read {hooks}" in result.output
+
+
+def test_status_unreadable_skill_file_marks_skills_and_workflow_unknown(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    _install_workflow_artifacts()
+    skill = Path.home() / ".claude" / "skills" / "nauro-adopt" / "SKILL.md"
+    skill.unlink()
+    skill.mkdir()
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert f"Skills        unknown - could not read {skill}" in result.output
+    assert "Workflow      active" in result.output
+
+
+def test_status_unparseable_codex_hooks_is_unknown_not_inactive(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    hooks = tmp_path / ".codex" / "hooks.json"
+    hooks.parent.mkdir(parents=True)
+    hooks.write_text("{not valid json")
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert f"Codex hooks   unknown - could not read {hooks}: invalid JSON" in result.output
+
+
+def test_status_keeps_broken_over_unknown_and_names_the_unreadable_file(tmp_path, monkeypatch):
+    """A dead recorded command observed in one repo is not hidden by an unreadable config
+    in another: the row stays BROKEN with the remedy and names the file it skipped."""
+    wired = tmp_path / "wired"
+    unreadable = tmp_path / "unreadable"
+    wired.mkdir()
+    unreadable.mkdir()
+    _setup_project(tmp_path, monkeypatch, repos=[wired, unreadable])
+    _wire_repo_mcp(wired)
+    (unreadable / ".mcp.json").write_bytes(b"\xff\xfe")
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda cmd, **kwargs: False)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "MCP           BROKEN - wired in 1/2 repos but the recorded command won't run; " in (
+        result.output
+    )
+    assert f"re-run 'nauro setup all'; could not read {unreadable / '.mcp.json'}" in result.output
 
 
 def test_status_shows_store_path(tmp_path, monkeypatch):

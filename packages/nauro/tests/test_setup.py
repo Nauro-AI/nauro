@@ -419,7 +419,7 @@ class TestMalformedConfigGuards:
     def test_recorded_mcp_commands_null_mcpservers_is_empty(self, tmp_path: Path):
         """The status inspector treats a null mcpServers as unwired, never crashes."""
         (tmp_path / ".mcp.json").write_text('{"mcpServers": null}')
-        assert recorded_mcp_commands(tmp_path) == []
+        assert recorded_mcp_commands(tmp_path).commands == ()
 
     def test_add_wires_nauro_alongside_malformed_sibling_entry(self, tmp_path: Path):
         """A malformed sibling server (not Nauro's) must not block wiring; the
@@ -450,12 +450,12 @@ class TestMalformedConfigGuards:
         (tmp_path / ".mcp.json").write_text(
             json.dumps({"mcpServers": {"other": "not-a-dict", "nauro": {"command": "/bin/nauro"}}})
         )
-        assert recorded_mcp_commands(tmp_path) == ["/bin/nauro"]
+        assert recorded_mcp_commands(tmp_path).commands == ("/bin/nauro",)
 
     def test_recorded_mcp_commands_malformed_nauro_entry_counts_as_wired(self, tmp_path: Path):
         """A non-object nauro entry counts as wired with nothing to probe."""
         (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": {"nauro": "not-a-dict"}}))
-        assert recorded_mcp_commands(tmp_path) == [None]
+        assert recorded_mcp_commands(tmp_path).commands == (None,)
 
     def test_recorded_mcp_commands_reads_command_despite_malformed_args(self, tmp_path: Path):
         """The inspector reads only the command; a malformed ``args`` on the
@@ -465,7 +465,7 @@ class TestMalformedConfigGuards:
                 {"mcpServers": {"nauro": {"command": "/usr/local/bin/nauro", "args": "serve"}}}
             )
         )
-        assert recorded_mcp_commands(tmp_path) == ["/usr/local/bin/nauro"]
+        assert recorded_mcp_commands(tmp_path).commands == ("/usr/local/bin/nauro",)
 
     def test_add_overwrites_nauro_entry_with_malformed_args(self, tmp_path: Path):
         """The add path never reads the existing entry's args, so a malformed
@@ -507,7 +507,7 @@ class TestMalformedConfigGuards:
         (tmp_path / ".mcp.json").write_text(
             json.dumps({"mcp_servers": {"nauro": {"command": "USER"}}})
         )
-        assert recorded_mcp_commands(tmp_path) == []
+        assert recorded_mcp_commands(tmp_path).commands == ()
 
     def test_codex_non_table_mcp_servers_is_skipped(self, tmp_path: Path):
         cfg = tmp_path / "config.toml"
