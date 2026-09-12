@@ -9,8 +9,8 @@ lands byte-identically to a single echo of the joined text.
 
 from __future__ import annotations
 
-from nauro.cli.git_hygiene import GitIgnoreKind, GitIgnoreResult
-from nauro.cli.integrations.outcomes import (
+from nauro.setup.git_hygiene import GitIgnoreKind, GitIgnoreResult
+from nauro.setup.outcomes import (
     AgentKind,
     AgentOutcome,
     ArtifactOutcome,

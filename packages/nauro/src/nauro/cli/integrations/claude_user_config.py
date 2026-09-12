@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from nauro.cli.integrations._json_config import write_json_config
-from nauro.cli.integrations.outcomes import ClaudeUserConfigKind, ClaudeUserConfigOutcome
+from nauro.setup.outcomes import ClaudeUserConfigKind, ClaudeUserConfigOutcome
 from nauro.store.write_safety import find_file_symlink
 
 

@@ -6,21 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 from nauro.cli.integrations.agents import materialize_agents, materialize_agents_cursor_for_repo
-from nauro.cli.integrations.claude_bridge import remove_claude_bridge
 from nauro.cli.integrations.claude_hooks import materialize_hooks_claude_code
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import _configure_codex, codex_config_path
 from nauro.cli.integrations.codex_hooks import _nearest_codex_hooks_repo, materialize_hooks_codex
 from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo, _configure_mcp
 from nauro.cli.integrations.legacy import _remove_claude_md
-from nauro.cli.integrations.outcomes import (
-    ArtifactOutcome,
-    BridgeOutcome,
-    HandlerErrorOutcome,
-    JsonMcpKind,
-    JsonMcpOutcome,
-    RawLine,
-)
 from nauro.cli.integrations.skills import (
     materialize_skills_claude_code,
     materialize_skills_codex,
@@ -28,6 +19,15 @@ from nauro.cli.integrations.skills import (
 )
 from nauro.cli.integrations.user_scope import _registered_project_keys, _user_scope_safe_to_clear
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
+from nauro.setup.claude_bridge import remove_claude_bridge
+from nauro.setup.outcomes import (
+    ArtifactOutcome,
+    BridgeOutcome,
+    HandlerErrorOutcome,
+    JsonMcpKind,
+    JsonMcpOutcome,
+    RawLine,
+)
 from nauro.store.registry import get_repo_paths
 from nauro.store.resolution import resolve_from_cwd
 from nauro.templates.agents_md import remove_generated_agents_md

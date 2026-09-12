@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from nauro.cli.integrations.claude_bridge import BridgeState as _BridgeState
-from nauro.cli.integrations.claude_bridge import detect_bridge_state
 from nauro.cli.integrations.codex_config import _configure_codex
 from nauro.cli.integrations.json_mcp import _configure_mcp, recorded_mcp_commands
-from nauro.cli.integrations.outcomes import CodexConfigKind, JsonMcpKind
 from nauro.cli.main import app
 from nauro.constants import NAURO_BLOCK_END, NAURO_BLOCK_START
+from nauro.setup.claude_bridge import BridgeState as _BridgeState
+from nauro.setup.claude_bridge import detect_bridge_state
+from nauro.setup.outcomes import CodexConfigKind, JsonMcpKind
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store

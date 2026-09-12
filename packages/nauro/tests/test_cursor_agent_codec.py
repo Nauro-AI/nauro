@@ -12,7 +12,7 @@ from nauro.cli.integrations.agents import (
     materialize_agents,
     materialize_agents_cursor_for_repo,
 )
-from nauro.cli.integrations.outcomes import AgentKind
+from nauro.setup.outcomes import AgentKind
 
 symlinks_required = pytest.mark.skipif(
     os.name == "nt", reason="symlink creation requires extra Windows privileges"

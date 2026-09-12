@@ -22,18 +22,18 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from nauro.cli.integrations.claude_bridge import (
+from nauro.cli.integrations.legacy import _remove_claude_md
+from nauro.cli.main import app
+from nauro.constants import CLAUDE_BRIDGE_MARKER, CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
+from nauro.mcp.tools import tool_propose_decision
+from nauro.setup.claude_bridge import (
     BRIDGE_IMPORT,
     BridgeState,
     detect_bridge_state,
     ensure_claude_bridge,
     remove_claude_bridge,
 )
-from nauro.cli.integrations.legacy import _remove_claude_md
-from nauro.cli.integrations.outcomes import BridgeKind
-from nauro.cli.main import app
-from nauro.constants import CLAUDE_BRIDGE_MARKER, CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
-from nauro.mcp.tools import tool_propose_decision
+from nauro.setup.outcomes import BridgeKind
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store

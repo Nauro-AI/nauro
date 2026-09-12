@@ -11,6 +11,7 @@ layers =
     nauro.mcp
     nauro.templates
     nauro.skills | nauro.agents | nauro.graph | nauro.demo
+    nauro.setup
     nauro.sync
     nauro.store : nauro.auth
     nauro.constants | nauro.onboarding
@@ -31,11 +32,6 @@ ignore_imports =
     nauro.store.post_commit -> nauro.templates.agents_md_regen
     nauro.store.post_commit -> nauro.sync.push
     nauro.templates.agents_md -> nauro.mcp.payloads
-    nauro.templates.agents_md -> nauro.cli.integrations.claude_bridge
-    nauro.templates.agents_md -> nauro.cli.integrations.outcomes
-    nauro.templates.agents_md_regen -> nauro.cli.git_hygiene
-    nauro.templates.agents_md_regen -> nauro.cli.integrations.outcomes
-    nauro.templates.agents_md_regen -> nauro.cli.integrations.render
 
 [importlinter:contract:store-foundation]
 name = store foundation modules stay below auth

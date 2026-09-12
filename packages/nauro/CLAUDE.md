@@ -108,6 +108,7 @@ src/nauro/
     resolution.py        # project resolution from CWD
     config.py            # ~/.nauro/config.json read/write
     validator.py         # structural checks on store contents
+  setup/                 # Typer-free wiring helpers: git hygiene, setup outcomes, render, CLAUDE.md bridge
   templates/
     scaffolds.py         # nauro init template strings
     agents_md.py         # AGENTS.md generation

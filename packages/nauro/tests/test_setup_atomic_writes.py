@@ -301,7 +301,7 @@ def test_interrupted_legacy_strip_reports_failure(tmp_path: Path, monkeypatch):
     """An interrupted shared-layer rewrite leaves the original bytes and no temps,
     and the surface reports the failed removal instead of aborting or claiming
     there was nothing to remove."""
-    from nauro.cli.integrations.outcomes import ClaudeHookKind
+    from nauro.setup.outcomes import ClaudeHookKind
 
     target = _seed_file(
         tmp_path,

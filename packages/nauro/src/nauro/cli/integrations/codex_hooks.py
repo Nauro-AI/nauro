@@ -12,14 +12,14 @@ from nauro.cli._codex_hooks import (
     _transform_codex_hooks,
     _validate_codex_hooks,
 )
-from nauro.cli.git_hygiene import (
+from nauro.cli.nauro_command import _find_nauro_codex_hook_command
+from nauro.setup.git_hygiene import (
     ensure_wiring_ignored,
     public_surface_git_warnings,
     remove_wiring_ignore_entry,
     wiring_path_is_tracked,
 )
-from nauro.cli.integrations.outcomes import CodexHookKind, CodexHookOutcome
-from nauro.cli.nauro_command import _find_nauro_codex_hook_command
+from nauro.setup.outcomes import CodexHookKind, CodexHookOutcome
 from nauro.store._atomic import atomic_write_text
 from nauro.store.write_safety import find_symlink
 

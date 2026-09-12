@@ -22,8 +22,8 @@ from nauro.cli.integrations.orchestrator import (
     cursor_surfaces,
     setup_all_surfaces,
 )
-from nauro.cli.integrations.render import render
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
+from nauro.setup.render import render
 
 setup_app = typer.Typer(help="Configure tool integrations.")
 

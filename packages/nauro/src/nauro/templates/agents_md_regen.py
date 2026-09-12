@@ -10,19 +10,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-from nauro.cli.git_hygiene import public_surface_git_warnings
 from nauro.constants import AGENTS_MD
+from nauro.setup.git_hygiene import public_surface_git_warnings
+from nauro.setup.outcomes import BridgeKind, BridgeOutcome
+from nauro.setup.render import render
 from nauro.store.registry import get_repo_paths
 from nauro.store.write_safety import find_symlink
 from nauro.templates.agents_md import (
     agents_md_is_safe_to_replace,
     regenerate_agents_md_for_project,
 )
-
-if TYPE_CHECKING:
-    from nauro.cli.integrations.outcomes import BridgeOutcome
 
 
 def warn_then_regen(
@@ -91,9 +89,6 @@ def warn_then_regen(
     # bridge outcomes through the same warn channel; a sink caller already
     # renders them and is not double-reported.
     if bridge_sink is None and warn is not None and surface_bridge_notices:
-        from nauro.cli.integrations.outcomes import BridgeKind
-        from nauro.cli.integrations.render import render
-
         actionable = (BridgeKind.ADVISORY, BridgeKind.FAILED, BridgeKind.REFUSED_SYMLINK)
         for outcome in collected:
             if outcome.kind in actionable:
