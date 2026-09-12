@@ -916,6 +916,22 @@ def test_remove_reports_unreadable_shared_settings(tmp_path: Path):
     assert line.shared_strip.detail.startswith("could not check it for a nauro hook: ")
 
 
+def test_remove_reports_undecodable_shared_settings(tmp_path: Path):
+    """A shared settings file that is not UTF-8 text may still hold the hook, so it is reported
+    like any other file Nauro cannot parse, and its bytes are left untouched."""
+    repo = tmp_path / "repo"
+    shared = repo / ".claude" / "settings.json"
+    shared.parent.mkdir(parents=True)
+    shared.write_bytes(b'\xff\xfe{"hooks": {}}')
+
+    line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert line.kind is ClaudeHookKind.SHARED_STRIP_FAILED
+    assert line.shared_strip is not None
+    assert line.shared_strip.detail.startswith("could not parse it for a nauro hook: ")
+    assert shared.read_bytes() == b'\xff\xfe{"hooks": {}}'
+
+
 def test_remove_keeps_the_local_removal_when_the_shared_strip_fails(tmp_path: Path, monkeypatch):
     """The local hook removal is reported alongside the shared-layer failure."""
     import nauro.cli.integrations.claude_hooks as claude_hooks_mod

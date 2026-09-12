@@ -269,20 +269,16 @@ class _SharedStrip(Enum):
 
 def _strip_hook_from_file(settings_path: Path) -> _SharedStrip | SharedStripFailed:
     """Strip the nauro hook entry from one shared settings file.
-    A file that is absent, unreadable, or off-shape is UNMANAGED and left untouched: Nauro does
-    not own that layer. A write that fails after the entry was found is reported, never hidden.
+    An absent file or one that is not a JSON object is UNMANAGED and left untouched: Nauro does
+    not own that layer. One that cannot be read, parsed or rewritten is reported, never hidden.
     """
     if not settings_path.exists():
         return _SharedStrip.UNMANAGED
     try:
-        text = settings_path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return _SharedStrip.UNMANAGED
+        raw = json.loads(settings_path.read_text(encoding="utf-8"))
     except OSError as exc:
         return SharedStripFailed(detail=f"could not check it for a nauro hook: {exc}")
-    try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         return SharedStripFailed(detail=f"could not parse it for a nauro hook: {exc}")
     if not isinstance(raw, dict):
         return _SharedStrip.UNMANAGED
