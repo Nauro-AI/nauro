@@ -118,7 +118,7 @@
 {"path":"packages/nauro/src/nauro/mcp/rendering.py","rule":"BLE001","count":1}
 {"path":"packages/nauro/src/nauro/mcp/stdio_server.py","rule":"BLE001","count":2}
 {"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"BLE001","count":4}
-{"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"C901","count":2}
+{"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"C901","count":1}
 {"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"PLR0911","count":1}
 {"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"PLR0912","count":1}
 {"path":"packages/nauro/src/nauro/store/generation_authority.py","rule":"TRY300","count":1}
