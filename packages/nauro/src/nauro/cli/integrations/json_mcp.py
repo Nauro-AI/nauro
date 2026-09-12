@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from nauro.setup.git_hygiene import (
     wiring_path_is_tracked,
 )
 from nauro.setup.outcomes import JsonMcpKind, JsonMcpOutcome
+from nauro.store.local_files import UnreadableFileError, read_text_or_absent
 from nauro.store.write_safety import find_symlink
 
 
@@ -173,17 +175,41 @@ def _configure_cursor_for_repo(repo_path: Path, *, remove: bool) -> JsonMcpOutco
     )
 
 
-def recorded_mcp_commands(repo: Path) -> list[str | None]:
-    """Return the recorded nauro MCP command per wired repo config; wired iff the list is non-empty.
-    A wired config whose nauro entry has no usable ``command`` string contributes ``None``: wired,
-    but nothing to probe. Read-only and soft-failing: an unreadable config contributes nothing.
+@dataclass(frozen=True)
+class McpWiring:
+    """The nauro command recorded per wired repo config, and the configs that could not be read."""
+
+    commands: tuple[str | None, ...] = ()
+    unreadable: tuple[UnreadableFileError, ...] = ()
+
+    @property
+    def wired(self) -> bool:
+        return bool(self.commands)
+
+
+def recorded_mcp_commands(repo: Path) -> McpWiring:
+    """Inspect a repo's MCP configs. A wired entry without a usable ``command`` records ``None``:
+    wired, nothing to probe. A missing or off-shape config records nothing; an unreadable or
+    unparseable one is recorded as such and the other config is still inspected.
     """
     commands: list[str | None] = []
+    unreadable: list[UnreadableFileError] = []
     for rel in (".mcp.json", ".cursor/mcp.json"):
+        path = repo / rel
         try:
-            raw = json.loads((repo / rel).read_text(encoding="utf-8"))
+            text = read_text_or_absent(path)
+            raw = json.loads(text) if text is not None else None
+        except UnreadableFileError as exc:
+            unreadable.append(exc)
+            continue
+        except (json.JSONDecodeError, RecursionError) as exc:
+            unreadable.append(UnreadableFileError(path, f"invalid JSON: {exc}"))
+            continue
+        if raw is None:
+            continue
+        try:
             document = _parse_mcp_document(raw)
-        except Exception:
+        except McpShapeError:
             continue
         servers = document.mcp_servers
         if "nauro" not in servers:
@@ -191,4 +217,4 @@ def recorded_mcp_commands(repo: Path) -> list[str | None]:
         entry = servers["nauro"]
         command = entry.get("command") if isinstance(entry, dict) else None
         commands.append(command if isinstance(command, str) and command else None)
-    return commands
+    return McpWiring(tuple(commands), tuple(unreadable))

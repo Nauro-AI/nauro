@@ -1,10 +1,13 @@
 """nauro status — Show capability table for the current project."""
 
+import functools
 import json
 import os
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Generic, TypeVar
 
 import typer
 from pydantic import BaseModel
@@ -12,6 +15,7 @@ from pydantic import BaseModel
 from nauro.cli import nauro_command
 from nauro.cli._codex_hooks import (
     _CODEX_HOOK_PROBE_ARGS,
+    _CodexHookConfigError,
     _CodexHookState,
     _inspect_codex_hooks,
     _parse_codex_hooks,
@@ -23,6 +27,8 @@ from nauro.cli.utils import (
     ProjectResolutionExit,
     resolve_target_project,
 )
+from nauro.constants import REPO_CONFIG_MODE_CLOUD
+from nauro.store.local_files import UnreadableFileError, is_regular_file, read_text_or_absent
 
 
 def _is_windows() -> bool:
@@ -81,24 +87,62 @@ def _probe_distinct_commands(
 
 def _repo_has_generated_agents_md(repo: Path) -> bool:
     """True when the repo's AGENTS.md carries the Nauro generation footer.
-    A file without the footer, and an unreadable file, both count as not generated.
+    A missing file or one without the footer is not generated; an unreadable one raises.
     """
     from nauro.templates.agents_md import FOOTER_MARKER
 
-    try:
-        return FOOTER_MARKER in (repo / "AGENTS.md").read_text(encoding="utf-8")
-    except Exception:
-        return False
+    text = read_text_or_absent(repo / "AGENTS.md", errors="replace")
+    return text is not None and FOOTER_MARKER in text
+
+
+_NO_CODEX_HOOKS = _CodexHookState(False, False, ())
 
 
 def _repo_codex_hook_state(repo: Path) -> _CodexHookState:
-    """Return presence, structural completeness, and commands for Codex hooks."""
+    """Return presence, structural completeness, and commands for Codex hooks.
+    A missing or off-shape file is not wired; an unreadable or unparseable one raises.
+    """
+    path = repo / ".codex" / "hooks.json"
+    text = read_text_or_absent(path)
+    if text is None:
+        return _NO_CODEX_HOOKS
     try:
-        text = (repo / ".codex" / "hooks.json").read_text(encoding="utf-8")
         config = _parse_codex_hooks(text)
-    except Exception:
-        return _CodexHookState(False, False, ())
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise UnreadableFileError(path, f"invalid JSON: {exc}") from exc
+    except _CodexHookConfigError:
+        return _NO_CODEX_HOOKS
     return _inspect_codex_hooks(config, windows=_is_windows())
+
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class _Probe(Generic[T]):
+    """One on-disk observation: what could be read, and the files that could not."""
+
+    value: T
+    unreadable: tuple[UnreadableFileError, ...] = ()
+
+
+def _probe(read: Callable[[], T], fallback: T) -> _Probe[T]:
+    """Run one read; an unreadable file yields ``fallback`` with the failure recorded."""
+    try:
+        return _Probe(read())
+    except UnreadableFileError as exc:
+        return _Probe(fallback, (exc,))
+
+
+def _probe_each(
+    items: Iterable[Path], read: Callable[[Path], T], fallback: T
+) -> _Probe[tuple[T, ...]]:
+    """Run ``read`` per item, keeping every readable value and every failure."""
+    probes = [_probe(functools.partial(read, item), fallback) for item in items]
+    return _Probe(
+        tuple(probe.value for probe in probes),
+        tuple(failure for probe in probes for failure in probe.unreadable),
+    )
 
 
 @dataclass(frozen=True)
@@ -181,38 +225,100 @@ _NO_AGENT_COUNTS = _WorkflowAgentCounts(
 
 
 @dataclass(frozen=True)
-class _WorkflowArtifacts:
-    """Nauro-owned skills and workflow agents across supported surfaces.
+class _SkillArtifacts:
+    """Nauro-owned skills across surfaces.
 
-    Core skills install on every adopt/setup-all run; opt-in skills and
-    workflow agents install only behind their flags, so their absence is a
-    chosen state, not a wiring defect.
+    Core skills install on every adopt/setup-all run; opt-in skills install
+    only behind their flag, so their absence is a chosen state, not a wiring
+    defect. Legacy copies under ``~/.codex/skills`` are counted for migration.
     """
 
     core_skills: _SurfacePair
     opt_in_skills: _SurfacePair
-    agents: _WorkflowAgentCounts
     legacy_codex_skills: int
 
 
-_NO_WORKFLOW_ARTIFACTS = _WorkflowArtifacts(
-    core_skills=_NO_PAIR,
-    opt_in_skills=_NO_PAIR,
-    agents=_NO_AGENT_COUNTS,
-    legacy_codex_skills=0,
+_NO_SKILL_ARTIFACTS = _SkillArtifacts(
+    core_skills=_NO_PAIR, opt_in_skills=_NO_PAIR, legacy_codex_skills=0
 )
 
 
 @dataclass(frozen=True)
+class _RegistryFacts:
+    """What the registry says about one project: its repos and whether it is cloud-mode."""
+
+    repos: tuple[Path, ...] = ()
+    cloud: bool = False
+
+
+@dataclass(frozen=True)
+class _CodexGlobal:
+    wired: bool = False
+    command: str | None = None
+
+
+@dataclass(frozen=True)
 class _WiringSnapshot:
-    repo_count: int
-    mcp_wired: int
-    codex_global: bool
-    mcp_commands: frozenset[str]
-    hook_states: tuple[_CodexHookState, ...]
-    agents_generated: int
-    workflow: _WorkflowArtifacts
+    """Every wiring fact as a probe: the observed value plus the files that could not be read."""
+
+    registry: _RegistryFacts
+    repo_mcp: _Probe[tuple[tuple[str | None, ...], ...]]
+    codex: _Probe[_CodexGlobal]
+    hooks: _Probe[tuple[_CodexHookState, ...]]
+    agents: _Probe[int]
+    skills: _Probe[_SkillArtifacts]
+    workflow_agents: _Probe[_WorkflowAgentCounts]
     untrusted_commands: frozenset[str] = frozenset()
+
+    @property
+    def repo_count(self) -> int:
+        return len(self.registry.repos)
+
+    @property
+    def mcp_wired(self) -> int:
+        return sum(1 for commands in self.repo_mcp.value if commands)
+
+    @property
+    def codex_global(self) -> bool:
+        return self.codex.value.wired
+
+    @property
+    def mcp_commands(self) -> frozenset[str]:
+        recorded = {command for commands in self.repo_mcp.value for command in commands if command}
+        if self.codex.value.command:
+            recorded.add(self.codex.value.command)
+        return frozenset(recorded)
+
+    @property
+    def hook_states(self) -> tuple[_CodexHookState, ...]:
+        return self.hooks.value
+
+    @property
+    def agents_generated(self) -> int:
+        return self.agents.value
+
+    def _unreadable(self, *probes: _Probe) -> tuple[UnreadableFileError, ...]:
+        return tuple(failure for probe in probes for failure in probe.unreadable)
+
+    @property
+    def mcp_unreadable(self) -> tuple[UnreadableFileError, ...]:
+        return self._unreadable(self.repo_mcp, self.codex)
+
+    @property
+    def hooks_unreadable(self) -> tuple[UnreadableFileError, ...]:
+        return self._unreadable(self.hooks)
+
+    @property
+    def agents_unreadable(self) -> tuple[UnreadableFileError, ...]:
+        return self._unreadable(self.agents)
+
+    @property
+    def skills_unreadable(self) -> tuple[UnreadableFileError, ...]:
+        return self._unreadable(self.skills)
+
+    @property
+    def workflow_unreadable(self) -> tuple[UnreadableFileError, ...]:
+        return self._unreadable(self.workflow_agents)
 
     @property
     def configured_hooks(self) -> tuple[_CodexHookState, ...]:
@@ -243,22 +349,32 @@ class _WiringProbeResults:
     hooks: dict[str, bool] | None
 
 
-def _count_artifacts(expected: dict[Path, str]) -> _ArtifactCounts:
-    """Tally how many bundled artifacts are present and byte-current on disk."""
+def _count_artifacts(expected: dict[Path, str]) -> _Probe[_ArtifactCounts]:
+    """Tally how many bundled artifacts are present and byte-current; unreadable ones are
+    recorded and the rest still counted."""
     present = 0
     current = 0
+    unreadable: list[UnreadableFileError] = []
     for path, bundled in expected.items():
         try:
-            content = path.read_text(encoding="utf-8")
-        except Exception:
+            content = read_text_or_absent(path)
+        except UnreadableFileError as exc:
+            unreadable.append(exc)
+            continue
+        if content is None:
             continue
         present += 1
         if content == bundled:
             current += 1
-    return _ArtifactCounts(expected=len(expected), present=present, current=current)
+    counts = _ArtifactCounts(expected=len(expected), present=present, current=current)
+    return _Probe(counts, tuple(unreadable))
 
 
-def _count_skills(surface: str, base: Path, names: tuple[str, ...]) -> _ArtifactCounts:
+def _failures(*probes: _Probe) -> tuple[UnreadableFileError, ...]:
+    return tuple(failure for probe in probes for failure in probe.unreadable)
+
+
+def _count_skills(surface: str, base: Path, names: tuple[str, ...]) -> _Probe[_ArtifactCounts]:
     from nauro.skills import render_skill
 
     return _count_artifacts(
@@ -266,80 +382,76 @@ def _count_skills(surface: str, base: Path, names: tuple[str, ...]) -> _Artifact
     )
 
 
-def _workflow_artifacts(repo_paths: list[Path]) -> _WorkflowArtifacts:
-    """Inspect Nauro-owned skills and workflow agents on supported surfaces."""
-    from nauro.agents import AGENT_NAMES, render_agent
+def _skill_artifacts() -> _Probe[_SkillArtifacts]:
+    """Inspect Nauro-owned skills on the Claude Code and Codex surfaces."""
     from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 
-    claude_skill_base = Path.home() / ".claude" / "skills"
-    codex_skill_base = Path.home() / ".agents" / "skills"
-    claude_agent_base = Path.home() / ".claude" / "agents"
-    codex_agent_base = Path.home() / ".codex" / "agents"
-
-    agents = _WorkflowAgentCounts(
-        claude=_count_artifacts(
-            {
-                claude_agent_base / f"{name}.md": render_agent("claude_code", name)
-                for name in AGENT_NAMES
-            }
-        ),
-        cursor=_count_artifacts(
-            {
-                repo / ".cursor" / "agents" / f"{name}.md": render_agent("cursor", name)
-                for repo in repo_paths
-                for name in AGENT_NAMES
-            }
-        ),
-        codex=_count_artifacts(
-            {codex_agent_base / f"{name}.toml": render_agent("codex", name) for name in AGENT_NAMES}
-        ),
-    )
-    legacy_codex_skills = sum(
-        1
+    claude_base = Path.home() / ".claude" / "skills"
+    codex_base = Path.home() / ".agents" / "skills"
+    core_claude = _count_skills("claude_code", claude_base, SKILL_NAMES)
+    core_codex = _count_skills("codex", codex_base, SKILL_NAMES)
+    opt_in_claude = _count_skills("claude_code", claude_base, OPT_IN_SKILL_NAMES)
+    opt_in_codex = _count_skills("codex", codex_base, OPT_IN_SKILL_NAMES)
+    legacy_paths = [
+        Path.home() / ".codex" / "skills" / name / "SKILL.md"
         for name in SKILL_NAMES + OPT_IN_SKILL_NAMES
-        if (Path.home() / ".codex" / "skills" / name / "SKILL.md").is_file()
+    ]
+    legacy = _probe_each(legacy_paths, is_regular_file, False)
+    artifacts = _SkillArtifacts(
+        core_skills=_SurfacePair(claude=core_claude.value, codex=core_codex.value),
+        opt_in_skills=_SurfacePair(claude=opt_in_claude.value, codex=opt_in_codex.value),
+        legacy_codex_skills=sum(legacy.value),
     )
-    return _WorkflowArtifacts(
-        core_skills=_SurfacePair(
-            claude=_count_skills("claude_code", claude_skill_base, SKILL_NAMES),
-            codex=_count_skills("codex", codex_skill_base, SKILL_NAMES),
-        ),
-        opt_in_skills=_SurfacePair(
-            claude=_count_skills("claude_code", claude_skill_base, OPT_IN_SKILL_NAMES),
-            codex=_count_skills("codex", codex_skill_base, OPT_IN_SKILL_NAMES),
-        ),
-        agents=agents,
-        legacy_codex_skills=legacy_codex_skills,
+    return _Probe(
+        artifacts, _failures(core_claude, core_codex, opt_in_claude, opt_in_codex, legacy)
     )
 
 
-def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
-    repo_commands = [json_mcp.recorded_mcp_commands(repo) for repo in repo_paths]
-    try:
-        codex_global, codex_command = codex_config.recorded_codex_command()
-    except Exception:
-        codex_global, codex_command = False, None
-    hook_states = tuple(_repo_codex_hook_state(repo) for repo in repo_paths)
-    agents_generated = sum(1 for repo in repo_paths if _repo_has_generated_agents_md(repo))
-    try:
-        workflow = _workflow_artifacts(repo_paths)
-    except Exception:
-        workflow = _NO_WORKFLOW_ARTIFACTS
+def _agent_artifacts(repo_paths: list[Path]) -> _Probe[_WorkflowAgentCounts]:
+    """Inspect Nauro's workflow agents on Claude Code, Cursor (per repo) and Codex."""
+    from nauro.agents import AGENT_NAMES, render_agent
 
-    mcp_commands = {command for commands in repo_commands for command in commands if command}
-    if codex_command:
-        mcp_commands.add(codex_command)
+    claude = _count_artifacts(
+        {
+            Path.home() / ".claude" / "agents" / f"{name}.md": render_agent("claude_code", name)
+            for name in AGENT_NAMES
+        }
+    )
+    cursor = _count_artifacts(
+        {
+            repo / ".cursor" / "agents" / f"{name}.md": render_agent("cursor", name)
+            for repo in repo_paths
+            for name in AGENT_NAMES
+        }
+    )
+    codex = _count_artifacts(
+        {
+            Path.home() / ".codex" / "agents" / f"{name}.toml": render_agent("codex", name)
+            for name in AGENT_NAMES
+        }
+    )
+    counts = _WorkflowAgentCounts(claude=claude.value, cursor=cursor.value, codex=codex.value)
+    return _Probe(counts, _failures(claude, cursor, codex))
+
+
+def _collect_wiring(registry: _RegistryFacts) -> _WiringSnapshot:
+    repos = registry.repos
+    generated = _probe_each(repos, _repo_has_generated_agents_md, False)
+    wirings = [json_mcp.recorded_mcp_commands(repo) for repo in repos]
     snapshot = _WiringSnapshot(
-        repo_count=len(repo_paths),
-        mcp_wired=sum(1 for commands in repo_commands if commands),
-        codex_global=codex_global,
-        mcp_commands=frozenset(mcp_commands),
-        hook_states=hook_states,
-        agents_generated=agents_generated,
-        workflow=workflow,
+        registry=registry,
+        repo_mcp=_Probe(
+            tuple(wiring.commands for wiring in wirings),
+            tuple(failure for wiring in wirings for failure in wiring.unreadable),
+        ),
+        codex=_probe(lambda: _CodexGlobal(*codex_config.recorded_codex_command()), _CodexGlobal()),
+        hooks=_probe_each(repos, _repo_codex_hook_state, _NO_CODEX_HOOKS),
+        agents=_Probe(sum(generated.value), generated.unreadable),
+        skills=_skill_artifacts(),
+        workflow_agents=_agent_artifacts(list(repos)),
     )
     recorded = snapshot.mcp_commands | snapshot.hook_commands
-    return replace(snapshot, untrusted_commands=_untrusted_commands(recorded, repo_paths))
+    return replace(snapshot, untrusted_commands=_untrusted_commands(recorded, list(repos)))
 
 
 def _untrusted_commands(commands: frozenset[str], repo_paths: list[Path]) -> frozenset[str]:
@@ -368,8 +480,27 @@ def _probe_commands(
     return _probe_distinct_commands(set(commands), args=args)
 
 
+def _unreadable_clause(failures: tuple[UnreadableFileError, ...]) -> str:
+    first = failures[0]
+    more = f" (+{len(failures) - 1} more)" if len(failures) > 1 else ""
+    return f"could not read {first.path}: {first.reason}{more}"
+
+
+def _unknown_line(row: str, failures: tuple[UnreadableFileError, ...]) -> str:
+    """The third row state: the fact could not be observed because a file could not be read."""
+    return f"  {row:<14}unknown - {_unreadable_clause(failures)}"
+
+
+def _broken_line(line: str, failures: tuple[UnreadableFileError, ...]) -> str:
+    """A defect observed in a readable file stays BROKEN; an unreadable sibling is appended."""
+    return f"{line}; {_unreadable_clause(failures)}" if failures else line
+
+
 def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
+    failures = snapshot.mcp_unreadable
     if not snapshot.mcp_wired and not snapshot.codex_global:
+        if failures:
+            return _unknown_line("MCP", failures)
         return "  MCP           inactive - run 'nauro setup all'"
     details = []
     if snapshot.repo_count:
@@ -381,10 +512,13 @@ def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> 
         probes.mcp.get(command, True) for command in snapshot.mcp_commands
     )
     if not healthy:
-        return (
+        return _broken_line(
             f"  MCP           BROKEN - {detail} but the recorded command won't run; "
-            "re-run 'nauro setup all'"
+            "re-run 'nauro setup all'",
+            failures,
         )
+    if failures:
+        return _unknown_line("MCP", failures)
     if snapshot.untrusted_mcp_commands:
         untrusted = _untrusted_detail(snapshot.untrusted_mcp_commands)
         return f"  MCP           active ({detail}; {untrusted})"
@@ -397,8 +531,11 @@ def _untrusted_detail(commands: frozenset[str]) -> str:
 
 
 def _codex_hooks_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
+    failures = snapshot.hooks_unreadable
     configured = snapshot.configured_hooks
     if not configured:
+        if failures:
+            return _unknown_line("Codex hooks", failures)
         return "  Codex hooks   inactive - run 'nauro setup codex --with-hooks'"
     detail = f"wired in {len(configured)}/{snapshot.repo_count} repos"
     complete = all(
@@ -406,18 +543,22 @@ def _codex_hooks_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResu
         for state in configured
     )
     if not complete:
-        return (
+        return _broken_line(
             f"  Codex hooks   BROKEN - {detail} but the lifecycle wiring is incomplete; "
-            "re-run 'nauro setup all --with-hooks'"
+            "re-run 'nauro setup all --with-hooks'",
+            failures,
         )
     healthy = probes.hooks is None or all(
         probes.hooks.get(command, True) for command in snapshot.hook_commands
     )
     if not healthy:
-        return (
+        return _broken_line(
             f"  Codex hooks   BROKEN - {detail} but the recorded command won't run; "
-            "re-run 'nauro setup all --with-hooks'"
+            "re-run 'nauro setup all --with-hooks'",
+            failures,
         )
+    if failures:
+        return _unknown_line("Codex hooks", failures)
     if snapshot.untrusted_hook_commands:
         untrusted = _untrusted_detail(snapshot.untrusted_hook_commands)
         return f"  Codex hooks   configured ({detail}; {untrusted})"
@@ -427,6 +568,8 @@ def _codex_hooks_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResu
 
 
 def _agents_status_line(snapshot: _WiringSnapshot) -> str:
+    if snapshot.agents_unreadable:
+        return _unknown_line("AGENTS.md", snapshot.agents_unreadable)
     if snapshot.agents_generated:
         return f"  AGENTS.md     active ({snapshot.agents_generated}/{snapshot.repo_count} repos)"
     return "  AGENTS.md     inactive - run 'nauro sync'"
@@ -460,21 +603,26 @@ def _skills_status_line(snapshot: _WiringSnapshot) -> str:
     Missing core skills are a wiring defect; opt-in skills absent in full stay inside an "active"
     row. Stale files and legacy ``~/.codex/skills`` copies are BROKEN.
     """
-    workflow = snapshot.workflow
-    core, opt_in = workflow.core_skills, workflow.opt_in_skills
-    if workflow.legacy_codex_skills:
-        count = workflow.legacy_codex_skills
+    failures = snapshot.skills_unreadable
+    skills = snapshot.skills.value
+    core, opt_in = skills.core_skills, skills.opt_in_skills
+    if skills.legacy_codex_skills:
+        count = skills.legacy_codex_skills
         plural = "copy" if count == 1 else "copies"
-        return (
+        return _broken_line(
             f"  Skills        BROKEN - {count} legacy Nauro skill {plural} under "
-            "~/.codex/skills; migrate with 'nauro setup all --with-skills' or remove manually"
+            "~/.codex/skills; migrate with 'nauro setup all --with-skills' or remove manually",
+            failures,
         )
     if core.stale or opt_in.stale:
         remedy = "nauro setup all --with-skills" if opt_in.stale else "nauro setup all"
-        return (
+        return _broken_line(
             f"  Skills        BROKEN - {_surface_detail(core, opt_in)}; installed Nauro "
-            f"skill files differ from this release; run '{remedy}'"
+            f"skill files differ from this release; run '{remedy}'",
+            failures,
         )
+    if failures:
+        return _unknown_line("Skills", failures)
     if core.expected == 0:
         return _SKILLS_INACTIVE_LINE
     if not core.fully_current:
@@ -497,13 +645,17 @@ def _skills_status_line(snapshot: _WiringSnapshot) -> str:
 def _workflow_agents_status_line(snapshot: _WiringSnapshot) -> str:
     """Render the Workflow row. The agents are opt-in, so full absence is a
     stated choice; a partial or stale install is a defect."""
-    agents = snapshot.workflow.agents
+    failures = snapshot.workflow_unreadable
+    agents = snapshot.workflow_agents.value
     detail = _workflow_agent_detail(agents)
     if agents.stale:
-        return (
+        return _broken_line(
             f"  Workflow      BROKEN - {detail}; installed Nauro agent files differ from "
-            "this release; run 'nauro setup all --with-subagents'"
+            "this release; run 'nauro setup all --with-subagents'",
+            failures,
         )
+    if failures:
+        return _unknown_line("Workflow", failures)
     if agents.present == 0:
         return (
             "  Workflow      not installed (opt-in) - "
@@ -527,10 +679,14 @@ def _count_shared_names(project_name: str, project_id: str) -> int:
         return 0
 
 
-def _repo_paths(project_id: str) -> list[Path]:
-    from nauro.store.registry import get_repo_paths
+def _registry_facts(project_id: str) -> _RegistryFacts:
+    from nauro.store.registry import get_project_entry_v2
 
-    return [Path(path) for path in get_repo_paths(project_id)]
+    entry = get_project_entry_v2(project_id)
+    if entry is None:
+        return _RegistryFacts()
+    repos = tuple(Path(path) for path in entry.repo_paths)
+    return _RegistryFacts(repos, entry.mode == REPO_CONFIG_MODE_CLOUD)
 
 
 @dataclass(frozen=True)
@@ -570,13 +726,13 @@ def _collect_status(project_name: str, store_path: Path, *, no_probe: bool) -> _
     """Gather every fact the human table and the JSON payload render from."""
     from nauro.auth import load_access_token
     from nauro.store.reader import _list_decisions
-    from nauro.store.registry import is_cloud_project
 
     project_id = store_path.name
     authenticated = bool(load_access_token())
-    cloud = is_cloud_project(project_id)
+    registry = _registry_facts(project_id)
+    cloud = registry.cloud
     sync_enabled = authenticated and cloud
-    snapshot = _collect_wiring(_repo_paths(project_id))
+    snapshot = _collect_wiring(registry)
     probes = _probe_wiring(snapshot, no_probe=no_probe)
 
     remote_decisions = _count_remote_decisions(project_id) if sync_enabled else None
@@ -719,6 +875,7 @@ class _WorkflowAgentCountsPayload(BaseModel):
     claude: _CountsPayload
     cursor: _CountsPayload
     codex: _CountsPayload
+    unreadable: list[str]
 
 
 class _SyncPayload(BaseModel):
@@ -734,6 +891,7 @@ class _McpPayload(BaseModel):
     probed: bool
     healthy: bool | None
     untrusted_commands: int
+    unreadable: list[str]
 
 
 class _CodexHooksPayload(BaseModel):
@@ -743,17 +901,20 @@ class _CodexHooksPayload(BaseModel):
     probed: bool
     healthy: bool | None
     untrusted_commands: int
+    unreadable: list[str]
 
 
 class _SkillsPayload(BaseModel):
     core: _SurfaceCountsPayload
     opt_in: _SurfaceCountsPayload
     legacy_codex_copies: int
+    unreadable: list[str]
 
 
 class _AgentsMdPayload(BaseModel):
     repo_count: int
     generated_repos: int
+    unreadable: list[str]
 
 
 class _DecisionsPayload(BaseModel):
@@ -796,13 +957,18 @@ def _surface_counts_payload(pair: _SurfacePair) -> _SurfaceCountsPayload:
 
 
 def _workflow_agent_counts_payload(
-    counts: _WorkflowAgentCounts,
+    counts: _WorkflowAgentCounts, unreadable: tuple[UnreadableFileError, ...]
 ) -> _WorkflowAgentCountsPayload:
     return _WorkflowAgentCountsPayload(
         claude=_counts_payload(counts.claude),
         cursor=_counts_payload(counts.cursor),
         codex=_counts_payload(counts.codex),
+        unreadable=_paths(unreadable),
     )
+
+
+def _paths(failures: tuple[UnreadableFileError, ...]) -> list[str]:
+    return [str(failure.path) for failure in failures]
 
 
 def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
@@ -833,7 +999,7 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
         else None
     )
 
-    workflow = snapshot.workflow
+    skills = snapshot.skills.value
     return StatusPayload(
         project=facts.project_name,
         project_id=facts.project_id,
@@ -851,6 +1017,7 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
             probed=mcp_probed,
             healthy=mcp_healthy,
             untrusted_commands=len(snapshot.untrusted_mcp_commands),
+            unreadable=_paths(snapshot.mcp_unreadable),
         ),
         codex_hooks=_CodexHooksPayload(
             repo_count=snapshot.repo_count,
@@ -859,16 +1026,21 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
             probed=hooks_probed,
             healthy=hooks_healthy,
             untrusted_commands=len(snapshot.untrusted_hook_commands),
+            unreadable=_paths(snapshot.hooks_unreadable),
         ),
         skills=_SkillsPayload(
-            core=_surface_counts_payload(workflow.core_skills),
-            opt_in=_surface_counts_payload(workflow.opt_in_skills),
-            legacy_codex_copies=workflow.legacy_codex_skills,
+            core=_surface_counts_payload(skills.core_skills),
+            opt_in=_surface_counts_payload(skills.opt_in_skills),
+            legacy_codex_copies=skills.legacy_codex_skills,
+            unreadable=_paths(snapshot.skills_unreadable),
         ),
-        workflow_agents=_workflow_agent_counts_payload(workflow.agents),
+        workflow_agents=_workflow_agent_counts_payload(
+            snapshot.workflow_agents.value, snapshot.workflow_unreadable
+        ),
         agents_md=_AgentsMdPayload(
             repo_count=snapshot.repo_count,
             generated_repos=snapshot.agents_generated,
+            unreadable=_paths(snapshot.agents_unreadable),
         ),
         decisions=_DecisionsPayload(
             local=facts.local_decisions,
