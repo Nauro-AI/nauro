@@ -38,6 +38,7 @@ dev = [
     "pytest>=7.0",
     "ruff==0.15.20",
     "mypy==2.1.0",
+    "import-linter==2.12",
 ]
 embeddings = ["nauro-core[embeddings]"]
 

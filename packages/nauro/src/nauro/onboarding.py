@@ -1,13 +1,9 @@
-"""Onboarding and empty-state guidance text for the local MCP server.
+"""Guidance text for a missing or empty project store.
 
-These constants are returned when a user has no project store or when a
-project exists but has no decisions/snapshots yet.  They give the LLM
-enough context to guide the user toward a productive first experience.
-
-``NO_DECISIONS_TO_CHECK`` is the shared cross-surface string and lives in
-``nauro_core.constants`` so the same empty-store text reaches users on
-local and cloud transports. The re-export here preserves the import path
-existing callers use.
+Store resolution and the MCP tools return these constants when no store is
+registered or the store holds no decisions yet. ``NO_DECISIONS_TO_CHECK`` is
+re-exported from ``nauro_core.constants`` so local and hosted transports
+render the same empty-store text.
 """
 
 from nauro_core.constants import NO_DECISIONS_TO_CHECK as NO_DECISIONS_TO_CHECK

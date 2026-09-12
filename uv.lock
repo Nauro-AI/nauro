@@ -952,6 +952,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "hatchling" },
+    { name = "import-linter" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
@@ -965,6 +966,7 @@ requires-dist = [
     { name = "filelock", specifier = ">=3.29.5" },
     { name = "hatchling", marker = "extra == 'dev'" },
     { name = "httpx", specifier = ">=0.24" },
+    { name = "import-linter", marker = "extra == 'dev'", specifier = "==2.12" },
     { name = "mcp", specifier = ">=1.0,<2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.1.0" },
     { name = "nauro-core", editable = "packages/nauro-core" },
