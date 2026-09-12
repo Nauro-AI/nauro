@@ -314,22 +314,13 @@ def _workflow_artifacts(repo_paths: list[Path]) -> _WorkflowArtifacts:
 
 
 def _collect_wiring(repo_paths: list[Path]) -> _WiringSnapshot:
-    try:
-        repo_commands = [json_mcp.recorded_mcp_commands(repo) for repo in repo_paths]
-    except Exception:
-        repo_commands = []
+    repo_commands = [json_mcp.recorded_mcp_commands(repo) for repo in repo_paths]
     try:
         codex_global, codex_command = codex_config.recorded_codex_command()
     except Exception:
         codex_global, codex_command = False, None
-    try:
-        hook_states = tuple(_repo_codex_hook_state(repo) for repo in repo_paths)
-    except Exception:
-        hook_states = ()
-    try:
-        agents_generated = sum(1 for repo in repo_paths if _repo_has_generated_agents_md(repo))
-    except Exception:
-        agents_generated = 0
+    hook_states = tuple(_repo_codex_hook_state(repo) for repo in repo_paths)
+    agents_generated = sum(1 for repo in repo_paths if _repo_has_generated_agents_md(repo))
     try:
         workflow = _workflow_artifacts(repo_paths)
     except Exception:
@@ -374,10 +365,7 @@ def _probe_commands(
 ) -> dict[str, bool] | None:
     if not commands:
         return None
-    try:
-        return _probe_distinct_commands(set(commands), args=args)
-    except Exception:
-        return None
+    return _probe_distinct_commands(set(commands), args=args)
 
 
 def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
@@ -435,8 +423,6 @@ def _codex_hooks_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResu
         return f"  Codex hooks   configured ({detail}; {untrusted})"
     if probes.skipped:
         return f"  Codex hooks   configured ({detail}; liveness not probed)"
-    if probes.hooks is None:
-        return f"  Codex hooks   configured ({detail}; liveness unknown)"
     return f"  Codex hooks   configured ({detail}; command healthy)"
 
 
@@ -542,12 +528,9 @@ def _count_shared_names(project_name: str, project_id: str) -> int:
 
 
 def _repo_paths(project_id: str) -> list[Path]:
-    try:
-        from nauro.store.registry import get_repo_paths
+    from nauro.store.registry import get_repo_paths
 
-        return [Path(path) for path in get_repo_paths(project_id)]
-    except Exception:
-        return []
+    return [Path(path) for path in get_repo_paths(project_id)]
 
 
 @dataclass(frozen=True)

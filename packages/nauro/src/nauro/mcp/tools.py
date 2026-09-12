@@ -609,7 +609,7 @@ def tool_flag_question(
                     f"decision-{top['number']:03d}: {top['title']}."
                 )
         except Exception:
-            pass
+            logger.debug("similar-decision hint skipped for %s", store_path.name, exc_info=True)
 
     text = question
     if question and context:

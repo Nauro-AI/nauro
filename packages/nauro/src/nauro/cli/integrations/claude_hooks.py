@@ -15,7 +15,7 @@ from nauro.cli.git_hygiene import (
     wiring_path_is_tracked,
 )
 from nauro.cli.integrations._json_config import write_json_config
-from nauro.cli.integrations.outcomes import ClaudeHookKind, ClaudeHookOutcome
+from nauro.cli.integrations.outcomes import ClaudeHookKind, ClaudeHookOutcome, SharedStripFailed
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.store.write_safety import find_symlink
 
@@ -188,12 +188,13 @@ def _add_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHookOut
     # depend on a content change (a repo wired by an older run can be
     # byte-identical yet still unignored).
     if _has_nauro_hook(settings):
-        legacy_cleaned = _strip_hook_from_file(_settings_shared_path(repo)) is True
+        shared = _strip_hook_from_file(_settings_shared_path(repo))
         return ClaudeHookOutcome(
             ClaudeHookKind.ALREADY_PRESENT,
             repo,
             gitignore=ensure_wiring_ignored(repo, SETTINGS_LOCAL_REL),
-            legacy_cleaned=legacy_cleaned,
+            legacy_cleaned=shared is _SharedStrip.REMOVED,
+            shared_strip=_shared_strip_failure(shared),
         )
 
     # The parse guarantees hooks is absent or an object and UserPromptSubmit is
@@ -204,7 +205,7 @@ def _add_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHookOut
     write_json_config(settings_path, raw)
     # Strip the stale shared-layer entry only after the replacement is durably
     # on disk, so an interrupted run can never leave the repo with no hook.
-    legacy_cleaned = _strip_hook_from_file(_settings_shared_path(repo)) is True
+    shared = _strip_hook_from_file(_settings_shared_path(repo))
     ignore_result = ensure_wiring_ignored(repo, SETTINGS_LOCAL_REL)
     git_warnings = tuple(public_surface_git_warnings(repo, SETTINGS_LOCAL_REL))
     return ClaudeHookOutcome(
@@ -212,7 +213,8 @@ def _add_hook_entry(settings_path: Path, raw: dict, repo: Path) -> ClaudeHookOut
         repo,
         git_warnings=git_warnings,
         gitignore=ignore_result,
-        legacy_cleaned=legacy_cleaned,
+        legacy_cleaned=shared is _SharedStrip.REMOVED,
+        shared_strip=_shared_strip_failure(shared),
     )
 
 
@@ -234,9 +236,18 @@ def _remove_hook_entries(repo: Path, settings_path: Path) -> ClaudeHookOutcome:
     else:
         local_removed = False
 
-    legacy_removed = _strip_hook_from_file(_settings_shared_path(repo)) is True
+    shared = _strip_hook_from_file(_settings_shared_path(repo))
     ignore_result = remove_wiring_ignore_entry(repo, SETTINGS_LOCAL_REL)
 
+    if isinstance(shared, SharedStripFailed):
+        return ClaudeHookOutcome(
+            ClaudeHookKind.SHARED_STRIP_FAILED,
+            repo,
+            gitignore=ignore_result,
+            local_cleaned=local_removed,
+            shared_strip=shared,
+        )
+    legacy_removed = shared is _SharedStrip.REMOVED
     if not local_removed and not legacy_removed:
         return ClaudeHookOutcome(ClaudeHookKind.NOTHING_TO_REMOVE, repo, gitignore=ignore_result)
     return ClaudeHookOutcome(
@@ -244,35 +255,47 @@ def _remove_hook_entries(repo: Path, settings_path: Path) -> ClaudeHookOutcome:
         repo,
         gitignore=ignore_result,
         legacy_cleaned=legacy_removed,
+        local_cleaned=local_removed,
     )
 
 
-def _strip_hook_from_file(settings_path: Path) -> bool | None:
-    """Best-effort strip of the nauro hook entry from one settings file.
-    True when an entry was removed, False when none was present, and ``None`` when the file was
-    absent, unreadable, or off-shape and left untouched: Nauro does not own that layer.
+class _SharedStrip(Enum):
+    """What stripping the nauro hook from the shared settings layer found."""
+
+    REMOVED = auto()
+    NOT_PRESENT = auto()
+    UNMANAGED = auto()
+
+
+def _strip_hook_from_file(settings_path: Path) -> _SharedStrip | SharedStripFailed:
+    """Strip the nauro hook entry from one shared settings file.
+    An absent file or one that is not a JSON object is UNMANAGED and left untouched: Nauro does
+    not own that layer. One that cannot be read, parsed or rewritten is reported, never hidden.
     """
     if not settings_path.exists():
-        return None
+        return _SharedStrip.UNMANAGED
     try:
         raw = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, OSError):
-        return None
+    except OSError as exc:
+        return SharedStripFailed(detail=f"could not check it for a nauro hook: {exc}")
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return SharedStripFailed(detail=f"could not parse it for a nauro hook: {exc}")
     if not isinstance(raw, dict):
-        return None
+        return _SharedStrip.UNMANAGED
     if not _strip_hook_entries(raw):
-        return False
-    # Best-effort covers the write side too: an unwritable shared file must
-    # not abort the surface whose own hook already landed, and the atomic
-    # write's failure leaves the original bytes intact.
+        return _SharedStrip.NOT_PRESENT
     try:
         if raw:
             write_json_config(settings_path, raw)
         else:
             settings_path.unlink()
-    except OSError:
-        return None
-    return True
+    except OSError as exc:
+        return SharedStripFailed(detail=f"the nauro hook is still wired there: {exc}")
+    return _SharedStrip.REMOVED
+
+
+def _shared_strip_failure(shared: _SharedStrip | SharedStripFailed) -> SharedStripFailed | None:
+    return shared if isinstance(shared, SharedStripFailed) else None
 
 
 def _strip_hook_entries(raw: dict) -> bool:

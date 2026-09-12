@@ -65,19 +65,9 @@ class DisconnectedProjectExit(ProjectResolutionExit):
         super().__init__(RESOLUTION_DISCONNECTED_PROJECT, guidance)
 
 
-def cli_origin() -> OriginDescriptor | None:
-    """Return the origin descriptor stamped on every write-path event from the CLI surface.
-    Total by construction: origin is provenance, never load-bearing for the write, so any
-    failure yields ``None`` rather than raising.
-    """
-    try:
-        return OriginDescriptor(
-            transport="cli",
-            client_name="nauro-cli",
-            client_version=__version__,
-        )
-    except Exception:
-        return None
+def cli_origin() -> OriginDescriptor:
+    """Return the origin descriptor stamped on every write-path event from the CLI surface."""
+    return OriginDescriptor(transport="cli", client_name="nauro-cli", client_version=__version__)
 
 
 def refuse_global_config_collision(repo_root: Path) -> None:

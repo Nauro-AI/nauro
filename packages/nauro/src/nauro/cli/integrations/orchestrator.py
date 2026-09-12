@@ -222,14 +222,9 @@ def _all_claude_code_lines(
         except Exception as exc:
             outcomes.append(HandlerErrorOutcome(f"Claude Code MCP ({repo}): error - {exc}"))
     if not remove and _every_repo_mcp_wired(outcomes):
-        try:
-            pruned = _prune_redundant_user_scope_mcp()
-            if pruned:
-                outcomes.append(pruned)
-        except Exception as exc:  # never let cleanup break wiring
-            outcomes.append(
-                HandlerErrorOutcome(f"Claude Code MCP (user-scope cleanup): error - {exc}")
-            )
+        pruned = _prune_redundant_user_scope_mcp()
+        if pruned:
+            outcomes.append(pruned)
     try:
         outcomes.extend(
             materialize_skills_claude_code(

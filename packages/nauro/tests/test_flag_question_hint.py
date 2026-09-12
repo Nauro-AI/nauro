@@ -6,6 +6,7 @@ similarity). These tests pin the threshold behavior and the named constants
 that replaced the previously-inlined literals.
 """
 
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -62,6 +63,20 @@ def test_hint_absent_below_threshold(store):
         result = tool_flag_question(store, question="Should we cache hot reads?")
 
     assert "hint" not in result
+
+
+def test_hint_failure_is_logged_and_flag_still_lands(store, caplog):
+    """A hint lookup that fails is logged at debug and the question is still flagged."""
+    caplog.set_level(logging.DEBUG, logger="nauro.mcp.tools")
+    with (
+        patch("nauro.store.reader._list_decisions", side_effect=RuntimeError("index gone")),
+        patch("nauro.mcp.tools._try_push"),
+    ):
+        result = tool_flag_question(store, question="Should we cache hot reads?")
+
+    assert "hint" not in result
+    assert result["store"] == "local"
+    assert any("similar-decision hint skipped" in record.message for record in caplog.records)
 
 
 def test_pointer_flag_prefixes_constant():

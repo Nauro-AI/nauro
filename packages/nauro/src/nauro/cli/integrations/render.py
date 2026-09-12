@@ -146,6 +146,9 @@ def _render_claude_hook(o: ClaudeHookOutcome) -> list[str]:
         if o.legacy_cleaned
         else []
     )
+    shared_strip_failed_add = (
+        [f"    .claude/settings.json - {o.shared_strip.detail}"] if o.shared_strip else []
+    )
     match o.kind:
         case ClaudeHookKind.REFUSED_SYMLINK:
             return [f"  {o.repo}: {o.refusal.message}"]
@@ -166,24 +169,40 @@ def _render_claude_hook(o: ClaudeHookOutcome) -> list[str]:
                 f"  {o.repo}: nauro hook already present in .claude/settings.local.json",
                 *_render_gitignore(o.gitignore),
                 *legacy_cleanup_add,
+                *shared_strip_failed_add,
             ]
         case ClaudeHookKind.WROTE:
             return [
                 f"  {o.repo}: wrote nauro hook to .claude/settings.local.json",
                 *_render_gitignore(o.gitignore),
                 *legacy_cleanup_add,
+                *shared_strip_failed_add,
                 *o.git_warnings,
             ]
         case ClaudeHookKind.NOTHING_TO_REMOVE:
             return [f"  {o.repo}: no nauro hook to remove", *_render_gitignore(o.gitignore)]
-        case ClaudeHookKind.REMOVED:
-            removed_from = (
-                ".claude/settings.local.json and .claude/settings.json"
-                if o.legacy_cleaned
-                else ".claude/settings.local.json"
+        case ClaudeHookKind.SHARED_STRIP_FAILED:
+            local_removed = (
+                [f"  {o.repo}: removed nauro hook from .claude/settings.local.json"]
+                if o.local_cleaned
+                else []
             )
             return [
-                f"  {o.repo}: removed nauro hook from {removed_from}",
+                *local_removed,
+                f"  {o.repo}: .claude/settings.json - {o.shared_strip.detail}",
+                *_render_gitignore(o.gitignore),
+            ]
+        case ClaudeHookKind.REMOVED:
+            layers = [
+                layer
+                for layer, cleaned in (
+                    (".claude/settings.local.json", o.local_cleaned),
+                    (".claude/settings.json", o.legacy_cleaned),
+                )
+                if cleaned
+            ]
+            return [
+                f"  {o.repo}: removed nauro hook from {' and '.join(layers)}",
                 *_render_gitignore(o.gitignore),
             ]
         case _:
