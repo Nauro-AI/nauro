@@ -16,7 +16,12 @@ from nauro.setup.git_hygiene import (
     remove_wiring_ignore_entry,
     wiring_path_is_tracked,
 )
-from nauro.setup.outcomes import ClaudeHookKind, ClaudeHookOutcome, SharedStripFailed
+from nauro.setup.outcomes import (
+    ClaudeHookKind,
+    ClaudeHookOutcome,
+    SharedStripFailed,
+    WriteFailure,
+)
 from nauro.store.write_safety import find_symlink
 
 # Claude Code merges hooks across the project settings layers. The Nauro hook
@@ -117,8 +122,18 @@ def _settings_shared_path(repo: Path) -> Path:
 def materialize_hooks_claude_code(repo: Path, *, remove: bool) -> ClaudeHookOutcome:
     """Add or remove the Nauro advisory hook in ``<repo>/.claude/settings.local.json``.
     Add appends idempotently to ``hooks.UserPromptSubmit[].hooks[]``, git-ignores that file, and
-    strips a stale entry from shared settings. Remove reverses both layers, keeping user hooks.
-    """
+    strips a stale entry from shared settings. Remove reverses both layers, keeping user hooks."""
+    try:
+        return _edit_claude_hooks(repo, remove=remove)
+    except OSError as exc:
+        return ClaudeHookOutcome(
+            ClaudeHookKind.WRITE_FAILED,
+            repo,
+            write_failure=WriteFailure.of(repo / SETTINGS_LOCAL_REL, exc),
+        )
+
+
+def _edit_claude_hooks(repo: Path, *, remove: bool) -> ClaudeHookOutcome:
     for rel in (SETTINGS_LOCAL_REL, SETTINGS_SHARED_REL):
         refusal = find_symlink(repo, rel)
         if refusal is not None:

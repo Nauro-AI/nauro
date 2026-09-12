@@ -17,7 +17,7 @@ from nauro.setup.git_hygiene import (
     remove_wiring_ignore_entry,
     wiring_path_is_tracked,
 )
-from nauro.setup.outcomes import JsonMcpKind, JsonMcpOutcome
+from nauro.setup.outcomes import JsonMcpKind, JsonMcpOutcome, WriteFailure
 from nauro.store.local_files import UnreadableFileError, read_text_or_absent
 from nauro.store.write_safety import find_symlink
 
@@ -77,8 +77,27 @@ def _configure_json_mcp(
 ) -> JsonMcpOutcome:
     """Add or remove the Nauro MCP entry in the JSON config at ``repo_path / config_rel_path``.
     Shared shape behind ``.mcp.json`` and ``.cursor/mcp.json``: only the relative path and the
-    status ``label`` vary. Writes mutate the raw dict, so key order and siblings stay identical.
-    """
+    status ``label`` vary. Writes mutate the raw dict, so key order and siblings stay identical."""
+    try:
+        return _edit_json_mcp(
+            repo_path, config_rel_path=config_rel_path, label=label, remove=remove
+        )
+    except OSError as exc:
+        return JsonMcpOutcome(
+            JsonMcpKind.WRITE_FAILED,
+            repo_path,
+            label,
+            write_failure=WriteFailure.of(repo_path / config_rel_path, exc),
+        )
+
+
+def _edit_json_mcp(
+    repo_path: Path,
+    *,
+    config_rel_path: str,
+    label: str,
+    remove: bool,
+) -> JsonMcpOutcome:
     refusal = find_symlink(repo_path, config_rel_path)
     if refusal is not None:
         return JsonMcpOutcome(JsonMcpKind.REFUSED_SYMLINK, repo_path, label, refusal=refusal)

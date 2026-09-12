@@ -13,6 +13,8 @@ from nauro.setup.git_hygiene import GitIgnoreKind, GitIgnoreResult
 from nauro.setup.outcomes import (
     AgentKind,
     AgentOutcome,
+    AgentsMdKind,
+    AgentsMdOutcome,
     ArtifactOutcome,
     BridgeKind,
     BridgeOutcome,
@@ -24,7 +26,6 @@ from nauro.setup.outcomes import (
     CodexConfigOutcome,
     CodexHookKind,
     CodexHookOutcome,
-    HandlerErrorOutcome,
     JsonMcpKind,
     JsonMcpOutcome,
     LegacyKind,
@@ -32,6 +33,7 @@ from nauro.setup.outcomes import (
     RawLine,
     SkillKind,
     SkillOutcome,
+    WriteFailure,
 )
 
 
@@ -39,8 +41,8 @@ def render(outcome: ArtifactOutcome) -> list[str]:
     """Flatten one outcome into the status lines a command echoes."""
     if isinstance(outcome, RawLine):
         return [outcome.text]
-    if isinstance(outcome, HandlerErrorOutcome):
-        return [outcome.message]
+    if isinstance(outcome, AgentsMdOutcome):
+        return _render_agents_md(outcome)
     if isinstance(outcome, JsonMcpOutcome):
         return _render_json_mcp(outcome)
     if isinstance(outcome, ClaudeHookOutcome):
@@ -107,8 +109,27 @@ def _render_gitignore(result: GitIgnoreResult | None) -> list[str]:
             raise TypeError(f"unrenderable GitIgnoreResult kind: {result.kind!r}")
 
 
+def _failed_write(failure: WriteFailure | None) -> str:
+    if failure is None:
+        raise TypeError("a WRITE_FAILED outcome carries its write failure")
+    if failure.path is None:
+        return f"write failed - {failure.reason}"
+    return f"could not write {failure.path} - {failure.reason}"
+
+
+def _render_agents_md(o: AgentsMdOutcome) -> list[str]:
+    match o.kind:
+        case AgentsMdKind.WRITE_FAILED:
+            where = f"  {o.repo}: " if o.repo is not None else "AGENTS.md regeneration: "
+            return [f"{where}{_failed_write(o.write_failure)}"]
+        case _:
+            raise TypeError(f"unrenderable AgentsMdOutcome kind: {o.kind!r}")
+
+
 def _render_json_mcp(o: JsonMcpOutcome) -> list[str]:
     match o.kind:
+        case JsonMcpKind.WRITE_FAILED:
+            return [f"  {o.repo_path}: {_failed_write(o.write_failure)}"]
         case JsonMcpKind.REFUSED_SYMLINK:
             return [f"  {o.repo_path}: {o.refusal.message}"]
         case JsonMcpKind.REFUSED_TRACKED:
@@ -136,20 +157,52 @@ def _render_json_mcp(o: JsonMcpOutcome) -> list[str]:
             raise TypeError(f"unrenderable JsonMcpOutcome kind: {o.kind!r}")
 
 
+def _local_removed_lines(o: ClaudeHookOutcome) -> list[str]:
+    if not o.local_cleaned:
+        return []
+    return [f"  {o.repo}: removed nauro hook from .claude/settings.local.json"]
+
+
+def _removed_layers(o: ClaudeHookOutcome) -> str:
+    """Name the settings layers a hook was removed from, joined for one line."""
+    cleaned = (
+        (".claude/settings.local.json", o.local_cleaned),
+        (".claude/settings.json", o.legacy_cleaned),
+    )
+    return " and ".join(layer for layer, removed in cleaned if removed)
+
+
+def _legacy_cleanup_lines(o: ClaudeHookOutcome) -> list[str]:
+    if not o.legacy_cleaned:
+        return []
+    return [
+        "    moved stale nauro hook out of .claude/settings.json "
+        "(machine-local wiring lives in .claude/settings.local.json; "
+        "commit the cleanup)"
+    ]
+
+
+def _shared_strip_lines(o: ClaudeHookOutcome) -> list[str]:
+    if o.shared_strip is None:
+        return []
+    return [f"    .claude/settings.json - {o.shared_strip.detail}"]
+
+
+_CLAUDE_HOOK_SKIPS: dict[ClaudeHookKind, str] = {
+    ClaudeHookKind.NOT_JSON_OBJECT: ".claude/settings.local.json is not a JSON object, skipped",
+    ClaudeHookKind.HOOKS_NOT_OBJECT: "hooks key is not a JSON object, skipped",
+    ClaudeHookKind.EVENT_NOT_ARRAY: "hooks.UserPromptSubmit is not a JSON array, skipped",
+}
+
+
 def _render_claude_hook(o: ClaudeHookOutcome) -> list[str]:
-    legacy_cleanup_add = (
-        [
-            "    moved stale nauro hook out of .claude/settings.json "
-            "(machine-local wiring lives in .claude/settings.local.json; "
-            "commit the cleanup)"
-        ]
-        if o.legacy_cleaned
-        else []
-    )
-    shared_strip_failed_add = (
-        [f"    .claude/settings.json - {o.shared_strip.detail}"] if o.shared_strip else []
-    )
+    if o.kind in _CLAUDE_HOOK_SKIPS:
+        return [f"  {o.repo}: {_CLAUDE_HOOK_SKIPS[o.kind]}"]
+    legacy_cleanup_add = _legacy_cleanup_lines(o)
+    shared_strip_failed_add = _shared_strip_lines(o)
     match o.kind:
+        case ClaudeHookKind.WRITE_FAILED:
+            return [f"  {o.repo}: {_failed_write(o.write_failure)}"]
         case ClaudeHookKind.REFUSED_SYMLINK:
             return [f"  {o.repo}: {o.refusal.message}"]
         case ClaudeHookKind.REFUSED_TRACKED:
@@ -158,12 +211,6 @@ def _render_claude_hook(o: ClaudeHookOutcome) -> list[str]:
             )
         case ClaudeHookKind.PARSE_ERROR:
             return [f"  {o.repo}: could not parse .claude/settings.local.json - {o.detail}"]
-        case ClaudeHookKind.NOT_JSON_OBJECT:
-            return [f"  {o.repo}: .claude/settings.local.json is not a JSON object, skipped"]
-        case ClaudeHookKind.HOOKS_NOT_OBJECT:
-            return [f"  {o.repo}: hooks key is not a JSON object, skipped"]
-        case ClaudeHookKind.EVENT_NOT_ARRAY:
-            return [f"  {o.repo}: hooks.UserPromptSubmit is not a JSON array, skipped"]
         case ClaudeHookKind.ALREADY_PRESENT:
             return [
                 f"  {o.repo}: nauro hook already present in .claude/settings.local.json",
@@ -182,27 +229,14 @@ def _render_claude_hook(o: ClaudeHookOutcome) -> list[str]:
         case ClaudeHookKind.NOTHING_TO_REMOVE:
             return [f"  {o.repo}: no nauro hook to remove", *_render_gitignore(o.gitignore)]
         case ClaudeHookKind.SHARED_STRIP_FAILED:
-            local_removed = (
-                [f"  {o.repo}: removed nauro hook from .claude/settings.local.json"]
-                if o.local_cleaned
-                else []
-            )
             return [
-                *local_removed,
+                *_local_removed_lines(o),
                 f"  {o.repo}: .claude/settings.json - {o.shared_strip.detail}",
                 *_render_gitignore(o.gitignore),
             ]
         case ClaudeHookKind.REMOVED:
-            layers = [
-                layer
-                for layer, cleaned in (
-                    (".claude/settings.local.json", o.local_cleaned),
-                    (".claude/settings.json", o.legacy_cleaned),
-                )
-                if cleaned
-            ]
             return [
-                f"  {o.repo}: removed nauro hook from {' and '.join(layers)}",
+                f"  {o.repo}: removed nauro hook from {_removed_layers(o)}",
                 *_render_gitignore(o.gitignore),
             ]
         case _:
@@ -267,6 +301,8 @@ def _render_bridge(o: BridgeOutcome) -> list[str]:
 
 def _render_codex_config(o: CodexConfigOutcome) -> list[str]:
     match o.kind:
+        case CodexConfigKind.WRITE_FAILED:
+            return [f"Codex: {_failed_write(o.write_failure)}"]
         case CodexConfigKind.PRESERVED_OTHER_PROJECTS:
             return [
                 f"Codex: preserved nauro entry in {o.config_path} "
@@ -294,6 +330,8 @@ def _render_codex_config(o: CodexConfigOutcome) -> list[str]:
 
 def _render_codex_hook(o: CodexHookOutcome) -> list[str]:
     match o.kind:
+        case CodexHookKind.WRITE_FAILED:
+            return [f"  {o.repo}: {_failed_write(o.write_failure)}"]
         case CodexHookKind.REFUSED_SYMLINK:
             return [f"  {o.repo}: {o.refusal.message}"]
         case CodexHookKind.REFUSED_TRACKED:
@@ -331,36 +369,58 @@ def _render_codex_hook(o: CodexHookOutcome) -> list[str]:
             raise TypeError(f"unrenderable CodexHookOutcome kind: {o.kind!r}")
 
 
+def _skill_refusal_line(o: SkillOutcome) -> str:
+    prefix = f"  {o.repo}: " if o.repo is not None else "  "
+    return f"{prefix}{o.refusal.message}"
+
+
+# Kinds whose whole line is a verdict on the target file.
+_SKILL_TARGET_LINES: dict[SkillKind, str] = {
+    SkillKind.PRESERVED_MODIFIED: "  preserved {target} (locally modified)",
+    SkillKind.PRESERVED_UNDECODABLE: "  preserved {target} (not UTF-8 text, left alone)",
+    SkillKind.WROTE: "  wrote {target}",
+    SkillKind.UNCHANGED: "  unchanged {target}",
+    SkillKind.OVERWROTE: "  overwrote {target}",
+    SkillKind.REMOVED: "  removed {target}",
+    SkillKind.ABSENT: "  no skill at {target}",
+}
+
+
 def _render_skill(o: SkillOutcome) -> list[str]:
+    if o.kind in _SKILL_TARGET_LINES:
+        return [_SKILL_TARGET_LINES[o.kind].format(target=o.target)]
     match o.kind:
+        case SkillKind.WRITE_FAILED:
+            return [f"  {_failed_write(o.write_failure)}"]
         case SkillKind.REFUSED_SYMLINK:
-            if o.repo is not None:
-                return [f"  {o.repo}: {o.refusal.message}"]
-            return [f"  {o.refusal.message}"]
+            return [_skill_refusal_line(o)]
         case SkillKind.PRESERVED:
             return [f"  preserved {o.base_label}/nauro-* (other nauro projects still registered)"]
-        case SkillKind.PRESERVED_MODIFIED:
-            return [f"  preserved {o.target} (locally modified)"]
-        case SkillKind.WROTE:
-            return [f"  wrote {o.target}"]
-        case SkillKind.UNCHANGED:
-            return [f"  unchanged {o.target}"]
-        case SkillKind.OVERWROTE:
-            return [f"  overwrote {o.target}"]
         case SkillKind.UPDATED:
             return [f"  updated {o.target} (previous saved to {o.backup_name})"]
         case SkillKind.MIGRATED_LEGACY:
             return [f"  moved legacy skill {o.source} to {o.backup_path}"]
-        case SkillKind.REMOVED:
-            return [f"  removed {o.target}"]
-        case SkillKind.ABSENT:
-            return [f"  no skill at {o.target}"]
         case _:
             raise TypeError(f"unrenderable SkillOutcome kind: {o.kind!r}")
 
 
+_AGENT_TARGET_LINES: dict[AgentKind, str] = {
+    AgentKind.UNCHANGED: "  unchanged {target}",
+    AgentKind.OVERWROTE: "  overwrote {target}",
+    AgentKind.INSTALLED: "  installed {target}",
+    AgentKind.ABSENT: "  no agent at {target}",
+    AgentKind.REMOVED: "  removed {target}",
+    AgentKind.PRESERVED_MODIFIED: "  preserved {target} (locally modified)",
+    AgentKind.PRESERVED_UNDECODABLE: "  preserved {target} (not UTF-8 text, left alone)",
+}
+
+
 def _render_agent(o: AgentOutcome) -> list[str]:
+    if o.kind in _AGENT_TARGET_LINES:
+        return [_AGENT_TARGET_LINES[o.kind].format(target=o.target)]
     match o.kind:
+        case AgentKind.WRITE_FAILED:
+            return [f"  {_failed_write(o.write_failure)}"]
         case AgentKind.SURFACE_INVALID:
             return [f"  skipped agents on surface {o.surface!r}: {o.detail}"]
         case AgentKind.PRESERVED:
@@ -368,19 +428,7 @@ def _render_agent(o: AgentOutcome) -> list[str]:
             return [f"  preserved {base}/nauro-* (other nauro projects still registered)"]
         case AgentKind.REFUSED_SYMLINK:
             return [f"  {o.refusal.message}"]
-        case AgentKind.UNCHANGED:
-            return [f"  unchanged {o.target}"]
-        case AgentKind.OVERWROTE:
-            return [f"  overwrote {o.target}"]
         case AgentKind.UPDATED:
             return [f"  updated {o.target} (previous saved to {o.backup_name})"]
-        case AgentKind.INSTALLED:
-            return [f"  installed {o.target}"]
-        case AgentKind.ABSENT:
-            return [f"  no agent at {o.target}"]
-        case AgentKind.REMOVED:
-            return [f"  removed {o.target}"]
-        case AgentKind.PRESERVED_MODIFIED:
-            return [f"  preserved {o.target} (locally modified)"]
         case _:
             raise TypeError(f"unrenderable AgentOutcome kind: {o.kind!r}")

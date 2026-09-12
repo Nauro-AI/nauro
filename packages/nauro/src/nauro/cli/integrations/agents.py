@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nauro.setup.outcomes import AgentKind, AgentOutcome
+from nauro.setup.outcomes import AgentKind, AgentOutcome, WriteFailure
 from nauro.store.write_safety import (
     SymlinkRefusal,
     UserSymlinkRefusal,
@@ -137,6 +137,29 @@ def _install_bundled_agent(
     Absent writes the body, byte-equal is a no-op, ``force_overwrite`` overwrites in place, and a
     differing file is refreshed with its prior content stashed to a sibling ``.bak``.
     """
+    try:
+        return _install_bundled_agent_io(
+            target, bundled, force_overwrite=force_overwrite, repo=repo
+        )
+    except UnicodeDecodeError:
+        return AgentOutcome(AgentKind.PRESERVED_UNDECODABLE, target=target)
+    except OSError as exc:
+        return _agent_write_failed(target, exc)
+
+
+def _agent_write_failed(target: Path, exc: OSError) -> AgentOutcome:
+    return AgentOutcome(
+        AgentKind.WRITE_FAILED, target=target, write_failure=WriteFailure.of(target, exc)
+    )
+
+
+def _install_bundled_agent_io(
+    target: Path,
+    bundled: str,
+    *,
+    force_overwrite: bool,
+    repo: Path | None = None,
+) -> AgentOutcome:
     if target.is_file():
         current = target.read_text(encoding="utf-8")
         if current == bundled:
@@ -160,6 +183,15 @@ def _remove_bundled_agent(target: Path, bundled: str) -> AgentOutcome:
     """Remove one bundled agent file, returning its outcome.
     Absent skips, byte-equal to the bundle unlinks, and a differing file is preserved.
     """
+    try:
+        return _remove_bundled_agent_io(target, bundled)
+    except UnicodeDecodeError:
+        return AgentOutcome(AgentKind.PRESERVED_UNDECODABLE, target=target)
+    except OSError as exc:
+        return _agent_write_failed(target, exc)
+
+
+def _remove_bundled_agent_io(target: Path, bundled: str) -> AgentOutcome:
     if not target.is_file():
         return AgentOutcome(AgentKind.ABSENT, target=target)
     current = target.read_text(encoding="utf-8")

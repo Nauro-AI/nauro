@@ -10,7 +10,7 @@ from tomlkit.exceptions import ParseError as TOMLParseError
 from tomlkit.items import InlineTable
 
 from nauro.cli.nauro_command import _find_nauro_command
-from nauro.setup.outcomes import CodexConfigKind, CodexConfigOutcome
+from nauro.setup.outcomes import CodexConfigKind, CodexConfigOutcome, WriteFailure
 from nauro.store._atomic import atomic_write_text
 from nauro.store.local_files import UnreadableFileError
 from nauro.store.write_safety import find_file_symlink
@@ -94,7 +94,19 @@ def _configure_codex(
     ``args`` are rewritten. The remove path preserves the entry unless ``clear_user_scope``.
     """
     config_path = config_path or codex_config_path()
+    try:
+        return _edit_codex_config(config_path, remove=remove, clear_user_scope=clear_user_scope)
+    except OSError as exc:
+        return CodexConfigOutcome(
+            CodexConfigKind.WRITE_FAILED,
+            config_path,
+            write_failure=WriteFailure.of(config_path, exc),
+        )
 
+
+def _edit_codex_config(
+    config_path: Path, *, remove: bool, clear_user_scope: bool
+) -> CodexConfigOutcome:
     if remove and not clear_user_scope:
         return CodexConfigOutcome(CodexConfigKind.PRESERVED_OTHER_PROJECTS, config_path)
 

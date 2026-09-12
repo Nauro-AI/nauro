@@ -19,14 +19,17 @@ from nauro.cli.integrations.skills import (
 )
 from nauro.cli.integrations.user_scope import _registered_project_keys, _user_scope_safe_to_clear
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
+from nauro.constants import AGENTS_MD
 from nauro.setup.claude_bridge import remove_claude_bridge
 from nauro.setup.outcomes import (
+    AgentsMdKind,
+    AgentsMdOutcome,
     ArtifactOutcome,
     BridgeOutcome,
-    HandlerErrorOutcome,
     JsonMcpKind,
     JsonMcpOutcome,
     RawLine,
+    WriteFailure,
 )
 from nauro.store.registry import get_repo_paths
 from nauro.store.resolution import resolve_from_cwd
@@ -39,8 +42,6 @@ def _every_repo_mcp_wired(outcomes: list[ArtifactOutcome]) -> bool:
     The user-scope HTTP prune assumes project-scope stdio is canonical, so a refused or failed
     repo write must keep the user-scope entry rather than delete the only working connection.
     """
-    if any(isinstance(o, HandlerErrorOutcome) for o in outcomes):
-        return False
     mcp_outcomes = [o for o in outcomes if isinstance(o, JsonMcpOutcome)]
     return bool(mcp_outcomes) and all(o.kind is JsonMcpKind.WROTE for o in mcp_outcomes)
 
@@ -70,12 +71,7 @@ def claude_code_surfaces(
             legacy_results.append(legacy)
         mcp_results.append(_configure_mcp(repo_path, remove=remove))
         if with_hooks or remove:
-            try:
-                hook_results.append(materialize_hooks_claude_code(repo_path, remove=remove))
-            except Exception as exc:
-                hook_results.append(
-                    HandlerErrorOutcome(f"  {repo_path}: hook wiring error - {exc}")
-                )
+            hook_results.append(materialize_hooks_claude_code(repo_path, remove=remove))
 
     if not remove and _every_repo_mcp_wired(mcp_results):
         pruned = _prune_redundant_user_scope_mcp()
@@ -93,25 +89,33 @@ def claude_code_surfaces(
         outcomes.extend(legacy_results)
 
     if not remove:
-        # Regenerate AGENTS.md so context is fresh from the start. The store
-        # dir name is the project id used by the registry-aware lookup.
-        # warn_then_regen surfaces missing-repo, symlink-refusal, and
-        # git-hygiene warnings through the warn callback (stderr), never the
-        # returned outcomes.
-        bridge_outcomes: list[BridgeOutcome] = []
-        updated_repos = warn_then_regen(
-            store_name, store_path, warn=warn, bridge_sink=bridge_outcomes
-        )
-        if updated_repos:
+        regenerated = _regenerated_agents_md_lines(store_name, store_path, warn=warn)
+        if regenerated:
             outcomes.append(RawLine("\nAGENTS.md:"))
-            # The bridge outcomes parallel updated_repos: the shared regen seam
-            # ensures the Claude Code bridge on every AGENTS.md write and fills
-            # the sink in the same order.
-            for repo_path, bridge_outcome in zip(updated_repos, bridge_outcomes):
-                outcomes.append(RawLine(f"  {repo_path}: regenerated AGENTS.md"))
-                outcomes.append(bridge_outcome)
+            outcomes.extend(regenerated)
 
     return outcomes
+
+
+def _regenerated_agents_md_lines(
+    project_key: str, store_path: Path, *, warn: Callable[[str], None]
+) -> list[ArtifactOutcome]:
+    """Regenerate AGENTS.md across the project's repos and return one line per repo written.
+    Each write is followed by its Claude Code bridge outcome, which the regen seam ensures in
+    the same order. A write the seam could not land becomes the single failure outcome.
+    """
+    bridge_outcomes: list[BridgeOutcome] = []
+    try:
+        updated = warn_then_regen(project_key, store_path, warn=warn, bridge_sink=bridge_outcomes)
+    except OSError as exc:
+        return [
+            AgentsMdOutcome(AgentsMdKind.WRITE_FAILED, write_failure=WriteFailure.of(None, exc))
+        ]
+    lines: list[ArtifactOutcome] = []
+    for repo_path, bridge_outcome in zip(updated, bridge_outcomes):
+        lines.append(RawLine(f"  {repo_path}: regenerated AGENTS.md"))
+        lines.append(bridge_outcome)
+    return lines
 
 
 def cursor_surfaces(project_repos: list[Path], *, remove: bool) -> list[ArtifactOutcome]:
@@ -188,12 +192,7 @@ def codex_surfaces(*, remove: bool, with_hooks: bool) -> list[ArtifactOutcome]:
             if not repo_path.is_dir():
                 outcomes.append(RawLine(f"  {repo_path}: repo path missing, skipped"))
                 continue
-            try:
-                outcomes.append(materialize_hooks_codex(repo_path, remove=remove))
-            except Exception as exc:
-                outcomes.append(
-                    HandlerErrorOutcome(f"  {repo_path}: Codex hook wiring error - {exc}")
-                )
+            outcomes.append(materialize_hooks_codex(repo_path, remove=remove))
 
     return outcomes
 
@@ -217,47 +216,35 @@ def _all_claude_code_lines(
         if not repo.is_dir():
             outcomes.append(RawLine(f"  {repo}: repo path missing, skipped"))
             continue
-        try:
-            outcomes.append(_configure_mcp(repo, remove=remove))
-        except Exception as exc:
-            outcomes.append(HandlerErrorOutcome(f"Claude Code MCP ({repo}): error - {exc}"))
+        outcomes.append(_configure_mcp(repo, remove=remove))
     if not remove and _every_repo_mcp_wired(outcomes):
         pruned = _prune_redundant_user_scope_mcp()
         if pruned:
             outcomes.append(pruned)
-    try:
-        outcomes.extend(
-            materialize_skills_claude_code(
-                remove=remove,
-                clear_user_scope=clear_user_scope,
-                with_skills=with_skills,
-                force_overwrite=force_overwrite,
-            )
+    outcomes.extend(
+        materialize_skills_claude_code(
+            remove=remove,
+            clear_user_scope=clear_user_scope,
+            with_skills=with_skills,
+            force_overwrite=force_overwrite,
         )
-    except Exception as exc:
-        outcomes.append(HandlerErrorOutcome(f"Claude Code skills: error - {exc}"))
+    )
 
     if with_subagents:
-        try:
-            outcomes.extend(
-                materialize_agents(
-                    "claude_code",
-                    remove=remove,
-                    force_overwrite=force_overwrite,
-                    clear_user_scope=clear_user_scope,
-                )
+        outcomes.extend(
+            materialize_agents(
+                "claude_code",
+                remove=remove,
+                force_overwrite=force_overwrite,
+                clear_user_scope=clear_user_scope,
             )
-        except Exception as exc:
-            outcomes.append(HandlerErrorOutcome(f"Claude Code agents: error - {exc}"))
+        )
 
     if with_hooks or remove:
         for repo in project_repos:
             if not repo.is_dir():
                 continue
-            try:
-                outcomes.append(materialize_hooks_claude_code(repo, remove=remove))
-            except Exception as exc:
-                outcomes.append(HandlerErrorOutcome(f"Claude Code hook ({repo}): error - {exc}"))
+            outcomes.append(materialize_hooks_claude_code(repo, remove=remove))
     return outcomes
 
 
@@ -274,32 +261,23 @@ def _all_cursor_lines(
     for repo in project_repos:
         if not repo.is_dir():
             continue
-        try:
-            outcomes.append(_configure_cursor_for_repo(repo, remove=remove))
-        except Exception as exc:
-            outcomes.append(HandlerErrorOutcome(f"Cursor MCP ({repo}): error - {exc}"))
-        try:
+        outcomes.append(_configure_cursor_for_repo(repo, remove=remove))
+        outcomes.extend(
+            materialize_skills_cursor_for_repo(
+                repo,
+                remove=remove,
+                with_skills=with_skills,
+                force_overwrite=force_overwrite,
+            )
+        )
+        if with_subagents:
             outcomes.extend(
-                materialize_skills_cursor_for_repo(
+                materialize_agents_cursor_for_repo(
                     repo,
                     remove=remove,
-                    with_skills=with_skills,
                     force_overwrite=force_overwrite,
                 )
             )
-        except Exception as exc:
-            outcomes.append(HandlerErrorOutcome(f"Cursor skills ({repo}): error - {exc}"))
-        if with_subagents:
-            try:
-                outcomes.extend(
-                    materialize_agents_cursor_for_repo(
-                        repo,
-                        remove=remove,
-                        force_overwrite=force_overwrite,
-                    )
-                )
-            except Exception as exc:
-                outcomes.append(HandlerErrorOutcome(f"Cursor agents ({repo}): error - {exc}"))
     return outcomes
 
 
@@ -315,43 +293,31 @@ def _all_codex_lines(
 ) -> list[ArtifactOutcome]:
     """Codex surface lines: MCP, skills, optional subagents, then hooks."""
     outcomes: list[ArtifactOutcome] = []
-    try:
-        outcomes.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
-    except Exception as exc:
-        outcomes.append(HandlerErrorOutcome(f"Codex MCP: error - {exc}"))
-    try:
-        outcomes.extend(
-            materialize_skills_codex(
-                remove=remove,
-                clear_user_scope=clear_user_scope,
-                with_skills=with_skills,
-                force_overwrite=force_overwrite,
-            )
+    outcomes.append(_configure_codex(remove=remove, clear_user_scope=clear_user_scope))
+    outcomes.extend(
+        materialize_skills_codex(
+            remove=remove,
+            clear_user_scope=clear_user_scope,
+            with_skills=with_skills,
+            force_overwrite=force_overwrite,
         )
-    except Exception as exc:
-        outcomes.append(HandlerErrorOutcome(f"Codex skills: error - {exc}"))
+    )
 
     if with_subagents:
-        try:
-            outcomes.extend(
-                materialize_agents(
-                    "codex",
-                    remove=remove,
-                    force_overwrite=force_overwrite,
-                    clear_user_scope=clear_user_scope,
-                )
+        outcomes.extend(
+            materialize_agents(
+                "codex",
+                remove=remove,
+                force_overwrite=force_overwrite,
+                clear_user_scope=clear_user_scope,
             )
-        except Exception as exc:
-            outcomes.append(HandlerErrorOutcome(f"Codex agents: error - {exc}"))
+        )
 
     if with_hooks or remove:
         for repo in project_repos:
             if not repo.is_dir():
                 continue
-            try:
-                outcomes.append(materialize_hooks_codex(repo, remove=remove))
-            except Exception as exc:
-                outcomes.append(HandlerErrorOutcome(f"Codex hooks ({repo}): error - {exc}"))
+            outcomes.append(materialize_hooks_codex(repo, remove=remove))
     return outcomes
 
 
@@ -367,26 +333,14 @@ def _all_agents_md_lines(
     missing-repo, symlink-refusal and git-hygiene warnings land on stdout in position.
     """
     outcomes: list[ArtifactOutcome] = []
-    # Regenerate AGENTS.md once so context is fresh from the start on every
-    # entry point that wires surfaces. Guarded on the add path and on having a
-    # store to read from. warn_then_regen routes missing-repo, symlink-refusal,
-    # and git-hygiene warnings into the status lines.
     if not remove and current_project_key is not None and store_path is not None:
-        try:
-            bridge_outcomes: list[BridgeOutcome] = []
-            updated = warn_then_regen(
+        outcomes.extend(
+            _regenerated_agents_md_lines(
                 current_project_key,
                 store_path,
                 warn=lambda message: outcomes.append(RawLine(message)),
-                bridge_sink=bridge_outcomes,
             )
-            # The sink parallels updated: the shared regen seam ensures the
-            # Claude Code bridge on every AGENTS.md write, in the same order.
-            for repo_path, bridge_outcome in zip(updated, bridge_outcomes):
-                outcomes.append(RawLine(f"  {repo_path}: regenerated AGENTS.md"))
-                outcomes.append(bridge_outcome)
-        except Exception as exc:
-            outcomes.append(HandlerErrorOutcome(f"AGENTS.md regeneration: error - {exc}"))
+        )
 
     # Mirror of the regen above: strip the generated AGENTS.md on teardown so a
     # removed integration leaves no orphaned context file. User content in a
@@ -402,8 +356,14 @@ def _all_agents_md_lines(
                 # Mirror of the add-path bridge write: strip the owned bridge
                 # alongside the generated AGENTS.md it imported.
                 outcomes.append(remove_claude_bridge(repo))
-            except Exception as exc:
-                outcomes.append(HandlerErrorOutcome(f"AGENTS.md removal ({repo}) failed: {exc}"))
+            except OSError as exc:
+                outcomes.append(
+                    AgentsMdOutcome(
+                        AgentsMdKind.WRITE_FAILED,
+                        repo,
+                        write_failure=WriteFailure.of(repo / AGENTS_MD, exc),
+                    )
+                )
     return outcomes
 
 
@@ -419,8 +379,8 @@ def setup_all_surfaces(
     with_hooks: bool = False,
     clear_user_scope_override: bool | None = None,
 ) -> list[ArtifactOutcome]:
-    """Wire/unwire MCP/skills per ``remove`` for Claude Code, Cursor, Codex, collecting status
-    lines past per-handler errors. AGENTS.md regen on add: ``current_project_key``+``store_path``.
+    """Wire/unwire MCP/skills per ``remove`` for Claude Code, Cursor, Codex; a write that fails
+    is one typed outcome. AGENTS.md regen on add: ``current_project_key``+``store_path``.
     Multi-repo un-adopt passes ``clear_user_scope_override=False`` (default: project-granular)."""
     if clear_user_scope_override is not None:
         clear_user_scope = clear_user_scope_override

@@ -19,7 +19,7 @@ from nauro.setup.git_hygiene import (
     remove_wiring_ignore_entry,
     wiring_path_is_tracked,
 )
-from nauro.setup.outcomes import CodexHookKind, CodexHookOutcome
+from nauro.setup.outcomes import CodexHookKind, CodexHookOutcome, WriteFailure
 from nauro.store._atomic import atomic_write_text
 from nauro.store.write_safety import find_symlink
 
@@ -41,6 +41,17 @@ def _codex_hooks_path(repo: Path) -> Path:
 
 def materialize_hooks_codex(repo: Path, *, remove: bool) -> CodexHookOutcome:
     """Add or remove project-scoped Codex lifecycle hooks for ``repo``."""
+    try:
+        return _edit_codex_hooks(repo, remove=remove)
+    except OSError as exc:
+        return CodexHookOutcome(
+            CodexHookKind.WRITE_FAILED,
+            repo,
+            write_failure=WriteFailure.of(_codex_hooks_path(repo), exc),
+        )
+
+
+def _edit_codex_hooks(repo: Path, *, remove: bool) -> CodexHookOutcome:
     refusal = find_symlink(repo, ".codex/hooks.json")
     if refusal is not None:
         return CodexHookOutcome(CodexHookKind.REFUSED_SYMLINK, repo, refusal=refusal)
