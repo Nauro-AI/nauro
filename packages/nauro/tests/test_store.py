@@ -895,15 +895,23 @@ def test_filesystem_store_write_file_rejects_traversal(tmp_path):
     assert not outside.exists()
 
 
-def test_filesystem_store_delete_file_ignores_traversal(tmp_path):
-    """delete_file never reaches outside the store; a traversal path is a no-op
-    that leaves the sibling file intact."""
+def test_filesystem_store_delete_file_rejects_traversal(tmp_path):
+    """delete_file fails loud on a traversal path, as write_file does, and never
+    reaches the sibling file outside the store."""
     store_root = tmp_path / "store"
     store_root.mkdir()
     victim = tmp_path / "victim.md"
     victim.write_text("keep me")
-    FilesystemStore(store_root).delete_file("../victim.md")
+    with pytest.raises(ValueError):
+        FilesystemStore(store_root).delete_file("../victim.md")
     assert victim.read_text() == "keep me"
+
+
+def test_filesystem_store_delete_file_absent_is_noop(tmp_path):
+    """Deleting a path inside the store that does not exist is a silent no-op."""
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    FilesystemStore(store_root).delete_file("missing.md")
 
 
 def test_filesystem_store_read_file_returns_none_on_traversal(tmp_path):

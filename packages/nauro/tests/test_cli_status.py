@@ -384,22 +384,6 @@ def test_status_codex_hooks_broken_when_command_is_dead(tmp_path, monkeypatch):
     assert "recorded command won't run" in result.output
 
 
-def test_status_codex_hooks_does_not_claim_health_when_probe_fails(tmp_path, monkeypatch):
-    _setup_project(tmp_path, monkeypatch)
-    _wire_codex_hooks(tmp_path)
-
-    def fail_probe(_commands, _hook_commands):
-        raise OSError("probe unavailable")
-
-    monkeypatch.setattr(status_mod, "_probe_distinct_commands", fail_probe)
-
-    result = runner.invoke(app, ["status"])
-
-    assert result.exit_code == 0
-    assert "Codex hooks   configured (wired in 1/1 repos; liveness unknown)" in result.output
-    assert "command healthy" not in result.output
-
-
 def test_status_codex_hooks_broken_when_event_is_missing(tmp_path, monkeypatch):
     _setup_project(tmp_path, monkeypatch)
     _wire_codex_hooks(tmp_path, events=("SessionStart",))

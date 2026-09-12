@@ -65,6 +65,15 @@ class ClaudeHookKind(Enum):
     WROTE = auto()
     REMOVED = auto()
     NOTHING_TO_REMOVE = auto()
+    SHARED_STRIP_FAILED = auto()
+
+
+@dataclass(frozen=True)
+class SharedStripFailed:
+    """The shared settings layer could not be cleared of a nauro hook: it was unreadable,
+    unparseable, or unwritable, so the hook may still be wired there."""
+
+    detail: str
 
 
 @dataclass(frozen=True)
@@ -80,6 +89,8 @@ class ClaudeHookOutcome:
     # True when this run also stripped a stale Nauro entry from the shared
     # .claude/settings.json (the hook now lives in .claude/settings.local.json).
     legacy_cleaned: bool = False
+    local_cleaned: bool = False
+    shared_strip: SharedStripFailed | None = None
 
 
 class ClaudeUserConfigKind(Enum):

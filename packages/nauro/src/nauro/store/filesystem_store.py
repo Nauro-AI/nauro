@@ -74,13 +74,10 @@ class FilesystemStore:
             atomic_write_text(target, content)
 
     def delete_file(self, path: str) -> None:
-        try:
-            target = self._resolve_within(path)
-        except ValueError:
-            return
-        if not target.exists():
-            return
-        target.unlink()
+        """Remove ``path`` if present; an out-of-store path is an error, as for ``write_file``."""
+        target = self._resolve_within(path)
+        if target.exists():
+            target.unlink()
 
     def list_decisions(self) -> list[str]:
         decisions_dir = self._store_path / DECISIONS_DIR

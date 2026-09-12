@@ -866,10 +866,79 @@ def test_add_survives_unwritable_shared_settings(tmp_path: Path, monkeypatch):
 
     assert line.kind is ClaudeHookKind.WROTE
     assert line.legacy_cleaned is False
+    assert line.shared_strip is not None
+    assert line.shared_strip.detail == "the nauro hook is still wired there: read-only file system"
     assert line.gitignore is not None
     assert line.gitignore.kind is GitIgnoreKind.ADDED
     assert len(_nauro_entries(json.loads(_settings(repo).read_text()))) == 1
     assert shared.read_text(encoding="utf-8") == before
+
+
+def test_remove_reports_unwritable_shared_settings(tmp_path: Path, monkeypatch):
+    """A shared file that still holds the nauro hook but cannot be rewritten is
+    reported as a failed removal, never as nothing to remove."""
+    import nauro.cli.integrations.claude_hooks as claude_hooks_mod
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shared = _legacy_shared_with_nauro_hook(repo, extra={"model": "claude-opus"})
+    before = shared.read_text(encoding="utf-8")
+    real_write = claude_hooks_mod.write_json_config
+
+    def failing_shared_write(path: Path, raw: dict) -> None:
+        if path.name == "settings.json":
+            raise OSError("read-only file system")
+        real_write(path, raw)
+
+    monkeypatch.setattr(claude_hooks_mod, "write_json_config", failing_shared_write)
+
+    line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert line.kind is ClaudeHookKind.SHARED_STRIP_FAILED
+    assert line.shared_strip is not None
+    assert line.shared_strip.detail == "the nauro hook is still wired there: read-only file system"
+    assert line.legacy_cleaned is False
+    assert line.local_cleaned is False
+    assert shared.read_text(encoding="utf-8") == before
+    assert len(_nauro_entries(json.loads(before))) == 1
+
+
+def test_remove_reports_unreadable_shared_settings(tmp_path: Path):
+    """A shared settings path that exists but cannot be read is reported as a
+    failed removal, never as nothing to remove: the hook may still be wired."""
+    repo = tmp_path / "repo"
+    (repo / ".claude" / "settings.json").mkdir(parents=True)
+
+    line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert line.kind is ClaudeHookKind.SHARED_STRIP_FAILED
+    assert line.shared_strip is not None
+    assert line.shared_strip.detail.startswith("could not check it for a nauro hook: ")
+
+
+def test_remove_keeps_the_local_removal_when_the_shared_strip_fails(tmp_path: Path, monkeypatch):
+    """The local hook removal is reported alongside the shared-layer failure."""
+    import nauro.cli.integrations.claude_hooks as claude_hooks_mod
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    materialize_hooks_claude_code(repo, remove=False)
+    assert len(_nauro_entries(json.loads(_settings(repo).read_text()))) == 1
+    # A stale shared-layer copy that the add never saw, and that cannot be rewritten.
+    _legacy_shared_with_nauro_hook(repo, extra={"model": "claude-opus"})
+
+    def failing_shared_write(path: Path, raw: dict) -> None:
+        if path.name == "settings.json":
+            raise OSError("read-only file system")
+        raise AssertionError(f"unexpected write to {path}")
+
+    monkeypatch.setattr(claude_hooks_mod, "write_json_config", failing_shared_write)
+
+    line = materialize_hooks_claude_code(repo, remove=True)
+
+    assert line.kind is ClaudeHookKind.SHARED_STRIP_FAILED
+    assert line.local_cleaned is True
+    assert not _settings(repo).exists()
 
 
 def test_strip_leaves_null_hooks_matcher_untouched(tmp_path: Path):

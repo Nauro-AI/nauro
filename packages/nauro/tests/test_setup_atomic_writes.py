@@ -297,10 +297,10 @@ def test_interrupted_write_leaves_target_and_no_temps(driver, tmp_path: Path, mo
     assert _tmp_siblings(target) == []
 
 
-def test_interrupted_legacy_strip_soft_fails(tmp_path: Path, monkeypatch):
-    """The shared-layer legacy strip is best-effort on the write side too: an
-    interrupted rewrite leaves the original bytes, no temps, and no exception —
-    the surface reports its own outcome instead of aborting."""
+def test_interrupted_legacy_strip_reports_failure(tmp_path: Path, monkeypatch):
+    """An interrupted shared-layer rewrite leaves the original bytes and no temps,
+    and the surface reports the failed removal instead of aborting or claiming
+    there was nothing to remove."""
     from nauro.cli.integrations.outcomes import ClaudeHookKind
 
     target = _seed_file(
@@ -316,7 +316,9 @@ def test_interrupted_legacy_strip_soft_fails(tmp_path: Path, monkeypatch):
 
     outcome = materialize_hooks_claude_code(tmp_path / "repo", remove=True)
 
-    assert outcome.kind is ClaudeHookKind.NOTHING_TO_REMOVE
+    assert outcome.kind is ClaudeHookKind.SHARED_STRIP_FAILED
+    assert outcome.shared_strip is not None
+    assert outcome.shared_strip.detail == "the nauro hook is still wired there: replace failed"
     assert outcome.legacy_cleaned is False
     assert target.read_bytes() == before
     assert _tmp_siblings(target) == []

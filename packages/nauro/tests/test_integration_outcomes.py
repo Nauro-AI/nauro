@@ -33,6 +33,7 @@ from nauro.cli.integrations.outcomes import (
     LegacyKind,
     LegacyOutcome,
     RawLine,
+    SharedStripFailed,
     SkillKind,
     SkillOutcome,
 )
@@ -296,11 +297,68 @@ RENDER_CASES = [
         [f"  {REPO}: no nauro hook to remove"],
     ),
     (
-        ClaudeHookOutcome(ClaudeHookKind.REMOVED, REPO),
+        ClaudeHookOutcome(
+            ClaudeHookKind.SHARED_STRIP_FAILED,
+            REPO,
+            shared_strip=SharedStripFailed(
+                "the nauro hook is still wired there: read-only file system"
+            ),
+        ),
+        [
+            f"  {REPO}: .claude/settings.json - the nauro hook is still wired there: "
+            "read-only file system"
+        ],
+    ),
+    (
+        ClaudeHookOutcome(
+            ClaudeHookKind.SHARED_STRIP_FAILED,
+            REPO,
+            shared_strip=SharedStripFailed(
+                "the nauro hook is still wired there: read-only file system"
+            ),
+            local_cleaned=True,
+        ),
+        [
+            f"  {REPO}: removed nauro hook from .claude/settings.local.json",
+            f"  {REPO}: .claude/settings.json - the nauro hook is still wired there: "
+            "read-only file system",
+        ],
+    ),
+    (
+        ClaudeHookOutcome(
+            ClaudeHookKind.WROTE,
+            REPO,
+            shared_strip=SharedStripFailed("could not check it for a nauro hook: EACCES"),
+        ),
+        [
+            f"  {REPO}: wrote nauro hook to .claude/settings.local.json",
+            "    .claude/settings.json - could not check it for a nauro hook: EACCES",
+        ],
+    ),
+    (
+        ClaudeHookOutcome(
+            ClaudeHookKind.ALREADY_PRESENT,
+            REPO,
+            shared_strip=SharedStripFailed(
+                "the nauro hook is still wired there: read-only file system"
+            ),
+        ),
+        [
+            f"  {REPO}: nauro hook already present in .claude/settings.local.json",
+            "    .claude/settings.json - the nauro hook is still wired there: "
+            "read-only file system",
+        ],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.REMOVED, REPO, local_cleaned=True),
         [f"  {REPO}: removed nauro hook from .claude/settings.local.json"],
     ),
     (
         ClaudeHookOutcome(ClaudeHookKind.REMOVED, REPO, legacy_cleaned=True),
+        [f"  {REPO}: removed nauro hook from .claude/settings.json"],
+    ),
+    (
+        ClaudeHookOutcome(ClaudeHookKind.REMOVED, REPO, local_cleaned=True, legacy_cleaned=True),
         [
             f"  {REPO}: removed nauro hook from .claude/settings.local.json "
             "and .claude/settings.json"
