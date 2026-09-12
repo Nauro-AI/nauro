@@ -392,12 +392,9 @@ class TestRenderCheckDecision:
         from datetime import date as _date
 
         from conftest import _seed_decision, _store_with
-
         from nauro_core.operations import check_decision, get_decision
 
-        long_title = (
-            "Adopt a very long deliberately verbose decision title that exceeds the budget"
-        )
+        long_title = "Adopt a very long deliberately verbose decision title that exceeds the budget"
         assert len(long_title) > 70
         store = _store_with(
             _seed_decision(

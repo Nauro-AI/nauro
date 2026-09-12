@@ -7,11 +7,9 @@ import inspect
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-import pytest
-from pydantic import BaseModel, ValidationError
-
 import nauro_core
 import nauro_core.operations as operations
+import pytest
 from nauro_core.constants import (
     MAX_DELTA_LENGTH,
     STATE_REVISION_ABSENT,
@@ -25,6 +23,7 @@ from nauro_core.operations.update_state import (
     compute_state_revision,
     plan_state_update,
 )
+from pydantic import BaseModel, ValidationError
 
 UPDATED_AT = datetime(2026, 8, 19, 7, 37, 59, tzinfo=timezone.utc)
 CURRENT = b"# Current State\n\n- Task one\n"

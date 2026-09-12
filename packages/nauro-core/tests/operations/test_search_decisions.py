@@ -8,7 +8,6 @@ in each transport's own suite.
 from __future__ import annotations
 
 from conftest import _seed_decision, _store_with
-
 from nauro_core.decision_model import DecisionStatus
 from nauro_core.operations import (
     InMemoryStore,

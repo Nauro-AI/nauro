@@ -413,9 +413,7 @@ def _split_frontmatter(text: str, filename: str) -> tuple[str, str]:
     if fm_end == -1:
         raise ValueError(f"{filename}: unterminated YAML frontmatter")
     if fm_end - len(_FM_OPEN_FENCE) > MAX_FRONTMATTER_CHARS:
-        raise ValueError(
-            f"{filename}: YAML frontmatter exceeds {MAX_FRONTMATTER_CHARS} characters"
-        )
+        raise ValueError(f"{filename}: YAML frontmatter exceeds {MAX_FRONTMATTER_CHARS} characters")
     return text[len(_FM_OPEN_FENCE) : fm_end], text[fm_end + len(_FM_CLOSE_FENCE) :]
 
 

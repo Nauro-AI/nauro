@@ -36,9 +36,7 @@ from nauro_core.questions import truncate_entry_text
 # adapters that short-circuit before calling in.
 NO_SNAPSHOTS_AVAILABLE = "No snapshots available."
 NOT_ENOUGH_SNAPSHOTS = "Not enough snapshots to compute a diff (need at least 2)."
-ONE_SNAPSHOT_COVERS_RANGE = (
-    "Only one snapshot covers the requested time range — no diff available."
-)
+ONE_SNAPSHOT_COVERS_RANGE = "Only one snapshot covers the requested time range — no diff available."
 # Day-range anchor line. A format template (interpolates two runtime values)
 # rather than a plain sentinel, but kept here beside the sibling sentinels so
 # the wording stays single-sourced: the hosted adapter (mcp-server) imports

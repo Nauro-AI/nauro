@@ -53,6 +53,11 @@ from importlib import metadata
 from pathlib import Path
 
 import bm25s
+from nauro_core.decision_model import Decision, DecisionStatus, parse_decision
+from nauro_core.operations.check_decision import _check_decision_stopwords
+from nauro_core.parsing import first_sentence_end
+from nauro_core.search import union_retrieve
+
 from _stats import (
     clopper_pearson_lower,
     mcnemar_exact_p,
@@ -60,10 +65,6 @@ from _stats import (
     rule_of_three_upper,
     wilson_lower,
 )
-from nauro_core.decision_model import Decision, DecisionStatus, parse_decision
-from nauro_core.operations.check_decision import _check_decision_stopwords
-from nauro_core.parsing import first_sentence_end
-from nauro_core.search import union_retrieve
 
 BENCH_VERSION = "1"
 # Schema version of the privacy-preserving aggregate summary (build_summary).

@@ -7,12 +7,10 @@ import inspect
 import json
 from typing import Literal
 
-import pytest
-from pydantic import BaseModel, ValidationError
-
 import nauro_core
 import nauro_core.operations as operations
 import nauro_core.operations.submit_report as submit_report_module
+import pytest
 from nauro_core.mcp_tools import ALL_TOOLS, HOSTED_TOOLS
 from nauro_core.operations.planning import PlanRejected, canonical_payload_bytes
 from nauro_core.operations.submit_report import (
@@ -20,6 +18,7 @@ from nauro_core.operations.submit_report import (
     SubmitReportPlan,
     submit_report,
 )
+from pydantic import BaseModel, ValidationError
 
 BODY = "Café\nReady ✅"
 
@@ -149,9 +148,7 @@ class TestRejection:
     def test_four_byte_code_point_over_cap_names_encoded_size(self) -> None:
         with pytest.raises(PlanRejected) as excinfo:
             _plan("😀" * 12_801)
-        assert excinfo.value.reason == (
-            "body exceeds the 51200-byte report cap (got 51204 bytes)."
-        )
+        assert excinfo.value.reason == ("body exceeds the 51200-byte report cap (got 51204 bytes).")
 
     def test_non_string_is_programming_error(self) -> None:
         with pytest.raises(TypeError) as excinfo:

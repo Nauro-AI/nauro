@@ -12,7 +12,6 @@ from __future__ import annotations
 from datetime import date
 
 from conftest import _seed_decision, _store_with, make_decision
-
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,

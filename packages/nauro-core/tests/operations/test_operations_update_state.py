@@ -14,8 +14,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.constants import (
     STATE_CURRENT_FILENAME,
     STATE_HISTORY_FILENAME,
@@ -26,6 +24,7 @@ from nauro_core.operations import (
     UpdateStateResult,
     update_state,
 )
+from pydantic import ValidationError
 
 
 class RecordingStore:

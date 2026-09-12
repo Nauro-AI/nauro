@@ -21,8 +21,6 @@ from pathlib import Path
 
 import pytest
 from conftest import _seed_decision, _store_with
-from pydantic import ValidationError
-
 from nauro_core.constants import OPEN_QUESTIONS_MD
 from nauro_core.decision_model import (
     DECISION_TYPE_VALUES,
@@ -36,6 +34,7 @@ from nauro_core.operations import (
     ProposeDecisionResult,
     propose_decision,
 )
+from pydantic import ValidationError
 
 # ── Result type / shape ─────────────────────────────────────────────────
 

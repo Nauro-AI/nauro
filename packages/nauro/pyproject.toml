@@ -58,13 +58,6 @@ exclude = ["tests/"]
 [tool.uv.sources]
 nauro-core = { workspace = true }
 
-[tool.ruff]
-target-version = "py310"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
-
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true

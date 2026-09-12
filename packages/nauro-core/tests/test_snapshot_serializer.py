@@ -8,7 +8,6 @@ and the legacy read-path normalization both surfaces rely on.
 from __future__ import annotations
 
 import pytest
-
 from nauro_core.snapshot import (
     normalize_snapshot,
     serialize_snapshot,

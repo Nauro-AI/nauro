@@ -11,7 +11,6 @@ from datetime import date
 
 import pytest
 from conftest import _seed_decision, _store_with
-
 from nauro_core.constants import (
     LEXICAL_RANK_CAVEAT,
     MAX_APPROACH_LENGTH,

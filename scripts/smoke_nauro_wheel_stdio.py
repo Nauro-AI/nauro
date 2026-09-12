@@ -91,9 +91,7 @@ class StdioSession:
             try:
                 line = self.stdout_lines.get(timeout=remaining)
             except queue.Empty as exc:
-                raise SmokeFailure(
-                    f"timed out waiting for JSON-RPC response {request_id}"
-                ) from exc
+                raise SmokeFailure(f"timed out waiting for JSON-RPC response {request_id}") from exc
             if line is None:
                 raise SmokeFailure(f"stdio server exited before JSON-RPC response {request_id}")
             try:

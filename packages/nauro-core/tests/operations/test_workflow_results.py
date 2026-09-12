@@ -9,8 +9,6 @@ contract it returns. Pinned here because the shapes ship in nauro-core.
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.operations.results import (
     ShareContextAccepted,
     SlugConflict,
@@ -21,6 +19,7 @@ from nauro_core.operations.results import (
     WorkflowExpired,
     WorkflowInProgress,
 )
+from pydantic import ValidationError
 
 REVISION = "ab" * 32
 ULID = "01KQ6AZGNA0B3QBF67NBXP3S45"

@@ -6,8 +6,6 @@ import hashlib
 import json
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.constants import MAX_BRIEF_BYTES, MAX_QUESTION_LENGTH
 from nauro_core.operations.planning import PlanRejected, canonical_payload_bytes
 from nauro_core.operations.share_context import (
@@ -17,6 +15,7 @@ from nauro_core.operations.share_context import (
     compose_pointer_body,
     share_context,
 )
+from pydantic import ValidationError
 
 SLUG = "auth-cutover"
 CONTENT = "# Auth cutover\n\nThe plan in full.\n"

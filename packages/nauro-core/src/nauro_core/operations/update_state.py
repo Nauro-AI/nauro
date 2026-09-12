@@ -300,9 +300,7 @@ def plan_state_update(
 
     if prepared.history_entry is not None:
         history_content = (
-            ""
-            if inputs.state_history_bytes is None
-            else inputs.state_history_bytes.decode("utf-8")
+            "" if inputs.state_history_bytes is None else inputs.state_history_bytes.decode("utf-8")
         )
         history_effect = StateFileEffect(
             observed_bytes=inputs.state_history_bytes,

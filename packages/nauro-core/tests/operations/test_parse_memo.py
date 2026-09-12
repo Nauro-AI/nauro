@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import pytest
 from conftest import _seed_decision, _store_with
-
 from nauro_core.decision_model import parse_decision
 from nauro_core.operations.decision_lookup import (
     _PARSED_BY_STEM,

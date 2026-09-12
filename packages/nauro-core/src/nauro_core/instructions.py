@@ -68,8 +68,7 @@ def build_remote_instructions(
         for p in ordered:
             lines.append(f"- {p['name']} — {p['project_id']}")
         lines.append(
-            "\nTools require an explicit project_id when multiple exist; "
-            "pass one of the IDs above."
+            "\nTools require an explicit project_id when multiple exist; pass one of the IDs above."
         )
         return "\n".join(lines) + f"\n\n{static_block}"
 

@@ -3,8 +3,6 @@
 from datetime import date, datetime
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.constants import QUESTION_ENTRY_CHAR_BUDGET
 from nauro_core.questions import (
     QUESTION_TRUNCATION_POINTER,
@@ -26,6 +24,7 @@ from nauro_core.questions import (
     validate_legacy_question_id,
     validate_question_id,
 )
+from pydantic import ValidationError
 
 
 class TestResolvedRefValidation:
@@ -492,9 +491,7 @@ class TestResolve:
         assert entry_ids_before == entry_ids_after
         # The middle entry now carries a resolved_by ref; siblings stay open.
         flags = [
-            b.entry.resolved_by is not None
-            for b in result.file.blocks
-            if isinstance(b, EntryBlock)
+            b.entry.resolved_by is not None for b in result.file.blocks if isinstance(b, EntryBlock)
         ]
         assert flags == [False, True, False]
         # The resolved entry's rendered line stays inside the open section

@@ -15,14 +15,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.constants import OPEN_QUESTIONS_MD
 from nauro_core.operations import (
     FlagQuestionResult,
     InMemoryStore,
     flag_question,
 )
+from pydantic import ValidationError
 
 
 def test_returns_result_type() -> None:

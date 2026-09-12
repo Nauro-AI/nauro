@@ -10,7 +10,6 @@ tests cover the additive hosted surface.
 from __future__ import annotations
 
 import pytest
-
 from nauro_core.mcp_tools import (
     ALL_TOOLS,
     CREATE_PROJECT,

@@ -56,10 +56,7 @@ def violations_in(root: Path) -> list[tuple[Path, int, str]]:
             print(f"warning: could not parse {py}: {exc}", file=sys.stderr)
             continue
         for node in ast.walk(tree):
-            if (
-                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name in FORBIDDEN
-            ):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in FORBIDDEN:
                 found.append((py, node.lineno, node.name))
     return found
 

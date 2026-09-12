@@ -5,8 +5,6 @@ import json
 from datetime import date
 
 import pytest
-from pydantic import ValidationError
-
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
@@ -51,6 +49,7 @@ from nauro_core.operations.l0_inputs import capture_l0_inputs
 from nauro_core.operations.results import ProposeDecisionResult
 from nauro_core.snapshot import serialize_snapshot
 from nauro_core.snapshot_references import snapshot_descriptor
+from pydantic import ValidationError
 
 GENERATION_ID = "01K00000000000000000000000"
 PROPOSAL_ID = "01K00000000000000000000001"
@@ -471,9 +470,7 @@ def test_team_add_applies_complete_provenance_and_exact_snapshot_bytes() -> None
     )
     assert (
         prepared.snapshot.content
-        == json.dumps(
-            expected, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-        ).encode()
+        == json.dumps(expected, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
     )
 
 
@@ -553,9 +550,7 @@ def test_supersede_preserves_target_provenance_and_same_title_has_one_probe() ->
         "absent_content",
     ]
     assert prepared.claim_intents.entry[0].kind == "acquire_title_transfer"
-    old_body = next(
-        a.content.decode() for a in prepared.planned_artifacts if a.path == existing[0]
-    )
+    old_body = next(a.content.decode() for a in prepared.planned_artifacts if a.path == existing[0])
     old = parse_decision(old_body, existing[0].removeprefix("decisions/"))
     assert old.proposal_id == PROPOSAL_ID
     assert old.status is DecisionStatus.superseded
@@ -713,9 +708,7 @@ def test_plan_record_is_bounded_and_excludes_transient_bytes() -> None:
     plan = finalize_judgment_commit(
         prepared,
         [
-            AbsentTitleClaimObservation(
-                normalized_title=prepared.claim_probes[0].normalized_title
-            ),
+            AbsentTitleClaimObservation(normalized_title=prepared.claim_probes[0].normalized_title),
             AbsentContentClaimObservation(content_hash=prepared.claim_probes[1].content_hash),
         ],
     )
@@ -756,9 +749,7 @@ def test_result_materialization_cannot_diverge_from_prepared_or_final_plan() -> 
     plan = finalize_judgment_commit(
         prepared,
         [
-            AbsentTitleClaimObservation(
-                normalized_title=prepared.claim_probes[0].normalized_title
-            ),
+            AbsentTitleClaimObservation(normalized_title=prepared.claim_probes[0].normalized_title),
             AbsentContentClaimObservation(content_hash=prepared.claim_probes[1].content_hash),
         ],
     )
@@ -809,9 +800,7 @@ def test_final_plan_constructor_rejects_tampered_record_bytes() -> None:
     plan = finalize_judgment_commit(
         prepared,
         [
-            AbsentTitleClaimObservation(
-                normalized_title=prepared.claim_probes[0].normalized_title
-            ),
+            AbsentTitleClaimObservation(normalized_title=prepared.claim_probes[0].normalized_title),
             AbsentContentClaimObservation(content_hash=prepared.claim_probes[1].content_hash),
         ],
     )
@@ -1395,9 +1384,7 @@ def test_commit_plan_facade_model_contract_digest_is_stable() -> None:
     }
     assert {"kind": "strict", "value": True} in counter["field_info"]["metadata"]
     assert {"kind": "ge", "value": 0} in counter["field_info"]["metadata"]
-    prepared_fields = {
-        field["name"]: field for field in models["PreparedJudgmentCommit"]["fields"]
-    }
+    prepared_fields = {field["name"]: field for field in models["PreparedJudgmentCommit"]["fields"]}
     payload = prepared_fields["payload"]
     assert payload["field_info"]["discriminator"] == "payload_schema"
     assert payload["annotation"]["kind"] == "annotated"

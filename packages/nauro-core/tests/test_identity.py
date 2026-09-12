@@ -9,7 +9,6 @@ import re
 import string
 
 import pytest
-
 from nauro_core.identity import sanitize_sub
 
 
