@@ -20,8 +20,8 @@ from collections.abc import Iterator
 from enum import Enum, auto
 from pathlib import Path
 
-from nauro.cli.integrations.outcomes import BridgeKind, BridgeOutcome
 from nauro.constants import CLAUDE_BRIDGE_MARKER, CLAUDE_MD
+from nauro.setup.outcomes import BridgeKind, BridgeOutcome
 from nauro.store.write_safety import find_symlink
 
 # The single context-visible token: Claude Code follows an ``@path`` import.

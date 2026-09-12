@@ -9,9 +9,9 @@ import typer
 
 from nauro.auth import load_access_token
 from nauro.cli.generation_reads import refresh_command
-from nauro.cli.integrations.outcomes import BridgeOutcome
-from nauro.cli.integrations.render import render
 from nauro.cli.utils import resolve_target_project
+from nauro.setup.outcomes import BridgeOutcome
+from nauro.setup.render import render
 from nauro.store._atomic import is_tmp_sibling
 from nauro.store.registry import is_cloud_project
 from nauro.store.snapshot import capture_snapshot

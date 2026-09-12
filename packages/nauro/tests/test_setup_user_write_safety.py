@@ -24,14 +24,14 @@ import tomlkit
 from nauro.cli.integrations.agents import materialize_agents
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import _configure_codex
-from nauro.cli.integrations.outcomes import (
+from nauro.cli.integrations.skills import _install_bundled_skill, _remove_bundled_skill
+from nauro.cli.nauro_command import _find_nauro_command
+from nauro.setup.outcomes import (
     AgentKind,
     ClaudeUserConfigKind,
     CodexConfigKind,
     SkillKind,
 )
-from nauro.cli.integrations.skills import _install_bundled_skill, _remove_bundled_skill
-from nauro.cli.nauro_command import _find_nauro_command
 
 if sys.version_info >= (3, 11):
     import tomllib

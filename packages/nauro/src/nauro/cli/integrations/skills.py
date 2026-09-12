@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nauro.cli.integrations.outcomes import SkillKind, SkillOutcome
+from nauro.setup.outcomes import SkillKind, SkillOutcome
 from nauro.store.write_safety import (
     SymlinkRefusal,
     UserSymlinkRefusal,

@@ -12,16 +12,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from nauro_core.protocol import _PROPOSAL_ADMISSION, APPROVAL_BEFORE_PROPOSE
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEADER
+from nauro.mcp.payloads import build_l0_payload
+from nauro.setup.claude_bridge import ensure_claude_bridge
+from nauro.setup.outcomes import BridgeOutcome
 from nauro.store.reader import read_text_lenient
+from nauro.store.registry import RegistrySchemaError, get_project_v2, get_repo_paths
 from nauro.store.write_safety import find_symlink
-
-if TYPE_CHECKING:
-    from nauro.cli.integrations.outcomes import BridgeOutcome
 
 # Prefix shared by every auto-generated attribution footer. Match by prefix
 # (not by full canonical URL) so a stale footer from an earlier tagline cycle
@@ -234,14 +234,6 @@ def regenerate_agents_md_for_project(
     repos already matching apart from the header timestamp. An unmanaged file survives unless
     ``overwrite_unmanaged``. ``bridge_sink`` observes the bridge every write ensures, one per path.
     """
-    from nauro.cli.integrations.claude_bridge import ensure_claude_bridge
-    from nauro.mcp.payloads import build_l0_payload
-    from nauro.store.registry import (
-        RegistrySchemaError,
-        get_project_v2,
-        get_repo_paths,
-    )
-
     display_name = project_key
     project_id: str | None = None
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nauro.cli.integrations.outcomes import LegacyKind, LegacyOutcome
 from nauro.constants import CLAUDE_MD, NAURO_BLOCK_END, NAURO_BLOCK_START
+from nauro.setup.outcomes import LegacyKind, LegacyOutcome
 from nauro.store.reader import read_text_lenient
 from nauro.store.write_safety import find_symlink
 

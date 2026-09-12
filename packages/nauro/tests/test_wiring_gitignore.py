@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from nauro.cli.git_hygiene import (
+from nauro.cli.main import app
+from nauro.setup.git_hygiene import (
     GITIGNORE_BLOCK_BEGIN,
     GITIGNORE_BLOCK_END,
     GitIgnoreKind,
@@ -25,7 +26,6 @@ from nauro.cli.git_hygiene import (
     remove_wiring_ignore_entry,
     wiring_path_is_tracked,
 )
-from nauro.cli.main import app
 
 runner = CliRunner()
 
@@ -165,7 +165,7 @@ def test_remove_refuses_orphaned_begin_marker(tmp_path: Path):
 def test_ensure_reports_unwritable_gitignore_as_typed_refusal(tmp_path: Path, monkeypatch):
     """A failed .gitignore write degrades to a typed refusal on the outcome,
     never an exception that swallows the codec's own status line."""
-    import nauro.cli.git_hygiene as git_hygiene_mod
+    import nauro.setup.git_hygiene as git_hygiene_mod
 
     repo = _git_repo(tmp_path)
 

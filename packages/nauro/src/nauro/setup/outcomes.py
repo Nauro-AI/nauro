@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
-from nauro.cli.git_hygiene import GitIgnoreResult
+from nauro.setup.git_hygiene import GitIgnoreResult
 from nauro.store.write_safety import SymlinkRefusal, UserSymlinkRefusal
 
 

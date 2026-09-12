@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from nauro.cli.git_hygiene import GitIgnoreKind, GitIgnoreResult
-from nauro.cli.integrations.outcomes import (
+from nauro.setup.git_hygiene import GitIgnoreKind, GitIgnoreResult
+from nauro.setup.outcomes import (
     AgentKind,
     AgentOutcome,
     BridgeKind,
@@ -37,7 +37,7 @@ from nauro.cli.integrations.outcomes import (
     SkillKind,
     SkillOutcome,
 )
-from nauro.cli.integrations.render import render
+from nauro.setup.render import render
 from nauro.store.write_safety import SymlinkRefusal, UserSymlinkRefusal
 
 REPO = Path("/repo")

@@ -17,7 +17,7 @@ from pathlib import Path
 import typer
 
 from nauro.cli._codex_hooks import _CODEX_HOOK_PROBE_ARGS
-from nauro.cli.git_hygiene import wiring_path_is_tracked
+from nauro.setup.git_hygiene import wiring_path_is_tracked
 from nauro.store.write_safety import find_symlink
 
 _ENTRYPOINT_NAMES = frozenset({"nauro", "nauro.exe"})

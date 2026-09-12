@@ -23,13 +23,13 @@ from nauro.cli.integrations.claude_hooks import (
 )
 from nauro.cli.integrations.codex_hooks import materialize_hooks_codex
 from nauro.cli.integrations.orchestrator import setup_all_surfaces
-from nauro.cli.integrations.outcomes import (
+from nauro.cli.main import app
+from nauro.setup.outcomes import (
     ClaudeHookKind,
     ClaudeHookOutcome,
     CodexHookKind,
     HandlerErrorOutcome,
 )
-from nauro.cli.main import app
 from tests.conftest import register_v2_repo
 
 runner = CliRunner()
@@ -434,7 +434,7 @@ def test_materialize_codex_writes_both_lifecycle_events(tmp_path: Path, monkeypa
 def test_materialize_codex_gitignores_hooks_file(tmp_path: Path):
     """In a git repo the hooks file is added to the managed .gitignore block,
     so the untracked-and-unignored advisory never fires for it."""
-    from nauro.cli.git_hygiene import GitIgnoreKind
+    from nauro.setup.git_hygiene import GitIgnoreKind
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -844,7 +844,7 @@ def test_add_survives_unwritable_shared_settings(tmp_path: Path, monkeypatch):
     """An unwritable shared file must not abort the add: the local hook lands,
     the ignore entry is still ensured, and the legacy entry is simply kept."""
     import nauro.cli.integrations.claude_hooks as claude_hooks_mod
-    from nauro.cli.git_hygiene import GitIgnoreKind
+    from nauro.setup.git_hygiene import GitIgnoreKind
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -977,7 +977,7 @@ def test_strip_leaves_null_hooks_matcher_untouched(tmp_path: Path):
 def test_already_present_codex_hooks_still_gain_ignore_entry(tmp_path: Path):
     """A byte-identical hooks file from a previous release still gets the
     managed ignore entry on re-run."""
-    from nauro.cli.git_hygiene import GitIgnoreKind
+    from nauro.setup.git_hygiene import GitIgnoreKind
 
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -993,7 +993,7 @@ def test_already_present_codex_hooks_still_gain_ignore_entry(tmp_path: Path):
 
 
 def test_already_present_claude_hook_still_gains_ignore_entry(tmp_path: Path):
-    from nauro.cli.git_hygiene import GitIgnoreKind
+    from nauro.setup.git_hygiene import GitIgnoreKind
 
     repo = tmp_path / "repo"
     repo.mkdir()

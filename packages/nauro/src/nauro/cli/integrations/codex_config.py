@@ -9,8 +9,8 @@ import tomlkit
 from tomlkit.exceptions import ParseError as TOMLParseError
 from tomlkit.items import InlineTable
 
-from nauro.cli.integrations.outcomes import CodexConfigKind, CodexConfigOutcome
 from nauro.cli.nauro_command import _find_nauro_command
+from nauro.setup.outcomes import CodexConfigKind, CodexConfigOutcome
 from nauro.store._atomic import atomic_write_text
 from nauro.store.write_safety import find_file_symlink
 
