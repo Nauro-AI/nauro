@@ -11,10 +11,10 @@
 {"path":"packages/nauro-core/src/nauro_core/graph.py","rule":"PERF401","count":1}
 {"path":"packages/nauro-core/src/nauro_core/identifiers.py","rule":"N818","count":1}
 {"path":"packages/nauro-core/src/nauro_core/instructions.py","rule":"PERF401","count":1}
-{"path":"packages/nauro-core/src/nauro_core/operations/commit_plan.py","rule":"C901","count":1}
-{"path":"packages/nauro-core/src/nauro_core/operations/commit_plan.py","rule":"N818","count":14}
-{"path":"packages/nauro-core/src/nauro_core/operations/commit_plan.py","rule":"PLR0912","count":1}
-{"path":"packages/nauro-core/src/nauro_core/operations/commit_plan.py","rule":"TRY004","count":1}
+{"path":"packages/nauro-core/src/nauro_core/operations/_commit_contract.py","rule":"C901","count":1}
+{"path":"packages/nauro-core/src/nauro_core/operations/_commit_contract.py","rule":"N818","count":14}
+{"path":"packages/nauro-core/src/nauro_core/operations/_commit_contract.py","rule":"PLR0912","count":1}
+{"path":"packages/nauro-core/src/nauro_core/operations/_commit_contract.py","rule":"TRY004","count":1}
 {"path":"packages/nauro-core/src/nauro_core/operations/decision_lookup.py","rule":"BLE001","count":2}
 {"path":"packages/nauro-core/src/nauro_core/operations/diff_since_last_session.py","rule":"PERF401","count":6}
 {"path":"packages/nauro-core/src/nauro_core/operations/planning.py","rule":"N818","count":1}
