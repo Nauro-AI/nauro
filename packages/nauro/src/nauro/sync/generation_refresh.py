@@ -287,6 +287,19 @@ def commit_generation_refresh(
     )
     target = projection.target
     actor = target.identity.installed_for_user_id
+    if prepared.prior_intent is not None:
+        with _locked(target.binding, actor, session) as paths:
+            controls = _controls(paths)
+            if controls != (prepared.marker, prepared.pointer, prepared.carrier):
+                raise GenerationRefreshEvidenceError("The prepared refresh base is stale.")
+            raw, prior = _intent(paths)
+            if raw != prepared.prior_intent:
+                raise GenerationRefreshEvidenceError("The prepared refresh intent is stale.")
+            if (
+                _target(target.binding, prior) == target
+                and prior.classify(*controls) == "target_present"
+            ):
+                return _complete(paths, prior, projection, session)
     _authorize(target, session)
     install_generation_root(projection)
     with _locked(target.binding, actor, session) as paths:

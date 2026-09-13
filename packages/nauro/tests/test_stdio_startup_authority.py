@@ -399,7 +399,7 @@ def test_unchanged_startup_checks_projection_without_downloading(installed):
     _, binding, _, _, _, calls, legacy = installed
     calls.clear()
     stdio_server._pull_on_startup()
-    assert [request.url.path for request in calls] == ["/generations/projection"] * 7
+    assert [request.url.path for request in calls] == ["/generations/projection"] * 3
     assert _status(binding)["last_refresh_error_code"] is None
     assert _status(binding)["last_refresh_succeeded_at"] is not None
     assert legacy == []
