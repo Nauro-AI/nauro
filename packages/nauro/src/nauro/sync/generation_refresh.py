@@ -141,6 +141,7 @@ def _authorize(target: GenerationProjectionTarget, session: TransferSession | No
 def _prepare(
     binding: ResolvedProjectBinding, actor: str, session: TransferSession | None, *, bootstrap: bool
 ) -> PreparedGenerationRefresh:
+    installed_target = None
     with _locked(binding, actor, session) as paths:
         marker, pointer, carrier = _controls(paths)
         raw = read_evidence(paths, paths.intent)
@@ -154,7 +155,25 @@ def _prepare(
                     "Bootstrap controls belong to another binding."
                 )
         else:
-            raw, _ = _intent(paths)
+            raw, intent = _intent(paths)
+            if intent.classify(marker, pointer, carrier) == "target_present":
+                installed_target = _target(binding, intent)
+    if installed_target is not None:
+        if installed_target.identity.installed_for_user_id != actor:
+            raise GenerationRefreshEvidenceError("Refresh target belongs to another actor.")
+        current = check_generation_projection(binding, active_user_id=actor, session=session)
+        if current == installed_target:
+            with _locked(binding, actor, session) as paths:
+                if _controls(paths) != (marker, pointer, carrier) or _intent(paths)[0] != raw:
+                    raise GenerationRefreshEvidenceError("Refresh evidence changed during capture.")
+                authority = GenerationProjectAuthority(
+                    binding, _parse_marker(marker), _pointer(pointer)
+                )
+                projection = _capture(authority)
+                _require_actor(actor, session)
+                if _controls(paths) != (marker, pointer, carrier) or _intent(paths)[0] != raw:
+                    raise GenerationRefreshEvidenceError("Refresh evidence changed during capture.")
+            return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
     projection = acquire_generation_projection(binding, active_user_id=actor, session=session)
     return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
 
