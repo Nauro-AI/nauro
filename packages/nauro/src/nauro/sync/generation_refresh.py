@@ -139,7 +139,12 @@ def _authorize(target: GenerationProjectionTarget, session: TransferSession | No
 
 
 def _prepare(
-    binding: ResolvedProjectBinding, actor: str, session: TransferSession | None, *, bootstrap: bool
+    binding: ResolvedProjectBinding,
+    actor: str,
+    session: TransferSession | None,
+    *,
+    bootstrap: bool,
+    acquired: VerifiedGenerationProjection | None = None,
 ) -> PreparedGenerationRefresh:
     installed_target = None
     with _locked(binding, actor, session) as paths:
@@ -158,6 +163,19 @@ def _prepare(
             raw, intent = _intent(paths)
             if intent.classify(marker, pointer, carrier) == "target_present":
                 installed_target = _target(binding, intent)
+    if acquired is not None:
+        if (
+            acquired.target.binding != binding
+            or acquired.target.identity.installed_for_user_id != actor
+        ):
+            raise GenerationRefreshEvidenceError("Acquired projection belongs to another binding.")
+        projection = verify_generation_projection(
+            acquired.target,
+            manifest_json=acquired.manifest_json,
+            artifacts=tuple((artifact.path, artifact.content) for artifact in acquired.artifacts),
+        )
+        _authorize(projection.target, session)
+        return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
     if installed_target is not None:
         if installed_target.identity.installed_for_user_id != actor:
             raise GenerationRefreshEvidenceError("Refresh target belongs to another actor.")
@@ -179,10 +197,14 @@ def _prepare(
 
 
 def prepare_initial_generation_refresh(
-    binding: ResolvedProjectBinding, *, actor: str, session: TransferSession | None = None
+    binding: ResolvedProjectBinding,
+    *,
+    actor: str,
+    session: TransferSession | None = None,
+    acquired: VerifiedGenerationProjection | None = None,
 ) -> PreparedGenerationRefresh:
     # This entry requires an explicit operator bootstrap, never inference from a missing intent.
-    return _prepare(binding, actor, session, bootstrap=True)
+    return _prepare(binding, actor, session, bootstrap=True, acquired=acquired)
 
 
 def prepare_generation_refresh(

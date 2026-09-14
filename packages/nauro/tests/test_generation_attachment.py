@@ -123,6 +123,8 @@ def test_initial_attach_and_ordinary_generation_admission(hosted):
     config_before = load_config()
     result = _run(repo)
     assert result.exit_code == 0, result.output
+    assert sum(r.url.host == "objects.example" for r in calls) == 1
+    assert sum(r.url.path == "/generations/presign" for r in calls) == 1
     assert load_config() == config_before
     binding = resolve_project_binding(PROJECT_ID, None, use_cwd=False)
     assert connection_for(binding, DEFAULT_AUTH_REDIRECT_URI) == connection
