@@ -1336,11 +1336,71 @@
         "name": "repair",
         "params": [
           {
+            "default": false,
+            "flags": [
+              "--abandon"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "abandon",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--action"
+            ],
+            "kind": "option",
+            "name": "action",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--judgment"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "judgment",
+            "required": false,
+            "type": "boolean"
+          },
+          {
             "flags": [
               "--project"
             ],
             "kind": "option",
             "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--resend-action"
+            ],
+            "kind": "option",
+            "name": "resend_action",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--resume"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "resume",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--saga"
+            ],
+            "kind": "option",
+            "name": "saga",
             "required": false,
             "type": "text"
           }

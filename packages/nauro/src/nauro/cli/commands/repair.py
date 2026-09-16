@@ -18,6 +18,7 @@ releases, keeping the journal lock from nesting inside a resource lock.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import typer
@@ -41,6 +42,15 @@ from nauro.store.registry import (
 )
 
 REPAIR_OPERATION = "repair_supersede_backref"
+
+
+def _require_legacy_store(store_path: Path) -> None:
+    if os.path.lexists(store_path / ".replica"):
+        typer.echo(
+            "Local repair refuses generation replica controls. Use --judgment for hosted recovery.",
+            err=True,
+        )
+        raise typer.Exit(1)
 
 
 class StoreChangedDuringRepairError(RuntimeError):
@@ -180,14 +190,48 @@ def repair(
     project: str | None = typer.Option(
         None,
         "--project",
-        help="Target project name.",
+        help="Project name for local repair, project ID for hosted recovery.",
+    ),
+    judgment: bool = typer.Option(
+        False, "--judgment", help="Inspect or recover a hosted judgment."
+    ),
+    saga: str | None = typer.Option(None, "--saga", help="Inspect this retained saga."),
+    resume: bool = typer.Option(False, "--resume", help="Confirm resuming the observed judgment."),
+    abandon: bool = typer.Option(
+        False, "--abandon", help="Confirm abandoning the observed judgment."
+    ),
+    action: str | None = typer.Option(
+        None, "--action", help="Look up a recovery action without execution."
+    ),
+    resend_action: str | None = typer.Option(
+        None, "--resend-action", help="Confirm resending exact saved action bytes."
     ),
 ) -> None:
     """Repair a supersede backref orphan after confirming it; run 'nauro doctor' first.
     Offers the single unambiguous case: one decision records 'supersedes: N' while decision N
     is still active with no 'superseded_by'. Every other shape is reported and left alone.
     """
+    if judgment or saga or resume or abandon or action or resend_action:
+        if (
+            not judgment
+            or not project
+            or (resume and abandon)
+            or (action and (saga or resume or abandon or resend_action))
+            or (resend_action and (saga or resume or abandon))
+        ):
+            raise typer.BadParameter(
+                "Hosted recovery requires --judgment and --project; action modes are exclusive"
+            )
+        from nauro.cli.judgment_repair import run
+
+        try:
+            run(project, saga, resume, abandon, action, resend_action)
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            typer.echo("Recovery stopped. Inspect the saved action before any resend.", err=True)
+            raise typer.Exit(1) from exc
+        return
     project_name, store_path = resolve_target_project(project)
+    _require_legacy_store(store_path)
     typer.echo(f"Project: {project_name}\n")
 
     eligibility = classify_repair_eligibility(_registry_entry(store_path.name))
@@ -212,6 +256,7 @@ def repair(
         # decisions/.lock, and flock is not reentrant across descriptors, so a
         # second lock on the same resource inside this block would deadlock.
         with decision_write_lock(store_path):
+            _require_legacy_store(store_path)
             _require_unchanged(plan, plan_supersede_repair(FilesystemStore(store_path)))
             FilesystemStore(store_path).write_file(plan.target_path, plan.new_content)
     except StoreChangedDuringRepairError as exc:
