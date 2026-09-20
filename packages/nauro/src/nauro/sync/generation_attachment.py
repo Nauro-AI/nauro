@@ -190,7 +190,7 @@ def _attach(project: str, repo: Path, present_url: Callable[[str], None]) -> Res
                 installed = install_generation_root(projection, timeout=0)
                 publish_generation_control(installed, timeout=0, session=session)
                 prepared = prepare_initial_generation_refresh(
-                    binding, actor=session.actor, session=session
+                    binding, actor=session.actor, session=session, acquired=projection
                 )
             if prepared.projection.target != projection.target:
                 raise RefreshRequiredError("The generation changed during initial attachment.")
