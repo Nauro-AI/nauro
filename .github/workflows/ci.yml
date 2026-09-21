@@ -130,6 +130,11 @@ jobs:
                         if case.get("classname", "").endswith("test_generation_refresh_contention")]
           assert len(contention) == 5, len(contention)
           assert all(not list(case) for case in contention), "Lock contention proofs must pass without skips"
+          for module, count in (("test_generation_byte_reuse", 12), ("test_generation_refresh_reuse", 2)):
+              reuse = [case for case in E.parse("nauro-tests.xml").iter("testcase")
+                       if case.get("classname", "").endswith(module)]
+              assert len(reuse) == count, (module, len(reuse))
+              assert all(not list(case) for case in reuse), "Byte reuse proofs must pass without skips"
           PYTEST
 
   test-generation-control-platforms:

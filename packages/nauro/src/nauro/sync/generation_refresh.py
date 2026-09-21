@@ -54,6 +54,7 @@ from nauro.store.resolution import ResolvedProjectBinding
 from nauro.sync.generation_acquisition import (
     acquire_generation_projection,
     check_generation_projection,
+    same_replica_scope,
 )
 from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.remote import TransferSession
@@ -138,6 +139,25 @@ def _authorize(target: GenerationProjectionTarget, session: TransferSession | No
         raise RefreshRequiredError("The current authorized projection requires reconciliation.")
 
 
+def _capture_prepared(
+    binding: ResolvedProjectBinding,
+    actor: str,
+    session: TransferSession | None,
+    controls: tuple[bytes, bytes, bytes],
+    raw: bytes | None,
+) -> VerifiedGenerationProjection:
+    with _locked(binding, actor, session) as paths:
+        if _controls(paths) != controls or _intent(paths)[0] != raw:
+            raise GenerationRefreshEvidenceError("Refresh evidence changed during capture.")
+        marker, pointer, _ = controls
+        authority = GenerationProjectAuthority(binding, _parse_marker(marker), _pointer(pointer))
+        projection = _capture(authority)
+        _require_actor(actor, session)
+        if _controls(paths) != controls or _intent(paths)[0] != raw:
+            raise GenerationRefreshEvidenceError("Refresh evidence changed during capture.")
+    return projection
+
+
 def _prepare(
     binding: ResolvedProjectBinding,
     actor: str,
@@ -147,6 +167,7 @@ def _prepare(
     acquired: VerifiedGenerationProjection | None = None,
 ) -> PreparedGenerationRefresh:
     installed_target = None
+    prior = None
     with _locked(binding, actor, session) as paths:
         marker, pointer, carrier = _controls(paths)
         raw = read_evidence(paths, paths.intent)
@@ -181,18 +202,13 @@ def _prepare(
             raise GenerationRefreshEvidenceError("Refresh target belongs to another actor.")
         current = check_generation_projection(binding, active_user_id=actor, session=session)
         if current == installed_target:
-            with _locked(binding, actor, session) as paths:
-                if _controls(paths) != (marker, pointer, carrier) or _intent(paths)[0] != raw:
-                    raise GenerationRefreshEvidenceError("Refresh evidence changed during capture.")
-                authority = GenerationProjectAuthority(
-                    binding, _parse_marker(marker), _pointer(pointer)
-                )
-                projection = _capture(authority)
-                _require_actor(actor, session)
-                if _controls(paths) != (marker, pointer, carrier) or _intent(paths)[0] != raw:
-                    raise GenerationRefreshEvidenceError("Refresh evidence changed during capture.")
+            projection = _capture_prepared(binding, actor, session, (marker, pointer, carrier), raw)
             return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
-    projection = acquire_generation_projection(binding, active_user_id=actor, session=session)
+        if same_replica_scope(installed_target, current):
+            prior = _capture_prepared(binding, actor, session, (marker, pointer, carrier), raw)
+    projection = acquire_generation_projection(
+        binding, active_user_id=actor, session=session, prior=prior
+    )
     return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
 
 

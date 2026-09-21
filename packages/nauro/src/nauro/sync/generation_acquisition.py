@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from functools import partial
 
 import httpx
@@ -277,14 +278,56 @@ def _fetch_artifact(session: TransferSession, path: str, url: str) -> bytes:
     return b"".join(chunks)
 
 
+def same_replica_scope(
+    first: GenerationProjectionTarget, second: GenerationProjectionTarget
+) -> bool:
+    fields = (
+        "project_id",
+        "installed_for_user_id",
+        "projection_scope_id",
+        "projection_class",
+        "store_format_version",
+    )
+    return first.binding == second.binding and all(
+        getattr(first.identity, name) == getattr(second.identity, name) for name in fields
+    )
+
+
+def _reusable_bytes(
+    prior: VerifiedGenerationProjection | None, target: GenerationProjectionTarget
+) -> dict[str, bytes]:
+    if prior is None or not same_replica_scope(prior.target, target):
+        return {}
+    verified = verify_generation_projection(
+        prior.target,
+        manifest_json=prior.manifest_json,
+        artifacts=tuple((a.path, a.content) for a in prior.artifacts),
+    )
+    return {a.path: a.content for a in verified.artifacts}
+
+
 def _acquire_once(
-    session: TransferSession, api_url: str, binding: ResolvedProjectBinding, user_id: str
+    session: TransferSession,
+    api_url: str,
+    binding: ResolvedProjectBinding,
+    user_id: str,
+    prior: VerifiedGenerationProjection | None,
 ) -> VerifiedGenerationProjection:
     target, envelope = _fetch_projection(session, api_url, binding, user_id)
     manifest = _parse_manifest(target, envelope)
-    paths = tuple(manifest.artifacts)
-    bodies: list[tuple[str, bytes]] = []
-    total = 0
+    reusable = _reusable_bytes(prior, target)
+    bodies = [
+        (path, content)
+        for path, content in reusable.items()
+        if manifest.artifacts.get(path) == hashlib.sha256(content).hexdigest()
+    ]
+    reused = {path for path, _ in bodies}
+    paths = tuple(path for path in manifest.artifacts if path not in reused)
+    total = sum(len(content) for _, content in bodies)
+    if total > _MAX_PROJECTION_BYTES or any(
+        len(content) > _MAX_ARTIFACT_BYTES for _, content in bodies
+    ):
+        raise GenerationAcquisitionError("The reusable projection exceeds the size cap.")
     for start in range(0, len(paths), PRESIGN_BATCH_LIMIT):
         chunk = paths[start : start + PRESIGN_BATCH_LIMIT]
         page = _PageUrls(session, api_url, target.identity, chunk)
@@ -305,6 +348,7 @@ def acquire_generation_projection(
     *,
     active_user_id: str | None,
     session: TransferSession | None = None,
+    prior: VerifiedGenerationProjection | None = None,
 ) -> VerifiedGenerationProjection:
     if binding.mode != "cloud":
         raise GenerationAcquisitionError("Generation acquisition requires a cloud project binding.")
@@ -324,7 +368,7 @@ def acquire_generation_projection(
         while True:
             attempts += 1
             try:
-                return _acquire_once(active, api_url, binding, user_id)
+                return _acquire_once(active, api_url, binding, user_id, prior)
             except GenerationSupersededError:
                 if attempts >= _MAX_ACQUISITION_ATTEMPTS:
                     raise

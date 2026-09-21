@@ -129,6 +129,7 @@ def test_unchanged_target_still_refuses_failed_final_barrier(replica, monkeypatc
 def test_changed_identity_uses_existing_acquisition(replica, monkeypatch, change):
     binding, current = replica
     refresh.commit_generation_refresh(_bootstrap(binding))
+    previous = current[0]
     current[0] = (
         _target(generation="01K77777777777777777777777")
         if change == "generation"
@@ -137,13 +138,14 @@ def test_changed_identity_uses_existing_acquisition(replica, monkeypatch, change
     downloaded = []
 
     def acquire(*a, **kw):
-        downloaded.append(current[0].target)
+        downloaded.append((current[0].target, kw["prior"]))
         return current[0]
 
     monkeypatch.setattr(refresh, "acquire_generation_projection", acquire)
-    monkeypatch.setattr(refresh, "_capture", lambda *a: pytest.fail("Captured obsolete root"))
+    if change == "scope":
+        monkeypatch.setattr(refresh, "_capture", lambda *a: pytest.fail("Captured obsolete root"))
     result = refresh.recover_generation_refresh(binding, actor=USER_ID)
-    assert downloaded == [current[0].target]
+    assert downloaded == [(current[0].target, previous if change == "generation" else None)]
     assert result.target == current[0].target
 
 
