@@ -120,9 +120,15 @@ def _read_attempt(
     return attempt
 
 
-def refresh_replica(binding: ResolvedProjectBinding) -> GenerationSnapshotStore:
+def refresh_replica(
+    binding: ResolvedProjectBinding,
+    *,
+    expected: tuple[GenerationConnection, str] | None = None,
+) -> GenerationSnapshotStore:
     connection, account = _account(binding)
     actor = account.user_id
+    if expected is not None and (connection, actor) != expected:
+        raise GenerationConnectionError("The refresh account changed.")
     paths = refresh_paths(binding, actor)
     if not paths.actor.is_dir():
         raise RefreshRequiredError("An installed actor replica is required.")
