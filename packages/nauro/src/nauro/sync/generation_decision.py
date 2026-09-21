@@ -9,9 +9,11 @@ from typing import Any
 import httpx
 
 from nauro.auth import DEFAULT_AUTH_REDIRECT_URI, ActiveCredentials, PartialAuthConfigError
+from nauro.store.resolution import resolve_project_binding
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.generation_connection import selected_connection
 from nauro.sync.generation_credentials import GenerationConnection, generation_credentials
+from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica, replica_status
 
 REFUSED_STATUSES = {"stale", "unresolved", "pending", "expired", "conflict", "disposed"}
 Selection = tuple[GenerationConnection, str]
@@ -75,7 +77,25 @@ class DecisionSession:
                 self._key = key
             assert self._transport is not None
             self._transport.credentials = credentials
-            return self._transport.propose_decision(**request)
+            binding = resolve_project_binding(project, cwd or Path.cwd(), use_cwd=use_cwd)
+            result = self._transport.propose_decision(**request)
+            if result.get("status") != "committed":
+                return result
+            try:
+                if resolve_project_binding(project, cwd or Path.cwd(), use_cwd=use_cwd) != binding:
+                    raise ValueError("Project binding changed")
+                refresh_replica(binding, expected=(connection, actor))
+                status = replica_status(binding)
+                credentials()
+                if status.get("installed_for_user_id") != actor:
+                    raise ValueError("Refresh account changed")
+            except REFRESH_FAILURES:
+                status = {
+                    "project_id": project,
+                    "error_code": "receipt_refresh_required",
+                    "authorization_checked": False,
+                }
+            return {**result, "replica_status": status}
 
 
 def execute_decision(
