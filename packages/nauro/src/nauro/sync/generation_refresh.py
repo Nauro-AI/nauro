@@ -89,7 +89,7 @@ def _locked(
     lock_path = paths.store / ".replica-control.lock"
     _validate_managed_path(paths.store, lock_path)
     try:
-        with _native_control_lock(paths.store, lock_path, -1):
+        with _native_control_lock(paths.store, lock_path, 0):
             _require_actor(actor, session)
             yield paths
     except OSError as exc:
@@ -323,7 +323,7 @@ def commit_generation_refresh(
             ):
                 return _complete(paths, prior, projection, session)
     _authorize(target, session)
-    install_generation_root(projection)
+    install_generation_root(projection, timeout=0)
     with _locked(target.binding, actor, session) as paths:
         if _controls(paths) != (prepared.marker, prepared.pointer, prepared.carrier):
             raise GenerationRefreshEvidenceError("The prepared refresh base is stale.")
