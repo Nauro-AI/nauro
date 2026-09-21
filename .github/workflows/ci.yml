@@ -126,6 +126,10 @@ jobs:
                    if case.get("classname", "").endswith("test_decision_receipt_refresh")]
           assert len(cases) == 10, len(cases)
           assert all(not list(case) for case in cases), "Receipt refresh proofs must pass without skips"
+          contention = [case for case in E.parse("nauro-tests.xml").iter("testcase")
+                        if case.get("classname", "").endswith("test_generation_refresh_contention")]
+          assert len(contention) == 5, len(contention)
+          assert all(not list(case) for case in contention), "Lock contention proofs must pass without skips"
           PYTEST
 
   test-generation-control-platforms:
