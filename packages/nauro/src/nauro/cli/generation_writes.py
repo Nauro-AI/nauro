@@ -4,8 +4,15 @@ from pathlib import Path
 
 import typer
 
+from nauro.store.migration_admission import require_migration_admission
+
 
 def require_legacy_write(store_path: Path, command: str) -> None:
+    try:
+        require_migration_admission(store_path)
+    except PermissionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
     # Incomplete replica evidence must not reopen the legacy writer.
     try:
         (store_path / ".replica").lstat()
