@@ -224,12 +224,25 @@ def test_invalid_selection_refuses_before_authentication(account, problem):
     assert account.calls == []
 
 
-def test_no_marker_keeps_legacy_status_and_refresh_contract(account):
+def test_no_replica_controls_keeps_legacy_status_and_refresh_contract(account):
     account.marker.unlink()
+    account.marker.parent.rmdir()
     assert "Authenticated as:" in command("status").stdout
     assert command("refresh").exit_code == 2
     assert account.calls == []
     assert account.connection.store().read() is None
+
+
+@pytest.mark.parametrize("action", ["login", "status", "refresh", "logout"])
+def test_incomplete_replica_refuses_auth_without_legacy_fallback(account, action):
+    account.marker.unlink()
+    result = command(action)
+    assert result.exit_code == 1
+    assert account.calls == []
+    assert load_config() == account.config_before
+    assert account.connection.store().read() is None
+    assert account.marker.parent.is_dir()
+    assert list(account.marker.parent.iterdir()) == []
 
 
 @pytest.mark.parametrize("status", [401, 429, 503, "lost"])
