@@ -24,6 +24,7 @@ from nauro_core import MCP_INSTRUCTIONS_STATIC
 from nauro.cli._codex_hooks import _CODEX_HOOK_EVENTS
 from nauro.constants import DECISIONS_DIR
 from nauro.store.home import nauro_home
+from nauro.store.read_authority import require_legacy_context
 
 hook_app = typer.Typer(help="Client-side advisory hooks for AI coding agents.")
 
@@ -178,7 +179,10 @@ def _resolve_store_path(cwd: Path) -> Path | None:
     from nauro.store.resolution import RepoResolution, resolve_from_cwd
 
     resolution = resolve_from_cwd(cwd)
-    return resolution.store_path if isinstance(resolution, RepoResolution) else None
+    if not isinstance(resolution, RepoResolution):
+        return None
+    require_legacy_context(resolution.store_path)
+    return resolution.store_path
 
 
 def _check(store_path: Path, prompt: str) -> list[dict]:

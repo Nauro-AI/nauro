@@ -12,9 +12,11 @@ from pathlib import Path
 from nauro_core.operations import get_context as _get_context_op
 
 from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.read_authority import require_legacy_context
 
 
 def _context_text(store_path: Path, level: int) -> str:
+    require_legacy_context(store_path)
     result = _get_context_op(FilesystemStore(store_path), level)
     # Internal callers (AGENTS.md regen, validator) always pass a valid
     # level today, so the kernel rejection branch is unreachable. Assert

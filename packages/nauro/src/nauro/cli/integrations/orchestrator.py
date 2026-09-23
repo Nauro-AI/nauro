@@ -31,6 +31,7 @@ from nauro.setup.outcomes import (
     RawLine,
     WriteFailure,
 )
+from nauro.store.read_authority import require_legacy_context
 from nauro.store.registry import get_repo_paths
 from nauro.store.resolution import resolve_from_cwd
 from nauro.templates.agents_md import remove_generated_agents_md
@@ -59,6 +60,8 @@ def claude_code_surfaces(
     Returns the flat status lines in echo order: per-repo MCP with the add-path prune note, then
     the ``Hooks:``, ``Legacy cleanup:`` and ``AGENTS.md:`` sections. Warnings go only to ``warn``.
     """
+    if not remove:
+        require_legacy_context(store_path)
     legacy_results: list[ArtifactOutcome] = []
     mcp_results: list[ArtifactOutcome] = []
     hook_results: list[ArtifactOutcome] = []
@@ -137,6 +140,7 @@ def codex_surfaces(*, remove: bool, with_hooks: bool) -> list[ArtifactOutcome]:
     hook_repos: list[Path] = []
     if with_hooks and not remove:
         project_name, store_path = resolve_target_project(None)
+        require_legacy_context(store_path)
         entry = _resolve_project_entry(project_name, store_path.name)
         hook_repos = [Path(repo_path) for repo_path in entry["repo_paths"]]
 
@@ -382,6 +386,8 @@ def setup_all_surfaces(
     """Wire/unwire MCP/skills per ``remove`` for Claude Code, Cursor, Codex; a write that fails
     is one typed outcome. AGENTS.md regen on add: ``current_project_key``+``store_path``.
     Multi-repo un-adopt passes ``clear_user_scope_override=False`` (default: project-granular)."""
+    if not remove and store_path is not None:
+        require_legacy_context(store_path)
     if clear_user_scope_override is not None:
         clear_user_scope = clear_user_scope_override
     else:
