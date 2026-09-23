@@ -1,13 +1,12 @@
 """nauro note — Add a decision or question to the project store."""
 
-from pathlib import Path
-
 import typer
 from nauro_core.constants import DECISIONS_DIR, OPEN_QUESTIONS_MD
 from nauro_core.decision_model import DecisionConfidence
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
@@ -27,19 +26,6 @@ def _validate_confidence(value: str) -> str:
         choices = ", ".join(c.value for c in DecisionConfidence)
         raise typer.BadParameter(f"{value!r} is not one of {choices}.") from exc
     return value
-
-
-def _require_legacy_store(store_path: Path) -> None:
-    # Incomplete replica evidence must not reopen the legacy writer.
-    try:
-        (store_path / ".replica").lstat()
-    except FileNotFoundError:
-        return
-    except OSError as exc:
-        typer.echo("Error: Cannot verify project write authority.", err=True)
-        raise typer.Exit(1) from exc
-    typer.echo("Error: nauro note is unavailable for generation replicas.", err=True)
-    raise typer.Exit(1)
 
 
 def note(
@@ -94,7 +80,7 @@ def note(
         )
 
     project_name, store_path = resolve_target_project(project)
-    _require_legacy_store(store_path)
+    require_legacy_write(store_path, "note")
     fs_store = FilesystemStore(store_path)
 
     is_question = question or (text.rstrip().endswith("?") and not decision)

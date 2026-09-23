@@ -12,6 +12,7 @@ import typer
 from nauro_core.constants import OPEN_QUESTIONS_DEFAULT_BODY, OPEN_QUESTIONS_MD
 from nauro_core.questions import OpenQuestionsFile
 
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import resolve_target_project
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.post_commit import run_post_commit
@@ -34,6 +35,7 @@ def migrate(
 ) -> None:
     """Mint sequential 'Q###' ids for legacy timestamp question entries."""
     project_name, store_path = resolve_target_project(project)
+    require_legacy_write(store_path, "questions migrate")
     fs_store = FilesystemStore(store_path)
 
     content = fs_store.read_file(OPEN_QUESTIONS_MD) or OPEN_QUESTIONS_DEFAULT_BODY

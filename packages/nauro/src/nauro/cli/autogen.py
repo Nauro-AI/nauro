@@ -28,6 +28,7 @@ from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 
 from nauro.cli._json_input import parse_json_list_of_dicts
 from nauro.cli.generation_reads import read_command, require_legacy_read
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.mcp import tools as mcp_tools
 from nauro.mcp.rendering import resolve_renderer_kwargs, try_render_envelope
@@ -452,6 +453,8 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
                 kwargs[primary] = option_value
 
         _project_name, store_path = resolve_target_project(project)
+        if tool_name in {"propose_decision", "flag_question", "update_state"}:
+            require_legacy_write(store_path, _command_name(tool_name))
 
         for name in json_array_names:
             raw = kwargs.get(name)

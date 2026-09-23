@@ -14,6 +14,7 @@ from nauro_core.constants import STATE_CURRENT_FILENAME
 from nauro_core.operations import update_state as _update_state_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.constants import DECISIONS_DIR, PROJECT_MD, STACK_MD
 from nauro.store.decision_lock import decision_write_lock
@@ -519,6 +520,7 @@ def import_cmd(
         raise typer.Exit(code=1)
 
     project_name, store_path = resolve_target_project(project)
+    require_legacy_write(store_path, "import")
 
     if memory_bank is not None:
         mb = Path(memory_bank)
