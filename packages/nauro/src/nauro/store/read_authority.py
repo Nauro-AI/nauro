@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from nauro_core.constants import HOSTED_STORE_FORMAT_VERSION
 
 from nauro.store.generation_authority import (
@@ -42,3 +44,14 @@ def observe_generation_marker(binding: ResolvedProjectBinding) -> bytes | None:
             "This hosted store format requires another client version."
         )
     return raw
+
+
+def require_legacy_context(store_path: Path) -> None:
+    try:
+        (store_path / ".replica").lstat()
+    except FileNotFoundError:
+        return
+    raise PermissionError(
+        "Legacy context generation is unavailable for generation replicas. "
+        "Use the supported generation read tools."
+    )
