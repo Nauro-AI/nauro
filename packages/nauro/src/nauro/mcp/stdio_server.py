@@ -480,8 +480,15 @@ def _pull_on_startup() -> None:
             from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica
 
             try:
-                refresh_replica(binding)
+                store = refresh_replica(binding)
                 logger.info("session-start refresh: completed")
+                from nauro.templates.generation_guidance import regenerate_refreshed_guidance
+
+                guidance = regenerate_refreshed_guidance(store)
+                if guidance["status"] == "failed":
+                    logger.warning("%s", guidance["message"])
+                for warning in guidance.get("warnings", []):
+                    logger.warning("%s", warning)
             except REFRESH_FAILURES:
                 logger.warning(
                     "session-start refresh: incomplete; run 'nauro status' "

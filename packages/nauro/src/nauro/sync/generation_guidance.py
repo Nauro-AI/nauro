@@ -18,18 +18,23 @@ _T = TypeVar("_T")
 
 
 def read_generation_guidance(
-    store_path: Path, render: Callable[[GenerationSnapshotStore], _T]
+    store_path: Path,
+    render: Callable[[GenerationSnapshotStore], _T],
+    *,
+    snapshot: GenerationSnapshotStore | None = None,
 ) -> tuple[_T, GenerationProjectionIdentity] | None:
     try:
         require_legacy_context(store_path)
     except PermissionError:
         pass
     else:
+        if snapshot is not None:
+            raise PermissionError("Generation guidance binding changed.")
         return None
     try:
         binding = _binding(store_path)
         with GenerationTransferSession(binding) as session:
-            store = admit_generation_store(binding, actor=session.actor, session=session)
+            store = _select_snapshot(binding, session, snapshot)
             result = render(store)
             _authorize(store.target, session)
             session.credentials()
@@ -61,3 +66,17 @@ def generation_notice(identity: GenerationProjectionIdentity) -> str:
         "current authorization or freshness. "
         "Use Nauro read tools to check current project judgment."
     )
+
+
+def _select_snapshot(
+    binding: ResolvedProjectBinding,
+    session: GenerationTransferSession,
+    snapshot: GenerationSnapshotStore | None,
+) -> GenerationSnapshotStore:
+    if snapshot is None:
+        return admit_generation_store(binding, actor=session.actor, session=session)
+    if snapshot.target.binding != binding:
+        raise ValueError("Guidance snapshot belongs to another binding")
+    session.require_binding(binding)
+    _authorize(snapshot.target, session)
+    return snapshot

@@ -17,6 +17,7 @@ from nauro.cli._json_input import parse_json_list_of_dicts
 from nauro.sync.decision_profile import ReferenceProfile, load_reference_profile, profile_transport
 from nauro.sync.decision_reference import DecisionReferenceError
 from nauro.sync.decision_reference_contract import validate_arguments
+from nauro.templates.generation_guidance import regenerate_refreshed_guidance
 
 
 class RequestMode(str, enum.Enum):
@@ -97,7 +98,12 @@ def _generation_call(kwargs: dict[str, Any], spec: ToolSpec, context: typer.Cont
         if selected is None:
             return False
         request = _request(selected[1], kwargs, spec, context)
-        result = execute_decision(selected, request, use_cwd=kwargs.get("project") is None)
+        result = execute_decision(
+            selected,
+            request,
+            use_cwd=kwargs.get("project") is None,
+            on_refreshed=regenerate_refreshed_guidance,
+        )
     except (ValueError, OSError):
         typer.echo(
             "No verified result. Check auth status or log in, then discover or recover "

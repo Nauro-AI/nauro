@@ -14,6 +14,7 @@ from nauro.store.read_authority import observe_generation_marker
 from nauro.store.resolution import resolve_project_binding
 from nauro.sync.generation_refresh_status import refresh_replica, replica_status
 from nauro.sync.remote import TransferBoundaryError
+from nauro.templates.generation_guidance import regenerate_refreshed_guidance
 
 
 def read_command(name: str, project: str, options: dict[str, Any], *, text: bool) -> bool:
@@ -43,6 +44,11 @@ def refresh_command(project: str, *, push_only: bool) -> bool:
             raise typer.Exit(1)
         store = refresh_replica(binding)
         typer.echo(f"Refreshed generation {store.target.identity.generation_id}.")
+        guidance = regenerate_refreshed_guidance(store)
+        if guidance["status"] == "failed":
+            typer.echo(guidance["message"], err=True)
+        for warning in guidance.get("warnings", []):
+            typer.echo(warning, err=True)
     except (GenerationAuthorityError, TransferBoundaryError, OSError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc

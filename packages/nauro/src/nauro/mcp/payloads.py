@@ -12,6 +12,7 @@ from pathlib import Path
 from nauro_core.operations import get_context as _get_context_op
 
 from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.read_authority import require_legacy_context
 from nauro.sync.generation_guidance import generation_notice, read_generation_guidance
 
@@ -32,8 +33,12 @@ def build_l0_payload(store_path: Path) -> str:
     return _context_text(store_path, 0)
 
 
-def build_guidance_payload(store_path: Path) -> tuple[str, str | None]:
-    result = read_generation_guidance(store_path, lambda store: _get_context_op(store, 0))
+def build_guidance_payload(
+    store_path: Path, *, snapshot: GenerationSnapshotStore | None = None
+) -> tuple[str, str | None]:
+    result = read_generation_guidance(
+        store_path, lambda store: _get_context_op(store, 0), snapshot=snapshot
+    )
     if result is None:
         return build_l0_payload(store_path), None
     context, identity = result

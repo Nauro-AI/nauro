@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from nauro.auth import DEFAULT_AUTH_REDIRECT_URI, ActiveCredentials, PartialAuthConfigError
+from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.resolution import resolve_project_binding
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.generation_connection import selected_connection
@@ -33,7 +35,10 @@ def reference_client() -> httpx.Client:
 
 
 class DecisionSession:
-    def __init__(self) -> None:
+    def __init__(
+        self, on_refreshed: Callable[[GenerationSnapshotStore], dict[str, Any]] | None = None
+    ) -> None:
+        self._on_refreshed = on_refreshed
         self._lock = threading.RLock()
         self._client: httpx.Client | None = None
         self._transport: DecisionReferenceTransport | None = None
@@ -84,7 +89,7 @@ class DecisionSession:
             try:
                 if resolve_project_binding(project, cwd or Path.cwd(), use_cwd=use_cwd) != binding:
                     raise ValueError("Project binding changed")
-                refresh_replica(binding, expected=(connection, actor))
+                snapshot = refresh_replica(binding, expected=(connection, actor))
                 status = replica_status(binding)
                 credentials()
                 if status.get("installed_for_user_id") != actor:
@@ -95,7 +100,10 @@ class DecisionSession:
                     "error_code": "receipt_refresh_required",
                     "authorization_checked": False,
                 }
-            return {**result, "replica_status": status}
+            completed = {**result, "replica_status": status}
+            if self._on_refreshed is not None and "error_code" not in status:
+                completed["guidance_status"] = self._on_refreshed(snapshot)
+            return completed
 
 
 def execute_decision(
@@ -104,8 +112,9 @@ def execute_decision(
     cwd: str | Path | None = None,
     *,
     use_cwd: bool = True,
+    on_refreshed: Callable[[GenerationSnapshotStore], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    session = DecisionSession()
+    session = DecisionSession(on_refreshed)
     try:
         return session.execute(selected, request, cwd, use_cwd=use_cwd)
     finally:

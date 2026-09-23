@@ -20,8 +20,9 @@ from nauro.sync.generation_decision import (
     DecisionSession,
     select_decision_connection,
 )
+from nauro.templates.generation_guidance import regenerate_refreshed_guidance
 
-decision_session = DecisionSession()
+decision_session = DecisionSession(regenerate_refreshed_guidance)
 
 REFERENCE_FIELDS = {"request_mode", "operation_id", "payload_digest", "after"}
 
