@@ -15,6 +15,7 @@ from __future__ import annotations
 import typer
 
 from nauro.auth import DEFAULT_API_URL, load_access_token
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import refuse_repo_config_symlink
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
@@ -90,9 +91,14 @@ def link(
         )
         raise typer.Exit(code=1)
     connection = resolve_registered_project(local_id)
-    if isinstance(connection, DisconnectedProject):
-        typer.echo(connection.guidance, err=True)
+    if connection is None or isinstance(connection, DisconnectedProject):
+        typer.echo(
+            connection.guidance if connection is not None else "Project is no longer registered.",
+            err=True,
+        )
         raise typer.Exit(code=1)
+
+    require_legacy_write(connection.store_path, "link")
 
     if not load_access_token():
         typer.echo(

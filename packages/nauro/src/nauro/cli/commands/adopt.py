@@ -24,6 +24,7 @@ from typing import NoReturn
 import typer
 
 from nauro.agents import AGENT_NAMES
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.integrations.echo import echo_outcomes
 from nauro.cli.integrations.orchestrator import (
     SHIP_TASK_NEEDS_SUBAGENTS_NOTICE,
@@ -281,6 +282,8 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
                 )
         except (KeyError, ValueError):
             store_path = None
+    if purge_store and store_path is not None:
+        require_legacy_write(store_path, "adopt --purge-store")
     is_last_repo = not other_repos
 
     if purge_store and not is_last_repo:

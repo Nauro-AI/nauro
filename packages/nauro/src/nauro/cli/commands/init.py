@@ -20,6 +20,7 @@ from pathlib import Path
 import typer
 
 from nauro.auth import DEFAULT_API_URL
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
@@ -192,6 +193,7 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
             typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
             raise typer.Exit(code=1)
         store_path = connection.store_path
+        require_legacy_write(store_path, "init --demo")
         for rp in repo_paths:
             _refuse_if_repo_already_claimed(rp, allowed_project_id=pid)
         for rp in repo_paths:
@@ -346,6 +348,7 @@ def init(
                 typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
                 raise typer.Exit(code=1)
             store_path = connection.store_path
+            require_legacy_write(store_path, "init --add-repo")
             # Pre-check every target repo before any state changes.
             for rp in repo_paths:
                 refuse_repo_config_symlink(rp)
