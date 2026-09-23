@@ -232,4 +232,5 @@ def test_local_repair_refuses_replica_before_planning(tmp_path, monkeypatch, sha
     monkeypatch.setattr(local, "plan_supersede_repair", lambda *_: pytest.fail("legacy planning"))
     result = runner.invoke(app, ["repair"])
     assert result.exit_code == 1
-    assert "refuses generation" in result.output
+    assert "unavailable for generation replicas" in result.output
+    assert "Use --judgment for hosted recovery" in result.output

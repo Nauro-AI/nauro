@@ -271,3 +271,38 @@ def test_store_without_a_registry_entry_is_refused() -> None:
     eligibility = repair_module.classify_repair_eligibility(None)
     assert eligibility.eligible is False
     assert "nauro status" in eligibility.guidance
+
+
+@pytest.mark.parametrize("phase", ["before_plan", "after_confirmation"])
+@pytest.mark.parametrize("error", [PermissionError, OSError])
+def test_authority_inspection_failure_refuses_without_repair(tmp_path, monkeypatch, phase, error):
+    import os
+
+    store = _new_store(tmp_path)
+    _seed_orphan(store)
+    before = _target_body(store)
+    original = os.lstat
+    blocked = phase == "before_plan"
+
+    def inspect(path, *args, **kwargs):
+        if blocked and Path(path) == store / ".replica":
+            raise error("PRIVATE AUTHORITY ERROR")
+        return original(path, *args, **kwargs)
+
+    def confirm(*args, **kwargs):
+        nonlocal blocked
+        blocked = True
+        return True
+
+    monkeypatch.setattr(os, "lstat", inspect)
+    monkeypatch.setattr(Path, "lstat", inspect)
+    monkeypatch.setattr(repair_module.typer, "confirm", confirm)
+    monkeypatch.setattr(
+        repair_module, "run_post_commit", lambda *a, **k: pytest.fail("Repair post-commit ran")
+    )
+    result = runner.invoke(app, ["repair", "--project", "repairproj"])
+    assert result.exit_code == 1
+    assert "Cannot verify project write authority" in result.output
+    assert "PRIVATE" not in result.output
+    assert _target_body(store) == before
+    assert read_events(store) == []
