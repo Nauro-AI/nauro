@@ -65,13 +65,20 @@ def test_local_status_does_not_probe_replica_controls(tmp_path, monkeypatch, jso
     probe.assert_not_called()
 
 
-@pytest.mark.parametrize("empty_control", [False, True])
-def test_cloud_legacy_reaches_existing_pull(startup, empty_control):
+def test_cloud_legacy_reaches_existing_pull(startup):
     pid, store, pull = startup
-    if empty_control:
-        (store / ".replica").mkdir()
     stdio_server._pull_on_startup()
     pull.assert_called_once_with(pid, store)
+
+
+def test_empty_replica_controls_prevent_startup_pull(startup):
+    _, store, pull = startup
+    control = store / ".replica"
+    control.mkdir()
+    stdio_server._pull_on_startup()
+    pull.assert_not_called()
+    assert control.is_dir()
+    assert list(control.iterdir()) == []
 
 
 @pytest.mark.parametrize("case", ["valid", "corrupt", "wrong_project", "unsupported", "directory"])
