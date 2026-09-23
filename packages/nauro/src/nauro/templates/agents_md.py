@@ -16,7 +16,7 @@ from pathlib import Path
 from nauro_core.protocol import _PROPOSAL_ADMISSION, APPROVAL_BEFORE_PROPOSE
 
 from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEADER
-from nauro.mcp.payloads import build_l0_payload
+from nauro.mcp.payloads import build_guidance_payload
 from nauro.setup.claude_bridge import ensure_claude_bridge
 from nauro.setup.outcomes import BridgeOutcome
 from nauro.store.reader import read_text_lenient
@@ -96,6 +96,7 @@ def generate_agents_md(
     project_id: str | None = None,
     skills_section: str | None = None,
     section_order: list[str] | None = None,
+    generation_context: str | None = None,
 ) -> str:
     """Return the complete ``AGENTS.md`` content for a project.
     A ``project_id`` adds the store-routing block that names the id agents must pass. A non-None
@@ -124,7 +125,8 @@ def generate_agents_md(
     # The L0 payload below is byte-identical to `get_context` at L0, so a
     # session that already holds this file can skip that call.
     parts.append(
-        "This file embeds the project's L0 context payload, byte-identical to "
+        generation_context
+        or "This file embeds the project's L0 context payload, byte-identical to "
         "`get_context` at L0: when AGENTS.md is already in context, skip the "
         "L0 call and use L1/L2 or `diff_since_last_session` for deeper or "
         "fresher context.\n"
@@ -246,7 +248,7 @@ def regenerate_agents_md_for_project(
         project_id = project_key  # v2 registry is id-keyed
 
     repo_paths = get_repo_paths(project_key)
-    l0_payload = build_l0_payload(store_path)
+    l0_payload, generation_context = build_guidance_payload(store_path)
     updated = []
 
     for repo_str in repo_paths:
@@ -268,6 +270,7 @@ def regenerate_agents_md_for_project(
             project_id=project_id,
             skills_section=preserved.skills,
             section_order=preserved.order or None,
+            generation_context=generation_context,
         )
         # Content-conditional write: a managed file identical modulo the
         # header timestamp means no store change reached it, so skip the

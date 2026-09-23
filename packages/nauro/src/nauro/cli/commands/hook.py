@@ -11,6 +11,7 @@ no output and exits 0.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -24,7 +25,7 @@ from nauro_core import MCP_INSTRUCTIONS_STATIC
 from nauro.cli._codex_hooks import _CODEX_HOOK_EVENTS
 from nauro.constants import DECISIONS_DIR
 from nauro.store.home import nauro_home
-from nauro.store.read_authority import require_legacy_context
+from nauro.sync.generation_guidance import generation_notice, read_generation_guidance
 
 hook_app = typer.Typer(help="Client-side advisory hooks for AI coding agents.")
 
@@ -107,13 +108,14 @@ def _run_codex_bootstrap() -> None:
     if store_path is None or not store_path.is_dir():
         return
 
-    from nauro.mcp.payloads import build_l0_payload
+    from nauro.mcp.payloads import build_guidance_payload
 
-    l0_payload = build_l0_payload(store_path)
+    l0_payload, notice = build_guidance_payload(store_path)
     output = {
         "hookSpecificOutput": {
             "hookEventName": event_name,
-            "additionalContext": _format_codex_bootstrap_context(l0_payload),
+            "additionalContext": _format_codex_bootstrap_context(l0_payload)
+            + (f"\n\n{notice}" if notice else ""),
         }
     }
     sys.stdout.write(json.dumps(output))
@@ -138,11 +140,23 @@ def _run_user_prompt_submit() -> None:
     if store_path is None or not store_path.exists():
         return
 
-    related = _check(store_path, prompt)
+    captured = read_generation_guidance(
+        store_path, lambda store: _generation_candidates(store, prompt)
+    )
+    if captured is None:
+        related = _check(store_path, prompt)
+        corpus_size = _corpus_size(store_path)
+    else:
+        (related, corpus_size), identity = captured
+        if isinstance(session_id, str) and session_id:
+            session_id = hashlib.sha256(
+                f"{session_id}:{identity.project_id}:{identity.installed_for_user_id}:"
+                f"{identity.projection_scope_id}".encode()
+            ).hexdigest()
     if not related:
         return
 
-    surviving = _apply_floor(related, _corpus_size(store_path))
+    surviving = _apply_floor(related, corpus_size)
     if not surviving:
         return
 
@@ -151,9 +165,12 @@ def _run_user_prompt_submit() -> None:
     if not fresh:
         return
 
-    _enrich_supersedes(store_path, fresh)
+    if captured is None:
+        _enrich_supersedes(store_path, fresh)
     injected = _select_injected(fresh)
     block = _format_block(injected)
+    if captured is not None:
+        block += f"\n\n{generation_notice(captured[1])}"
     _record_seen(session_id, [r["number"] for r in injected])
 
     output = {
@@ -181,7 +198,6 @@ def _resolve_store_path(cwd: Path) -> Path | None:
     resolution = resolve_from_cwd(cwd)
     if not isinstance(resolution, RepoResolution):
         return None
-    require_legacy_context(resolution.store_path)
     return resolution.store_path
 
 
@@ -190,7 +206,6 @@ def _check(store_path: Path, prompt: str) -> list[dict]:
     reducing each hit to the fields the injection block needs; a kernel error
     yields []."""
     from nauro_core.operations.check_decision import check_decision
-    from nauro_core.parsing import extract_decision_number
 
     from nauro.store.config import resolve_embeddings_flag
     from nauro.store.filesystem_store import FilesystemStore
@@ -202,6 +217,12 @@ def _check(store_path: Path, prompt: str) -> list[dict]:
     )
     if result.error is not None:
         return []
+
+    return _related_hits(result)
+
+
+def _related_hits(result) -> list[dict]:
+    from nauro_core.parsing import extract_decision_number
 
     hits: list[dict] = []
     for rd in result.related_decisions:
@@ -449,3 +470,19 @@ def _unlink_quiet(path: Path) -> None:
         path.unlink()
     except OSError:
         pass
+
+
+def _generation_candidates(store, prompt: str) -> tuple[list[dict], int]:
+    from nauro_core.operations.check_decision import check_decision
+
+    from nauro.store.config import resolve_embeddings_flag
+
+    result = check_decision(store, prompt, use_embeddings=resolve_embeddings_flag())
+    if result.error is not None:
+        raise ValueError("Generation guidance could not be rendered")
+    hits = _related_hits(result)
+    for hit in hits:
+        ref = _resolve_supersedes_ref(store, hit["number"])
+        if ref is not None:
+            hit["supersedes_ref"] = ref
+    return hits, len(store.list_decisions())
