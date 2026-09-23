@@ -18,7 +18,6 @@ releases, keeping the journal lock from nesting inside a resource lock.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import typer
@@ -29,6 +28,7 @@ from nauro_core.operations.repair import (
 )
 from pydantic import BaseModel, ConfigDict
 
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
@@ -45,12 +45,11 @@ REPAIR_OPERATION = "repair_supersede_backref"
 
 
 def _require_legacy_store(store_path: Path) -> None:
-    if os.path.lexists(store_path / ".replica"):
-        typer.echo(
-            "Local repair refuses generation replica controls. Use --judgment for hosted recovery.",
-            err=True,
-        )
-        raise typer.Exit(1)
+    try:
+        require_legacy_write(store_path, "repair")
+    except typer.Exit:
+        typer.echo("Use --judgment for hosted recovery.", err=True)
+        raise
 
 
 class StoreChangedDuringRepairError(RuntimeError):
