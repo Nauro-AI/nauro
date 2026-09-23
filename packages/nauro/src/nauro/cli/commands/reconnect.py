@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from nauro.cli._reporters import StderrReporter
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.integrations.json_mcp import recorded_mcp_commands
 from nauro.store.recovery import (
     RecoveryError,
@@ -65,6 +66,8 @@ def reconnect() -> None:
         raise typer.Exit(code=1)
     repo_root = config_path.parent.parent
     connection = resolve_from_cwd(repo_root)
+    if isinstance(connection, (RepoResolution, DisconnectedProject)):
+        require_legacy_write(connection.store_path, "reconnect")
     if isinstance(connection, RepoResolution):
         typer.echo(f"Already connected to '{connection.display_name}'.")
         typer.echo(f"  Store: {connection.store_path}")
@@ -90,6 +93,7 @@ def reconnect() -> None:
     try:
         if action == "locate":
             store_path = Path(typer.prompt("Absolute store path"))
+            require_legacy_write(store_path, "reconnect")
             resolved = bind_local_store(repo_root, store_path)
             _finish_connection(repo_root, resolved.store_path, resolved.project_id)
             typer.echo(f"Connected '{resolved.display_name}' to {resolved.store_path}")
