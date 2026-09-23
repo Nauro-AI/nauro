@@ -17,6 +17,7 @@ import typer
 
 from nauro.auth import DEFAULT_API_URL
 from nauro.cli._reporters import StderrReporter
+from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.setup.git_hygiene import public_surface_git_warnings
@@ -120,11 +121,15 @@ def attach(
         typer.echo(f"Attached generation project '{binding.display_name}' to {repo_path.resolve()}")
         return
     try:
+        connection = resolve_registered_project(project_id)
+        require_legacy_write(
+            connection.store_path if connection is not None else get_store_path_v2(project_id),
+            "attach",
+        )
         name = require_cloud_membership(project_id)
         entry = get_project_entry_v2(project_id)
         server_url = (entry.server_url if entry else None) or DEFAULT_API_URL
 
-        connection = resolve_registered_project(project_id)
         if isinstance(connection, DisconnectedProject):
             if connection.reason_code != "connected_record_missing":
                 raise RecoveryError(connection.guidance)
