@@ -76,7 +76,12 @@ def replica(tmp_path, monkeypatch, request):
 def test_derived_guidance_refuses_without_rendering(replica, surface):
     root, _, pid, store = replica
     before = tree(root)
-    with pytest.raises(PermissionError, match="Legacy context generation is unavailable"):
+    message = (
+        "Legacy context generation is unavailable"
+        if surface == "payload"
+        else "Generation guidance unavailable"
+    )
+    with pytest.raises(PermissionError, match=message):
         if surface == "payload":
             build_l0_payload(store)
         else:
@@ -90,7 +95,7 @@ def test_setup_refuses_before_wiring_or_guidance(replica, surface):
     before = tree(root)
     result = CliRunner().invoke(app, ["setup", surface, "--with-hooks"])
     assert result.exit_code == 1
-    assert "Legacy context generation is unavailable for generation replicas." in result.output
+    assert "Generation guidance unavailable" in result.output
     assert tree(root) == before
 
 

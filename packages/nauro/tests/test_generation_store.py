@@ -144,6 +144,7 @@ def test_store_has_only_dormant_generation_consumers():
                 )
     assert sorted(consumers) == [
         "mcp/generation_reads.py",
+        "sync/generation_guidance.py",
         "sync/generation_refresh.py",
         "sync/generation_refresh_status.py",
     ]
