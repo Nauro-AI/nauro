@@ -19,6 +19,7 @@ from nauro.constants import AGENTS_MD, MANUAL_SECTION_HEADER, SKILLS_SECTION_HEA
 from nauro.mcp.payloads import build_guidance_payload
 from nauro.setup.claude_bridge import ensure_claude_bridge
 from nauro.setup.outcomes import BridgeOutcome
+from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.reader import read_text_lenient
 from nauro.store.registry import RegistrySchemaError, get_project_v2, get_repo_paths
 from nauro.store.write_safety import find_symlink
@@ -231,6 +232,7 @@ def regenerate_agents_md_for_project(
     *,
     overwrite_unmanaged: bool = False,
     bridge_sink: list[BridgeOutcome] | None = None,
+    snapshot: GenerationSnapshotStore | None = None,
 ) -> list[Path]:
     """Rewrite ``AGENTS.md`` in every repo of ``project_key``; returns the paths written, skipping
     repos already matching apart from the header timestamp. An unmanaged file survives unless
@@ -248,7 +250,7 @@ def regenerate_agents_md_for_project(
         project_id = project_key  # v2 registry is id-keyed
 
     repo_paths = get_repo_paths(project_key)
-    l0_payload, generation_context = build_guidance_payload(store_path)
+    l0_payload, generation_context = build_guidance_payload(store_path, snapshot=snapshot)
     updated = []
 
     for repo_str in repo_paths:

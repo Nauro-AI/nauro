@@ -15,6 +15,7 @@ from nauro.constants import AGENTS_MD
 from nauro.setup.git_hygiene import public_surface_git_warnings
 from nauro.setup.outcomes import BridgeKind, BridgeOutcome
 from nauro.setup.render import render
+from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.registry import get_repo_paths
 from nauro.store.write_safety import find_symlink
 from nauro.templates.agents_md import (
@@ -32,6 +33,7 @@ def warn_then_regen(
     fail_soft: bool = False,
     bridge_sink: list[BridgeOutcome] | None = None,
     surface_bridge_notices: bool = True,
+    snapshot: GenerationSnapshotStore | None = None,
 ) -> list[Path]:
     """Regenerate ``AGENTS.md`` in each project repo that passes the write guards, returning
     updated paths. ``fail_soft`` maps regeneration OSError to [] (warned if ``warn`` is set).
@@ -70,6 +72,7 @@ def warn_then_regen(
             store_path,
             overwrite_unmanaged=overwrite_unmanaged,
             bridge_sink=collected,
+            snapshot=snapshot,
         )
     except OSError as exc:
         if not fail_soft:
