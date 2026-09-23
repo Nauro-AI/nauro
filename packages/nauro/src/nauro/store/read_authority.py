@@ -23,7 +23,13 @@ def observe_generation_marker(binding: ResolvedProjectBinding) -> bytes | None:
     _validate_store_path(binding)
     _validate_managed_path(store, path)
     if raw is None:
-        return None
+        try:
+            path.parent.lstat()
+        except FileNotFoundError:
+            return None
+        raise GenerationControlCorruptError(
+            "Generation replica controls are incomplete; legacy fallback is unavailable."
+        )
     marker = _parse_marker(raw)
     if (
         binding.mode != "cloud"
