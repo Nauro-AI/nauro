@@ -95,6 +95,7 @@ def saved(tmp_path, monkeypatch):
     control = {
         "role": "owner",
         "status": 200,
+        "manifest": assessment.projection.manifest_json,
         "identity": assessment.projection.target.identity.model_dump(),
     }
     calls = []
@@ -115,7 +116,7 @@ def saved(tmp_path, monkeypatch):
             control["status"],
             json={
                 "projection": control["identity"],
-                "manifest_base64": base64.b64encode(assessment.projection.manifest_json).decode(),
+                "manifest_base64": base64.b64encode(control["manifest"]).decode(),
             },
         )
 

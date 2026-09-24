@@ -36,7 +36,7 @@ class MigrationAdmission(BaseModel):
     store: str
     plan_digest: str
     predecessor_digest: str | None = None
-    phase: Literal["assessed", "blocked", "declined"]
+    phase: Literal["assessed", "blocked", "declined", "replacing", "installing", "completed"]
 
     def canonical_bytes(self) -> bytes:
         return self.model_dump_json(exclude_none=True).encode()
@@ -143,8 +143,20 @@ def inspect_migration(store: Path) -> MigrationAdmission | None:
 
 def require_migration_admission(store: Path) -> None:
     record = inspect_migration(store)
-    if record is not None and record.phase == "blocked":
+    if record is not None and record.phase in {"blocked", "replacing", "installing"}:
         raise MigrationAdmissionError("Project conversion is incomplete; reopen connection setup.")
+
+    if record is not None and record.phase == "completed":
+        from nauro.store.generation_authority import _parse_marker
+
+        path = store / ".replica/authority.json"
+        _validate_managed_path(store, path)
+        raw = _read_optional_file(path)
+        if raw is None:
+            raise MigrationAdmissionError("Completed conversion lost generation authority.")
+        marker = _parse_marker(raw)
+        if marker.project_id != record.project_id or marker.canonical_bytes() != raw:
+            raise MigrationAdmissionError("Completed conversion authority differs.")
 
 
 def migration_lock_path(store: Path) -> Path:
