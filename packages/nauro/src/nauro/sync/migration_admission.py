@@ -19,7 +19,11 @@ from nauro.store.migration_admission import (
     admission_path,
     inspect_migration,
 )
-from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_path
+from nauro.store.replica_control import (
+    _is_link_or_reparse,
+    _read_optional_file,
+    _validate_managed_path,
+)
 
 MAX_PLAN_BYTES = 16 * 1024 * 1024
 
@@ -59,6 +63,7 @@ def load_migration_plan(store: Path) -> tuple[MigrationAdmission, bytes]:
     record = inspect_migration(store)
     if record is None:
         raise MigrationAdmissionError("No saved migration plan.")
+    inspect_previous_migration(record)
     return record, _read_plan(record)
 
 
@@ -79,7 +84,59 @@ def _lock_path(store: Path) -> Path:
     return path
 
 
-def save_migration_assessment(plan: LegacyMigrationPlan) -> MigrationAdmission:
+def _previous_path(digest: str) -> Path:
+    return nauro_home() / f"migration-history-{digest}.json"
+
+
+def inspect_previous_migration(record: MigrationAdmission) -> MigrationAdmission | None:
+    if record.predecessor_digest is None:
+        return None
+    path = _previous_path(record.predecessor_digest)
+    _validate_managed_path(nauro_home(), path)
+    raw = _read_optional_file(path)
+    if raw is None or hashlib.sha256(raw).hexdigest() != record.predecessor_digest:
+        raise MigrationAdmissionError("Migration predecessor evidence differs.")
+    previous = MigrationAdmission.model_validate_json(raw)
+    _require_replacement_binding(previous, record)
+    if previous.canonical_bytes() != raw:
+        raise MigrationAdmissionError("Migration predecessor evidence is not canonical.")
+    _read_plan(previous)
+    return previous
+
+
+def _require_replacement_binding(previous: MigrationAdmission, desired: MigrationAdmission) -> None:
+    if (
+        type(previous) is not MigrationAdmission
+        or previous.phase not in {"assessed", "declined"}
+        or previous.migration_id == desired.migration_id
+        or (previous.store, previous.project_id, previous.actor, previous.endpoint)
+        != (desired.store, desired.project_id, desired.actor, desired.endpoint)
+    ):
+        raise MigrationAdmissionError(
+            "Migration replacement requires the same binding and inactive evidence."
+        )
+
+
+def _retain_previous(previous: MigrationAdmission, paths: RefreshPaths) -> None:
+    _read_plan(previous)
+    sync_file(paths, _plan_path(previous))
+    raw = previous.canonical_bytes()
+    path = _previous_path(hashlib.sha256(raw).hexdigest())
+    _validate_managed_path(paths.store, path)
+    existing = _read_optional_file(path)
+    if existing is not None and existing != raw:
+        raise MigrationAdmissionError("Migration predecessor evidence differs.")
+    if existing is None:
+        durable_replace(paths, path, raw)
+    sync_file(paths, path)
+    sync_parents(paths, paths.store)
+
+
+def save_migration_assessment(
+    plan: LegacyMigrationPlan,
+    *,
+    replace: MigrationAdmission | None = None,
+) -> MigrationAdmission:
     if type(plan) is not LegacyMigrationPlan:
         raise MigrationAdmissionError("A verified preservation plan is required.")
     if len(plan.manifest_json) > MAX_PLAN_BYTES:
@@ -94,17 +151,26 @@ def save_migration_assessment(plan: LegacyMigrationPlan) -> MigrationAdmission:
         endpoint=binding.server_url,
         store=str(binding.store_path.absolute()),
         plan_digest=plan.plan_digest,
+        predecessor_digest=(
+            hashlib.sha256(replace.canonical_bytes()).hexdigest()
+            if type(replace) is MigrationAdmission
+            else None
+        ),
         phase="assessed",
     )
+    if replace is not None:
+        _require_replacement_binding(replace, record)
     home = nauro_home()
     _validate_managed_path(home, home)
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
     with FileLock(_lock_path(binding.store_path), timeout=0):
         prior = inspect_migration(binding.store_path)
-        if prior is not None and prior != record:
+        if prior != record and (prior is not None or replace is not None) and prior != replace:
             raise MigrationAdmissionError(
                 "Inspect the retained migration before preparing another."
             )
+        if replace is not None:
+            _retain_previous(replace, RefreshPaths(home, home))
         path = _plan_path(record)
         _validate_managed_path(home, path)
         try:
@@ -116,9 +182,7 @@ def save_migration_assessment(plan: LegacyMigrationPlan) -> MigrationAdmission:
         paths = RefreshPaths(home, home)
         sync_file(paths, path)
         sync_parents(paths, home)
-        durable_replace(
-            paths, admission_path(binding.store_path), record.model_dump_json().encode()
-        )
+        durable_replace(paths, admission_path(binding.store_path), record.canonical_bytes())
     return record
 
 
@@ -139,8 +203,9 @@ def decide_migration_assessment(
                 "Migration disposition changed; inspect retained evidence."
             )
         _read_plan(expected)
+        inspect_previous_migration(expected)
         paths = RefreshPaths(nauro_home(), nauro_home())
         sync_file(paths, _plan_path(expected))
         sync_parents(paths, nauro_home())
-        durable_replace(paths, admission_path(store), desired.model_dump_json().encode())
+        durable_replace(paths, admission_path(store), desired.canonical_bytes())
     return desired

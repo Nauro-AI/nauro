@@ -27,12 +27,21 @@ class MigrationAdmission(BaseModel):
     endpoint: str
     store: str
     plan_digest: str
+    predecessor_digest: str | None = None
     phase: Literal["assessed", "blocked", "declined"]
+
+    def canonical_bytes(self) -> bytes:
+        return self.model_dump_json(exclude_none=True).encode()
 
     @field_validator("migration_id", "project_id", "actor")
     @classmethod
     def identifiers(cls, value: str) -> str:
         return validate_identifier(IdentifierKind.ulid, value, field="migration identity")
+
+    @field_validator("predecessor_digest")
+    @classmethod
+    def predecessor(cls, value: str | None) -> str | None:
+        return None if value is None else cls.digest(value)
 
     @field_validator("plan_digest")
     @classmethod
@@ -50,7 +59,7 @@ def admission_path(store: Path) -> Path:
 def _decode_record(store: Path, raw: bytes) -> MigrationAdmission:
     record = MigrationAdmission.model_validate_json(raw)
     if (
-        record.model_dump_json().encode() != raw
+        record.canonical_bytes() != raw
         or record.store != str(store.absolute())
         or record.project_id != store.name
     ):
