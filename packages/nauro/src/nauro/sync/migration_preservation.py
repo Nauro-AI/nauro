@@ -11,7 +11,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from nauro.store._atomic import atomic_write_bytes
 from nauro.store.generation_migration_assessment import _inventory, _stamp_file
 from nauro.store.generation_projection import (
     GenerationProjectionIdentity,
@@ -122,6 +121,35 @@ def _pending(entry: _Entry) -> str:
     return ".pending/" + hashlib.sha256(entry.source_path.encode()).hexdigest()
 
 
+def _plan_pending(raw: bytes) -> str:
+    return ".plan-" + hashlib.sha256(raw).hexdigest() + ".pending"
+
+
+def _publish_plan(root: Path, raw: bytes) -> None:
+    scratch = root / _plan_pending(raw)
+    _validate_managed_path(root, scratch)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(scratch, flags, 0o600)
+    with os.fdopen(fd, "r+b") as handle:
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or _is_link_or_reparse(info)
+            or info.st_nlink != 1
+            or not os.path.samestat(info, scratch.stat())
+            or not raw.startswith(handle.read(len(raw) + 1))
+        ):
+            raise MigrationAdmissionError("Preservation plan scratch differs.")
+        handle.seek(0)
+        handle.write(raw)
+        handle.flush()
+        os.fsync(fd)
+        _validate_managed_path(root, scratch)
+        if not os.path.samestat(os.fstat(fd), scratch.stat()):
+            raise MigrationAdmissionError("Preservation plan scratch changed.")
+    os.replace(scratch, root / "plan.json")
+
+
 def _inspect_backup(root: Path, plan: _Plan, raw: bytes) -> set[str]:
     _validate_managed_path(root.parent, root)
     if not root.exists():
@@ -134,8 +162,16 @@ def _inspect_backup(root: Path, plan: _Plan, raw: bytes) -> set[str]:
     expected["plan.json"] = (len(raw), hashlib.sha256(raw).hexdigest())
     scratch = {_pending(entry) for entry in plan.entries}
     found = set()
+    initial = _plan_pending(raw)
     for stamp in files:
-        if stamp.path in scratch:
+        if stamp.path == initial:
+            if (
+                stamp.size > len(raw)
+                or (root / stamp.path).stat().st_nlink != 1
+                or not raw.startswith((root / stamp.path).read_bytes())
+            ):
+                raise MigrationAdmissionError("Preservation plan scratch differs.")
+        elif stamp.path in scratch:
             if (root / stamp.path).stat().st_nlink != 1:
                 raise MigrationAdmissionError("Preservation scratch has an alias.")
         elif (
@@ -148,7 +184,11 @@ def _inspect_backup(root: Path, plan: _Plan, raw: bytes) -> set[str]:
     if (
         pending
         or set(directories) - _directories(plan)
-        or ((files or directories) and "plan.json" not in found)
+        or (
+            "plan.json" not in found
+            and (directories or any(stamp.path != initial for stamp in files))
+        )
+        or ("plan.json" in found and any(stamp.path == initial for stamp in files))
     ):
         raise MigrationAdmissionError("Unexpected preservation evidence.")
     return found
@@ -240,7 +280,7 @@ def preserve_migration_source(
         found = _inspect_backup(root, plan, raw)
         _mkdir(source.parent, root)
         if "plan.json" not in found:
-            atomic_write_bytes(root / "plan.json", raw)
+            _publish_plan(root, raw)
         paths = RefreshPaths(root.parent, root.parent)
         sync_file(paths, root / "plan.json")
         sync_parents(paths, root)
