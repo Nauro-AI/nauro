@@ -71,6 +71,7 @@ from nauro.store.journal import (
     OriginDescriptor,
     record_event,
 )
+from nauro.store.migration_admission import require_migration_admission
 from nauro.store.post_commit import run_post_commit, surface_post_commit
 from nauro.store.reader import read_text_lenient
 from nauro.store.snapshot import (
@@ -147,6 +148,11 @@ def requires_store(func: Callable[..., Any]) -> Callable[..., Any]:
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         store_path = _store_path_argument(args, kwargs)
+        if store_path is not None:
+            try:
+                require_migration_admission(store_path)
+            except PermissionError as exc:
+                return {"store": "local", "status": "error", "guidance": str(exc)}
         if store_path is not None and not store_path.exists():
             return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
         return func(*args, **kwargs)

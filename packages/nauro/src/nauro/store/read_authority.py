@@ -9,6 +9,7 @@ from nauro.store.generation_authority import (
     GenerationControlCorruptError,
     _parse_marker,
 )
+from nauro.store.migration_admission import require_migration_admission
 from nauro.store.replica_control import (
     _read_optional_file,
     _validate_managed_path,
@@ -18,6 +19,7 @@ from nauro.store.resolution import ResolvedProjectBinding
 
 
 def observe_generation_marker(binding: ResolvedProjectBinding) -> bytes | None:
+    require_migration_admission(binding.store_path)
     store = _validate_store_path(binding)
     path = store / ".replica" / "authority.json"
     _validate_managed_path(store, path)
@@ -47,6 +49,7 @@ def observe_generation_marker(binding: ResolvedProjectBinding) -> bytes | None:
 
 
 def require_legacy_context(store_path: Path) -> None:
+    require_migration_admission(store_path)
     try:
         (store_path / ".replica").lstat()
     except FileNotFoundError:
