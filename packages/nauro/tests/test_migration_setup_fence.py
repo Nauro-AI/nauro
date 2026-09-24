@@ -203,7 +203,9 @@ def test_raw_restore_holds_fence_and_blocked_restore_preserves_evidence(
     monkeypatch.setattr(recovery, "fetch_manifest", empty_manifest)
     with pytest.raises(recovery.EmptyCloudRecordError):
         recovery.restore_cloud_store(binding.project_id, binding.store_path)
+    binding.store_path.with_name("retained").rename(binding.store_path)
     migration.decide_migration_assessment(record, preserve=True)
+    binding.store_path.rename(binding.store_path.with_name("retained"))
     before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     with pytest.raises(MigrationAdmissionError, match="conversion is incomplete"):
         recovery.restore_cloud_store(binding.project_id, binding.store_path)

@@ -12,6 +12,7 @@ from nauro.store.migration_admission import inspect_migration, migration_lock, m
 from nauro.store.replica_control import ReplicaControlBusyError
 from nauro.sync import migration_admission as migration
 from tests.test_generation_migration_plan import _assessment
+from tests.test_migration_source_check import reassess_after_writer
 
 
 @pytest.mark.parametrize("pause_at", ["operation", "post_commit", "journal"])
@@ -46,7 +47,7 @@ def test_conversion_refuses_until_whole_writer_finishes(tmp_path, monkeypatch, p
             release.set()
         assert future.result(timeout=10)["status"] == "ok"
     assert (binding.store_path / "state_current.md").read_bytes() != before
-    blocked = migration.decide_migration_assessment(record, preserve=True)
+    blocked = reassess_after_writer(record, assessment.projection)
     assert blocked.phase == "blocked"
     after = {
         p.relative_to(binding.store_path): p.read_bytes()

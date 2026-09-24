@@ -24,6 +24,7 @@ from nauro.sync import migration_admission as migration
 from nauro.sync.transfer import NullReporter
 from tests.test_cli_repair import _seed_orphan
 from tests.test_generation_migration_plan import _assessment
+from tests.test_migration_source_check import reassess_after_writer
 
 
 @pytest.fixture
@@ -36,12 +37,12 @@ def saved(tmp_path, monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", forbidden)
     binding, assessment = _assessment(tmp_path)
     record = migration.save_migration_assessment(prepare_legacy_migration_plan(assessment))
-    return binding, record
+    return binding, record, assessment.projection
 
 
 @pytest.mark.parametrize("command", ["note", "import", "questions", "repair", "sync"])
 def test_legacy_command_holds_fence_through_ancillary_work(saved, tmp_path, monkeypatch, command):
-    binding, record = saved
+    binding, record, projection = saved
     module = import_module(f"nauro.cli.commands.{'import_cmd' if command == 'import' else command}")
     monkeypatch.setattr(
         module, "resolve_target_project", lambda *_: ("Synthetic", binding.store_path)
@@ -90,7 +91,7 @@ def test_legacy_command_holds_fence_through_ancillary_work(saved, tmp_path, monk
             release.set()
         result = future.result(timeout=10)
     assert result.exit_code == 0, result.output
-    assert migration.decide_migration_assessment(record, preserve=True).phase == "blocked"
+    assert reassess_after_writer(record, projection).phase == "blocked"
     before = {p: p.read_bytes() for p in binding.store_path.rglob("*") if p.is_file()}
     result = CliRunner().invoke(app, arguments, input="y\n")
     assert result.exit_code == 1, result.output
@@ -99,7 +100,7 @@ def test_legacy_command_holds_fence_through_ancillary_work(saved, tmp_path, monk
 
 @pytest.mark.parametrize("direction", ["pull", "push"])
 def test_transfer_fence_precedes_root_preparation_and_network(saved, monkeypatch, direction):
-    binding, record = saved
+    binding, record, projection = saved
     migration.decide_migration_assessment(record, preserve=True)
     binding.store_path.rename(binding.store_path.with_name("retained"))
     module = pull if direction == "pull" else push
@@ -118,7 +119,7 @@ def test_transfer_fence_precedes_root_preparation_and_network(saved, monkeypatch
 
 @pytest.mark.parametrize("direction", ["pull", "push"])
 def test_delayed_transfer_prevents_conversion(saved, monkeypatch, direction):
-    binding, record = saved
+    binding, record, projection = saved
     entered, release = Event(), Event()
     module = pull if direction == "pull" else push
 
@@ -145,11 +146,11 @@ def test_delayed_transfer_prevents_conversion(saved, monkeypatch, direction):
         finally:
             release.set()
         future.result(timeout=10)
-    assert migration.decide_migration_assessment(record, preserve=True).phase == "blocked"
+    assert reassess_after_writer(record, projection).phase == "blocked"
 
 
 def test_nested_fence_keeps_other_processes_out_until_outer_release(saved):
-    binding, _ = saved
+    binding, _, _ = saved
     script = """
 import sys
 from filelock import FileLock, Timeout
@@ -176,7 +177,7 @@ except Timeout:
 
 
 def test_nested_push_hook_completes_without_deadlock(saved, monkeypatch):
-    binding, _ = saved
+    binding, _, _ = saved
     monkeypatch.setattr(hooks, "load_access_token", lambda: "synthetic")
     monkeypatch.setattr(hooks, "is_cloud_project", lambda *_: True)
     monkeypatch.setattr(
@@ -189,7 +190,7 @@ def test_nested_push_hook_completes_without_deadlock(saved, monkeypatch):
 
 
 def test_nonblocking_nested_acquisition_still_excludes_other_threads(saved):
-    binding, _ = saved
+    binding, _, _ = saved
     with migration_write_guard(binding.store_path), ThreadPoolExecutor(max_workers=1) as pool:
 
         def contender():
