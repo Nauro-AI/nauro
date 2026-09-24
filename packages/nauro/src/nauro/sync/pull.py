@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from nauro.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR, SNAPSHOTS_DIR
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
+from nauro.store.migration_admission import migration_write_guard, require_migration_admission
 from nauro.sync._path_diagnostics import (
     _escape_path_for_display,
     _MissingPathPolicy,
@@ -558,14 +559,18 @@ def run_pull(
 ) -> PullReport:
     """Pull remote changes for ``project_id`` into ``store_path``.
     Returns a :class:`PullReport` carrying any transport failure, never an empty
-    success; exceeding ``lock_timeout`` on either lock raises ``SyncLockTimeoutError``.
+    success. Sync/resource contention raises ``SyncLockTimeoutError``; conversion
+    contention or blocked admission raises ``MigrationAdmissionError``.
     """
-    # The sync lock creates its parent directory, so an unusable Store root is
-    # refused here, before the lock's mkdir can recreate or trip over it.
+    require_migration_admission(store_path)
     _prepare_store_root(store_path)
-    with operation_session(session) as active:
-        with sync_lock(store_path, lock_timeout):
-            return _run_pull_locked(project_id, store_path, reporter, lock_timeout, active)
+    with migration_write_guard(store_path, timeout=lock_timeout):
+        # The sync lock creates its parent directory, so an unusable Store root is
+        # refused here, before the lock's mkdir can recreate or trip over it.
+        _prepare_store_root(store_path)
+        with operation_session(session) as active:
+            with sync_lock(store_path, lock_timeout):
+                return _run_pull_locked(project_id, store_path, reporter, lock_timeout, active)
 
 
 def _run_pull_locked(

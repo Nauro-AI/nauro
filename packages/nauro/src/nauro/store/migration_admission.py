@@ -112,13 +112,13 @@ def migration_lock_path(store: Path) -> Path:
 
 
 @contextmanager
-def migration_write_guard(store: Path) -> Iterator[None]:
+def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
     home = nauro_home()
     _validate_managed_path(home, home)
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock = FileLock(migration_lock_path(store), timeout=10)
+    lock = FileLock(migration_lock_path(store), timeout=10, is_singleton=True)
     try:
-        lock.acquire()
+        lock.acquire(timeout=timeout)
     except Timeout as exc:
         raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc
     try:

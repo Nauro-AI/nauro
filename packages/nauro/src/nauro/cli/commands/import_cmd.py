@@ -14,7 +14,7 @@ from nauro_core.constants import STATE_CURRENT_FILENAME
 from nauro_core.operations import update_state as _update_state_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
-from nauro.cli.generation_writes import require_legacy_write
+from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.constants import DECISIONS_DIR, PROJECT_MD, STACK_MD
 from nauro.store.decision_lock import decision_write_lock
@@ -520,63 +520,62 @@ def import_cmd(
         raise typer.Exit(code=1)
 
     project_name, store_path = resolve_target_project(project)
-    require_legacy_write(store_path, "import")
+    with legacy_write_guard(store_path, "import"):
+        if memory_bank is not None:
+            mb = Path(memory_bank)
+            if not mb.is_dir():
+                typer.echo(f"Error: '{memory_bank}' is not a directory.", err=True)
+                raise typer.Exit(code=1)
+            if not (mb / "projectBrief.md").exists():
+                typer.echo(
+                    f"Error: '{memory_bank}' does not contain projectBrief.md. "
+                    "Not a valid Memory Bank directory.",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
 
-    if memory_bank is not None:
-        mb = Path(memory_bank)
-        if not mb.is_dir():
-            typer.echo(f"Error: '{memory_bank}' is not a directory.", err=True)
-            raise typer.Exit(code=1)
-        if not (mb / "projectBrief.md").exists():
-            typer.echo(
-                f"Error: '{memory_bank}' does not contain projectBrief.md. "
-                "Not a valid Memory Bank directory.",
-                err=True,
-            )
-            raise typer.Exit(code=1)
+            counts = _import_memory_bank(mb, store_path)
 
-        counts = _import_memory_bank(mb, store_path)
+            typer.echo(f"Imported Memory Bank into {project_name}:")
+            typer.echo(f"  Store: {store_path}")
+            typer.echo(f"  {counts['files_merged']} file(s) merged")
+            typer.echo(f"  {counts['decisions']} decision(s) imported")
+            typer.echo(f"  {counts['progress_items']} progress item(s) imported")
+            if counts.get("decisionlog_unparsed"):
+                typer.echo(
+                    "  Warning: decisionLog.md had content but no entries matched the "
+                    "expected '## Decision: <title>' heading - 0 decisions imported. "
+                    "Re-check the heading format (see 'nauro import --help').",
+                    err=True,
+                )
+            typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
 
-        typer.echo(f"Imported Memory Bank into {project_name}:")
-        typer.echo(f"  Store: {store_path}")
-        typer.echo(f"  {counts['files_merged']} file(s) merged")
-        typer.echo(f"  {counts['decisions']} decision(s) imported")
-        typer.echo(f"  {counts['progress_items']} progress item(s) imported")
-        if counts.get("decisionlog_unparsed"):
-            typer.echo(
-                "  Warning: decisionLog.md had content but no entries matched the "
-                "expected '## Decision: <title>' heading - 0 decisions imported. "
-                "Re-check the heading format (see 'nauro import --help').",
-                err=True,
-            )
-        typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
+            outcome = run_post_commit(store_path, snapshot_trigger="import: memory-bank")
+            for line in outcome.warnings:
+                typer.echo(line, err=True)
 
-        outcome = run_post_commit(store_path, snapshot_trigger="import: memory-bank")
-        for line in outcome.warnings:
-            typer.echo(line, err=True)
+        if adr is not None:
+            adr_path = Path(adr)
+            if not adr_path.is_dir():
+                typer.echo(f"Error: '{adr}' is not a directory.", err=True)
+                raise typer.Exit(code=1)
 
-    if adr is not None:
-        adr_path = Path(adr)
-        if not adr_path.is_dir():
-            typer.echo(f"Error: '{adr}' is not a directory.", err=True)
-            raise typer.Exit(code=1)
+            adr_counts = _import_adrs(adr_path, store_path)
 
-        adr_counts = _import_adrs(adr_path, store_path)
+            typer.echo(f"Imported ADRs into {project_name}:")
+            typer.echo(f"  Store: {store_path}")
+            typer.echo(f"  {adr_counts['imported']} ADR(s) imported")
+            typer.echo(f"  {adr_counts['skipped']} ADR(s) skipped")
+            for reason in adr_counts.get("_skipped_reasons", []):
+                typer.echo(f"    - {reason}")
+            if adr_counts["imported"] == 0 and adr_counts["skipped"] == 0:
+                typer.echo(
+                    "  Warning: no ADRs imported. Files must be named '<NNN>-title.md' "
+                    "(e.g. 0001-use-postgres.md); other .md files are ignored.",
+                    err=True,
+                )
+            typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
 
-        typer.echo(f"Imported ADRs into {project_name}:")
-        typer.echo(f"  Store: {store_path}")
-        typer.echo(f"  {adr_counts['imported']} ADR(s) imported")
-        typer.echo(f"  {adr_counts['skipped']} ADR(s) skipped")
-        for reason in adr_counts.get("_skipped_reasons", []):
-            typer.echo(f"    - {reason}")
-        if adr_counts["imported"] == 0 and adr_counts["skipped"] == 0:
-            typer.echo(
-                "  Warning: no ADRs imported. Files must be named '<NNN>-title.md' "
-                "(e.g. 0001-use-postgres.md); other .md files are ignored.",
-                err=True,
-            )
-        typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
-
-        outcome = run_post_commit(store_path, snapshot_trigger="import: adr")
-        for line in outcome.warnings:
-            typer.echo(line, err=True)
+            outcome = run_post_commit(store_path, snapshot_trigger="import: adr")
+            for line in outcome.warnings:
+                typer.echo(line, err=True)

@@ -6,7 +6,7 @@ from nauro_core.decision_model import DecisionConfidence
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
-from nauro.cli.generation_writes import require_legacy_write
+from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import cli_origin, resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
@@ -80,72 +80,72 @@ def note(
         )
 
     project_name, store_path = resolve_target_project(project)
-    require_legacy_write(store_path, "note")
-    fs_store = FilesystemStore(store_path)
+    with legacy_write_guard(store_path, "note"):
+        fs_store = FilesystemStore(store_path)
 
-    is_question = question or (text.rstrip().endswith("?") and not decision)
+        is_question = question or (text.rstrip().endswith("?") and not decision)
 
-    if is_question:
-        # Explicit `-c medium` is indistinguishable from the default, so it
-        # cannot trigger the warning; that trade-off is accepted.
-        if rationale is not None or confidence != "medium":
-            typer.echo(
-                "Warning: --rationale/--confidence apply to decisions only; "
-                "ignored for this question.",
-                err=True,
+        if is_question:
+            # Explicit `-c medium` is indistinguishable from the default, so it
+            # cannot trigger the warning; that trade-off is accepted.
+            if rationale is not None or confidence != "medium":
+                typer.echo(
+                    "Warning: --rationale/--confidence apply to decisions only; "
+                    "ignored for this question.",
+                    err=True,
+                )
+            # Hold the lock across the read-mint-insert-write append so concurrent
+            # local writers cannot read the same open-questions.md pre-image and
+            # clobber one another's entry. Mirrors the decision branch below, which
+            # already wraps decision_write_lock. AGENTS.md regen stays outside.
+            with store_write_lock(store_path, OPEN_QUESTIONS_MD):
+                _flag_question_op(fs_store, text, None)
+            record_event(
+                store_path,
+                operation="flag_question",
+                target=OPEN_QUESTIONS_MD,
+                status="committed",
+                payload={"question": text},
+                origin_factory=cli_origin,
             )
-        # Hold the lock across the read-mint-insert-write append so concurrent
-        # local writers cannot read the same open-questions.md pre-image and
-        # clobber one another's entry. Mirrors the decision branch below, which
-        # already wraps decision_write_lock. AGENTS.md regen stays outside.
-        with store_write_lock(store_path, OPEN_QUESTIONS_MD):
-            _flag_question_op(fs_store, text, None)
-        record_event(
-            store_path,
-            operation="flag_question",
-            target=OPEN_QUESTIONS_MD,
-            status="committed",
-            payload={"question": text},
-            origin_factory=cli_origin,
-        )
-        typer.echo(f"Question added to {project_name}:")
-        typer.echo(f"  {text}")
-        typer.echo(f"  File: {store_path / 'open-questions.md'}")
-    else:
-        # Hold the allocation lock across the number computation and the write
-        # so concurrent local writers cannot mint the same decision number.
-        # AGENTS.md regen below stays outside the lock.
-        with decision_write_lock(store_path):
-            decision_id = _write_decision_direct(
-                fs_store,
-                {
-                    "title": text,
-                    "rationale": rationale,
-                    "confidence": confidence,
-                },
+            typer.echo(f"Question added to {project_name}:")
+            typer.echo(f"  {text}")
+            typer.echo(f"  File: {store_path / 'open-questions.md'}")
+        else:
+            # Hold the allocation lock across the number computation and the write
+            # so concurrent local writers cannot mint the same decision number.
+            # AGENTS.md regen below stays outside the lock.
+            with decision_write_lock(store_path):
+                decision_id = _write_decision_direct(
+                    fs_store,
+                    {
+                        "title": text,
+                        "rationale": rationale,
+                        "confidence": confidence,
+                    },
+                )
+            record_event(
+                store_path,
+                operation="propose_decision",
+                target=DECISIONS_DIR,
+                status="committed",
+                payload={"title": text, "rationale": rationale, "confidence": confidence},
+                origin_factory=cli_origin,
+                decision_id=decision_id,
             )
-        record_event(
-            store_path,
-            operation="propose_decision",
-            target=DECISIONS_DIR,
-            status="committed",
-            payload={"title": text, "rationale": rationale, "confidence": confidence},
-            origin_factory=cli_origin,
-            decision_id=decision_id,
-        )
-        filepath = store_path / DECISIONS_DIR / f"{decision_id}.md"
-        typer.echo(f"Decision recorded in {project_name}:")
-        typer.echo(f"  {filepath}")
+            filepath = store_path / DECISIONS_DIR / f"{decision_id}.md"
+            typer.echo(f"Decision recorded in {project_name}:")
+            typer.echo(f"  {filepath}")
 
-    # Refresh AGENTS.md so MCP-disconnected agents see the update without
-    # requiring a separate `nauro sync`. The write above has already committed,
-    # so this trails it through the fail-open seam.
-    outcome = run_post_commit(
-        store_path,
-        regenerate_agents_md=True,
-        warn=lambda msg: typer.echo(msg, err=True),
-    )
-    for line in outcome.warnings:
-        typer.echo(line, err=True)
-    for repo_path in outcome.updated_repos:
-        typer.echo(f"  Updated AGENTS.md: {repo_path}")
+        # Refresh AGENTS.md so MCP-disconnected agents see the update without
+        # requiring a separate `nauro sync`. The write above has already committed,
+        # so this trails it through the fail-open seam.
+        outcome = run_post_commit(
+            store_path,
+            regenerate_agents_md=True,
+            warn=lambda msg: typer.echo(msg, err=True),
+        )
+        for line in outcome.warnings:
+            typer.echo(line, err=True)
+        for repo_path in outcome.updated_repos:
+            typer.echo(f"  Updated AGENTS.md: {repo_path}")
