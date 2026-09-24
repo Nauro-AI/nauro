@@ -15,7 +15,7 @@ from __future__ import annotations
 import typer
 
 from nauro.auth import DEFAULT_API_URL, load_access_token
-from nauro.cli.generation_writes import require_legacy_write
+from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import refuse_repo_config_symlink
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
@@ -98,83 +98,83 @@ def link(
         )
         raise typer.Exit(code=1)
 
-    require_legacy_write(connection.store_path, "link")
+    with legacy_write_guard(connection.store_path, "link"):
+        if not load_access_token():
+            typer.echo(
+                f"Cannot link '{name}' to the cloud: not authenticated.\n"
+                "\n"
+                "Run 'nauro auth login' first.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
 
-    if not load_access_token():
-        typer.echo(
-            f"Cannot link '{name}' to the cloud: not authenticated.\n"
-            "\n"
-            "Run 'nauro auth login' first.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
+        try:
+            view = create_project(name)
+        except CloudProjectError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        cloud_id = view["project_id"]
 
-    try:
-        view = create_project(name)
-    except CloudProjectError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    cloud_id = view["project_id"]
+        with legacy_write_guard(connection.store_path.with_name(cloud_id), "link"):
+            try:
+                new_store = rename_project_id_v2(
+                    local_id,
+                    cloud_id,
+                    mode=REPO_CONFIG_MODE_CLOUD,
+                    server_url=DEFAULT_API_URL,
+                )
+            except (KeyError, ValueError) as exc:
+                typer.echo(f"Error: {exc}", err=True)
+                raise typer.Exit(code=1) from exc
 
-    try:
-        new_store = rename_project_id_v2(
-            local_id,
-            cloud_id,
-            mode=REPO_CONFIG_MODE_CLOUD,
-            server_url=DEFAULT_API_URL,
-        )
-    except (KeyError, ValueError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+            save_repo_config(
+                repo_root,
+                {
+                    "mode": REPO_CONFIG_MODE_CLOUD,
+                    "id": cloud_id,
+                    "name": name,
+                    "server_url": DEFAULT_API_URL,
+                },
+            )
+            for warning in public_surface_git_warnings(repo_root, ".nauro/config.json"):
+                typer.echo(warning, err=True)
 
-    save_repo_config(
-        repo_root,
-        {
-            "mode": REPO_CONFIG_MODE_CLOUD,
-            "id": cloud_id,
-            "name": name,
-            "server_url": DEFAULT_API_URL,
-        },
-    )
-    for warning in public_surface_git_warnings(repo_root, ".nauro/config.json"):
-        typer.echo(warning, err=True)
+            typer.echo(f"Linked '{name}' to cloud project")
+            typer.echo(f"  Old id: {local_id}")
+            typer.echo(f"  New id: {cloud_id}")
+            typer.echo(f"  Store:  {new_store}")
 
-    typer.echo(f"Linked '{name}' to cloud project")
-    typer.echo(f"  Old id: {local_id}")
-    typer.echo(f"  New id: {cloud_id}")
-    typer.echo(f"  Store:  {new_store}")
+            # The re-key above is the irreversible promotion step and has already
+            # persisted. Pushing the store is best-effort: a transient presign/S3
+            # failure must not roll back the promotion, so we warn and exit 0 and
+            # let the user retry the upload with 'nauro sync'.
+            from nauro.auth import AuthRefreshError
+            from nauro.sync._path_diagnostics import _StoreRootPreparationError
+            from nauro.sync.lock import SyncLockTimeoutError
+            from nauro.sync.remote import PresignError
 
-    # The re-key above is the irreversible promotion step and has already
-    # persisted. Pushing the store is best-effort: a transient presign/S3
-    # failure must not roll back the promotion, so we warn and exit 0 and
-    # let the user retry the upload with 'nauro sync'.
-    from nauro.auth import AuthRefreshError
-    from nauro.sync._path_diagnostics import _StoreRootPreparationError
-    from nauro.sync.lock import SyncLockTimeoutError
-    from nauro.sync.remote import PresignError
+            try:
+                pushed = push_changed_files(cloud_id, new_store)
+            except (
+                AuthRefreshError,
+                PresignError,
+                SyncLockTimeoutError,
+                _StoreRootPreparationError,
+            ) as exc:
+                typer.echo(
+                    f"  Warning: linked, but the initial cloud push failed ({exc}).\n"
+                    "  Run 'nauro sync' to upload the project store.",
+                    err=True,
+                )
+                return
 
-    try:
-        pushed = push_changed_files(cloud_id, new_store)
-    except (
-        AuthRefreshError,
-        PresignError,
-        SyncLockTimeoutError,
-        _StoreRootPreparationError,
-    ) as exc:
-        typer.echo(
-            f"  Warning: linked, but the initial cloud push failed ({exc}).\n"
-            "  Run 'nauro sync' to upload the project store.",
-            err=True,
-        )
-        return
+            if not pushed.is_complete:
+                typer.echo(
+                    f"  Warning: linked, but the initial cloud push was incomplete "
+                    f"({pushed.warning}).\n"
+                    "  Run 'nauro sync' to upload the project store.",
+                    err=True,
+                )
+                return
 
-    if not pushed.is_complete:
-        typer.echo(
-            f"  Warning: linked, but the initial cloud push was incomplete "
-            f"({pushed.warning}).\n"
-            "  Run 'nauro sync' to upload the project store.",
-            err=True,
-        )
-        return
-
-    typer.echo(f"  Pushed {len(pushed.verified)} file(s) to cloud")
+            typer.echo(f"  Pushed {len(pushed.verified)} file(s) to cloud")

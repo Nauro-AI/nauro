@@ -31,6 +31,7 @@ from nauro.auth import AuthRefreshError
 from nauro.constants import DECISIONS_DIR, PROJECT_MD
 from nauro.store._atomic import atomic_write_bytes
 from nauro.store.filesystem_store import FilesystemStore
+from nauro.store.migration_admission import migration_write_guard
 from nauro.store.registry import bind_project_store_v2, get_store_path_v2
 from nauro.store.replica_control import (
     _REPLICA_CONTROL_LOCK_NAME,
@@ -831,75 +832,76 @@ def restore_cloud_store(
     if not _destination_is_available(destination):
         raise RecoveryError(f"Refusing to overwrite nonempty destination: {destination}.")
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with _restore_lock(project_id, destination):
-        # The check above is stale by the time the lock is in hand: a run that
-        # waited here may find the record already installed by the run it
-        # waited for. That is the outcome it wanted, so it is not a failure.
-        if not _destination_is_available(destination):
-            _discard_restore_state(project_id, destination)
-            if _holds_complete_record(destination):
-                surface.info("Another restore completed this record first.")
-                return destination
-            raise RecoveryError(f"Refusing to overwrite nonempty destination: {destination}.")
-
-        _sweep_legacy_staging(project_id, destination.parent)
-        with operation_session() as session:
-            entries, skipped = _fetch_manifest_entries(project_id, session, surface)
-            if not entries:
-                # A record that is not there cannot complete a partial restore,
-                # so nothing is kept to resume toward.
+    with migration_write_guard(destination):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with _restore_lock(project_id, destination):
+            # The check above is stale by the time the lock is in hand: a run that
+            # waited here may find the record already installed by the run it
+            # waited for. That is the outcome it wanted, so it is not a failure.
+            if not _destination_is_available(destination):
                 _discard_restore_state(project_id, destination)
-                raise EmptyCloudRecordError("Cloud project has no stored record to restore.")
+                if _holds_complete_record(destination):
+                    surface.info("Another restore completed this record first.")
+                    return destination
+                raise RecoveryError(f"Refusing to overwrite nonempty destination: {destination}.")
 
-            area = _open_staging_area(project_id, destination, surface)
-            staged = area.audit(entries)
-            pending = [relative for relative in entries if relative not in staged]
-            _report_start(entries, pending, surface)
+            _sweep_legacy_staging(project_id, destination.parent)
+            with operation_session() as session:
+                entries, skipped = _fetch_manifest_entries(project_id, session, surface)
+                if not entries:
+                    # A record that is not there cannot complete a partial restore,
+                    # so nothing is kept to resume toward.
+                    _discard_restore_state(project_id, destination)
+                    raise EmptyCloudRecordError("Cloud project has no stored record to restore.")
 
-            progress = _Progress(total=len(entries), done=len(staged))
+                area = _open_staging_area(project_id, destination, surface)
+                staged = area.audit(entries)
+                pending = [relative for relative in entries if relative not in staged]
+                _report_start(entries, pending, surface)
+
+                progress = _Progress(total=len(entries), done=len(staged))
+                try:
+                    _download_pending(
+                        project_id,
+                        area,
+                        entries,
+                        pending,
+                        surface,
+                        progress,
+                        session,
+                    )
+                except (RecoveryError, KeyboardInterrupt):
+                    surface.warn(_kept_message(area.path, progress))
+                    raise
+
             try:
-                _download_pending(
-                    project_id,
-                    area,
-                    entries,
-                    pending,
-                    surface,
-                    progress,
-                    session,
-                )
-            except (RecoveryError, KeyboardInterrupt):
-                surface.warn(_kept_message(area.path, progress))
+                _validate_restored_store(area.path)
+            except RecoveryError:
+                # The assembled record is bad. Resuming would rebuild the same
+                # badness, so the next run starts from nothing.
+                area.discard()
                 raise
 
-        try:
-            _validate_restored_store(area.path)
-        except RecoveryError:
-            # The assembled record is bad. Resuming would rebuild the same
-            # badness, so the next run starts from nothing.
-            area.discard()
-            raise
+            # Nothing enumerates the staged tree between the validation above and
+            # the rename below, so a file added here is seen by nothing but the
+            # install: _install_staged_store empties the destination and renames,
+            # and that is all. A run that fails after this point and resumes writes
+            # the state again from the ledger it rebuilds, over whatever it left.
+            _seed_sync_state(area)
 
-        # Nothing enumerates the staged tree between the validation above and
-        # the rename below, so a file added here is seen by nothing but the
-        # install: _install_staged_store empties the destination and renames,
-        # and that is all. A run that fails after this point and resumes writes
-        # the state again from the ledger it rebuilds, over whatever it left.
-        _seed_sync_state(area)
-
-        # The content is verified from here. An install that fails now is a
-        # local filesystem fault, not a bad record, so staging survives and the
-        # next run installs it without downloading anything twice.
-        try:
-            _install_staged_store(area.path, destination)
-        except RecoveryError:
-            surface.warn(_kept_message(area.path, progress))
-            raise
-        _discard(area.ledger_path)
-        surface.info(f"Restored {len(entries)} files.")
-        if skipped:
-            surface.info(f"Skipped {skipped} manifest entries this restore cannot install.")
-        return destination
+            # The content is verified from here. An install that fails now is a
+            # local filesystem fault, not a bad record, so staging survives and the
+            # next run installs it without downloading anything twice.
+            try:
+                _install_staged_store(area.path, destination)
+            except RecoveryError:
+                surface.warn(_kept_message(area.path, progress))
+                raise
+            _discard(area.ledger_path)
+            surface.info(f"Restored {len(entries)} files.")
+            if skipped:
+                surface.info(f"Skipped {skipped} manifest entries this restore cannot install.")
+            return destination
 
 
 __all__ = [

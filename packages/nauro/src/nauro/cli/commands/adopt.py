@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from contextlib import ExitStack
 from pathlib import Path
 from typing import NoReturn
 
@@ -37,6 +38,7 @@ from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_s
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.setup.git_hygiene import public_surface_git_warnings
 from nauro.skills import load_adopt_body
+from nauro.store.migration_admission import migration_write_guard
 from nauro.store.registry import (
     RegistrySchemaError,
     StoreBindingError,
@@ -316,55 +318,60 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
         typer.echo("\n".join(plan))
         typer.confirm("Proceed?", abort=True)
 
-    # ── un-wire surfaces ───────────────────────────────────────────────────
-    # Force every surface on for teardown so artifacts installed via
-    # --with-subagents/--with-skills/--with-hooks are removed too, regardless of
-    # how this repo was originally adopted. The remove branches are idempotent
-    # (absent artifacts are a no-op) and the shared-user-scope guard still
-    # protects subagents/skills/codex when other projects remain.
-    typer.echo("\nRemoving Nauro integration across surfaces:")
-    failed = echo_outcomes(
-        setup_all_surfaces(
-            [repo_root],
-            remove=True,
-            current_project_key=pid,
-            with_subagents=True,
-            with_skills=True,
-            with_hooks=True,
-            clear_user_scope_override=None if is_last_repo else False,
+    with ExitStack() as guards:
+        if store_path is not None:
+            guards.enter_context(migration_write_guard(store_path))
+            if purge_store:
+                require_legacy_write(store_path, "adopt --purge-store")
+        # ── un-wire surfaces ───────────────────────────────────────────────────
+        # Force every surface on for teardown so artifacts installed via
+        # --with-subagents/--with-skills/--with-hooks are removed too, regardless of
+        # how this repo was originally adopted. The remove branches are idempotent
+        # (absent artifacts are a no-op) and the shared-user-scope guard still
+        # protects subagents/skills/codex when other projects remain.
+        typer.echo("\nRemoving Nauro integration across surfaces:")
+        failed = echo_outcomes(
+            setup_all_surfaces(
+                [repo_root],
+                remove=True,
+                current_project_key=pid,
+                with_subagents=True,
+                with_skills=True,
+                with_hooks=True,
+                clear_user_scope_override=None if is_last_repo else False,
+            )
         )
-    )
-    if failed:
-        _exit_writes_failed("nauro adopt --remove")
+        if failed:
+            _exit_writes_failed("nauro adopt --remove")
 
-    # ── delete the per-repo config (and the .nauro dir if it is now empty) ──
-    try:
-        config_path.unlink()
-        typer.echo(f"  removed {config_path}")
-        nauro_dir = config_path.parent
+        # ── delete the per-repo config (and the .nauro dir if it is now empty) ──
         try:
-            next(nauro_dir.iterdir())
-        except StopIteration:
-            nauro_dir.rmdir()
-    except OSError as exc:
-        typer.echo(f"  could not remove {config_path}: {exc}", err=True)
+            config_path.unlink()
+            typer.echo(f"  removed {config_path}")
+            nauro_dir = config_path.parent
+            try:
+                next(nauro_dir.iterdir())
+            except StopIteration:
+                nauro_dir.rmdir()
+        except OSError as exc:
+            typer.echo(f"  could not remove {config_path}: {exc}", err=True)
 
-    # ── deregister ─────────────────────────────────────────────────────────
-    if not pid:
-        typer.echo("  skipped registry cleanup (no project id resolved from config)")
-    elif is_last_repo:
-        if remove_project_v2(pid):
-            typer.echo(f"  removed project registry entry {pid}")
-        if purge_store and store_path is not None:
-            if store_path.exists():
-                shutil.rmtree(store_path)
-                typer.echo(f"  deleted store {store_path}")
-        elif store_path is not None:
-            typer.echo(f"  store left intact: {store_path}")
-    elif remove_repo_v2(pid, repo_resolved):
-        typer.echo(f"  dropped this repo from project {pid}; {len(other_repos)} repo(s) remain")
+        # ── deregister ─────────────────────────────────────────────────────────
+        if not pid:
+            typer.echo("  skipped registry cleanup (no project id resolved from config)")
+        elif is_last_repo:
+            if remove_project_v2(pid):
+                typer.echo(f"  removed project registry entry {pid}")
+            if purge_store and store_path is not None:
+                if store_path.exists():
+                    shutil.rmtree(store_path)
+                    typer.echo(f"  deleted store {store_path}")
+            elif store_path is not None:
+                typer.echo(f"  store left intact: {store_path}")
+        elif remove_repo_v2(pid, repo_resolved):
+            typer.echo(f"  dropped this repo from project {pid}; {len(other_repos)} repo(s) remain")
 
-    typer.echo("\nDone. Restart your agent so it drops the Nauro MCP server.")
+        typer.echo("\nDone. Restart your agent so it drops the Nauro MCP server.")
 
 
 _Opt_repo = typer.Option(None, "--repo", help="Repo root (default: current working directory).")

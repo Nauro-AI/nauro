@@ -564,8 +564,7 @@ def test_a_failed_install_keeps_the_verified_tree_for_a_resume(tmp_path, monkeyp
     assert any("Partial restore kept" in line for line in reporter.warn_lines)
     assert cloud.fetched == sorted(files)
 
-    monkeypatch.undo()
-    cloud.install(monkeypatch)
+    monkeypatch.setattr(recovery.os, "replace", real_replace)
     cloud.fetched.clear()
 
     result = restore_cloud_store(PID, destination)

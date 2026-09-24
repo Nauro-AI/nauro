@@ -59,16 +59,69 @@ class MigrationAdmission(BaseModel):
         return value
 
 
-def admission_path(store: Path) -> Path:
+def migration_home() -> Path:
+    return nauro_home().resolve()
+
+
+MAX_ADMISSION_RECORDS = 128
+
+
+def _named_path(store: Path) -> Path:
     key = hashlib.sha256(str(store.absolute()).encode()).hexdigest()
-    return nauro_home() / f"migration-{key}.json"
+    return migration_home() / f"migration-{key}.json"
+
+
+def admission_path(store: Path) -> Path:
+    try:
+        return _find_admission_path(store)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise MigrationAdmissionError(
+            "Migration evidence is unavailable; inspect setup recovery."
+        ) from exc
+
+
+def _find_admission_path(store: Path) -> Path:
+    home = migration_home()
+    matches: list[Path] = []
+    try:
+        home.stat()
+    except FileNotFoundError:
+        return _named_path(store.resolve())
+    count = 0
+    for path in home.iterdir():
+        if not path.name.startswith("migration-") or path.suffix != ".json":
+            continue
+        suffix = path.stem.removeprefix("migration-")
+        if len(suffix) != 64 or any(c not in "0123456789abcdef" for c in suffix):
+            continue
+        count += 1
+        if count > MAX_ADMISSION_RECORDS:
+            raise ValueError("Migration admission inspection limit exceeded")
+        _validate_managed_path(home, path)
+        raw = _read_optional_file(path)
+        if raw is None:
+            raise ValueError("Migration evidence disappeared")
+        record = MigrationAdmission.model_validate_json(raw)
+        recorded = Path(record.store)
+        if (
+            not recorded.is_absolute()
+            or record.canonical_bytes() != raw
+            or record.project_id != recorded.name
+            or path != _named_path(recorded)
+        ):
+            raise ValueError("Migration admission evidence differs")
+        if recorded.resolve() == store.resolve():
+            matches.append(path)
+    if len(matches) > 1:
+        raise ValueError("Multiple migration records identify this store")
+    return matches[0] if matches else _named_path(store.resolve())
 
 
 def _decode_record(store: Path, raw: bytes) -> MigrationAdmission:
     record = MigrationAdmission.model_validate_json(raw)
     if (
         record.canonical_bytes() != raw
-        or record.store != str(store.absolute())
+        or Path(record.store).resolve() != store.resolve()
         or record.project_id != store.name
     ):
         raise ValueError("Migration admission binding differs")
@@ -78,7 +131,7 @@ def _decode_record(store: Path, raw: bytes) -> MigrationAdmission:
 def inspect_migration(store: Path) -> MigrationAdmission | None:
     path = admission_path(store)
     try:
-        _validate_managed_path(nauro_home(), path)
+        _validate_managed_path(migration_home(), path)
         raw = _read_optional_file(path)
         record = None if raw is None else _decode_record(store, raw)
     except (OSError, ValueError) as exc:
@@ -95,8 +148,8 @@ def require_migration_admission(store: Path) -> None:
 
 
 def migration_lock_path(store: Path) -> Path:
-    path = admission_path(store).with_suffix(".lock")
-    _validate_managed_path(nauro_home(), path)
+    path = _named_path(store.resolve()).with_suffix(".lock")
+    _validate_managed_path(migration_home(), path)
     try:
         info = path.lstat()
     except FileNotFoundError:
@@ -113,7 +166,7 @@ def migration_lock_path(store: Path) -> Path:
 
 @contextmanager
 def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
-    home = nauro_home()
+    home = migration_home()
     _validate_managed_path(home, home)
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock = FileLock(migration_lock_path(store), timeout=10, is_singleton=True)

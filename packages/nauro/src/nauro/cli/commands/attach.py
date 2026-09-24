@@ -17,7 +17,7 @@ import typer
 
 from nauro.auth import DEFAULT_API_URL
 from nauro.cli._reporters import StderrReporter
-from nauro.cli.generation_writes import require_legacy_write
+from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.setup.git_hygiene import public_surface_git_warnings
@@ -120,72 +120,72 @@ def attach(
             raise typer.Exit(code=1) from exc
         typer.echo(f"Attached generation project '{binding.display_name}' to {repo_path.resolve()}")
         return
-    try:
-        connection = resolve_registered_project(project_id)
-        require_legacy_write(
-            connection.store_path if connection is not None else get_store_path_v2(project_id),
-            "attach",
-        )
-        name = require_cloud_membership(project_id)
-        entry = get_project_entry_v2(project_id)
-        server_url = (entry.server_url if entry else None) or DEFAULT_API_URL
+    connection = resolve_registered_project(project_id)
+    destination = connection.store_path if connection is not None else get_store_path_v2(project_id)
+    with legacy_write_guard(destination, "attach"):
+        try:
+            name = require_cloud_membership(project_id)
+            entry = get_project_entry_v2(project_id)
+            server_url = (entry.server_url if entry else None) or DEFAULT_API_URL
 
-        if isinstance(connection, DisconnectedProject):
-            if connection.reason_code != "connected_record_missing":
-                raise RecoveryError(connection.guidance)
-            # A previously connected machine lost its record: this is
-            # recovery, so an empty remote stays a hard stop — a blank
-            # directory must never stand in for a lost record.
-            store_path = restore_cloud_store(project_id, connection.store_path, StderrReporter())
-        elif connection is None:
-            try:
+            if isinstance(connection, DisconnectedProject):
+                if connection.reason_code != "connected_record_missing":
+                    raise RecoveryError(connection.guidance)
+                # A previously connected machine lost its record: this is
+                # recovery, so an empty remote stays a hard stop — a blank
+                # directory must never stand in for a lost record.
                 store_path = restore_cloud_store(
-                    project_id, get_store_path_v2(project_id), StderrReporter()
+                    project_id, connection.store_path, StderrReporter()
                 )
-            except EmptyCloudRecordError:
-                # First connection on this machine to a cloud project whose
-                # record was never pushed. Attach's long-standing contract
-                # applies: the store directory is created empty and files
-                # arrive via sync. Nothing is being replaced — the empty
-                # mirror matches the remote state.
-                store_path = scaffold_empty_store(get_store_path_v2(project_id))
-        else:
-            store_path = connection.store_path
-        bind_project_store_v2(
-            project_id=project_id,
-            name=name,
-            mode=REPO_CONFIG_MODE_CLOUD,
-            repo_path=repo_path,
-            store_path=store_path,
-            server_url=server_url,
-            # The name was just verified against the cloud, which is
-            # authoritative for cloud-mode projects; a server-side rename
-            # reconciles the registry instead of conflicting.
-            update_name=True,
+            elif connection is None:
+                try:
+                    store_path = restore_cloud_store(
+                        project_id, get_store_path_v2(project_id), StderrReporter()
+                    )
+                except EmptyCloudRecordError:
+                    # First connection on this machine to a cloud project whose
+                    # record was never pushed. Attach's long-standing contract
+                    # applies: the store directory is created empty and files
+                    # arrive via sync. Nothing is being replaced — the empty
+                    # mirror matches the remote state.
+                    store_path = scaffold_empty_store(get_store_path_v2(project_id))
+            else:
+                store_path = connection.store_path
+            bind_project_store_v2(
+                project_id=project_id,
+                name=name,
+                mode=REPO_CONFIG_MODE_CLOUD,
+                repo_path=repo_path,
+                store_path=store_path,
+                server_url=server_url,
+                # The name was just verified against the cloud, which is
+                # authoritative for cloud-mode projects; a server-side rename
+                # reconciles the registry instead of conflicting.
+                update_name=True,
+            )
+        except (RecoveryError, StoreBindingError, OSError, ValueError) as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+
+        save_repo_config(
+            repo_path,
+            {
+                "mode": REPO_CONFIG_MODE_CLOUD,
+                "id": project_id,
+                "name": name,
+                "server_url": server_url,
+            },
         )
-    except (RecoveryError, StoreBindingError, OSError, ValueError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        for warning in public_surface_git_warnings(repo_path, ".nauro/config.json"):
+            typer.echo(warning, err=True)
 
-    save_repo_config(
-        repo_path,
-        {
-            "mode": REPO_CONFIG_MODE_CLOUD,
-            "id": project_id,
-            "name": name,
-            "server_url": server_url,
-        },
-    )
-    for warning in public_surface_git_warnings(repo_path, ".nauro/config.json"):
-        typer.echo(warning, err=True)
+        warn_then_regen(
+            project_id,
+            store_path,
+            warn=lambda message: typer.echo(message, err=True),
+            fail_soft=True,
+        )
 
-    warn_then_regen(
-        project_id,
-        store_path,
-        warn=lambda message: typer.echo(message, err=True),
-        fail_soft=True,
-    )
-
-    typer.echo(f"Attached '{name}' to {repo_path.resolve()}")
-    typer.echo(f"  Project id: {project_id}")
-    typer.echo(f"  Store: {store_path}")
+        typer.echo(f"Attached '{name}' to {repo_path.resolve()}")
+        typer.echo(f"  Project id: {project_id}")
+        typer.echo(f"  Store: {store_path}")
