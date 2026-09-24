@@ -12,6 +12,7 @@ import inspect
 import logging
 import sys
 from collections.abc import Callable
+from contextlib import ExitStack
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 
@@ -71,7 +72,11 @@ from nauro.store.journal import (
     OriginDescriptor,
     record_event,
 )
-from nauro.store.migration_admission import require_migration_admission
+from nauro.store.migration_admission import (
+    MigrationAdmissionError,
+    migration_write_guard,
+    require_migration_admission,
+)
 from nauro.store.post_commit import run_post_commit, surface_post_commit
 from nauro.store.reader import read_text_lenient
 from nauro.store.snapshot import (
@@ -156,6 +161,21 @@ def requires_store(func: Callable[..., Any]) -> Callable[..., Any]:
         if store_path is not None and not store_path.exists():
             return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
         return func(*args, **kwargs)
+
+    return wrapper
+
+
+def migration_guarded(func: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        store = _store_path_argument(args, kwargs)
+        with ExitStack() as stack:
+            if store is not None:
+                try:
+                    stack.enter_context(migration_write_guard(store))
+                except MigrationAdmissionError as exc:
+                    return {"store": "local", "status": "error", "guidance": str(exc)}
+            return func(*args, **kwargs)
 
     return wrapper
 
@@ -374,6 +394,7 @@ def tool_get_context(store_path: Path, level: int | str = "L0") -> dict:
 
 
 @_stamp_identity
+@migration_guarded
 @journaled(operation="propose_decision", target=DECISIONS_DIR)
 @requires_store
 def tool_propose_decision(
@@ -563,6 +584,7 @@ Surface related existing decisions without writing anything.
 
 
 @_stamp_identity
+@migration_guarded
 @journaled(operation="flag_question", target=OPEN_QUESTIONS_MD)
 @requires_store
 def tool_flag_question(
@@ -897,6 +919,7 @@ def tool_search_decisions(
 
 
 @_stamp_identity
+@migration_guarded
 @journaled(operation="update_state", target=STATE_CURRENT_FILENAME)
 @requires_store
 def tool_update_state(
