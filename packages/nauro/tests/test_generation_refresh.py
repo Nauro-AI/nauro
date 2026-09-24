@@ -518,4 +518,5 @@ def test_refresh_executor_has_only_named_runtime_consumers():
         "sync/generation_attachment.py",
         "sync/generation_guidance.py",
         "sync/generation_refresh_status.py",
+        "sync/migration_preservation.py",
     ]

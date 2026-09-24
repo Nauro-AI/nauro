@@ -214,7 +214,6 @@ def _require_registered_source(record: MigrationAdmission) -> None:
 def preserve_migration_source(
     record: MigrationAdmission, session: InitialAttachmentSession
 ) -> Path:
-    """Continue the same admitted plan; leave source and admission block intact."""
     if (
         type(record) is not MigrationAdmission
         or record.phase != "blocked"
