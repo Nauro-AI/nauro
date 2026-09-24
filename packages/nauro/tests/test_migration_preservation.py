@@ -103,6 +103,9 @@ def saved(tmp_path, monkeypatch):
 
     def wire(request):
         calls.append(request.url.path)
+        if request.url.host == "objects.example":
+            artifacts = {a.path: a.content for a in assessment.projection.artifacts}
+            return httpx.Response(200, content=artifacts[request.url.path.lstrip("/")])
         assert request.headers["Authorization"] == "Bearer test-token"
         if request.url.path == "/projects":
             return httpx.Response(
@@ -110,6 +113,18 @@ def saved(tmp_path, monkeypatch):
                 json={
                     "authority": "generation_owner",
                     "projects": [{"project_id": record.project_id, "role": control["role"]}],
+                },
+            )
+        if request.url.path == "/generations/presign":
+            return httpx.Response(
+                200,
+                json={
+                    "projection": control["identity"],
+                    "urls": [
+                        {"path": a.path, "url": "https://objects.example/" + a.path}
+                        for a in assessment.projection.artifacts
+                    ],
+                    "expires_at": "2999-12-31T23:59:59Z",
                 },
             )
         assert request.url.path == "/generations/projection"
