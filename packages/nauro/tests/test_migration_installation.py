@@ -314,3 +314,92 @@ def test_unknown_staging_refuses_without_cleanup_or_execution(saved, monkeypatch
     assert evidence.read_bytes() == b"unresolved"
     assert inspect_migration(session.binding.store_path) == current
     assert load_migration_plan(session.binding.store_path)[0] == current
+
+
+class StoppedProcess(BaseException):
+    pass
+
+
+@pytest.mark.parametrize("kind", ["partial", "empty", "complete", "manifest"])
+def test_restart_accepts_only_exact_target_staging(saved, monkeypatch, kind):
+    from nauro.store import generation_installation as roots
+    from nauro.store._atomic import _tmp_name
+
+    original = roots._stage_tree
+    captured = []
+
+    def interrupt(store, staging, projection):
+        artifact = projection.artifacts[0]
+        target = staging / "store" / artifact.path
+        content = artifact.content
+        if kind == "manifest":
+            target, content = staging / "manifest.json", projection.manifest_json
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if kind != "complete":
+            target = target.with_name(_tmp_name(target.name))
+            content = content[: 0 if kind == "empty" else max(1, len(content) // 2)]
+        target.write_bytes(content)
+        captured.append((target, content))
+        raise StoppedProcess()
+
+    monkeypatch.setattr(roots, "_stage_tree", interrupt)
+    with pytest.raises(StoppedProcess):
+        run(saved)
+    current = inspect_migration(saved[2].binding.store_path)
+    assert current.phase == "installing"
+    monkeypatch.setattr(roots, "_stage_tree", original)
+    completed = run(saved, current)
+    assert completed.phase == "completed"
+    assert completed.migration_id == current.migration_id
+    path, raw = captured[0]
+    assert path.read_bytes() == raw
+
+
+@pytest.mark.parametrize("kind", ["unknown", "prefix", "oversize", "symlink", "hardlink", "root"])
+def test_unknown_staging_refuses_before_installer_sweep(saved, monkeypatch, kind):
+    import os
+
+    from nauro.store import generation_installation as roots
+    from nauro.store._atomic import _tmp_name
+
+    captured = []
+
+    def interrupt(store, staging, projection):
+        artifact = projection.artifacts[0]
+        target = staging / "store" / artifact.path
+        target.parent.mkdir(parents=True)
+        partial = target.with_name(_tmp_name(target.name))
+        partial.write_bytes(artifact.content[:1])
+        if kind == "unknown":
+            (staging / "unknown").write_bytes(b"preserve")
+        elif kind == "prefix":
+            partial.write_bytes(b"wrong")
+        elif kind == "oversize":
+            partial.write_bytes(artifact.content + b"extra")
+        elif kind in {"symlink", "hardlink"}:
+            other = store.parent / "outside"
+            other.write_bytes(artifact.content)
+            partial.unlink()
+            if kind == "symlink":
+                partial.symlink_to(other)
+            else:
+                os.link(other, partial)
+        elif kind == "root":
+            staging.rename(staging.with_name("unknown-root"))
+        captured.append({str(p): p.read_bytes() for p in store.rglob("*") if p.is_file()})
+        raise StoppedProcess()
+
+    monkeypatch.setattr(roots, "_stage_tree", interrupt)
+    with pytest.raises(StoppedProcess):
+        run(saved)
+    current = inspect_migration(saved[2].binding.store_path)
+
+    def forbidden(*args):
+        pytest.fail("Invalid staging reached installer sweep")
+
+    monkeypatch.setattr(roots, "_sweep_stale_staging", forbidden)
+    with pytest.raises((ValueError, OSError)):
+        run(saved, current)
+    store = saved[2].binding.store_path
+    assert {str(p): p.read_bytes() for p in store.rglob("*") if p.is_file()} == captured[0]
+    assert inspect_migration(store) == current
