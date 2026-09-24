@@ -403,3 +403,56 @@ def test_unknown_staging_refuses_before_installer_sweep(saved, monkeypatch, kind
     store = saved[2].binding.store_path
     assert {str(p): p.read_bytes() for p in store.rglob("*") if p.is_file()} == captured[0]
     assert inspect_migration(store) == current
+
+
+def test_installation_keeps_project_fence_while_source_is_vacant(saved, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from nauro.store.migration_admission import migration_write_guard
+
+    record, _, session, *_ = saved
+    source = session.binding.store_path
+    entered, release = Event(), Event()
+    rename = migration.os.rename
+
+    def delayed(old, new):
+        rename(old, new)
+        entered.set()
+        assert release.wait(10)
+
+    monkeypatch.setattr(migration.os, "rename", delayed)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(run, saved)
+        try:
+            assert entered.wait(10)
+            assert not source.exists()
+            assert migration._retained(record).is_dir()
+            with (
+                pytest.raises(MigrationAdmissionError, match="busy"),
+                migration_write_guard(source, timeout=0),
+            ):
+                pytest.fail("A writer entered the vacant destination")
+        finally:
+            release.set()
+        assert future.result(timeout=10).phase == "completed"
+
+
+def test_installation_restart_preserves_nonempty_lock_evidence(saved, monkeypatch):
+    from nauro.store.migration_admission import migration_lock_path
+
+    _, _, session, *_ = saved
+    install = migration._install
+    monkeypatch.setattr(migration, "_install", lambda *a: (_ for _ in ()).throw(OSError("stop")))
+    with pytest.raises(OSError, match="stop"):
+        run(saved)
+    current = inspect_migration(session.binding.store_path)
+    assert current.phase == "installing"
+    lock = migration_lock_path(session.binding.store_path)
+    lock.write_bytes(b"retained lock evidence")
+    monkeypatch.setattr(migration, "_install", install)
+    with pytest.raises(MigrationAdmissionError, match="lock contains"):
+        run(saved, current)
+    assert lock.read_bytes() == b"retained lock evidence"
+    assert inspect_migration(session.binding.store_path) == current
+    assert migration._retained(current).is_dir()

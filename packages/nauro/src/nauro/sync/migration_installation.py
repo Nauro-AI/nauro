@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from filelock import FileLock
-
 from nauro.store.generation_installation import install_generation_root, publish_generation_control
 from nauro.store.generation_projection import VerifiedGenerationProjection
 from nauro.store.generation_refresh_io import RefreshPaths, durable_replace, sync_file, sync_parents
@@ -15,7 +13,8 @@ from nauro.store.migration_admission import (
     MigrationAdmissionError,
     admission_path,
     migration_home,
-    migration_lock_path,
+    migration_lock,
+    same_store_binding,
 )
 from nauro.store.registry import get_project_entry_v2, get_store_path_v2
 from nauro.store.replica_control import _validate_managed_path
@@ -50,9 +49,8 @@ def _registration(record: MigrationAdmission, session: InitialAttachmentSession)
     registered = entry.bound_store_path(record.project_id) or get_store_path_v2(record.project_id)
     source = Path(record.store)
     _validate_managed_path(source.parent, source)
-    if (
-        registered.resolve() != source.resolve()
-        or session.binding.store_path.resolve() != source.resolve()
+    if not same_store_binding(registered, source) or not same_store_binding(
+        session.binding.store_path, source
     ):
         raise MigrationAdmissionError("Conversion source binding differs.")
     if (
@@ -160,7 +158,7 @@ def continue_migration_installation(
     source = Path(record.store)
     if record.phase == "blocked":
         preserve_migration_source(record, session)
-    with FileLock(migration_lock_path(source), timeout=0):
+    with migration_lock(source):
         current, raw = load_migration_plan(source)
         if current != record:
             raise MigrationAdmissionError("Inspect the current conversion before continuing.")
