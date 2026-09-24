@@ -6,7 +6,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from filelock import Timeout
+import httpx
 
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.generation_migration_assessment import assess_legacy_migration
@@ -55,10 +55,13 @@ def _present(record: MigrationAdmission, emit: Callable[[str], None]) -> None:
     )
     emit(f"Saved upgrade: {record.migration_id}. Status: {record.phase}.")
     differences = [entry for entry in plan.entries if entry.disposition == "quarantine"]
+    unsupported = "unsupported, preserved outside the active record with export"
     if differences:
         emit("These files differ from the hosted record or exist only on this computer:")
         for entry in differences:
             label = "local-only" if entry.source_class == "local_only" else "different from hosted"
+            if entry.recovery_kind == "preserved_unsupported":
+                label += "; " + unsupported
             emit(f"  {json.dumps(entry.source_path, ensure_ascii=False)}: {label}.")
         emit(
             "Continuing preserves these files outside the active record. They "
@@ -72,7 +75,14 @@ def _present(record: MigrationAdmission, emit: Callable[[str], None]) -> None:
     if evidence:
         emit("Other local files retained outside the active record:")
         for entry in evidence:
-            emit(f"  {json.dumps(entry.source_path, ensure_ascii=False)}")
+            note = (
+                ": " + unsupported + "." if entry.recovery_kind == "preserved_unsupported" else ""
+            )
+            emit(f"  {json.dumps(entry.source_path, ensure_ascii=False)}{note}")
+    emit(
+        "Preservation folder, beside the project store: "
+        f"{json.dumps(plan.backup_directory_name, ensure_ascii=False)}."
+    )
     emit(
         "Defer if these files must remain in this computer's active record. "
         "Preserved files remain available for export."
@@ -111,11 +121,12 @@ def _execute(
             "The hosted generation changed. A fresh assessment and confirmation "
             "are required before conversion."
         )
-    if record.phase == "assessed":
+    if record.phase in {"assessed", "blocked"}:
         try:
             _verify_source(record, raw)
         except MigrationAdmissionError as exc:
             raise _AssessmentChangedError(str(exc)) from exc
+    if record.phase == "assessed":
         record = decide_migration_assessment(record, preserve=True)
     return continue_migration_installation(record, projection, session), raw
 
@@ -186,9 +197,26 @@ def _guide(
             return record
         try:
             completed, raw = _execute(record, session)
-        except (OSError, GenerationAuthorityError, TransferBoundaryError, Timeout) as exc:
-            emit(f"Upgrade incomplete: {exc}")
+        except (
+            OSError,
+            MigrationAdmissionError,
+            GenerationAuthorityError,
+            TransferBoundaryError,
+            httpx.HTTPError,
+        ) as exc:
             current = inspect_migration(binding.store_path)
+            if isinstance(exc, _AssessmentChangedError) and record.phase != "assessed":
+                emit(
+                    "Upgrade incomplete: the hosted record or project files changed "
+                    "after this upgrade was admitted."
+                )
+                emit(
+                    "This saved upgrade cannot continue against the changed record. "
+                    "Local writes remain blocked and preserved evidence is retained. "
+                    "Owner recovery is required."
+                )
+                return current
+            emit(f"Upgrade incomplete: {exc}")
             if (
                 isinstance(exc, _AssessmentChangedError)
                 and current == record

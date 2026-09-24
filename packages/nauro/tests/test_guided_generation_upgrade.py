@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
+import httpx
 import pytest
 
 from nauro.cli import generation_upgrade as upgrade
-from nauro.store.migration_admission import inspect_migration
+from nauro.store.migration_admission import MigrationAdmissionError, inspect_migration
 from nauro.sync import migration_installation as installation
 from nauro.sync.migration_admission import decide_migration_assessment, load_migration_plan
 from tests import test_migration_preservation as seed
@@ -30,6 +34,8 @@ def test_guided_conversion_requires_one_informed_confirmation(assessed):
         assert "not imported into hosted history" in text
         assert "Nothing is merged or submitted" in text
         assert "unpublished decision" not in text
+        assert json.dumps(plan.backup_directory_name) in text
+        assert "unsupported, preserved outside the active record with export" in text
         return True
 
     result = upgrade.guided_existing_hosted_upgrade(session, emit=messages.append, confirm=confirm)
@@ -233,3 +239,145 @@ def test_unknown_staging_reports_incomplete_and_preserves_evidence(assessed, mon
     assert any("Unrecognized attachment evidence" in message for message in messages)
     assert not any("now reads" in message for message in messages)
     assert next(session.binding.store_path.rglob("evidence")).read_bytes() == b"retained"
+
+
+def _tree(root):
+    return {p: p.read_bytes() if p.is_file() else None for p in root.rglob("*")}
+
+
+def _forbidden(*args, **kwargs):
+    pytest.fail("Changed or foreign upgrade executed work")
+
+
+def _move_target(assessed):
+    _, plan, _, control, *_ = assessed
+    original = plan.assessment.projection
+    manifest = json.loads(original.manifest_json)
+    manifest["generation_id"] = "01K55555555555555555555555"
+    raw = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    identity = original.target.identity.model_copy(
+        update={
+            "generation_id": manifest["generation_id"],
+            "manifest_digest": hashlib.sha256(raw).hexdigest(),
+        }
+    )
+    control["identity"] = identity.model_dump()
+    control["manifest"] = raw
+    return identity
+
+
+def test_changed_target_offers_reassessment_before_fresh_consent(assessed, monkeypatch):
+    record, plan, session, *_ = assessed
+    identity = _move_target(assessed)
+    monkeypatch.setattr(upgrade, "continue_migration_installation", _forbidden)
+    messages = []
+    choices = iter([True, False])
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=lambda prompt: next(choices)
+    )
+    assert result == record
+    assert inspect_migration(session.binding.store_path) == record
+    assert any("The hosted generation changed" in message for message in messages)
+    assert not plan.backup_root.exists()
+    prompts = []
+    choices = iter([True, True, False])
+
+    def choose(prompt):
+        prompts.append(prompt)
+        return next(choices)
+
+    result = upgrade.guided_existing_hosted_upgrade(session, emit=lambda text: None, confirm=choose)
+    assert result.phase == "declined"
+    assert result.migration_id != record.migration_id
+    assert "does not approve conversion" in prompts[1]
+    assert prompts[2] == prompts[0]
+    _, raw = load_migration_plan(session.binding.store_path)
+    assert json.loads(raw)["projection"]["generation_id"] == identity.generation_id
+    assert not plan.backup_root.exists()
+
+
+@pytest.mark.parametrize("case", ["blocked", "installing", "blocked_source"])
+def test_changed_admitted_upgrade_requires_owner_recovery(assessed, monkeypatch, case):
+    record, plan, session, *_ = assessed
+    store = session.binding.store_path
+    if case == "installing":
+
+        def interrupted(*args):
+            raise OSError("interrupted")
+
+        monkeypatch.setattr(installation, "_install", interrupted)
+        upgrade.guided_existing_hosted_upgrade(
+            session, emit=lambda text: None, confirm=lambda prompt: True
+        )
+    else:
+        decide_migration_assessment(record, preserve=True)
+    saved, _ = load_migration_plan(store)
+    assert saved.phase == case.split("_")[0]
+    if case == "blocked_source":
+        (store / "state_current.md").write_text("Changed while blocked")
+    else:
+        _move_target(assessed)
+    before = _tree(store.parent)
+    monkeypatch.setattr(upgrade, "continue_migration_installation", _forbidden)
+    monkeypatch.setattr(upgrade, "decide_migration_assessment", _forbidden)
+    messages = []
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=lambda prompt: True
+    )
+    assert result == saved
+    assert inspect_migration(store) == saved
+    assert _tree(store.parent) == before
+    assert messages[-1] == (
+        "This saved upgrade cannot continue against the changed record. Local "
+        "writes remain blocked and preserved evidence is retained. Owner "
+        "recovery is required."
+    )
+    assert not any("Reopen" in m or "fresh assessment" in m for m in messages)
+
+
+@pytest.mark.parametrize(
+    "update", [{"actor": "another-owner"}, {"endpoint": "https://other.example"}]
+)
+def test_saved_upgrade_for_another_connection_is_refused_offline(assessed, monkeypatch, update):
+    record, _, session, _, _, calls = assessed
+    foreign = record.model_copy(update=update)
+    monkeypatch.setattr(upgrade, "inspect_migration", lambda path: foreign)
+    monkeypatch.setattr(upgrade, "load_migration_plan", lambda path: (foreign, b""))
+    before = _tree(session.binding.store_path.parent)
+    with pytest.raises(MigrationAdmissionError, match="another connection"):
+        upgrade.guided_existing_hosted_upgrade(session, emit=_forbidden, confirm=_forbidden)
+    assert calls == []
+    assert _tree(session.binding.store_path.parent) == before
+    assert inspect_migration(session.binding.store_path) == record
+
+
+def test_transport_failure_mid_conversion_is_incomplete_without_cleanup(assessed, monkeypatch):
+    _, _, session, *_ = assessed
+    root = session.binding.store_path.parent
+    transport = session.client._transport
+    handler, install = transport.handler, installation.install_generation_root
+    seen = {}
+
+    def installed(*args, **kwargs):
+        result = install(*args, **kwargs)
+        seen["root"] = _tree(root)
+        return result
+
+    def dropped(request):
+        if "root" in seen:
+            seen.setdefault("dropped", _tree(root))
+            raise httpx.ConnectError("network dropped", request=request)
+        return handler(request)
+
+    monkeypatch.setattr(installation, "install_generation_root", installed)
+    monkeypatch.setattr(transport, "handler", dropped)
+    messages = []
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=lambda prompt: True
+    )
+    assert result.phase == "installing"
+    assert inspect_migration(session.binding.store_path) == result
+    assert "Upgrade incomplete: network dropped" in messages
+    assert not any("now reads" in message for message in messages)
+    assert any("staging" in str(path) for path in seen["dropped"])
+    assert _tree(root) == seen["dropped"]
