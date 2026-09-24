@@ -286,8 +286,18 @@ def _validate_store_structure(
             "connected_record_invalid",
             f"Store components must not be symlinks: {store_path}.",
         )
-    if strict_store and (
-        not (store_path / PROJECT_MD).is_file() or not (store_path / DECISIONS_DIR).is_dir()
+    replica = store_path / ".replica"
+    generation_marker = replica / "authority.json"
+    generation = (
+        replica.is_dir()
+        and not replica.is_symlink()
+        and generation_marker.is_file()
+        and not generation_marker.is_symlink()
+    )
+    if (
+        strict_store
+        and not generation
+        and (not (store_path / PROJECT_MD).is_file() or not (store_path / DECISIONS_DIR).is_dir())
     ):
         raise StoreBindingError(
             "connected_record_invalid",
