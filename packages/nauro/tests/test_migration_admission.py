@@ -151,9 +151,14 @@ def test_failed_plan_barrier_does_not_publish_disposition(saved, monkeypatch):
     assert inspect_migration(binding.store_path) == record
 
 
-def test_nonempty_lock_refuses_without_truncation(saved):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_nonempty_lock_refuses_without_truncation(saved, legacy):
     binding, _, record = saved
-    path = admission_path(binding.store_path).with_suffix(".lock")
+    path = (
+        admission_path(binding.store_path).with_suffix(".lock")
+        if legacy
+        else controls.migration_lock_path(binding.store_path)
+    )
     path.write_bytes(b"retain")
     with pytest.raises(MigrationAdmissionError, match="lock contains"):
         migration.decide_migration_assessment(record, preserve=True)

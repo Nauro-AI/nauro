@@ -15,12 +15,13 @@ more repo paths. It is rejected for a cloud-scoped project: use
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from pathlib import Path
 
 import typer
 
 from nauro.auth import DEFAULT_API_URL
-from nauro.cli.generation_writes import require_legacy_write
+from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
@@ -181,69 +182,69 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
             )
             raise typer.Exit(code=1)
 
-    # Reuse an existing demo entry rather than minting a duplicate.
-    existing = find_projects_by_name_v2(name)
-    if existing:
-        pid, _entry = existing[0]
-        connection = resolve_registered_project(pid)
-        if isinstance(connection, DisconnectedProject):
-            typer.echo(connection.guidance, err=True)
-            raise typer.Exit(code=1)
-        if connection is None:
-            typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
-            raise typer.Exit(code=1)
-        store_path = connection.store_path
-        require_legacy_write(store_path, "init --demo")
-        for rp in repo_paths:
-            _refuse_if_repo_already_claimed(rp, allowed_project_id=pid)
-        for rp in repo_paths:
-            add_repo_v2(pid, rp)
-        typer.echo(f"Demo project already exists ({pid}); reusing it.")
-    else:
-        # No pre-existing demo entry: refuse if any target repo is already
-        # claimed by a *different* project before minting a new id.
-        for rp in repo_paths:
-            _refuse_if_repo_already_claimed(rp)
-        pid, store_path = register_project_v2(
-            name,
-            repo_paths,
-            mode=REPO_CONFIG_MODE_LOCAL,
-        )
+    with ExitStack() as guards:
+        existing = find_projects_by_name_v2(name)
+        if existing:
+            pid, _entry = existing[0]
+            connection = resolve_registered_project(pid)
+            if isinstance(connection, DisconnectedProject):
+                typer.echo(connection.guidance, err=True)
+                raise typer.Exit(code=1)
+            if connection is None:
+                typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
+                raise typer.Exit(code=1)
+            store_path = connection.store_path
+            guards.enter_context(legacy_write_guard(store_path, "init --demo"))
+            for rp in repo_paths:
+                _refuse_if_repo_already_claimed(rp, allowed_project_id=pid)
+            for rp in repo_paths:
+                add_repo_v2(pid, rp)
+            typer.echo(f"Demo project already exists ({pid}); reusing it.")
+        else:
+            # No pre-existing demo entry: refuse if any target repo is already
+            # claimed by a *different* project before minting a new id.
+            for rp in repo_paths:
+                _refuse_if_repo_already_claimed(rp)
+            pid, store_path = register_project_v2(
+                name,
+                repo_paths,
+                mode=REPO_CONFIG_MODE_LOCAL,
+            )
 
-    for rp in repo_paths:
-        save_repo_config(
-            rp,
-            {
-                "mode": REPO_CONFIG_MODE_LOCAL,
-                "id": pid,
-                "name": name,
-            },
-        )
-        _echo_repo_config_warnings(rp)
+        for rp in repo_paths:
+            save_repo_config(
+                rp,
+                {
+                    "mode": REPO_CONFIG_MODE_LOCAL,
+                    "id": pid,
+                    "name": name,
+                },
+            )
+            _echo_repo_config_warnings(rp)
 
-    create_demo_project(store_path)
-    _regenerate_after_init(pid, store_path)
-    cwd_is_git = (Path.cwd() / ".git").is_dir()
+        create_demo_project(store_path)
+        _regenerate_after_init(pid, store_path)
+        cwd_is_git = (Path.cwd() / ".git").is_dir()
 
-    typer.echo(f"Initialized demo project '{name}'")
-    typer.echo(f"  Project id: {pid}")
-    typer.echo(f"  Store: {store_path}")
-    for rp in repo_paths:
-        typer.echo(f"  Repo:  {rp.resolve()}")
-    typer.echo(
-        f"  Includes: {len(DEMO_DECISIONS)} decisions, project state, "
-        "open questions, and a snapshot"
-    )
-    typer.echo(f"  Wrote .nauro/config.json into {Path.cwd()}")
-    if cwd_is_git:
+        typer.echo(f"Initialized demo project '{name}'")
+        typer.echo(f"  Project id: {pid}")
+        typer.echo(f"  Store: {store_path}")
+        for rp in repo_paths:
+            typer.echo(f"  Repo:  {rp.resolve()}")
         typer.echo(
-            "  Warning: this directory is a git repo; the demo config will steer "
-            "its resolution to the demo project.",
-            err=True,
+            f"  Includes: {len(DEMO_DECISIONS)} decisions, project state, "
+            "open questions, and a snapshot"
         )
-    typer.echo(
-        "  Next: run 'nauro check-decision \"<approach>\"' to surface related prior decisions"
-    )
+        typer.echo(f"  Wrote .nauro/config.json into {Path.cwd()}")
+        if cwd_is_git:
+            typer.echo(
+                "  Warning: this directory is a git repo; the demo config will steer "
+                "its resolution to the demo project.",
+                err=True,
+            )
+        typer.echo(
+            "  Next: run 'nauro check-decision \"<approach>\"' to surface related prior decisions"
+        )
 
 
 _Opt_add_repo_paths = typer.Option(
@@ -348,34 +349,33 @@ def init(
                 typer.echo(f"Project id {pid!r} is no longer registered.", err=True)
                 raise typer.Exit(code=1)
             store_path = connection.store_path
-            require_legacy_write(store_path, "init --add-repo")
-            # Pre-check every target repo before any state changes.
-            for rp in repo_paths:
-                refuse_repo_config_symlink(rp)
-                _check_config_overwrite(rp, pid, name, force)
-                _refuse_if_repo_already_claimed(rp, allowed_project_id=pid)
-            added = []
-            for rp in repo_paths:
-                add_repo_v2(pid, rp)
-                # Per-repo config is the source of truth for "is this repo
-                # adopted?". The cloud-mode branch is rejected above, so all
-                # surviving entries here are local-mode.
-                save_repo_config(
-                    rp,
-                    {
-                        "mode": REPO_CONFIG_MODE_LOCAL,
-                        "id": pid,
-                        "name": name,
-                    },
-                )
-                _echo_repo_config_warnings(rp)
-                added.append(rp.resolve())
-            _regenerate_after_init(pid, store_path)
-            typer.echo(f"Updated project '{name}'")
-            typer.echo(f"  Store: {store_path}")
-            for rp in added:
-                typer.echo(f"  Added repo: {rp}")
-            return
+            with legacy_write_guard(store_path, "init --add-repo"):
+                for rp in repo_paths:
+                    refuse_repo_config_symlink(rp)
+                    _check_config_overwrite(rp, pid, name, force)
+                    _refuse_if_repo_already_claimed(rp, allowed_project_id=pid)
+                added = []
+                for rp in repo_paths:
+                    add_repo_v2(pid, rp)
+                    # Per-repo config is the source of truth for "is this repo
+                    # adopted?". The cloud-mode branch is rejected above, so all
+                    # surviving entries here are local-mode.
+                    save_repo_config(
+                        rp,
+                        {
+                            "mode": REPO_CONFIG_MODE_LOCAL,
+                            "id": pid,
+                            "name": name,
+                        },
+                    )
+                    _echo_repo_config_warnings(rp)
+                    added.append(rp.resolve())
+                _regenerate_after_init(pid, store_path)
+                typer.echo(f"Updated project '{name}'")
+                typer.echo(f"  Store: {store_path}")
+                for rp in added:
+                    typer.echo(f"  Added repo: {rp}")
+                return
 
     # ── --demo ───────────────────────────────────────────────────────────────
     # Handled before the generic new-project flow because demo has its own

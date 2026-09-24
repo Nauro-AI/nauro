@@ -17,6 +17,7 @@ from nauro.store.migration_admission import (
     inspect_migration,
     migration_home,
     migration_lock,
+    same_store_binding,
 )
 from nauro.store.replica_control import (
     _is_link_or_reparse,
@@ -126,12 +127,21 @@ def save_migration_assessment(
     binding = plan.assessment.projection.target.binding
     if binding.mode != "cloud" or binding.server_url is None:
         raise MigrationAdmissionError("Migration requires an existing hosted project.")
+    if replace is not None and (
+        type(replace) is not MigrationAdmission
+        or not same_store_binding(Path(replace.store), binding.store_path)
+    ):
+        raise MigrationAdmissionError("Migration replacement requires the same physical store.")
     record = MigrationAdmission(
         migration_id=plan.migration_id,
         project_id=binding.project_id,
         actor=plan.assessment.projection.target.identity.installed_for_user_id,
         endpoint=binding.server_url,
-        store=str(binding.store_path.absolute()),
+        store=(
+            replace.store
+            if type(replace) is MigrationAdmission
+            else str(binding.store_path.resolve())
+        ),
         plan_digest=plan.plan_digest,
         predecessor_digest=(
             hashlib.sha256(replace.canonical_bytes()).hexdigest()
@@ -147,6 +157,8 @@ def save_migration_assessment(
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
     with migration_lock(binding.store_path):
         prior = inspect_migration(binding.store_path)
+        if prior is not None and prior.model_copy(update={"store": record.store}) == record:
+            record = prior
         if prior != record and (prior is not None or replace is not None) and prior != replace:
             raise MigrationAdmissionError(
                 "Inspect the retained migration before preparing another."

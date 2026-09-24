@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from pathlib import Path
 
 import typer
 
 from nauro.cli._reporters import StderrReporter
-from nauro.cli.generation_writes import require_legacy_write
+from nauro.cli.generation_writes import legacy_write_guard, require_legacy_write
 from nauro.cli.integrations.json_mcp import recorded_mcp_commands
 from nauro.store.recovery import (
     RecoveryError,
@@ -90,40 +91,46 @@ def reconnect() -> None:
         typer.echo("No changes made. Nauro-dependent workflows remain unavailable.")
         return
 
-    try:
-        if action == "locate":
-            store_path = Path(typer.prompt("Absolute store path"))
-            require_legacy_write(store_path, "reconnect")
-            resolved = bind_local_store(repo_root, store_path)
-            _finish_connection(repo_root, resolved.store_path, resolved.project_id)
-            typer.echo(f"Connected '{resolved.display_name}' to {resolved.store_path}")
-            _echo_setup_hint_if_unwired(repo_root)
-            return
+    store_path = (
+        Path(typer.prompt("Absolute store path")) if action == "locate" else connection.store_path
+    )
+    with ExitStack() as guards:
+        for path in sorted({connection.store_path.absolute(), store_path.absolute()}):
+            guards.enter_context(legacy_write_guard(path, "reconnect"))
+        try:
+            if action == "locate":
+                resolved = bind_local_store(repo_root, store_path)
+                _finish_connection(repo_root, resolved.store_path, resolved.project_id)
+                typer.echo(f"Connected '{resolved.display_name}' to {resolved.store_path}")
+                _echo_setup_hint_if_unwired(repo_root)
+                return
 
-        remote_name = require_cloud_membership(connection.project_id)
-        store_path = restore_cloud_store(
-            connection.project_id, connection.store_path, StderrReporter()
-        )
-        config = load_repo_config(repo_root)
-        # Membership was just verified, so the cloud name is authoritative:
-        # a server-side rename reconciles the registry and repo config here
-        # rather than leaving every later resolution in a binding conflict.
-        bound = bind_project_store_v2(
-            project_id=connection.project_id,
-            name=remote_name,
-            mode=config["mode"],
-            repo_path=repo_root,
-            store_path=store_path,
-            server_url=config.get("server_url"),
-            update_name=True,
-        )
-        if remote_name != config.get("name"):
-            typer.echo(f"Cloud project is now named {remote_name!r}; updating the local records.")
-            save_repo_config(repo_root, {**config, "name": remote_name})
-        _finish_connection(repo_root, bound, connection.project_id)
-        typer.echo(f"Restored and connected '{remote_name}'.")
-        typer.echo(f"  Store: {bound}")
-        _echo_setup_hint_if_unwired(repo_root)
-    except (RecoveryError, StoreBindingError, OSError, ValueError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+            remote_name = require_cloud_membership(connection.project_id)
+            store_path = restore_cloud_store(
+                connection.project_id, connection.store_path, StderrReporter()
+            )
+            config = load_repo_config(repo_root)
+            # Membership was just verified, so the cloud name is authoritative:
+            # a server-side rename reconciles the registry and repo config here
+            # rather than leaving every later resolution in a binding conflict.
+            bound = bind_project_store_v2(
+                project_id=connection.project_id,
+                name=remote_name,
+                mode=config["mode"],
+                repo_path=repo_root,
+                store_path=store_path,
+                server_url=config.get("server_url"),
+                update_name=True,
+            )
+            if remote_name != config.get("name"):
+                typer.echo(
+                    f"Cloud project is now named {remote_name!r}; updating the local records."
+                )
+                save_repo_config(repo_root, {**config, "name": remote_name})
+            _finish_connection(repo_root, bound, connection.project_id)
+            typer.echo(f"Restored and connected '{remote_name}'.")
+            typer.echo(f"  Store: {bound}")
+            _echo_setup_hint_if_unwired(repo_root)
+        except (RecoveryError, StoreBindingError, OSError, ValueError) as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
