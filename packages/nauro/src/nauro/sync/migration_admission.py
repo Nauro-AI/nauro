@@ -17,6 +17,7 @@ from nauro.store.migration_admission import (
     inspect_migration,
     migration_home,
     migration_lock,
+    same_store_binding,
 )
 from nauro.store.replica_control import (
     _is_link_or_reparse,
@@ -128,7 +129,7 @@ def save_migration_assessment(
         raise MigrationAdmissionError("Migration requires an existing hosted project.")
     if replace is not None and (
         type(replace) is not MigrationAdmission
-        or Path(replace.store).resolve() != binding.store_path.resolve()
+        or not same_store_binding(Path(replace.store), binding.store_path)
     ):
         raise MigrationAdmissionError("Migration replacement requires the same physical store.")
     record = MigrationAdmission(
