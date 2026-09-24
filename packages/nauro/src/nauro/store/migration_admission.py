@@ -7,15 +7,17 @@ import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from threading import local
 from typing import Literal
 
-from filelock import FileLock, Timeout
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from nauro.store.home import nauro_home
 from nauro.store.replica_control import (
+    ReplicaControlBusyError,
     _is_link_or_reparse,
+    _native_control_lock,
     _read_optional_file,
     _validate_managed_path,
 )
@@ -164,18 +166,37 @@ def migration_lock_path(store: Path) -> Path:
     return path
 
 
+_held_locks = local()
+
+
 @contextmanager
-def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
+def migration_lock(store: Path, *, timeout: float = 0) -> Iterator[None]:
     home = migration_home()
     _validate_managed_path(home, home)
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock = FileLock(migration_lock_path(store), timeout=10, is_singleton=True)
-    try:
-        lock.acquire(timeout=timeout)
-    except Timeout as exc:
-        raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc
-    try:
-        require_migration_admission(store)
+    path = migration_lock_path(store)
+    held = getattr(_held_locks, "paths", None)
+    if held is None:
+        held = _held_locks.paths = set()
+    if path in held:
         yield
-    finally:
-        lock.release()
+        migration_lock_path(store)
+        return
+    with _native_control_lock(home, path, timeout):
+        migration_lock_path(store)
+        held.add(path)
+        try:
+            yield
+            migration_lock_path(store)
+        finally:
+            held.remove(path)
+
+
+@contextmanager
+def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
+    try:
+        with migration_lock(store, timeout=timeout):
+            require_migration_admission(store)
+            yield
+    except ReplicaControlBusyError as exc:
+        raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc

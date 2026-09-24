@@ -6,8 +6,6 @@ import hashlib
 import stat
 from pathlib import Path
 
-from filelock import FileLock
-
 from nauro.store._atomic import atomic_write_bytes
 from nauro.store.generation_installation import _read_expected
 from nauro.store.generation_migration_plan import LegacyMigrationPlan
@@ -18,7 +16,7 @@ from nauro.store.migration_admission import (
     admission_path,
     inspect_migration,
     migration_home,
-    migration_lock_path,
+    migration_lock,
 )
 from nauro.store.replica_control import (
     _is_link_or_reparse,
@@ -156,7 +154,7 @@ def save_migration_assessment(
     home = migration_home()
     _validate_managed_path(home, home)
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with FileLock(migration_lock_path(binding.store_path), timeout=0):
+    with migration_lock(binding.store_path):
         prior = inspect_migration(binding.store_path)
         if prior is not None and prior.model_copy(update={"store": record.store}) == record:
             record = prior
@@ -191,7 +189,7 @@ def decide_migration_assessment(
         raise MigrationAdmissionError("An exact assessed migration is required.")
     store = Path(expected.store)
     desired = expected.model_copy(update={"phase": "blocked" if preserve else "declined"})
-    with FileLock(migration_lock_path(store), timeout=0):
+    with migration_lock(store):
         current = inspect_migration(store)
         if current not in (expected, desired):
             raise MigrationAdmissionError(

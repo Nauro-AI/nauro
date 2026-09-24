@@ -20,6 +20,7 @@ from nauro.store.migration_admission import (
     migration_lock_path,
     migration_write_guard,
 )
+from nauro.store.replica_control import ReplicaControlBusyError
 from nauro.store.repo_config import save_repo_config
 from nauro.sync import migration_admission as migration
 from nauro.sync.push import PushReport
@@ -192,7 +193,7 @@ def test_raw_restore_holds_fence_and_blocked_restore_preserves_evidence(
 
     def empty_manifest(*args, **kwargs):
         def competing():
-            with pytest.raises(Timeout):
+            with pytest.raises(ReplicaControlBusyError):
                 migration.decide_migration_assessment(record, preserve=True)
 
         with ThreadPoolExecutor(max_workers=1) as pool:
@@ -290,3 +291,45 @@ def test_unknown_or_excess_admission_evidence_refuses(tmp_path, monkeypatch):
     with pytest.raises(MigrationAdmissionError, match="evidence is unavailable") as raised:
         inspect_migration(tmp_path / "projects" / PID)
     assert str(raised.value.__cause__) == "Migration admission inspection limit exceeded"
+
+
+@pytest.mark.parametrize("changed", ["registry", "config"])
+def test_removal_refuses_association_changed_during_confirmation(
+    isolated, tmp_path, monkeypatch, changed
+):
+    module = import_module("nauro.cli.commands.adopt")
+    store = _initialize()
+    pid = store.name
+    retained = store.with_name("retained-source")
+    if changed == "registry":
+        store.rename(retained)
+    config = isolated / ".nauro/config.json"
+    expected = []
+
+    def confirm(*args, **kwargs):
+        if changed == "registry":
+            replacement = tmp_path / "replacement" / pid
+            scaffold_project_store("Synthetic", replacement)
+            registry.bind_project_store_v2(
+                project_id=pid,
+                name="Synthetic",
+                mode="local",
+                repo_path=isolated,
+                store_path=replacement,
+            )
+        else:
+            config.write_bytes(config.read_bytes() + b"\n")
+        expected.append((config.read_bytes(), registry.get_project_v2(pid)))
+        return True
+
+    monkeypatch.setattr(module.typer, "confirm", confirm)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Changed association reached teardown")
+
+    monkeypatch.setattr(module, "setup_all_surfaces", forbidden)
+    result = CliRunner().invoke(app, ["adopt", "--remove"])
+    assert result.exit_code == 1, result.output
+    assert "Project association changed; inspect it before removal." in result.output
+    assert (config.read_bytes(), registry.get_project_v2(pid)) == expected[0]
+    assert (retained if changed == "registry" else store).is_dir()

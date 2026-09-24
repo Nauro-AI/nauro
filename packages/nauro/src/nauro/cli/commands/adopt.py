@@ -248,6 +248,7 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
         )
         raise typer.Exit(code=1)
 
+    config_raw = config_path.read_bytes()
     pid: str | None = None
     name: str | None = None
     try:
@@ -263,6 +264,7 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
             err=True,
         )
 
+    registration = get_project_v2(pid) if pid else None
     repo_resolved = str(repo_root.resolve())
     other_repos: list[str] = []
     store_path: Path | None = None
@@ -323,6 +325,13 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
             guards.enter_context(migration_write_guard(store_path))
             if purge_store:
                 require_legacy_write(store_path, "adopt --purge-store")
+        if (
+            _unadopt_symlink_refusals(repo_root)
+            or config_path.read_bytes() != config_raw
+            or (get_project_v2(pid) if pid else None) != registration
+        ):
+            typer.echo("Project association changed; inspect it before removal.", err=True)
+            raise typer.Exit(code=1)
         # ── un-wire surfaces ───────────────────────────────────────────────────
         # Force every surface on for teardown so artifacts installed via
         # --with-subagents/--with-skills/--with-hooks are removed too, regardless of

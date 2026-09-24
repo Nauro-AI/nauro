@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import os
 import stat
-import sys
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext, suppress
 from dataclasses import dataclass, field
+from errno import EAGAIN, EWOULDBLOCK
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -202,16 +202,31 @@ def _read_actor_authorization_view(
     return raw, _parse_authorization_view(raw)
 
 
+class _PreservingUnixFileLock(UnixFileLock):
+    def _acquire(self) -> None:
+        import fcntl
+
+        descriptor = os.open(self.lock_file, _ANCHOR_FLAGS, 0o666)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            os.close(descriptor)
+            if exc.errno not in (EAGAIN, EWOULDBLOCK):
+                raise
+        else:
+            self._context.lock_file_fd = descriptor
+
+
 def _new_native_lock(path: Path, timeout: float) -> UnixFileLock | WindowsFileLock:
     lock = FileLock(str(path), timeout=timeout)
     if isinstance(lock, SoftFileLock) or type(lock) not in (UnixFileLock, WindowsFileLock):
         raise ReplicaControlReadError("Native replica control locking is unavailable.")
+    if type(lock) is UnixFileLock:
+        return _PreservingUnixFileLock(str(path), timeout=timeout)
     return lock
 
 
-def _open_lock_anchor(path: Path) -> int | None:
-    if sys.platform != "win32":
-        return None
+def _open_lock_anchor(path: Path) -> int:
     descriptor: int | None = None
     try:
         descriptor = os.open(path, _ANCHOR_FLAGS, 0o666)
@@ -220,6 +235,7 @@ def _open_lock_anchor(path: Path) -> int | None:
             _is_link_or_reparse(opened)
             or _is_link_or_reparse(observed)
             or not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
             or (opened.st_dev, opened.st_ino) != (observed.st_dev, observed.st_ino)
         ):
             raise ReplicaControlReadError("Replica control lock path is unsafe.")
@@ -231,6 +247,24 @@ def _open_lock_anchor(path: Path) -> int | None:
         if isinstance(exc, ReplicaControlReadError):
             raise
         raise ReplicaControlReadError("Replica control lock is unavailable.") from exc
+
+
+def _validate_lock_identity(
+    store_path: Path, path: Path, anchor: int, descriptor: int | None
+) -> None:
+    if descriptor is None:
+        raise ReplicaControlReadError("Native replica control lock is unavailable.")
+    _validate_managed_path(store_path, path)
+    metadata = (os.fstat(anchor), os.fstat(descriptor), os.lstat(path))
+    identity = (metadata[0].st_dev, metadata[0].st_ino)
+    if any(
+        _is_link_or_reparse(item)
+        or not stat.S_ISREG(item.st_mode)
+        or item.st_nlink != 1
+        or (item.st_dev, item.st_ino) != identity
+        for item in metadata
+    ):
+        raise ReplicaControlReadError("Replica control lock identity changed.")
 
 
 @contextmanager
@@ -247,9 +281,12 @@ def _native_control_lock(store_path: Path, path: Path, timeout: float) -> Iterat
         except (OSError, RuntimeError) as exc:
             raise ReplicaControlReadError("Replica control lock is unavailable.") from exc
         acquired = True
-        if isinstance(lock, SoftFileLock) or type(lock) not in (UnixFileLock, WindowsFileLock):
+        if type(lock) not in (UnixFileLock, WindowsFileLock, _PreservingUnixFileLock):
             raise ReplicaControlReadError("Native replica control locking is unavailable.")
+        descriptor = lock._context.lock_file_fd
+        _validate_lock_identity(store_path, path, anchor, descriptor)
         yield
+        _validate_lock_identity(store_path, path, anchor, descriptor)
     except BaseException as exc:
         primary = exc
         raise

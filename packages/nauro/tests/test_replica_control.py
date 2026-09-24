@@ -553,3 +553,43 @@ def test_control_io_and_replacement_failures_are_typed(tmp_path, monkeypatch, op
     with pytest.raises(ReplicaControlReadError) as raised:
         control._read_optional_file(path)
     assert raised.value.code == "generation_control_unavailable"
+
+
+def test_native_lock_does_not_truncate_existing_content(tmp_path):
+    binding = _binding(tmp_path / PROJECT_ID)
+    path = _layout(binding.store_path).control_lock
+    path.write_bytes(b"retained evidence")
+    with _locked(binding):
+        assert path.stat().st_size == len(b"retained evidence")
+    assert path.read_bytes() == b"retained evidence"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows prevents replacing an open lock anchor")
+@pytest.mark.parametrize("after_acquire", [False, True])
+def test_replaced_lock_after_open_refuses_without_erasing_evidence(
+    tmp_path, monkeypatch, after_acquire
+):
+    binding = _binding(tmp_path / PROJECT_ID)
+    path = _layout(binding.store_path).control_lock
+    original = control._new_native_lock
+
+    def replacing_lock(target, timeout):
+        lock = original(target, timeout)
+        acquire = lock.acquire
+
+        def replaced(*args, **kwargs):
+            if after_acquire:
+                acquire(*args, **kwargs)
+            path.unlink()
+            path.write_bytes(b"replacement evidence")
+            if not after_acquire:
+                return acquire(*args, **kwargs)
+            return None
+
+        monkeypatch.setattr(lock, "acquire", replaced)
+        return lock
+
+    monkeypatch.setattr(control, "_new_native_lock", replacing_lock)
+    with pytest.raises(ReplicaControlReadError, match="identity changed"), _locked(binding):
+        pytest.fail("Replacement lock admitted control reads")
+    assert path.read_bytes() == b"replacement evidence"
