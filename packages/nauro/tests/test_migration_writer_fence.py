@@ -4,11 +4,12 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 import pytest
-from filelock import FileLock, Timeout
+from filelock import FileLock
 
 from nauro.mcp import tools
 from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
-from nauro.store.migration_admission import inspect_migration, migration_lock_path
+from nauro.store.migration_admission import inspect_migration, migration_lock, migration_lock_path
+from nauro.store.replica_control import ReplicaControlBusyError
 from nauro.sync import migration_admission as migration
 from tests.test_generation_migration_plan import _assessment
 from tests.test_migration_source_check import reassess_after_writer
@@ -39,7 +40,7 @@ def test_conversion_refuses_until_whole_writer_finishes(tmp_path, monkeypatch, p
         future = pool.submit(tools.tool_update_state, binding.store_path, delta="Delayed writer")
         try:
             assert entered.wait(10)
-            with pytest.raises(Timeout):
+            with pytest.raises(ReplicaControlBusyError):
                 migration.decide_migration_assessment(record, preserve=True)
             assert inspect_migration(binding.store_path) == record
         finally:
@@ -74,17 +75,15 @@ def test_writer_checks_admission_after_waiting_for_conversion(tmp_path, monkeypa
         return original(self, *args, **kwargs)
 
     with ThreadPoolExecutor(max_workers=1) as pool:
-        lock = FileLock(migration_lock_path(binding.store_path))
-        lock.acquire()
+        lock = migration_lock(binding.store_path)
+        lock.__enter__()
         try:
             monkeypatch.setattr(FileLock, "acquire", observed_acquire)
             future = pool.submit(tools.tool_update_state, binding.store_path, delta="Too late")
             assert entered.wait(10)
-            # The coordinator already owns this lock in the real transition.
-            monkeypatch.setattr(migration, "FileLock", lambda *args, **kwargs: lock)
             assert migration.decide_migration_assessment(record, preserve=True).phase == "blocked"
         finally:
-            lock.release()
+            lock.__exit__(None, None, None)
         result = future.result(timeout=10)
     assert result["status"] == "error"
     assert result["guidance"] == "Project conversion is incomplete; reopen connection setup."
@@ -107,7 +106,7 @@ def test_writer_before_assessment_also_holds_conversion_lock(tmp_path, monkeypat
         future = pool.submit(tools.tool_update_state, binding.store_path, delta="Earlier writer")
         try:
             assert entered.wait(10)
-            with pytest.raises(Timeout):
+            with pytest.raises(ReplicaControlBusyError):
                 migration.save_migration_assessment(prepare_legacy_migration_plan(assessment))
             assert inspect_migration(binding.store_path) is None
         finally:

@@ -9,7 +9,6 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from filelock import FileLock
 from pydantic import BaseModel, ConfigDict
 
 from nauro.store._atomic import atomic_write_bytes
@@ -22,7 +21,8 @@ from nauro.store.generation_refresh_io import RefreshPaths, sync_file, sync_pare
 from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
-    migration_lock_path,
+    migration_lock,
+    same_store_binding,
 )
 from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_path
 from nauro.store.resolution import resolve_project_binding
@@ -199,11 +199,15 @@ def _copy(source: Path, root: Path, entry: _Entry) -> None:
 
 def _require_registered_source(record: MigrationAdmission) -> None:
     current = resolve_project_binding(record.project_id, None, use_cwd=False)
-    if current.mode != "cloud" or (
-        current.project_id,
-        current.server_url,
-        current.store_path.resolve(),
-    ) != (record.project_id, record.endpoint, Path(record.store).resolve()):
+    if (
+        current.mode != "cloud"
+        or (
+            current.project_id,
+            current.server_url,
+        )
+        != (record.project_id, record.endpoint)
+        or not same_store_binding(current.store_path, Path(record.store))
+    ):
         raise MigrationAdmissionError("Registered preservation source differs.")
 
 
@@ -218,17 +222,16 @@ def preserve_migration_source(
     ):
         raise MigrationAdmissionError("Preservation requires an admitted plan and owner session.")
     source = Path(record.store)
-    with FileLock(migration_lock_path(source), timeout=0):
+    with migration_lock(source):
         current, raw = load_migration_plan(source)
         if current != record:
             raise MigrationAdmissionError("Preservation admission changed.")
         plan = _decode(raw, record)
         binding = session.binding
-        if (binding.project_id, binding.server_url, binding.store_path.resolve()) != (
+        if (binding.project_id, binding.server_url) != (
             record.project_id,
             record.endpoint,
-            source.resolve(),
-        ):
+        ) or not same_store_binding(binding.store_path, source):
             raise MigrationAdmissionError("Preservation session binding differs.")
         target = GenerationProjectionTarget(binding, plan.projection)
         _require_registered_source(record)

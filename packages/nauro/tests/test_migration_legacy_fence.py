@@ -8,7 +8,6 @@ from importlib import import_module
 from threading import Event
 
 import pytest
-from filelock import Timeout
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
@@ -19,6 +18,7 @@ from nauro.store.migration_admission import (
     migration_lock_path,
     migration_write_guard,
 )
+from nauro.store.replica_control import ReplicaControlBusyError
 from nauro.sync import hooks, pull, push
 from nauro.sync import migration_admission as migration
 from nauro.sync.transfer import NullReporter
@@ -84,7 +84,7 @@ def test_legacy_command_holds_fence_through_ancillary_work(saved, tmp_path, monk
         future = pool.submit(CliRunner().invoke, app, arguments, input="y\n")
         try:
             assert entered.wait(10)
-            with pytest.raises(Timeout):
+            with pytest.raises(ReplicaControlBusyError):
                 migration.decide_migration_assessment(record, preserve=True)
             assert inspect_migration(binding.store_path) == record
         finally:
@@ -141,7 +141,7 @@ def test_delayed_transfer_prevents_conversion(saved, monkeypatch, direction):
         future = pool.submit(function)
         try:
             assert entered.wait(10)
-            with pytest.raises(Timeout):
+            with pytest.raises(ReplicaControlBusyError):
                 migration.decide_migration_assessment(record, preserve=True)
         finally:
             release.set()
