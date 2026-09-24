@@ -22,6 +22,7 @@ import typer
 from nauro_core.constants import MAX_BRIEF_BYTES
 
 from nauro.auth import AuthRefreshError, load_access_token
+from nauro.store.migration_admission import migration_write_guard, require_migration_admission
 from nauro.store.registry import is_cloud_project
 from nauro.sync._path_diagnostics import (
     _escape_path_for_display,
@@ -201,12 +202,15 @@ def push_changed_files(
     session: TransferSession | None = None,
 ) -> PushReport:
     """Upload changed files and checkpoint each verified result."""
-    # The sync lock creates its parent directory, so an unusable Store root is
-    # refused here, before the lock can recreate or trip over it.
+    require_migration_admission(store_path)
     _prepare_store_root(store_path)
-    with operation_session(session) as active:
-        with sync_lock(store_path, lock_timeout):
-            return _push_changed_files_locked(project_id, store_path, active)
+    with migration_write_guard(store_path, timeout=lock_timeout):
+        # The sync lock creates its parent directory, so an unusable Store root is
+        # refused here, before the lock can recreate or trip over it.
+        _prepare_store_root(store_path)
+        with operation_session(session) as active:
+            with sync_lock(store_path, lock_timeout):
+                return _push_changed_files_locked(project_id, store_path, active)
 
 
 def _push_changed_files_locked(

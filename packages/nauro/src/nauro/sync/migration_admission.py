@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import stat
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 from nauro.store._atomic import atomic_write_bytes
@@ -18,10 +16,10 @@ from nauro.store.migration_admission import (
     admission_path,
     inspect_migration,
     migration_home,
+    migration_lock,
 )
 from nauro.store.replica_control import (
     _is_link_or_reparse,
-    _native_control_lock,
     _read_optional_file,
     _validate_managed_path,
 )
@@ -66,32 +64,6 @@ def load_migration_plan(store: Path) -> tuple[MigrationAdmission, bytes]:
         raise MigrationAdmissionError("No saved migration plan.")
     inspect_previous_migration(record)
     return record, _read_plan(record)
-
-
-def _lock_path(store: Path) -> Path:
-    path = admission_path(store).with_suffix(".lock")
-    _validate_managed_path(migration_home(), path)
-    try:
-        info = path.lstat()
-    except FileNotFoundError:
-        return path
-    if (
-        info.st_size
-        or info.st_nlink != 1
-        or _is_link_or_reparse(info)
-        or not stat.S_ISREG(info.st_mode)
-    ):
-        raise MigrationAdmissionError("Migration lock contains unsafe evidence.")
-    return path
-
-
-@contextmanager
-def _migration_lock(store: Path) -> Iterator[None]:
-    path = _lock_path(store)
-    with _native_control_lock(migration_home(), path, timeout=0):
-        _lock_path(store)
-        yield
-        _lock_path(store)
 
 
 def _previous_path(digest: str) -> Path:
@@ -173,7 +145,7 @@ def save_migration_assessment(
     home = migration_home()
     _validate_managed_path(home, home)
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with _migration_lock(binding.store_path):
+    with migration_lock(binding.store_path):
         prior = inspect_migration(binding.store_path)
         if prior != record and (prior is not None or replace is not None) and prior != replace:
             raise MigrationAdmissionError(
@@ -206,7 +178,7 @@ def decide_migration_assessment(
         raise MigrationAdmissionError("An exact assessed migration is required.")
     store = Path(expected.store)
     desired = expected.model_copy(update={"phase": "blocked" if preserve else "declined"})
-    with _migration_lock(store):
+    with migration_lock(store):
         current = inspect_migration(store)
         if current not in (expected, desired):
             raise MigrationAdmissionError(

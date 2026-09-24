@@ -7,6 +7,7 @@ import typer
 
 from nauro.cli.generation_writes import require_legacy_write
 from nauro.mcp import tools
+from nauro.store import migration_admission as controls
 from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
 from nauro.store.migration_admission import (
     MigrationAdmissionError,
@@ -221,13 +222,13 @@ def test_oversized_saved_plan_refuses_before_read(saved):
         migration.load_migration_plan(binding.store_path)
 
 
-@pytest.mark.parametrize("operation", ["save", "decide"])
+@pytest.mark.parametrize("operation", ["save", "decide", "writer"])
 @pytest.mark.parametrize("replace", [False, True])
 def test_late_lock_evidence_is_preserved_before_record_changes(
     saved, monkeypatch, operation, replace
 ):
     binding, plan, record = saved
-    original = migration._lock_path
+    original = controls.migration_lock_path
     calls = 0
     path = original(binding.store_path)
     before = admission_path(binding.store_path).read_bytes()
@@ -242,12 +243,15 @@ def test_late_lock_evidence_is_preserved_before_record_changes(
             path.write_bytes(b"restored evidence")
         return result
 
-    monkeypatch.setattr(migration, "_lock_path", restore)
+    monkeypatch.setattr(controls, "migration_lock_path", restore)
     with pytest.raises(MigrationAdmissionError, match="unsafe evidence"):
         if operation == "save":
             migration.save_migration_assessment(plan)
-        else:
+        elif operation == "decide":
             migration.decide_migration_assessment(record, preserve=True)
+        else:
+            with controls.migration_write_guard(binding.store_path):
+                pytest.fail("Late evidence admitted a writer")
     assert path.read_bytes() == b"restored evidence"
     assert admission_path(binding.store_path).read_bytes() == before
     assert migration._read_plan(record) == plan.manifest_json

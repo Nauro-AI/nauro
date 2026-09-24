@@ -12,7 +12,7 @@ import typer
 from nauro_core.constants import OPEN_QUESTIONS_DEFAULT_BODY, OPEN_QUESTIONS_MD
 from nauro_core.questions import OpenQuestionsFile
 
-from nauro.cli.generation_writes import require_legacy_write
+from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import resolve_target_project
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.post_commit import run_post_commit
@@ -35,37 +35,37 @@ def migrate(
 ) -> None:
     """Mint sequential 'Q###' ids for legacy timestamp question entries."""
     project_name, store_path = resolve_target_project(project)
-    require_legacy_write(store_path, "questions migrate")
-    fs_store = FilesystemStore(store_path)
+    with legacy_write_guard(store_path, "questions migrate"):
+        fs_store = FilesystemStore(store_path)
 
-    content = fs_store.read_file(OPEN_QUESTIONS_MD) or OPEN_QUESTIONS_DEFAULT_BODY
-    result = OpenQuestionsFile.parse(content).migrate()
+        content = fs_store.read_file(OPEN_QUESTIONS_MD) or OPEN_QUESTIONS_DEFAULT_BODY
+        result = OpenQuestionsFile.parse(content).migrate()
 
-    if not result.renames:
-        typer.echo(f"No legacy question entries to migrate in {project_name}.")
-        return
+        if not result.renames:
+            typer.echo(f"No legacy question entries to migrate in {project_name}.")
+            return
 
-    if dry_run:
-        typer.echo(f"Would migrate {len(result.renames)} entry(ies) in {project_name}:")
+        if dry_run:
+            typer.echo(f"Would migrate {len(result.renames)} entry(ies) in {project_name}:")
+            for rename in result.renames:
+                typer.echo(f"  [{rename.old_id}] -> [{rename.new_id}]  +{rename.logged}")
+            typer.echo("Dry run: no changes written.")
+            return
+
+        fs_store.write_file(OPEN_QUESTIONS_MD, result.file.format())
+        typer.echo(f"Migrated {len(result.renames)} entry(ies) in {project_name}:")
         for rename in result.renames:
             typer.echo(f"  [{rename.old_id}] -> [{rename.new_id}]  +{rename.logged}")
-        typer.echo("Dry run: no changes written.")
-        return
+        typer.echo(f"  File: {store_path / OPEN_QUESTIONS_MD}")
 
-    fs_store.write_file(OPEN_QUESTIONS_MD, result.file.format())
-    typer.echo(f"Migrated {len(result.renames)} entry(ies) in {project_name}:")
-    for rename in result.renames:
-        typer.echo(f"  [{rename.old_id}] -> [{rename.new_id}]  +{rename.logged}")
-    typer.echo(f"  File: {store_path / OPEN_QUESTIONS_MD}")
-
-    # Refresh AGENTS.md so MCP-disconnected agents see the new ids without a
-    # separate `nauro sync`. Mirrors `nauro note`.
-    outcome = run_post_commit(
-        store_path,
-        regenerate_agents_md=True,
-        warn=lambda msg: typer.echo(msg, err=True),
-    )
-    for line in outcome.warnings:
-        typer.echo(line, err=True)
-    for repo_path in outcome.updated_repos:
-        typer.echo(f"  Updated AGENTS.md: {repo_path}")
+        # Refresh AGENTS.md so MCP-disconnected agents see the new ids without a
+        # separate `nauro sync`. Mirrors `nauro note`.
+        outcome = run_post_commit(
+            store_path,
+            regenerate_agents_md=True,
+            warn=lambda msg: typer.echo(msg, err=True),
+        )
+        for line in outcome.warnings:
+            typer.echo(line, err=True)
+        for repo_path in outcome.updated_repos:
+            typer.echo(f"  Updated AGENTS.md: {repo_path}")

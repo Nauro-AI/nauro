@@ -17,7 +17,12 @@ from nauro.store.generation_projection import (
 )
 from nauro.store.registry import register_project_v2
 from nauro.store.resolution import resolve_project_binding
-from nauro.sync import generation_acquisition, generation_refresh, generation_refresh_status
+from nauro.sync import (
+    generation_acquisition,
+    generation_guidance,
+    generation_refresh,
+    generation_refresh_status,
+)
 from nauro.sync.generation_session import GenerationTransferSession
 from tests.generation_account import seed_generation_account
 from tests.test_sync.test_generation_acquisition import PROJECT_ID, USER_ID, FakeServer
@@ -56,6 +61,7 @@ def normal(tmp_path, monkeypatch):
 
     monkeypatch.setattr(read_dispatch, "GenerationTransferSession", factory)
     monkeypatch.setattr(generation_refresh_status, "GenerationTransferSession", factory)
+    monkeypatch.setattr(generation_guidance, "GenerationTransferSession", factory)
     with factory(binding) as session:
         generation_refresh.commit_generation_refresh(
             generation_refresh.prepare_initial_generation_refresh(

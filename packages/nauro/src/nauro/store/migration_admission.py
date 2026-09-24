@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from threading import local
 from typing import Literal
 
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from nauro.store.home import nauro_home
-from nauro.store.replica_control import _read_optional_file, _validate_managed_path
+from nauro.store.replica_control import (
+    ReplicaControlBusyError,
+    _is_link_or_reparse,
+    _native_control_lock,
+    _read_optional_file,
+    _validate_managed_path,
+)
 
 
 class MigrationAdmissionError(PermissionError):
@@ -88,3 +98,56 @@ def require_migration_admission(store: Path) -> None:
     record = inspect_migration(store)
     if record is not None and record.phase == "blocked":
         raise MigrationAdmissionError("Project conversion is incomplete; reopen connection setup.")
+
+
+def migration_lock_path(store: Path) -> Path:
+    path = admission_path(store).with_suffix(".lock")
+    _validate_managed_path(migration_home(), path)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return path
+    if (
+        info.st_size
+        or info.st_nlink != 1
+        or _is_link_or_reparse(info)
+        or not stat.S_ISREG(info.st_mode)
+    ):
+        raise MigrationAdmissionError("Migration lock contains unsafe evidence.")
+    return path
+
+
+_held_locks = local()
+
+
+@contextmanager
+def migration_lock(store: Path, *, timeout: float = 0) -> Iterator[None]:
+    home = migration_home()
+    _validate_managed_path(home, home)
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = migration_lock_path(store)
+    held = getattr(_held_locks, "paths", None)
+    if held is None:
+        held = _held_locks.paths = set()
+    if path in held:
+        yield
+        migration_lock_path(store)
+        return
+    with _native_control_lock(home, path, timeout):
+        migration_lock_path(store)
+        held.add(path)
+        try:
+            yield
+            migration_lock_path(store)
+        finally:
+            held.remove(path)
+
+
+@contextmanager
+def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
+    try:
+        with migration_lock(store, timeout=timeout):
+            require_migration_admission(store)
+            yield
+    except ReplicaControlBusyError as exc:
+        raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc

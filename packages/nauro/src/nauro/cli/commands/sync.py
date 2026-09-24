@@ -9,6 +9,7 @@ import typer
 
 from nauro.auth import load_access_token
 from nauro.cli.generation_reads import refresh_command
+from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import resolve_target_project
 from nauro.setup.outcomes import BridgeOutcome
 from nauro.setup.render import render
@@ -49,77 +50,78 @@ def sync(
     project_key = store_path.name
     if refresh_command(project_key, push_only=push_only):
         return
-    trigger = message or "manual sync"
+    with legacy_write_guard(store_path, "sync"):
+        trigger = message or "manual sync"
 
-    with operation_session() as session:
-        from nauro.sync.pull import PullReport
+        with operation_session() as session:
+            from nauro.sync.pull import PullReport
 
-        pulled = (
-            PullReport()
-            if push_only
-            else _pull_from_cloud(project_key, store_path, session=session)
-        )
+            pulled = (
+                PullReport()
+                if push_only
+                else _pull_from_cloud(project_key, store_path, session=session)
+            )
 
-        version = capture_snapshot(store_path, trigger=trigger)
+            version = capture_snapshot(store_path, trigger=trigger)
 
-        # The regen seam ensures the Claude Code bridge wherever AGENTS.md is
-        # written (before push, so local artifacts stay consistent even if the push
-        # fails); the sink collects those outcomes to echo on the success path.
-        bridge_outcomes: list[BridgeOutcome] = []
-        updated_repos = warn_then_regen(
-            project_key,
-            store_path,
-            warn=lambda msg: typer.echo(msg, err=True),
-            overwrite_unmanaged=True,
-            bridge_sink=bridge_outcomes,
-        )
+            # The regen seam ensures the Claude Code bridge wherever AGENTS.md is
+            # written (before push, so local artifacts stay consistent even if the push
+            # fails); the sink collects those outcomes to echo on the success path.
+            bridge_outcomes: list[BridgeOutcome] = []
+            updated_repos = warn_then_regen(
+                project_key,
+                store_path,
+                warn=lambda msg: typer.echo(msg, err=True),
+                overwrite_unmanaged=True,
+                bridge_sink=bridge_outcomes,
+            )
 
-        pushed = push_store_to_cloud(project_key, store_path, session=session)
+            pushed = push_store_to_cloud(project_key, store_path, session=session)
 
-    if pulled.origin_aborted:
-        typer.echo(
-            f"Error: sync stopped after a permanent remote origin failure for "
-            f"{project_name}; snapshot v{version:03d} was captured locally. "
-            "Fix the remote connection and run 'nauro sync' again.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
+        if pulled.origin_aborted:
+            typer.echo(
+                f"Error: sync stopped after a permanent remote origin failure for "
+                f"{project_name}; snapshot v{version:03d} was captured locally. "
+                "Fix the remote connection and run 'nauro sync' again.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
 
-    if pushed.is_complete:
-        if is_cloud_project(project_key):
-            typer.echo(f"Synced {project_name} - snapshot v{version:03d}")
+        if pushed.is_complete:
+            if is_cloud_project(project_key):
+                typer.echo(f"Synced {project_name} - snapshot v{version:03d}")
+            else:
+                typer.echo(
+                    f"Captured snapshot v{version:03d} for {project_name}"
+                    " (local-only project; nothing to upload)."
+                )
+            for repo_path, bridge_outcome in zip(updated_repos, bridge_outcomes):
+                typer.echo(f"  Updated AGENTS.md: {repo_path}")
+                for line in render(bridge_outcome):
+                    typer.echo(line)
         else:
             typer.echo(
-                f"Captured snapshot v{version:03d} for {project_name}"
-                " (local-only project; nothing to upload)."
+                f"Error: cloud push failed for {project_name}; snapshot v{version:03d} "
+                "was captured locally and will be pushed on the next successful sync.",
+                err=True,
             )
-        for repo_path, bridge_outcome in zip(updated_repos, bridge_outcomes):
-            typer.echo(f"  Updated AGENTS.md: {repo_path}")
-            for line in render(bridge_outcome):
-                typer.echo(line)
-    else:
-        typer.echo(
-            f"Error: cloud push failed for {project_name}; snapshot v{version:03d} "
-            "was captured locally and will be pushed on the next successful sync.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
+            raise typer.Exit(code=1)
 
-    warnings = validate_store(store_path)
-    if warnings:
-        print_warnings(warnings)
+        warnings = validate_store(store_path)
+        if warnings:
+            print_warnings(warnings)
 
-    if pulled.left_work_behind:
-        # Exit 2, after everything else ran: the snapshot, the regen, and the
-        # push all succeeded, so this is not the exit-1 failure of the command,
-        # but the store does not hold everything the server has and a script
-        # must not read that as a clean sync.
-        typer.echo(
-            f"Error: {_unfinished_pull_detail(pulled)}. The reason is reported "
-            "above. Run 'nauro sync' again once the problem is fixed.",
-            err=True,
-        )
-        raise typer.Exit(code=2)
+        if pulled.left_work_behind:
+            # Exit 2, after everything else ran: the snapshot, the regen, and the
+            # push all succeeded, so this is not the exit-1 failure of the command,
+            # but the store does not hold everything the server has and a script
+            # must not read that as a clean sync.
+            typer.echo(
+                f"Error: {_unfinished_pull_detail(pulled)}. The reason is reported "
+                "above. Run 'nauro sync' again once the problem is fixed.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
 
 
 def _unfinished_pull_detail(report: PullReport) -> str:

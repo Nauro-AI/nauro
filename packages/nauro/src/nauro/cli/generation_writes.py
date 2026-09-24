@@ -1,10 +1,12 @@
 """Refuse legacy CLI mutations when local replica controls exist."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import typer
 
-from nauro.store.migration_admission import require_migration_admission
+from nauro.store.migration_admission import migration_write_guard, require_migration_admission
 
 
 def require_legacy_write(store_path: Path, command: str) -> None:
@@ -23,3 +25,11 @@ def require_legacy_write(store_path: Path, command: str) -> None:
         raise typer.Exit(1) from exc
     typer.echo(f"Error: nauro {command} is unavailable for generation replicas.", err=True)
     raise typer.Exit(1)
+
+
+@contextmanager
+def legacy_write_guard(store_path: Path, command: str) -> Iterator[None]:
+    require_legacy_write(store_path, command)
+    with migration_write_guard(store_path):
+        require_legacy_write(store_path, command)
+        yield
