@@ -287,10 +287,12 @@ def assess_legacy_migration(
                 "Legacy migration assessment requires absent generation authority."
             )
         _require_legacy_root(binding.store_path)
+        _require_empty_control_lock(binding.store_path)
         try:
             files, directories, pending = _inventory(binding.store_path)
         except (OSError, ReplicaControlReadError) as exc:
             raise LegacyMigrationAssessmentError("The legacy inventory is unavailable.") from exc
+        _require_empty_control_lock(binding.store_path)
         protected = tuple(stamp for stamp in files if is_protected_generation_member(stamp.path))
         snapshots = tuple(
             stamp
