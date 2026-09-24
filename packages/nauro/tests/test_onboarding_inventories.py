@@ -7,8 +7,7 @@ with set equality over ``snapshot_tree`` plus ordered section-marker checks
 on the output; full transcripts are not pinned here because ``adopt``
 requires a real git repo, whose hygiene notes vary with the environment.
 
-The registry and its lock are the only user-home bookkeeping files created by
-local onboarding when no authentication config already exists.
+Setup and removal also retain the per-store migration lock when they acquire it.
 """
 
 from __future__ import annotations
@@ -23,6 +22,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
+from nauro.store.migration_admission import migration_lock_path
 from nauro.store.registry import register_project_v2
 from nauro.sync import cloud_projects
 from nauro.templates.scaffolds import scaffold_project_store
@@ -218,7 +218,10 @@ def test_adopt_remove_round_trip_inventory(tmp_path: Path, monkeypatch):
 
     assert result.exit_code == 0
     assert snapshot_tree(tmp_path) == sorted(
-        set(pre) | BOOKKEEPING | _store_files(pid) | {".codex/config.toml"}
+        set(pre)
+        | BOOKKEEPING
+        | _store_files(pid)
+        | {".codex/config.toml", migration_lock_path(tmp_path / "projects" / pid).name}
     )
     _assert_markers_in_order(
         result.stdout,
@@ -300,6 +303,7 @@ def test_attach_happy_path_inventory(tmp_path: Path, monkeypatch):
         BOOKKEEPING
         | {"config.json", "repo/.nauro/config.json", "repo/AGENTS.md", "repo/CLAUDE.md"}
         | _store_files(EXAMPLE_PID)
+        | {migration_lock_path(tmp_path / "projects" / EXAMPLE_PID).name}
     )
     _assert_markers_in_order(
         result.stdout,
@@ -334,6 +338,7 @@ def test_adopt_remove_last_repo_keeps_user_scope_for_other_project(tmp_path: Pat
     assert snapshot_tree(tmp_path) == sorted(
         BOOKKEEPING
         | _store_files(pid)
+        | {migration_lock_path(tmp_path / "projects" / pid).name}
         | {
             ".agents/skills/nauro-adopt/SKILL.md",
             ".claude/skills/nauro-adopt/SKILL.md",

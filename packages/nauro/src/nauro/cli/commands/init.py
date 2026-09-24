@@ -183,7 +183,6 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
             raise typer.Exit(code=1)
 
     with ExitStack() as guards:
-        # Reuse an existing demo entry rather than minting a duplicate.
         existing = find_projects_by_name_v2(name)
         if existing:
             pid, _entry = existing[0]
@@ -351,7 +350,6 @@ def init(
                 raise typer.Exit(code=1)
             store_path = connection.store_path
             with legacy_write_guard(store_path, "init --add-repo"):
-                # Pre-check every target repo before any state changes.
                 for rp in repo_paths:
                     refuse_repo_config_symlink(rp)
                     _check_config_overwrite(rp, pid, name, force)
