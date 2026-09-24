@@ -13,9 +13,11 @@ second entry for a repo that is already claimed.
 from __future__ import annotations
 
 from collections import Counter
+from contextlib import ExitStack
 
 import typer
 
+from nauro.store.migration_admission import migration_write_guard
 from nauro.store.registry import (
     load_registry_v2,
     registered_store_path_hint_v2,
@@ -106,12 +108,18 @@ def remove_project(
             f"The store at {store_description} will be left intact.",
             abort=True,
         )
-    removed = remove_project_v2(project_id)
-    if not removed:
-        typer.echo(f"No project registered with id {project_id!r}.", err=True)
-        raise typer.Exit(code=1)
-    typer.echo(f"Removed registry entry for {project_id}.")
-    if store_path is None:
-        typer.echo("  Store left untouched: the registered path was invalid.")
-    else:
-        typer.echo(f"  Store left intact: {store_path}")
+    with ExitStack() as guards:
+        if store_path is not None:
+            guards.enter_context(migration_write_guard(store_path))
+        if (load_registry_v2()["projects"].get(project_id) or {}) != entry:
+            typer.echo("Project registration changed; inspect it before removal.", err=True)
+            raise typer.Exit(code=1)
+        removed = remove_project_v2(project_id)
+        if not removed:
+            typer.echo(f"No project registered with id {project_id!r}.", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"Removed registry entry for {project_id}.")
+        if store_path is None:
+            typer.echo("  Store left untouched: the registered path was invalid.")
+        else:
+            typer.echo(f"  Store left intact: {store_path}")

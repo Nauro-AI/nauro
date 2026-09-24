@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import stat
 from pathlib import Path
 
@@ -10,6 +11,12 @@ from filelock import FileLock
 
 from nauro.store._atomic import atomic_write_bytes
 from nauro.store.generation_installation import _read_expected
+from nauro.store.generation_migration_assessment import (
+    LegacyFileStamp,
+    _inventory,
+    _require_empty_control_lock,
+    _require_legacy_root,
+)
 from nauro.store.generation_migration_plan import LegacyMigrationPlan
 from nauro.store.generation_refresh_io import RefreshPaths, durable_replace, sync_file, sync_parents
 from nauro.store.migration_admission import (
@@ -181,6 +188,39 @@ def save_migration_assessment(
     return record
 
 
+def _verify_source(record: MigrationAdmission, raw_plan: bytes) -> None:
+    try:
+        _compare_source(record, raw_plan)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise MigrationAdmissionError(
+            "Project files changed or are unavailable; prepare and confirm a fresh assessment."
+        ) from exc
+
+
+def _compare_source(record: MigrationAdmission, raw_plan: bytes) -> None:
+    store = Path(record.store)
+    payload = json.loads(raw_plan)
+    if (
+        payload["migration_id"] != record.migration_id
+        or payload["project_id"] != record.project_id
+        or payload["server_url"] != record.endpoint
+        or payload["projection"]["installed_for_user_id"] != record.actor
+    ):
+        raise ValueError("Saved plan binding differs")
+    expected = tuple(
+        sorted(
+            LegacyFileStamp(entry["source_path"], entry["size"], entry["sha256"])
+            for entry in payload["entries"]
+        )
+    )
+    _require_legacy_root(store)
+    _require_empty_control_lock(store)
+    files, directories, pending = _inventory(store)
+    _require_legacy_root(store)
+    if pending or files != expected or directories != tuple(payload["directory_paths"]):
+        raise ValueError("Source inventory differs")
+
+
 def decide_migration_assessment(
     expected: MigrationAdmission,
     *,
@@ -197,8 +237,10 @@ def decide_migration_assessment(
             raise MigrationAdmissionError(
                 "Migration disposition changed; inspect retained evidence."
             )
-        _read_plan(expected)
+        raw_plan = _read_plan(expected)
         inspect_previous_migration(expected)
+        if preserve and current == expected:
+            _verify_source(expected, raw_plan)
         paths = RefreshPaths(migration_home(), migration_home())
         sync_file(paths, _plan_path(expected))
         sync_parents(paths, migration_home())
