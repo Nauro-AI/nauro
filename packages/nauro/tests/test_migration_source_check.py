@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 
 import pytest
-from filelock import Timeout
 from typer.testing import CliRunner
 
 from nauro.cli.commands import projects
@@ -13,6 +12,7 @@ from nauro.store.generation_migration_assessment import assess_legacy_migration
 from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
 from nauro.store.migration_admission import MigrationAdmissionError, inspect_migration
 from nauro.store.registry import register_project_v2
+from nauro.store.replica_control import ReplicaControlBusyError
 from nauro.sync import migration_admission as migration
 from tests.test_generation_migration_plan import _assessment
 
@@ -99,7 +99,7 @@ def test_registry_removal_holds_fence_and_blocked_record_refuses(tmp_path, monke
         future = pool.submit(CliRunner().invoke, app, arguments)
         try:
             assert entered.wait(10)
-            with pytest.raises(Timeout):
+            with pytest.raises(ReplicaControlBusyError, match="busy"):
                 migration.decide_migration_assessment(record, preserve=True)
         finally:
             release.set()
@@ -113,3 +113,22 @@ def test_registry_removal_holds_fence_and_blocked_record_refuses(tmp_path, monke
     assert result.exit_code == 1
     assert "conversion is incomplete" in result.output
     assert projects.load_registry_v2() == before
+
+
+def test_control_evidence_arriving_during_inventory_refuses(tmp_path, monkeypatch):
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "home"))
+    binding, assessment = _assessment(tmp_path)
+    record = migration.save_migration_assessment(prepare_legacy_migration_plan(assessment))
+    original = migration._inventory
+    control = binding.store_path / ".replica-control.lock"
+
+    def arriving(store):
+        result = original(store)
+        control.write_bytes(b"arriving evidence")
+        return result
+
+    monkeypatch.setattr(migration, "_inventory", arriving)
+    with pytest.raises(MigrationAdmissionError, match="fresh assessment"):
+        migration.decide_migration_assessment(record, preserve=True)
+    assert control.read_bytes() == b"arriving evidence"
+    assert inspect_migration(binding.store_path) == record

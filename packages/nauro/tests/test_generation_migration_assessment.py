@@ -379,3 +379,30 @@ def test_nonempty_control_lock_is_refused_without_truncation(tmp_path: Path) -> 
     with pytest.raises(LegacyMigrationAssessmentError, match="unsafe evidence"):
         assess_legacy_migration(_projection(binding, {}))
     assert path.read_bytes() == content
+
+
+@pytest.mark.parametrize("replace", [False, True])
+def test_control_lock_evidence_appearing_during_acquisition_is_preserved(
+    tmp_path, monkeypatch, replace
+):
+    from nauro.store import generation_migration_assessment as assessment
+
+    binding = _binding(tmp_path)
+    path = binding.store_path / ".replica-control.lock"
+    path.touch()
+    original = assessment._require_empty_control_lock
+    calls = 0
+
+    def restore(store):
+        nonlocal calls
+        original(store)
+        calls += 1
+        if calls == 1:
+            if replace:
+                path.unlink()
+            path.write_bytes(b"concurrently restored legacy evidence")
+
+    monkeypatch.setattr(assessment, "_require_empty_control_lock", restore)
+    with pytest.raises(LegacyMigrationAssessmentError, match="unsafe evidence"):
+        assess_legacy_migration(_projection(binding, {}))
+    assert path.read_bytes() == b"concurrently restored legacy evidence"

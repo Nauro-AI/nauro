@@ -10,7 +10,6 @@ from threading import Event
 
 import httpx
 import pytest
-from filelock import Timeout
 
 from nauro.auth import DEFAULT_AUTH_REDIRECT_URI
 from nauro.store.config import save_config
@@ -18,6 +17,7 @@ from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
 from nauro.store.migration_admission import (
     MigrationAdmissionError,
     inspect_migration,
+    migration_lock_path,
     migration_write_guard,
 )
 from nauro.store.registry import (
@@ -26,6 +26,7 @@ from nauro.store.registry import (
     remove_project_v2,
     save_registry_v2,
 )
+from nauro.store.replica_control import ReplicaControlBusyError
 from nauro.store.resolution import StoreResolutionError
 from nauro.sync import migration_preservation as preservation
 from nauro.sync.generation_attachment import InitialAttachmentSession
@@ -266,7 +267,7 @@ def test_competing_continuation_cannot_enter_copy(saved, monkeypatch):
         future = pool.submit(preservation.preserve_migration_source, record, session)
         try:
             assert entered.wait(10)
-            with pytest.raises(Timeout):
+            with pytest.raises(ReplicaControlBusyError, match="busy"):
                 preservation.preserve_migration_source(record, session)
         finally:
             release.set()
@@ -320,3 +321,14 @@ def test_fresh_session_cannot_adopt_changed_registration(saved, tmp_path, change
     assert not plan.backup_root.exists()
     assert calls == []
     assert load_migration_plan(session.binding.store_path) == (record, plan.manifest_json)
+
+
+def test_preservation_refuses_lock_evidence_without_truncating(saved):
+    record, plan, session, _, _, calls = saved
+    lock = migration_lock_path(session.binding.store_path)
+    lock.write_bytes(b"retained evidence")
+    with pytest.raises(MigrationAdmissionError, match="lock contains"):
+        preservation.preserve_migration_source(record, session)
+    assert lock.read_bytes() == b"retained evidence"
+    assert calls == []
+    assert not plan.backup_root.exists()

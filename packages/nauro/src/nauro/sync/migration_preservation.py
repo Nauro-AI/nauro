@@ -9,10 +9,8 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from filelock import FileLock
 from pydantic import BaseModel, ConfigDict
 
-from nauro.store._atomic import atomic_write_bytes
 from nauro.store.generation_migration_assessment import _inventory, _stamp_file
 from nauro.store.generation_projection import (
     GenerationProjectionIdentity,
@@ -22,7 +20,8 @@ from nauro.store.generation_refresh_io import RefreshPaths, sync_file, sync_pare
 from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
-    migration_lock_path,
+    migration_lock,
+    same_store_binding,
 )
 from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_path
 from nauro.store.resolution import resolve_project_binding
@@ -122,6 +121,35 @@ def _pending(entry: _Entry) -> str:
     return ".pending/" + hashlib.sha256(entry.source_path.encode()).hexdigest()
 
 
+def _plan_pending(raw: bytes) -> str:
+    return ".plan-" + hashlib.sha256(raw).hexdigest() + ".pending"
+
+
+def _publish_plan(root: Path, raw: bytes) -> None:
+    scratch = root / _plan_pending(raw)
+    _validate_managed_path(root, scratch)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(scratch, flags, 0o600)
+    with os.fdopen(fd, "r+b") as handle:
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or _is_link_or_reparse(info)
+            or info.st_nlink != 1
+            or not os.path.samestat(info, scratch.stat())
+            or not raw.startswith(handle.read(len(raw) + 1))
+        ):
+            raise MigrationAdmissionError("Preservation plan scratch differs.")
+        handle.seek(0)
+        handle.write(raw)
+        handle.flush()
+        os.fsync(fd)
+        _validate_managed_path(root, scratch)
+        if not os.path.samestat(os.fstat(fd), scratch.stat()):
+            raise MigrationAdmissionError("Preservation plan scratch changed.")
+    os.replace(scratch, root / "plan.json")
+
+
 def _inspect_backup(root: Path, plan: _Plan, raw: bytes) -> set[str]:
     _validate_managed_path(root.parent, root)
     if not root.exists():
@@ -134,8 +162,16 @@ def _inspect_backup(root: Path, plan: _Plan, raw: bytes) -> set[str]:
     expected["plan.json"] = (len(raw), hashlib.sha256(raw).hexdigest())
     scratch = {_pending(entry) for entry in plan.entries}
     found = set()
+    initial = _plan_pending(raw)
     for stamp in files:
-        if stamp.path in scratch:
+        if stamp.path == initial:
+            if (
+                stamp.size > len(raw)
+                or (root / stamp.path).stat().st_nlink != 1
+                or not raw.startswith((root / stamp.path).read_bytes())
+            ):
+                raise MigrationAdmissionError("Preservation plan scratch differs.")
+        elif stamp.path in scratch:
             if (root / stamp.path).stat().st_nlink != 1:
                 raise MigrationAdmissionError("Preservation scratch has an alias.")
         elif (
@@ -148,7 +184,11 @@ def _inspect_backup(root: Path, plan: _Plan, raw: bytes) -> set[str]:
     if (
         pending
         or set(directories) - _directories(plan)
-        or ((files or directories) and "plan.json" not in found)
+        or (
+            "plan.json" not in found
+            and (directories or any(stamp.path != initial for stamp in files))
+        )
+        or ("plan.json" in found and any(stamp.path == initial for stamp in files))
     ):
         raise MigrationAdmissionError("Unexpected preservation evidence.")
     return found
@@ -199,18 +239,21 @@ def _copy(source: Path, root: Path, entry: _Entry) -> None:
 
 def _require_registered_source(record: MigrationAdmission) -> None:
     current = resolve_project_binding(record.project_id, None, use_cwd=False)
-    if current.mode != "cloud" or (
-        current.project_id,
-        current.server_url,
-        current.store_path.resolve(),
-    ) != (record.project_id, record.endpoint, Path(record.store).resolve()):
+    if (
+        current.mode != "cloud"
+        or (
+            current.project_id,
+            current.server_url,
+        )
+        != (record.project_id, record.endpoint)
+        or not same_store_binding(current.store_path, Path(record.store))
+    ):
         raise MigrationAdmissionError("Registered preservation source differs.")
 
 
 def preserve_migration_source(
     record: MigrationAdmission, session: InitialAttachmentSession
 ) -> Path:
-    """Continue the same admitted plan; leave source and admission block intact."""
     if (
         type(record) is not MigrationAdmission
         or record.phase != "blocked"
@@ -218,17 +261,16 @@ def preserve_migration_source(
     ):
         raise MigrationAdmissionError("Preservation requires an admitted plan and owner session.")
     source = Path(record.store)
-    with FileLock(migration_lock_path(source), timeout=0):
+    with migration_lock(source):
         current, raw = load_migration_plan(source)
         if current != record:
             raise MigrationAdmissionError("Preservation admission changed.")
         plan = _decode(raw, record)
         binding = session.binding
-        if (binding.project_id, binding.server_url, binding.store_path.resolve()) != (
+        if (binding.project_id, binding.server_url) != (
             record.project_id,
             record.endpoint,
-            source.resolve(),
-        ):
+        ) or not same_store_binding(binding.store_path, source):
             raise MigrationAdmissionError("Preservation session binding differs.")
         target = GenerationProjectionTarget(binding, plan.projection)
         _require_registered_source(record)
@@ -238,7 +280,7 @@ def preserve_migration_source(
         found = _inspect_backup(root, plan, raw)
         _mkdir(source.parent, root)
         if "plan.json" not in found:
-            atomic_write_bytes(root / "plan.json", raw)
+            _publish_plan(root, raw)
         paths = RefreshPaths(root.parent, root.parent)
         sync_file(paths, root / "plan.json")
         sync_parents(paths, root)

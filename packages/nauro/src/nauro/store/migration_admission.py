@@ -7,15 +7,17 @@ import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from threading import local
 from typing import Literal
 
-from filelock import FileLock, Timeout
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from nauro.store.home import nauro_home
 from nauro.store.replica_control import (
+    ReplicaControlBusyError,
     _is_link_or_reparse,
+    _native_control_lock,
     _read_optional_file,
     _validate_managed_path,
 )
@@ -80,6 +82,16 @@ def admission_path(store: Path) -> Path:
         ) from exc
 
 
+def same_store_binding(left: Path, right: Path) -> bool:
+    left, right = left.resolve(), right.resolve()
+    if left.name != right.name or not left.parent.samefile(right.parent):
+        return False
+    try:
+        return left.samefile(right)
+    except FileNotFoundError:
+        return not left.exists() and not right.exists()
+
+
 def _find_admission_path(store: Path) -> Path:
     home = migration_home()
     matches: list[Path] = []
@@ -110,7 +122,9 @@ def _find_admission_path(store: Path) -> Path:
             or path != _named_path(recorded)
         ):
             raise ValueError("Migration admission evidence differs")
-        if recorded.resolve() == store.resolve():
+        if record.project_id == store.resolve().name.upper():
+            if not same_store_binding(recorded, store):
+                raise ValueError("Retained migration binding is uncertain")
             matches.append(path)
     if len(matches) > 1:
         raise ValueError("Multiple migration records identify this store")
@@ -121,7 +135,7 @@ def _decode_record(store: Path, raw: bytes) -> MigrationAdmission:
     record = MigrationAdmission.model_validate_json(raw)
     if (
         record.canonical_bytes() != raw
-        or Path(record.store).resolve() != store.resolve()
+        or not same_store_binding(Path(record.store), store)
         or record.project_id != store.name
     ):
         raise ValueError("Migration admission binding differs")
@@ -160,34 +174,60 @@ def require_migration_admission(store: Path) -> None:
 
 
 def migration_lock_path(store: Path) -> Path:
-    path = _named_path(store.resolve()).with_suffix(".lock")
-    _validate_managed_path(migration_home(), path)
     try:
-        info = path.lstat()
-    except FileNotFoundError:
-        return path
-    if (
-        info.st_size
-        or info.st_nlink != 1
-        or _is_link_or_reparse(info)
-        or not stat.S_ISREG(info.st_mode)
-    ):
-        raise MigrationAdmissionError("Migration lock contains unsafe evidence.")
+        project = validate_identifier(
+            IdentifierKind.ulid, store.resolve().name.upper(), field="project"
+        )
+    except ValueError:
+        project = "unidentified"
+    path = migration_home() / f"migration-project-{project}.lock"
+    for candidate in (path, _named_path(store.resolve()).with_suffix(".lock")):
+        _validate_managed_path(migration_home(), candidate)
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError:
+            continue
+        if (
+            info.st_size
+            or info.st_nlink != 1
+            or _is_link_or_reparse(info)
+            or not stat.S_ISREG(info.st_mode)
+        ):
+            raise MigrationAdmissionError("Migration lock contains unsafe evidence.")
     return path
+
+
+_held_locks = local()
+
+
+@contextmanager
+def migration_lock(store: Path, *, timeout: float = 0) -> Iterator[None]:
+    home = migration_home()
+    _validate_managed_path(home, home)
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = migration_lock_path(store)
+    held = getattr(_held_locks, "paths", None)
+    if held is None:
+        held = _held_locks.paths = set()
+    if path in held:
+        yield
+        migration_lock_path(store)
+        return
+    with _native_control_lock(home, path, timeout):
+        migration_lock_path(store)
+        held.add(path)
+        try:
+            yield
+            migration_lock_path(store)
+        finally:
+            held.remove(path)
 
 
 @contextmanager
 def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
-    home = migration_home()
-    _validate_managed_path(home, home)
-    home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock = FileLock(migration_lock_path(store), timeout=10, is_singleton=True)
     try:
-        lock.acquire(timeout=timeout)
-    except Timeout as exc:
+        with migration_lock(store, timeout=timeout):
+            require_migration_admission(store)
+            yield
+    except ReplicaControlBusyError as exc:
         raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc
-    try:
-        require_migration_admission(store)
-        yield
-    finally:
-        lock.release()

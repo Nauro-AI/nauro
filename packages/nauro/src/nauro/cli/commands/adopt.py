@@ -248,6 +248,7 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
         )
         raise typer.Exit(code=1)
 
+    config_raw = config_path.read_bytes()
     pid: str | None = None
     name: str | None = None
     try:
@@ -263,6 +264,7 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
             err=True,
         )
 
+    registration = get_project_v2(pid) if pid else None
     repo_resolved = str(repo_root.resolve())
     other_repos: list[str] = []
     store_path: Path | None = None
@@ -323,12 +325,15 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
             guards.enter_context(migration_write_guard(store_path))
             if purge_store:
                 require_legacy_write(store_path, "adopt --purge-store")
-        # ── un-wire surfaces ───────────────────────────────────────────────────
-        # Force every surface on for teardown so artifacts installed via
-        # --with-subagents/--with-skills/--with-hooks are removed too, regardless of
-        # how this repo was originally adopted. The remove branches are idempotent
-        # (absent artifacts are a no-op) and the shared-user-scope guard still
-        # protects subagents/skills/codex when other projects remain.
+        if (
+            _unadopt_symlink_refusals(repo_root)
+            or config_path.read_bytes() != config_raw
+            or (get_project_v2(pid) if pid else None) != registration
+        ):
+            typer.echo("Project association changed; inspect it before removal.", err=True)
+            raise typer.Exit(code=1)
+        # Remove every surface regardless of the original adoption options.
+        # Shared user wiring stays while other projects still use it.
         typer.echo("\nRemoving Nauro integration across surfaces:")
         failed = echo_outcomes(
             setup_all_surfaces(
@@ -344,7 +349,6 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
         if failed:
             _exit_writes_failed("nauro adopt --remove")
 
-        # ── delete the per-repo config (and the .nauro dir if it is now empty) ──
         try:
             config_path.unlink()
             typer.echo(f"  removed {config_path}")
@@ -356,7 +360,6 @@ def _remove_adoption(repo_root: Path, *, purge_store: bool, assume_yes: bool) ->
         except OSError as exc:
             typer.echo(f"  could not remove {config_path}: {exc}", err=True)
 
-        # ── deregister ─────────────────────────────────────────────────────────
         if not pid:
             typer.echo("  skipped registry cleanup (no project id resolved from config)")
         elif is_last_repo:

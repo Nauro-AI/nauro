@@ -557,10 +557,9 @@ def run_pull(
     lock_timeout: float = CLI_SYNC_LOCK_TIMEOUT,
     session: TransferSession | None = None,
 ) -> PullReport:
-    """Pull remote changes for ``project_id`` into ``store_path``.
-    Returns a :class:`PullReport` carrying any transport failure, never an empty
-    success. Sync/resource contention raises ``SyncLockTimeoutError``; conversion
-    contention or blocked admission raises ``MigrationAdmissionError``.
+    """Pull remote changes, reporting transport failures in PullReport.
+    Sync contention raises SyncLockTimeoutError; migration contention or blocked
+    admission raises MigrationAdmissionError.
     """
     require_migration_admission(store_path)
     _prepare_store_root(store_path)
