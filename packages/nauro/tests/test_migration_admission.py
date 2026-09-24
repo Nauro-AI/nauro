@@ -219,3 +219,61 @@ def test_oversized_saved_plan_refuses_before_read(saved):
         handle.truncate(migration.MAX_PLAN_BYTES + 1)
     with pytest.raises(MigrationAdmissionError, match="plan is unsafe"):
         migration.load_migration_plan(binding.store_path)
+
+
+@pytest.mark.parametrize("operation", ["save", "decide"])
+@pytest.mark.parametrize("replace", [False, True])
+def test_late_lock_evidence_is_preserved_before_record_changes(
+    saved, monkeypatch, operation, replace
+):
+    binding, plan, record = saved
+    original = migration._lock_path
+    calls = 0
+    path = original(binding.store_path)
+    before = admission_path(binding.store_path).read_bytes()
+
+    def restore(store):
+        nonlocal calls
+        result = original(store)
+        calls += 1
+        if calls == 1:
+            if replace:
+                path.unlink()
+            path.write_bytes(b"restored evidence")
+        return result
+
+    monkeypatch.setattr(migration, "_lock_path", restore)
+    with pytest.raises(MigrationAdmissionError, match="unsafe evidence"):
+        if operation == "save":
+            migration.save_migration_assessment(plan)
+        else:
+            migration.decide_migration_assessment(record, preserve=True)
+    assert path.read_bytes() == b"restored evidence"
+    assert admission_path(binding.store_path).read_bytes() == before
+    assert migration._read_plan(record) == plan.manifest_json
+
+
+def test_configured_home_alias_preserves_admission(saved, tmp_path, monkeypatch):
+    binding, plan, record = saved
+    home = migration.migration_home()
+    alias = tmp_path / "linked-home"
+    alias.symlink_to(home, target_is_directory=True)
+    monkeypatch.setenv("NAURO_HOME", str(alias))
+    require_migration_admission(binding.store_path)
+    assert migration.load_migration_plan(binding.store_path) == (record, plan.manifest_json)
+    assert migration.save_migration_assessment(plan) == record
+    blocked = migration.decide_migration_assessment(record, preserve=True)
+    with pytest.raises(MigrationAdmissionError, match="conversion is incomplete"):
+        require_migration_admission(binding.store_path)
+    assert inspect_migration(binding.store_path) == blocked
+
+
+def test_configured_home_alias_without_record_allows_legacy_reads(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    alias = tmp_path / "linked-home"
+    alias.symlink_to(home, target_is_directory=True)
+    monkeypatch.setenv("NAURO_HOME", str(alias))
+    binding, _ = _assessment(tmp_path)
+    assert inspect_migration(binding.store_path) is None
+    require_legacy_context(binding.store_path)

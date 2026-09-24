@@ -51,9 +51,13 @@ class MigrationAdmission(BaseModel):
         return value
 
 
+def migration_home() -> Path:
+    return nauro_home().resolve()
+
+
 def admission_path(store: Path) -> Path:
     key = hashlib.sha256(str(store.absolute()).encode()).hexdigest()
-    return nauro_home() / f"migration-{key}.json"
+    return migration_home() / f"migration-{key}.json"
 
 
 def _decode_record(store: Path, raw: bytes) -> MigrationAdmission:
@@ -70,7 +74,7 @@ def _decode_record(store: Path, raw: bytes) -> MigrationAdmission:
 def inspect_migration(store: Path) -> MigrationAdmission | None:
     path = admission_path(store)
     try:
-        _validate_managed_path(nauro_home(), path)
+        _validate_managed_path(migration_home(), path)
         raw = _read_optional_file(path)
         record = None if raw is None else _decode_record(store, raw)
     except (OSError, ValueError) as exc:

@@ -4,23 +4,24 @@ from __future__ import annotations
 
 import hashlib
 import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-
-from filelock import FileLock
 
 from nauro.store._atomic import atomic_write_bytes
 from nauro.store.generation_installation import _read_expected
 from nauro.store.generation_migration_plan import LegacyMigrationPlan
 from nauro.store.generation_refresh_io import RefreshPaths, durable_replace, sync_file, sync_parents
-from nauro.store.home import nauro_home
 from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
     admission_path,
     inspect_migration,
+    migration_home,
 )
 from nauro.store.replica_control import (
     _is_link_or_reparse,
+    _native_control_lock,
     _read_optional_file,
     _validate_managed_path,
 )
@@ -29,12 +30,12 @@ MAX_PLAN_BYTES = 16 * 1024 * 1024
 
 
 def _plan_path(record: MigrationAdmission) -> Path:
-    return nauro_home() / f"migration-plan-{record.migration_id}.json"
+    return migration_home() / f"migration-plan-{record.migration_id}.json"
 
 
 def _read_plan(record: MigrationAdmission) -> bytes:
     path = _plan_path(record)
-    _validate_managed_path(nauro_home(), path)
+    _validate_managed_path(migration_home(), path)
     info = path.lstat()
     if (
         _is_link_or_reparse(info)
@@ -44,7 +45,7 @@ def _read_plan(record: MigrationAdmission) -> bytes:
     ):
         raise MigrationAdmissionError("Saved migration plan is unsafe.")
     raw = _read_expected(path, info.st_size, (info.st_dev, info.st_ino), "migration plan")
-    _validate_managed_path(nauro_home(), path)
+    _validate_managed_path(migration_home(), path)
     after = path.lstat()
     if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (
         info.st_dev,
@@ -69,7 +70,7 @@ def load_migration_plan(store: Path) -> tuple[MigrationAdmission, bytes]:
 
 def _lock_path(store: Path) -> Path:
     path = admission_path(store).with_suffix(".lock")
-    _validate_managed_path(nauro_home(), path)
+    _validate_managed_path(migration_home(), path)
     try:
         info = path.lstat()
     except FileNotFoundError:
@@ -84,15 +85,24 @@ def _lock_path(store: Path) -> Path:
     return path
 
 
+@contextmanager
+def _migration_lock(store: Path) -> Iterator[None]:
+    path = _lock_path(store)
+    with _native_control_lock(migration_home(), path, timeout=0):
+        _lock_path(store)
+        yield
+        _lock_path(store)
+
+
 def _previous_path(digest: str) -> Path:
-    return nauro_home() / f"migration-history-{digest}.json"
+    return migration_home() / f"migration-history-{digest}.json"
 
 
 def inspect_previous_migration(record: MigrationAdmission) -> MigrationAdmission | None:
     if record.predecessor_digest is None:
         return None
     path = _previous_path(record.predecessor_digest)
-    _validate_managed_path(nauro_home(), path)
+    _validate_managed_path(migration_home(), path)
     raw = _read_optional_file(path)
     if raw is None or hashlib.sha256(raw).hexdigest() != record.predecessor_digest:
         raise MigrationAdmissionError("Migration predecessor evidence differs.")
@@ -160,10 +170,10 @@ def save_migration_assessment(
     )
     if replace is not None:
         _require_replacement_binding(replace, record)
-    home = nauro_home()
+    home = migration_home()
     _validate_managed_path(home, home)
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with FileLock(_lock_path(binding.store_path), timeout=0):
+    with _migration_lock(binding.store_path):
         prior = inspect_migration(binding.store_path)
         if prior != record and (prior is not None or replace is not None) and prior != replace:
             raise MigrationAdmissionError(
@@ -196,7 +206,7 @@ def decide_migration_assessment(
         raise MigrationAdmissionError("An exact assessed migration is required.")
     store = Path(expected.store)
     desired = expected.model_copy(update={"phase": "blocked" if preserve else "declined"})
-    with FileLock(_lock_path(store), timeout=0):
+    with _migration_lock(store):
         current = inspect_migration(store)
         if current not in (expected, desired):
             raise MigrationAdmissionError(
@@ -204,8 +214,8 @@ def decide_migration_assessment(
             )
         _read_plan(expected)
         inspect_previous_migration(expected)
-        paths = RefreshPaths(nauro_home(), nauro_home())
+        paths = RefreshPaths(migration_home(), migration_home())
         sync_file(paths, _plan_path(expected))
-        sync_parents(paths, nauro_home())
+        sync_parents(paths, migration_home())
         durable_replace(paths, admission_path(store), desired.canonical_bytes())
     return desired
