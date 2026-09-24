@@ -7,15 +7,17 @@ import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from threading import local
 from typing import Literal
 
-from filelock import FileLock, Timeout
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from nauro.store.home import nauro_home
 from nauro.store.replica_control import (
+    ReplicaControlBusyError,
     _is_link_or_reparse,
+    _native_control_lock,
     _read_optional_file,
     _validate_managed_path,
 )
@@ -59,9 +61,13 @@ class MigrationAdmission(BaseModel):
         return value
 
 
+def migration_home() -> Path:
+    return nauro_home().resolve()
+
+
 def admission_path(store: Path) -> Path:
     key = hashlib.sha256(str(store.absolute()).encode()).hexdigest()
-    return nauro_home() / f"migration-{key}.json"
+    return migration_home() / f"migration-{key}.json"
 
 
 def _decode_record(store: Path, raw: bytes) -> MigrationAdmission:
@@ -78,7 +84,7 @@ def _decode_record(store: Path, raw: bytes) -> MigrationAdmission:
 def inspect_migration(store: Path) -> MigrationAdmission | None:
     path = admission_path(store)
     try:
-        _validate_managed_path(nauro_home(), path)
+        _validate_managed_path(migration_home(), path)
         raw = _read_optional_file(path)
         record = None if raw is None else _decode_record(store, raw)
     except (OSError, ValueError) as exc:
@@ -96,7 +102,7 @@ def require_migration_admission(store: Path) -> None:
 
 def migration_lock_path(store: Path) -> Path:
     path = admission_path(store).with_suffix(".lock")
-    _validate_managed_path(nauro_home(), path)
+    _validate_managed_path(migration_home(), path)
     try:
         info = path.lstat()
     except FileNotFoundError:
@@ -111,18 +117,37 @@ def migration_lock_path(store: Path) -> Path:
     return path
 
 
+_held_locks = local()
+
+
 @contextmanager
-def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
-    home = nauro_home()
+def migration_lock(store: Path, *, timeout: float = 0) -> Iterator[None]:
+    home = migration_home()
     _validate_managed_path(home, home)
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock = FileLock(migration_lock_path(store), timeout=10, is_singleton=True)
-    try:
-        lock.acquire(timeout=timeout)
-    except Timeout as exc:
-        raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc
-    try:
-        require_migration_admission(store)
+    path = migration_lock_path(store)
+    held = getattr(_held_locks, "paths", None)
+    if held is None:
+        held = _held_locks.paths = set()
+    if path in held:
         yield
-    finally:
-        lock.release()
+        migration_lock_path(store)
+        return
+    with _native_control_lock(home, path, timeout):
+        migration_lock_path(store)
+        held.add(path)
+        try:
+            yield
+            migration_lock_path(store)
+        finally:
+            held.remove(path)
+
+
+@contextmanager
+def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
+    try:
+        with migration_lock(store, timeout=timeout):
+            require_migration_admission(store)
+            yield
+    except ReplicaControlBusyError as exc:
+        raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc

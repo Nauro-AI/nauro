@@ -29,6 +29,7 @@ def require_legacy_write(store_path: Path, command: str) -> None:
 
 @contextmanager
 def legacy_write_guard(store_path: Path, command: str) -> Iterator[None]:
+    require_legacy_write(store_path, command)
     with migration_write_guard(store_path):
         require_legacy_write(store_path, command)
         yield
