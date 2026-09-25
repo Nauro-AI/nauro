@@ -486,6 +486,54 @@ class TestPushViaPresign:
         ]
         assert plan.oversized_briefs == ()
 
+    def test_windows_separators_become_posix_object_keys(self, cloud_store, monkeypatch):
+        """On Windows the walker yields backslash paths; push must still send
+        POSIX keys, or S3 stores ``decisions\\001-x.md`` outside ``decisions/``."""
+        import dataclasses
+
+        from nauro.sync import push
+        from nauro.sync.push import plan_push, push_changed_files
+
+        real_walk = push._walk_store_files
+
+        def windows_walk(root):
+            for entry in real_walk(root):
+                raw = entry.raw_relative_path.replace("/", "\\")
+                yield dataclasses.replace(entry, raw_relative_path=raw)
+
+        monkeypatch.setattr(push, "_walk_store_files", windows_walk)
+        self._seed_synced_state(cloud_store)
+        (cloud_store / "snapshots/v001.json").write_text('{"version": 1}\n')
+        context_dir = cloud_store / "context"
+        context_dir.mkdir()
+        (context_dir / "too-large.md").write_text("x" * (MAX_BRIEF_BYTES + 1))
+
+        plan = plan_push(cloud_store, load_state(cloud_store))
+
+        assert [c.relative_path for c in plan.candidates] == ["snapshots/v001.json"]
+        assert [b.relative_path for b in plan.oversized_briefs] == ["context/too-large.md"]
+
+        put_response = MagicMock(spec=httpx.Response)
+        put_response.status_code = 200
+        put_response.headers = {"ETag": '"e_pushed"'}
+
+        def fake_post(url, **kwargs):
+            return self._presign_response(kwargs["json"]["operations"])
+
+        from nauro.sync import remote
+
+        with (
+            patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
+            patch.object(remote.httpx.Client, "put", return_value=put_response),
+        ):
+            pushed = push_changed_files(CLOUD_PID, cloud_store)
+
+        assert pushed.is_complete is True
+        assert mock_post.call_args.kwargs["json"]["operations"] == [
+            {"verb": "PUT", "path": "snapshots/v001.json"}
+        ]
+        assert "snapshots/v001.json" in load_state(cloud_store).files
+
     def test_presign_candidates_match_the_push_plan(self, cloud_store, capsys):
         from nauro.sync.push import plan_push, push_changed_files
 
