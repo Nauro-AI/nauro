@@ -42,6 +42,22 @@ def _retained(record: MigrationAdmission) -> Path:
     return source.parent / f"legacy-source-{record.project_id}-{record.migration_id}"
 
 
+def verify_admitted_migration_source(record: MigrationAdmission, raw: bytes) -> None:
+    """Refuse a replacing or installing upgrade whose retained source no longer matches."""
+    if record.phase not in {"replacing", "installing"}:
+        raise MigrationAdmissionError("Retained source checks require an admitted upgrade.")
+    source, retained = Path(record.store), _retained(record)
+    location = retained
+    if record.phase == "replacing" and source.exists() and not retained.exists():
+        location = source
+    try:
+        verify_migration_source(record.model_copy(update={"store": str(location)}), raw)
+    except MigrationAdmissionError as exc:
+        raise MigrationAdmissionError(
+            "The retained project files changed after this upgrade was admitted."
+        ) from exc
+
+
 def _registration(record: MigrationAdmission, session: InitialAttachmentSession) -> None:
     entry = get_project_entry_v2(record.project_id)
     if entry is None or entry.mode != "cloud" or entry.server_url != record.endpoint:

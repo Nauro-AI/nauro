@@ -24,7 +24,10 @@ from nauro.sync.migration_admission import (
     save_migration_assessment,
     verify_migration_source,
 )
-from nauro.sync.migration_installation import continue_migration_installation
+from nauro.sync.migration_installation import (
+    continue_migration_installation,
+    verify_admitted_migration_source,
+)
 from nauro.sync.migration_preservation import (
     decode_migration_plan,
     require_registered_migration_source,
@@ -113,6 +116,14 @@ def _execute(
     session.require_binding(binding)
     if record.phase == "assessed":
         require_registered_migration_source(record)
+    if record.phase in {"replacing", "installing"}:
+        current, raw = load_migration_plan(binding.store_path)
+        if current != record:
+            raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
+        try:
+            verify_admitted_migration_source(record, raw)
+        except MigrationAdmissionError as exc:
+            raise _AssessmentChangedError(str(exc)) from exc
     projection = acquire_generation_projection(
         binding, active_user_id=record.actor, session=session
     )
