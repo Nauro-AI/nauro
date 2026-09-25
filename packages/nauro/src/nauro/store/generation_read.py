@@ -53,7 +53,11 @@ def _capture(authority: GenerationProjectAuthority) -> VerifiedGenerationProject
     identity = GenerationProjectionIdentity.model_validate(
         {name: getattr(pointer, name) for name in GenerationProjectionIdentity.model_fields}
     )
-    target = GenerationProjectionTarget(authority.binding, identity)
+    return capture_generation_root(GenerationProjectionTarget(authority.binding, identity))
+
+
+def capture_generation_root(target: GenerationProjectionTarget) -> VerifiedGenerationProjection:
+    """Read and verify one installed root for an exact target, without a control lock."""
     store_path = target.binding.store_path
     root = _layout(store_path, target).root_path
     _require_directory(store_path, root, root=True)
