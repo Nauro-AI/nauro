@@ -19,13 +19,19 @@ from nauro.store.migration_admission import (
 from nauro.sync.generation_acquisition import acquire_generation_projection
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.migration_admission import (
-    _verify_source,
     decide_migration_assessment,
     load_migration_plan,
     save_migration_assessment,
+    verify_migration_source,
 )
-from nauro.sync.migration_installation import continue_migration_installation
-from nauro.sync.migration_preservation import _decode, _require_registered_source
+from nauro.sync.migration_installation import (
+    continue_migration_installation,
+    verify_admitted_migration_source,
+)
+from nauro.sync.migration_preservation import (
+    decode_migration_plan,
+    require_registered_migration_source,
+)
 from nauro.sync.remote import TransferBoundaryError
 
 
@@ -47,7 +53,7 @@ def _present(record: MigrationAdmission, emit: Callable[[str], None]) -> None:
     current, raw = load_migration_plan(Path(record.store))
     if current != record:
         raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
-    plan = _decode(raw, record)
+    plan = decode_migration_plan(raw, record)
     emit("This hosted project already uses server-authorized generations.")
     emit(
         "This upgrade changes this computer's working copy. Deferring does not "
@@ -109,21 +115,29 @@ def _execute(
     binding = session.binding
     session.require_binding(binding)
     if record.phase == "assessed":
-        _require_registered_source(record)
+        require_registered_migration_source(record)
+    if record.phase in {"replacing", "installing"}:
+        current, raw = load_migration_plan(binding.store_path)
+        if current != record:
+            raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
+        try:
+            verify_admitted_migration_source(record, raw)
+        except MigrationAdmissionError as exc:
+            raise _AssessmentChangedError(str(exc)) from exc
     projection = acquire_generation_projection(
         binding, active_user_id=record.actor, session=session
     )
     current, raw = load_migration_plan(binding.store_path)
     if current != record:
         raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
-    if _decode(raw, record).projection != projection.target.identity:
+    if decode_migration_plan(raw, record).projection != projection.target.identity:
         raise _AssessmentChangedError(
             "The hosted generation changed. A fresh assessment and confirmation "
             "are required before conversion."
         )
     if record.phase in {"assessed", "blocked"}:
         try:
-            _verify_source(record, raw)
+            verify_migration_source(record, raw)
         except MigrationAdmissionError as exc:
             raise _AssessmentChangedError(str(exc)) from exc
     if record.phase == "assessed":
@@ -238,7 +252,9 @@ def _guide(
             "This computer now reads the verified hosted record. The original "
             "local files remain preserved."
         )
-        backup = Path(record.store).parent / _decode(raw, record).backup_directory_name
+        backup = (
+            Path(record.store).parent / decode_migration_plan(raw, record).backup_directory_name
+        )
         emit(f"Preserved files: {backup}")
         return completed
     return record

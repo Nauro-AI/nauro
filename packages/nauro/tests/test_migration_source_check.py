@@ -72,7 +72,7 @@ def test_exact_blocked_replay_is_inspection_not_source_reexecution(tmp_path, mon
     def forbidden(*args):
         pytest.fail("Replay re-executed source validation")
 
-    monkeypatch.setattr(migration, "_verify_source", forbidden)
+    monkeypatch.setattr(migration, "verify_migration_source", forbidden)
     assert migration.decide_migration_assessment(record, preserve=True) == blocked
     assert not binding.store_path.exists()
 

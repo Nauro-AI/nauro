@@ -381,3 +381,90 @@ def test_transport_failure_mid_conversion_is_incomplete_without_cleanup(assessed
     assert not any("now reads" in message for message in messages)
     assert any("staging" in str(path) for path in seen["dropped"])
     assert _tree(root) == seen["dropped"]
+
+
+def test_refused_owner_check_during_continuation_is_incomplete(assessed, monkeypatch):
+    _, _, session, *_ = assessed
+    store = session.binding.store_path
+    original = installation._install
+
+    def interrupted(*args):
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(installation, "_install", interrupted)
+    upgrade.guided_existing_hosted_upgrade(
+        session, emit=lambda text: None, confirm=lambda prompt: True
+    )
+    monkeypatch.setattr(installation, "_install", original)
+    saved, _ = load_migration_plan(store)
+    assert saved.phase == "installing"
+    transport = session.client._transport
+    handler = transport.handler
+
+    def refused(request):
+        if request.url.path == "/projects":
+            return httpx.Response(403, json={"error": "forbidden"})
+        return handler(request)
+
+    monkeypatch.setattr(transport, "handler", refused)
+    before = _tree(store.parent)
+    messages = []
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=lambda prompt: True
+    )
+    assert result == saved
+    assert inspect_migration(store) == saved
+    assert _tree(store.parent) == before
+    assert "Upgrade incomplete: Current owner access could not be confirmed." in messages
+    assert messages[-1].startswith("Retained evidence was not discarded.")
+    assert not any("now reads" in message for message in messages)
+
+
+@pytest.mark.parametrize("phase", ["replacing", "installing"])
+@pytest.mark.parametrize("changed", [True, False])
+def test_admitted_upgrade_checks_retained_source_before_continuing(
+    assessed, monkeypatch, phase, changed
+):
+    record, _, session, *_ = assessed
+    store = session.binding.store_path
+    step = "_replace_source" if phase == "replacing" else "_install"
+    original = getattr(installation, step)
+
+    def interrupted(*args):
+        if phase == "replacing":
+            original(*args)
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(installation, step, interrupted)
+    upgrade.guided_existing_hosted_upgrade(
+        session, emit=lambda text: None, confirm=lambda prompt: True
+    )
+    monkeypatch.setattr(installation, step, original)
+    saved, _ = load_migration_plan(store)
+    assert saved.phase == phase
+    retained = installation._retained(saved)
+    assert retained.is_dir() and not store.exists()
+    messages = []
+    if not changed:
+        result = upgrade.guided_existing_hosted_upgrade(
+            session, emit=messages.append, confirm=lambda prompt: True
+        )
+        assert result.phase == "completed"
+        assert result.migration_id == record.migration_id
+        return
+    (retained / "state_current.md").write_text("Changed after admission")
+    before = _tree(store.parent)
+    monkeypatch.setattr(upgrade, "acquire_generation_projection", _forbidden)
+    monkeypatch.setattr(upgrade, "continue_migration_installation", _forbidden)
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=lambda prompt: True
+    )
+    assert result == saved
+    assert inspect_migration(store) == saved
+    assert _tree(store.parent) == before
+    assert messages[-1] == (
+        "This saved upgrade cannot continue against the changed record. Local "
+        "writes remain blocked and preserved evidence is retained. Owner "
+        "recovery is required."
+    )
+    assert not any("Reopen" in m or "fresh assessment" in m for m in messages)
