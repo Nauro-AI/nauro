@@ -190,25 +190,18 @@ def _guide(
     binding = session.binding
     for attempt in range(2):
         _present(record, emit)
-        if record.phase in {"assessed", "reassessed"}:
-            consent = confirm(
-                "Preserve the listed local files outside the active record and "
-                "upgrade this computer?"
-            )
-            if not consent and record.source_id is not None:
-                emit(
-                    "Upgrade remains incomplete. Preserved evidence and the local "
-                    "access block remain in place."
-                )
-                return record
-            if not consent:
-                declined = decide_migration_assessment(record, preserve=False)
-                emit("Upgrade deferred. The local working copy remains unchanged.")
-                return declined
-        elif not confirm(
-            "Continue this saved upgrade using its existing identity and "
+        fresh = record.phase in {"assessed", "reassessed"}
+        consent = confirm(
+            "Preserve the listed local files outside the active record and upgrade this computer?"
+            if fresh
+            else "Continue this saved upgrade using its existing identity and "
             "approved file dispositions?"
-        ):
+        )
+        if not consent and fresh and record.source_id is None:
+            declined = decide_migration_assessment(record, preserve=False)
+            emit("Upgrade deferred. The local working copy remains unchanged.")
+            return declined
+        if not consent:
             emit(
                 "Upgrade remains incomplete. Preserved evidence and the local "
                 "access block remain in place."
