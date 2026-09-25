@@ -187,7 +187,7 @@ def save_migration_assessment(
     return record
 
 
-def _verify_source(record: MigrationAdmission, raw_plan: bytes) -> None:
+def verify_migration_source(record: MigrationAdmission, raw_plan: bytes) -> None:
     try:
         _compare_source(record, raw_plan)
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -240,7 +240,7 @@ def decide_migration_assessment(
         raw_plan = _read_plan(expected)
         inspect_previous_migration(expected)
         if preserve and current == expected:
-            _verify_source(expected, raw_plan)
+            verify_migration_source(expected, raw_plan)
         paths = RefreshPaths(migration_home(), migration_home())
         sync_file(paths, _plan_path(expected))
         sync_parents(paths, migration_home())

@@ -27,12 +27,12 @@ from nauro.sync.generation_refresh import (
     prepare_generation_refresh,
     prepare_initial_generation_refresh,
 )
-from nauro.sync.migration_admission import _verify_source, load_migration_plan
+from nauro.sync.migration_admission import load_migration_plan, verify_migration_source
 from nauro.sync.migration_preservation import (
-    _decode,
     _directories,
     _inspect_backup,
     _Plan,
+    decode_migration_plan,
     preserve_migration_source,
 )
 
@@ -103,13 +103,13 @@ def _replace_source(record: MigrationAdmission, raw: bytes) -> None:
     if source.exists():
         if retained.exists():
             raise MigrationAdmissionError("Both source locations exist; evidence retained.")
-        _verify_source(record, raw)
+        verify_migration_source(record, raw)
         os.rename(source, retained)
     elif not retained.exists():
         raise MigrationAdmissionError("Both source locations are missing; evidence retained.")
-    _verify_source(record.model_copy(update={"store": str(retained)}), raw)
+    verify_migration_source(record.model_copy(update={"store": str(retained)}), raw)
     paths = RefreshPaths(source.parent, source.parent)
-    plan = _decode(raw, record)
+    plan = decode_migration_plan(raw, record)
     for entry in plan.entries:
         sync_file(paths, retained / entry.source_path)
     for directory in sorted(plan.directory_paths, reverse=True):
@@ -163,11 +163,13 @@ def continue_migration_installation(
         if current != record:
             raise MigrationAdmissionError("Inspect the current conversion before continuing.")
         _sync_admission(record, raw)
-        plan = _decode(raw, record)
+        plan = decode_migration_plan(raw, record)
         _registration(record, session)
         if record.phase == "completed":
             _backup(record, plan, raw)
-            _verify_source(record.model_copy(update={"store": str(_retained(record))}), raw)
+            verify_migration_source(
+                record.model_copy(update={"store": str(_retained(record))}), raw
+            )
             admit_generation_store(session.binding, actor=record.actor, session=session)
             return record
         if plan.projection != projection.target.identity:
@@ -176,12 +178,12 @@ def continue_migration_installation(
         _authorize(projection.target, session)
         _backup(record, plan, raw)
         if record.phase == "blocked":
-            _verify_source(record, raw)
+            verify_migration_source(record, raw)
             record = _advance(record, raw, "replacing")
         if record.phase == "replacing":
             _replace_source(record, raw)
             record = _advance(record, raw, "installing")
-        _verify_source(record.model_copy(update={"store": str(_retained(record))}), raw)
+        verify_migration_source(record.model_copy(update={"store": str(_retained(record))}), raw)
         if record.phase == "installing":
             _registration(record, session)
             _authorize(projection.target, session)

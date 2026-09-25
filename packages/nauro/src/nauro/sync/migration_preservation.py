@@ -27,7 +27,7 @@ from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_p
 from nauro.store.resolution import resolve_project_binding
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.generation_refresh import _authorize
-from nauro.sync.migration_admission import _verify_source, load_migration_plan
+from nauro.sync.migration_admission import load_migration_plan, verify_migration_source
 
 
 class _Entry(BaseModel):
@@ -74,7 +74,7 @@ def _relative(value: str) -> str:
     return value
 
 
-def _decode(raw: bytes, record: MigrationAdmission) -> _Plan:
+def decode_migration_plan(raw: bytes, record: MigrationAdmission) -> _Plan:
     plan = _Plan.model_validate_json(raw)
     if (
         plan.migration_id != record.migration_id
@@ -237,7 +237,7 @@ def _copy(source: Path, root: Path, entry: _Entry) -> None:
     sync_parents(RefreshPaths(root.parent, root.parent), destination.parent)
 
 
-def _require_registered_source(record: MigrationAdmission) -> None:
+def require_registered_migration_source(record: MigrationAdmission) -> None:
     current = resolve_project_binding(record.project_id, None, use_cwd=False)
     if (
         current.mode != "cloud"
@@ -265,7 +265,7 @@ def preserve_migration_source(
         current, raw = load_migration_plan(source)
         if current != record:
             raise MigrationAdmissionError("Preservation admission changed.")
-        plan = _decode(raw, record)
+        plan = decode_migration_plan(raw, record)
         binding = session.binding
         if (binding.project_id, binding.server_url) != (
             record.project_id,
@@ -273,9 +273,9 @@ def preserve_migration_source(
         ) or not same_store_binding(binding.store_path, source):
             raise MigrationAdmissionError("Preservation session binding differs.")
         target = GenerationProjectionTarget(binding, plan.projection)
-        _require_registered_source(record)
+        require_registered_migration_source(record)
         _authorize(target, session)
-        _verify_source(record, raw)
+        verify_migration_source(record, raw)
         root = source.parent / plan.backup_directory_name
         found = _inspect_backup(root, plan, raw)
         _mkdir(source.parent, root)
@@ -298,8 +298,8 @@ def preserve_migration_source(
         for directory in sorted(_directories(plan), reverse=True):
             sync_parents(paths, root / directory)
         sync_parents(paths, root)
-        _verify_source(record, raw)
-        _require_registered_source(record)
+        verify_migration_source(record, raw)
+        require_registered_migration_source(record)
         _authorize(target, session)
         if load_migration_plan(source) != (record, raw):
             raise MigrationAdmissionError("Preservation admission changed.")
