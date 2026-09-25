@@ -14,6 +14,7 @@ from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
 from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
+    current_source,
     inspect_migration,
 )
 from nauro.sync.generation_acquisition import acquire_generation_projection
@@ -114,14 +115,11 @@ def _execute(
 ) -> tuple[MigrationAdmission, bytes]:
     binding = session.binding
     session.require_binding(binding)
-    if record.phase == "assessed":
+    if record.phase in {"assessed", "reassessed"}:
         require_registered_migration_source(record)
     if record.phase in {"replacing", "installing"}:
-        current, raw = load_migration_plan(binding.store_path)
-        if current != record:
-            raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
         try:
-            verify_admitted_migration_source(record, raw)
+            verify_admitted_migration_source(record)
         except MigrationAdmissionError as exc:
             raise _AssessmentChangedError(str(exc)) from exc
     projection = acquire_generation_projection(
@@ -135,12 +133,13 @@ def _execute(
             "The hosted generation changed. A fresh assessment and confirmation "
             "are required before conversion."
         )
-    if record.phase in {"assessed", "blocked"}:
+    if record.phase in {"assessed", "reassessed", "blocked"}:
         try:
-            verify_migration_source(record, raw)
+            located = record.model_copy(update={"store": str(current_source(record))})
+            verify_migration_source(located, raw)
         except MigrationAdmissionError as exc:
             raise _AssessmentChangedError(str(exc)) from exc
-    if record.phase == "assessed":
+    if record.phase in {"assessed", "reassessed"}:
         record = decide_migration_assessment(record, preserve=True)
     return continue_migration_installation(record, projection, session), raw
 
@@ -191,11 +190,17 @@ def _guide(
     binding = session.binding
     for attempt in range(2):
         _present(record, emit)
-        if record.phase == "assessed":
+        if record.phase in {"assessed", "reassessed"}:
             consent = confirm(
                 "Preserve the listed local files outside the active record and "
                 "upgrade this computer?"
             )
+            if not consent and record.source_id is not None:
+                emit(
+                    "Upgrade remains incomplete. Preserved evidence and the local "
+                    "access block remain in place."
+                )
+                return record
             if not consent:
                 declined = decide_migration_assessment(record, preserve=False)
                 emit("Upgrade deferred. The local working copy remains unchanged.")
@@ -219,7 +224,11 @@ def _guide(
             httpx.HTTPError,
         ) as exc:
             current = inspect_migration(binding.store_path)
-            if isinstance(exc, _AssessmentChangedError) and record.phase != "assessed":
+            if (
+                isinstance(exc, _AssessmentChangedError)
+                and record.phase != "assessed"
+                and current == record
+            ):
                 emit(
                     "Upgrade incomplete: the hosted record or project files changed "
                     "after this upgrade was admitted."

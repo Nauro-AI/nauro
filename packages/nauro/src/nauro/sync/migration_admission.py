@@ -21,6 +21,7 @@ from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
     admission_path,
+    current_source,
     inspect_migration,
     migration_home,
     migration_lock,
@@ -94,10 +95,22 @@ def inspect_previous_migration(record: MigrationAdmission) -> MigrationAdmission
     return previous
 
 
+def _derivable_sources(previous: MigrationAdmission) -> set[str | None]:
+    if previous.phase in {"assessed", "declined"}:
+        return {None}
+    if previous.source_id is not None:
+        return {previous.source_id}
+    if previous.phase == "installing":
+        return {previous.migration_id}
+    return {None, previous.migration_id} if previous.phase == "replacing" else {None}
+
+
 def _require_replacement_binding(previous: MigrationAdmission, desired: MigrationAdmission) -> None:
     if (
         type(previous) is not MigrationAdmission
-        or previous.phase not in {"assessed", "declined"}
+        or previous.phase == "completed"
+        or (previous.phase not in {"assessed", "declined"} and desired.phase == "assessed")
+        or desired.source_id not in _derivable_sources(previous)
         or previous.migration_id == desired.migration_id
         or (previous.store, previous.project_id, previous.actor, previous.endpoint)
         != (desired.store, desired.project_id, desired.actor, desired.endpoint)
@@ -170,21 +183,31 @@ def save_migration_assessment(
             raise MigrationAdmissionError(
                 "Inspect the retained migration before preparing another."
             )
-        if replace is not None:
-            _retain_previous(replace, RefreshPaths(home, home))
-        path = _plan_path(record)
-        _validate_managed_path(home, path)
-        try:
-            path.lstat()
-        except FileNotFoundError:
-            atomic_write_bytes(path, plan.manifest_json)
-        if _read_plan(record) != plan.manifest_json:
-            raise MigrationAdmissionError("Saved migration plan differs.")
-        paths = RefreshPaths(home, home)
-        sync_file(paths, path)
-        sync_parents(paths, home)
-        durable_replace(paths, admission_path(binding.store_path), record.canonical_bytes())
+        _publish_successor(binding.store_path, replace, record, plan.manifest_json)
     return record
+
+
+def _publish_successor(
+    store: Path,
+    previous: MigrationAdmission | None,
+    record: MigrationAdmission,
+    manifest_json: bytes,
+) -> None:
+    home = migration_home()
+    paths = RefreshPaths(home, home)
+    if previous is not None:
+        _retain_previous(previous, paths)
+    path = _plan_path(record)
+    _validate_managed_path(home, path)
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        atomic_write_bytes(path, manifest_json)
+    if _read_plan(record) != manifest_json:
+        raise MigrationAdmissionError("Saved migration plan differs.")
+    sync_file(paths, path)
+    sync_parents(paths, home)
+    durable_replace(paths, admission_path(store), record.canonical_bytes())
 
 
 def verify_migration_source(record: MigrationAdmission, raw_plan: bytes) -> None:
@@ -227,8 +250,12 @@ def decide_migration_assessment(
     preserve: bool,
 ) -> MigrationAdmission:
     """Record an explicit disposition; this neither copies bytes nor authorizes relocation."""
-    if type(expected) is not MigrationAdmission or expected.phase != "assessed":
+    if type(expected) is not MigrationAdmission or expected.phase not in {"assessed", "reassessed"}:
         raise MigrationAdmissionError("An exact assessed migration is required.")
+    if not preserve and expected.source_id is not None:
+        raise MigrationAdmissionError(
+            "Relocated project files cannot be deferred; the upgrade remains incomplete."
+        )
     store = Path(expected.store)
     desired = expected.model_copy(update={"phase": "blocked" if preserve else "declined"})
     with migration_lock(store):
@@ -240,7 +267,8 @@ def decide_migration_assessment(
         raw_plan = _read_plan(expected)
         inspect_previous_migration(expected)
         if preserve and current == expected:
-            verify_migration_source(expected, raw_plan)
+            located = expected.model_copy(update={"store": str(current_source(expected))})
+            verify_migration_source(located, raw_plan)
         paths = RefreshPaths(migration_home(), migration_home())
         sync_file(paths, _plan_path(expected))
         sync_parents(paths, migration_home())

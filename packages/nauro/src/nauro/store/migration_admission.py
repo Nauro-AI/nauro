@@ -38,7 +38,10 @@ class MigrationAdmission(BaseModel):
     store: str
     plan_digest: str
     predecessor_digest: str | None = None
-    phase: Literal["assessed", "blocked", "declined", "replacing", "installing", "completed"]
+    phase: Literal[
+        "assessed", "blocked", "declined", "reassessed", "replacing", "installing", "completed"
+    ]
+    source_id: str | None = None
 
     def canonical_bytes(self) -> bytes:
         return self.model_dump_json(exclude_none=True).encode()
@@ -47,6 +50,11 @@ class MigrationAdmission(BaseModel):
     @classmethod
     def identifiers(cls, value: str) -> str:
         return validate_identifier(IdentifierKind.ulid, value, field="migration identity")
+
+    @field_validator("source_id")
+    @classmethod
+    def source(cls, value: str | None) -> str | None:
+        return None if value is None else cls.identifiers(value)
 
     @field_validator("predecessor_digest")
     @classmethod
@@ -59,6 +67,23 @@ class MigrationAdmission(BaseModel):
         if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
             raise ValueError("Invalid migration digest")
         return value
+
+
+def retained_source(record: MigrationAdmission) -> Path:
+    source = Path(record.store)
+    name = record.source_id or record.migration_id
+    return source.parent / f"legacy-source-{record.project_id}-{name}"
+
+
+def current_source(record: MigrationAdmission) -> Path:
+    if record.source_id is None and record.phase in {
+        "assessed",
+        "declined",
+        "blocked",
+        "reassessed",
+    }:
+        return Path(record.store)
+    return retained_source(record)
 
 
 def migration_home() -> Path:
@@ -157,7 +182,12 @@ def inspect_migration(store: Path) -> MigrationAdmission | None:
 
 def require_migration_admission(store: Path) -> None:
     record = inspect_migration(store)
-    if record is not None and record.phase in {"blocked", "replacing", "installing"}:
+    if record is not None and record.phase in {
+        "blocked",
+        "reassessed",
+        "replacing",
+        "installing",
+    }:
         raise MigrationAdmissionError("Project conversion is incomplete; reopen connection setup.")
 
     if record is not None and record.phase == "completed":
