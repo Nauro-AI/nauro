@@ -35,6 +35,7 @@ from nauro.sync.merge import (
     CONFLICT_BACKUP_DIR,
     _prepare_store_root,
     _walk_store_files,
+    normalize_rel,
     should_skip,
 )
 from nauro.sync.remote import (
@@ -136,7 +137,10 @@ def plan_push(store_path: Path, state: SyncState) -> PushPlan:
                     )
                 )
             continue
-        rel = entry.raw_relative_path
+        # The walker joins with the native separator, so on Windows the raw
+        # path carries backslashes. Object keys, sync-state keys, and the prefix
+        # checks below all use the POSIX form that pull already produces.
+        rel = normalize_rel(entry.raw_relative_path)
         local_file = entry.native_path
         if should_skip(rel) or rel.startswith(CONFLICT_BACKUP_DIR) or rel.startswith("__pycache__"):
             continue
