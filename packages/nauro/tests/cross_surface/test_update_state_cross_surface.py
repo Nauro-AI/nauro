@@ -41,7 +41,6 @@ from nauro_core.operations import update_state  # noqa: E402
 from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
 from tests.conftest import (  # noqa: E402
     CROSS_SURFACE_PROJECT_ID,
-    CROSS_SURFACE_USER_ID,
     moto_s3_bucket,
 )
 from tests.cross_surface.conftest import _dump  # noqa: E402
@@ -54,17 +53,19 @@ def both_stores(tmp_path, monkeypatch):
     """Yield a (FilesystemStore, CloudStore) pair backed by separate roots."""
     with moto_s3_bucket(monkeypatch):
         fs_store = FilesystemStore(tmp_path)
-        cloud = CloudStore(user_id=CROSS_SURFACE_USER_ID, project_id=CROSS_SURFACE_PROJECT_ID)
+        cloud = CloudStore(CROSS_SURFACE_PROJECT_ID)
         yield fs_store, cloud
 
 
 def _seed_current(fs_store: FilesystemStore, cloud: CloudStore, body: str) -> None:
     fs_store.write_file(STATE_CURRENT_FILENAME, body)
+    cloud.read_file(STATE_CURRENT_FILENAME)
     cloud.write_file(STATE_CURRENT_FILENAME, body)
 
 
 def _seed_legacy(fs_store: FilesystemStore, cloud: CloudStore, body: str) -> None:
     fs_store.write_file(STATE_LEGACY_FILENAME, body)
+    cloud.read_file(STATE_LEGACY_FILENAME)
     cloud.write_file(STATE_LEGACY_FILENAME, body)
 
 

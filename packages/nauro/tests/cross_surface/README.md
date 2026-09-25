@@ -12,16 +12,15 @@ The guarantee they encode is that the local and cloud surfaces return the same
 result envelope for the same inputs, so the two implementations cannot drift
 apart unnoticed.
 
-## Why they are not in the CI gate
+## Where they run in CI
 
-These tests require both the `nauro` CLI and the private `mcp_server` package to
-be importable on a single `PYTHONPATH`. No CI environment has both stores
-installed at once: this public monorepo never installs `mcp_server`, and the
-mcp-server repo does not vendor the `nauro` test suite. Running them in CI would
-only ever produce skips, which is a guarantee that never actually runs. They are
-therefore excluded from the gate (`--ignore=packages/nauro/tests/cross_surface`
-on the `test-nauro` job) and kept here as an opt-in suite for engineers who have
-both repositories checked out.
+These tests need both the `nauro` CLI and the private `mcp_server` package
+importable in one environment. The ordinary `test-nauro` job never installs
+`mcp_server`, so it ignores this directory
+(`--ignore=packages/nauro/tests/cross_surface`). The `test-paired-server` job
+checks out mcp-server at a pinned commit, installs this workspace into the
+server environment, and runs this directory with a JUnit assertion that fails
+on any skip, so the parity guarantee runs on every pull request.
 
 Each test calls `pytest.importorskip("mcp_server.store.cloud_store", ...)` at
 module load. When `mcp_server` is not installed, the test skips with a clear
@@ -31,10 +30,11 @@ present is harmless.
 ## Running them locally
 
 You need both packages importable on one `PYTHONPATH` (the nauro workspace plus
-the private mcp-server repo). With that in place, run:
+the private mcp-server repo). The server store reads its bucket name at import,
+so point it at the shared test bucket. With that in place, run:
 
 ```bash
-uv run --package nauro pytest packages/nauro/tests/cross_surface/ -v
+NAURO_S3_BUCKET=nauro-cross-surface-test uv run --package nauro pytest packages/nauro/tests/cross_surface/ -v
 ```
 
 If `mcp_server` (or its `boto3`/`moto` test dependencies) is not installed, the

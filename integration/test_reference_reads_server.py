@@ -9,7 +9,7 @@ from mcp_server.read_arguments import ContextArguments, DecisionArguments, parse
 from nauro.auth import ActiveCredentials
 from nauro.mcp.decision_reference import reference_server
 from nauro.sync.decision_reference import DecisionReferenceTransport
-from nauro.sync.reference_reads import READ_SPECS, read_schema
+from nauro.sync.reference_reads import READ_SPECS
 from tests.conftest import TEST_PROJECT_ID
 from tests.test_decision_reference import ORIGIN, action, prepare, probe, signed_transport
 from tests.test_judgment_planning import USER_ID, _table
@@ -66,11 +66,8 @@ def test_forward_existing_verified_generation_responses(probe, monkeypatch):
             headers=dict(request.headers),
         )
         if body["method"] == "tools/list":
-            value = response.json()
-            value["result"]["tools"].extend(
-                {"name": name, "inputSchema": read_schema(name)} for name in READ_SPECS
-            )
-            return httpx.Response(200, json=value)
+            listed = {tool["name"] for tool in response.json()["result"]["tools"]}
+            assert set(READ_SPECS) <= listed
         return response
 
     with httpx.Client(transport=httpx.MockTransport(wire)) as client:

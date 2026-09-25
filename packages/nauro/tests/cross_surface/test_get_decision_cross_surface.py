@@ -18,6 +18,8 @@ locally to catch local-vs-cloud envelope drift before merge.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 cloud_store_module = pytest.importorskip(
@@ -55,6 +57,7 @@ MISSING_NUMBER = 999
 SEED_DECISIONS: dict[str, str] = {
     "001-adopt-postgresql": format_decision(
         Decision(
+            date=date(2026, 1, 1),
             num=1,
             title="Adopt PostgreSQL",
             rationale=(

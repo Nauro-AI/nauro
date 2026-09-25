@@ -20,7 +20,6 @@ from nauro.templates.scaffolds import scaffold_project_store
 # Fixed identity used by every cross-surface parity test to seed both the
 # FilesystemStore and the CloudStore. Centralized so a change in one file
 # can't drift away from the rest.
-CROSS_SURFACE_USER_ID = "01TEST" + "0" * 20
 CROSS_SURFACE_PROJECT_ID = "01TESTPROJECT00000000000"
 
 # Shared moto bucket for cross-surface tests. Each fixture runs inside its
@@ -28,9 +27,9 @@ CROSS_SURFACE_PROJECT_ID = "01TESTPROJECT00000000000"
 CROSS_SURFACE_BUCKET = "nauro-cross-surface-test"
 
 
-def cloud_prefix(user_id: str, project_id: str) -> str:
+def cloud_prefix(project_id: str) -> str:
     """Return the S3 key prefix a CloudStore reads/writes under for a project."""
-    return f"users/{user_id}/projects/{project_id}"
+    return f"projects/{project_id}"
 
 
 def normalize_transcript(text: str, replacements: dict[str, str]) -> str:
