@@ -139,6 +139,7 @@ jobs:
 
   test-paired-server:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       AWS_DEFAULT_REGION: us-east-1
     steps:
@@ -158,6 +159,7 @@ jobs:
           repository: Nauro-AI/mcp-server
           ref: 4ff267d8cd38ead5ed80fbed9fee591aa6178f0d
           token: ${{ secrets.MCP_SERVER_READ_TOKEN }}
+          persist-credentials: false
           path: server
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
@@ -209,6 +211,15 @@ jobs:
           assert dict(counts) == expected, dict(counts)
           assert not any(list(root.iter(tag)) for root in roots for tag in ("skipped", "failure", "error")), "paired server suites must pass without skips"
           PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paired-server-junit
+          path: |
+            paired-client.xml
+            paired-cross.xml
+            paired-integration.xml
+          if-no-files-found: ignore
 
   test-generation-control-platforms:
     strategy:
