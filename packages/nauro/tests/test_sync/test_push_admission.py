@@ -46,7 +46,7 @@ OUTSIDE_TEXT = "The path resolves outside the Store root."
 PARENT_TEXT = "A path component normalizes to parent."
 METADATA_TEXT = "Path metadata is unavailable."
 OBSERVED_TEXT = "The path changed after it was observed."
-NOTE_KEY = os.path.join("context", "note.md")
+NOTE_KEY = "context/note.md"
 runner = CliRunner()
 
 
@@ -66,7 +66,7 @@ def _cloud_store(tmp_path: Path, name: str = "pushadm") -> Path:
 def _track_all(store: Path) -> None:
     for path in store.rglob("*"):
         if path.is_file() and not path.is_symlink():
-            track(store, str(path.relative_to(store)))
+            track(store, path.relative_to(store).as_posix())
 
 
 def _presign_post(url, **kwargs):
@@ -207,7 +207,7 @@ def test_ordinary_keys_and_exclusions_are_unchanged(tmp_path: Path) -> None:
     (store / "deleted.md").unlink()
     plan = plan_push(store, state)
     assert sorted(c.relative_path for c in plan.candidates) == sorted(
-        ["stack.md", os.path.join("context", "new.md")]
+        ["stack.md", "context/new.md"]
     )
     assert plan.oversized_briefs == ()
     assert plan.unsafe == ()
@@ -222,7 +222,7 @@ def test_oversized_brief_is_reported_and_never_a_candidate(tmp_path: Path) -> No
     size = push_module.MAX_BRIEF_BYTES + 1
     (store / "context" / "big.md").write_text("x" * size)
     plan = plan_push(store, SyncState())
-    assert plan.oversized_briefs == (OversizedBrief(os.path.join("context", "big.md"), size),)
+    assert plan.oversized_briefs == (OversizedBrief("context/big.md", size),)
     assert [c.relative_path for c in plan.candidates] == [NOTE_KEY]
     assert plan.unsafe == ()
 
@@ -510,7 +510,7 @@ def test_reserved_state_entries_are_left_untouched(tmp_path: Path) -> None:
 
     report, put_paths = _run_push(store)
 
-    new_key = os.path.join("context", "new.md")
+    new_key = "context/new.md"
     assert report.is_complete and report.verified == (new_key,)
     assert put_paths == [new_key]
     after = load_state(store)
