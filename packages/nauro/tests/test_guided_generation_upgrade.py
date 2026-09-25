@@ -7,9 +7,12 @@ import httpx
 import pytest
 
 from nauro.cli import generation_upgrade as upgrade
+from nauro.store.generation_authority import RefreshRequiredError
 from nauro.store.migration_admission import MigrationAdmissionError, inspect_migration
 from nauro.sync import migration_installation as installation
+from nauro.sync import migration_reconciliation as reconciliation
 from nauro.sync.migration_admission import decide_migration_assessment, load_migration_plan
+from nauro.sync.migration_preservation import preserve_migration_source
 from tests import test_migration_preservation as seed
 
 
@@ -249,11 +252,11 @@ def _forbidden(*args, **kwargs):
     pytest.fail("Changed or foreign upgrade executed work")
 
 
-def _move_target(assessed):
+def _move_target(assessed, generation_id="01K55555555555555555555555"):
     _, plan, _, control, *_ = assessed
     original = plan.assessment.projection
     manifest = json.loads(original.manifest_json)
-    manifest["generation_id"] = "01K55555555555555555555555"
+    manifest["generation_id"] = generation_id
     raw = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
     identity = original.target.identity.model_copy(
         update={
@@ -296,43 +299,277 @@ def test_changed_target_offers_reassessment_before_fresh_consent(assessed, monke
     assert not plan.backup_root.exists()
 
 
-@pytest.mark.parametrize("case", ["blocked", "installing", "blocked_source"])
-def test_changed_admitted_upgrade_requires_owner_recovery(assessed, monkeypatch, case):
-    record, plan, session, *_ = assessed
-    store = session.binding.store_path
-    if case == "installing":
+_RECOVERY = (
+    "This saved upgrade cannot continue against the changed record. Local "
+    "writes remain blocked and preserved evidence is retained. Owner "
+    "recovery is required."
+)
+_REMAINS = (
+    "Upgrade remains incomplete. Preserved evidence and the local access block remain in place."
+)
+_INCOMPLETE = (
+    "Upgrade incomplete: the hosted record or project files changed after this "
+    "upgrade was admitted."
+)
+_CONTINUE = (
+    "Continue this saved upgrade using its existing identity and approved file dispositions?"
+)
+_CONSENT = "Preserve the listed local files outside the active record and upgrade this computer?"
+_OFFER = (
+    "The hosted record changed after this upgrade was admitted. Review a fresh "
+    "assessment of the preserved files? This does not approve conversion."
+)
 
-        def interrupted(*args):
-            raise OSError("interrupted")
 
-        monkeypatch.setattr(installation, "_install", interrupted)
-        upgrade.guided_existing_hosted_upgrade(
-            session, emit=lambda text: None, confirm=lambda prompt: True
-        )
-    else:
-        decide_migration_assessment(record, preserve=True)
-    saved, _ = load_migration_plan(store)
-    assert saved.phase == case.split("_")[0]
-    if case == "blocked_source":
-        (store / "state_current.md").write_text("Changed while blocked")
-    else:
-        _move_target(assessed)
+def _interrupt(assessed, monkeypatch, target, name, *, after=False):
+    original = getattr(target, name)
+
+    def interrupted(*args, **kwargs):
+        if after:
+            original(*args, **kwargs)
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(target, name, interrupted)
+    upgrade.guided_existing_hosted_upgrade(
+        assessed[2], emit=lambda text: None, confirm=lambda prompt: True
+    )
+    monkeypatch.setattr(target, name, original)
+    return load_migration_plan(assessed[2].binding.store_path)[0]
+
+
+def _answers(prompts, *choices):
+    answers = iter(choices)
+
+    def choose(prompt):
+        prompts.append(prompt)
+        return next(answers)
+
+    return choose
+
+
+@pytest.mark.parametrize("phase", ["replacing", "installing"])
+def test_changed_admitted_upgrade_requires_owner_recovery(assessed, monkeypatch, phase):
+    step = "_replace_source" if phase == "replacing" else "_install"
+    saved = _interrupt(assessed, monkeypatch, installation, step, after=phase == "replacing")
+    assert saved.phase == phase
+    store = assessed[2].binding.store_path
+    (installation.retained_source(saved) / "state_current.md").write_text("Changed")
+    _move_target(assessed)
     before = _tree(store.parent)
     monkeypatch.setattr(upgrade, "continue_migration_installation", _forbidden)
     monkeypatch.setattr(upgrade, "decide_migration_assessment", _forbidden)
-    messages = []
+    messages, prompts = [], []
     result = upgrade.guided_existing_hosted_upgrade(
-        session, emit=messages.append, confirm=lambda prompt: True
+        assessed[2], emit=messages.append, confirm=_answers(prompts, True, True)
     )
     assert result == saved
     assert inspect_migration(store) == saved
     assert _tree(store.parent) == before
-    assert messages[-1] == (
-        "This saved upgrade cannot continue against the changed record. Local "
-        "writes remain blocked and preserved evidence is retained. Owner "
-        "recovery is required."
+    assert prompts == [_CONTINUE, _OFFER]
+    assert messages[-2].startswith("Upgrade incomplete: The retained project files changed")
+    assert messages[-1] == _RECOVERY
+    assert not any("Reopen" in m for m in messages)
+
+
+def test_admitted_change_offers_one_reassessment_per_invocation(assessed, monkeypatch):
+    record, _, session, *_ = assessed
+    store = session.binding.store_path
+    blocked = decide_migration_assessment(record, preserve=True)
+    _move_target(assessed)
+    reconciled, original = [], upgrade.reconcile_admitted_migration
+
+    def spy(current, session):
+        reconciled.append(current)
+        return original(current, session)
+
+    def moved_again(prompt):
+        prompts.append(prompt)
+        if prompt == _CONSENT:
+            _move_target(assessed, "01K66666666666666666666666")
+        return True
+
+    monkeypatch.setattr(upgrade, "reconcile_admitted_migration", spy)
+    monkeypatch.setattr(upgrade, "continue_migration_installation", _forbidden)
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=moved_again
     )
-    assert not any("Reopen" in m or "fresh assessment" in m for m in messages)
+    assert prompts == [_CONTINUE, _OFFER, _CONSENT]
+    assert reconciled == [blocked]
+    assert result.phase == "reassessed"
+    assert inspect_migration(store) == result
+    assert messages.count(_INCOMPLETE) == 2
+    assert messages[-1].startswith("Retained evidence was not discarded. Reopen")
+
+    def refused(current, session):
+        reconciled.append(current)
+        raise RefreshRequiredError("The current authorized projection requires reconciliation.")
+
+    monkeypatch.setattr(upgrade, "reconcile_admitted_migration", refused)
+    before, messages, prompts = _tree(store.parent), [], []
+    again = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=_answers(prompts, True, True)
+    )
+    assert prompts == [_CONSENT, _OFFER]
+    assert reconciled == [blocked, result]
+    assert again == result == inspect_migration(store)
+    assert messages[-1] == _RECOVERY
+    assert _tree(store.parent) == before
+
+
+def test_declining_offer_leaves_record_backup_and_tree_intact(assessed, monkeypatch):
+    saved = _interrupt(assessed, monkeypatch, installation, "_install")
+    store = assessed[2].binding.store_path
+    _move_target(assessed)
+    before = _tree(store.parent)
+    assert any(assessed[1].backup_root.iterdir())
+    for name in ("reconcile_admitted_migration", "set_aside_stale_replica"):
+        monkeypatch.setattr(upgrade, name, _forbidden)
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        assessed[2], emit=messages.append, confirm=_answers(prompts, True, False)
+    )
+    assert result == saved == inspect_migration(store)
+    assert prompts == [_CONTINUE, _OFFER]
+    assert messages[-2:] == [_INCOMPLETE, _REMAINS]
+    assert _tree(store.parent) == before
+
+
+def test_reassessed_requires_fresh_consent_then_converts(assessed):
+    record, plan, session, *_ = assessed
+    store = session.binding.store_path
+    blocked = decide_migration_assessment(record, preserve=True)
+    preserve_migration_source(blocked, session)
+    evidence = _tree(plan.backup_root)
+    decision = store / "decisions/001-one.md"
+    decision.write_text(decision.read_text() + "Changed while blocked\n")
+    _move_target(assessed)
+    messages, prompts = [], []
+
+    def choose(prompt):
+        prompts.append(prompt)
+        if prompt == _CONSENT:
+            current = inspect_migration(store)
+            assert current.phase == "reassessed"
+            assert current.predecessor_digest is not None
+            assert f"This upgrade replaces saved upgrade {blocked.migration_id}, admitted " in (
+                "\n".join(messages)
+            )
+            changed = '"decisions/001-one.md".'
+            assert "Changed since admission: " + changed in messages
+            assert "Classification changed since the earlier upgrade: " + changed in messages
+            assert (
+                "Earlier preservation folder retained unchanged: "
+                f"{json.dumps(plan.backup_directory_name)}." in messages
+            )
+            assert any(m.startswith("Defer if these files") for m in messages)
+        return True
+
+    result = upgrade.guided_existing_hosted_upgrade(session, emit=messages.append, confirm=choose)
+    assert prompts == [_CONTINUE, _OFFER, _CONSENT]
+    assert result.phase == "completed"
+    assert result.migration_id != blocked.migration_id
+    _, raw = load_migration_plan(store)
+    fresh = json.loads(raw)["backup_directory_name"]
+    assert fresh != plan.backup_directory_name
+    assert (store.parent / fresh / "plan.json").read_bytes() == raw
+    assert _tree(plan.backup_root) == evidence
+
+
+def test_relocated_reassessed_presentation_has_no_defer_line(assessed, monkeypatch):
+    saved = _interrupt(assessed, monkeypatch, installation, "_install")
+    store = assessed[2].binding.store_path
+    _move_target(assessed)
+    monkeypatch.setattr(upgrade, "continue_migration_installation", _forbidden)
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        assessed[2], emit=messages.append, confirm=_answers(prompts, True, True, False)
+    )
+    assert prompts == [_CONTINUE, _OFFER, _CONSENT]
+    assert (result.phase, result.source_id) == ("reassessed", saved.migration_id)
+    assert result == inspect_migration(store)
+    shown = messages[messages.index(_INCOMPLETE) :]
+    assert not any(m.startswith("Defer if") for m in shown)
+    assert (
+        "This relocated upgrade can only continue or remain blocked. Preserved files "
+        "remain available for export." in shown
+    )
+    assert any(m.startswith("Earlier preservation folder retained unchanged") for m in shown)
+    assert not any(m.startswith("Changed since admission") for m in shown)
+    assert messages[-1] == _REMAINS
+
+
+def test_reconcile_refusal_shows_owner_recovery_and_changes_nothing(assessed, monkeypatch):
+    record, _, session, *_ = assessed
+    store = session.binding.store_path
+    blocked = decide_migration_assessment(record, preserve=True)
+    _move_target(assessed)
+    acquire = reconciliation.acquire_generation_projection
+
+    def moved_again(*args, **kwargs):
+        projection = acquire(*args, **kwargs)
+        _move_target(assessed, "01K66666666666666666666666")
+        return projection
+
+    monkeypatch.setattr(reconciliation, "acquire_generation_projection", moved_again)
+    before, messages, prompts = _tree(store.parent), [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=_answers(prompts, True, True)
+    )
+    assert result == blocked == inspect_migration(store)
+    assert prompts == [_CONTINUE, _OFFER]
+    assert messages[-2:] == [
+        "Upgrade incomplete: The current authorized projection requires reconciliation.",
+        _RECOVERY,
+    ]
+    assert _tree(store.parent) == before
+
+
+def _replica_left(assessed, monkeypatch):
+    saved = _interrupt(assessed, monkeypatch, installation, "install_generation_root", after=True)
+    assert saved.phase == "installing"
+    assert any(assessed[2].binding.store_path.iterdir())
+    _move_target(assessed)
+    return saved, reconciliation.stale_replica_folder(saved)
+
+
+def test_set_aside_confirmation_moves_evidence_then_converts(assessed, monkeypatch):
+    store = assessed[2].binding.store_path
+    saved, folder = _replica_left(assessed, monkeypatch)
+    replica = {p.relative_to(store): v for p, v in _tree(store).items()}
+    retained, evidence = _tree(installation.retained_source(saved)), _tree(assessed[1].backup_root)
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        assessed[2], emit=messages.append, confirm=_answers(prompts, True, True, True, True)
+    )
+    assert prompts[:2] == [_CONTINUE, _OFFER]
+    assert prompts[2] == (
+        "Files from the interrupted installation for the earlier hosted record are at the "
+        f"project store. Move them aside to {json.dumps(folder.name)} so the upgrade can be "
+        "reassessed? Nothing is deleted."
+    )
+    assert prompts[3:] == [_CONSENT]
+    assert folder.name == f"legacy-install-{saved.project_id}-{saved.migration_id}"
+    assert {p.relative_to(folder): v for p, v in _tree(folder).items()} == replica
+    assert result.phase == "completed"
+    assert _tree(installation.retained_source(saved)) == retained
+    assert _tree(assessed[1].backup_root) == evidence
+
+
+def test_declining_set_aside_leaves_everything_intact(assessed, monkeypatch):
+    store = assessed[2].binding.store_path
+    saved, folder = _replica_left(assessed, monkeypatch)
+    before = _tree(store.parent)
+    monkeypatch.setattr(upgrade, "reconcile_admitted_migration", _forbidden)
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        assessed[2], emit=messages.append, confirm=_answers(prompts, True, True, False)
+    )
+    assert result == saved == inspect_migration(store)
+    assert len(prompts) == 3
+    assert messages[-1] == _REMAINS
+    assert _tree(store.parent) == before
+    assert not folder.exists()
 
 
 @pytest.mark.parametrize(

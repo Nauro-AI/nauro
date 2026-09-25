@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 
-from nauro.store.generation_authority import GenerationAuthorityError
+from nauro.store.generation_authority import GenerationAuthorityError, RefreshRequiredError
 from nauro.store.generation_migration_assessment import assess_legacy_migration
 from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
 from nauro.store.migration_admission import (
@@ -33,7 +33,26 @@ from nauro.sync.migration_preservation import (
     decode_migration_plan,
     require_registered_migration_source,
 )
+from nauro.sync.migration_reconciliation import (
+    describe_reassessment,
+    reconcile_admitted_migration,
+    set_aside_stale_replica,
+    stale_replica_folder,
+)
 from nauro.sync.remote import TransferBoundaryError
+
+_RECOVERY = (
+    "This saved upgrade cannot continue against the changed record. "
+    "Local writes remain blocked and preserved evidence is retained. "
+    "Owner recovery is required."
+)
+_REMAINS = (
+    "Upgrade remains incomplete. Preserved evidence and the local access block remain in place."
+)
+_REOPEN = (
+    "Retained evidence was not discarded. Reopen the same connection "
+    "flow to inspect this saved upgrade."
+)
 
 
 def _prepare(
@@ -50,6 +69,29 @@ def _prepare(
     return save_migration_assessment(plan, replace=prior)
 
 
+def _quoted(paths: list[str]) -> str:
+    return ", ".join(json.dumps(path, ensure_ascii=False) for path in paths)
+
+
+def _present_reassessment(
+    record: MigrationAdmission, raw: bytes, emit: Callable[[str], None]
+) -> None:
+    earlier, folder, reclassified, changed = describe_reassessment(record, raw)
+    emit(
+        f"This upgrade replaces saved upgrade {earlier}, admitted before the hosted "
+        "record or project files changed."
+    )
+    if reclassified:
+        emit(f"Classification changed since the earlier upgrade: {_quoted(reclassified)}.")
+    if changed:
+        emit(f"Changed since admission: {_quoted(changed)}.")
+    if (Path(record.store).parent / folder).exists():
+        emit(
+            "Earlier preservation folder retained unchanged: "
+            f"{json.dumps(folder, ensure_ascii=False)}."
+        )
+
+
 def _present(record: MigrationAdmission, emit: Callable[[str], None]) -> None:
     current, raw = load_migration_plan(Path(record.store))
     if current != record:
@@ -61,6 +103,8 @@ def _present(record: MigrationAdmission, emit: Callable[[str], None]) -> None:
         "undo the server transition."
     )
     emit(f"Saved upgrade: {record.migration_id}. Status: {record.phase}.")
+    if record.phase == "reassessed":
+        _present_reassessment(record, raw, emit)
     differences = [entry for entry in plan.entries if entry.disposition == "quarantine"]
     unsupported = "unsupported, preserved outside the active record with export"
     if differences:
@@ -90,10 +134,12 @@ def _present(record: MigrationAdmission, emit: Callable[[str], None]) -> None:
         "Preservation folder, beside the project store: "
         f"{json.dumps(plan.backup_directory_name, ensure_ascii=False)}."
     )
-    emit(
-        "Defer if these files must remain in this computer's active record. "
-        "Preserved files remain available for export."
+    choice = (
+        "This relocated upgrade can only continue or remain blocked."
+        if record.phase == "reassessed" and record.source_id is not None
+        else "Defer if these files must remain in this computer's active record."
     )
+    emit(choice + " Preserved files remain available for export.")
     snapshots = sum(entry.source_class == "snapshot" for entry in plan.entries)
     emit(
         f"All {len(plan.entries)} source files, including {snapshots} local "
@@ -144,6 +190,53 @@ def _execute(
     return continue_migration_installation(record, projection, session), raw
 
 
+def _admitted_change(
+    record: MigrationAdmission,
+    session: InitialAttachmentSession,
+    emit: Callable[[str], None],
+    confirm: Callable[[str], bool],
+    *,
+    first: bool,
+) -> MigrationAdmission | None:
+    emit(
+        "Upgrade incomplete: the hosted record or project files changed "
+        "after this upgrade was admitted."
+    )
+    if not first:
+        emit(_REOPEN)
+        return None
+    if not confirm(
+        "The hosted record changed after this upgrade was admitted. Review a fresh "
+        "assessment of the preserved files? This does not approve conversion."
+    ):
+        emit(_REMAINS)
+        return None
+    try:
+        folder = stale_replica_folder(record)
+        if folder is not None:
+            if not confirm(
+                "Files from the interrupted installation for the earlier hosted record "
+                f"are at the project store. Move them aside to {json.dumps(folder.name)} "
+                "so the upgrade can be reassessed? Nothing is deleted."
+            ):
+                emit(_REMAINS)
+                return None
+            moved = set_aside_stale_replica(record, session)
+            emit(f"Moved interrupted installation files to: {moved}")
+        return reconcile_admitted_migration(record, session)
+    except (
+        OSError,
+        MigrationAdmissionError,
+        RefreshRequiredError,
+        GenerationAuthorityError,
+        TransferBoundaryError,
+        httpx.HTTPError,
+    ) as exc:
+        emit(f"Upgrade incomplete: {exc}")
+        emit(_RECOVERY)
+        return None
+
+
 def guided_existing_hosted_upgrade(
     session: InitialAttachmentSession,
     *,
@@ -188,6 +281,7 @@ def _guide(
     confirm: Callable[[str], bool],
 ) -> MigrationAdmission | None:
     binding = session.binding
+    offered = False
     for attempt in range(2):
         _present(record, emit)
         fresh = record.phase in {"assessed", "reassessed"}
@@ -202,10 +296,7 @@ def _guide(
             emit("Upgrade deferred. The local working copy remains unchanged.")
             return declined
         if not consent:
-            emit(
-                "Upgrade remains incomplete. Preserved evidence and the local "
-                "access block remain in place."
-            )
+            emit(_REMAINS)
             return record
         try:
             completed, raw = _execute(record, session)
@@ -222,16 +313,14 @@ def _guide(
                 and record.phase != "assessed"
                 and current == record
             ):
-                emit(
-                    "Upgrade incomplete: the hosted record or project files changed "
-                    "after this upgrade was admitted."
+                successor = _admitted_change(
+                    record, session, emit, confirm, first=attempt == 0 and not offered
                 )
-                emit(
-                    "This saved upgrade cannot continue against the changed record. "
-                    "Local writes remain blocked and preserved evidence is retained. "
-                    "Owner recovery is required."
-                )
-                return current
+                offered = True
+                if successor is None:
+                    return current
+                record = successor
+                continue
             emit(f"Upgrade incomplete: {exc}")
             if (
                 isinstance(exc, _AssessmentChangedError)
@@ -245,10 +334,7 @@ def _guide(
             ):
                 record = _prepare(session, record)
                 continue
-            emit(
-                "Retained evidence was not discarded. Reopen the same connection "
-                "flow to inspect this saved upgrade."
-            )
+            emit(_REOPEN)
             return current
         emit(
             "This computer now reads the verified hosted record. The original "
