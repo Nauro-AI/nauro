@@ -127,7 +127,11 @@ def test_capture_has_only_the_expected_dormant_consumers():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom) and node.module == "nauro.store.generation_read":
                 consumers.append(path.relative_to(root).as_posix())
-    assert sorted(consumers) == ["store/generation_store.py", "sync/generation_refresh.py"]
+    assert sorted(consumers) == [
+        "store/generation_store.py",
+        "sync/generation_refresh.py",
+        "sync/migration_reconciliation.py",
+    ]
 
 
 def test_capture_refuses_a_replaced_file(installed, monkeypatch):
