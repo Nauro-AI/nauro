@@ -22,7 +22,6 @@ from nauro.store.filesystem_store import FilesystemStore
 from tests.conftest import (
     CROSS_SURFACE_BUCKET,
     CROSS_SURFACE_PROJECT_ID,
-    CROSS_SURFACE_USER_ID,
     cloud_prefix,
 )
 
@@ -62,7 +61,7 @@ def seed_cloud_store(
     """
     from mcp_server.store.cloud_store import CloudStore
 
-    prefix = cloud_prefix(CROSS_SURFACE_USER_ID, CROSS_SURFACE_PROJECT_ID)
+    prefix = cloud_prefix(CROSS_SURFACE_PROJECT_ID)
     for name, body in (files or {}).items():
         s3_client.put_object(
             Bucket=CROSS_SURFACE_BUCKET,
@@ -75,7 +74,7 @@ def seed_cloud_store(
             Key=f"{prefix}/decisions/{stem}.md",
             Body=body.encode(),
         )
-    return CloudStore(user_id=CROSS_SURFACE_USER_ID, project_id=CROSS_SURFACE_PROJECT_ID)
+    return CloudStore(CROSS_SURFACE_PROJECT_ID)
 
 
 def _dump(result) -> dict:

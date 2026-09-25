@@ -43,7 +43,6 @@ from nauro_core.operations.propose_decision import (  # noqa: E402
 from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
 from tests.conftest import (  # noqa: E402
     CROSS_SURFACE_PROJECT_ID,
-    CROSS_SURFACE_USER_ID,
     moto_s3_bucket,
 )
 from tests.cross_surface.conftest import _dump  # noqa: E402
@@ -56,7 +55,7 @@ def both_stores(tmp_path, monkeypatch):
     """Yield a (FilesystemStore, CloudStore) pair backed by separate roots."""
     with moto_s3_bucket(monkeypatch):
         fs_store = FilesystemStore(tmp_path)
-        cloud = CloudStore(user_id=CROSS_SURFACE_USER_ID, project_id=CROSS_SURFACE_PROJECT_ID)
+        cloud = CloudStore(CROSS_SURFACE_PROJECT_ID)
         yield fs_store, cloud
 
 
@@ -168,6 +167,7 @@ def test_resolves_questions_byte_identical_open_questions(both_stores):
     fs_store, cloud = both_stores
     seed = "# Open Questions\n\n## Active\n\n- [Q1] Should we adopt PostgreSQL?\n\n## Resolved\n"
     fs_store.write_file(OPEN_QUESTIONS_MD, seed)
+    cloud.read_file(OPEN_QUESTIONS_MD)
     cloud.write_file(OPEN_QUESTIONS_MD, seed)
 
     rationale = (

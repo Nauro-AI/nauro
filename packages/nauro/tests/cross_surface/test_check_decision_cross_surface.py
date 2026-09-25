@@ -18,6 +18,8 @@ locally to catch local-vs-cloud envelope drift before merge.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 cloud_store_module = pytest.importorskip(
@@ -55,6 +57,7 @@ PROPOSED_APPROACH = "Migrate primary storage to PostgreSQL"
 SEED_DECISIONS: dict[str, str] = {
     "001-adopt-postgresql": format_decision(
         Decision(
+            date=date(2026, 1, 1),
             num=1,
             title="Adopt PostgreSQL",
             rationale=(
@@ -67,6 +70,7 @@ SEED_DECISIONS: dict[str, str] = {
     ),
     "002-adopt-mongo": format_decision(
         Decision(
+            date=date(2026, 1, 1),
             num=2,
             title="Adopt MongoDB",
             rationale=(
@@ -198,7 +202,7 @@ def test_envelope_byte_identical_empty_result_branch(both_stores):
 
     # An approach with no overlap with the seeded decisions; retrieval
     # returns no hits from either store.
-    no_match_approach = "Adopt a fictional widget library for sprocket rendering"
+    no_match_approach = "A fictional widget library for sprocket rendering"
 
     fs_result = check_decision(fs_store, no_match_approach)
     cloud_result = check_decision(cloud, no_match_approach)

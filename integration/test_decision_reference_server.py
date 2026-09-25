@@ -146,12 +146,12 @@ def test_installed_client_retry_reservation_fences_delayed_original(installed, m
     run = delivery.dispatch
     calls = []
 
-    def delayed(request):
+    def delayed(request, **options):
         calls.append(request)
         if len(calls) == 1:
             entered.set()
             assert release.wait(10)
-        return run(request)
+        return run(request, **options)
 
     monkeypatch.setattr(delivery, "dispatch", delayed)
     from mcp_server import judgment_execution
@@ -276,12 +276,15 @@ def test_installed_client_duplicate_drafts_stay_inert(installed):
     assert first["request"]["payload_json"] == second["request"]["payload_json"]
     assert action(invoke, first, "recover")["admission"] == "never_admitted"
     assert action(invoke, second, "recover")["admission"] == "never_admitted"
-    page = invoke(request_mode="discover")
-    next_page = invoke(request_mode="discover", after=page["next_after"])
-    assert {
-        page["requests"][0]["request"]["operation_id"],
-        next_page["requests"][0]["request"]["operation_id"],
-    } == {first["request"]["operation_id"], second["request"]["operation_id"]}
+    discovered, page = [], invoke(request_mode="discover")
+    while True:
+        discovered += [saved["request"]["operation_id"] for saved in page["requests"]]
+        if page["next_after"] is None:
+            break
+        page = invoke(request_mode="discover", after=page["next_after"])
+    assert sorted(discovered) == sorted(
+        [first["request"]["operation_id"], second["request"]["operation_id"]]
+    )
     assert read_generation_pointer(TEST_PROJECT_ID).decision_counter == 0
 
 

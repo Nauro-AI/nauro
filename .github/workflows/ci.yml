@@ -137,6 +137,79 @@ jobs:
               assert all(not list(case) for case in reuse), "Byte reuse proofs must pass without skips"
           PYTEST
 
+  test-paired-server:
+    runs-on: ubuntu-latest
+    env:
+      AWS_DEFAULT_REGION: us-east-1
+    steps:
+      - name: Require the server checkout token
+        env:
+          MCP_SERVER_READ_TOKEN: ${{ secrets.MCP_SERVER_READ_TOKEN }}
+        run: |
+          if [ -z "$MCP_SERVER_READ_TOKEN" ]; then
+            echo "::error::MCP_SERVER_READ_TOKEN is not set. Add a read-only token for Nauro-AI/mcp-server as a repository secret; the paired server suites must run, not skip."
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          path: client
+      - uses: actions/checkout@v6
+        with:
+          repository: Nauro-AI/mcp-server
+          ref: 4ff267d8cd38ead5ed80fbed9fee591aa6178f0d
+          token: ${{ secrets.MCP_SERVER_READ_TOKEN }}
+          path: server
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.12
+      - run: uv sync --locked --package nauro --all-extras --python 3.12
+        working-directory: client
+      - run: uv sync --locked --all-extras --python 3.12
+        working-directory: server
+      - name: Run installed client suites against the pinned server
+        working-directory: client
+        env:
+          NAURO_SERVER_PYTHON: ${{ github.workspace }}/server/.venv/bin/python
+          NAURO_SERVER_ROOT: ${{ github.workspace }}/server
+        run: >-
+          uv run --no-sync --package nauro pytest -q --tb=short --junitxml=../paired-client.xml
+          packages/nauro/tests/test_history_paired.py
+          packages/nauro/tests/test_question_transport_pair.py
+          packages/nauro/tests/test_share_transport_pair.py
+          packages/nauro/tests/test_stack_transport_pair.py
+          packages/nauro/tests/test_state_transport_pair.py
+      - name: Install the client into the server environment
+        run: uv pip install --python server/.venv/bin/python -e client/packages/nauro-core -e client/packages/nauro
+      - name: Run cross-surface parity against the pinned server store
+        working-directory: client
+        env:
+          NAURO_S3_BUCKET: nauro-cross-surface-test
+        run: ../server/.venv/bin/python -m pytest -q --tb=short --junitxml=../paired-cross.xml packages/nauro/tests/cross_surface
+      - name: Run client integration suites inside the pinned server
+        working-directory: server
+        run: .venv/bin/python -m pytest -q --tb=short -c pyproject.toml --junitxml=../paired-integration.xml ../client/integration
+      - name: Require every paired suite to pass without skips
+        run: |
+          python - <<'PY'
+          import collections
+          import xml.etree.ElementTree as E
+          roots = [E.parse(name).getroot() for name in ("paired-client.xml", "paired-cross.xml", "paired-integration.xml")]
+          counts = collections.Counter(case.get("classname", "").split(".")[-1] for root in roots for case in root.iter("testcase"))
+          expected = {
+              "test_history_paired": 7, "test_question_transport_pair": 4, "test_share_transport_pair": 4,
+              "test_stack_transport_pair": 3, "test_state_transport_pair": 3,
+              "test_check_decision_cross_surface": 6, "test_diff_since_last_session_cross_surface": 3,
+              "test_flag_question_cross_surface": 5, "test_get_context_cross_surface": 3,
+              "test_get_decision_cross_surface": 2, "test_get_raw_file_cross_surface": 2,
+              "test_list_decisions_cross_surface": 2, "test_propose_decision_cross_surface": 4,
+              "test_search_decisions_cross_surface": 2, "test_update_state_cross_surface": 4,
+              "test_decision_reference_cli_server": 3, "test_decision_reference_server": 17,
+              "test_decision_reference_startup_server": 2, "test_reference_auth_server": 2,
+              "test_reference_reads_server": 1,
+          }
+          assert dict(counts) == expected, dict(counts)
+          assert not any(list(root.iter(tag)) for root in roots for tag in ("skipped", "failure", "error")), "paired server suites must pass without skips"
+          PY
+
   test-generation-control-platforms:
     strategy:
       matrix:

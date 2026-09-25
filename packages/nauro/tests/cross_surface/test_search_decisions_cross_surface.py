@@ -18,6 +18,8 @@ it locally to catch local-vs-cloud envelope drift before merge.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 cloud_store_module = pytest.importorskip(
@@ -52,6 +54,7 @@ CloudStore = cloud_store_module.CloudStore
 SEED_DECISIONS: dict[str, str] = {
     "001-use-auth0-for-authentication": format_decision(
         Decision(
+            date=date(2026, 1, 1),
             num=1,
             title="Use Auth0 for authentication",
             rationale=(
@@ -63,6 +66,7 @@ SEED_DECISIONS: dict[str, str] = {
     ),
     "002-use-fastapi-for-mcp-server": format_decision(
         Decision(
+            date=date(2026, 1, 1),
             num=2,
             title="Use FastAPI for MCP server",
             rationale=("FastAPI plus Mangum is the canonical Lambda deployment combination."),

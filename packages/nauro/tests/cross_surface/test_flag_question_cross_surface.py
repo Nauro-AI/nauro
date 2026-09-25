@@ -36,7 +36,6 @@ from nauro_core.operations import flag_question  # noqa: E402
 from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
 from tests.conftest import (  # noqa: E402
     CROSS_SURFACE_PROJECT_ID,
-    CROSS_SURFACE_USER_ID,
     active_decision_markdown,
     moto_s3_bucket,
 )
@@ -50,12 +49,13 @@ def both_stores(tmp_path, monkeypatch):
     """Yield a (FilesystemStore, CloudStore) pair backed by separate roots."""
     with moto_s3_bucket(monkeypatch):
         fs_store = FilesystemStore(tmp_path)
-        cloud = CloudStore(user_id=CROSS_SURFACE_USER_ID, project_id=CROSS_SURFACE_PROJECT_ID)
+        cloud = CloudStore(CROSS_SURFACE_PROJECT_ID)
         yield fs_store, cloud
 
 
 def _seed_open_questions(fs_store: FilesystemStore, cloud: CloudStore, body: str) -> None:
     fs_store.write_file(OPEN_QUESTIONS_MD, body)
+    cloud.read_file(OPEN_QUESTIONS_MD)
     cloud.write_file(OPEN_QUESTIONS_MD, body)
 
 
@@ -99,6 +99,7 @@ def _seed_resolvable(fs_store: FilesystemStore, cloud: CloudStore) -> None:
     _seed_open_questions(fs_store, cloud, seed)
     decision = active_decision_markdown(42, "Some decision")
     fs_store.write_file("decisions/042-some-decision.md", decision)
+    cloud.read_file("decisions/042-some-decision.md")
     cloud.write_file("decisions/042-some-decision.md", decision)
 
 

@@ -39,7 +39,6 @@ from nauro_core.operations import diff_since_last_session  # noqa: E402
 from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
 from tests.conftest import (  # noqa: E402
     CROSS_SURFACE_PROJECT_ID,
-    CROSS_SURFACE_USER_ID,
     moto_s3_bucket,
 )
 
@@ -73,7 +72,7 @@ def both_stores(tmp_path, monkeypatch):
     """Yield a (FilesystemStore, CloudStore) pair — kernel ignores both."""
     with moto_s3_bucket(monkeypatch):
         fs_store = FilesystemStore(tmp_path)
-        cloud = CloudStore(user_id=CROSS_SURFACE_USER_ID, project_id=CROSS_SURFACE_PROJECT_ID)
+        cloud = CloudStore(CROSS_SURFACE_PROJECT_ID)
         yield fs_store, cloud
 
 
