@@ -75,12 +75,17 @@ class InitialAttachmentSession(GenerationTransferSession):
 
     def require_binding(self, binding: ResolvedProjectBinding) -> None:
         super().require_binding(binding)
-        response = response_json(
-            self.client,
-            "GET",
-            self.api_url + "/projects?project_id=" + binding.project_id,
-            headers={"Authorization": "Bearer " + self.credentials().access_token},
-        )
+        try:
+            response = response_json(
+                self.client,
+                "GET",
+                self.api_url + "/projects?project_id=" + binding.project_id,
+                headers={"Authorization": "Bearer " + self.credentials().access_token},
+            )
+        except GenerationConnectionError:
+            raise
+        except ValueError as exc:
+            raise GenerationConnectionError("Current owner access could not be confirmed.") from exc
         self.credentials()
         projects = response.get("projects")
         if (

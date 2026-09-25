@@ -381,3 +381,40 @@ def test_transport_failure_mid_conversion_is_incomplete_without_cleanup(assessed
     assert not any("now reads" in message for message in messages)
     assert any("staging" in str(path) for path in seen["dropped"])
     assert _tree(root) == seen["dropped"]
+
+
+def test_refused_owner_check_during_continuation_is_incomplete(assessed, monkeypatch):
+    _, _, session, *_ = assessed
+    store = session.binding.store_path
+    original = installation._install
+
+    def interrupted(*args):
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(installation, "_install", interrupted)
+    upgrade.guided_existing_hosted_upgrade(
+        session, emit=lambda text: None, confirm=lambda prompt: True
+    )
+    monkeypatch.setattr(installation, "_install", original)
+    saved, _ = load_migration_plan(store)
+    assert saved.phase == "installing"
+    transport = session.client._transport
+    handler = transport.handler
+
+    def refused(request):
+        if request.url.path == "/projects":
+            return httpx.Response(403, json={"error": "forbidden"})
+        return handler(request)
+
+    monkeypatch.setattr(transport, "handler", refused)
+    before = _tree(store.parent)
+    messages = []
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=lambda prompt: True
+    )
+    assert result == saved
+    assert inspect_migration(store) == saved
+    assert _tree(store.parent) == before
+    assert "Upgrade incomplete: Current owner access could not be confirmed." in messages
+    assert messages[-1].startswith("Retained evidence was not discarded.")
+    assert not any("now reads" in message for message in messages)
