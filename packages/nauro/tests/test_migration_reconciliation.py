@@ -92,15 +92,42 @@ def test_target_moved_in_blocked_reconciles_to_reassessed(saved):
         require_migration_admission(store)
 
 
-def test_target_moved_in_installing_absent_store_reconciles(saved, monkeypatch):
+@pytest.mark.parametrize("case", ["installing", "empty_store", "replacing"])
+def test_target_moved_after_admission_reconciles(saved, monkeypatch, case):
     session = saved[2]
-    current = _admit(saved, monkeypatch, "installing")
-    before = _tree(session.binding.store_path.parent)
+    store = session.binding.store_path
+    current = _admit(saved, monkeypatch, "replacing" if case == "replacing" else "installing")
+    if case == "empty_store":
+        store.mkdir()
+    before = _tree(store.parent)
     _move_target(saved)
     successor = reconcile_admitted_migration(current, _fresh(session))
-    assert (successor.phase, successor.source_id) == ("reassessed", current.migration_id)
-    assert retained_source(successor) == retained_source(current)
-    assert _tree(session.binding.store_path.parent) == before
+    source_id = None if case == "replacing" else current.migration_id
+    assert (successor.phase, successor.source_id) == ("reassessed", source_id)
+    assert store.is_dir() is (case != "installing")
+    assert _tree(store.parent) == before
+
+
+def test_incomplete_earlier_backup_refuses_after_admission(saved, monkeypatch):
+    _, plan, *_ = saved
+    current = _admit(saved, monkeypatch, "replacing")
+    (plan.backup_root / plan.entries[0].destination_path).unlink()
+    _move_target(saved)
+    _refused(saved, current, "Earlier preservation is incomplete")
+
+
+def test_relocated_source_without_predecessor_refuses_on_load(saved):
+    record, _, session, *_ = saved
+    store = session.binding.store_path
+    forged = record.model_dump_json(exclude_none=True)[:-1] + f',"source_id":"{record.actor}"}}'
+    path = admission_path(store)
+    path.write_text(forged)
+    before = _tree(store.parent)
+    for inspect in (inspect_migration, load_migration_plan, require_migration_admission):
+        with pytest.raises(MigrationAdmissionError, match="unavailable"):
+            inspect(store)
+    assert _tree(store.parent) == before
+    assert path.read_text() == forged
 
 
 def test_target_moved_in_installing_with_staging_refuses_intact(saved, monkeypatch):
@@ -268,7 +295,7 @@ def test_relocated_successor_consent_installs_without_rename(saved, monkeypatch)
     session = saved[2]
     store = session.binding.store_path
     current = _admit(saved, monkeypatch, "installing")
-    relocated = _tree(retained_source(current))
+    relocated, evidence = _tree(retained_source(current)), _tree(saved[1].backup_root)
     _move_target(saved)
     successor = reconcile_admitted_migration(current, _fresh(session))
     blocked = decide_migration_assessment(successor, preserve=True)
@@ -280,6 +307,9 @@ def test_relocated_successor_consent_installs_without_rename(saved, monkeypatch)
     completed = installation.continue_migration_installation(blocked, projection, fresh)
     assert (completed.phase, completed.migration_id) == ("completed", successor.migration_id)
     assert _tree(retained_source(completed)) == relocated
+    _, raw = load_migration_plan(store)
+    assert json.loads(raw)["backup_directory_name"] != saved[1].backup_directory_name
+    assert _tree(saved[1].backup_root) == evidence
     assert (store / ".replica/authority.json").is_file()
 
 

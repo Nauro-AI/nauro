@@ -11,7 +11,7 @@ from threading import local
 from typing import Literal
 
 from nauro_core.identifiers import IdentifierKind, validate_identifier
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from nauro.store.home import nauro_home
 from nauro.store.replica_control import (
@@ -55,6 +55,12 @@ class MigrationAdmission(BaseModel):
     @classmethod
     def source(cls, value: str | None) -> str | None:
         return None if value is None else cls.identifiers(value)
+
+    @model_validator(mode="after")
+    def relocated_source(self) -> MigrationAdmission:
+        if self.source_id is not None and self.predecessor_digest is None:
+            raise ValueError("A relocated source requires predecessor evidence")
+        return self
 
     @field_validator("predecessor_digest")
     @classmethod
