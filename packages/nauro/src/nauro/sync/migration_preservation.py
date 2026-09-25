@@ -20,9 +20,11 @@ from nauro.store.generation_refresh_io import RefreshPaths, sync_file, sync_pare
 from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
+    current_source,
     migration_lock,
     same_store_binding,
 )
+from nauro.store.registry import get_project_entry_v2, get_store_path_v2
 from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_path
 from nauro.store.resolution import resolve_project_binding
 from nauro.sync.generation_attachment import InitialAttachmentSession
@@ -237,7 +239,21 @@ def _copy(source: Path, root: Path, entry: _Entry) -> None:
     sync_parents(RefreshPaths(root.parent, root.parent), destination.parent)
 
 
+def _require_registration(record: MigrationAdmission) -> None:
+    entry = get_project_entry_v2(record.project_id)
+    if entry is None or entry.mode != "cloud" or entry.server_url != record.endpoint:
+        raise MigrationAdmissionError("Conversion registration differs.")
+    registered = entry.bound_store_path(record.project_id) or get_store_path_v2(record.project_id)
+    source = Path(record.store)
+    _validate_managed_path(source.parent, source)
+    if not same_store_binding(registered, source):
+        raise MigrationAdmissionError("Conversion source binding differs.")
+
+
 def require_registered_migration_source(record: MigrationAdmission) -> None:
+    if current_source(record) != Path(record.store):
+        _require_registration(record)
+        return
     current = resolve_project_binding(record.project_id, None, use_cwd=False)
     if (
         current.mode != "cloud"
@@ -275,7 +291,8 @@ def preserve_migration_source(
         target = GenerationProjectionTarget(binding, plan.projection)
         require_registered_migration_source(record)
         _authorize(target, session)
-        verify_migration_source(record, raw)
+        located = record.model_copy(update={"store": str(current_source(record))})
+        verify_migration_source(located, raw)
         root = source.parent / plan.backup_directory_name
         found = _inspect_backup(root, plan, raw)
         _mkdir(source.parent, root)
@@ -289,7 +306,7 @@ def preserve_migration_source(
         for entry in plan.entries:
             session.require_actor(record.actor)
             if entry.destination_path not in found:
-                _copy(source, root, entry)
+                _copy(Path(located.store), root, entry)
         found = _inspect_backup(root, plan, raw)
         if found != {"plan.json", *(entry.destination_path for entry in plan.entries)}:
             raise MigrationAdmissionError("Preservation is incomplete.")
@@ -298,7 +315,7 @@ def preserve_migration_source(
         for directory in sorted(_directories(plan), reverse=True):
             sync_parents(paths, root / directory)
         sync_parents(paths, root)
-        verify_migration_source(record, raw)
+        verify_migration_source(located, raw)
         require_registered_migration_source(record)
         _authorize(target, session)
         if load_migration_plan(source) != (record, raw):

@@ -442,7 +442,7 @@ def test_admitted_upgrade_checks_retained_source_before_continuing(
     monkeypatch.setattr(installation, step, original)
     saved, _ = load_migration_plan(store)
     assert saved.phase == phase
-    retained = installation._retained(saved)
+    retained = installation.retained_source(saved)
     assert retained.is_dir() and not store.exists()
     messages = []
     if not changed:
@@ -468,3 +468,32 @@ def test_admitted_upgrade_checks_retained_source_before_continuing(
         "recovery is required."
     )
     assert not any("Reopen" in m or "fresh assessment" in m for m in messages)
+
+
+def test_changed_source_before_rename_requires_owner_recovery(assessed, monkeypatch):
+    _, _, session, *_ = assessed
+    store = session.binding.store_path
+    rename = installation.os.rename
+    monkeypatch.setattr(installation.os, "rename", _forbidden_rename)
+    upgrade.guided_existing_hosted_upgrade(
+        session, emit=lambda text: None, confirm=lambda prompt: True
+    )
+    monkeypatch.setattr(installation.os, "rename", rename)
+    saved, _ = load_migration_plan(store)
+    assert saved.phase == "replacing"
+    assert store.is_dir() and not installation.retained_source(saved).exists()
+    (store / "state_current.md").write_text("Changed before relocation")
+    before = _tree(store.parent)
+    monkeypatch.setattr(upgrade, "acquire_generation_projection", _forbidden)
+    monkeypatch.setattr(upgrade, "continue_migration_installation", _forbidden)
+    messages = []
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=lambda prompt: True
+    )
+    assert result == saved
+    assert _tree(store.parent) == before
+    assert messages[-1].endswith("Owner recovery is required.")
+
+
+def _forbidden_rename(*args):
+    raise OSError("interrupted")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from pathlib import Path
 
 from nauro.store.generation_installation import install_generation_root, publish_generation_control
@@ -12,12 +13,13 @@ from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
     admission_path,
+    current_source,
     migration_home,
     migration_lock,
+    retained_source,
     same_store_binding,
 )
-from nauro.store.registry import get_project_entry_v2, get_store_path_v2
-from nauro.store.replica_control import _validate_managed_path
+from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_path
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.generation_attachment_record import validate_retained_projection
 from nauro.sync.generation_refresh import (
@@ -32,23 +34,34 @@ from nauro.sync.migration_preservation import (
     _directories,
     _inspect_backup,
     _Plan,
+    _require_registration,
     decode_migration_plan,
     preserve_migration_source,
 )
 
 
-def _retained(record: MigrationAdmission) -> Path:
-    source = Path(record.store)
-    return source.parent / f"legacy-source-{record.project_id}-{record.migration_id}"
+def _vacant_store(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return True
+    return stat.S_ISDIR(info.st_mode) and not _is_link_or_reparse(info) and not any(path.iterdir())
 
 
-def verify_admitted_migration_source(record: MigrationAdmission, raw: bytes) -> None:
+def verify_admitted_migration_source(record: MigrationAdmission) -> None:
     """Refuse a replacing or installing upgrade whose retained source no longer matches."""
     if record.phase not in {"replacing", "installing"}:
         raise MigrationAdmissionError("Retained source checks require an admitted upgrade.")
-    source, retained = Path(record.store), _retained(record)
-    location = retained
-    if record.phase == "replacing" and source.exists() and not retained.exists():
+    current, raw = load_migration_plan(Path(record.store))
+    if current != record:
+        raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
+    source, location = Path(record.store), current_source(record)
+    if (
+        record.phase == "replacing"
+        and record.source_id is None
+        and source.exists()
+        and not location.exists()
+    ):
         location = source
     try:
         verify_migration_source(record.model_copy(update={"store": str(location)}), raw)
@@ -59,15 +72,8 @@ def verify_admitted_migration_source(record: MigrationAdmission, raw: bytes) -> 
 
 
 def _registration(record: MigrationAdmission, session: InitialAttachmentSession) -> None:
-    entry = get_project_entry_v2(record.project_id)
-    if entry is None or entry.mode != "cloud" or entry.server_url != record.endpoint:
-        raise MigrationAdmissionError("Conversion registration differs.")
-    registered = entry.bound_store_path(record.project_id) or get_store_path_v2(record.project_id)
-    source = Path(record.store)
-    _validate_managed_path(source.parent, source)
-    if not same_store_binding(registered, source) or not same_store_binding(
-        session.binding.store_path, source
-    ):
+    _require_registration(record)
+    if not same_store_binding(session.binding.store_path, Path(record.store)):
         raise MigrationAdmissionError("Conversion source binding differs.")
     if (
         session.binding.project_id != record.project_id
@@ -114,9 +120,12 @@ def _backup(record: MigrationAdmission, plan: _Plan, raw: bytes) -> None:
 
 
 def _replace_source(record: MigrationAdmission, raw: bytes) -> None:
-    source, retained = Path(record.store), _retained(record)
+    source, retained = Path(record.store), retained_source(record)
     _validate_managed_path(source.parent, retained)
-    if source.exists():
+    if record.source_id is not None:
+        if not retained.exists() or not _vacant_store(source):
+            raise MigrationAdmissionError("Relocated source evidence differs; evidence retained.")
+    elif source.exists():
         if retained.exists():
             raise MigrationAdmissionError("Both source locations exist; evidence retained.")
         verify_migration_source(record, raw)
@@ -184,7 +193,7 @@ def continue_migration_installation(
         if record.phase == "completed":
             _backup(record, plan, raw)
             verify_migration_source(
-                record.model_copy(update={"store": str(_retained(record))}), raw
+                record.model_copy(update={"store": str(retained_source(record))}), raw
             )
             admit_generation_store(session.binding, actor=record.actor, session=session)
             return record
@@ -194,12 +203,14 @@ def continue_migration_installation(
         _authorize(projection.target, session)
         _backup(record, plan, raw)
         if record.phase == "blocked":
-            verify_migration_source(record, raw)
+            located = record.model_copy(update={"store": str(current_source(record))})
+            verify_migration_source(located, raw)
             record = _advance(record, raw, "replacing")
         if record.phase == "replacing":
             _replace_source(record, raw)
             record = _advance(record, raw, "installing")
-        verify_migration_source(record.model_copy(update={"store": str(_retained(record))}), raw)
+        located = record.model_copy(update={"store": str(retained_source(record))})
+        verify_migration_source(located, raw)
         if record.phase == "installing":
             _registration(record, session)
             _authorize(projection.target, session)

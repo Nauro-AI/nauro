@@ -41,7 +41,7 @@ def test_conversion_preserves_legacy_and_admits_normal_replica(saved):
     completed = run(saved)
     assert completed.phase == "completed"
     assert completed.migration_id == record.migration_id
-    retained = migration._retained(completed)
+    retained = migration.retained_source(completed)
     assert {
         p.relative_to(retained): p.read_bytes() for p in retained.rglob("*") if p.is_file()
     } == before
@@ -125,7 +125,7 @@ def test_changed_retained_source_refuses_without_rollback(saved, monkeypatch):
     with pytest.raises(OSError):
         run(saved)
     current = inspect_migration(session.binding.store_path)
-    retained = migration._retained(current)
+    retained = migration.retained_source(current)
     (retained / "state_current.md").write_text("Changed evidence")
     monkeypatch.setattr(migration, "_install", install)
     with pytest.raises(MigrationAdmissionError, match="fresh assessment"):
@@ -143,12 +143,12 @@ def test_both_source_locations_refuse_before_rename(saved, monkeypatch):
     with pytest.raises(OSError):
         run(saved)
     current = inspect_migration(session.binding.store_path)
-    shutil.copytree(session.binding.store_path, migration._retained(record))
+    shutil.copytree(session.binding.store_path, migration.retained_source(record))
     monkeypatch.setattr(migration.os, "rename", rename)
     with pytest.raises(MigrationAdmissionError, match="Both source locations exist"):
         run(saved, current)
     assert session.binding.store_path.is_dir()
-    assert migration._retained(record).is_dir()
+    assert migration.retained_source(record).is_dir()
 
 
 def test_completed_record_never_reopens_legacy_when_marker_is_lost(saved):
@@ -176,7 +176,7 @@ def test_revoked_access_after_relocation_keeps_block_and_evidence(saved, monkeyp
         run(saved)
     current = inspect_migration(session.binding.store_path)
     assert current.phase == "installing"
-    assert migration._retained(current).is_dir()
+    assert migration.retained_source(current).is_dir()
     with pytest.raises(MigrationAdmissionError, match="incomplete"):
         observe_generation_marker(session.binding)
 
@@ -209,7 +209,7 @@ def test_visible_phase_must_be_durable_before_restart_mutates(saved, monkeypatch
     with pytest.raises(OSError, match="saved phase barrier failed"):
         run(saved, current)
     assert session.binding.store_path.exists() is (phase == "replacing")
-    assert migration._retained(current).exists() is (phase == "installing")
+    assert migration.retained_source(current).exists() is (phase == "installing")
     monkeypatch.setattr(migration, "sync_file", sync)
     assert run(saved, current).phase == "completed"
 
@@ -427,7 +427,7 @@ def test_installation_keeps_project_fence_while_source_is_vacant(saved, monkeypa
         try:
             assert entered.wait(10)
             assert not source.exists()
-            assert migration._retained(record).is_dir()
+            assert migration.retained_source(record).is_dir()
             with (
                 pytest.raises(MigrationAdmissionError, match="busy"),
                 migration_write_guard(source, timeout=0),
@@ -455,4 +455,4 @@ def test_installation_restart_preserves_nonempty_lock_evidence(saved, monkeypatc
         run(saved, current)
     assert lock.read_bytes() == b"retained lock evidence"
     assert inspect_migration(session.binding.store_path) == current
-    assert migration._retained(current).is_dir()
+    assert migration.retained_source(current).is_dir()

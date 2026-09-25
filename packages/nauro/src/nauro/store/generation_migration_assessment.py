@@ -293,15 +293,49 @@ def assess_legacy_migration(
         except (OSError, ReplicaControlReadError) as exc:
             raise LegacyMigrationAssessmentError("The legacy inventory is unavailable.") from exc
         _require_empty_control_lock(binding.store_path)
-        protected = tuple(stamp for stamp in files if is_protected_generation_member(stamp.path))
-        snapshots = tuple(
-            stamp
-            for stamp in files
-            if stamp.path.startswith("snapshots/") and not stamp.path.endswith(".lock")
-        )
-        known = {stamp.path for stamp in (*protected, *snapshots)}
-        evidence = tuple(stamp for stamp in files if stamp.path not in known)
+    return _classify(projection, files, directories, pending)
 
+
+def assess_preserved_legacy_source(
+    projection: VerifiedGenerationProjection, location: Path
+) -> LegacyMigrationAssessment:
+    """Compare preserved legacy bytes at the store or its retained folder with a projection."""
+    if type(projection) is not VerifiedGenerationProjection:
+        raise LegacyMigrationAssessmentError(
+            "Legacy migration assessment requires a verified projection."
+        )
+    store = projection.target.binding.store_path.resolve()
+    if location.resolve() == store:
+        return assess_legacy_migration(projection)
+    if location.parent.resolve() != store.parent or not location.name.startswith(
+        f"legacy-source-{projection.target.binding.project_id}-"
+    ):
+        raise LegacyMigrationAssessmentError("The preserved legacy source location differs.")
+    _require_legacy_root(location)
+    _require_empty_control_lock(location)
+    try:
+        files, directories, pending = _inventory(location)
+    except (OSError, ReplicaControlReadError) as exc:
+        raise LegacyMigrationAssessmentError("The legacy inventory is unavailable.") from exc
+    _require_empty_control_lock(location)
+    _require_legacy_root(location)
+    return _classify(projection, files, directories, pending)
+
+
+def _classify(
+    projection: VerifiedGenerationProjection,
+    files: tuple[LegacyFileStamp, ...],
+    directories: tuple[str, ...],
+    pending: tuple[str, ...],
+) -> LegacyMigrationAssessment:
+    protected = tuple(stamp for stamp in files if is_protected_generation_member(stamp.path))
+    snapshots = tuple(
+        stamp
+        for stamp in files
+        if stamp.path.startswith("snapshots/") and not stamp.path.endswith(".lock")
+    )
+    known = {stamp.path for stamp in (*protected, *snapshots)}
+    evidence = tuple(stamp for stamp in files if stamp.path not in known)
     local_by_path = {stamp.path: stamp for stamp in protected}
     server_by_path = {artifact.path: artifact.digest for artifact in projection.artifacts}
     shared = set(local_by_path) & set(server_by_path)
@@ -343,4 +377,5 @@ __all__ = [
     "LegacyMigrationAssessment",
     "LegacyMigrationAssessmentError",
     "assess_legacy_migration",
+    "assess_preserved_legacy_source",
 ]
