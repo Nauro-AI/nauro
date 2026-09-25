@@ -8,6 +8,7 @@ from threading import Event
 
 import pytest
 
+from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.migration_admission import (
     MigrationAdmissionError,
     admission_path,
@@ -387,17 +388,47 @@ def test_set_aside_moves_earlier_replica_then_reconciles(saved, monkeypatch, sha
     assert _relative(folder) == replica
 
 
-@pytest.mark.parametrize("fault", ["foreign.txt", "decisions/001-one.md", ".replica-control.lock"])
+FAULTS = ["foreign.txt", "decisions/001-one.md", ".replica-control.lock", "other", "link"]
+
+
+@pytest.mark.parametrize("fault", FAULTS)
 def test_set_aside_refuses_unknown_bytes_intact(saved, monkeypatch, fault):
+    session = saved[2]
+    store = session.binding.store_path
+    current = _admit(saved, monkeypatch, "installing" if fault == "other" else "staging")
+    _move_target(saved)
+    if fault == "other":
+        store.mkdir()
+        fresh = _fresh(session)
+        moved = acquire_generation_projection(
+            fresh.binding, active_user_id=current.actor, session=fresh
+        )
+        installation.install_generation_root(moved, timeout=0)
+    elif fault == "link":
+        elsewhere = store.parent / "elsewhere"
+        store.rename(elsewhere)
+        store.symlink_to(elsewhere, target_is_directory=True)
+    else:
+        target = store / fault
+        if fault.startswith("decisions/"):
+            target = next(p for p in store.rglob(fault) if "/store/" in p.as_posix())
+        target.write_bytes(b"not replica evidence")
+    before, evidence = _tree(store.parent), _tree(migration_home())
+    with pytest.raises((MigrationAdmissionError, GenerationAuthorityError)) as refused:
+        set_aside_stale_replica(current, _fresh(session))
+    if fault != "link":
+        assert "Unrecognized installation evidence" in str(refused.value)
+    assert _tree(store.parent) == before
+    assert store.is_symlink() is (fault == "link")
+    assert not stale_replica_folder(current).exists()
+    assert _tree(migration_home()) == evidence
+
+
+def test_set_aside_refuses_when_target_is_unchanged(saved, monkeypatch):
     store = saved[2].binding.store_path
     current = _admit(saved, monkeypatch, "staging")
-    target = store / fault
-    if fault.startswith("decisions/"):
-        target = next(p for p in store.rglob(fault) if "/store/" in p.as_posix())
-    target.write_bytes(b"not replica evidence")
-    _move_target(saved)
     before = _tree(store.parent)
-    with pytest.raises(MigrationAdmissionError, match="Unrecognized installation evidence"):
+    with pytest.raises(MigrationAdmissionError, match="still matches the hosted record"):
         set_aside_stale_replica(current, _fresh(saved[2]))
     assert _tree(store.parent) == before
     assert inspect_migration(store) == current

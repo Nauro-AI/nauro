@@ -176,13 +176,21 @@ def set_aside_stale_replica(
     folder = stale_replica_folder(expected) if type(expected) is MigrationAdmission else None
     if folder is None or not isinstance(session, InitialAttachmentSession):
         raise MigrationAdmissionError("No interrupted installation evidence to move aside.")
+    session.require_binding(session.binding)
     _registration(expected, session)
+    projection = acquire_generation_projection(
+        session.binding, active_user_id=expected.actor, session=session
+    )
     store = Path(expected.store)
     try:
         with migration_lock(store, timeout=0):
             current, raw = load_migration_plan(store)
             if current != expected:
                 raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
+            if decode_migration_plan(raw, expected).projection == projection.target.identity:
+                raise MigrationAdmissionError(
+                    "The earlier installation still matches the hosted record; continue it instead."
+                )
             _require_earlier_replica(expected, raw, session, folder)
             os.rename(store, folder)
             sync_parents(RefreshPaths(store.parent, store.parent), store.parent)

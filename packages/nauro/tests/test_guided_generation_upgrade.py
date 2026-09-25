@@ -459,7 +459,7 @@ def test_reassessed_requires_fresh_consent_then_converts(assessed):
             assert "Changed since admission: " + changed in messages
             assert "Classification changed since the earlier upgrade: " + changed in messages
             assert (
-                "Earlier preservation folder retained unchanged: "
+                "Earlier preservation folder retained: "
                 f"{json.dumps(plan.backup_directory_name)}." in messages
             )
             assert any(m.startswith("Defer if these files") for m in messages)
@@ -494,7 +494,7 @@ def test_relocated_reassessed_presentation_has_no_defer_line(assessed, monkeypat
         "This relocated upgrade can only continue or remain blocked. Preserved files "
         "remain available for export." in shown
     )
-    assert any(m.startswith("Earlier preservation folder retained unchanged") for m in shown)
+    assert any(m.startswith("Earlier preservation folder retained") for m in shown)
     assert not any(m.startswith("Changed since admission") for m in shown)
     assert messages[-1] == _REMAINS
 
@@ -549,6 +549,7 @@ def test_set_aside_confirmation_moves_evidence_then_converts(assessed, monkeypat
         "reassessed? Nothing is deleted."
     )
     assert prompts[3:] == [_CONSENT]
+    assert f"Moved interrupted installation files to: {folder}" in messages
     assert folder.name == f"legacy-install-{saved.project_id}-{saved.migration_id}"
     assert {p.relative_to(folder): v for p, v in _tree(folder).items()} == replica
     assert result.phase == "completed"

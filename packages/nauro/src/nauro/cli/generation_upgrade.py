@@ -86,10 +86,7 @@ def _present_reassessment(
     if changed:
         emit(f"Changed since admission: {_quoted(changed)}.")
     if (Path(record.store).parent / folder).exists():
-        emit(
-            "Earlier preservation folder retained unchanged: "
-            f"{json.dumps(folder, ensure_ascii=False)}."
-        )
+        emit(f"Earlier preservation folder retained: {json.dumps(folder, ensure_ascii=False)}.")
 
 
 def _present(record: MigrationAdmission, emit: Callable[[str], None]) -> None:
