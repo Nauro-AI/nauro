@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Nauro-AI/mcp-server
-          ref: 4ff267d8cd38ead5ed80fbed9fee591aa6178f0d
+          ref: ec22b58ea841c984118402d11c88dbbaa9ef8974
           token: ${{ secrets.MCP_SERVER_READ_TOKEN }}
           persist-credentials: false
           path: server
