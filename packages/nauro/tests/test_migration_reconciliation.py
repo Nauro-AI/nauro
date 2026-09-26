@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
 import pytest
 
+from nauro.store import generation_installation as installer
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.migration_admission import (
     MigrationAdmissionError,
@@ -21,6 +23,7 @@ from nauro.store.migration_admission import (
 from nauro.sync import migration_admission as admission
 from nauro.sync import migration_installation as installation
 from nauro.sync import migration_preservation as preservation
+from nauro.sync import migration_reconciliation as reconciliation
 from nauro.sync.generation_acquisition import acquire_generation_projection
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.migration_admission import decide_migration_assessment, load_migration_plan
@@ -28,6 +31,7 @@ from nauro.sync.migration_reconciliation import (
     reconcile_admitted_migration,
     set_aside_stale_replica,
     stale_replica_folder,
+    stale_replica_shape,
 )
 from tests.test_guided_generation_upgrade import _move_target, _tree
 from tests.test_migration_preservation import saved as _saved
@@ -62,6 +66,7 @@ def _admit(saved, monkeypatch, phase):
             lambda *a, **k: _stop(install(*a, **k)),
         ),
         "controls": (installation, "prepare_initial_generation_refresh", _stop),
+        "staged": (installer, "_rename_into_place", _stop),
     }.get(phase, (installation, "_install", _stop))
     original = getattr(target, name)
     monkeypatch.setattr(target, name, fault)
@@ -363,12 +368,15 @@ def test_busy_lock_refuses_reconciliation(saved):
         future.result(timeout=10)
 
 
+def _confirmed(record):
+    return stale_replica_shape(record, admission._read_plan(record))
+
+
 def _relative(root):
     return {path.relative_to(root): value for path, value in _tree(root).items()}
 
 
-@pytest.mark.parametrize("shape", ["staging", "controls"])
-def test_set_aside_moves_earlier_replica_then_reconciles(saved, monkeypatch, shape):
+def _set_aside_then_reconciles(saved, monkeypatch, shape):
     session = saved[2]
     store = session.binding.store_path
     current = _admit(saved, monkeypatch, shape)
@@ -376,7 +384,8 @@ def test_set_aside_moves_earlier_replica_then_reconciles(saved, monkeypatch, sha
     assert (Path(".replica/authority.json") in replica) is (shape == "controls")
     retained, evidence = _tree(retained_source(current)), _tree(saved[1].backup_root)
     _move_target(saved)
-    folder = set_aside_stale_replica(current, _fresh(session))
+    assert _confirmed(current) == ("staging" if shape == "staged" else "root")
+    folder = set_aside_stale_replica(current, _fresh(session), shape=_confirmed(current))
     assert folder == store.parent / f"legacy-install-{current.project_id}-{current.migration_id}"
     assert not store.exists()
     assert _relative(folder) == replica
@@ -386,6 +395,142 @@ def test_set_aside_moves_earlier_replica_then_reconciles(saved, monkeypatch, sha
     successor = reconcile_admitted_migration(current, _fresh(session))
     assert (successor.phase, successor.source_id) == ("reassessed", current.migration_id)
     assert _relative(folder) == replica
+
+
+@pytest.mark.parametrize("shape", ["staging", "controls"])
+def test_set_aside_moves_earlier_replica_then_reconciles(saved, monkeypatch, shape):
+    _set_aside_then_reconciles(saved, monkeypatch, shape)
+
+
+def test_set_aside_moves_staging_only_leftover_then_reconciles(saved, monkeypatch):
+    _set_aside_then_reconciles(saved, monkeypatch, "staged")
+
+
+def _staged(saved, monkeypatch):
+    store = saved[2].binding.store_path
+    current = _admit(saved, monkeypatch, "staged")
+    actor = Path(".replica/v1/actors", current.actor)
+    (entry,) = (store / actor / "staging").iterdir()
+    key, token = entry.name.split("-")
+    assert key == installer._root_key(saved[1].assessment.projection.target)
+    assert len(token) == installer._STAGING_TOKEN_BYTES * 2
+    outside = {p for p in _relative(store) if entry.name not in p.parts}
+    assert outside == {
+        Path(".replica-control.lock"),
+        *(Path(*actor.parts[:n]) for n in range(1, 5)),
+        actor / "generations",
+        actor / "staging",
+    }
+    assert (store / ".replica-control.lock").read_bytes() == b""
+    assert not any((store / actor / "generations").iterdir())
+    assert {p.name for p in entry.iterdir()} == {"manifest.json", "store"}
+    return current, store / actor, entry
+
+
+@pytest.mark.parametrize(
+    ("phase", "shape"),
+    [("installing", None), ("staging", "root"), ("controls", "root"), ("staged", "staging")],
+)
+def test_stale_replica_shape_classifies_root_and_staging(saved, monkeypatch, phase, shape):
+    store = saved[2].binding.store_path
+    current = (
+        _staged(saved, monkeypatch)[0] if phase == "staged" else _admit(saved, monkeypatch, phase)
+    )
+    before = _tree(store.parent)
+    assert stale_replica_shape(current, load_migration_plan(store)[1]) == shape
+    assert _tree(store.parent) == before
+
+
+WIDENED = [
+    "wrong_key",
+    "second_entry",
+    "foreign_top",
+    "foreign_actor",
+    "root",
+    "pointer",
+    "marker",
+    "link",
+    "non_hex_token",
+    "empty_token",
+    "short_token",
+    "entry_file",
+    "entry_link",
+    "foreign_replica",
+    "foreign_version",
+    "foreign_actors",
+]
+
+
+@pytest.mark.parametrize("fault", WIDENED)
+def test_staging_only_set_aside_refuses_widened_shapes_intact(saved, monkeypatch, fault):
+    session = saved[2]
+    store = session.binding.store_path
+    current, actor, entry = _staged(saved, monkeypatch)
+    key, token = entry.name.split("-")
+    _move_target(saved)
+    renamed = {
+        "wrong_key": ("f" if key[0] != "f" else "e") * 32 + "-" + token,
+        "non_hex_token": f"{key}-{'g' * 16}",
+        "empty_token": f"{key}-",
+        "short_token": f"{key}-{token[:8]}",
+    }
+    if fault in renamed:
+        entry.rename(entry.with_name(renamed[fault]))
+    elif fault == "second_entry":
+        (actor / "staging" / f"{key}-{'0' * 16}").mkdir()
+    elif fault == "root":
+        (actor / "generations" / key).mkdir()
+    elif fault in {"entry_file", "entry_link"}:
+        moved = entry.rename(store.parent / "moved-entry")
+        if fault == "entry_link":
+            entry.symlink_to(moved, target_is_directory=True)
+        else:
+            entry.write_bytes(b"{}")
+    elif fault == "link":
+        elsewhere = store.parent / "elsewhere"
+        store.rename(elsewhere)
+        store.symlink_to(elsewhere, target_is_directory=True)
+    elif fault == "foreign_actors":
+        (actor.parent / "foreign").mkdir()
+    else:
+        target = {
+            "foreign_top": store / "foreign.txt",
+            "foreign_actor": actor / "foreign.txt",
+            "pointer": actor / "pointer.json",
+            "marker": store / ".replica/authority.json",
+            "foreign_replica": store / ".replica/foreign.txt",
+            "foreign_version": actor.parent.parent / "foreign.txt",
+        }[fault]
+        target.write_bytes(b"{}")
+    assert _confirmed(current) == "root"
+    before, evidence = _tree(store.parent), _tree(migration_home())
+    if fault != "link":
+        with pytest.raises(MigrationAdmissionError, match="changed before the move"):
+            set_aside_stale_replica(current, _fresh(session), shape="staging")
+    with pytest.raises((MigrationAdmissionError, GenerationAuthorityError)) as refused:
+        set_aside_stale_replica(current, _fresh(session), shape=_confirmed(current))
+    if fault != "link":
+        assert "Unrecognized installation evidence" in str(refused.value)
+    assert _tree(store.parent) == before
+    assert store.is_symlink() is (fault == "link")
+    assert not stale_replica_folder(current).exists()
+    assert _tree(migration_home()) == evidence
+    if fault != "link":
+        assert inspect_migration(store) == current
+
+
+def test_staging_shape_reads_lock_links_without_directory_entry_counts(saved, monkeypatch):
+    current = _staged(saved, monkeypatch)[0]
+    listed = reconciliation._entries
+
+    def zero_links(path):
+        return {
+            name: os.stat_result((*tuple(info)[:3], 0, *tuple(info)[4:10]))
+            for name, info in listed(path).items()
+        }
+
+    monkeypatch.setattr(reconciliation, "_entries", zero_links)
+    assert _confirmed(current) == "staging"
 
 
 FAULTS = ["foreign.txt", "decisions/001-one.md", ".replica-control.lock", "other", "link"]
@@ -415,7 +560,7 @@ def test_set_aside_refuses_unknown_bytes_intact(saved, monkeypatch, fault):
         target.write_bytes(b"not replica evidence")
     before, evidence = _tree(store.parent), _tree(migration_home())
     with pytest.raises((MigrationAdmissionError, GenerationAuthorityError)) as refused:
-        set_aside_stale_replica(current, _fresh(session))
+        set_aside_stale_replica(current, _fresh(session), shape=_confirmed(current))
     if fault != "link":
         assert "Unrecognized installation evidence" in str(refused.value)
     assert _tree(store.parent) == before
@@ -429,7 +574,7 @@ def test_set_aside_refuses_when_target_is_unchanged(saved, monkeypatch):
     current = _admit(saved, monkeypatch, "staging")
     before = _tree(store.parent)
     with pytest.raises(MigrationAdmissionError, match="still matches the hosted record"):
-        set_aside_stale_replica(current, _fresh(saved[2]))
+        set_aside_stale_replica(current, _fresh(saved[2]), shape=_confirmed(current))
     assert _tree(store.parent) == before
     assert inspect_migration(store) == current
 
@@ -441,7 +586,7 @@ def test_set_aside_refuses_existing_folder_name(saved, monkeypatch):
     _move_target(saved)
     before = _tree(store.parent)
     with pytest.raises(MigrationAdmissionError, match="cannot be moved aside"):
-        set_aside_stale_replica(current, _fresh(saved[2]))
+        set_aside_stale_replica(current, _fresh(saved[2]), shape=_confirmed(current))
     assert _tree(store.parent) == before
 
 
@@ -450,13 +595,13 @@ def test_stale_record_after_set_aside_refuses(saved, monkeypatch):
     store = session.binding.store_path
     old = _admit(saved, monkeypatch, "staging")
     _move_target(saved)
-    folder = set_aside_stale_replica(old, _fresh(session))
+    folder = set_aside_stale_replica(old, _fresh(session), shape=_confirmed(old))
     successor = reconcile_admitted_migration(old, _fresh(session))
     store.mkdir()
     (store / "late.txt").write_bytes(b"late")
     before = _tree(store.parent)
     with pytest.raises(MigrationAdmissionError, match="saved upgrade changed"):
-        set_aside_stale_replica(old, _fresh(session))
+        set_aside_stale_replica(old, _fresh(session), shape=_confirmed(old))
     fresh = _fresh(session)
     projection = acquire_generation_projection(
         fresh.binding, active_user_id=old.actor, session=fresh

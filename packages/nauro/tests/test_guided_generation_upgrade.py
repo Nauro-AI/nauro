@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from nauro.cli import generation_upgrade as upgrade
+from nauro.store import generation_installation as installer
 from nauro.store.generation_authority import RefreshRequiredError
 from nauro.store.migration_admission import MigrationAdmissionError, inspect_migration
 from nauro.sync import migration_installation as installation
@@ -570,6 +571,94 @@ def test_declining_set_aside_leaves_everything_intact(assessed, monkeypatch):
     assert len(prompts) == 3
     assert messages[-1] == _REMAINS
     assert _tree(store.parent) == before
+    assert not folder.exists()
+
+
+def _staged_left(assessed, monkeypatch):
+    saved = _interrupt(assessed, monkeypatch, installer, "_rename_into_place")
+    assert saved.phase == "installing"
+    assert any(assessed[2].binding.store_path.rglob("staging/*"))
+    assert not any(assessed[2].binding.store_path.rglob("generations/*"))
+    _move_target(assessed)
+    folder = reconciliation.stale_replica_folder(saved)
+    staged = (
+        "Files from an installation of the earlier hosted record that stopped while staging "
+        "are at the project store. Their contents were not verified. Move them aside to "
+        f"{json.dumps(folder.name)} so the upgrade can be reassessed? Nothing is deleted."
+    )
+    return saved, folder, staged
+
+
+def test_staging_only_set_aside_confirmation_says_bytes_unverified_then_converts(
+    assessed, monkeypatch
+):
+    store = assessed[2].binding.store_path
+    saved, folder, staged = _staged_left(assessed, monkeypatch)
+    replica = {p.relative_to(store): v for p, v in _tree(store).items()}
+    retained, evidence = _tree(installation.retained_source(saved)), _tree(assessed[1].backup_root)
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        assessed[2], emit=messages.append, confirm=_answers(prompts, True, True, True, True)
+    )
+    assert prompts == [_CONTINUE, _OFFER, staged, _CONSENT]
+    assert f"Moved interrupted installation files to: {folder}" in messages
+    assert {p.relative_to(folder): v for p, v in _tree(folder).items()} == replica
+    assert result.phase == "completed"
+    assert _tree(installation.retained_source(saved)) == retained
+    assert _tree(assessed[1].backup_root) == evidence
+
+
+def test_declining_staging_only_set_aside_leaves_everything_intact(assessed, monkeypatch):
+    store = assessed[2].binding.store_path
+    saved, folder, staged = _staged_left(assessed, monkeypatch)
+    before = _tree(store.parent)
+    monkeypatch.setattr(upgrade, "reconcile_admitted_migration", _forbidden)
+    monkeypatch.setattr(upgrade, "set_aside_stale_replica", _forbidden)
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        assessed[2], emit=messages.append, confirm=_answers(prompts, True, True, False)
+    )
+    assert result == saved == inspect_migration(store)
+    assert prompts == [_CONTINUE, _OFFER, staged]
+    assert messages[-1] == _REMAINS
+    assert _tree(store.parent) == before
+    assert not folder.exists()
+
+
+@pytest.mark.parametrize("prompted", ["root", "staging"])
+def test_set_aside_refuses_when_shape_changes_after_confirmation(assessed, monkeypatch, prompted):
+    store = assessed[2].binding.store_path
+    saved, folder, staged = _staged_left(assessed, monkeypatch)
+    actor = next(store.rglob("staging")).parent
+    foreign, root = store / "foreign.txt", actor / "generations" / ("0" * 32)
+    if prompted == "root":
+        foreign.write_bytes(b"foreign")
+    original, seen = upgrade.set_aside_stale_replica, {}
+
+    def changed(record, session, *, shape):
+        assert shape == prompted
+        if prompted == "root":
+            foreign.unlink()
+        else:
+            root.mkdir()
+        seen["tree"] = _tree(store.parent)
+        return original(record, session, shape=shape)
+
+    monkeypatch.setattr(upgrade, "set_aside_stale_replica", changed)
+    monkeypatch.setattr(upgrade, "reconcile_admitted_migration", _forbidden)
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        assessed[2], emit=messages.append, confirm=_answers(prompts, True, True, True)
+    )
+    assert ("Their contents were not verified" in prompts[2]) is (prompted == "staging")
+    assert (prompts[2] == staged) is (prompted == "staging")
+    assert messages[-2:] == [
+        "Upgrade incomplete: Installation evidence changed before the move; "
+        "reopen connection setup.",
+        _RECOVERY,
+    ]
+    assert result == saved == inspect_migration(store)
+    assert _tree(store.parent) == seen["tree"]
     assert not folder.exists()
 
 
