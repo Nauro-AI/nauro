@@ -40,6 +40,7 @@ jobs:
           packages/nauro/src/nauro/sync/generation_refresh.py
           packages/nauro/src/nauro/sync/generation_acquisition.py
           packages/nauro/src/nauro/sync/generation_discovery.py
+          packages/nauro/src/nauro/cli/connection_routing.py
           packages/nauro/src/nauro/store/submission_records.py
           packages/nauro/src/nauro/store/share_contract.py
           packages/nauro/src/nauro/store/share_records.py

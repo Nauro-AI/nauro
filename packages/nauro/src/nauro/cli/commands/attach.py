@@ -17,6 +17,7 @@ import typer
 
 from nauro.auth import DEFAULT_API_URL
 from nauro.cli._reporters import StderrReporter
+from nauro.cli.connection_routing import route_attach
 from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
@@ -122,6 +123,8 @@ def attach(
         return
     connection = resolve_registered_project(project_id)
     destination = connection.store_path if connection is not None else get_store_path_v2(project_id)
+    if route_attach(project_id, repo_path, connection, destination):
+        return
     with legacy_write_guard(destination, "attach"):
         try:
             name = require_cloud_membership(project_id)
