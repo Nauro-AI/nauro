@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from pathlib import Path
 
 import httpx
 import pytest
 
+from nauro.store import _platform_durability as durability
 from nauro.store.migration_admission import (
     MigrationAdmissionError,
     inspect_migration,
@@ -20,6 +22,22 @@ from nauro.sync.generation_refresh import admit_generation_store
 from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.migration_admission import load_migration_plan
 from tests.test_migration_preservation import saved as _saved
+
+
+def directory_renames(fault):
+    """Route directory renames to ``fault``; every other durable rename runs unchanged."""
+    original = durability.durable_rename
+
+    def rename(source, destination, *, replace=True):
+        if not replace and Path(source).is_dir():
+            return fault(source, destination)
+        return original(source, destination, replace=replace)
+
+    return rename
+
+
+def _interrupted(*args):
+    raise OSError("interrupted")
 
 
 @pytest.fixture
@@ -63,7 +81,7 @@ def test_conversion_preserves_legacy_and_admits_normal_replica(saved):
 def test_explicit_restart_resumes_same_conversion(saved, monkeypatch, stage):
     original, plan, session, *_ = saved
     rename, install, publish, advance = (
-        migration.os.rename,
+        durability.durable_rename,
         migration.install_generation_root,
         migration.publish_generation_control,
         migration._advance,
@@ -71,7 +89,7 @@ def test_explicit_restart_resumes_same_conversion(saved, monkeypatch, stage):
 
     def rename_fault(source, target):
         if stage == "after_rename":
-            rename(source, target)
+            rename(source, target, replace=False)
         raise OSError("rename interruption")
 
     def install_fault(*args, **kwargs):
@@ -87,7 +105,7 @@ def test_explicit_restart_resumes_same_conversion(saved, monkeypatch, stage):
         return advance(record, raw, phase)
 
     if stage in {"before_rename", "after_rename"}:
-        monkeypatch.setattr(migration.os, "rename", rename_fault)
+        monkeypatch.setattr(durability, "durable_rename", directory_renames(rename_fault))
     elif stage == "before_install":
         monkeypatch.setattr(migration, "install_generation_root", install_fault)
     elif stage == "after_controls":
@@ -104,7 +122,7 @@ def test_explicit_restart_resumes_same_conversion(saved, monkeypatch, stage):
     )
     with pytest.raises(MigrationAdmissionError, match="incomplete"):
         require_migration_admission(session.binding.store_path)
-    monkeypatch.setattr(migration.os, "rename", rename)
+    monkeypatch.setattr(durability, "durable_rename", rename)
     monkeypatch.setattr(migration, "install_generation_root", install)
     monkeypatch.setattr(migration, "publish_generation_control", publish)
     monkeypatch.setattr(migration, "_advance", advance)
@@ -136,15 +154,13 @@ def test_changed_retained_source_refuses_without_rollback(saved, monkeypatch):
 
 def test_both_source_locations_refuse_before_rename(saved, monkeypatch):
     record, _, session, *_ = saved
-    rename = migration.os.rename
-    monkeypatch.setattr(
-        migration.os, "rename", lambda *a: (_ for _ in ()).throw(OSError("interrupted"))
-    )
+    rename = durability.durable_rename
+    monkeypatch.setattr(durability, "durable_rename", directory_renames(_interrupted))
     with pytest.raises(OSError):
         run(saved)
     current = inspect_migration(session.binding.store_path)
     shutil.copytree(session.binding.store_path, migration.retained_source(record))
-    monkeypatch.setattr(migration.os, "rename", rename)
+    monkeypatch.setattr(durability, "durable_rename", rename)
     with pytest.raises(MigrationAdmissionError, match="Both source locations exist"):
         run(saved, current)
     assert session.binding.store_path.is_dir()
@@ -414,14 +430,14 @@ def test_installation_keeps_project_fence_while_source_is_vacant(saved, monkeypa
     record, _, session, *_ = saved
     source = session.binding.store_path
     entered, release = Event(), Event()
-    rename = migration.os.rename
+    rename = durability.durable_rename
 
     def delayed(old, new):
-        rename(old, new)
+        rename(old, new, replace=False)
         entered.set()
         assert release.wait(10)
 
-    monkeypatch.setattr(migration.os, "rename", delayed)
+    monkeypatch.setattr(durability, "durable_rename", directory_renames(delayed))
     with ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(run, saved)
         try:

@@ -7,7 +7,7 @@ import json
 import stat
 from pathlib import Path
 
-from nauro.store._atomic import atomic_write_bytes
+from nauro.store._platform_durability import durable_write_bytes
 from nauro.store.generation_installation import _read_expected
 from nauro.store.generation_migration_assessment import (
     LegacyFileStamp,
@@ -202,7 +202,7 @@ def _publish_successor(
     try:
         path.lstat()
     except FileNotFoundError:
-        atomic_write_bytes(path, manifest_json)
+        durable_write_bytes(path, manifest_json)
     if _read_plan(record) != manifest_json:
         raise MigrationAdmissionError("Saved migration plan differs.")
     sync_file(paths, path)

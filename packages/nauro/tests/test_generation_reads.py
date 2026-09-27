@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import sys
 from dataclasses import FrozenInstanceError
 from datetime import date
 from pathlib import Path
@@ -16,9 +15,9 @@ from nauro.store.generation_authority import RefreshRequiredError, ReplicaActorM
 from nauro.store.generation_store import GenerationSnapshotStore, GenerationStorePathError
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_installation import USER_ID, _projection
+from tests.test_generation_refresh import POSIX as POSIX
 from tests.test_generation_refresh import _target
 
-POSIX = pytest.mark.skipif(sys.platform == "win32", reason="POSIX durability implementation")
 CASES = [
     ("get_context", (0,), {}),
     ("get_context", (1,), {}),
@@ -70,7 +69,6 @@ def admitted(monkeypatch):
     return binding, current, checks
 
 
-@POSIX
 @pytest.mark.parametrize("name,args,kwargs", CASES)
 def test_each_read_uses_one_admitted_snapshot(admitted, name, args, kwargs):
     binding, current, checks = admitted
@@ -88,7 +86,6 @@ def test_each_read_uses_one_admitted_snapshot(admitted, name, args, kwargs):
         checks.clear()
 
 
-@POSIX
 @pytest.mark.parametrize("name,args,kwargs", CASES)
 @pytest.mark.parametrize("change", ["scope", "account", "network"])
 def test_authority_change_during_rendering_denies_every_result(
@@ -119,7 +116,6 @@ def test_authority_change_during_rendering_denies_every_result(
         getattr(reads, name)(binding, *args, actor=USER_ID, **kwargs)
 
 
-@POSIX
 @pytest.mark.parametrize("name,args,kwargs", CASES)
 @pytest.mark.parametrize("failure", ["missing_intent", "partial", "barrier"])
 def test_failed_admission_never_calls_core(admitted, monkeypatch, name, args, kwargs, failure):
@@ -148,7 +144,6 @@ def test_failed_admission_never_calls_core(admitted, monkeypatch, name, args, kw
         getattr(reads, name)(binding, *args, actor=USER_ID, **kwargs)
 
 
-@POSIX
 def test_snapshot_identity_survives_local_pointer_change_during_rendering(admitted, monkeypatch):
     binding, current, _ = admitted
     original = operations.get_raw_file
@@ -167,7 +162,6 @@ def test_snapshot_identity_survives_local_pointer_change_during_rendering(admitt
     paths.pointer.write_bytes(raw)
 
 
-@POSIX
 def test_missing_protected_file_and_invalid_path_remain_distinct(admitted):
     binding, _, _ = admitted
     missing = reads.get_raw_file(binding, "stack.md", actor=USER_ID)
@@ -207,7 +201,6 @@ def test_adapter_has_no_production_consumer():
     assert sorted(set(consumers)) == ["mcp/generation_responses.py"]
 
 
-@POSIX
 def test_results_contain_the_installed_decision(admitted):
     binding, _, _ = admitted
     listed = reads.list_decisions(binding, actor=USER_ID).result
@@ -222,7 +215,6 @@ def test_results_contain_the_installed_decision(admitted):
     assert [row.id for row in checked.related_decisions] == ["decision-001"]
 
 
-@POSIX
 @pytest.mark.parametrize("final_status", [200, 403])
 def test_http_authorization_repeats_without_artifact_downloads(tmp_path, monkeypatch, final_status):
     from dataclasses import replace
@@ -267,7 +259,6 @@ def test_http_authorization_repeats_without_artifact_downloads(tmp_path, monkeyp
         server.session.client.close()
 
 
-@POSIX
 def test_next_read_requires_new_authorization_after_refresh(admitted):
     binding, current, checks = admitted
     before = reads.get_raw_file(binding, "state.md", actor=USER_ID)
@@ -284,7 +275,6 @@ def test_next_read_requires_new_authorization_after_refresh(admitted):
     assert len(checks) == 4
 
 
-@POSIX
 def test_corrupt_installed_bytes_refuse_before_rendering(admitted, monkeypatch):
     from nauro.store.generation_projection import GenerationProjectionVerificationError
 
@@ -301,7 +291,6 @@ def test_corrupt_installed_bytes_refuse_before_rendering(admitted, monkeypatch):
     assert raised.value.code == "generation_verification_failed"
 
 
-@POSIX
 def test_project_frame_read_preserves_unpublished_flat_edits(admitted):
     binding, current, _ = admitted
     edited = b"# Project\n\nUnpublished local scope changes.\n"

@@ -20,7 +20,9 @@ if TYPE_CHECKING:
     from nauro.sync.generation_session import GenerationTransferSession
 
 from nauro.auth import ActiveUserReadError, read_active_user_id
+from nauro.store import _platform_durability as durability
 from nauro.store._atomic import atomic_write_bytes, is_tmp_sibling
+from nauro.store._platform_durability import durable_write_bytes
 from nauro.store.generation_authority import (
     FlatProjectAuthority,
     GenerationAuthorityError,
@@ -419,7 +421,7 @@ def _sweep_stale_staging(staging_dir: Path) -> None:
 
 def _rename_into_place(staging: Path, root_path: Path) -> None:
     try:
-        os.replace(staging, root_path)
+        durability.durable_rename(staging, root_path)
         metadata = os.lstat(root_path)
     except OSError as exc:
         raise GenerationInstallError(_PUBLISH_FAILED) from exc
@@ -987,7 +989,9 @@ def _write_carrier(
     require_actor()
     failure: Exception | None = None
     try:
-        atomic_write_bytes(carrier_path, intended)
+        durable_write_bytes(carrier_path, intended)
+    except durability.DurabilityUnavailableError:
+        raise
     except Exception as exc:
         failure = exc
     observed = _read_control_file(store_path, carrier_path)
@@ -1029,7 +1033,9 @@ def _write_pointer(
     require_actor()
     failure: Exception | None = None
     try:
-        atomic_write_bytes(pointer_path, intended)
+        durable_write_bytes(pointer_path, intended)
+    except durability.DurabilityUnavailableError:
+        raise
     except Exception as exc:
         failure = exc
     observed_carrier = _read_control_file(store_path, carrier_path)
@@ -1177,7 +1183,9 @@ def _publish_generation_control(
                 raise _publication_failure()
             require_actor()
             try:
-                atomic_write_bytes(marker_path, marker_bytes)
+                durable_write_bytes(marker_path, marker_bytes)
+            except durability.DurabilityUnavailableError:
+                raise
             except Exception:
                 pass
             observed_marker = _read_control_file(store_path, marker_path)

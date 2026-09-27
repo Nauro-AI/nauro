@@ -48,7 +48,7 @@ def _interrupt(repo, monkeypatch, boundary):
 
             fault.setattr(records, "durable_replace", interrupt)
         elif boundary in {"carrier", "pointer", "marker"}:
-            original = installation.atomic_write_bytes
+            original = installation.durable_write_bytes
             selected = {
                 "carrier": "authorization-view.json",
                 "pointer": "pointer.json",
@@ -60,7 +60,7 @@ def _interrupt(repo, monkeypatch, boundary):
                 if path.name == selected:
                     raise KeyboardInterrupt()
 
-            fault.setattr(installation, "atomic_write_bytes", interrupt)
+            fault.setattr(installation, "durable_write_bytes", interrupt)
         else:
             original = refresh.durable_replace
             selected = {

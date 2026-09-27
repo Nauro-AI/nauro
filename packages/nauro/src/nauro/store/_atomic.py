@@ -18,6 +18,7 @@ every reader, including the next sync's push.
 import os
 import secrets
 import stat
+from collections.abc import Callable
 from pathlib import Path
 
 _TMP_OPEN_FLAGS = (
@@ -80,14 +81,14 @@ def _resolve_modes(path: Path, mode: int | None) -> tuple[int | None, int]:
         return None, 0o666
 
 
-def _replace(tmp: Path, path: Path, final_mode: int | None) -> None:
+def _replace(tmp: Path, path: Path, final_mode: int | None, rename: Callable | None = None) -> None:
     """Put the finished tmp file in place under the mode it must carry."""
     if final_mode is not None and final_mode != 0o600:
         os.chmod(tmp, final_mode)
-    os.replace(tmp, path)
+    (rename or os.replace)(tmp, path)
 
 
-def atomic_write_bytes(path: Path, data: bytes) -> None:
+def atomic_write_bytes(path: Path, data: bytes, *, rename: Callable | None = None) -> None:
     """Write ``data`` to ``path`` atomically via a tmp sibling and ``os.replace``.
 
     The bytes counterpart of :func:`atomic_write_text`; an existing target keeps its bits.
@@ -98,7 +99,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
-        _replace(tmp, path, final_mode)
+        _replace(tmp, path, final_mode, rename)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise

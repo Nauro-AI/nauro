@@ -8,6 +8,7 @@ import stat
 from pathlib import Path
 from typing import Literal
 
+from nauro.store import _platform_durability as durability
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.generation_installation import (
     _GENERATIONS_DIR,
@@ -286,7 +287,7 @@ def set_aside_stale_replica(
                     "The earlier installation still matches the hosted record; continue it instead."
                 )
             _require_earlier_replica(expected, raw, session, folder, shape)
-            os.rename(store, folder)
+            durability.durable_rename(store, folder, replace=False)
             sync_parents(RefreshPaths(store.parent, store.parent), store.parent)
             if load_migration_plan(store) != (expected, raw) or os.path.lexists(store):
                 raise MigrationAdmissionError("The saved upgrade changed during the move.")

@@ -123,7 +123,6 @@
 {"path":"packages/nauro/src/nauro/store/generation_installation.py","rule":"PLR0912","count":1}
 {"path":"packages/nauro/src/nauro/store/generation_installation.py","rule":"PLR0915","count":1}
 {"path":"packages/nauro/src/nauro/store/generation_installation.py","rule":"S110","count":1}
-{"path":"packages/nauro/src/nauro/store/generation_installation.py","rule":"SIM105","count":1}
 {"path":"packages/nauro/src/nauro/store/generation_installation.py","rule":"SIM905","count":2}
 {"path":"packages/nauro/src/nauro/store/generation_installation.py","rule":"TRY300","count":1}
 {"path":"packages/nauro/src/nauro/store/generation_installation.py","rule":"TRY301","count":3}

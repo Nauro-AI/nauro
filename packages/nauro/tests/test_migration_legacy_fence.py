@@ -126,6 +126,8 @@ def test_delayed_transfer_prevents_conversion(saved, monkeypatch, direction):
     def delayed(*args, **kwargs):
         entered.set()
         assert release.wait(10)
+        # Windows unlinks a released lock file, so the transfer must change the source itself.
+        (binding.store_path / "transferred.md").write_text("Transferred")
         return pull.PullReport() if direction == "pull" else push.PushReport()
 
     monkeypatch.setattr(

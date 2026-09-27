@@ -208,7 +208,7 @@ def test_host_refusal_does_not_install(hosted, status):
 @pytest.mark.parametrize("boundary", ["carrier", "pointer", "marker", "barrier"])
 def test_interrupted_initial_attachment_retains_evidence(hosted, monkeypatch, boundary):
     repo, _, _, _, _ = hosted
-    original = installation.atomic_write_bytes
+    original = installation.durable_write_bytes
     names = {
         "carrier": "authorization-view.json",
         "pointer": "pointer.json",
@@ -220,7 +220,7 @@ def test_interrupted_initial_attachment_retains_evidence(hosted, monkeypatch, bo
         if path.name == names.get(boundary):
             raise KeyboardInterrupt()
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     if boundary == "barrier":
         from nauro.sync import generation_refresh
 
@@ -239,14 +239,14 @@ def test_interrupted_initial_attachment_retains_evidence(hosted, monkeypatch, bo
 @pytest.mark.parametrize("point", ["carrier", "pointer"])
 def test_owner_revocation_during_control_publication_stops_marker(hosted, monkeypatch, point):
     repo, _, _, control, _ = hosted
-    original = installation.atomic_write_bytes
+    original = installation.durable_write_bytes
 
     def write(path, raw):
         original(path, raw)
         if path.name == {"carrier": "authorization-view.json", "pointer": "pointer.json"}[point]:
             control["role"] = "viewer"
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     result = _run(repo)
     assert result.exit_code == 1
     assert not (get_store_path_v2(PROJECT_ID) / ".replica/authority.json").exists()

@@ -15,6 +15,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from nauro.store import _platform_durability as durability
 from nauro.sync.decision_profile import _private_json
 
 
@@ -94,7 +95,7 @@ class CredentialStore:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, self.path)
+            durability.durable_rename(temporary, self.path)
             self.sync_directory()
         finally:
             temporary.unlink(missing_ok=True)
@@ -120,6 +121,8 @@ class CredentialStore:
         self.sync_directory()
 
     def sync_directory(self) -> None:
+        if durability.WINDOWS:
+            return
         directory = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(directory)

@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from nauro.cli import generation_upgrade as upgrade
+from nauro.store import _platform_durability as durability
 from nauro.store import generation_installation as installer
 from nauro.store.generation_authority import RefreshRequiredError
 from nauro.store.migration_admission import MigrationAdmissionError, inspect_migration
@@ -15,6 +16,7 @@ from nauro.sync import migration_reconciliation as reconciliation
 from nauro.sync.migration_admission import decide_migration_assessment, load_migration_plan
 from nauro.sync.migration_preservation import preserve_migration_source
 from tests import test_migration_preservation as seed
+from tests.test_migration_installation import directory_renames
 
 
 @pytest.fixture
@@ -800,12 +802,12 @@ def test_admitted_upgrade_checks_retained_source_before_continuing(
 def test_changed_source_before_rename_requires_owner_recovery(assessed, monkeypatch):
     _, _, session, *_ = assessed
     store = session.binding.store_path
-    rename = installation.os.rename
-    monkeypatch.setattr(installation.os, "rename", _forbidden_rename)
+    rename = durability.durable_rename
+    monkeypatch.setattr(durability, "durable_rename", directory_renames(_forbidden_rename))
     upgrade.guided_existing_hosted_upgrade(
         session, emit=lambda text: None, confirm=lambda prompt: True
     )
-    monkeypatch.setattr(installation.os, "rename", rename)
+    monkeypatch.setattr(durability, "durable_rename", rename)
     saved, _ = load_migration_plan(store)
     assert saved.phase == "replacing"
     assert store.is_dir() and not installation.retained_source(saved).exists()
