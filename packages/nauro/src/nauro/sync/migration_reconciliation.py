@@ -6,8 +6,15 @@ import hashlib
 import os
 import stat
 from pathlib import Path
+from typing import Literal
 
 from nauro.store.generation_authority import GenerationAuthorityError
+from nauro.store.generation_installation import (
+    _GENERATIONS_DIR,
+    _STAGING_DIR,
+    _STAGING_TOKEN_BYTES,
+    _root_key,
+)
 from nauro.store.generation_migration_assessment import (
     LegacyFileStamp,
     _require_empty_control_lock,
@@ -24,10 +31,13 @@ from nauro.store.migration_admission import (
     retained_source,
 )
 from nauro.store.replica_control import (
+    _REPLICA_CONTROL_LOCK_NAME,
+    _REPLICA_CONTROL_ROOT_NAME,
     ReplicaControlBusyError,
     _is_link_or_reparse,
     _validate_managed_path,
 )
+from nauro.store.resolution import ResolvedProjectBinding
 from nauro.sync.generation_acquisition import acquire_generation_projection
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.generation_attachment_record import validate_retained_projection
@@ -143,8 +153,77 @@ def stale_replica_folder(record: MigrationAdmission) -> Path | None:
     return store.parent / f"legacy-install-{record.project_id}-{record.migration_id}"
 
 
+def _real_directory(info: os.stat_result) -> bool:
+    return stat.S_ISDIR(info.st_mode) and not _is_link_or_reparse(info)
+
+
+def _entries(path: Path) -> dict[str, os.stat_result]:
+    with os.scandir(path) as listing:
+        return {entry.name: entry.stat(follow_symlinks=False) for entry in listing}
+
+
+def _only_staging(record: MigrationAdmission, raw: bytes) -> bool:
+    store = Path(record.store)
+    identity = decode_migration_plan(raw, record).projection
+    binding = ResolvedProjectBinding(
+        store, record.project_id, record.project_id, "cloud", record.endpoint
+    )
+    prefix = _root_key(GenerationProjectionTarget(binding, identity)) + "-"
+    info = os.lstat(store)
+    same_device = info.st_dev == os.stat(store.parent).st_dev
+    listing = _entries(store) if _real_directory(info) and same_device else {}
+    if listing.pop(_REPLICA_CONTROL_LOCK_NAME, None) is not None:
+        lock = os.lstat(store / _REPLICA_CONTROL_LOCK_NAME)
+        if not stat.S_ISREG(lock.st_mode) or lock.st_size != 0 or lock.st_nlink != 1:
+            return False
+    chain = (
+        _REPLICA_CONTROL_ROOT_NAME,
+        f"v{identity.store_format_version}",
+        "actors",
+        identity.installed_for_user_id,
+    )
+    current = store
+    for name in chain:
+        if set(listing) != {name} or not _real_directory(listing[name]):
+            return False
+        current = current / name
+        listing = _entries(current)
+    generations = listing.pop(_GENERATIONS_DIR, None)
+    empty = generations is None or (
+        _real_directory(generations) and not _entries(current / _GENERATIONS_DIR)
+    )
+    exact = empty and set(listing) == {_STAGING_DIR} and _real_directory(listing[_STAGING_DIR])
+    staged = list(_entries(current / _STAGING_DIR).items()) if exact else []
+    if len(staged) != 1:
+        return False
+    name, entry = staged[0]
+    token = name[len(prefix) :]
+    return (
+        name.startswith(prefix)
+        and len(token) == _STAGING_TOKEN_BYTES * 2
+        and all(character in "0123456789abcdef" for character in token)
+        and _real_directory(entry)
+    )
+
+
+def stale_replica_shape(
+    record: MigrationAdmission, raw: bytes
+) -> Literal["root", "staging"] | None:
+    """Staging when only the earlier plan's lone staging entry is left, else root."""
+    if stale_replica_folder(record) is None:
+        return None
+    try:
+        return "staging" if _only_staging(record, raw) else "root"
+    except (GenerationAuthorityError, OSError):
+        return "root"
+
+
 def _require_earlier_replica(
-    expected: MigrationAdmission, raw: bytes, session: InitialAttachmentSession, folder: Path
+    expected: MigrationAdmission,
+    raw: bytes,
+    session: InitialAttachmentSession,
+    folder: Path,
+    shape: Literal["root", "staging"],
 ) -> None:
     store = Path(expected.store)
     _validate_managed_path(store.parent, folder)
@@ -157,12 +236,17 @@ def _require_earlier_replica(
         or info.st_dev != store.parent.stat().st_dev
     ):
         raise MigrationAdmissionError("Installation evidence cannot be moved aside; " + _RECOVERY)
+    if stale_replica_shape(expected, raw) != shape:
+        raise MigrationAdmissionError(
+            "Installation evidence changed before the move; reopen connection setup."
+        )
     identity = decode_migration_plan(raw, expected).projection
     try:
         _require_empty_control_lock(store)
-        validate_retained_projection(
-            capture_generation_root(GenerationProjectionTarget(session.binding, identity))
-        )
+        if shape == "root":
+            validate_retained_projection(
+                capture_generation_root(GenerationProjectionTarget(session.binding, identity))
+            )
     except (GenerationAuthorityError, OSError) as exc:
         raise MigrationAdmissionError(
             "Unrecognized installation evidence is preserved intact; " + _RECOVERY
@@ -170,11 +254,21 @@ def _require_earlier_replica(
 
 
 def set_aside_stale_replica(
-    expected: MigrationAdmission, session: InitialAttachmentSession
+    expected: MigrationAdmission,
+    session: InitialAttachmentSession,
+    *,
+    shape: Literal["root", "staging"],
 ) -> Path:
-    """Rename verified earlier-target replica evidence beside the store; nothing is deleted."""
+    """Move the confirmed shape aside: a verified earlier root or a lone staging entry.
+
+    Refuses unless the shape recomputed under the lock is the confirmed one.
+    """
     folder = stale_replica_folder(expected) if type(expected) is MigrationAdmission else None
-    if folder is None or not isinstance(session, InitialAttachmentSession):
+    if (
+        folder is None
+        or shape not in ("root", "staging")
+        or not isinstance(session, InitialAttachmentSession)
+    ):
         raise MigrationAdmissionError("No interrupted installation evidence to move aside.")
     session.require_binding(session.binding)
     _registration(expected, session)
@@ -191,7 +285,7 @@ def set_aside_stale_replica(
                 raise MigrationAdmissionError(
                     "The earlier installation still matches the hosted record; continue it instead."
                 )
-            _require_earlier_replica(expected, raw, session, folder)
+            _require_earlier_replica(expected, raw, session, folder, shape)
             os.rename(store, folder)
             sync_parents(RefreshPaths(store.parent, store.parent), store.parent)
             if load_migration_plan(store) != (expected, raw) or os.path.lexists(store):

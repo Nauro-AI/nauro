@@ -38,6 +38,7 @@ from nauro.sync.migration_reconciliation import (
     reconcile_admitted_migration,
     set_aside_stale_replica,
     stale_replica_folder,
+    stale_replica_shape,
 )
 from nauro.sync.remote import TransferBoundaryError
 
@@ -209,16 +210,27 @@ def _admitted_change(
         emit(_REMAINS)
         return None
     try:
-        folder = stale_replica_folder(record)
+        folder, shape = stale_replica_folder(record), None
         if folder is not None:
-            if not confirm(
-                "Files from the interrupted installation for the earlier hosted record "
-                f"are at the project store. Move them aside to {json.dumps(folder.name)} "
-                "so the upgrade can be reassessed? Nothing is deleted."
-            ):
+            shape = stale_replica_shape(record, load_migration_plan(session.binding.store_path)[1])
+        if folder is not None and shape is not None:
+            if shape == "staging":
+                question = (
+                    "Files from an installation of the earlier hosted record that stopped "
+                    "while staging are at the project store. Their contents were not "
+                    f"verified. Move them aside to {json.dumps(folder.name)} so the "
+                    "upgrade can be reassessed? Nothing is deleted."
+                )
+            else:
+                question = (
+                    "Files from the interrupted installation for the earlier hosted record "
+                    f"are at the project store. Move them aside to {json.dumps(folder.name)} "
+                    "so the upgrade can be reassessed? Nothing is deleted."
+                )
+            if not confirm(question):
                 emit(_REMAINS)
                 return None
-            moved = set_aside_stale_replica(record, session)
+            moved = set_aside_stale_replica(record, session, shape=shape)
             emit(f"Moved interrupted installation files to: {moved}")
         return reconcile_admitted_migration(record, session)
     except (
