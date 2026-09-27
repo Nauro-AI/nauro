@@ -39,6 +39,7 @@ jobs:
           packages/nauro/src/nauro/store/generation_refresh_io.py
           packages/nauro/src/nauro/sync/generation_refresh.py
           packages/nauro/src/nauro/sync/generation_acquisition.py
+          packages/nauro/src/nauro/sync/generation_discovery.py
           packages/nauro/src/nauro/store/submission_records.py
           packages/nauro/src/nauro/store/share_contract.py
           packages/nauro/src/nauro/store/share_records.py
@@ -206,7 +207,7 @@ jobs:
               "test_search_decisions_cross_surface": 2, "test_update_state_cross_surface": 4,
               "test_decision_reference_cli_server": 3, "test_decision_reference_server": 17,
               "test_decision_reference_startup_server": 2, "test_reference_auth_server": 2,
-              "test_reference_reads_server": 1,
+              "test_reference_reads_server": 1, "test_generation_discovery_server": 4,
           }
           assert dict(counts) == expected, dict(counts)
           assert not any(list(root.iter(tag)) for root in roots for tag in ("skipped", "failure", "error")), "paired server suites must pass without skips"
@@ -234,6 +235,7 @@ jobs:
       - run: >-
           uv run --no-sync --package nauro pytest
           packages/nauro/tests/test_auth.py
+          packages/nauro/tests/test_generation_discovery.py
           packages/nauro/tests/test_generation_authority.py
           packages/nauro/tests/test_generation_installation.py
           packages/nauro/tests/test_generation_read.py
