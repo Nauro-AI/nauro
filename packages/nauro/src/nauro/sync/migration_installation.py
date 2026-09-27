@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import stat
 from pathlib import Path
 
+from nauro.store import _platform_durability as durability
 from nauro.store.generation_installation import install_generation_root, publish_generation_control
 from nauro.store.generation_projection import VerifiedGenerationProjection
 from nauro.store.generation_refresh_io import RefreshPaths, durable_replace, sync_file, sync_parents
@@ -129,7 +129,7 @@ def _replace_source(record: MigrationAdmission, raw: bytes) -> None:
         if retained.exists():
             raise MigrationAdmissionError("Both source locations exist; evidence retained.")
         verify_migration_source(record, raw)
-        os.rename(source, retained)
+        durability.durable_rename(source, retained, replace=False)
     elif not retained.exists():
         raise MigrationAdmissionError("Both source locations are missing; evidence retained.")
     verify_migration_source(record.model_copy(update={"store": str(retained)}), raw)

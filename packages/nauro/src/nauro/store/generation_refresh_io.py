@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import errno
 import os
+import secrets
 import stat
 from contextlib import suppress
 from dataclasses import dataclass
@@ -8,6 +10,7 @@ from pathlib import Path
 
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 
+from nauro.store import _platform_durability as durability
 from nauro.store._atomic import _open_random_tmp
 from nauro.store.generation_installation import _read_expected
 from nauro.store.generation_refresh_intent import MAX_INTENT_BYTES
@@ -83,7 +86,12 @@ def read_evidence(paths: RefreshPaths, path: Path, *, archive: bool = False) -> 
 
 
 def sync_directory(paths: RefreshPaths, path: Path) -> None:
+    """Flush a directory. Windows has none; its durable renames write through instead."""
     _validate_managed_path(paths.store, path)
+    if durability.WINDOWS:
+        if not stat.S_ISDIR(path.lstat().st_mode):
+            raise NotADirectoryError(errno.ENOTDIR, "Not a directory", os.fspath(path))
+        return
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags)
     try:
@@ -102,7 +110,8 @@ def sync_directory(paths: RefreshPaths, path: Path) -> None:
 
 def sync_file(paths: RefreshPaths, path: Path) -> None:
     _validate_managed_path(paths.store, path)
-    descriptor = os.open(path, _READ_FLAGS)
+    windows = durability.WINDOWS
+    descriptor = durability.open_writable(path) if windows else os.open(path, _READ_FLAGS)
     try:
         opened, before = os.fstat(descriptor), path.lstat()
         if (
@@ -111,7 +120,7 @@ def sync_file(paths: RefreshPaths, path: Path) -> None:
             or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
         ):
             raise GenerationRefreshEvidenceError("Refresh file identity changed.")
-        os.fsync(descriptor)
+        durability.flush_writable(descriptor, path) if windows else os.fsync(descriptor)
     finally:
         os.close(descriptor)
 
@@ -134,7 +143,7 @@ def durable_replace(paths: RefreshPaths, path: Path, raw: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         _validate_managed_path(paths.store, path)
-        os.replace(temporary, path)
+        durability.durable_rename(temporary, path)
         sync_directory(paths, path.parent)
         if read_evidence(paths, path) != raw:
             raise GenerationRefreshEvidenceError("Refresh replacement readback differs.")
@@ -160,8 +169,11 @@ def preserve_predecessor(paths: RefreshPaths, digest: str, raw: bytes) -> None:
                 handle.write(raw)
                 handle.flush()
                 os.fsync(handle.fileno())
-            # A crash after link can retain the temporary alias; archive reads verify exact bytes.
-            os.link(temporary, archive)
+            if durability.WINDOWS:
+                durability.durable_rename(temporary, archive, replace=False)
+            else:
+                # A crash after link can retain the temporary; archive reads verify bytes.
+                os.link(temporary, archive)
         finally:
             with suppress(OSError):
                 temporary.unlink(missing_ok=True)
@@ -169,3 +181,39 @@ def preserve_predecessor(paths: RefreshPaths, digest: str, raw: bytes) -> None:
         raise GenerationRefreshEvidenceError("Refresh archive is occupied by different evidence.")
     sync_file(paths, archive)
     sync_parents(paths, paths.history)
+
+
+def probe_durability(directory: Path) -> None:
+    """Refuse unless ``directory`` accepts a flushed file and a durable rename."""
+    created: list[Path] = []
+    try:
+        durability.require_durable_file_system(directory)
+        descriptor, source = _open_random_tmp(directory / "durability-probe", 0o600)
+        created.append(source)
+        try:
+            os.write(descriptor, b"probe")
+        finally:
+            os.close(descriptor)
+        sync_file(RefreshPaths(directory, directory), source)
+        target = directory / f".durability-probe-{secrets.token_hex(8)}"
+        if os.path.lexists(target):
+            raise durability.DurabilityUnavailableError(f"The probe name {target} is taken.")
+        durability.durable_rename(source, target, replace=False)
+        created.append(target)
+        sync_directory(RefreshPaths(directory, directory), directory)
+    except OSError as exc:
+        msg = f"This file system cannot confirm durable writes in {directory}."
+        raise durability.DurabilityUnavailableError(msg) from exc
+    finally:
+        _remove_probe(created)
+
+
+def _remove_probe(created: list[Path]) -> None:
+    failed = []
+    for path in created:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            failed.append(str(path))
+    if failed:
+        raise durability.DurabilityUnavailableError(f"Cannot remove probes: {', '.join(failed)}.")

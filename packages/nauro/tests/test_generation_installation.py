@@ -301,7 +301,7 @@ class _FailDateTime:
 
 
 def _forbid_publication_effects(monkeypatch) -> None:
-    monkeypatch.setattr(installation, "atomic_write_bytes", lambda *_a: pytest.fail("wrote"))
+    monkeypatch.setattr(installation, "durable_write_bytes", lambda *_a: pytest.fail("wrote"))
     monkeypatch.setattr(installation, "datetime", _FailDateTime)
     monkeypatch.setattr(installation, "generate_ulid", lambda: pytest.fail("minted"))
 
@@ -634,14 +634,14 @@ def test_module_is_dormant_and_private(store: Path, monkeypatch) -> None:
     )
     assert issubclass(GenerationRootDivergedError, GenerationAuthorityError)
     assert GenerationRootDivergedError.code == "generation_root_diverged"
-    real_replace = os.replace
+    real_replace = installation.durability.durable_rename
 
     def replace(source, destination, *args, **kwargs):
         if os.path.isdir(source):
             pytest.fail(f"directory rename {source}")
         return real_replace(source, destination, *args, **kwargs)
 
-    monkeypatch.setattr(installation.os, "replace", replace)
+    monkeypatch.setattr(installation.durability, "durable_rename", replace)
     for name in ("locked_replica_control_snapshot", "_native_control_lock"):
         monkeypatch.setattr(replica_control, name, lambda *_a, **_k: pytest.fail("lock path"))
     monkeypatch.setattr(
@@ -794,7 +794,7 @@ def test_root_link_planted_under_the_lock_is_refused(store, tmp_path, monkeypatc
         _link(root, outside, kind)
         planted["metadata"] = os.lstat(root)
 
-    real_replace = os.replace
+    real_replace = installation.durability.durable_rename
 
     def replace(source, destination, *args, **kwargs):
         if os.path.isdir(source):
@@ -802,7 +802,7 @@ def test_root_link_planted_under_the_lock_is_refused(store, tmp_path, monkeypatc
         return real_replace(source, destination, *args, **kwargs)
 
     before = _tree(outside)
-    monkeypatch.setattr(installation.os, "replace", replace)
+    monkeypatch.setattr(installation.durability, "durable_rename", replace)
     _wrap_lock(monkeypatch, plant)
     with pytest.raises(ReplicaControlReadError) as raised:
         install_generation_root(_projection())
@@ -815,14 +815,14 @@ def test_root_link_planted_under_the_lock_is_refused(store, tmp_path, monkeypatc
 
 
 def test_publish_failure_removes_staging_and_publishes_nothing(store: Path, monkeypatch) -> None:
-    real = os.replace
+    real = installation.durability.durable_rename
 
     def replace(source, destination, *args, **kwargs):
         if os.path.isdir(source):
             raise OSError("rename refused")
         return real(source, destination, *args, **kwargs)
 
-    monkeypatch.setattr(installation.os, "replace", replace)
+    monkeypatch.setattr(installation.durability, "durable_rename", replace)
     _fails(PUBLISH_FAILED, lambda: install_generation_root(_projection()))
     assert (entry_names(_staging(store)), entry_names(_generations(store))) == (set(), set())
 
@@ -842,7 +842,7 @@ def test_publication_order(store: Path, monkeypatch, planted: bool) -> None:
     real_lstat, real_mkdir, real_replace, real_rmtree = (
         os.lstat,
         os.mkdir,
-        os.replace,
+        installation.durability.durable_rename,
         shutil.rmtree,
     )
     real_write, real_audit = installation.atomic_write_bytes, installation.audit_generation_tree
@@ -876,7 +876,7 @@ def test_publication_order(store: Path, monkeypatch, planted: bool) -> None:
 
     monkeypatch.setattr(installation.os, "lstat", lstat)
     monkeypatch.setattr(installation.os, "mkdir", mkdir)
-    monkeypatch.setattr(installation.os, "replace", replace)
+    monkeypatch.setattr(installation.durability, "durable_rename", replace)
     monkeypatch.setattr(installation.shutil, "rmtree", rmtree)
     monkeypatch.setattr(installation, "atomic_write_bytes", write)
     monkeypatch.setattr(installation, "audit_generation_tree", audit)
@@ -1033,13 +1033,13 @@ def test_control_publication_writes_carrier_pointer_then_marker(store: Path, mon
     marker, pointer = _control_files(store)
     carrier = _authorization_view(store)
     writes: list[tuple[Path, bytes]] = []
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
 
     def write(path: Path, content: bytes) -> None:
         writes.append((path, content))
         real_write(path, content)
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
     monkeypatch.setattr(installation, "datetime", FIXED_CLOCK)
 
@@ -1075,7 +1075,7 @@ def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
     real_stream = installation._stream_digest
     real_parse = installation._parse_manifest
     real_read = installation._read_control_file
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
     real_select = installation.select_project_authority
     real_mkdir = Path.mkdir
 
@@ -1153,7 +1153,7 @@ def test_control_publication_mints_after_lock_and_audit_before_ordered_writes(
     monkeypatch.setattr(installation, "_stream_digest", stream)
     monkeypatch.setattr(installation, "_parse_manifest", parse)
     monkeypatch.setattr(installation, "_read_control_file", read)
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "generate_ulid", mint, raising=False)
     monkeypatch.setattr(installation, "datetime", Clock)
     monkeypatch.setattr(installation, "select_project_authority", select)
@@ -1202,7 +1202,7 @@ def test_matching_dormant_pointer_is_reused_without_mint_or_rewrite(
     dormant = _pointer_bytes(projection)
     pointer.write_bytes(dormant)
     carrier.write_bytes(_authorization_bytes(projection))
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
 
     def write(path, content):
         if path in (carrier, pointer):
@@ -1211,7 +1211,7 @@ def test_matching_dormant_pointer_is_reused_without_mint_or_rewrite(
 
     events: list[str] = []
     _wrap_lock(monkeypatch, lambda: None, events)
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "generate_ulid", lambda: pytest.fail("minted"))
     monkeypatch.setattr(installation, "datetime", _FailDateTime)
     authority = publish_generation_control(installed)
@@ -1373,11 +1373,11 @@ def test_forged_installed_root_is_rederived_or_rejected(
 
 def test_valid_reused_flag_is_irrelevant(tmp_path: Path, monkeypatch) -> None:
     fixed = datetime.fromisoformat(INSTALLED_AT.replace("Z", "+00:00"))
-    real_read, real_write = installation._read_control_file, installation.atomic_write_bytes
+    real_read, real_write = installation._read_control_file, installation.durable_write_bytes
 
     def run(reused: bool):
         monkeypatch.setenv("NAURO_HOME", str(tmp_path / str(reused)))
-        monkeypatch.setattr(installation, "atomic_write_bytes", real_write)
+        monkeypatch.setattr(installation, "durable_write_bytes", real_write)
         local_store, projection = get_store_path_v2(PROJECT_ID), _projection()
         scaffold_project_store("nauro", local_store)
         installed = install_generation_root(projection)
@@ -1398,7 +1398,7 @@ def test_valid_reused_flag_is_irrelevant(tmp_path: Path, monkeypatch) -> None:
             real_write(path, content)
 
         monkeypatch.setattr(installation, "_read_control_file", read)
-        monkeypatch.setattr(installation, "atomic_write_bytes", write)
+        monkeypatch.setattr(installation, "durable_write_bytes", write)
         authority = publish_generation_control(installed)
         control = tuple(path.read_bytes() for path in _control_files(local_store))
         expected = authority.marker.canonical_bytes(), authority.pointer.canonical_bytes()
@@ -1595,7 +1595,7 @@ def test_active_target_mismatch_never_mutates(
     body[field] = value
     control.write_bytes(json.dumps(body, sort_keys=True, separators=(",", ":")).encode())
     before = marker.read_bytes(), carrier.read_bytes(), pointer.read_bytes()
-    monkeypatch.setattr(installation, "atomic_write_bytes", lambda *_a: pytest.fail("wrote"))
+    monkeypatch.setattr(installation, "durable_write_bytes", lambda *_a: pytest.fail("wrote"))
     expected = (
         ReplicaActorMismatchError if field == "installed_for_user_id" else RefreshRequiredError
     )
@@ -1635,7 +1635,7 @@ def test_active_incomplete_or_noncanonical_state_fails_closed(
         body["store_format_version"] = 2
         marker.write_bytes(json.dumps(body, separators=(",", ":")).encode())
     before = (marker.read_bytes(), pointer.read_bytes() if pointer.exists() else None)
-    monkeypatch.setattr(installation, "atomic_write_bytes", lambda *_a: pytest.fail("wrote"))
+    monkeypatch.setattr(installation, "durable_write_bytes", lambda *_a: pytest.fail("wrote"))
     with pytest.raises(GenerationAuthorityError):
         publish_generation_control(installed)
     assert (marker.read_bytes(), pointer.read_bytes() if pointer.exists() else None) == before
@@ -1705,7 +1705,7 @@ def test_control_publication_resolves_crash_visible_boundaries(
         carrier.write_bytes(prior_carrier)
     if outcome.startswith("pointer") and outcome.endswith("prior"):
         pointer.write_bytes(b"prior")
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
     real_read = installation._read_control_file
     failed = False
 
@@ -1743,7 +1743,7 @@ def test_control_publication_resolves_crash_visible_boundaries(
             raise ReplicaControlReadError("Replica control file changed during read.")
         return real_read(store_path, path)
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "_read_control_file", read)
     monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
     monkeypatch.setattr(installation, "datetime", FIXED_CLOCK)
@@ -1814,7 +1814,7 @@ def test_control_publication_resolves_crash_visible_boundaries(
     assert tuple(
         path.read_bytes() if path.exists() else None for path in (carrier, pointer, marker)
     ) == (expected_carrier, expected_pointer, expected_marker)
-    monkeypatch.setattr(installation, "atomic_write_bytes", real_write)
+    monkeypatch.setattr(installation, "durable_write_bytes", real_write)
     monkeypatch.setattr(installation, "_read_control_file", real_read)
     monkeypatch.setattr(installation, "read_active_user_id", lambda: USER_ID)
     if outcome.startswith("carrier") and outcome.endswith("third"):
@@ -1892,7 +1892,7 @@ def test_exact_intended_write_outcome_requires_each_proof(
     marker, pointer = _control_files(store)
     carrier = _authorization_view(store)
     stage, check = proof.split("-")
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
     real_carrier_parse = installation._parse_authorization_view
     real_pointer_parse = installation._parse_pointer
     real_carrier_validate = installation._validate_carrier
@@ -1942,7 +1942,7 @@ def test_exact_intended_write_outcome_requires_each_proof(
             raise ActiveUserReadError("ambiguous")
         return USER_ID
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "_parse_authorization_view", parse_carrier)
     monkeypatch.setattr(installation, "_parse_pointer", parse_pointer)
     monkeypatch.setattr(installation, "_validate_carrier", validate_carrier)
@@ -1989,7 +1989,7 @@ def test_intended_control_bytes_are_proved_before_their_write(
     carrier = _authorization_view(store)
     builder_name = f"_build_{stage}"
     real_builder = getattr(installation, builder_name)
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
     writes = []
 
     def build(*args):
@@ -2003,7 +2003,7 @@ def test_intended_control_bytes_are_proved_before_their_write(
 
     monkeypatch.setattr(installation, builder_name, build)
     with monkeypatch.context() as scoped:
-        scoped.setattr(installation, "atomic_write_bytes", write)
+        scoped.setattr(installation, "durable_write_bytes", write)
         _assert_control_error(
             expected, expected.code, message, lambda: publish_generation_control(installed)
         )
@@ -2023,7 +2023,7 @@ def test_landed_outcome_requires_available_active_authentication(
     installed = install_generation_root(projection)
     marker, pointer = _control_files(store)
     carrier = _authorization_view(store)
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
     real_reprove = installation._reprove_publication_paths
     failed = False
     next_check = False
@@ -2051,7 +2051,7 @@ def test_landed_outcome_requires_available_active_authentication(
             next_check = reason == "next"
         return result
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "read_active_user_id", actor)
     monkeypatch.setattr(installation, "_reprove_publication_paths", reprove)
     monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
@@ -2074,7 +2074,7 @@ def test_pointer_outcome_actor_divergence_precedes_raw_carrier_inequality(
     installed = install_generation_root(projection)
     marker, pointer = _control_files(store)
     carrier = _authorization_view(store)
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
     real_read = installation._read_control_file
     pointer_failed = False
 
@@ -2090,7 +2090,7 @@ def test_pointer_outcome_actor_divergence_precedes_raw_carrier_inequality(
             return _authorization_bytes(projection, installed_for_user_id=INSTALLED_STATE_ID)
         return real_read(store_path, path)
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "_read_control_file", read)
     _assert_control_error(
         ReplicaActorMismatchError,
@@ -2150,13 +2150,13 @@ def test_dormant_recovery_is_carrier_anchored(
         elif state == "noncanonical-pointer":
             raw = json.dumps(json.loads(raw)).encode()
         pointer.write_bytes(raw)
-    real_write, writes = installation.atomic_write_bytes, []
+    real_write, writes = installation.durable_write_bytes, []
 
     def write(path, content):
         writes.append({carrier: "carrier", pointer: "pointer", marker: "marker"}[path])
         real_write(path, content)
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
     monkeypatch.setattr(installation, "datetime", FIXED_CLOCK)
     authority = publish_generation_control(installed)
@@ -2192,13 +2192,13 @@ def test_exact_dormant_carrier_wins_over_each_safe_pointer_field(
     carrier.write_bytes(_authorization_bytes(projection))
     pointer.write_bytes(_pointer_bytes(projection, **{field: value}))
     writes = []
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
 
     def write(path, content):
         writes.append(path)
         real_write(path, content)
 
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "generate_ulid", lambda: pytest.fail("minted"))
 
     authority = publish_generation_control(installed)
@@ -2230,7 +2230,7 @@ def test_target_divergent_dormant_carrier_starts_a_new_pair_after_pointer_safety
     carrier.write_bytes(_authorization_bytes(projection, **{field: value}))
     pointer.write_bytes(b"{")
     real_read = installation._read_control_file
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
     events = []
 
     def read(store_path, path):
@@ -2243,7 +2243,7 @@ def test_target_divergent_dormant_carrier_starts_a_new_pair_after_pointer_safety
         real_write(path, content)
 
     monkeypatch.setattr(installation, "_read_control_file", read)
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
     authority = publish_generation_control(installed)
     assert events.index("pointer-read") < events.index(carrier)
@@ -2498,7 +2498,7 @@ def test_publication_reread_races_fail_without_a_later_mutation(
     target = carrier if boundary == "carrier" else pointer
     before = _bytes(installed.root_path)
     message = f"Replica control file changed during {'open' if race == 'replacement' else 'read'}."
-    real_write = installation.atomic_write_bytes
+    real_write = installation.durable_write_bytes
     real_open, real_os_read, real_lstat = os.open, os.read, os.lstat
     writes = []
     target_fd = None
@@ -2547,7 +2547,7 @@ def test_publication_reread_races_fail_without_a_later_mutation(
     monkeypatch.setattr(installation.os, "open", open_file)
     monkeypatch.setattr(installation.os, "read", read_file)
     monkeypatch.setattr(installation.os, "lstat", lstat)
-    monkeypatch.setattr(installation, "atomic_write_bytes", write)
+    monkeypatch.setattr(installation, "durable_write_bytes", write)
     monkeypatch.setattr(installation, "generate_ulid", lambda: INSTALLED_STATE_ID)
     _assert_control_error(
         ReplicaControlReadError,

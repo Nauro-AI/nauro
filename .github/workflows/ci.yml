@@ -252,6 +252,14 @@ jobs:
           packages/nauro/tests/test_generation_migration_assessment.py
           packages/nauro/tests/test_generation_migration_plan.py
           packages/nauro/tests/test_migration_stamp_identity.py
+          packages/nauro/tests/test_durable_flush_platform.py
+          packages/nauro/tests/test_migration_admission.py
+          packages/nauro/tests/test_migration_identity.py
+          packages/nauro/tests/test_migration_reassessment.py
+          packages/nauro/tests/test_migration_source_check.py
+          packages/nauro/tests/test_migration_writer_fence.py
+          packages/nauro/tests/test_migration_setup_fence.py
+          packages/nauro/tests/test_migration_legacy_fence.py
           packages/nauro/tests/test_sync/test_generation_acquisition.py
           packages/nauro/tests/test_sync/test_submission_records_excluded.py
           packages/nauro/tests/test_sync/test_replica_control_excluded.py
@@ -269,6 +277,8 @@ jobs:
       - run: uv sync --locked --package nauro --all-extras --python 3.10
       - run: >-
           uv run --no-sync --package nauro pytest
+          packages/nauro/tests/test_generation_migration_assessment.py
+          packages/nauro/tests/test_migration_stamp_identity.py
           packages/nauro/tests/test_sync/test_submission_records_excluded.py
           packages/nauro/tests/test_sync/test_replica_control_excluded.py
           packages/nauro/tests/test_sync/test_push_admission.py

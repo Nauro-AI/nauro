@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from nauro.store import _platform_durability as durability
 from nauro.store.generation_migration_assessment import _inventory, _stamp_file
 from nauro.store.generation_projection import (
     GenerationProjectionIdentity,
@@ -149,7 +150,7 @@ def _publish_plan(root: Path, raw: bytes) -> None:
         _validate_managed_path(root, scratch)
         if not os.path.samestat(os.fstat(fd), scratch.stat()):
             raise MigrationAdmissionError("Preservation plan scratch changed.")
-    os.replace(scratch, root / "plan.json")
+    durability.durable_rename(scratch, root / "plan.json")
 
 
 def _inspect_backup(root: Path, plan: _Plan, raw: bytes) -> set[str]:
@@ -235,7 +236,7 @@ def _copy(source: Path, root: Path, entry: _Entry) -> None:
     _validate_managed_path(root, destination)
     if destination.exists():
         raise MigrationAdmissionError("Preservation destination became occupied.")
-    os.replace(scratch, destination)
+    durability.durable_rename(scratch, destination)
     sync_parents(RefreshPaths(root.parent, root.parent), destination.parent)
 
 

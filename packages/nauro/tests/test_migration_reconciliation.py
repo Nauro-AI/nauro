@@ -9,6 +9,7 @@ from threading import Event
 
 import pytest
 
+from nauro.store import _platform_durability as durability
 from nauro.store import generation_installation as installer
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.migration_admission import (
@@ -34,6 +35,7 @@ from nauro.sync.migration_reconciliation import (
     stale_replica_shape,
 )
 from tests.test_guided_generation_upgrade import _move_target, _tree
+from tests.test_migration_installation import directory_renames
 from tests.test_migration_preservation import saved as _saved
 
 
@@ -59,7 +61,7 @@ def _admit(saved, monkeypatch, phase):
         return record
     install = installation.install_generation_root
     target, name, fault = {
-        "replacing": (installation.os, "rename", _stop),
+        "replacing": (durability, "durable_rename", directory_renames(_stop)),
         "staging": (
             installation,
             "install_generation_root",
@@ -195,7 +197,7 @@ def test_stale_old_record_continue_refuses_after_supersession(saved, monkeypatch
     successor = reconcile_admitted_migration(old, _fresh(session))
     before = _tree(session.binding.store_path.parent)
     monkeypatch.setattr(preservation, "_copy", _stop)
-    monkeypatch.setattr(installation.os, "rename", _stop)
+    monkeypatch.setattr(durability, "durable_rename", directory_renames(_stop))
     fresh = _fresh(session)
     projection = acquire_generation_projection(
         fresh.binding, active_user_id=old.actor, session=fresh
@@ -227,14 +229,14 @@ def test_legacy_write_blocked_at_every_step(saved, monkeypatch):
 
         monkeypatch.setattr(admission, name, hook)
 
-    for name in ("_retain_previous", "atomic_write_bytes", "durable_replace"):
+    for name in ("_retain_previous", "durable_write_bytes", "durable_replace"):
         guarded(name)
     _move_target(saved)
     successor = reconcile_admitted_migration(record, session)
     blocked = decide_migration_assessment(successor, preserve=True)
     assert (
         seen
-        == ["_retain_previous", "durable_replace", "atomic_write_bytes"] + ["durable_replace"] * 2
+        == ["_retain_previous", "durable_replace", "durable_write_bytes"] + ["durable_replace"] * 2
     )
     assert blocked.phase == "blocked"
     with pytest.raises(MigrationAdmissionError, match="incomplete"):
@@ -311,7 +313,7 @@ def test_relocated_successor_consent_installs_without_rename(saved, monkeypatch)
     _move_target(saved)
     successor = reconcile_admitted_migration(current, _fresh(session))
     blocked = decide_migration_assessment(successor, preserve=True)
-    monkeypatch.setattr(installation.os, "rename", _stop)
+    monkeypatch.setattr(durability, "durable_rename", directory_renames(_stop))
     fresh = _fresh(session)
     projection = acquire_generation_projection(
         fresh.binding, active_user_id=blocked.actor, session=fresh

@@ -56,6 +56,12 @@ def replica(monkeypatch):
     return base.target.binding, current
 
 
+def _child_path():
+    inherited = os.environ.get("PYTHONPATH")
+    tests = str(__import__("pathlib").Path(__file__).parent.parent)
+    return os.pathsep.join([tests, inherited] if inherited else [tests])
+
+
 def _bootstrap(binding):
     return refresh.prepare_initial_generation_refresh(binding, actor=USER_ID)
 
@@ -66,7 +72,6 @@ def _active(binding):
     return paths, raw, decode_intent(raw)
 
 
-@POSIX
 def test_commit_and_each_read_repeat_completion_barriers(replica, monkeypatch):
     binding, _ = replica
     result = refresh.commit_generation_refresh(_bootstrap(binding))
@@ -100,7 +105,6 @@ def test_commit_and_each_read_repeat_completion_barriers(replica, monkeypatch):
         installation.publish_generation_control(installation.install_generation_root(_target()))
 
 
-@POSIX
 @pytest.mark.parametrize("state", ["base_present", "carrier_published", "target_present"])
 def test_revoked_scope_reconciles_each_partial_state_and_preserves_evidence(
     replica, monkeypatch, state
@@ -148,7 +152,6 @@ def test_revoked_scope_reconciles_each_partial_state_and_preserves_evidence(
     assert new_raw != old_raw
 
 
-@POSIX
 def test_repeated_reconciliation_preserves_each_predecessor(replica, monkeypatch):
     binding, current = replica
     original = refresh.durable_replace
@@ -174,7 +177,6 @@ def test_repeated_reconciliation_preserves_each_predecessor(replica, monkeypatch
         assert (paths.history / f"{hashlib.sha256(raw).hexdigest()}.json").read_bytes() == raw
 
 
-@POSIX
 @pytest.mark.parametrize("file", ["marker", "intent", "pointer", "carrier"])
 def test_target_present_is_not_admitted_after_barrier_failure(replica, monkeypatch, file):
     binding, _ = replica
@@ -198,7 +200,6 @@ def test_target_present_is_not_admitted_after_barrier_failure(replica, monkeypat
     )
 
 
-@POSIX
 def test_authorization_failure_and_changed_account_deny_without_mutation(replica, monkeypatch):
     binding, _ = replica
     refresh.commit_generation_refresh(_bootstrap(binding))
@@ -216,7 +217,6 @@ def test_authorization_failure_and_changed_account_deny_without_mutation(replica
     assert paths.intent.read_bytes() == before
 
 
-@POSIX
 def test_stale_preparation_and_missing_intent_refuse(replica):
     binding, _ = replica
     with pytest.raises(RefreshRequiredError):
@@ -227,7 +227,6 @@ def test_stale_preparation_and_missing_intent_refuse(replica):
         refresh.commit_generation_refresh(two)
 
 
-@POSIX
 @pytest.mark.parametrize("boundary", ["intent", "carrier", "pointer"])
 def test_process_loss_after_replacement_recovers_from_exact_evidence(replica, boundary):
     binding, _ = replica
@@ -251,7 +250,7 @@ prepared = refresh.prepare_initial_generation_refresh(projection.target.binding,
 refresh.commit_generation_refresh(prepared)
 """
     env = dict(os.environ, REFRESH_STOP=boundary)
-    env["PYTHONPATH"] = str(__import__("pathlib").Path(__file__).parent.parent)
+    env["PYTHONPATH"] = _child_path()
     result = subprocess.run(
         [sys.executable, "-c", script], env=env, capture_output=True, timeout=30
     )
@@ -264,7 +263,6 @@ refresh.commit_generation_refresh(prepared)
     assert _active(binding)[1] == old
 
 
-@POSIX
 @pytest.mark.parametrize("failure", ["archive_barrier", "archive_corrupt", "archive_missing"])
 def test_predecessor_failures_refuse_without_replacing_active_intent(replica, monkeypatch, failure):
     binding, current = replica
@@ -298,7 +296,6 @@ def test_predecessor_failures_refuse_without_replacing_active_intent(replica, mo
     assert paths.intent.read_bytes() == before
 
 
-@POSIX
 def test_final_authorization_change_prevents_disclosure(replica, monkeypatch):
     binding, current = replica
     refresh.commit_generation_refresh(_bootstrap(binding))
@@ -316,7 +313,6 @@ def test_final_authorization_change_prevents_disclosure(replica, monkeypatch):
     assert len(calls) == 3
 
 
-@POSIX
 @pytest.mark.parametrize("boundary", ["manifest", "artifact", "directory"])
 def test_target_data_and_directory_barrier_failures_deny_admission(replica, monkeypatch, boundary):
     binding, _ = replica
@@ -359,7 +355,6 @@ def test_unsupported_directory_barrier_stops_before_intent_or_control_mutation(
     assert not paths.intent.exists()
 
 
-@POSIX
 @pytest.mark.parametrize("boundary", ["archive", "archive_link", "intent", "carrier", "pointer"])
 def test_process_loss_during_reconciliation_keeps_predecessor_and_resumes(replica, boundary):
     binding, current = replica
@@ -368,11 +363,14 @@ def test_process_loss_during_reconciliation_keeps_predecessor_and_resumes(replic
     script = """
 import os
 from nauro.store import generation_installation as installation
+from nauro.store import _platform_durability as durability
+from nauro.store import generation_refresh_io as durable
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_refresh import _target
 from tests.test_generation_installation import USER_ID
 installation.read_active_user_id = lambda: USER_ID
 projection = _target('01K77777777777777777777777', 'c' * 64)
+paths = durable.refresh_paths(projection.target.binding, USER_ID)
 refresh.acquire_generation_projection = lambda *a, **k: projection
 refresh.check_generation_projection = lambda *a, **k: projection.target
 original = refresh.durable_replace
@@ -383,6 +381,12 @@ def linked(source, destination):
     if os.environ['REFRESH_STOP'] == 'archive_link':
         os._exit(73)
 os.link = linked
+rename = durability.durable_rename
+def renamed(source, destination, **kwargs):
+    rename(source, destination, **kwargs)
+    if os.environ['REFRESH_STOP'] == 'archive_link' and destination.parent == paths.history:
+        os._exit(73)
+durability.durable_rename = renamed
 def save(paths, digest, raw):
     archive(paths, digest, raw)
     if os.environ['REFRESH_STOP'] == 'archive':
@@ -397,7 +401,7 @@ refresh.preserve_predecessor = save
 refresh.recover_generation_refresh(projection.target.binding, actor=USER_ID)
 """
     env = dict(os.environ, REFRESH_STOP=boundary)
-    env["PYTHONPATH"] = str(__import__("pathlib").Path(__file__).parent.parent)
+    env["PYTHONPATH"] = _child_path()
     process = subprocess.run(
         [sys.executable, "-c", script], env=env, capture_output=True, timeout=30
     )
@@ -450,7 +454,6 @@ def test_intent_rejects_invalid_schema(replica, field, value):
         RefreshIntent.model_validate(facts)
 
 
-@POSIX
 @pytest.mark.parametrize("boundary", ["intent", "carrier", "pointer"])
 @pytest.mark.parametrize("phase", ["before", "after"])
 def test_process_exit_around_replacement_directory_barrier(replica, boundary, phase):
@@ -467,12 +470,12 @@ projection = _target()
 refresh.acquire_generation_projection = lambda *a, **k: projection
 refresh.check_generation_projection = lambda *a, **k: projection.target
 paths = durable.refresh_paths(projection.target.binding, USER_ID)
-replace = durable.os.replace
+replace = durable.durability.durable_rename
 barrier = durable.sync_directory
 armed = False
-def install(source, destination):
+def install(source, destination, **kwargs):
     global armed
-    replace(source, destination)
+    replace(source, destination, **kwargs)
     if destination == getattr(paths, os.environ['REFRESH_STOP']):
         armed = True
 def sync(paths, directory):
@@ -481,13 +484,13 @@ def sync(paths, directory):
     barrier(paths, directory)
     if armed and os.environ['REFRESH_PHASE'] == 'after':
         os._exit(73)
-durable.os.replace = install
+durable.durability.durable_rename = install
 durable.sync_directory = sync
 prepared = refresh.prepare_initial_generation_refresh(projection.target.binding, actor=USER_ID)
 refresh.commit_generation_refresh(prepared)
 """
     env = dict(os.environ, REFRESH_STOP=boundary, REFRESH_PHASE=phase)
-    env["PYTHONPATH"] = str(__import__("pathlib").Path(__file__).parent.parent)
+    env["PYTHONPATH"] = _child_path()
     result = subprocess.run(
         [sys.executable, "-c", script], env=env, capture_output=True, timeout=30
     )
