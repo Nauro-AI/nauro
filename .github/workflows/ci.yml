@@ -72,6 +72,7 @@ jobs:
           packages/nauro/src/nauro/mcp/reference_reads.py
           packages/nauro/src/nauro/sync/reference_auth.py
           packages/nauro/src/nauro/sync/reference_credentials.py
+          packages/nauro/src/nauro/store/_windows_security.py
           packages/nauro/src/nauro/sync/reference_oauth.py
           packages/nauro/src/nauro/sync/decision_profile.py
           packages/nauro/src/nauro/mcp/decision_reference_startup.py
@@ -260,6 +261,12 @@ jobs:
           packages/nauro/tests/test_migration_writer_fence.py
           packages/nauro/tests/test_migration_setup_fence.py
           packages/nauro/tests/test_migration_legacy_fence.py
+          packages/nauro/tests/test_credential_platform.py
+          packages/nauro/tests/test_reference_auth.py
+          packages/nauro/tests/test_generation_credentials.py
+          packages/nauro/tests/test_decision_reference_startup.py
+          packages/nauro/tests/test_generation_attachment.py
+          packages/nauro/tests/test_generation_attachment_recovery.py
           packages/nauro/tests/test_sync/test_generation_acquisition.py
           packages/nauro/tests/test_sync/test_submission_records_excluded.py
           packages/nauro/tests/test_sync/test_replica_control_excluded.py

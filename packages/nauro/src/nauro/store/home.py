@@ -2,10 +2,11 @@
 
 This module is the only place the home path is spelled: callers resolve
 ``~/.nauro`` or ``$NAURO_HOME`` through ``nauro_home``. The home holds the auth
-token and the whole project store, so it is kept owner-only. Nothing outside the
-standard library and ``nauro.constants`` is imported, so any module can use it.
+token and the whole project store, so it is kept owner-only. Only the standard library,
+``nauro.constants`` and the stdlib Windows access helper are imported, so any module can use it.
 """
 
+import contextlib
 import logging
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ from nauro.constants import (
     PROJECTS_DIR,
     REGISTRY_FILENAME,
 )
+from nauro.store import _windows_security as security
 
 logger = logging.getLogger("nauro.store.home")
 
@@ -42,11 +44,25 @@ def config_file() -> Path:
 
 
 def ensure_nauro_home() -> Path:
-    """Create the Nauro home at ``0o700`` and return it.
+    """Create the Nauro home at ``0o700`` (an owner-only list on Windows) and return it.
 
     A home left group- or other-accessible by an older build is tightened in place.
     """
     home = nauro_home()
+    if security.WINDOWS:
+        try:
+            home.mkdir(mode=0o700, parents=True)
+        except FileExistsError:
+            if not home.is_dir():
+                raise
+            return home
+        try:
+            security.set_owner_only(home, directory=True)
+        except BaseException:
+            with contextlib.suppress(OSError):  # never hide the typed refusal
+                home.rmdir()
+            raise
+        return home
     home.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
         if (home.stat().st_mode & 0o077) != 0:
