@@ -246,8 +246,6 @@ jobs:
           packages/nauro/tests/test_generation_refresh_state.py
           packages/nauro/tests/test_generation_refresh.py
           packages/nauro/tests/test_replica_control.py
-          packages/nauro/tests/test_migration_reconciliation.py::test_staging_shape_reads_lock_links_without_directory_entry_counts
-          packages/nauro/tests/test_migration_reconciliation.py::test_set_aside_moves_staging_only_leftover_then_reconciles
           packages/nauro/tests/test_sync/test_generation_acquisition.py
           packages/nauro/tests/test_sync/test_submission_records_excluded.py
           packages/nauro/tests/test_sync/test_replica_control_excluded.py
