@@ -74,6 +74,13 @@ def _projection(
     )
 
 
+def _symlink(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("platform does not permit test symlinks")
+
+
 def _write(store: Path, relative: str, content: bytes) -> None:
     path = store / relative
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -177,10 +184,7 @@ def test_assessment_refuses_linked_protected_file_without_reading_outside(
     outside = tmp_path / "outside.md"
     outside.write_bytes(b"retain")
     linked = binding.store_path / "project.md"
-    try:
-        linked.symlink_to(outside)
-    except OSError:
-        pytest.skip("platform does not permit test symlinks")
+    _symlink(linked, outside)
     projection = _projection(binding, {"project.md": b"retain"})
 
     with pytest.raises(LegacyMigrationAssessmentError) as raised:
@@ -235,13 +239,23 @@ def test_assessment_detects_atomic_replacement_during_file_read(
         handle = original_fdopen(descriptor, *args, **kwargs)
         replacement = project.with_suffix(".replacement")
         replacement.write_bytes(b"# Changed\n")
-        replacement.replace(project)
+        try:
+            replacement.replace(project)
+        except OSError:
+            handle.close()
+            raise
         return handle
 
     monkeypatch.setattr(os, "fdopen", replace_after_open)
 
-    with pytest.raises(LegacyMigrationAssessmentError, match="changed during read"):
-        assess_legacy_migration(projection)
+    if os.name == "nt":
+        # Windows refuses to replace a file while the assessment holds it open.
+        with pytest.raises(LegacyMigrationAssessmentError, match="The legacy file is unreadable."):
+            assess_legacy_migration(projection)
+        assert project.read_bytes() == b"# Project\n"
+    else:
+        with pytest.raises(LegacyMigrationAssessmentError, match="changed during read"):
+            assess_legacy_migration(projection)
 
 
 def test_assessment_cannot_be_constructed_without_scan(tmp_path: Path) -> None:
@@ -299,7 +313,7 @@ def test_assessment_refuses_any_replica_evidence(tmp_path: Path, kind: str) -> N
     binding = _binding(tmp_path)
     control = binding.store_path / ".replica"
     if kind == "dangling":
-        control.symlink_to(tmp_path / "missing")
+        _symlink(control, tmp_path / "missing")
     else:
         control.mkdir()
         if kind == "partial":
@@ -315,7 +329,7 @@ def test_assessment_refuses_links_in_nonprotected_evidence(tmp_path: Path, relat
     outside.write_bytes(b"retain")
     link = binding.store_path / relative
     link.parent.mkdir(parents=True, exist_ok=True)
-    link.symlink_to(outside)
+    _symlink(link, outside)
     with pytest.raises(LegacyMigrationAssessmentError):
         assess_legacy_migration(_projection(binding, {}))
     assert outside.read_bytes() == b"retain"

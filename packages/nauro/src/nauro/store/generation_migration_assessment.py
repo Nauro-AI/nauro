@@ -33,6 +33,9 @@ _READ_CHUNK_BYTES = 1024 * 1024
 _PULL_SPOOL_PREFIX = ".pull-spool-"
 _SNAPSHOTS_DIRECTORY = "snapshots"
 _ASSESSMENT_TOKEN = object()
+# CPython 3.12 and later on Windows report creation time as st_ctime for a path
+# but the metadata change time for an open handle, so the two never agree there.
+_COMPARE_CHANGE_TIME = os.name != "nt"
 
 
 class LegacyMigrationAssessmentError(GenerationAuthorityError):
@@ -107,14 +110,13 @@ def _container_entries(path: Path, *, required: bool, label: str) -> tuple[Path,
         raise LegacyMigrationAssessmentError(f"The legacy {label} cannot be enumerated.") from exc
 
 
-def _stat_signature(observed: os.stat_result) -> tuple[int, int, int, int, int]:
-    return (
-        observed.st_dev,
-        observed.st_ino,
-        observed.st_size,
-        observed.st_mtime_ns,
-        observed.st_ctime_ns,
-    )
+def _stat_signature(observed: os.stat_result) -> tuple[int, ...]:
+    """Device, file index, size and mtime catch a swap or rewrite on every platform.
+
+    POSIX adds inode change time, which also catches a rewrite that restores mtime.
+    """
+    fields = (observed.st_dev, observed.st_ino, observed.st_size, observed.st_mtime_ns)
+    return (*fields, observed.st_ctime_ns) if _COMPARE_CHANGE_TIME else fields
 
 
 def _stamp_file(store_path: Path, path: Path) -> LegacyFileStamp:
