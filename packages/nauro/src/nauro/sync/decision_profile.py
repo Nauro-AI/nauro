@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -13,6 +14,8 @@ from nauro_core.identifiers import IdentifierKind, validate_identifier
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from nauro.auth import ActiveCredentials
+from nauro.store import _windows_security as security
+from nauro.store.replica_control import _is_link_or_reparse
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.decision_reference_contract import _json
 
@@ -77,7 +80,28 @@ class ReferenceCredentials(BaseModel):
     access_token: str
 
 
+def _windows_private_bytes(path: Path) -> bytes:
+    observed = os.lstat(path)
+    if _is_link_or_reparse(observed) or not stat.S_ISREG(observed.st_mode):
+        raise ValueError("Use an owner-only regular file")
+    security.require_owner_only(path)
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    with os.fdopen(fd, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        identity = (observed.st_dev, observed.st_ino)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != identity:
+            raise ValueError("Private file changed during open")
+        return stream.read(65537)
+
+
 def _private_json(path: Path) -> Any:
+    if security.WINDOWS:
+        raw = _windows_private_bytes(path)
+        if len(raw) > 65536:
+            raise ValueError("File exceeds size limit")
+        return _json(raw)
+    if sys.platform == "win32":
+        raise ValueError("Private reference files are unsupported on this platform")
     if not all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_NONBLOCK", "getuid")):
         raise ValueError("Private reference files are unsupported on this platform")
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)

@@ -240,6 +240,10 @@ def test_profile_binding_and_private_files(setup):
     changed = setup.profile.model_copy(update={"client_id": "other-client"})
     with pytest.raises(ValueError):
         profile_credentials(changed)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_group_readable_credentials_are_refused(setup):
     setup.auth.store.path.chmod(0o644)
     with pytest.raises(ValueError):
         profile_credentials(setup.profile)

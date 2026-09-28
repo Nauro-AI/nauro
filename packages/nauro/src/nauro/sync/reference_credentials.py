@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import stat
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -16,7 +17,17 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from nauro.store import _platform_durability as durability
+from nauro.store import _windows_security as security
+from nauro.store.replica_control import (
+    ReplicaControlBusyError,
+    ReplicaControlReadError,
+    _is_link_or_reparse,
+    _native_control_lock,
+)
 from nauro.sync.decision_profile import _private_json
+
+_NOFOLLOW, _BINARY = getattr(os, "O_NOFOLLOW", 0), getattr(os, "O_BINARY", 0)
+_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
 
 
 class CredentialRecord(BaseModel):
@@ -39,6 +50,12 @@ class CredentialStore:
 
     @contextlib.contextmanager
     def locked(self, timeout: float = 2.0) -> Iterator[None]:
+        if durability.WINDOWS:
+            with self._windows_locked(timeout):
+                yield
+            return
+        if sys.platform == "win32":
+            raise ValueError("POSIX credential locking is unavailable on Windows")
         import fcntl
 
         parent = self.path.parent
@@ -71,6 +88,33 @@ class CredentialStore:
         finally:
             os.close(fd)
 
+    @contextlib.contextmanager
+    def _windows_locked(self, timeout: float) -> Iterator[None]:
+        parent, lock = self.path.parent, self.path.with_name(self.path.name + ".lock")
+        if not stat.S_ISDIR(parent.lstat().st_mode):
+            raise ValueError("Credentials require an owner-only directory")
+        for part in (current := Path(os.path.abspath(parent)), *current.parents):
+            if _is_link_or_reparse(os.lstat(part)):
+                raise security.OwnerOnlyError(f"Credentials cannot live under a link: {part}")
+        security.require_owner_only(parent, directory=True)
+        with contextlib.suppress(FileExistsError):
+            os.close(os.open(lock, os.O_RDWR | os.O_CREAT | os.O_EXCL | _BINARY, 0o600))
+            security.set_owner_only(lock)
+        inside = False
+        try:
+            with _native_control_lock(parent, lock, timeout):
+                security.require_owner_only(lock)
+                self.sync_directory()
+                inside = True
+                yield
+                inside = False
+        except (ReplicaControlBusyError, ReplicaControlReadError) as exc:
+            if inside:
+                raise
+            busy = isinstance(exc, ReplicaControlBusyError)
+            message = "Reference credentials busy" if busy else "Unsafe credential lock"
+            raise ValueError(message) from exc
+
     def read(self) -> CredentialRecord | None:
         try:
             if self.path.lstat().st_nlink != 1:
@@ -89,9 +133,10 @@ class CredentialStore:
         if len(data) > 65536:
             raise ValueError("Credentials exceed size limit")
         temporary = self.path.with_name(f".{self.path.name}.{secrets.token_hex(16)}.tmp")
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _BINARY, 0o600)
         try:
             with os.fdopen(fd, "wb") as stream:
+                self._protect(temporary)
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
@@ -109,7 +154,8 @@ class CredentialStore:
     def begin(self) -> None:
         if self.incomplete():
             return
-        fd = os.open(self.marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = os.open(self.marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _BINARY, 0o600)
+        self._protect(self.marker, fd)
         with os.fdopen(fd, "wb") as stream:
             stream.write(b'{"renewal_in_progress":true}')
             stream.flush()
@@ -123,11 +169,22 @@ class CredentialStore:
     def sync_directory(self) -> None:
         if durability.WINDOWS:
             return
-        directory = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        directory = os.open(self.path.parent, os.O_RDONLY | _DIRECTORY)
         try:
             os.fsync(directory)
         finally:
             os.close(directory)
+
+    def _protect(self, path: Path, fd: int | None = None) -> None:
+        if not durability.WINDOWS:
+            return
+        try:
+            security.set_owner_only(path)
+        except BaseException:
+            if fd is not None:  # a marker must not outlive a failed protection
+                os.close(fd)
+                path.unlink(missing_ok=True)
+            raise
 
     def empty(self, state: Literal["logged_out", "renewal_in_progress"]) -> CredentialRecord:
         return CredentialRecord(
