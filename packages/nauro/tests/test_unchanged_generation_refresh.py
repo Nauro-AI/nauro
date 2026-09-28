@@ -6,10 +6,8 @@ from nauro.store.generation_authority import GenerationAuthorityError, RefreshRe
 from nauro.store.generation_refresh_state import GenerationRefreshEvidenceError
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_installation import USER_ID
-from tests.test_generation_refresh import POSIX, _active, _bootstrap, _target
+from tests.test_generation_refresh import _active, _bootstrap, _target
 from tests.test_generation_refresh import replica as replica
-
-pytestmark = POSIX
 
 
 def _complete(binding, monkeypatch):

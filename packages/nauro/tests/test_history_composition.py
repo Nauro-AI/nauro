@@ -15,14 +15,12 @@ from nauro.sync import generation_refresh as refresh
 from nauro.sync import generation_refresh_status as refresh_status
 from nauro.sync import history_transport as transport
 from tests.test_generation_installation import USER_ID
-from tests.test_generation_reads import POSIX
 from tests.test_generation_reads import admitted as admitted
 from tests.test_history_transport import OTHER, response_body
 from tests.test_read_dispatch import cloud as cloud
 from tests.test_read_dispatch import isolated_home as isolated_home
 
 
-@POSIX
 def test_response_and_dispatch_keep_authority_without_private_wire_fields(cloud, monkeypatch):
     binding, current, _ = cloud
     target = current[0].target
@@ -78,7 +76,6 @@ def test_response_and_dispatch_keep_authority_without_private_wire_fields(cloud,
     assert inspect.signature(composed) == inspect.signature(dispatch.diff_since_last_session)
 
 
-@POSIX
 @pytest.mark.parametrize(
     "fault", ["scope", "advance", "account", "pointer", "intent", "barrier", "network"]
 )
@@ -131,7 +128,6 @@ def test_changes_during_history_discard_result(admitted, monkeypatch, fault):
     assert "PRIVATE" not in result.text
 
 
-@POSIX
 @pytest.mark.parametrize("fault", ["stale", "intent", "origin", "days"])
 def test_failed_admission_never_requests_or_repairs(admitted, monkeypatch, fault):
     binding, current, _ = admitted

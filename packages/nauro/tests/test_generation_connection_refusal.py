@@ -5,6 +5,7 @@ from nauro.cli.main import app
 from nauro.store.generation_authority import GenerationAuthorityMarker
 from nauro.store.registry import get_store_path_v2, register_project_v2
 from nauro.store.repo_config import save_repo_config
+from tests.test_generation_migration_assessment import _symlink
 
 PID = "01K33333333333333333333333"
 
@@ -49,7 +50,7 @@ def test_legacy_connection_refuses_replica_before_side_effects(
     store.mkdir(parents=True, exist_ok=True)
     control = store / ".replica"
     if controls == "dangling":
-        control.symlink_to(store / "missing")
+        _symlink(control, store / "missing")
     else:
         control.mkdir()
         if controls != "empty":

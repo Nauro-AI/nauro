@@ -10,6 +10,7 @@ from pathlib import Path
 from nauro.store._platform_durability import durable_write_bytes
 from nauro.store.generation_installation import _read_expected
 from nauro.store.generation_migration_assessment import (
+    LegacyFileRefusedError,
     LegacyFileStamp,
     _inventory,
     _require_empty_control_lock,
@@ -34,6 +35,10 @@ from nauro.store.replica_control import (
 )
 
 MAX_PLAN_BYTES = 16 * 1024 * 1024
+
+
+class MigrationSourceRefusedError(MigrationAdmissionError):
+    """A legacy file could not be read; reported as is, never as a changed source."""
 
 
 def _plan_path(record: MigrationAdmission) -> Path:
@@ -213,6 +218,8 @@ def _publish_successor(
 def verify_migration_source(record: MigrationAdmission, raw_plan: bytes) -> None:
     try:
         _compare_source(record, raw_plan)
+    except LegacyFileRefusedError as exc:
+        raise MigrationSourceRefusedError(str(exc)) from exc
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise MigrationAdmissionError(
             "Project files changed or are unavailable; prepare and confirm a fresh assessment."

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import os
 import shutil
 import socket
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -38,7 +41,9 @@ from nauro.sync.migration_admission import (
     save_migration_assessment,
 )
 from nauro.sync.remote import TransferBoundaryError
+from tests.test_generation_migration_assessment import _symlink
 from tests.test_generation_migration_plan import _assessment
+from tests.windows_refusal import REFUSALS, chmod_calls, refusing
 
 
 @pytest.fixture
@@ -228,7 +233,7 @@ def test_changed_evidence_refuses_unchanged(saved, damage):
         (root / "plan.json").write_bytes(b"{}")
     elif damage == "link":
         path.unlink()
-        path.symlink_to(session.binding.store_path / plan.entries[0].source_path)
+        _symlink(path, session.binding.store_path / plan.entries[0].source_path)
     else:
         (root / "alias").hardlink_to(path)
     with pytest.raises((OSError, ValueError, TransferBoundaryError, StoreResolutionError)):
@@ -309,7 +314,7 @@ def test_unknown_backup_control_link_is_not_skipped(saved):
     record, plan, session, _, _, _ = saved
     root = preservation.preserve_migration_source(record, session)
     link = root / ".replica-control.lock"
-    link.symlink_to(root / "missing")
+    _symlink(link, root / "missing")
     with pytest.raises(ValueError):
         preservation.preserve_migration_source(record, session)
     assert link.is_symlink()
@@ -347,3 +352,77 @@ def test_preservation_refuses_lock_evidence_without_truncating(saved):
     assert lock.read_bytes() == b"retained evidence"
     assert calls == []
     assert not plan.backup_root.exists()
+
+
+def _binary_entry(tmp_path, raw: bytes):
+    source, root = tmp_path / "source", tmp_path / "backup"
+    (source / "decisions").mkdir(parents=True)
+    (source / "decisions/001-crlf.md").write_bytes(raw)
+    for directory in (".pending", "legacy/decisions"):
+        (root / directory).mkdir(parents=True)
+    entry = preservation._Entry(
+        source_path="decisions/001-crlf.md",
+        destination_path="legacy/decisions/001-crlf.md",
+        size=len(raw),
+        sha256=hashlib.sha256(raw).hexdigest(),
+        source_class="identical",
+        disposition="legacy_backup",
+        recovery_kind="archive_only",
+        recovery_routes=[],
+        offer_export=False,
+    )
+    return source, root, entry
+
+
+def test_preserved_bytes_round_trip_in_binary_mode(tmp_path, monkeypatch):
+    raw = b"# Decision\r\nline\n\x1a after the DOS end-of-file byte\r\n"
+    source, root, entry = _binary_entry(tmp_path, raw)
+    native = getattr(os, "O_BINARY", 0)
+    binary, opened, real_open = native or 0x40000000, [], os.open
+    monkeypatch.setattr(os, "O_BINARY", binary, raising=False)
+
+    def spy(path, flags, *args):
+        if sys._getframe(1).f_globals["__name__"] == preservation.__name__:
+            opened.append((Path(path).name, bool(flags & binary)))
+        return real_open(path, flags if native else flags & ~binary, *args)
+
+    monkeypatch.setattr(os, "open", spy)
+    preservation._copy(source, root, entry)
+    preservation._publish_plan(root, raw)
+    assert (root / entry.destination_path).read_bytes() == raw
+    assert (root / "plan.json").read_bytes() == raw
+    assert opened == [
+        (preservation._pending(entry).removeprefix(".pending/"), True),
+        ("001-crlf.md", True),
+        (preservation._plan_pending(raw), True),
+    ]
+
+
+@pytest.mark.parametrize(("windows", "winerror", "reason"), REFUSALS)
+def test_unreadable_legacy_source_stops_copy_with_typed_refusal(
+    tmp_path, monkeypatch, windows, winerror, reason
+):
+    source, root, entry = _binary_entry(tmp_path, b"retained\n")
+    src, calls, real_open = source / entry.source_path, [], os.open
+    refuse = refusing(monkeypatch, windows, winerror, calls)
+    monkeypatch.setattr(
+        os, "open", lambda path, *a: refuse(path) if Path(path) == src else real_open(path, *a)
+    )
+    chmods = chmod_calls(monkeypatch)
+    with pytest.raises(MigrationAdmissionError) as raised:
+        preservation._copy(source, root, entry)
+    assert str(raised.value) == f"Cannot copy {src}: {reason}."
+    assert (calls, chmods) == ([src], [])
+    assert src.read_bytes() == b"retained\n"
+    assert not (root / entry.destination_path).exists()
+
+
+def test_windows_open_without_error_code_names_both_reasons(tmp_path, monkeypatch):
+    source, root, entry = _binary_entry(tmp_path, b"retained\n")
+    src, calls, real_open = source / entry.source_path, [], os.open
+    refuse = refusing(monkeypatch, True, None, calls)
+    monkeypatch.setattr(
+        os, "open", lambda path, *a: refuse(path) if Path(path) == src else real_open(path, *a)
+    )
+    with pytest.raises(MigrationAdmissionError, match="read-only or another process has it open"):
+        preservation._copy(source, root, entry)

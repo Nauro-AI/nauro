@@ -11,13 +11,15 @@ from filelock import FileLock
 from nauro.sync import generation_decision as decisions
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_installation import USER_ID
-from tests.test_generation_refresh import POSIX, _bootstrap
+from tests.test_generation_refresh import _bootstrap
 from tests.test_generation_refresh import replica as replica
 from tests.test_stdio_startup_authority import installed
 
 __all__ = ["installed"]
 
-pytestmark = POSIX
+pytestmark = pytest.mark.skipif(
+    "fork" not in multiprocessing.get_all_start_methods(), reason="needs the fork start method"
+)
 
 
 @contextmanager

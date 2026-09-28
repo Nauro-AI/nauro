@@ -69,6 +69,7 @@ from tests.test_sync.conftest import (
     entry_names,
     pull_report,
 )
+from tests.windows_refusal import REFUSALS, chmod_calls, refusing
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="POSIX filename semantics")
 LINK_KINDS = ["symlink", "junction"]
@@ -825,6 +826,34 @@ def test_publish_failure_removes_staging_and_publishes_nothing(store: Path, monk
     monkeypatch.setattr(installation.durability, "durable_rename", replace)
     _fails(PUBLISH_FAILED, lambda: install_generation_root(_projection()))
     assert (entry_names(_staging(store)), entry_names(_generations(store))) == (set(), set())
+
+
+@pytest.mark.parametrize(("windows", "winerror", "reason"), REFUSALS)
+def test_publish_refusal_names_the_root(
+    store: Path, monkeypatch, windows, winerror, reason
+) -> None:
+    real, calls, roots = installation.durability.durable_rename, [], []
+    refuse = refusing(monkeypatch, windows, winerror, calls)
+
+    def replace(source, destination, *args, **kwargs):
+        if os.path.isdir(source):
+            roots.append(destination)
+            refuse(source)
+        return real(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(installation.durability, "durable_rename", replace)
+    chmods = chmod_calls(monkeypatch)
+    message = _fails_prefix(lambda: install_generation_root(_projection()))
+    assert message == f"{PUBLISH_FAILED} Cannot publish {roots[0]}: {reason}."
+    assert (len(calls), chmods) == (1, [])
+    assert (entry_names(_staging(store)), entry_names(_generations(store))) == (set(), set())
+
+
+def _fails_prefix(call) -> str:
+    with pytest.raises(GenerationInstallError) as raised:
+        call()
+    assert (type(raised.value), raised.value.code) == (GenerationInstallError, CODE)
+    return str(raised.value)
 
 
 def test_busy_control_lock_publishes_nothing(store: Path) -> None:

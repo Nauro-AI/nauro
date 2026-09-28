@@ -128,11 +128,16 @@ def _plan_pending(raw: bytes) -> str:
     return ".plan-" + hashlib.sha256(raw).hexdigest() + ".pending"
 
 
+def _flags(base: int) -> int:
+    """Binary mode keeps Windows from translating newlines or stopping reads at 0x1A."""
+    names = ("O_BINARY", "O_NOFOLLOW", "O_NONBLOCK")
+    return base | sum(getattr(os, name, 0) for name in names)
+
+
 def _publish_plan(root: Path, raw: bytes) -> None:
     scratch = root / _plan_pending(raw)
     _validate_managed_path(root, scratch)
-    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-    fd = os.open(scratch, flags, 0o600)
+    fd = os.open(scratch, _flags(os.O_RDWR | os.O_CREAT), 0o600)
     with os.fdopen(fd, "r+b") as handle:
         info = os.fstat(fd)
         if (
@@ -211,17 +216,17 @@ def _copy(source: Path, root: Path, entry: _Entry) -> None:
     )
     _validate_managed_path(source, src)
     _validate_managed_path(root, scratch)
-    flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-    descriptor = os.open(scratch, flags, 0o600)
+    descriptor = os.open(scratch, _flags(os.O_WRONLY | os.O_CREAT), 0o600)
     try:
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or _is_link_or_reparse(opened) or opened.st_nlink != 1:
             raise MigrationAdmissionError("Preservation scratch is unsafe.")
         os.ftruncate(descriptor, 0)
         with os.fdopen(descriptor, "wb", closefd=False) as output:
-            source_fd = os.open(
-                src, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-            )
+            try:
+                source_fd = os.open(src, _flags(os.O_RDONLY))
+            except durability.REFUSED as exc:
+                raise MigrationAdmissionError(durability.refusal("copy", src, exc)) from exc
             with os.fdopen(source_fd, "rb") as incoming:
                 if not stat.S_ISREG(os.fstat(incoming.fileno()).st_mode):
                     raise MigrationAdmissionError("Preservation source is unsafe.")

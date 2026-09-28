@@ -3,6 +3,8 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import os
+import sys
+import time
 
 import pytest
 
@@ -469,3 +471,19 @@ def test_windows_failed_descriptor_closes_the_handle(tmp_path, monkeypatch, kern
     [(_, handle)] = kernel.named("CreateFileW")
     assert kernel.named("CloseHandle") == [((handle,), 1)]
     assert kernel.named("FlushFileBuffers") == []
+
+
+def test_flush_cost_is_printed_for_the_platform_job(tmp_path, capsys):
+    paths, files = durable.RefreshPaths(tmp_path, tmp_path), []
+    for index in range(600):
+        files.append(tmp_path / f"artifact-{index:03}.md")
+        files[-1].write_bytes(b"# Artifact\n" * 16)
+    started = time.perf_counter()
+    for path in files:
+        durable.sync_file(paths, path)
+    elapsed = time.perf_counter() - started
+    with capsys.disabled():
+        print(
+            f"\nFLUSH-COST platform={sys.platform} files={len(files)} "
+            f"total_s={elapsed:.3f} per_file_ms={elapsed * 1000 / len(files):.3f}"
+        )

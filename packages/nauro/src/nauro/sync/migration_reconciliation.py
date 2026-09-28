@@ -287,7 +287,10 @@ def set_aside_stale_replica(
                     "The earlier installation still matches the hosted record; continue it instead."
                 )
             _require_earlier_replica(expected, raw, session, folder, shape)
-            durability.durable_rename(store, folder, replace=False)
+            try:
+                durability.durable_rename(store, folder, replace=False)
+            except durability.REFUSED as exc:
+                raise MigrationAdmissionError(durability.refusal("move", store, exc)) from exc
             sync_parents(RefreshPaths(store.parent, store.parent), store.parent)
             if load_migration_plan(store) != (expected, raw) or os.path.lexists(store):
                 raise MigrationAdmissionError("The saved upgrade changed during the move.")

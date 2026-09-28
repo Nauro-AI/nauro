@@ -34,9 +34,11 @@ from nauro.sync.migration_reconciliation import (
     stale_replica_folder,
     stale_replica_shape,
 )
+from tests.test_generation_migration_assessment import _symlink
 from tests.test_guided_generation_upgrade import _move_target, _tree
 from tests.test_migration_installation import directory_renames
 from tests.test_migration_preservation import saved as _saved
+from tests.windows_refusal import REFUSALS, chmod_calls, refusing
 
 
 @pytest.fixture
@@ -485,13 +487,13 @@ def test_staging_only_set_aside_refuses_widened_shapes_intact(saved, monkeypatch
     elif fault in {"entry_file", "entry_link"}:
         moved = entry.rename(store.parent / "moved-entry")
         if fault == "entry_link":
-            entry.symlink_to(moved, target_is_directory=True)
+            _symlink(entry, moved, directory=True)
         else:
             entry.write_bytes(b"{}")
     elif fault == "link":
         elsewhere = store.parent / "elsewhere"
         store.rename(elsewhere)
-        store.symlink_to(elsewhere, target_is_directory=True)
+        _symlink(store, elsewhere, directory=True)
     elif fault == "foreign_actors":
         (actor.parent / "foreign").mkdir()
     else:
@@ -526,8 +528,12 @@ def test_staging_shape_reads_lock_links_without_directory_entry_counts(saved, mo
     listed = reconciliation._entries
 
     def zero_links(path):
+        # A 10-field rebuild leaves extra fields None, so carry Windows attributes where they exist.
         return {
-            name: os.stat_result((*tuple(info)[:3], 0, *tuple(info)[4:10]))
+            name: os.stat_result(
+                (*tuple(info)[:3], 0, *tuple(info)[4:10]),
+                {key: getattr(info, key) for key in ("st_file_attributes",) if hasattr(info, key)},
+            )
             for name, info in listed(path).items()
         }
 
@@ -554,7 +560,7 @@ def test_set_aside_refuses_unknown_bytes_intact(saved, monkeypatch, fault):
     elif fault == "link":
         elsewhere = store.parent / "elsewhere"
         store.rename(elsewhere)
-        store.symlink_to(elsewhere, target_is_directory=True)
+        _symlink(store, elsewhere, directory=True)
     else:
         target = store / fault
         if fault.startswith("decisions/"):
@@ -613,3 +619,23 @@ def test_stale_record_after_set_aside_refuses(saved, monkeypatch):
     assert _tree(store.parent) == before
     assert inspect_migration(store) == successor
     assert folder.is_dir()
+
+
+@pytest.mark.parametrize(("windows", "winerror", "reason"), REFUSALS)
+def test_set_aside_refusal_is_typed_and_moves_nothing(
+    saved, monkeypatch, windows, winerror, reason
+):
+    session = saved[2]
+    current = _admit(saved, monkeypatch, "staged")
+    store = Path(current.store)
+    _move_target(saved)
+    before, calls = _tree(store.parent), []
+    refuse = refusing(monkeypatch, windows, winerror, calls)
+    monkeypatch.setattr(durability, "durable_rename", directory_renames(refuse))
+    chmods = chmod_calls(monkeypatch)
+    with pytest.raises(MigrationAdmissionError) as raised:
+        set_aside_stale_replica(current, _fresh(session), shape=_confirmed(current))
+    assert str(raised.value) == f"Cannot move {store}: {reason}."
+    assert (calls, chmods) == ([store], [])
+    assert _tree(store.parent) == before
+    assert inspect_migration(store) == current

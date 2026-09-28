@@ -12,6 +12,7 @@ from nauro_core.identifiers import IdentifierKind, validate_identifier
 from nauro.auth import DEFAULT_AUTH_REDIRECT_URI, ActiveCredentials
 from nauro.store.generation_authority import RefreshRequiredError
 from nauro.store.generation_installation import install_generation_root, publish_generation_control
+from nauro.store.generation_refresh_io import probe_durability
 from nauro.store.home import ensure_nauro_home, nauro_home
 from nauro.store.registry import bind_project_store_v2, get_project_entry_v2, get_store_path_v2
 from nauro.store.replica_control import _validate_managed_path
@@ -135,6 +136,7 @@ def attach_generation(
     validate_identifier(IdentifierKind.ulid, project, field="project")
     _validate_managed_path(repo, repo_config_path(repo))
     ensure_nauro_home()
+    probe_durability(nauro_home())
     lock = nauro_home() / f"generation-attachment-{project}.lock"
     _validate_managed_path(nauro_home(), lock)
     with FileLock(lock, timeout=0):

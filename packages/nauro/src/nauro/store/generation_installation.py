@@ -423,6 +423,9 @@ def _rename_into_place(staging: Path, root_path: Path) -> None:
     try:
         durability.durable_rename(staging, root_path)
         metadata = os.lstat(root_path)
+    except durability.REFUSED as exc:
+        detail = durability.refusal("publish", root_path, exc)
+        raise GenerationInstallError(f"{_PUBLISH_FAILED} {detail}") from exc
     except OSError as exc:
         raise GenerationInstallError(_PUBLISH_FAILED) from exc
     if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):

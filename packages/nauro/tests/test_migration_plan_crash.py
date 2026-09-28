@@ -9,6 +9,7 @@ import pytest
 from nauro.store.migration_admission import inspect_migration
 from nauro.sync import migration_preservation as preservation
 from nauro.sync.generation_attachment import InitialAttachmentSession
+from tests.test_generation_migration_assessment import _symlink
 from tests.test_migration_preservation import saved as saved_fixture
 
 saved = saved_fixture
@@ -18,6 +19,7 @@ import base64, json, os, sys
 from pathlib import Path
 import httpx
 from nauro.auth import DEFAULT_AUTH_REDIRECT_URI
+from nauro.store import _platform_durability as durability
 from nauro.store.resolution import resolve_project_binding
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.generation_connection import attachment_connection
@@ -35,7 +37,7 @@ def wire(request):
     assert request.url.path == "/generations/projection"
     return httpx.Response(200, json={"projection": json.loads(raw)["projection"],
                                   "manifest_base64": args["manifest"]})
-original_open, original_replace = os.open, os.replace
+original_open, original_rename = os.open, durability.durable_rename
 def crash_open(path, flags, *a, **kw):
     fd = original_open(path, flags, *a, **kw)
     if Path(path).parent == root and Path(path).name.startswith(".plan"):
@@ -44,13 +46,13 @@ def crash_open(path, flags, *a, **kw):
         if args["phase"] in {"created", "partial"}:
             os._exit(73)
     return fd
-def crash_replace(source, destination):
+def crash_rename(source, destination, **kwargs):
     if Path(destination) == root / "plan.json" and args["phase"] == "before_replace":
         os._exit(73)
-    original_replace(source, destination)
+    original_rename(source, destination, **kwargs)
     if Path(destination) == root / "plan.json" and args["phase"] == "after_replace":
         os._exit(73)
-os.open, os.replace = crash_open, crash_replace
+os.open, durability.durable_rename = crash_open, crash_rename
 with httpx.Client(transport=httpx.MockTransport(wire)) as client:
     session = InitialAttachmentSession(binding, Path(args["repo"]),
         attachment_connection(DEFAULT_AUTH_REDIRECT_URI), client)
@@ -113,7 +115,7 @@ def test_plan_scratch_uncertainty_refuses_without_cleanup(saved, tmp_path, damag
     evidence = tmp_path / "evidence"
     evidence.write_bytes(plan.manifest_json[:17])
     if damage == "link":
-        scratch.symlink_to(evidence)
+        _symlink(scratch, evidence)
     elif damage == "hardlink":
         scratch.hardlink_to(evidence)
     else:

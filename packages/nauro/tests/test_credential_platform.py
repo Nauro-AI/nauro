@@ -342,6 +342,14 @@ def test_windows_home_creation_is_owner_only_once(tmp_path, monkeypatch, fake):
         home_module.ensure_nauro_home()
 
 
+def test_home_removal_failure_keeps_the_access_refusal(tmp_path, monkeypatch, fake):
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path / "home"))
+    fake.fail = True
+    monkeypatch.setattr(Path, "rmdir", lambda self: (_ for _ in ()).throw(OSError("in use")))
+    with pytest.raises(security.OwnerOnlyError, match="SetNamedSecurityInfoW"):
+        home_module.ensure_nauro_home()
+
+
 def _private(tmp_path, content: bytes) -> Path:
     path = tmp_path / "private.json"
     path.touch()

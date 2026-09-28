@@ -12,8 +12,10 @@ from typer.testing import CliRunner
 from nauro.auth import DEFAULT_AUTH_REDIRECT_URI
 from nauro.cli.main import app
 from nauro.mcp import stdio_server
+from nauro.store import _platform_durability as durability
 from nauro.store import generation_installation as installation
 from nauro.store.config import load_config, save_config
+from nauro.store.home import nauro_home
 from nauro.store.registry import get_project_entry_v2, get_store_path_v2
 from nauro.store.repo_config import repo_config_path
 from nauro.store.resolution import resolve_project_binding
@@ -348,3 +350,36 @@ def test_old_listing_is_not_owner_authorization(hosted, monkeypatch):
     assert result.exit_code == 1
     assert not get_store_path_v2(PROJECT_ID).exists()
     assert not repo_config_path(repo).exists()
+
+
+def test_durability_refusal_stops_install_before_any_evidence(hosted, monkeypatch):
+    repo, _, _, _, calls = hosted
+    home = nauro_home()
+    before = {p: p.read_bytes() if p.is_file() else None for p in home.rglob("*")}
+    probed = []
+
+    def refused(directory):
+        probed.append(directory)
+        raise durability.DurabilityUnavailableError("This file system cannot confirm writes.")
+
+    monkeypatch.setattr(attachment, "probe_durability", refused)
+    result = _run(repo)
+    assert result.exit_code == 1
+    assert "Attachment incomplete: This file system cannot confirm writes." in result.output
+    assert (probed, calls) == ([home], [])
+    assert {p: p.read_bytes() if p.is_file() else None for p in home.rglob("*")} == before
+    assert not repo_config_path(repo).exists()
+
+
+def test_durability_probe_runs_once_per_install(hosted, monkeypatch):
+    repo, *_ = hosted
+    probed, probe = [], attachment.probe_durability
+
+    def counted(directory):
+        probed.append(directory)
+        probe(directory)
+
+    monkeypatch.setattr(attachment, "probe_durability", counted)
+    result = _run(repo)
+    assert result.exit_code == 0, result.output
+    assert probed == [nauro_home()]

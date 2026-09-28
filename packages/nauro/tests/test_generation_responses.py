@@ -13,12 +13,11 @@ from nauro.store import generation_installation as installation
 from nauro.store.generation_authority import RefreshRequiredError
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_installation import USER_ID, _projection
-from tests.test_generation_reads import CASES, POSIX
+from tests.test_generation_reads import CASES
 from tests.test_generation_reads import admitted as admitted
 from tests.test_generation_refresh import _target
 
 
-@POSIX
 @pytest.mark.parametrize("name,args,kwargs", CASES)
 def test_response_content_and_metadata_use_one_generation(admitted, name, args, kwargs):
     binding, current, checks = admitted
@@ -67,7 +66,6 @@ def replace_projection_binding(projection, binding):
     )
 
 
-@POSIX
 @pytest.mark.parametrize("name,args,kwargs", CASES)
 @pytest.mark.parametrize("failure", ["scope", "account", "renderer"])
 def test_no_payload_escapes_a_failure_during_rendering(
@@ -97,7 +95,6 @@ def test_no_payload_escapes_a_failure_during_rendering(
     assert len(result.text) < 150
 
 
-@POSIX
 @pytest.mark.parametrize("path", ["./state.md", "state.md", ".//state.md"])
 def test_raw_path_normalization_is_lexical(admitted, path):
     binding, _, _ = admitted
@@ -106,7 +103,6 @@ def test_raw_path_normalization_is_lexical(admitted, path):
     assert result.envelope["content"] == "# State\n\nVerified generation state.\n"
 
 
-@POSIX
 @pytest.mark.parametrize(
     "path",
     [
@@ -137,7 +133,6 @@ def test_raw_exclusions_refuse_before_read(admitted, monkeypatch, path):
     assert checks == []
 
 
-@POSIX
 def test_missing_intent_never_becomes_onboarding(admitted):
     binding, _, _ = admitted
     refresh.refresh_paths(binding, USER_ID).intent.unlink()
@@ -148,7 +143,6 @@ def test_missing_intent_never_becomes_onboarding(admitted):
     assert "read_authority" not in result.envelope
 
 
-@POSIX
 def test_missing_file_has_no_flat_store_hints(admitted):
     binding, _, _ = admitted
     (binding.store_path / "stack.md").write_text("SECRET FLAT STACK")
@@ -160,7 +154,6 @@ def test_missing_file_has_no_flat_store_hints(admitted):
     assert result.is_error is True
 
 
-@POSIX
 def test_context_limit_keeps_authority_frame(admitted):
     binding, current, _ = admitted
     current[0] = fresh_projection(
@@ -186,7 +179,6 @@ def test_history_refusal_is_explicit():
     }
 
 
-@POSIX
 def test_authority_exception_text_is_not_returned(admitted, monkeypatch):
     binding, _, _ = admitted
 
@@ -242,7 +234,6 @@ def fresh_projection(artifacts):
     )
 
 
-@POSIX
 def test_empty_authorized_projection_is_not_onboarding(admitted):
     binding, current, _ = admitted
     current[0] = fresh_projection({})
@@ -255,7 +246,6 @@ def test_empty_authorized_projection_is_not_onboarding(admitted):
     assert "welcome" not in result.text.lower()
 
 
-@POSIX
 def test_raw_content_budget_and_frame_are_separate(admitted):
     from nauro_core.constants import RAW_FILE_CHAR_BUDGET
 
@@ -271,7 +261,6 @@ def test_raw_content_budget_and_frame_are_separate(admitted):
     assert len(result.text) < RAW_FILE_CHAR_BUDGET + 1000
 
 
-@POSIX
 @pytest.mark.parametrize("failure", ["marker", "barrier", "network"])
 def test_admission_errors_never_release_metadata(admitted, monkeypatch, failure):
     binding, _, _ = admitted
@@ -295,7 +284,6 @@ def test_admission_errors_never_release_metadata(admitted, monkeypatch, failure)
     assert "PRIVATE" not in repr(result)
 
 
-@POSIX
 def test_missing_renderer_does_not_fall_back_to_json(admitted, monkeypatch):
     binding, _, _ = admitted
     monkeypatch.delitem(renderers.RENDERERS, "get_raw_file")
