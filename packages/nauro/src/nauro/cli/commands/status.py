@@ -386,9 +386,7 @@ def _count_skills(surface: str, base: Path, names: tuple[str, ...]) -> _Probe[_A
     )
 
 
-def _count_cursor_rules(
-    repo_paths: list[Path], names: tuple[str, ...]
-) -> _Probe[_ArtifactCounts]:
+def _count_cursor_rules(repo_paths: list[Path], names: tuple[str, ...]) -> _Probe[_ArtifactCounts]:
     """Tally ``.cursor/rules/<name>.mdc`` across every registered repo."""
     from nauro.skills import render_skill
 

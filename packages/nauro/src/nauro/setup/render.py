@@ -393,17 +393,16 @@ _SKILL_TARGET_LINES: dict[SkillKind, str] = {
     SkillKind.ABSENT: "  no skill at {target}",
 }
 
-_SKILL_BACKUP_KINDS = frozenset(
-    {SkillKind.PRESERVED_MODIFIED, SkillKind.REMOVED, SkillKind.ABSENT}
-)
+_SKILL_BACKUP_KINDS = frozenset({SkillKind.PRESERVED_MODIFIED, SkillKind.REMOVED, SkillKind.ABSENT})
 
 
 def _render_skill(o: SkillOutcome) -> list[str]:
     if o.kind in _SKILL_TARGET_LINES:
         line = _SKILL_TARGET_LINES[o.kind].format(target=o.target)
-        if o.kind in _SKILL_BACKUP_KINDS:
-            return [line, *_retained_backup_line(o.target, o.backup_name)]
-        return [line]
+        backup = (
+            _retained_backup_line(o.target, o.backup_name) if o.kind in _SKILL_BACKUP_KINDS else []
+        )
+        return [line, *backup]
     match o.kind:
         case SkillKind.WRITE_FAILED:
             return [f"  {_failed_write(o.write_failure)}"]
@@ -429,17 +428,16 @@ _AGENT_TARGET_LINES: dict[AgentKind, str] = {
     AgentKind.PRESERVED_UNDECODABLE: "  preserved {target} (not UTF-8 text, left alone)",
 }
 
-_AGENT_BACKUP_KINDS = frozenset(
-    {AgentKind.ABSENT, AgentKind.REMOVED, AgentKind.PRESERVED_MODIFIED}
-)
+_AGENT_BACKUP_KINDS = frozenset({AgentKind.ABSENT, AgentKind.REMOVED, AgentKind.PRESERVED_MODIFIED})
 
 
 def _render_agent(o: AgentOutcome) -> list[str]:
     if o.kind in _AGENT_TARGET_LINES:
         line = _AGENT_TARGET_LINES[o.kind].format(target=o.target)
-        if o.kind in _AGENT_BACKUP_KINDS:
-            return [line, *_retained_backup_line(o.target, o.backup_name)]
-        return [line]
+        backup = (
+            _retained_backup_line(o.target, o.backup_name) if o.kind in _AGENT_BACKUP_KINDS else []
+        )
+        return [line, *backup]
     match o.kind:
         case AgentKind.WRITE_FAILED:
             return [f"  {_failed_write(o.write_failure)}"]

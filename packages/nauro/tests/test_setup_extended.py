@@ -468,13 +468,19 @@ def test_remove_keeps_shared_agents_and_reports_backups(tmp_path: Path, monkeypa
     scaffold_project_store("proj-b", store_b)
 
     monkeypatch.chdir(repo_a)
-    assert runner.invoke(
-        app, ["setup", "all", "--project", "proj-a", "--with-skills", "--with-subagents"]
-    ).exit_code == 0
+    assert (
+        runner.invoke(
+            app, ["setup", "all", "--project", "proj-a", "--with-skills", "--with-subagents"]
+        ).exit_code
+        == 0
+    )
     monkeypatch.chdir(repo_b)
-    assert runner.invoke(
-        app, ["setup", "all", "--project", "proj-b", "--with-skills", "--with-subagents"]
-    ).exit_code == 0
+    assert (
+        runner.invoke(
+            app, ["setup", "all", "--project", "proj-b", "--with-skills", "--with-subagents"]
+        ).exit_code
+        == 0
+    )
 
     modified = repo_a / ".cursor" / "agents" / "nauro-reviewer.md"
     modified.write_text("local reviewer edit\n", encoding="utf-8")

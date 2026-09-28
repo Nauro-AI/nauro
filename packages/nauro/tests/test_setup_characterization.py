@@ -263,7 +263,8 @@ class TestCursorTranscripts:
             "Configured Nauro (Cursor) for project 'proj':\n"
             "\n"
             "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
-            "\n" + CURSOR_NEXT_LINE
+            "\n"
+            + CURSOR_NEXT_LINE
             + "This command writes .cursor/mcp.json only. Install Cursor rules and "
             "project agents with 'nauro setup all --with-skills --with-subagents'.\n"
             "\n" + TRY_IT_LINE
