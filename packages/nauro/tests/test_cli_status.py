@@ -14,6 +14,7 @@ from nauro.cli.integrations.agents import materialize_agents, materialize_agents
 from nauro.cli.integrations.skills import (
     materialize_skills_claude_code,
     materialize_skills_codex,
+    materialize_skills_cursor_for_repo,
 )
 from nauro.cli.main import app
 from nauro.store.registry import register_project_v2
@@ -66,6 +67,7 @@ def _install_workflow_artifacts(repos: list[Path] | None = None) -> None:
     materialize_agents("claude_code", remove=False)
     materialize_agents("codex", remove=False)
     for repo in repos if repos is not None else [Path.cwd()]:
+        materialize_skills_cursor_for_repo(repo, remove=False, with_skills=True)
         materialize_agents_cursor_for_repo(repo, remove=False)
 
 
@@ -96,7 +98,7 @@ def test_status_reports_current_skills_and_agents_on_all_surfaces(tmp_path, monk
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
-    assert "Skills        active (Claude 5/5; Codex 5/5)" in result.output
+    assert "Skills        active (Claude 5/5; Cursor 5/5; Codex 5/5)" in result.output
     assert "Workflow      active (Claude 4/4; Cursor 4/4; Codex 4/4)" in result.output
 
 
@@ -115,6 +117,19 @@ def test_status_aggregates_cursor_agents_across_registered_repos(tmp_path, monke
         "Workflow      partial (Claude 4/4; Cursor 4/8; Codex 4/4) - "
         "run 'nauro setup all --with-subagents'" in result.output
     )
+
+
+def test_status_reports_stale_cursor_rule(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    materialize_skills_cursor_for_repo(Path.cwd(), remove=False, with_skills=True)
+    materialize_skills_claude_code(remove=False, with_skills=True)
+    materialize_skills_codex(remove=False, with_skills=True)
+    (Path.cwd() / ".cursor" / "rules" / "nauro-adopt.mdc").write_text("stale\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Skills        BROKEN - Claude 5/5; Cursor 4/5; Codex 5/5" in result.output
 
 
 def test_status_reports_stale_cursor_agent(tmp_path, monkeypatch):
@@ -163,7 +178,7 @@ def test_status_reports_stale_skill_without_legacy_copy(tmp_path, monkeypatch):
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
-    assert "Skills        BROKEN - Claude 5/5; Codex 4/5" in result.output
+    assert "Skills        BROKEN - Claude 5/5; Cursor 5/5; Codex 4/5" in result.output
     assert "differ from this release; run 'nauro setup all --with-skills'" in result.output
 
 
@@ -172,6 +187,7 @@ def test_status_bare_adopt_states_optin_absence_without_degrading(tmp_path, monk
     _setup_project(tmp_path, monkeypatch)
     materialize_skills_claude_code(remove=False, with_skills=False)
     materialize_skills_codex(remove=False, with_skills=False)
+    materialize_skills_cursor_for_repo(Path.cwd(), remove=False, with_skills=False)
 
     result = runner.invoke(app, ["status"])
 
@@ -191,12 +207,13 @@ def test_status_partial_optin_skills_prompt_completion(tmp_path, monkeypatch):
     _setup_project(tmp_path, monkeypatch)
     materialize_skills_claude_code(remove=False, with_skills=True)
     materialize_skills_codex(remove=False, with_skills=False)
+    materialize_skills_cursor_for_repo(Path.cwd(), remove=False, with_skills=False)
 
     result = runner.invoke(app, ["status"])
 
     assert result.exit_code == 0
     assert (
-        "Skills        partial (Claude 5/5; Codex 1/5) - "
+        "Skills        partial (Claude 5/5; Cursor 1/5; Codex 1/5) - "
         "run 'nauro setup all --with-skills'" in result.output
     )
 
@@ -213,7 +230,7 @@ def test_status_prior_release_skills_prompt_refresh_on_both_surfaces(tmp_path, m
 
     assert result.exit_code == 0
     assert (
-        "Skills        partial (Claude 4/5; Codex 4/5) - "
+        "Skills        partial (Claude 4/5; Cursor 5/5; Codex 4/5) - "
         "run 'nauro setup all --with-skills'" in result.output
     )
 

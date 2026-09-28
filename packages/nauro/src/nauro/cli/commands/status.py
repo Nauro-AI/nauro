@@ -159,22 +159,26 @@ _NO_COUNTS = _ArtifactCounts(expected=0, present=0, current=0)
 
 @dataclass(frozen=True)
 class _SurfacePair:
-    """The same artifact set tallied on the Claude Code and Codex surfaces."""
+    """The same artifact set tallied on Claude Code, Cursor, and Codex.
+
+    Cursor rules are per repo. Their counts are the sum across registered repos.
+    """
 
     claude: _ArtifactCounts
     codex: _ArtifactCounts
+    cursor: _ArtifactCounts = _NO_COUNTS
 
     @property
     def present(self) -> int:
-        return self.claude.present + self.codex.present
+        return self.claude.present + self.cursor.present + self.codex.present
 
     @property
     def current(self) -> int:
-        return self.claude.current + self.codex.current
+        return self.claude.current + self.cursor.current + self.codex.current
 
     @property
     def expected(self) -> int:
-        return self.claude.expected + self.codex.expected
+        return self.claude.expected + self.cursor.expected + self.codex.expected
 
     @property
     def stale(self) -> int:
@@ -185,7 +189,7 @@ class _SurfacePair:
         return self.current == self.expected
 
 
-_NO_PAIR = _SurfacePair(claude=_NO_COUNTS, codex=_NO_COUNTS)
+_NO_PAIR = _SurfacePair(claude=_NO_COUNTS, codex=_NO_COUNTS, cursor=_NO_COUNTS)
 
 
 @dataclass(frozen=True)
@@ -382,8 +386,21 @@ def _count_skills(surface: str, base: Path, names: tuple[str, ...]) -> _Probe[_A
     )
 
 
-def _skill_artifacts() -> _Probe[_SkillArtifacts]:
-    """Inspect Nauro-owned skills on the Claude Code and Codex surfaces."""
+def _count_cursor_rules(repo_paths: list[Path], names: tuple[str, ...]) -> _Probe[_ArtifactCounts]:
+    """Tally ``.cursor/rules/<name>.mdc`` across every registered repo."""
+    from nauro.skills import render_skill
+
+    return _count_artifacts(
+        {
+            repo / ".cursor" / "rules" / f"{name}.mdc": render_skill("cursor", name)
+            for repo in repo_paths
+            for name in names
+        }
+    )
+
+
+def _skill_artifacts(repo_paths: list[Path]) -> _Probe[_SkillArtifacts]:
+    """Inspect Nauro-owned skills on Claude Code, Cursor, and Codex."""
     from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 
     claude_base = Path.home() / ".claude" / "skills"
@@ -392,18 +409,33 @@ def _skill_artifacts() -> _Probe[_SkillArtifacts]:
     core_codex = _count_skills("codex", codex_base, SKILL_NAMES)
     opt_in_claude = _count_skills("claude_code", claude_base, OPT_IN_SKILL_NAMES)
     opt_in_codex = _count_skills("codex", codex_base, OPT_IN_SKILL_NAMES)
+    core_cursor = _count_cursor_rules(repo_paths, SKILL_NAMES)
+    opt_in_cursor = _count_cursor_rules(repo_paths, OPT_IN_SKILL_NAMES)
     legacy_paths = [
         Path.home() / ".codex" / "skills" / name / "SKILL.md"
         for name in SKILL_NAMES + OPT_IN_SKILL_NAMES
     ]
     legacy = _probe_each(legacy_paths, is_regular_file, False)
     artifacts = _SkillArtifacts(
-        core_skills=_SurfacePair(claude=core_claude.value, codex=core_codex.value),
-        opt_in_skills=_SurfacePair(claude=opt_in_claude.value, codex=opt_in_codex.value),
+        core_skills=_SurfacePair(
+            claude=core_claude.value, codex=core_codex.value, cursor=core_cursor.value
+        ),
+        opt_in_skills=_SurfacePair(
+            claude=opt_in_claude.value, codex=opt_in_codex.value, cursor=opt_in_cursor.value
+        ),
         legacy_codex_skills=sum(legacy.value),
     )
     return _Probe(
-        artifacts, _failures(core_claude, core_codex, opt_in_claude, opt_in_codex, legacy)
+        artifacts,
+        _failures(
+            core_claude,
+            core_codex,
+            core_cursor,
+            opt_in_claude,
+            opt_in_codex,
+            opt_in_cursor,
+            legacy,
+        ),
     )
 
 
@@ -447,7 +479,7 @@ def _collect_wiring(registry: _RegistryFacts) -> _WiringSnapshot:
         codex=_probe(lambda: _CodexGlobal(*codex_config.recorded_codex_command()), _CodexGlobal()),
         hooks=_probe_each(repos, _repo_codex_hook_state, _NO_CODEX_HOOKS),
         agents=_Probe(sum(generated.value), generated.unreadable),
-        skills=_skill_artifacts(),
+        skills=_skill_artifacts(list(repos)),
         workflow_agents=_agent_artifacts(list(repos)),
     )
     recorded = snapshot.mcp_commands | snapshot.hook_commands
@@ -579,9 +611,15 @@ def _surface_detail(*pairs: _SurfacePair) -> str:
     """Per-surface current/expected summary across one or more artifact sets."""
     claude_current = sum(pair.claude.current for pair in pairs)
     claude_expected = sum(pair.claude.expected for pair in pairs)
+    cursor_current = sum(pair.cursor.current for pair in pairs)
+    cursor_expected = sum(pair.cursor.expected for pair in pairs)
     codex_current = sum(pair.codex.current for pair in pairs)
     codex_expected = sum(pair.codex.expected for pair in pairs)
-    return f"Claude {claude_current}/{claude_expected}; Codex {codex_current}/{codex_expected}"
+    return (
+        f"Claude {claude_current}/{claude_expected}; "
+        f"Cursor {cursor_current}/{cursor_expected}; "
+        f"Codex {codex_current}/{codex_expected}"
+    )
 
 
 def _workflow_agent_detail(counts: _WorkflowAgentCounts) -> str:
@@ -868,6 +906,7 @@ class _CountsPayload(BaseModel):
 
 class _SurfaceCountsPayload(BaseModel):
     claude: _CountsPayload
+    cursor: _CountsPayload
     codex: _CountsPayload
 
 
@@ -952,7 +991,9 @@ def _counts_payload(counts: _ArtifactCounts) -> _CountsPayload:
 
 def _surface_counts_payload(pair: _SurfacePair) -> _SurfaceCountsPayload:
     return _SurfaceCountsPayload(
-        claude=_counts_payload(pair.claude), codex=_counts_payload(pair.codex)
+        claude=_counts_payload(pair.claude),
+        cursor=_counts_payload(pair.cursor),
+        codex=_counts_payload(pair.codex),
     )
 
 

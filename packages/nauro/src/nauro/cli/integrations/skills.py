@@ -109,6 +109,20 @@ def _install_bundled_skill_io(
     return SkillOutcome(SkillKind.WROTE, target=target, repo=repo)
 
 
+def _retained_backup_name(target: Path) -> str | None:
+    """Return a sibling ``.bak`` name when that backup is a real file.
+
+    Removal never deletes the backup. It may be the only copy of a local edit.
+    """
+    backup = target.with_name(target.name + ".bak")
+    try:
+        if backup.is_symlink() or not backup.is_file():
+            return None
+    except OSError:
+        return None
+    return backup.name
+
+
 def _remove_bundled_skill(
     target: Path,
     bundled: str,
@@ -138,10 +152,16 @@ def _remove_bundled_skill_io(
     refusal = _skill_refusal(target, repo)
     if refusal is not None:
         return SkillOutcome(SkillKind.REFUSED_SYMLINK, target=target, refusal=refusal, repo=repo)
+    backup_name = _retained_backup_name(target)
     if not target.is_file():
-        return SkillOutcome(SkillKind.ABSENT, target=target, repo=repo)
+        return SkillOutcome(SkillKind.ABSENT, target=target, repo=repo, backup_name=backup_name)
     if target.read_text(encoding="utf-8") != bundled:
-        return SkillOutcome(SkillKind.PRESERVED_MODIFIED, target=target, repo=repo)
+        return SkillOutcome(
+            SkillKind.PRESERVED_MODIFIED,
+            target=target,
+            repo=repo,
+            backup_name=backup_name,
+        )
     target.unlink()
     stop_resolved = stop_above.resolve()
     parent = target.parent
@@ -150,7 +170,7 @@ def _remove_bundled_skill_io(
             break
         parent.rmdir()
         parent = parent.parent
-    return SkillOutcome(SkillKind.REMOVED, target=target, repo=repo)
+    return SkillOutcome(SkillKind.REMOVED, target=target, repo=repo, backup_name=backup_name)
 
 
 def _migrate_legacy_codex_skill(name: str) -> SkillOutcome | None:

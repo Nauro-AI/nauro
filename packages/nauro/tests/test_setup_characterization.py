@@ -263,7 +263,11 @@ class TestCursorTranscripts:
             "Configured Nauro (Cursor) for project 'proj':\n"
             "\n"
             "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
-            "\n" + CURSOR_NEXT_LINE + "\n" + TRY_IT_LINE
+            "\n"
+            + CURSOR_NEXT_LINE
+            + "This command writes .cursor/mcp.json only. Install Cursor rules and "
+            "project agents with 'nauro setup all --with-skills --with-subagents'.\n"
+            "\n" + TRY_IT_LINE
         )
         assert result.stderr == ""
 
@@ -428,11 +432,35 @@ class TestSetupAllTranscripts:
             "\n"
             "  {TMP}/repo: removed nauro from .mcp.json\n"
             "  removed {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
+            "  no skill at {TMP}/.claude/skills/nauro-ship-task/SKILL.md\n"
+            "  no skill at {TMP}/.claude/skills/nauro-context/SKILL.md\n"
+            "  no skill at {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
+            "  no skill at {TMP}/.claude/skills/nauro-interview/SKILL.md\n"
+            "  no agent at {TMP}/.claude/agents/nauro-planner.md\n"
+            "  no agent at {TMP}/.claude/agents/nauro-executor.md\n"
+            "  no agent at {TMP}/.claude/agents/nauro-reviewer.md\n"
+            "  no agent at {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  {TMP}/repo: no nauro hook to remove\n"
             "  {TMP}/repo: removed nauro from .cursor/mcp.json\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
+            "  no skill at {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
+            "  no skill at {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
+            "  no skill at {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
+            "  no skill at {TMP}/repo/.cursor/rules/nauro-interview.mdc\n"
+            "  no agent at {TMP}/repo/.cursor/agents/nauro-planner.md\n"
+            "  no agent at {TMP}/repo/.cursor/agents/nauro-executor.md\n"
+            "  no agent at {TMP}/repo/.cursor/agents/nauro-reviewer.md\n"
+            "  no agent at {TMP}/repo/.cursor/agents/nauro-tech-lead.md\n"
             "Codex: removed nauro from {TMP}/.codex/config.toml\n"
             "  removed {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
+            "  no skill at {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
+            "  no skill at {TMP}/.agents/skills/nauro-context/SKILL.md\n"
+            "  no skill at {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  no skill at {TMP}/.agents/skills/nauro-interview/SKILL.md\n"
+            "  no agent at {TMP}/.codex/agents/nauro-planner.toml\n"
+            "  no agent at {TMP}/.codex/agents/nauro-executor.toml\n"
+            "  no agent at {TMP}/.codex/agents/nauro-reviewer.toml\n"
+            "  no agent at {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: no nauro Codex hooks to remove\n"
             "  {TMP}/repo: removed generated AGENTS.md\n"
             "  {TMP}/repo: removed CLAUDE.md bridge\n"
@@ -455,12 +483,22 @@ class TestSetupAllTranscripts:
             "\n"
             "  {TMP}/repo: removed nauro from .mcp.json\n"
             "  preserved ~/.claude/skills/nauro-* (other nauro projects still registered)\n"
+            "  preserved ~/.claude/agents/nauro-* (other nauro projects still registered)\n"
             "  {TMP}/repo: no nauro hook to remove\n"
             "  {TMP}/repo: removed nauro from .cursor/mcp.json\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
+            "  no skill at {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
+            "  no skill at {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
+            "  no skill at {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
+            "  no skill at {TMP}/repo/.cursor/rules/nauro-interview.mdc\n"
+            "  no agent at {TMP}/repo/.cursor/agents/nauro-planner.md\n"
+            "  no agent at {TMP}/repo/.cursor/agents/nauro-executor.md\n"
+            "  no agent at {TMP}/repo/.cursor/agents/nauro-reviewer.md\n"
+            "  no agent at {TMP}/repo/.cursor/agents/nauro-tech-lead.md\n"
             "Codex: preserved nauro entry in {TMP}/.codex/config.toml (other nauro projects"
             " still registered)\n"
             "  preserved ~/.agents/skills/nauro-* (other nauro projects still registered)\n"
+            "  preserved ~/.codex/agents/nauro-* (other nauro projects still registered)\n"
             "  {TMP}/repo: no nauro Codex hooks to remove\n"
             "  {TMP}/repo: removed generated AGENTS.md\n"
             "  {TMP}/repo: removed CLAUDE.md bridge\n"
@@ -706,16 +744,12 @@ class TestSetupAllTranscripts:
         assert result.stderr == ""
         assert not (tmp_path / ".claude" / "agents" / "nauro-planner.md.bak").exists()
 
-    def test_remove_orphans_optin_skills_and_subagents(self, tmp_path: Path, monkeypatch):
-        """Plain --remove orphans opt-in artifacts because it drops the flags.
+    def test_remove_without_flags_clears_optin_artifacts(self, tmp_path: Path, monkeypatch):
+        """Plain --remove clears opt-in skills and workflow agents.
 
-        Not re-passing the opt-in flags means teardown strips only the
-        always-installed adopt skill and rule; the opt-in skills (both skill
-        roots), their Cursor rules, and the four subagents are all left behind,
-        and the remove transcript is identical to a plain-add teardown. Changing
-        this is a named follow-up, not a silent move-time delta;
-        test_remove_with_flags_clears_optin_artifacts pins the complementary path
-        where the flags are re-passed.
+        The flags are implied on teardown. Byte-equal copies are removed.
+        User-scope copies are a separate guard, covered when another project
+        remains registered.
         """
         _register_project(tmp_path, monkeypatch)
         assert (
@@ -730,42 +764,51 @@ class TestSetupAllTranscripts:
             "\n"
             "  {TMP}/repo: removed nauro from .mcp.json\n"
             "  removed {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
+            "  removed {TMP}/.claude/skills/nauro-ship-task/SKILL.md\n"
+            "  removed {TMP}/.claude/skills/nauro-context/SKILL.md\n"
+            "  removed {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
+            "  removed {TMP}/.claude/skills/nauro-interview/SKILL.md\n"
+            "  removed {TMP}/.claude/agents/nauro-planner.md\n"
+            "  removed {TMP}/.claude/agents/nauro-executor.md\n"
+            "  removed {TMP}/.claude/agents/nauro-reviewer.md\n"
+            "  removed {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  {TMP}/repo: no nauro hook to remove\n"
             "  {TMP}/repo: removed nauro from .cursor/mcp.json\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
+            "  removed {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
+            "  removed {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
+            "  removed {TMP}/repo/.cursor/rules/nauro-loop.mdc\n"
+            "  removed {TMP}/repo/.cursor/rules/nauro-interview.mdc\n"
+            "  removed {TMP}/repo/.cursor/agents/nauro-planner.md\n"
+            "  removed {TMP}/repo/.cursor/agents/nauro-executor.md\n"
+            "  removed {TMP}/repo/.cursor/agents/nauro-reviewer.md\n"
+            "  removed {TMP}/repo/.cursor/agents/nauro-tech-lead.md\n"
             "Codex: removed nauro from {TMP}/.codex/config.toml\n"
             "  removed {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
+            "  removed {TMP}/.agents/skills/nauro-ship-task/SKILL.md\n"
+            "  removed {TMP}/.agents/skills/nauro-context/SKILL.md\n"
+            "  removed {TMP}/.agents/skills/nauro-loop/SKILL.md\n"
+            "  removed {TMP}/.agents/skills/nauro-interview/SKILL.md\n"
+            "  removed {TMP}/.codex/agents/nauro-planner.toml\n"
+            "  removed {TMP}/.codex/agents/nauro-executor.toml\n"
+            "  removed {TMP}/.codex/agents/nauro-reviewer.toml\n"
+            "  removed {TMP}/.codex/agents/nauro-tech-lead.toml\n"
             "  {TMP}/repo: no nauro Codex hooks to remove\n"
             "  {TMP}/repo: removed generated AGENTS.md\n"
             "  {TMP}/repo: removed CLAUDE.md bridge\n"
         )
         assert result.stderr == ""
-        # The opt-in artifacts survive plain --remove (orphaned, by current design):
-        # opt-in skills in both skill roots, their Cursor rules, and all subagents.
         for root in (".claude/skills", ".agents/skills"):
-            names = {p.name for p in (tmp_path / root).iterdir()}
-            assert names == {"nauro-ship-task", "nauro-context", "nauro-loop", "nauro-interview"}
-        rule_names = {p.name for p in (tmp_path / "repo" / ".cursor" / "rules").iterdir()}
-        assert rule_names == {
-            "nauro-ship-task.mdc",
-            "nauro-context.mdc",
-            "nauro-loop.mdc",
-            "nauro-interview.mdc",
-        }
-        agent_names = {p.name for p in (tmp_path / ".claude" / "agents").iterdir()}
-        assert agent_names == {
-            "nauro-planner.md",
-            "nauro-executor.md",
-            "nauro-reviewer.md",
-            "nauro-tech-lead.md",
-        }
-        codex_agent_names = {p.name for p in (tmp_path / ".codex" / "agents").iterdir()}
-        assert codex_agent_names == {
-            "nauro-planner.toml",
-            "nauro-executor.toml",
-            "nauro-reviewer.toml",
-            "nauro-tech-lead.toml",
-        }
+            directory = tmp_path / root
+            assert not directory.exists() or not any(directory.iterdir())
+        rules_dir = tmp_path / "repo" / ".cursor" / "rules"
+        assert not rules_dir.exists() or not any(rules_dir.iterdir())
+        for agents_dir in (
+            tmp_path / ".claude" / "agents",
+            tmp_path / ".codex" / "agents",
+            tmp_path / "repo" / ".cursor" / "agents",
+        ):
+            assert not agents_dir.exists() or not any(agents_dir.iterdir())
 
     def test_remove_with_flags_clears_optin_artifacts(self, tmp_path: Path, monkeypatch):
         """Re-passing the opt-in flags on remove clears every opt-in artifact.

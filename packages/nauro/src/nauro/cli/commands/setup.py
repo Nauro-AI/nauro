@@ -116,6 +116,10 @@ def cursor(
 
     if not remove:
         typer.echo("\nNext: open this repo in Cursor and start a chat - Nauro MCP will connect.")
+        typer.echo(
+            "This command writes .cursor/mcp.json only. Install Cursor rules and "
+            "project agents with 'nauro setup all --with-skills --with-subagents'."
+        )
         typer.echo(f"\n{CHECK_HINT_LINE}")
 
 
@@ -181,7 +185,14 @@ def all_(
         None, "--project", help="Project name (default: resolve from cwd)."
     ),
     remove: bool = typer.Option(
-        False, "--remove", help="Remove Nauro integration instead of adding it."
+        False,
+        "--remove",
+        help=(
+            "Remove Nauro integration instead of adding it. Also removes opt-in "
+            "skills and workflow agents. Locally modified copies and sibling .bak "
+            "backups are kept. User-scope skills and agents stay while another "
+            "Nauro project is registered."
+        ),
     ),
     with_subagents: bool = typer.Option(
         False,
@@ -226,6 +237,12 @@ def all_(
     entry = _resolve_project_entry(project_name, _store_path.name)
 
     project_repos = [Path(rp) for rp in entry["repo_paths"]]
+    # Teardown removes opt-in skills and workflow agents even when the flags
+    # are omitted. The user-scope guard inside setup_all_surfaces still keeps
+    # shared Claude and Codex copies while another project is registered.
+    if remove:
+        with_subagents = True
+        with_skills = True
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro for project '{project_name}' across all surfaces:\n")
     _echo_outcomes(
