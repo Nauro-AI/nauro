@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+from pathlib import Path
 
 import httpx
 import pytest
@@ -10,13 +12,19 @@ from nauro.cli import generation_upgrade as upgrade
 from nauro.store import _platform_durability as durability
 from nauro.store import generation_installation as installer
 from nauro.store.generation_authority import RefreshRequiredError
-from nauro.store.migration_admission import MigrationAdmissionError, inspect_migration
+from nauro.store.migration_admission import (
+    MigrationAdmissionError,
+    admission_path,
+    inspect_migration,
+    migration_home,
+)
 from nauro.sync import migration_installation as installation
 from nauro.sync import migration_reconciliation as reconciliation
 from nauro.sync.migration_admission import decide_migration_assessment, load_migration_plan
 from nauro.sync.migration_preservation import preserve_migration_source
 from tests import test_migration_preservation as seed
 from tests.test_migration_installation import directory_renames
+from tests.windows_refusal import REFUSALS, refusing
 
 
 @pytest.fixture
@@ -181,8 +189,6 @@ def test_drift_reassessment_requires_its_own_disposition(assessed):
 
 
 def test_lost_preparation_response_is_discovered_without_new_identity(assessed, monkeypatch):
-    from nauro.store.migration_admission import admission_path
-
     record, _, session, _, _, calls = assessed
     admission_path(session.binding.store_path).unlink()
     original = upgrade.save_migration_assessment
@@ -826,3 +832,118 @@ def test_changed_source_before_rename_requires_owner_recovery(assessed, monkeypa
 
 def _forbidden_rename(*args):
     raise OSError("interrupted")
+
+
+def _probes(session):
+    return [migration_home(), session.binding.store_path.parent]
+
+
+@pytest.mark.parametrize("volume", [0, 1], ids=["home", "store_parent"])
+def test_durability_refusal_stops_before_any_upgrade_evidence(assessed, monkeypatch, volume):
+    _, _, session, _, _, calls = assessed
+    admission_path(session.binding.store_path).unlink()
+    before = _tree(migration_home()), _tree(session.binding.store_path.parent)
+    probed = []
+
+    def refused(directory):
+        probed.append(directory)
+        if len(probed) > volume:
+            raise durability.DurabilityUnavailableError("This file system cannot confirm writes.")
+
+    monkeypatch.setattr(upgrade, "probe_durability", refused)
+    with pytest.raises(durability.DurabilityUnavailableError, match="cannot confirm"):
+        upgrade.guided_existing_hosted_upgrade(session, emit=_forbidden, confirm=_forbidden)
+    assert probed == _probes(session)[: volume + 1]
+    assert (_tree(migration_home()), _tree(session.binding.store_path.parent)) == before
+    assert inspect_migration(session.binding.store_path) is None
+    assert calls == []
+
+
+def _recorded(monkeypatch, events):
+    probe, save, execute = (
+        upgrade.probe_durability,
+        upgrade.save_migration_assessment,
+        upgrade._execute,
+    )
+
+    def probed(directory):
+        events.append(("probe", directory))
+        probe(directory)
+
+    def saved(*args, **kwargs):
+        events.append(("save", None))
+        return save(*args, **kwargs)
+
+    def executed(*args, **kwargs):
+        events.append(("execute", None))
+        return execute(*args, **kwargs)
+
+    monkeypatch.setattr(upgrade, "probe_durability", probed)
+    monkeypatch.setattr(upgrade, "save_migration_assessment", saved)
+    monkeypatch.setattr(upgrade, "_execute", executed)
+
+
+def test_durability_probe_runs_once_before_the_first_save(assessed, monkeypatch):
+    _, _, session, *_ = assessed
+    admission_path(session.binding.store_path).unlink()
+    events = []
+    _recorded(monkeypatch, events)
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=lambda text: None, confirm=lambda prompt: True
+    )
+    assert result.phase == "completed"
+    probes = [("probe", path) for path in _probes(session)]
+    assert events == [*probes, ("save", None), ("execute", None)]
+
+
+@pytest.mark.parametrize("phase", ["blocked", "replacing"])
+def test_resumed_upgrade_probes_before_continuing(assessed, monkeypatch, phase):
+    record, _, session, *_ = assessed
+    record = decide_migration_assessment(record, preserve=True)
+    if phase == "replacing":
+        record = _interrupt(assessed, monkeypatch, installation, "_replace_source")
+    assert inspect_migration(session.binding.store_path) == record
+    events, homes = [], []
+    _recorded(monkeypatch, events)
+    probe = upgrade.probe_durability
+
+    def before_any_save(directory):
+        homes.append(_tree(migration_home()))
+        probe(directory)
+
+    monkeypatch.setattr(upgrade, "probe_durability", before_any_save)
+    before = _tree(migration_home())
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=lambda text: None, confirm=lambda prompt: True
+    )
+    assert result.phase == "completed"
+    assert homes == [before, before]
+    assert events == [*[("probe", path) for path in _probes(session)], ("execute", None)]
+
+
+@pytest.mark.parametrize("phase", ["assessed", "replacing"])
+@pytest.mark.parametrize(("windows", "winerror", "reason"), REFUSALS)
+def test_unreadable_source_is_reported_without_a_reassessment_offer(
+    assessed, monkeypatch, phase, windows, winerror, reason
+):
+    record, _, session, *_ = assessed
+    if phase == "replacing":
+        record = decide_migration_assessment(record, preserve=True)
+        record = _interrupt(assessed, monkeypatch, installation, "_replace_source")
+    source = session.binding.store_path / "state_current.md"
+    before, refused, real_open = _tree(migration_home()), [], os.open
+    refuse = refusing(monkeypatch, windows, winerror, refused)
+    monkeypatch.setattr(
+        os, "open", lambda path, *a: refuse(path) if Path(path) == source else real_open(path, *a)
+    )
+    messages, prompts = [], []
+    result = upgrade.guided_existing_hosted_upgrade(
+        session, emit=messages.append, confirm=lambda prompt: prompts.append(prompt) or True
+    )
+    assert result == record
+    assert len(prompts) == 1
+    typed = f"The legacy file is unreadable. Cannot read {source}: {reason}."
+    assert f"Upgrade incomplete: {typed}" in messages
+    assert not any("fresh assessment" in m or "changed after" in m for m in messages)
+    assert refused == [source]
+    assert _tree(migration_home()) == before

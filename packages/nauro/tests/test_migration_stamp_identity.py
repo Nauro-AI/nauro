@@ -11,7 +11,11 @@ from types import SimpleNamespace
 import pytest
 
 from nauro.store import generation_migration_assessment as assessment
-from nauro.store.generation_migration_assessment import LegacyMigrationAssessmentError
+from nauro.store.generation_migration_assessment import (
+    LegacyFileRefusedError,
+    LegacyMigrationAssessmentError,
+)
+from tests.windows_refusal import REFUSALS, chmod_calls, refusing
 
 FIELDS = ("st_mode", "st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
 CONTENT = b"# Project, rewritten\n"
@@ -173,3 +177,20 @@ def test_same_size_same_mtime_file_swapped_in_at_open_is_refused(
     with pytest.raises(LegacyMigrationAssessmentError, match="changed during open: project.md"):
         assessment._read_stamp(store, path)
     assert other.read_bytes() == b"# Tampered rewritten\n"
+
+
+@pytest.mark.parametrize(("windows", "winerror", "reason"), REFUSALS)
+def test_refused_read_names_the_file_and_reason(legacy, monkeypatch, windows, winerror, reason):
+    store, path = legacy
+    calls, real_open = [], os.open
+    refuse = refusing(monkeypatch, windows, winerror, calls)
+    monkeypatch.setattr(
+        os,
+        "open",
+        lambda target, *a: refuse(target) if Path(target) == path else real_open(target, *a),
+    )
+    chmods = chmod_calls(monkeypatch)
+    with pytest.raises(LegacyFileRefusedError) as raised:
+        assessment._read_stamp(store, path)
+    assert str(raised.value) == f"The legacy file is unreadable. Cannot read {path}: {reason}."
+    assert (calls, chmods) == ([path], [])

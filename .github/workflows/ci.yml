@@ -267,7 +267,19 @@ jobs:
           packages/nauro/tests/test_decision_reference_startup.py
           packages/nauro/tests/test_generation_attachment.py
           packages/nauro/tests/test_generation_attachment_recovery.py
+          packages/nauro/tests/test_guided_generation_upgrade.py
+          packages/nauro/tests/test_migration_preservation.py
+          packages/nauro/tests/test_migration_installation.py
+          packages/nauro/tests/test_migration_reconciliation.py
+          packages/nauro/tests/test_migration_plan_crash.py
+          packages/nauro/tests/test_attach_routing.py
+          packages/nauro/tests/test_stdio_startup_authority.py
+          packages/nauro/tests/test_generation_connection_refusal.py
+          packages/nauro/tests/test_unchanged_generation_refresh.py
+          packages/nauro/tests/test_attachment_projection_reuse.py
+          packages/nauro/tests/test_generation_refresh_reuse.py
           packages/nauro/tests/test_sync/test_generation_acquisition.py
+          packages/nauro/tests/test_sync/test_generation_byte_reuse.py
           packages/nauro/tests/test_sync/test_submission_records_excluded.py
           packages/nauro/tests/test_sync/test_replica_control_excluded.py
           packages/nauro/tests/test_sync/test_push_admission.py

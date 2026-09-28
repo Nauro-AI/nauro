@@ -19,7 +19,7 @@ from nauro.store.resolution import resolve_project_binding
 from nauro.sync.generation_session import GenerationTransferSession
 from tests.generation_account import seed_generation_account
 from tests.test_generation_installation import USER_ID
-from tests.test_generation_reads import POSIX
+from tests.test_generation_migration_assessment import _symlink
 from tests.test_generation_reads import admitted as admitted
 
 CASES = [("get_context", {"level": level}) for level in ("L0", "L1", "L2")] + [
@@ -75,7 +75,6 @@ def forbidden(*args, **kwargs):
     pytest.fail("Wrong authority path executed")
 
 
-@POSIX
 @pytest.mark.parametrize("name,kwargs", CASES)
 def test_generation_uses_prepared_text_without_legacy_render(cloud, monkeypatch, name, kwargs):
     binding, _, checks = cloud
@@ -139,7 +138,6 @@ def test_flat_cutover_discards_response(flat, monkeypatch, phase):
     assert dispatch.get_raw_file("state.md", project_id=flat.project_id) == ERROR
 
 
-@POSIX
 @pytest.mark.parametrize(
     "defect",
     ["corrupt", "missing_intent", "credentials", "account_change", "marker_change", "renderer"],
@@ -187,7 +185,6 @@ def test_generation_failures_never_fall_back(cloud, monkeypatch, defect):
     assert "PRIVATE" not in str(result)
 
 
-@POSIX
 def test_generation_history_never_reads_flat_snapshots(cloud, monkeypatch):
     binding, _, _ = cloud
     monkeypatch.setattr(dispatch.legacy, "tool_diff_since_last_session", forbidden)
@@ -200,7 +197,7 @@ def test_generation_history_never_reads_flat_snapshots(cloud, monkeypatch):
     "defect",
     [
         "directory",
-        pytest.param("symlink", marks=POSIX),
+        "symlink",
         "hardlink",
         "large",
         "local_marker",
@@ -226,7 +223,7 @@ def test_marker_observation_refuses_unsafe_evidence(flat, monkeypatch, defect):
         target = flat.store_path / "target"
         target.write_text("{}")
         if defect == "symlink":
-            path.symlink_to(target)
+            _symlink(path, target)
         else:
             path.hardlink_to(target)
     elif defect == "large":
@@ -275,7 +272,6 @@ def test_dispatch_has_only_named_consumers_and_keeps_public_arguments():
         assert [p.default for p in new.values()] == [p.default for p in live.values()]
 
 
-@POSIX
 @pytest.mark.parametrize("defect", ["none", "noncanonical", "wrong_project", "unsupported"])
 def test_cloud_marker_validation_before_generation_admission(cloud, monkeypatch, defect):
     from nauro.store.generation_authority import (
@@ -306,7 +302,6 @@ def test_cloud_marker_validation_before_generation_admission(cloud, monkeypatch,
     assert dispatch.get_context(project_id=binding.project_id) == ERROR
 
 
-@POSIX
 @pytest.mark.parametrize(
     "path",
     [

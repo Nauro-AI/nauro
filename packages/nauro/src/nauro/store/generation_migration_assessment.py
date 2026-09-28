@@ -12,6 +12,7 @@ from pathlib import Path
 
 from nauro_core.protected_generation_membership import is_protected_generation_member
 
+from nauro.store import _platform_durability as durability
 from nauro.store._atomic import is_tmp_sibling
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.generation_projection import VerifiedGenerationProjection
@@ -42,6 +43,10 @@ class LegacyMigrationAssessmentError(GenerationAuthorityError):
     """A legacy store could not be assessed without ambiguous local evidence."""
 
     code = "legacy_migration_assessment_failed"
+
+
+class LegacyFileRefusedError(LegacyMigrationAssessmentError):
+    """The platform refused to open a legacy file; a fresh assessment cannot fix that."""
 
 
 @dataclass(frozen=True, order=True)
@@ -141,7 +146,11 @@ def _read_stamp(store_path: Path, path: Path) -> LegacyFileStamp:
 
     descriptor: int | None = None
     try:
-        descriptor = os.open(path, _READ_FLAGS)
+        try:
+            descriptor = os.open(path, _READ_FLAGS)
+        except durability.REFUSED as exc:
+            detail = durability.refusal("read", path, exc)
+            raise LegacyFileRefusedError(f"The legacy file is unreadable. {detail}") from exc
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode) or _stat_signature(opened) != _stat_signature(observed):
             raise LegacyMigrationAssessmentError(

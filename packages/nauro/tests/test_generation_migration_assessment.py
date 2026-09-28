@@ -74,9 +74,9 @@ def _projection(
     )
 
 
-def _symlink(link: Path, target: Path) -> None:
+def _symlink(link: Path, target: Path, *, directory: bool = False) -> None:
     try:
-        link.symlink_to(target)
+        link.symlink_to(target, target_is_directory=directory)
     except OSError:
         pytest.skip("platform does not permit test symlinks")
 

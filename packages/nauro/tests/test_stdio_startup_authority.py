@@ -20,6 +20,7 @@ from nauro.sync import generation_refresh_status as refresh_status
 from tests import test_generation_installation as fixtures
 from tests.test_generation_attachment import _run
 from tests.test_generation_attachment import hosted as attachment_fixture
+from tests.test_generation_migration_assessment import _symlink
 
 
 @pytest.fixture
@@ -330,7 +331,7 @@ def test_status_refuses_other_actor_or_invalid_record(installed, change, tmp_pat
         target = tmp_path / "private"
         target.write_bytes(path.read_bytes())
         path.unlink()
-        path.symlink_to(target)
+        _symlink(path, target)
     result = refresh_status.replica_status(binding)
     assert result == {
         "project_id": binding.project_id,

@@ -29,7 +29,11 @@ from nauro.sync.generation_refresh import (
     prepare_generation_refresh,
     prepare_initial_generation_refresh,
 )
-from nauro.sync.migration_admission import load_migration_plan, verify_migration_source
+from nauro.sync.migration_admission import (
+    MigrationSourceRefusedError,
+    load_migration_plan,
+    verify_migration_source,
+)
 from nauro.sync.migration_preservation import (
     _directories,
     _inspect_backup,
@@ -65,6 +69,8 @@ def verify_admitted_migration_source(record: MigrationAdmission) -> None:
         location = source
     try:
         verify_migration_source(record.model_copy(update={"store": str(location)}), raw)
+    except MigrationSourceRefusedError:
+        raise
     except MigrationAdmissionError as exc:
         raise MigrationAdmissionError(
             "The retained project files changed after this upgrade was admitted."
@@ -129,7 +135,10 @@ def _replace_source(record: MigrationAdmission, raw: bytes) -> None:
         if retained.exists():
             raise MigrationAdmissionError("Both source locations exist; evidence retained.")
         verify_migration_source(record, raw)
-        durability.durable_rename(source, retained, replace=False)
+        try:
+            durability.durable_rename(source, retained, replace=False)
+        except durability.REFUSED as exc:
+            raise MigrationAdmissionError(durability.refusal("move", source, exc)) from exc
     elif not retained.exists():
         raise MigrationAdmissionError("Both source locations are missing; evidence retained.")
     verify_migration_source(record.model_copy(update={"store": str(retained)}), raw)

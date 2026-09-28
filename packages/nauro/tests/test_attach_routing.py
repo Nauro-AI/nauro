@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,7 @@ from nauro.templates.scaffolds import scaffold_project_store
 from tests.test_generation_attachment import hosted as hosted_fixture
 from tests.test_generation_connection_refusal import tree
 from tests.test_generation_installation import PROJECT_ID as PID
+from tests.test_generation_migration_assessment import _symlink
 
 ORIGIN = "https://mcp.nauro.ai"
 GENERATION = AuthorityDiscovery("generation", 200, None)
@@ -372,6 +374,9 @@ def test_replica_check_error_keeps_the_legacy_refusal(routed, tmp_path, monkeypa
     assert tree(tmp_path) == before
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows has no mode bits that make a folder unreadable"
+)
 def test_unreadable_bound_store_refuses_instead_of_installing(routed, tmp_path, monkeypatch):
     repo, _, calls = routed
     _forbid_legacy(monkeypatch)
@@ -491,7 +496,7 @@ def test_replica_keeps_the_refusal_without_discovery(routed, tmp_path, controls,
     store.mkdir(parents=True, exist_ok=True)
     control = store / ".replica"
     if controls == "dangling":
-        control.symlink_to(store / "missing")
+        _symlink(control, store / "missing")
     else:
         control.mkdir()
         if controls != "empty":

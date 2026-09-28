@@ -22,8 +22,6 @@ from nauro.store.generation_refresh_state import GenerationRefreshEvidenceError
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_installation import USER_ID, _projection
 
-POSIX = pytest.mark.skipif(sys.platform == "win32", reason="POSIX durability implementation")
-
 
 def _target(generation="01K66666666666666666666666", scope="b" * 64):
     seed = _projection({"state.md": b"fresh state\n"})

@@ -21,7 +21,9 @@ from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.generation_refresh import admit_generation_store
 from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.migration_admission import load_migration_plan
+from tests.test_generation_migration_assessment import _symlink
 from tests.test_migration_preservation import saved as _saved
+from tests.windows_refusal import REFUSALS, chmod_calls, refusing
 
 
 def directory_renames(fault):
@@ -397,7 +399,7 @@ def test_unknown_staging_refuses_before_installer_sweep(saved, monkeypatch, kind
             other.write_bytes(artifact.content)
             partial.unlink()
             if kind == "symlink":
-                partial.symlink_to(other)
+                _symlink(partial, other)
             else:
                 os.link(other, partial)
         elif kind == "root":
@@ -472,3 +474,32 @@ def test_installation_restart_preserves_nonempty_lock_evidence(saved, monkeypatc
     assert lock.read_bytes() == b"retained lock evidence"
     assert inspect_migration(session.binding.store_path) == current
     assert migration.retained_source(current).is_dir()
+
+
+@pytest.mark.parametrize(("windows", "winerror", "reason"), REFUSALS)
+def test_source_move_refusal_is_typed_and_resumable(saved, monkeypatch, windows, winerror, reason):
+    record, *_ = saved
+    source, calls = Path(record.store), []
+    before = {p: p.read_bytes() for p in source.rglob("*") if p.is_file()}
+    refuse = refusing(monkeypatch, windows, winerror, calls)
+    monkeypatch.setattr(durability, "durable_rename", directory_renames(refuse))
+    chmods = chmod_calls(monkeypatch)
+    with pytest.raises(MigrationAdmissionError) as raised:
+        run(saved)
+    assert str(raised.value) == f"Cannot move {source}: {reason}."
+    assert (calls, chmods) == ([source], [])
+    assert inspect_migration(source).phase == "replacing"
+    assert {p: p.read_bytes() for p in source.rglob("*") if p.is_file()} == before
+
+
+def test_write_through_refusal_message_is_kept(saved, monkeypatch):
+    record, *_ = saved
+    text = f"Cannot move {record.store} to its retained name durably: another process has it open."
+
+    def refuse(source, destination):
+        raise durability.DurableRenameError(text)
+
+    monkeypatch.setattr(durability, "durable_rename", directory_renames(refuse))
+    with pytest.raises(MigrationAdmissionError) as raised:
+        run(saved)
+    assert str(raised.value) == text

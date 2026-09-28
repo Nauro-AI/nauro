@@ -105,6 +105,22 @@ def durable_rename(source: Path, destination: Path, *, replace: bool = True) -> 
         raise DurableRenameError(f"Cannot move {source} to {destination} durably: {reason}.")
 
 
+REFUSED = (PermissionError, DurableRenameError)
+
+
+def refusal(action: str, path: Path, exc: OSError) -> str:
+    """Name a path the platform refused; callers never clear attributes or retry."""
+    if isinstance(exc, DurableRenameError):
+        return str(exc)
+    if WINDOWS:
+        code: int = getattr(exc, "winerror", None) or 0
+        both = " or ".join(_REASONS.values())
+        reason = _REASONS.get(code, f"Windows error {code}") if code else both
+    else:
+        reason = exc.strerror or str(exc)
+    return f"Cannot {action} {path}: {reason}."
+
+
 def durable_write_bytes(path: Path, data: bytes) -> None:
     atomic_write_bytes(path, data, rename=durable_rename)
 

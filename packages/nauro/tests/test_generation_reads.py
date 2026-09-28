@@ -15,7 +15,6 @@ from nauro.store.generation_authority import RefreshRequiredError, ReplicaActorM
 from nauro.store.generation_store import GenerationSnapshotStore, GenerationStorePathError
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_installation import USER_ID, _projection
-from tests.test_generation_refresh import POSIX as POSIX
 from tests.test_generation_refresh import _target
 
 CASES = [

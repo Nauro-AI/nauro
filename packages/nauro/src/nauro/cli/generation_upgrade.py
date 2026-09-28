@@ -11,15 +11,18 @@ import httpx
 from nauro.store.generation_authority import GenerationAuthorityError, RefreshRequiredError
 from nauro.store.generation_migration_assessment import assess_legacy_migration
 from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
+from nauro.store.generation_refresh_io import probe_durability
 from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
     current_source,
     inspect_migration,
+    migration_home,
 )
 from nauro.sync.generation_acquisition import acquire_generation_projection
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.migration_admission import (
+    MigrationSourceRefusedError,
     decide_migration_assessment,
     load_migration_plan,
     save_migration_assessment,
@@ -164,6 +167,8 @@ def _execute(
     if record.phase in {"replacing", "installing"}:
         try:
             verify_admitted_migration_source(record)
+        except MigrationSourceRefusedError:
+            raise
         except MigrationAdmissionError as exc:
             raise _AssessmentChangedError(str(exc)) from exc
     projection = acquire_generation_projection(
@@ -181,6 +186,8 @@ def _execute(
         try:
             located = record.model_copy(update={"store": str(current_source(record))})
             verify_migration_source(located, raw)
+        except MigrationSourceRefusedError:
+            raise
         except MigrationAdmissionError as exc:
             raise _AssessmentChangedError(str(exc)) from exc
     if record.phase in {"assessed", "reassessed"}:
@@ -273,6 +280,8 @@ def guided_existing_hosted_upgrade(
             "or sync path to verify current access."
         )
         return record
+    probe_durability(migration_home())
+    probe_durability(Path(binding.store_path).parent)
     if record is not None and record.phase == "declined":
         if not confirm("The earlier upgrade was deferred. Prepare a fresh assessment?"):
             emit("Upgrade remains deferred. No source files changed.")
