@@ -106,10 +106,12 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
         "skills": {
             "core": {
                 "claude": _absent_counts(len(SKILL_NAMES)),
+                "cursor": _absent_counts(len(SKILL_NAMES)),
                 "codex": _absent_counts(len(SKILL_NAMES)),
             },
             "opt_in": {
                 "claude": _absent_counts(len(OPT_IN_SKILL_NAMES)),
+                "cursor": _absent_counts(len(OPT_IN_SKILL_NAMES)),
                 "codex": _absent_counts(len(OPT_IN_SKILL_NAMES)),
             },
             "legacy_codex_copies": 0,

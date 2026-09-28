@@ -623,7 +623,7 @@ def adopt(
     typer.echo(
         "\nNext: restart your agent and invoke the nauro-adopt skill to seed "
         "context from this repo. Use /nauro-adopt in Claude Code or "
-        "$nauro-adopt in Codex. Cursor users: if you `git add "
-        ".cursor/rules/nauro-adopt.mdc`, collaborators on this repo get the "
-        "/nauro-adopt rule."
+        "$nauro-adopt in Codex. In Cursor Agent chat, type @nauro-adopt to "
+        "include .cursor/rules/nauro-adopt.mdc. Commit that file if "
+        "collaborators should inherit the rule."
     )

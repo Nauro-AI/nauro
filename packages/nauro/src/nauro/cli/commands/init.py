@@ -45,6 +45,12 @@ from nauro.sync.cloud_projects import CloudProjectError, create_project
 from nauro.templates.agents_md_regen import warn_then_regen
 from nauro.templates.scaffolds import scaffold_project_store
 
+_CURSOR_NEW_REPO_NOTICE = (
+    "Cursor: 'nauro setup cursor' writes only .cursor/mcp.json. "
+    "Run 'nauro setup all --with-skills --with-subagents' to install "
+    "Cursor rules and project agents in each registered repo."
+)
+
 
 def _echo_repo_config_warnings(repo_path: Path) -> None:
     for warning in public_surface_git_warnings(repo_path, ".nauro/config.json"):
@@ -375,6 +381,7 @@ def init(
                 typer.echo(f"  Store: {store_path}")
                 for rp in added:
                     typer.echo(f"  Added repo: {rp}")
+                typer.echo(f"  {_CURSOR_NEW_REPO_NOTICE}")
                 return
 
     # ── --demo ───────────────────────────────────────────────────────────────
@@ -478,6 +485,7 @@ def init(
         typer.echo(f"  Repo:  {rp.resolve()}")
     _warn_if_name_taken(name, pid, pre_existing_same_name)
     typer.echo("  Next: run 'nauro setup claude-code' to connect your agent")
+    typer.echo(f"  {_CURSOR_NEW_REPO_NOTICE}")
     typer.echo(
         "  Then: run 'nauro sync' after project changes to refresh AGENTS.md and capture a snapshot"
     )

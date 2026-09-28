@@ -9,6 +9,8 @@ lands byte-identically to a single echo of the joined text.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from nauro.setup.git_hygiene import GitIgnoreKind, GitIgnoreResult
 from nauro.setup.outcomes import (
     AgentKind,
@@ -369,6 +371,12 @@ def _render_codex_hook(o: CodexHookOutcome) -> list[str]:
             raise TypeError(f"unrenderable CodexHookOutcome kind: {o.kind!r}")
 
 
+def _retained_backup_line(target: Path | None, backup_name: str | None) -> list[str]:
+    if target is None or not backup_name:
+        return []
+    return [f"  retained backup {target.parent / backup_name}"]
+
+
 def _skill_refusal_line(o: SkillOutcome) -> str:
     prefix = f"  {o.repo}: " if o.repo is not None else "  "
     return f"{prefix}{o.refusal.message}"
@@ -385,10 +393,17 @@ _SKILL_TARGET_LINES: dict[SkillKind, str] = {
     SkillKind.ABSENT: "  no skill at {target}",
 }
 
+_SKILL_BACKUP_KINDS = frozenset(
+    {SkillKind.PRESERVED_MODIFIED, SkillKind.REMOVED, SkillKind.ABSENT}
+)
+
 
 def _render_skill(o: SkillOutcome) -> list[str]:
     if o.kind in _SKILL_TARGET_LINES:
-        return [_SKILL_TARGET_LINES[o.kind].format(target=o.target)]
+        line = _SKILL_TARGET_LINES[o.kind].format(target=o.target)
+        if o.kind in _SKILL_BACKUP_KINDS:
+            return [line, *_retained_backup_line(o.target, o.backup_name)]
+        return [line]
     match o.kind:
         case SkillKind.WRITE_FAILED:
             return [f"  {_failed_write(o.write_failure)}"]
@@ -414,10 +429,17 @@ _AGENT_TARGET_LINES: dict[AgentKind, str] = {
     AgentKind.PRESERVED_UNDECODABLE: "  preserved {target} (not UTF-8 text, left alone)",
 }
 
+_AGENT_BACKUP_KINDS = frozenset(
+    {AgentKind.ABSENT, AgentKind.REMOVED, AgentKind.PRESERVED_MODIFIED}
+)
+
 
 def _render_agent(o: AgentOutcome) -> list[str]:
     if o.kind in _AGENT_TARGET_LINES:
-        return [_AGENT_TARGET_LINES[o.kind].format(target=o.target)]
+        line = _AGENT_TARGET_LINES[o.kind].format(target=o.target)
+        if o.kind in _AGENT_BACKUP_KINDS:
+            return [line, *_retained_backup_line(o.target, o.backup_name)]
+        return [line]
     match o.kind:
         case AgentKind.WRITE_FAILED:
             return [f"  {_failed_write(o.write_failure)}"]

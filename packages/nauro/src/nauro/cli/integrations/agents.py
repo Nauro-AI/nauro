@@ -179,9 +179,24 @@ def _install_bundled_agent_io(
     return AgentOutcome(AgentKind.INSTALLED, target=target)
 
 
+def _retained_backup_name(target: Path) -> str | None:
+    """Return a sibling ``.bak`` name when that backup is a real file.
+
+    Removal never deletes the backup. It may be the only copy of a local edit.
+    """
+    backup = target.with_name(target.name + ".bak")
+    try:
+        if backup.is_symlink() or not backup.is_file():
+            return None
+    except OSError:
+        return None
+    return backup.name
+
+
 def _remove_bundled_agent(target: Path, bundled: str) -> AgentOutcome:
     """Remove one bundled agent file, returning its outcome.
     Absent skips, byte-equal to the bundle unlinks, and a differing file is preserved.
+    A sibling ``.bak`` is left in place and named on the outcome so the caller can report it.
     """
     try:
         return _remove_bundled_agent_io(target, bundled)
@@ -192,10 +207,11 @@ def _remove_bundled_agent(target: Path, bundled: str) -> AgentOutcome:
 
 
 def _remove_bundled_agent_io(target: Path, bundled: str) -> AgentOutcome:
+    backup_name = _retained_backup_name(target)
     if not target.is_file():
-        return AgentOutcome(AgentKind.ABSENT, target=target)
+        return AgentOutcome(AgentKind.ABSENT, target=target, backup_name=backup_name)
     current = target.read_text(encoding="utf-8")
     if current == bundled:
         target.unlink()
-        return AgentOutcome(AgentKind.REMOVED, target=target)
-    return AgentOutcome(AgentKind.PRESERVED_MODIFIED, target=target)
+        return AgentOutcome(AgentKind.REMOVED, target=target, backup_name=backup_name)
+    return AgentOutcome(AgentKind.PRESERVED_MODIFIED, target=target, backup_name=backup_name)

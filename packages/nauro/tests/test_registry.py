@@ -192,6 +192,8 @@ def test_init_cli_add_repo_to_existing(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "Updated project" in result.output
     assert "Added repo" in result.output
+    assert "nauro setup cursor" in result.output
+    assert "nauro setup all --with-skills --with-subagents" in result.output
     pid, entry = _v2_entry_for_name("proj")
     paths = entry["repo_paths"]
     assert str(repo2.resolve()) in paths
