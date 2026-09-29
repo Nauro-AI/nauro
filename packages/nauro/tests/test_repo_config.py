@@ -371,14 +371,30 @@ def test_find_repo_config_skips_home_under_symlinked_parent(tmp_path, monkeypatc
     assert find_repo_config(start=real / "notes") is None
 
 
-def _symlinked_home(tmp_path, monkeypatch):
-    """Helper: ``~/.nauro`` links to ``~/dotfiles/.nauro``, which holds the global config."""
+def _symlinked_home(tmp_path, monkeypatch, *, link_config=False):
+    """Helper: ``~/.nauro`` links to ``~/dotfiles/.nauro``, which holds the global config,
+    itself a link to ``~/secrets/config.json`` when ``link_config`` is set."""
     home = use_user_home(monkeypatch, tmp_path / "user")
     real = home / "dotfiles" / ".nauro"
     (real / "projects").mkdir(parents=True)
-    (real / "config.json").write_text("{}\n")
+    if link_config:
+        (home / "secrets").mkdir()
+        (home / "secrets" / "config.json").write_text("{}\n")
+        (real / "config.json").symlink_to(home / "secrets" / "config.json")
+    else:
+        (real / "config.json").write_text("{}\n")
     (home / ".nauro").symlink_to(real, target_is_directory=True)
     return home
+
+
+@_SYMLINK_SKIP
+@pytest.mark.parametrize("inside", [".nauro", "dotfiles/.nauro"])
+def test_find_repo_config_skips_inside_symlinked_home_with_linked_config(
+    tmp_path, monkeypatch, inside
+):
+    """A symlinked home whose ``config.json`` is also a link is skipped from inside either path."""
+    home = _symlinked_home(tmp_path, monkeypatch, link_config=True)
+    assert find_repo_config(start=home / inside / "projects") is None
 
 
 @_SYMLINK_SKIP

@@ -168,11 +168,13 @@ def find_repo_config(start: Path | None = None) -> Path | None:
     Nauro's own global config file is never a repo config, so the walk passes over it.
     """
     current = (start if start is not None else Path.cwd()).resolve()
-    # The home's config by lexical and canonical path; a symlinked candidate in a repo is never
-    # resolved here, so it still reaches resolution and is refused there.
+    # Candidates are ``<resolved dir>/.nauro/config.json``, so the home appears at its lexical
+    # position or at its resolved directory; the file's own target is skipped too. A candidate is
+    # never resolved, so a symlinked config in a repo still reaches resolution and is refused.
     home = config_file().parent
     global_configs = {
         home.parent.resolve() / home.name / config_file().name,
+        home.resolve() / config_file().name,
         config_file().resolve(),
     }
     while True:

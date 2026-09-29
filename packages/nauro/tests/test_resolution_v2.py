@@ -1369,15 +1369,24 @@ def test_strict_repo_config_ignores_symlinked_home_dir(tmp_path, monkeypatch):
 
 
 @_SYMLINK_SKIP
+@pytest.mark.parametrize("link_config", [False, True])
 @pytest.mark.parametrize("inside", [".nauro", "dotfiles/.nauro"])
-def test_resolve_binding_inside_symlinked_home_is_no_project(tmp_path, monkeypatch, inside):
-    """From inside a symlinked ``~/.nauro`` or its target, resolution reports no project."""
+def test_resolve_binding_inside_symlinked_home_is_no_project(
+    tmp_path, monkeypatch, inside, link_config
+):
+    """From inside a symlinked ``~/.nauro`` or its target, whether or not its ``config.json``
+    is also a link, resolution reports no project."""
     from nauro.store.resolution import NoProjectError, resolve_project_binding
 
     home = use_user_home(monkeypatch, tmp_path / "user")
     real = home / "dotfiles" / ".nauro"
     (real / "projects").mkdir(parents=True)
-    (real / "config.json").write_text("{}\n")
+    if link_config:
+        (home / "secrets").mkdir()
+        (home / "secrets" / "config.json").write_text("{}\n")
+        (real / "config.json").symlink_to(home / "secrets" / "config.json")
+    else:
+        (real / "config.json").write_text("{}\n")
     (home / ".nauro").symlink_to(real, target_is_directory=True)
     start = home / inside / "projects"
     assert _strict_outcome(start) is None
