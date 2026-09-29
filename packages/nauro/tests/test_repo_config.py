@@ -360,6 +360,42 @@ def test_find_repo_config_skips_symlinked_home_dir(tmp_path, monkeypatch):
 
 
 @_SYMLINK_SKIP
+def test_find_repo_config_skips_home_under_symlinked_parent(tmp_path, monkeypatch):
+    """A user home reached through a symlink is still recognized from its real path."""
+    real = tmp_path / "user"
+    (real / ".nauro").mkdir(parents=True)
+    (real / ".nauro" / "config.json").write_text("{}\n")
+    (real / "notes").mkdir()
+    (tmp_path / "link").symlink_to(real, target_is_directory=True)
+    use_user_home(monkeypatch, tmp_path / "link")
+    assert find_repo_config(start=real / "notes") is None
+
+
+def _symlinked_home(tmp_path, monkeypatch):
+    """Helper: ``~/.nauro`` links to ``~/dotfiles/.nauro``, which holds the global config."""
+    home = use_user_home(monkeypatch, tmp_path / "user")
+    real = home / "dotfiles" / ".nauro"
+    (real / "projects").mkdir(parents=True)
+    (real / "config.json").write_text("{}\n")
+    (home / ".nauro").symlink_to(real, target_is_directory=True)
+    return home
+
+
+@_SYMLINK_SKIP
+def test_find_repo_config_skips_from_inside_symlinked_home(tmp_path, monkeypatch):
+    """Walking from inside a symlinked ``~/.nauro`` reaches the real home and skips it."""
+    home = _symlinked_home(tmp_path, monkeypatch)
+    assert find_repo_config(start=home / ".nauro" / "projects") is None
+
+
+@_SYMLINK_SKIP
+def test_find_repo_config_skips_from_inside_symlinked_home_target(tmp_path, monkeypatch):
+    """Walking from inside the symlinked home's target skips the global config too."""
+    home = _symlinked_home(tmp_path, monkeypatch)
+    assert find_repo_config(start=home / "dotfiles" / ".nauro" / "projects") is None
+
+
+@_SYMLINK_SKIP
 def test_find_repo_config_skips_symlinked_home_config_file(tmp_path, monkeypatch):
     """A ``~/.nauro/config.json`` that is itself a symlink is still the home's config."""
     real = tmp_path / "dotfiles" / "config.json"
