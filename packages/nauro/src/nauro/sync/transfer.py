@@ -66,6 +66,10 @@ class NullReporter:
         """Discard anomaly reports."""
 
 
+class DownloadStoppedError(Exception):
+    """A first attempt refused because its batch already stopped; discarded on drain."""
+
+
 class UrlSource(Protocol):
     """The presigned URLs for one batch, re-mintable while the batch drains."""
 
@@ -120,9 +124,12 @@ def download_with_retry(
     pending: PresignError | None = None
     while True:
         url = urls.url_for(path)
-        # Checked before every retry, so a stop set during a re-mint or a pause starts no GET.
-        if pending is not None and stop is not None and stop.is_set():
-            raise pending
+        # Checked before every attempt, so a stop set during a URL lookup, a re-mint or a
+        # pause starts no GET.
+        if stop is not None and stop.is_set():
+            if pending is not None:
+                raise pending
+            raise DownloadStoppedError(path)
         try:
             return fetch(url)
         except PresignError as exc:
@@ -146,6 +153,7 @@ def download_with_retry(
 
 
 __all__ = [
+    "DownloadStoppedError",
     "NullReporter",
     "Reporter",
     "TransferFault",

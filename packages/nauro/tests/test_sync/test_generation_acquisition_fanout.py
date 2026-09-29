@@ -203,6 +203,8 @@ def test_first_failure_stops_the_window_and_reaches_the_caller_unchanged(
     assert caught.value is initiating
     assert probe.active == 0 and probe.stuck == []
     assert sorted(probe.started) == ordered[:WINDOW]
+    # Nothing is submitted once the window stops, not even a download that would refuse.
+    assert sorted(probe.stops) == ordered[:WINDOW]
     # A drained transient fault sees the stop and is not retried.
     assert set(attempts.values()) == {1}
 
@@ -317,9 +319,11 @@ class _Urls:
         self.mints += 1
 
 
-def _failing(status: int, calls: list[str]):
+def _failing(status: int, calls: list[str], stop: threading.Event | None = None):
     def fetch(url: str) -> bytes:
         calls.append(url)
+        if stop is not None:
+            stop.set()
         raise _fault(status)
 
     return fetch
@@ -336,22 +340,29 @@ def test_stop_set_around_a_retry_pause_ends_the_retries(monkeypatch, when: str) 
         stop.set()
 
     monkeypatch.setattr(transfer, "pause", pause)
-    if when == "before":
-        stop.set()
     calls: list[str] = []
+    fetch = _failing(503, calls, stop if when == "before" else None)
     with pytest.raises(TransferBoundaryError) as caught:
-        transfer.download_with_retry("a.md", _Urls(), _failing(503, calls), stop=stop)
+        transfer.download_with_retry("a.md", _Urls(), fetch, stop=stop)
     assert caught.value.status == 503
     assert (len(calls), len(pauses)) == (1, 0 if when == "before" else 1)
 
 
 def test_stop_set_before_an_expiry_skips_the_remint() -> None:
     stop = threading.Event()
-    stop.set()
     urls, calls = _Urls(), []
     with pytest.raises(TransferBoundaryError):
-        transfer.download_with_retry("a.md", urls, _failing(403, calls), stop=stop)
+        transfer.download_with_retry("a.md", urls, _failing(403, calls, stop), stop=stop)
     assert (len(calls), urls.mints) == (1, 0)
+
+
+def test_stop_set_before_a_first_attempt_fetches_nothing() -> None:
+    stop = threading.Event()
+    stop.set()
+    calls: list[str] = []
+    with pytest.raises(transfer.DownloadStoppedError):
+        transfer.download_with_retry("a.md", _Urls(), _failing(503, calls), stop=stop)
+    assert calls == []
 
 
 @pytest.mark.parametrize("stop", [None, threading.Event()], ids=["no-stop", "unset-stop"])
@@ -480,3 +491,70 @@ def test_a_reused_thread_remints_again_for_a_later_expiry(monkeypatch) -> None:
     proof = acquire(server)
     assert [call for call in server.calls() if call == PRESIGN] == [PRESIGN] * 3
     assert {a.path: a.content for a in proof.artifacts} == THREE_ARTIFACTS
+
+
+class LockedLookupServer(FakeServer):
+    """The first path re-mints while the third waits on the URL lock and the second refuses."""
+
+    def __init__(self, stops: dict[str, threading.Event], looking_up: threading.Event) -> None:
+        super().__init__(_decisions(3))
+        self.stops, self.looking_up = stops, looking_up
+        self.reminting, self.refusing, self.late = sorted(self.artifacts)
+        self.in_remint = threading.Event()
+        self.refusing_arrived = threading.Event()
+        self.late_entered = threading.Event()
+        self.gets: list[tuple[str, int]] = []
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host != "objects.test":
+            if request.url.path == "/generations/presign" and self.counts["presign"] == 1:
+                self.in_remint.set()
+                assert self.stops[self.reminting].wait(TIMEOUT), "the window never stopped"
+                assert self.looking_up.wait(TIMEOUT), "the late path never looked up its URL"
+            return super().handle(request)
+        path = request.url.path.lstrip("/").partition("/")[2]
+        self.gets.append((path, int(request.url.params["mint"])))
+        if path == self.refusing:
+            self.refusing_arrived.set()
+            assert self.in_remint.wait(TIMEOUT), "the re-mint never started"
+            return httpx.Response(404)
+        if path == self.reminting:
+            assert self.refusing_arrived.wait(TIMEOUT), "the refusing path never arrived"
+            assert self.late_entered.wait(TIMEOUT), "the late path never started"
+            return httpx.Response(403)
+        return httpx.Response(200)
+
+
+def test_stop_set_while_a_first_attempt_waits_for_its_url_starts_no_get(monkeypatch) -> None:
+    # Without the stop check on a first attempt the late path fetches once the re-mint ends.
+    stops: dict[str, threading.Event] = {}
+    looking_up = threading.Event()
+    outcomes: dict[str, BaseException] = {}
+    real_retry = transfer.download_with_retry
+    real_url_for = acquisition._PageUrls.url_for
+
+    def url_for(self, path):
+        if path == server.late:
+            looking_up.set()
+        return real_url_for(self, path)
+
+    def record(path, urls, fetch, *, stop=None):
+        stops[path] = stop
+        if path == server.late:
+            server.late_entered.set()
+            assert server.in_remint.wait(TIMEOUT), "the re-mint never started"
+        try:
+            return real_retry(path, urls, fetch, stop=stop)
+        except BaseException as exc:
+            outcomes[path] = exc
+            raise
+
+    server = LockedLookupServer(stops, looking_up)
+    monkeypatch.setattr(acquisition._PageUrls, "url_for", url_for)
+    monkeypatch.setattr(acquisition, "download_with_retry", record)
+    with pytest.raises(TransferBoundaryError) as caught:
+        acquire(server)
+    assert caught.value.status == 404 and caught.value is outcomes[server.refusing]
+    assert [get for get in server.gets if get[0] == server.late] == []
+    assert isinstance(outcomes[server.late], transfer.DownloadStoppedError)
+    assert outcomes[server.reminting].status == 403
