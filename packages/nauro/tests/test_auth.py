@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+import typer
 from nauro_core import sanitize_sub
 from typer.testing import CliRunner
 
@@ -22,6 +23,7 @@ from nauro.cli.commands.auth import (
 from nauro.cli.main import app
 from nauro.store.config import load_config, save_config
 from nauro.store.home import config_file
+from tests.conftest import folder_under_home_with_global_config
 
 runner = CliRunner()
 USER_ID = "01K33333333333333333333333"
@@ -759,3 +761,30 @@ class TestResolveAuthConfig:
         _, _, _, audience = self._call()
         _, _, _, expected = self._defaults()
         assert audience == expected
+
+
+def test_selected_connection_none_from_folder_under_home(tmp_path, monkeypatch):
+    """No generation connection is selected from a folder under the home."""
+    from nauro.sync.generation_connection import selected_connection
+
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    assert selected_connection(auth_module.REDIRECT_URI, cwd=folder) is None
+
+
+def test_login_from_folder_under_home_uses_ordinary_flow(tmp_path, monkeypatch):
+    """``auth login`` from a folder under the home reaches the callback flow
+    instead of failing generation authentication."""
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    monkeypatch.chdir(folder)
+    calls = []
+
+    def fake_callback_flow(domain, client_id, audience):
+        calls.append(domain)
+        raise typer.Exit(code=3)
+
+    monkeypatch.setattr(auth_module, "_run_callback_flow", fake_callback_flow)
+    result = runner.invoke(app, ["auth", "login"])
+
+    assert result.exit_code == 3
+    assert len(calls) == 1
+    assert "Generation authentication failed" not in result.output

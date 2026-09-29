@@ -24,6 +24,7 @@ from nauro.store.repo_config import (
     repo_config_path,
     save_repo_config,
 )
+from tests.conftest import folder_under_home_with_global_config, use_user_home
 
 # ── ULID generator ────────────────────────────────────────────────────────────
 
@@ -294,6 +295,142 @@ def test_find_repo_config_defaults_to_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(repo)
     found = find_repo_config()
     assert found == config_path
+
+
+_SYMLINK_SKIP = pytest.mark.skipif(
+    os.name == "nt", reason="symlink creation requires extra Windows privileges"
+)
+
+
+def test_find_repo_config_skips_default_home_global_config(tmp_path, monkeypatch):
+    """A folder under the user home does not mistake ``~/.nauro/config.json`` for a repo config."""
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    assert find_repo_config(start=folder) is None
+
+
+def test_find_repo_config_skips_nauro_home_env_global_config(tmp_path, monkeypatch):
+    """With ``NAURO_HOME`` set, that home's own ``config.json`` is skipped too."""
+    nauro_home = tmp_path / "alt" / ".nauro"
+    nauro_home.mkdir(parents=True)
+    (nauro_home / "config.json").write_text("{}\n")
+    monkeypatch.setenv("NAURO_HOME", str(nauro_home))
+    folder = tmp_path / "alt" / "work" / "sub"
+    folder.mkdir(parents=True)
+    assert find_repo_config(start=folder) is None
+
+
+def test_find_repo_config_skips_from_inside_nauro_home(tmp_path, monkeypatch):
+    """Walking from inside the Nauro home itself finds no repo config."""
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    inside = folder.parent / ".nauro" / "projects"
+    inside.mkdir()
+    assert find_repo_config(start=inside) is None
+
+
+def test_find_repo_config_finds_repo_nested_under_home(tmp_path, monkeypatch):
+    """A real repo config nested under the user home is still found."""
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    repo = folder / "repo"
+    nested = repo / "src"
+    nested.mkdir(parents=True)
+    config_path = _seed_config(repo)
+    assert find_repo_config(start=nested) == config_path
+
+
+def test_find_repo_config_finds_repo_above_nauro_home(tmp_path, monkeypatch):
+    """A repo config above the Nauro home is still found from inside the home."""
+    repo = tmp_path / "repo"
+    home = use_user_home(monkeypatch, repo / "home")
+    (home / ".nauro").mkdir(parents=True)
+    (home / ".nauro" / "config.json").write_text("{}\n")
+    config_path = _seed_config(repo)
+    assert find_repo_config(start=home / ".nauro") == config_path
+
+
+@_SYMLINK_SKIP
+def test_find_repo_config_skips_symlinked_home_dir(tmp_path, monkeypatch):
+    """A ``~/.nauro`` that is itself a symlink is still recognized as the home."""
+    real = tmp_path / "dotfiles" / "nauro"
+    real.mkdir(parents=True)
+    (real / "config.json").write_text("{}\n")
+    home = use_user_home(monkeypatch, tmp_path / "user")
+    home.mkdir()
+    (home / ".nauro").symlink_to(real, target_is_directory=True)
+    assert find_repo_config(start=home) is None
+
+
+@_SYMLINK_SKIP
+def test_find_repo_config_skips_home_under_symlinked_parent(tmp_path, monkeypatch):
+    """A user home reached through a symlink is still recognized from its real path."""
+    real = tmp_path / "user"
+    (real / ".nauro").mkdir(parents=True)
+    (real / ".nauro" / "config.json").write_text("{}\n")
+    (real / "notes").mkdir()
+    (tmp_path / "link").symlink_to(real, target_is_directory=True)
+    use_user_home(monkeypatch, tmp_path / "link")
+    assert find_repo_config(start=real / "notes") is None
+
+
+def _symlinked_home(tmp_path, monkeypatch, *, link_config=False):
+    """Helper: ``~/.nauro`` links to ``~/dotfiles/.nauro``, which holds the global config,
+    itself a link to ``~/secrets/config.json`` when ``link_config`` is set."""
+    home = use_user_home(monkeypatch, tmp_path / "user")
+    real = home / "dotfiles" / ".nauro"
+    (real / "projects").mkdir(parents=True)
+    if link_config:
+        (home / "secrets").mkdir()
+        (home / "secrets" / "config.json").write_text("{}\n")
+        (real / "config.json").symlink_to(home / "secrets" / "config.json")
+    else:
+        (real / "config.json").write_text("{}\n")
+    (home / ".nauro").symlink_to(real, target_is_directory=True)
+    return home
+
+
+@_SYMLINK_SKIP
+@pytest.mark.parametrize("inside", [".nauro", "dotfiles/.nauro"])
+def test_find_repo_config_skips_inside_symlinked_home_with_linked_config(
+    tmp_path, monkeypatch, inside
+):
+    """A symlinked home whose ``config.json`` is also a link is skipped from inside either path."""
+    home = _symlinked_home(tmp_path, monkeypatch, link_config=True)
+    assert find_repo_config(start=home / inside / "projects") is None
+
+
+@_SYMLINK_SKIP
+def test_find_repo_config_skips_from_inside_symlinked_home(tmp_path, monkeypatch):
+    """Walking from inside a symlinked ``~/.nauro`` reaches the real home and skips it."""
+    home = _symlinked_home(tmp_path, monkeypatch)
+    assert find_repo_config(start=home / ".nauro" / "projects") is None
+
+
+@_SYMLINK_SKIP
+def test_find_repo_config_skips_from_inside_symlinked_home_target(tmp_path, monkeypatch):
+    """Walking from inside the symlinked home's target skips the global config too."""
+    home = _symlinked_home(tmp_path, monkeypatch)
+    assert find_repo_config(start=home / "dotfiles" / ".nauro" / "projects") is None
+
+
+@_SYMLINK_SKIP
+def test_find_repo_config_skips_symlinked_home_config_file(tmp_path, monkeypatch):
+    """A ``~/.nauro/config.json`` that is itself a symlink is still the home's config."""
+    real = tmp_path / "dotfiles" / "config.json"
+    real.parent.mkdir(parents=True)
+    real.write_text("{}\n")
+    home = use_user_home(monkeypatch, tmp_path / "user")
+    (home / ".nauro").mkdir(parents=True)
+    (home / ".nauro" / "config.json").symlink_to(real)
+    assert find_repo_config(start=home) is None
+
+
+@_SYMLINK_SKIP
+def test_find_repo_config_returns_repo_nauro_symlinked_to_home(tmp_path, monkeypatch):
+    """A repo whose ``.nauro`` links to the home keeps its own path, so resolution can refuse it."""
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    repo = folder / "repo"
+    repo.mkdir()
+    (repo / ".nauro").symlink_to(folder.parent / ".nauro", target_is_directory=True)
+    assert find_repo_config(start=repo) == repo.resolve() / ".nauro" / "config.json"
 
 
 # ── global-config collision guard ─────────────────────────────────────────────

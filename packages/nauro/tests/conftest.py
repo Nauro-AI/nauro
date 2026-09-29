@@ -224,6 +224,24 @@ def make_nauro_home(
     return home
 
 
+def use_user_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> Path:
+    """Make ``home`` the user home with ``NAURO_HOME`` unset, so the Nauro home is ``~/.nauro``."""
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("NAURO_HOME", raising=False)
+    return home
+
+
+def folder_under_home_with_global_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Return a folder under a fake user home whose ``~/.nauro`` holds the global config."""
+    home = use_user_home(monkeypatch, tmp_path / "user")
+    (home / ".nauro").mkdir(parents=True)
+    (home / ".nauro" / "config.json").write_text('{"auth": {"access_token": "t"}}\n')
+    folder = home / "notes"
+    folder.mkdir()
+    return folder
+
+
 @pytest.fixture
 def nauro_home(tmp_path, monkeypatch):
     """Canonical temp NAURO_HOME at ``tmp_path/".nauro"``."""
