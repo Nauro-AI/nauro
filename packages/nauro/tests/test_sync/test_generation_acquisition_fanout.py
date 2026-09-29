@@ -182,6 +182,12 @@ def test_first_failure_stops_the_window_and_reaches_the_caller_unchanged(
     probe = Probe(monkeypatch)
     initiating = _fault(404)
     attempts: dict[str, int] = {}
+    submitted: list[tuple[str, bool]] = []
+
+    class SpyPool(concurrent.futures.ThreadPoolExecutor):
+        def submit(self, fn, /, *args, **kwargs):
+            submitted.append((args[0], fn.__self__.stop.is_set()))
+            return super().submit(fn, *args, **kwargs)
 
     def fetch(_session, path, _url):
         probe.enter(path)
@@ -197,14 +203,16 @@ def test_first_failure_stops_the_window_and_reaches_the_caller_unchanged(
         finally:
             probe.leave()
 
+    monkeypatch.setattr(acquisition, "ThreadPoolExecutor", SpyPool)
     monkeypatch.setattr(acquisition, "_fetch_artifact", fetch)
     with pytest.raises(TransferBoundaryError) as caught:
         acquire(server)
     assert caught.value is initiating
     assert probe.active == 0 and probe.stuck == []
     assert sorted(probe.started) == ordered[:WINDOW]
-    # Nothing is submitted once the window stops, not even a download that would refuse.
-    assert sorted(probe.stops) == ordered[:WINDOW]
+    # The window submits no path once the stop is set: only the first window was ever submitted.
+    assert sorted(path for path, _stopped in submitted) == ordered[:WINDOW]
+    assert [path for path, stopped in submitted if stopped] == []
     # A drained transient fault sees the stop and is not retried.
     assert set(attempts.values()) == {1}
 
