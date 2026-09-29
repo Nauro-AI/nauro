@@ -460,3 +460,23 @@ def test_interrupt_in_the_final_wait_stops_workers_mid_pause(monkeypatch) -> Non
     assert caught.value is interrupt
     assert stopped_in_pause == [True] * len(artifacts)
     assert attempts == dict.fromkeys(artifacts, 1)
+
+
+def test_a_reused_thread_remints_again_for_a_later_expiry(monkeypatch) -> None:
+    # Without refreshing the seen mint on each lookup the third file skips its re-mint and fails.
+    monkeypatch.setattr(acquisition, "ACQUISITION_WORKERS", 1)
+    first, _second, third = sorted(THREE_ARTIFACTS)
+    server = FakeServer(THREE_ARTIFACTS)
+    expiring = {(first, "1"), (third, "2")}
+    real_handle = server.handle
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        path = request.url.path.lstrip("/").partition("/")[2]
+        if request.url.host == "objects.test" and (path, request.url.params["mint"]) in expiring:
+            return httpx.Response(403)
+        return real_handle(request)
+
+    server.session.client._transport = httpx.MockTransport(handle)
+    proof = acquire(server)
+    assert [call for call in server.calls() if call == PRESIGN] == [PRESIGN] * 3
+    assert {a.path: a.content for a in proof.artifacts} == THREE_ARTIFACTS
