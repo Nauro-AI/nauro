@@ -33,6 +33,7 @@ from nauro.mcp.stdio_server import resolve_store
 from nauro.store import registry
 from nauro.store.repo_config import load_repo_config, save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.conftest import folder_under_home_with_global_config, use_user_home
 
 runner = CliRunner()
 
@@ -1320,37 +1321,114 @@ def test_resolve_project_entry_no_repos_exits(tmp_path, monkeypatch, capsys):
     assert "Project 'gamma' has no associated repos." in err
 
 
-def _folder_under_home_with_global_config(tmp_path, monkeypatch):
-    """A folder under a fake user home whose default ``~/.nauro`` holds the
-    global config, with ``NAURO_HOME`` unset and no repo config anywhere."""
-    from pathlib import Path
+_SYMLINK_SKIP = pytest.mark.skipif(
+    os.name == "nt", reason="symlink creation requires extra Windows privileges"
+)
 
-    home = tmp_path / "user"
-    nauro_home = home / ".nauro"
-    nauro_home.mkdir(parents=True)
-    (nauro_home / "config.json").write_text(
-        json.dumps({"auth": {"access_token": "t"}}) + "\n", encoding="utf-8"
-    )
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    monkeypatch.delenv("NAURO_HOME", raising=False)
-    folder = home / "notes"
-    folder.mkdir()
-    return folder
+
+def _strict_outcome(start):
+    """Run the strict cwd reader and return its result or its exact error type and message."""
+    from nauro.store.resolution import StoreResolutionError, _strict_repo_config_from_cwd
+
+    try:
+        return _strict_repo_config_from_cwd(start)
+    except StoreResolutionError as exc:
+        return type(exc).__name__, str(exc)
 
 
 def test_strict_repo_config_ignores_home_global_config(tmp_path, monkeypatch):
     """The strict cwd reader does not validate the home's global config as a repo config."""
-    from nauro.store.resolution import _strict_repo_config_from_cwd
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    assert _strict_outcome(folder) is None
 
-    folder = _folder_under_home_with_global_config(tmp_path, monkeypatch)
-    assert _strict_repo_config_from_cwd(folder) is None
+
+@_SYMLINK_SKIP
+def test_strict_repo_config_ignores_symlinked_home_config_file(tmp_path, monkeypatch):
+    """A symlinked ``~/.nauro/config.json`` is the home's config, not a refused repo config."""
+    real = tmp_path / "dotfiles" / "config.json"
+    real.parent.mkdir(parents=True)
+    real.write_text("{}\n")
+    home = use_user_home(monkeypatch, tmp_path / "user")
+    (home / ".nauro").mkdir(parents=True)
+    (home / ".nauro" / "config.json").symlink_to(real)
+    (home / "notes").mkdir()
+    assert _strict_outcome(home / "notes") is None
+
+
+@_SYMLINK_SKIP
+def test_strict_repo_config_ignores_symlinked_home_dir(tmp_path, monkeypatch):
+    """A symlinked ``~/.nauro`` directory is the home, not a refused repo config."""
+    real = tmp_path / "dotfiles" / "nauro"
+    real.mkdir(parents=True)
+    (real / "config.json").write_text("{}\n")
+    home = use_user_home(monkeypatch, tmp_path / "user")
+    home.mkdir()
+    (home / ".nauro").symlink_to(real, target_is_directory=True)
+    (home / "notes").mkdir()
+    assert _strict_outcome(home / "notes") is None
+
+
+@_SYMLINK_SKIP
+def test_repo_nauro_dir_symlinked_to_home_is_refused(tmp_path, monkeypatch):
+    """A repo whose ``.nauro`` links to the Nauro home is refused, not skipped."""
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    repo = folder / "repo"
+    repo.mkdir()
+    (repo / ".nauro").symlink_to(folder.parent / ".nauro", target_is_directory=True)
+    link = repo.resolve() / ".nauro"
+    assert _strict_outcome(repo) == (
+        "StoreResolutionError",
+        f"refused to modify {link / 'config.json'}: {link} is a symlink; "
+        "Nauro does not write through symlinks in a repo checkout",
+    )
+
+
+@_SYMLINK_SKIP
+def test_repo_config_file_symlinked_to_global_config_is_refused(tmp_path, monkeypatch):
+    """A repo whose ``config.json`` links to the global config is refused, not skipped."""
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    repo = folder / "repo"
+    (repo / ".nauro").mkdir(parents=True)
+    (repo / ".nauro" / "config.json").symlink_to(folder.parent / ".nauro" / "config.json")
+    assert _strict_outcome(repo) == (
+        "StoreResolutionError",
+        f"refused to modify {repo.resolve() / '.nauro' / 'config.json'}: it is a symlink; "
+        "Nauro does not write through symlinks in a repo checkout",
+    )
 
 
 def test_resolve_binding_under_home_is_no_project(tmp_path, monkeypatch):
     """Resolution from a folder under the home reports no project, not an invalid schema."""
     from nauro.store.resolution import NoProjectError, resolve_project_binding
 
-    folder = _folder_under_home_with_global_config(tmp_path, monkeypatch)
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
     with pytest.raises(NoProjectError):
         resolve_project_binding(project_id=None, cwd=folder, use_cwd=True)
+
+
+def test_lenient_repo_config_under_home_is_none_without_warning(tmp_path, monkeypatch, caplog):
+    """The lenient cwd reader returns ``None`` under the home and logs nothing."""
+    from nauro.store.resolution import _resolve_repo_config_from_cwd
+
+    folder = folder_under_home_with_global_config(tmp_path, monkeypatch)
+    with caplog.at_level("DEBUG"):
+        assert _resolve_repo_config_from_cwd(folder) is None
+    assert caplog.records == []
+
+
+@_SYMLINK_SKIP
+def test_symlinked_repo_below_home_does_not_select_ancestor_project(tmp_path, monkeypatch):
+    """Resolution refuses at a symlinked repo instead of walking on to a project above the home."""
+    from nauro.store.resolution import StoreResolutionError, resolve_project_binding
+
+    outer = tmp_path / "outer"
+    home = use_user_home(monkeypatch, outer / "user")
+    (home / ".nauro").mkdir(parents=True)
+    (home / ".nauro" / "config.json").write_text("{}\n", encoding="utf-8")
+    save_repo_config(outer, {"mode": "local", "id": "01KQ6AZGNA0B3QBF67NBXP3S45", "name": "outer"})
+    repo = home / "repo"
+    repo.mkdir()
+    (repo / ".nauro").symlink_to(home / ".nauro", target_is_directory=True)
+    with pytest.raises(StoreResolutionError, match=r"\.nauro is a symlink") as raised:
+        resolve_project_binding(project_id=None, cwd=repo, use_cwd=True)
+    assert type(raised.value) is StoreResolutionError
