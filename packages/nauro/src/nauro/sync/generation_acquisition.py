@@ -346,13 +346,13 @@ class _ChunkFetch:
                     if self.stop.is_set():
                         break
                     active.add(pool.submit(self.fetch, path))
-            except BaseException:
-                self.stop.set()
-                raise
+                wait(active)
             finally:
-                if self.stop.is_set():
-                    for future in active:
-                        future.cancel()
+                # Every exit path stops the window, an interrupt included; after a
+                # completed wait nothing is left to stop.
+                self.stop.set()
+                for future in active:
+                    future.cancel()
                 # Drain: no fetch is left running when the chunk returns or raises.
                 wait(active)
         if self._failure is not None:

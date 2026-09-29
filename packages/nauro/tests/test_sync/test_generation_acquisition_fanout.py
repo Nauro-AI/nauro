@@ -366,3 +366,97 @@ def test_unset_stop_keeps_the_budget_and_the_single_remint(monkeypatch, stop) ->
     with pytest.raises(TransferBoundaryError):
         transfer.download_with_retry("a.md", urls, _failing(403, expired), stop=stop)
     assert (len(expired), urls.mints) == (2, 1)
+
+
+class RemintingServer(FakeServer):
+    """Path A expires; its re-mint blocks until path B's refusal has stopped the window."""
+
+    def __init__(self, artifacts: dict[str, bytes], stops: dict[str, threading.Event]) -> None:
+        super().__init__(artifacts)
+        self.stops = stops
+        self.first, self.second = sorted(artifacts)
+        self.second_arrived = threading.Event()
+        self.in_remint = threading.Event()
+        self.gets: list[tuple[str, int]] = []
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host != "objects.test":
+            if request.url.path == "/generations/presign" and self.counts["presign"] == 1:
+                self.in_remint.set()
+                assert self.stops[self.first].wait(TIMEOUT), "the window never stopped"
+            return super().handle(request)
+        path = request.url.path.lstrip("/").partition("/")[2]
+        self.gets.append((path, int(request.url.params["mint"])))
+        if path == self.second:
+            self.second_arrived.set()
+            assert self.in_remint.wait(TIMEOUT), "the re-mint never started"
+            return httpx.Response(404)
+        assert self.second_arrived.wait(TIMEOUT), "the second path never arrived"
+        mint = self.gets[-1][1]
+        return httpx.Response(403) if mint == 1 else httpx.Response(200, content=b"# 0\n")
+
+
+def test_stop_set_during_a_remint_starts_no_further_get(monkeypatch) -> None:
+    # Without the check before each attempt the first path fetches again on the fresh mint.
+    probe = Probe(monkeypatch)
+    outcomes: dict[str, BaseException] = {}
+    spy = acquisition.download_with_retry
+
+    def record(path, urls, fetch, *, stop=None):
+        try:
+            return spy(path, urls, fetch, stop=stop)
+        except BaseException as exc:
+            outcomes[path] = exc
+            raise
+
+    monkeypatch.setattr(acquisition, "download_with_retry", record)
+    server = RemintingServer(_decisions(2), probe.stops)
+    with pytest.raises(TransferBoundaryError) as caught:
+        acquire(server)
+    assert caught.value.status == 404 and caught.value is outcomes[server.second]
+    assert [get for get in server.gets if get[0] == server.first] == [(server.first, 1)]
+    assert outcomes[server.first].status == 403
+    assert server.counts["presign"] == 2
+
+
+def test_interrupt_in_the_final_wait_stops_workers_mid_pause(monkeypatch) -> None:
+    # Without the stop on every exit path each pause runs out and the retries continue.
+    artifacts = _decisions(3)
+    server = FakeServer(artifacts)
+    probe = Probe(monkeypatch)
+    interrupt = KeyboardInterrupt()
+    lock = threading.Lock()
+    attempts: dict[str, int] = {}
+    pausing: list[int] = []
+    stopped_in_pause: list[bool] = []
+    interrupted: list[bool] = []
+    real_wait = concurrent.futures.wait
+
+    def fetch(_session, path, _url):
+        with lock:
+            attempts[path] = attempts.get(path, 0) + 1
+        raise _fault(503)
+
+    def pause(_seconds: float) -> None:
+        stop = next(iter(probe.stops.values()))
+        with lock:
+            pausing.append(1)
+        stopped = stop.wait(TIMEOUT)
+        with lock:
+            stopped_in_pause.append(stopped)
+
+    def interrupting_wait(futures, timeout=None, return_when=concurrent.futures.ALL_COMPLETED):
+        if not interrupted:
+            interrupted.append(True)
+            _await(lambda: len(pausing) == len(artifacts), "every worker in its pause")
+            raise interrupt
+        return real_wait(futures, timeout=timeout, return_when=return_when)
+
+    monkeypatch.setattr(transfer, "pause", pause)
+    monkeypatch.setattr(acquisition, "wait", interrupting_wait)
+    monkeypatch.setattr(acquisition, "_fetch_artifact", fetch)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        acquire(server)
+    assert caught.value is interrupt
+    assert stopped_in_pause == [True] * len(artifacts)
+    assert attempts == dict.fromkeys(artifacts, 1)

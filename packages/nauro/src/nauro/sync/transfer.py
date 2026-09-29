@@ -117,10 +117,16 @@ def download_with_retry(
     """
     failures = 0
     reminted = False
+    pending: PresignError | None = None
     while True:
+        url = urls.url_for(path)
+        # Checked before every retry, so a stop set during a re-mint or a pause starts no GET.
+        if pending is not None and stop is not None and stop.is_set():
+            raise pending
         try:
-            return fetch(urls.url_for(path))
+            return fetch(url)
         except PresignError as exc:
+            pending = exc
             failures += 1
             fault = classify_fault(exc)
             if fault is TransferFault.EXPIRED_CANDIDATE and not reminted:
@@ -137,8 +143,6 @@ def download_with_retry(
             if stop is not None and stop.is_set():
                 raise
             pause(backoff_delay(failures))
-            if stop is not None and stop.is_set():
-                raise
 
 
 __all__ = [
