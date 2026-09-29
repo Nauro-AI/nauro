@@ -1318,3 +1318,39 @@ def test_resolve_project_entry_no_repos_exits(tmp_path, monkeypatch, capsys):
 
     err = capsys.readouterr().err
     assert "Project 'gamma' has no associated repos." in err
+
+
+def _folder_under_home_with_global_config(tmp_path, monkeypatch):
+    """A folder under a fake user home whose default ``~/.nauro`` holds the
+    global config, with ``NAURO_HOME`` unset and no repo config anywhere."""
+    from pathlib import Path
+
+    home = tmp_path / "user"
+    nauro_home = home / ".nauro"
+    nauro_home.mkdir(parents=True)
+    (nauro_home / "config.json").write_text(
+        json.dumps({"auth": {"access_token": "t"}}) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("NAURO_HOME", raising=False)
+    folder = home / "notes"
+    folder.mkdir()
+    return folder
+
+
+def test_strict_repo_config_ignores_home_global_config(tmp_path, monkeypatch):
+    """The strict cwd reader does not validate the home's global config as a repo config."""
+    from nauro.store.resolution import _strict_repo_config_from_cwd
+
+    folder = _folder_under_home_with_global_config(tmp_path, monkeypatch)
+    assert _strict_repo_config_from_cwd(folder) is None
+
+
+def test_resolve_binding_under_home_is_no_project(tmp_path, monkeypatch):
+    """Resolution from a folder under the home reports no project, not an invalid schema."""
+    from nauro.store.resolution import NoProjectError, resolve_project_binding
+
+    folder = _folder_under_home_with_global_config(tmp_path, monkeypatch)
+    with pytest.raises(NoProjectError):
+        resolve_project_binding(project_id=None, cwd=folder, use_cwd=True)

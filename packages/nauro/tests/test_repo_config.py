@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 
 import pytest
 
@@ -294,6 +295,73 @@ def test_find_repo_config_defaults_to_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(repo)
     found = find_repo_config()
     assert found == config_path
+
+
+def _default_home(tmp_path, monkeypatch):
+    """Helper: a fake user home whose Nauro home is the default ``~/.nauro``
+    holding a global config, with ``NAURO_HOME`` unset."""
+    home = tmp_path / "user"
+    nauro_home = home / ".nauro"
+    nauro_home.mkdir(parents=True)
+    (nauro_home / "config.json").write_text('{"auth": {"access_token": "t"}}\n')
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("NAURO_HOME", raising=False)
+    return home
+
+
+def test_find_repo_config_skips_default_home_global_config(tmp_path, monkeypatch):
+    """A folder under the user home does not mistake ``~/.nauro/config.json``
+    for a repo config."""
+    home = _default_home(tmp_path, monkeypatch)
+    folder = home / "projects" / "scratch"
+    folder.mkdir(parents=True)
+    assert find_repo_config(start=folder) is None
+
+
+def test_find_repo_config_skips_nauro_home_env_global_config(tmp_path, monkeypatch):
+    """With ``NAURO_HOME`` set, that home's own ``config.json`` is skipped too."""
+    _default_home(tmp_path, monkeypatch)
+    base = tmp_path / "alt"
+    nauro_home = base / ".nauro"
+    nauro_home.mkdir(parents=True)
+    (nauro_home / "config.json").write_text("{}\n")
+    monkeypatch.setenv("NAURO_HOME", str(nauro_home))
+    folder = base / "work" / "sub"
+    folder.mkdir(parents=True)
+    assert find_repo_config(start=folder) is None
+
+
+def test_find_repo_config_skips_from_inside_nauro_home(tmp_path, monkeypatch):
+    """Walking from inside the Nauro home itself finds no repo config."""
+    home = _default_home(tmp_path, monkeypatch)
+    inside = home / ".nauro" / "projects"
+    inside.mkdir()
+    assert find_repo_config(start=inside) is None
+
+
+def test_find_repo_config_finds_repo_nested_under_home(tmp_path, monkeypatch):
+    """A real repo config nested under the user home is still found."""
+    home = _default_home(tmp_path, monkeypatch)
+    repo = home / "code" / "repo"
+    nested = repo / "src"
+    nested.mkdir(parents=True)
+    config_path = _seed_config(repo)
+    assert find_repo_config(start=nested) == config_path
+
+
+def test_find_repo_config_finds_repo_above_nauro_home(tmp_path, monkeypatch):
+    """A repo config above the Nauro home is still found from inside the home."""
+    repo = tmp_path / "repo"
+    home = repo / "home"
+    nauro_home = home / ".nauro"
+    nauro_home.mkdir(parents=True)
+    (nauro_home / "config.json").write_text("{}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.delenv("NAURO_HOME", raising=False)
+    config_path = _seed_config(repo)
+    assert find_repo_config(start=nauro_home) == config_path
 
 
 # ── global-config collision guard ─────────────────────────────────────────────

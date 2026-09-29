@@ -163,14 +163,15 @@ def save_repo_config(repo_root: Path, data: dict) -> Path:
 
 
 def find_repo_config(start: Path | None = None) -> Path | None:
-    """Walk up from ``start`` looking for ``.nauro/config.json``.
+    """Walk up from ``start`` (default cwd) for ``.nauro/config.json``, or ``None`` at the root.
 
-    Returns the config path, or ``None`` at the filesystem root; ``start`` defaults to cwd.
+    Nauro's own global config file is never a repo config, so the walk passes over it.
     """
     current = (start if start is not None else Path.cwd()).resolve()
+    global_config = config_file().resolve()
     while True:
         candidate = current / REPO_CONFIG_DIR / REPO_CONFIG_FILENAME
-        if candidate.is_file():
+        if candidate.is_file() and candidate.resolve() != global_config:
             return candidate
         if current.parent == current:
             return None
