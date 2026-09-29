@@ -14,6 +14,7 @@ anything unrecognized is permanent.
 from __future__ import annotations
 
 import random
+import threading
 import time
 from collections.abc import Callable
 from enum import Enum
@@ -103,10 +104,16 @@ def pause(seconds: float) -> None:
 _T = TypeVar("_T")
 
 
-def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], _T]) -> _T:
+def download_with_retry(
+    path: str,
+    urls: UrlSource,
+    fetch: Callable[[str], _T],
+    *,
+    stop: threading.Event | None = None,
+) -> _T:
     """Download ``path``, retrying transient faults up to the attempt budget with jittered backoff;
     the first expired-candidate fault earns a budget-resetting re-mint (at most two budgets), later
-    ones raise. Raises the last ``PresignError`` once the fault is permanent or the budget spent.
+    ones raise. Raises the last ``PresignError`` when permanent, out of budget, or ``stop`` is set.
     """
     failures = 0
     reminted = False
@@ -117,6 +124,8 @@ def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], _T]) 
             failures += 1
             fault = classify_fault(exc)
             if fault is TransferFault.EXPIRED_CANDIDATE and not reminted:
+                if stop is not None and stop.is_set():
+                    raise
                 # A URL minted seconds ago that still answers 403 is refused,
                 # not expired, so the mint is offered exactly once.
                 reminted = True
@@ -125,7 +134,11 @@ def download_with_retry(path: str, urls: UrlSource, fetch: Callable[[str], _T]) 
                 continue
             if fault is not TransferFault.TRANSIENT or failures >= _MAX_ATTEMPTS:
                 raise
+            if stop is not None and stop.is_set():
+                raise
             pause(backoff_delay(failures))
+            if stop is not None and stop.is_set():
+                raise
 
 
 __all__ = [
