@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import threading
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from functools import partial
 
 import httpx
@@ -51,6 +53,9 @@ _MAX_PROJECTION_RESPONSE_BYTES = 8 * 1024 * 1024
 _MAX_ARTIFACT_BYTES = 4 * 1024 * 1024
 _MAX_PROJECTION_BYTES = 64 * 1024 * 1024
 _MAX_ACQUISITION_ATTEMPTS = 3
+# Fetches in flight per presign chunk. The operation's client pools at least this many
+# connections (ten on a plain transfer session, the httpx default on a generation session).
+ACQUISITION_WORKERS = 10
 _STRICT = pyd.ConfigDict(extra="forbid", frozen=True, strict=True)
 _PARSE_FAILURES = (pyd.ValidationError, ValueError, TypeError, RecursionError)
 _NO_ACTOR = "Generation acquisition requires the active account's user id."
@@ -219,6 +224,12 @@ def _presign(
 
 
 class _PageUrls:
+    """The chunk's presigned URLs, shared by its fetch window.
+
+    A re-mint is single-flight: a worker whose URL predates the latest mint
+    retries on that mint instead of presigning again.
+    """
+
     def __init__(
         self,
         session: TransferSession,
@@ -230,17 +241,27 @@ class _PageUrls:
         self._api_url = api_url
         self._identity = identity
         self._outstanding = list(paths)
+        self._lock = threading.Lock()
+        self._mint = 0
+        self._seen = threading.local()
         self._urls = _presign(session, api_url, identity, paths)
 
     def url_for(self, path: str) -> str:
-        return self._urls[path]
+        with self._lock:
+            self._seen.mint = self._mint
+            return self._urls[path]
 
     def remint(self) -> None:
-        outstanding = tuple(self._outstanding)
-        self._urls = _presign(self._session, self._api_url, self._identity, outstanding)
+        with self._lock:
+            if getattr(self._seen, "mint", self._mint) != self._mint:
+                return
+            outstanding = tuple(self._outstanding)
+            self._urls = _presign(self._session, self._api_url, self._identity, outstanding)
+            self._mint += 1
 
     def done(self, path: str) -> None:
-        self._outstanding.remove(path)
+        with self._lock:
+            self._outstanding.remove(path)
 
 
 def _fetch_artifact(session: TransferSession, path: str, url: str) -> bytes:
@@ -276,6 +297,66 @@ def _fetch_artifact(session: TransferSession, path: str, url: str) -> bytes:
     if error is not None:
         raise error from None
     return b"".join(chunks)
+
+
+class _ChunkFetch:
+    """One chunk's bounded fetch window; the first failure stops the rest."""
+
+    def __init__(self, session: TransferSession, page: _PageUrls, total: int) -> None:
+        self._session = session
+        self._page = page
+        self.total = total
+        self.bodies: dict[str, bytes] = {}
+        self.stop = threading.Event()
+        self._lock = threading.Lock()
+        self._failure: BaseException | None = None
+
+    def fetch(self, path: str) -> None:
+        if self.stop.is_set():
+            return
+        try:
+            body = download_with_retry(
+                path, self._page, partial(_fetch_artifact, self._session, path), stop=self.stop
+            )
+            self._keep(path, body)
+        except BaseException as exc:
+            with self._lock:
+                if self._failure is None:
+                    self._failure = exc
+            self.stop.set()
+            raise
+
+    def _keep(self, path: str, body: bytes) -> None:
+        with self._lock:
+            if self.total + len(body) > _MAX_PROJECTION_BYTES:
+                raise GenerationAcquisitionError(
+                    "The generation projection exceeds the total size cap."
+                )
+            self.total += len(body)
+            self.bodies[path] = body
+        self._page.done(path)
+
+    def run(self, chunk: tuple[str, ...]) -> None:
+        with ThreadPoolExecutor(max_workers=ACQUISITION_WORKERS) as pool:
+            active: set[Future[None]] = set()
+            try:
+                for path in chunk:
+                    if len(active) >= ACQUISITION_WORKERS:
+                        _done, active = wait(active, return_when=FIRST_COMPLETED)
+                    if self.stop.is_set():
+                        break
+                    active.add(pool.submit(self.fetch, path))
+                wait(active)
+            finally:
+                # Every exit path stops the window, an interrupt included; after a
+                # completed wait nothing is left to stop.
+                self.stop.set()
+                for future in active:
+                    future.cancel()
+                # Drain: no fetch is left running when the chunk returns or raises.
+                wait(active)
+        if self._failure is not None:
+            raise self._failure
 
 
 def same_replica_scope(
@@ -330,16 +411,10 @@ def _acquire_once(
         raise GenerationAcquisitionError("The reusable projection exceeds the size cap.")
     for start in range(0, len(paths), PRESIGN_BATCH_LIMIT):
         chunk = paths[start : start + PRESIGN_BATCH_LIMIT]
-        page = _PageUrls(session, api_url, target.identity, chunk)
-        for path in chunk:
-            body = download_with_retry(path, page, partial(_fetch_artifact, session, path))
-            if total + len(body) > _MAX_PROJECTION_BYTES:
-                raise GenerationAcquisitionError(
-                    "The generation projection exceeds the total size cap."
-                )
-            total += len(body)
-            bodies.append((path, body))
-            page.done(path)
+        window = _ChunkFetch(session, _PageUrls(session, api_url, target.identity, chunk), total)
+        window.run(chunk)
+        total = window.total
+        bodies.extend((path, window.bodies[path]) for path in chunk)
     return verify_generation_projection(target, manifest_json=envelope, artifacts=tuple(bodies))
 
 

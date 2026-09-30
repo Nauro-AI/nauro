@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import ssl
+import threading
 from pathlib import Path
 
 import httpx
@@ -84,6 +85,7 @@ class FakeServer:
         self.projection_hook = self.presign_hook = self.object_hook = None
         self.requests: list[tuple[str, str, object, str | None]] = []
         self.counts = {"projection": 0, "presign": 0, "object": 0}
+        self._object_lock = threading.Lock()
         client = httpx.Client(transport=httpx.MockTransport(self.handle))
         self.session = TransferSession(client=client)
 
@@ -150,9 +152,12 @@ class FakeServer:
         return reply if isinstance(reply, httpx.Response) else _json(200, reply)
 
     def _object(self, url_path: str) -> httpx.Response:
-        self.counts["object"] += 1
+        # Object GETs arrive from the acquisition's fetch window, so the count is locked.
+        with self._object_lock:
+            self.counts["object"] += 1
+            count = self.counts["object"]
         _generation, _slash, path = url_path.lstrip("/").partition("/")
-        reply = None if self.object_hook is None else self.object_hook(self.counts["object"], path)
+        reply = None if self.object_hook is None else self.object_hook(count, path)
         return httpx.Response(200, content=self.artifacts[path]) if reply is None else reply
 
 
@@ -180,11 +185,13 @@ def _environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(transfer, "pause", lambda _seconds: None)
 
 
-def test_happy_path_orders_projection_presign_then_sorted_gets() -> None:
+def test_happy_path_orders_projection_presign_then_the_page_gets() -> None:
     server = FakeServer(THREE_ARTIFACTS)
     proof = acquire(server)
     gets = [("GET", f"objects.test/{GENERATION_ID}/{path}") for path in sorted(THREE_ARTIFACTS)]
-    assert server.calls() == [PROJECTION, PRESIGN, *gets]
+    # The page's GETs run in a concurrent window, so their order is not fixed.
+    assert server.calls()[:2] == [PROJECTION, PRESIGN]
+    assert sorted(server.calls()[2:]) == gets
     assert server.presign_bodies() == [
         {"project_id": PROJECT_ID, "generation_id": GENERATION_ID, "paths": sorted(THREE_ARTIFACTS)}
     ]
@@ -400,7 +407,9 @@ def test_generation_advancing_on_every_pass_raises_after_three_projection_calls(
     assert (server.counts["projection"], server.counts["object"]) == (3, 0)
 
 
-def test_expired_get_remints_only_the_outstanding_paths_of_the_page() -> None:
+def test_expired_get_remints_only_the_outstanding_paths_of_the_page(monkeypatch) -> None:
+    # One fetch at a time makes which paths are outstanding at the re-mint exact.
+    monkeypatch.setattr(acquisition, "ACQUISITION_WORKERS", 1)
     server = FakeServer(THREE_ARTIFACTS)
     server.object_hook = lambda n, path: httpx.Response(403) if (n, path) == (2, SIDECAR) else None
     proof = acquire(server)
@@ -463,6 +472,8 @@ def test_streamed_oversize_artifact_is_refused_mid_stream() -> None:
 
 def test_total_cap_refuses_before_the_second_body_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     # Without the total cap all three downloads complete and the raises assertion fails.
+    # One fetch at a time makes the number of GETs before the refusal exact.
+    monkeypatch.setattr(acquisition, "ACQUISITION_WORKERS", 1)
     monkeypatch.setattr(acquisition, "_MAX_PROJECTION_BYTES", 11)
     server = FakeServer(THREE_ARTIFACTS)
     with pytest.raises(GenerationAcquisitionError, match="total size cap"):
