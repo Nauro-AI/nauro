@@ -2066,6 +2066,108 @@ class TestPartialWrites:
     the good remote copy, and there is no backup of what it replaced.
     """
 
+    @pytest.mark.parametrize("same_slug", [False, True])
+    @pytest.mark.parametrize("failure_step", ["heading", "hash_index"])
+    def test_partial_renumber_keeps_later_allocations_current(
+        self, collision_store, monkeypatch, same_slug, failure_step
+    ):
+        from nauro.sync import collisions
+
+        first = decision_bytes(3, "First unpublished")
+        second = decision_bytes(4, "Second unpublished")
+        slug = "first" if same_slug else "second"
+        write_local_decision(collision_store, "003-first.md", first)
+        write_local_decision(collision_store, f"004-{slug}.md", second)
+        target = "atomic_write_text" if failure_step == "heading" else "_retarget_hash_index"
+        original = getattr(collisions, target)
+        failed = False
+
+        def fail_once(*args, **kwargs):
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise OSError(5, "Input/output error")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(collisions, target, fail_once)
+        remote = [
+            ("decisions/003-remote.md", decision_bytes(3, "Remote three")),
+            ("decisions/004-remote.md", decision_bytes(4, "Remote four")),
+        ]
+        report, _ = pull_report(collision_store, remote)
+
+        assert failed is True
+        assert report.refused == 1
+        assert report.merged == 1
+        assert (collision_store / "decisions/005-first.md").read_bytes() == (
+            first if failure_step == "heading" else first.replace(b"# 003", b"# 005")
+        )
+        assert (collision_store / f"decisions/006-{slug}.md").read_bytes() == second.replace(
+            b"# 004", b"# 006"
+        )
+        numbers = [
+            number
+            for name in entry_names(collision_store / "decisions")
+            if (number := extract_decision_number(name)) is not None
+        ]
+        assert sorted(numbers) == [1, 4, 5, 6]
+
+        retry, _ = pull_report(collision_store, remote)
+        assert retry.refused == 0
+        assert (collision_store / "decisions/005-first.md").read_bytes() == first.replace(
+            b"# 003", b"# 005"
+        )
+
+    def test_failed_install_readback_still_reserves_the_installed_number(
+        self, collision_store, monkeypatch
+    ):
+        local = decision_bytes(3, "Unpublished local")
+        write_local_decision(collision_store, "003-local.md", local)
+        original = pull_module.compute_sha256
+        failed = False
+
+        def fail_once(path):
+            nonlocal failed
+            if Path(path).name == "004-first.md" and not failed:
+                failed = True
+                raise OSError(5, "Input/output error")
+            return original(path)
+
+        monkeypatch.setattr(pull_module, "compute_sha256", fail_once)
+        first = decision_bytes(4, "First remote")
+        second = decision_bytes(4, "Second remote")
+        report, _ = pull_report(
+            collision_store,
+            [("decisions/004-first.md", first), ("decisions/004-second.md", second)],
+        )
+
+        assert failed is True
+        assert report.refused == 1
+        assert report.skipped_permanent == 1
+        assert report.merged == 0
+        assert (collision_store / "decisions/004-first.md").read_bytes() == first
+        assert (collision_store / "decisions/004-second.md").exists() is False
+        assert (collision_store / "decisions/003-local.md").read_bytes() == local
+
+    def test_failed_canonicalize_index_update_keeps_the_new_path_in_corpus(
+        self, collision_store, monkeypatch
+    ):
+        from nauro.sync import collisions
+
+        body = decision_bytes(3, "One decision")
+        collider = write_local_decision(collision_store, "003-local.md", body)
+        corpus = DecisionCorpus.scan(collision_store)
+
+        def fail(*args):
+            raise OSError(5, "Input/output error")
+
+        monkeypatch.setattr(collisions, "_retarget_hash_index", fail)
+        with pytest.raises(OSError, match="Input/output error"):
+            collisions.apply_canonicalize(corpus, collider, "decisions/003-remote.md")
+
+        assert corpus.has_name("003-local.md") is False
+        assert corpus.file_named("003-remote.md").text() == body.decode()
+
     def test_a_dead_write_leaves_the_original_file_and_its_state_entry(
         self, collision_store, monkeypatch
     ):

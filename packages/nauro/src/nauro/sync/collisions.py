@@ -581,8 +581,8 @@ def apply_canonicalize(corpus: DecisionCorpus, collider: Path, remote_path: str)
     destination = corpus.store_path / remote_path
     text = read_text_lenient(collider)
     os.rename(collider, destination)
-    _retarget_hash_index(corpus.store_path, collider.stem, destination.stem)
     corpus.record_renamed(collider, destination, text)
+    _retarget_hash_index(corpus.store_path, collider.stem, destination.stem)
     return destination
 
 
@@ -606,10 +606,11 @@ def apply_renumber(
         )
 
     os.rename(collider, destination)
+    corpus.record_renamed(collider, destination, current)
     atomic_write_text(destination, rewritten, newline="\n")
+    corpus.record_rewritten(destination, rewritten)
 
     _retarget_hash_index(corpus.store_path, collider.stem, destination.stem)
-    corpus.record_renamed(collider, destination, rewritten)
     return RenumberResult(old_path=collider, new_path=destination, old_num=number, new_num=new_num)
 
 
