@@ -971,7 +971,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.1.0" },
     { name = "nauro-core", editable = "packages/nauro-core" },
     { name = "nauro-core", extras = ["embeddings"], marker = "extra == 'embeddings'", editable = "packages/nauro-core" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.14,<3" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.20" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
