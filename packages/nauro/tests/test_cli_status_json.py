@@ -162,7 +162,7 @@ def test_status_json_aggregates_cursor_agents_across_registered_repos(tmp_path, 
 
     assert result.exit_code == 0, result.output
     cursor = json.loads(result.stdout)["workflow_agents"]["cursor"]
-    assert cursor == {"present": 4, "current": 4, "expected": 8}
+    assert cursor == {"present": 5, "current": 5, "expected": 10}
 
 
 def test_status_json_no_probe_yields_null_health(tmp_path, monkeypatch):

@@ -99,7 +99,7 @@ def test_status_reports_current_skills_and_agents_on_all_surfaces(tmp_path, monk
 
     assert result.exit_code == 0
     assert "Skills        active (Claude 5/5; Cursor 5/5; Codex 5/5)" in result.output
-    assert "Workflow      active (Claude 4/4; Cursor 4/4; Codex 4/4)" in result.output
+    assert "Workflow      active (Claude 5/5; Cursor 5/5; Codex 5/5)" in result.output
 
 
 def test_status_aggregates_cursor_agents_across_registered_repos(tmp_path, monkeypatch):
@@ -114,7 +114,7 @@ def test_status_aggregates_cursor_agents_across_registered_repos(tmp_path, monke
 
     assert result.exit_code == 0
     assert (
-        "Workflow      partial (Claude 4/4; Cursor 4/8; Codex 4/4) - "
+        "Workflow      partial (Claude 5/5; Cursor 5/10; Codex 5/5) - "
         "run 'nauro setup all --with-subagents'" in result.output
     )
 
@@ -141,7 +141,7 @@ def test_status_reports_stale_cursor_agent(tmp_path, monkeypatch):
 
     assert result.exit_code == 0
     assert (
-        "Workflow      BROKEN - Claude 4/4; Cursor 3/4; Codex 4/4; installed Nauro "
+        "Workflow      BROKEN - Claude 5/5; Cursor 4/5; Codex 5/5; installed Nauro "
         "agent files differ from this release; run 'nauro setup all --with-subagents'"
         in result.output
     )
