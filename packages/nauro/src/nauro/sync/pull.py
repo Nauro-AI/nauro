@@ -1157,8 +1157,8 @@ def _apply_decision(
         return
     target = store_path / transfer.rel
     atomic_write_bytes(target, transfer.content)
-    update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
     corpus.record_added(target, transfer.content.decode("utf-8", errors="replace"))
+    update_file_state(state, transfer.rel, compute_sha256(target), transfer.etag)
     tally.merged += 1
 
 
