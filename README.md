@@ -84,6 +84,8 @@ Approve one existing decision you want future sessions to remember. Start a fres
 
 Run `nauro status` to check the connection. See [agent workflows](https://nauro.ai/docs/agents-and-skills) and [setup details](https://nauro.ai/docs/quickstart).
 
+The bundled `nauro-investigator` studies Claude and Codex logs for supported findings about Nauro use and development work. See the [investigator guide](docs/investigator.md) for a bounded first run and a research notebook that later runs can resume.
+
 An existing `AGENTS.md` is preserved unless you run `nauro sync`. Its `# Manual` section survives replacement.
 
 ## Documentation

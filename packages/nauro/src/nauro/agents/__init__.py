@@ -2,7 +2,7 @@
 
 The ``.md`` files in this package are the canonical bodies for Nauro's
 workflow subagents (``@nauro-planner``, ``@nauro-executor``,
-``@nauro-reviewer``, ``@nauro-tech-lead``). Each file ships with full
+``@nauro-reviewer``, ``@nauro-tech-lead``, ``@nauro-investigator``). Each file ships with full
 Claude Code subagent frontmatter (``name``, ``description``, optional
 ``tools``, ``model``) so the surface renderer can return the body
 unchanged on the Claude Code surface — no per-surface frontmatter
@@ -28,6 +28,7 @@ AGENT_NAMES: tuple[str, ...] = (
     "nauro-executor",
     "nauro-reviewer",
     "nauro-tech-lead",
+    "nauro-investigator",
 )
 
 _READ_ONLY_AGENTS: frozenset[str] = frozenset(
@@ -35,6 +36,7 @@ _READ_ONLY_AGENTS: frozenset[str] = frozenset(
         "nauro-planner",
         "nauro-reviewer",
         "nauro-tech-lead",
+        "nauro-investigator",
     }
 )
 

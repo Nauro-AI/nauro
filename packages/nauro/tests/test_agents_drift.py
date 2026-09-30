@@ -53,6 +53,11 @@ AGENT_ANCHORS: dict[str, tuple[str, ...]] = {
         "Draft-only project-truth boundary",
         "Mode A: Direction-setting",
     ),
+    "nauro-investigator": (
+        "Find and read Claude and Codex logs",
+        "Investigate and challenge",
+        "Return findings and a notebook update",
+    ),
 }
 
 
