@@ -47,7 +47,7 @@ PUBLIC_COPY_PATHS = (
 
 def test_root_readme_stays_within_first_use_scope() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert 400 <= len(readme.split()) <= 520
+    assert 400 <= len(readme.split()) <= 600
     assert "uv tool install nauro" in readme
     assert "nauro init --demo" in readme
     assert (

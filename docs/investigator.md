@@ -30,14 +30,17 @@ Check counterevidence and whether each finding is still current.
 State coverage gaps and distinguish claims from observed outcomes.
 Explain what this run adds to prior knowledge.
 
-Pass research/nauro-usage/notebook.md to the investigator if it exists.
-Save its report under research/nauro-usage/runs/ with a unique dated name.
-Save its notebook update to research/nauro-usage/notebook.md.
+Pass ~/.nauro-research/nauro/notebook.md to the investigator if it exists.
+Save its report under ~/.nauro-research/nauro/runs/ with a unique dated name.
+Save its notebook update to ~/.nauro-research/nauro/notebook.md.
+Before saving, confirm the research directory is outside all Git checkouts.
 Keep source logs private. Write only these research artifacts.
 Do not change product code, project decisions, hooks, or schedules.
 ```
 
 Replace the repository scope, time window, budget, and research path as needed. Pass any prior reports or exported logs that should inform the study. The default local source roots are `~/.claude/projects/` and `~/.codex/sessions/`. Supply alternate roots when logs live elsewhere. The investigator verifies record shapes and repository scope before reading transcript content.
+
+Replace `nauro` in the research path with a unique project name. Keep the research directory outside all Git checkouts so staging project changes does not include private reports.
 
 The calling agent supplies its full session ID and the investigator's ID when available. The investigator resolves files and parent relationships before reading bodies. It uses exact paths and metadata, rather than broad session-prefix matches. Uncertain relationships and possible records from its own investigation remain outside the findings until their scope is established.
 
