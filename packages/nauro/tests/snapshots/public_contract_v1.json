@@ -2546,5 +2546,765 @@
       },
       "name": "update_state"
     }
-  ]
+  ],
+  "stdio_write_schemas": {
+    "flag_question": {
+      "oneOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "question": {
+                  "type": "string"
+                },
+                "resolved_by": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "question"
+              ]
+            },
+            {
+              "properties": {
+                "context": {
+                  "type": "null"
+                },
+                "question": {
+                  "type": "null"
+                },
+                "resolved_by": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "resolved_by"
+              ]
+            }
+          ],
+          "properties": {
+            "operation_id": {
+              "type": "null"
+            },
+            "payload_digest": {
+              "type": "null"
+            },
+            "request_mode": {
+              "enum": [
+                "submit",
+                null
+              ]
+            }
+          },
+          "required": []
+        },
+        {
+          "properties": {
+            "context": {
+              "type": "null"
+            },
+            "operation_id": {
+              "type": "null"
+            },
+            "payload_digest": {
+              "type": "null"
+            },
+            "question": {
+              "type": "null"
+            },
+            "request_mode": {
+              "const": "discover"
+            },
+            "resolved_by": {
+              "type": "null"
+            },
+            "targets": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "request_mode"
+          ]
+        },
+        {
+          "properties": {
+            "context": {
+              "type": "null"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "payload_digest": {
+              "type": "string"
+            },
+            "question": {
+              "type": "null"
+            },
+            "request_mode": {
+              "enum": [
+                "recover",
+                "retry"
+              ]
+            },
+            "resolved_by": {
+              "type": "null"
+            },
+            "targets": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "operation_id",
+            "payload_digest",
+            "request_mode"
+          ]
+        }
+      ],
+      "properties": {
+        "context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "payload_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "request_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "discover",
+                "recover",
+                "retry",
+                "submit"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "resolved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "share_context": {
+      "oneOf": [
+        {
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "operation_id": {
+              "type": "null"
+            },
+            "payload_digest": {
+              "type": "null"
+            },
+            "pointer_kind": {
+              "type": "string"
+            },
+            "request_mode": {
+              "enum": [
+                "submit",
+                null
+              ]
+            },
+            "slug": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "content",
+            "pointer_kind",
+            "slug",
+            "summary"
+          ]
+        },
+        {
+          "properties": {
+            "content": {
+              "type": "null"
+            },
+            "operation_id": {
+              "type": "null"
+            },
+            "payload_digest": {
+              "type": "null"
+            },
+            "pointer_kind": {
+              "type": "null"
+            },
+            "request_mode": {
+              "const": "discover"
+            },
+            "slug": {
+              "type": "null"
+            },
+            "summary": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "request_mode"
+          ]
+        },
+        {
+          "properties": {
+            "content": {
+              "type": "null"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "payload_digest": {
+              "type": "string"
+            },
+            "pointer_kind": {
+              "type": "null"
+            },
+            "request_mode": {
+              "enum": [
+                "recover",
+                "retry"
+              ]
+            },
+            "slug": {
+              "type": "null"
+            },
+            "summary": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "operation_id",
+            "payload_digest",
+            "request_mode"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "payload_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pointer_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "brief",
+                "resume",
+                "selection"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "request_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "discover",
+                "recover",
+                "retry",
+                "submit"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "slug": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "update_stack": {
+      "oneOf": [
+        {
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "operation_id": {
+              "type": "null"
+            },
+            "payload_digest": {
+              "type": "null"
+            },
+            "request_mode": {
+              "enum": [
+                "submit",
+                null
+              ]
+            }
+          },
+          "required": [
+            "content"
+          ]
+        },
+        {
+          "properties": {
+            "content": {
+              "type": "null"
+            },
+            "expected_revision": {
+              "type": "null"
+            },
+            "operation_id": {
+              "type": "null"
+            },
+            "payload_digest": {
+              "type": "null"
+            },
+            "request_mode": {
+              "const": "discover"
+            }
+          },
+          "required": [
+            "request_mode"
+          ]
+        },
+        {
+          "properties": {
+            "content": {
+              "type": "null"
+            },
+            "expected_revision": {
+              "type": "null"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "payload_digest": {
+              "type": "string"
+            },
+            "request_mode": {
+              "enum": [
+                "recover",
+                "retry"
+              ]
+            }
+          },
+          "required": [
+            "operation_id",
+            "payload_digest",
+            "request_mode"
+          ]
+        }
+      ],
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expected_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "payload_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "request_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "discover",
+                "recover",
+                "retry",
+                "submit"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "update_state": {
+      "oneOf": [
+        {
+          "properties": {
+            "delta": {
+              "type": "string"
+            },
+            "operation_id": {
+              "type": "null"
+            },
+            "payload_digest": {
+              "type": "null"
+            },
+            "request_mode": {
+              "enum": [
+                "submit",
+                null
+              ]
+            }
+          },
+          "required": [
+            "delta"
+          ]
+        },
+        {
+          "properties": {
+            "delta": {
+              "type": "null"
+            },
+            "expected_revision": {
+              "type": "null"
+            },
+            "operation_id": {
+              "type": "null"
+            },
+            "payload_digest": {
+              "type": "null"
+            },
+            "request_mode": {
+              "const": "discover"
+            }
+          },
+          "required": [
+            "request_mode"
+          ]
+        },
+        {
+          "properties": {
+            "delta": {
+              "type": "null"
+            },
+            "expected_revision": {
+              "type": "null"
+            },
+            "operation_id": {
+              "type": "string"
+            },
+            "payload_digest": {
+              "type": "string"
+            },
+            "request_mode": {
+              "enum": [
+                "recover",
+                "retry"
+              ]
+            }
+          },
+          "required": [
+            "operation_id",
+            "payload_digest",
+            "request_mode"
+          ]
+        }
+      ],
+      "properties": {
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "delta": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expected_revision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "payload_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "project_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "request_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "discover",
+                "recover",
+                "retry",
+                "submit"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    }
+  }
 }

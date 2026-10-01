@@ -25,6 +25,7 @@ What is frozen here:
   - ``stdio_tool_specs``     — every ``ALL_TOOLS`` spec: name, annotations, and
                                the *structural* input schema (param names, types,
                                required, enums, defaults).
+  - ``stdio_write_schemas``: live write schemas with mode-specific required fields.
   - ``cli_command_tree``     — the Typer/Click command + subcommand tree with
                                each option's flags, type, required, choices.
   - ``cli_autogen_commands`` — the explicit set of tools mirrored as CLI
@@ -144,6 +145,15 @@ def _strip_prose(node: Any) -> Any:
     if isinstance(node, list):
         return [_strip_prose(value) for value in node]
     return node
+
+
+def _write_schemas() -> dict[str, Any]:
+    from nauro.mcp.stdio_server import mcp
+
+    return {
+        name: _strip_prose(mcp._tool_manager.get_tool(name).parameters)
+        for name in ("update_state", "flag_question", "update_stack", "share_context")
+    }
 
 
 def _tool_specs() -> list[dict[str, Any]]:
@@ -284,6 +294,7 @@ def build_contract() -> dict[str, Any]:
     return {
         "contract_version": CONTRACT_VERSION,
         "stdio_tool_specs": _tool_specs(),
+        "stdio_write_schemas": _write_schemas(),
         "cli_command_tree": _cli_tree(),
         "cli_autogen_commands": sorted(AUTOGEN_ALLOWLIST),
         "nauro_core_public_api": sorted(nauro_core.__all__),

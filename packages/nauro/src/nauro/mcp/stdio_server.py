@@ -27,7 +27,7 @@ from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
 from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 from nauro_core.renderers import disconnected_reason_code
-from pydantic import Field
+from pydantic import Field, create_model, model_validator
 
 from nauro import __version__
 from nauro.mcp import read_dispatch
@@ -49,6 +49,12 @@ from nauro.store.resolution import (
     StoreResolutionError,
     resolve_project_binding,
     resolve_store,
+)
+from nauro.sync.write_arguments import (
+    MODE_DESCRIPTIONS,
+    WRITE_SPECS,
+    validate_write_arguments,
+    write_mode_schema,
 )
 from nauro.templates.generation_guidance import regenerate_refreshed_guidance
 
@@ -116,7 +122,9 @@ def _param_desc(tool_name: str, param: str) -> str:
 
     Read from the shared registry, not inlined, so the drift guards still cover it.
     """
-    spec: ToolSpec = get_tool_spec(tool_name)
+    spec: ToolSpec = WRITE_SPECS.get(tool_name) or get_tool_spec(tool_name)
+    if param in MODE_DESCRIPTIONS:
+        return MODE_DESCRIPTIONS[param]
     props = spec["input_schema"].get("properties", {})
     if param not in props or "description" not in props[param]:
         raise KeyError(
@@ -424,14 +432,22 @@ def flag_question(
     project_id: Annotated[
         str | None, Field(description=_param_desc("flag_question", "project_id"))
     ] = None,
-    request_mode: Literal["submit", "discover", "recover", "retry"] | None = None,
-    operation_id: str | None = None,
-    payload_digest: str | None = None,
+    request_mode: Annotated[
+        Literal["submit", "discover", "recover", "retry"] | None,
+        Field(description=_param_desc("flag_question", "request_mode")),
+    ] = None,
+    operation_id: Annotated[
+        str | None, Field(description=_param_desc("flag_question", "operation_id"))
+    ] = None,
+    payload_digest: Annotated[
+        str | None, Field(description=_param_desc("flag_question", "payload_digest"))
+    ] = None,
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
 ) -> str | dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
+    validate_write_arguments("flag_question", locals())
     result = generation_write("flag_question", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is not None:
         return _generation_write_result(result)
@@ -465,15 +481,23 @@ def update_state(
     project_id: Annotated[
         str | None, Field(description=_param_desc("update_state", "project_id"))
     ] = None,
-    request_mode: Literal["submit", "discover", "recover", "retry"] | None = None,
-    operation_id: str | None = None,
-    payload_digest: str | None = None,
+    request_mode: Annotated[
+        Literal["submit", "discover", "recover", "retry"] | None,
+        Field(description=_param_desc("update_state", "request_mode")),
+    ] = None,
+    operation_id: Annotated[
+        str | None, Field(description=_param_desc("update_state", "operation_id"))
+    ] = None,
+    payload_digest: Annotated[
+        str | None, Field(description=_param_desc("update_state", "payload_digest"))
+    ] = None,
     expected_revision: str | None = None,
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
 ) -> str | dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
+    validate_write_arguments("update_state", locals())
     result = generation_write("update_state", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is not None:
         return _generation_write_result(result)
@@ -495,42 +519,101 @@ def update_state(
 
 @mcp.tool(**_spec_kwargs("update_stack"), structured_output=False)
 def update_stack(
-    content: str | None = None,
-    expected_revision: str | None = None,
-    project_id: str | None = None,
-    request_mode: Literal["submit", "discover", "recover", "retry"] | None = None,
-    operation_id: str | None = None,
-    payload_digest: str | None = None,
+    content: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "content"))
+    ] = None,
+    expected_revision: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "expected_revision"))
+    ] = None,
+    project_id: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "project_id"))
+    ] = None,
+    request_mode: Annotated[
+        Literal["submit", "discover", "recover", "retry"] | None,
+        Field(description=_param_desc("update_stack", "request_mode")),
+    ] = None,
+    operation_id: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "operation_id"))
+    ] = None,
+    payload_digest: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "payload_digest"))
+    ] = None,
     cwd: _CWD_PARAM = None,
 ) -> dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
+    validate_write_arguments("update_stack", locals())
     result = generation_write("update_stack", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is None:
+        _, error = _resolve_or_error(project_id, cwd)
+        if error is not None:
+            return error
         raise ValueError("update_stack requires a generation replica.")
     return _generation_write_result(result)
 
 
 @mcp.tool(**_spec_kwargs("share_context"), structured_output=False)
 def share_context(
-    slug: str | None = None,
-    content: str | None = None,
-    pointer_kind: Literal["brief", "resume", "selection"] | None = None,
-    summary: str | None = None,
-    project_id: str | None = None,
-    request_mode: Literal["submit", "discover", "recover", "retry"] | None = None,
-    operation_id: str | None = None,
-    payload_digest: str | None = None,
+    slug: Annotated[str | None, Field(description=_param_desc("share_context", "slug"))] = None,
+    content: Annotated[
+        str | None, Field(description=_param_desc("share_context", "content"))
+    ] = None,
+    pointer_kind: Annotated[
+        Literal["brief", "resume", "selection"] | None,
+        Field(description=_param_desc("share_context", "pointer_kind")),
+    ] = None,
+    summary: Annotated[
+        str | None, Field(description=_param_desc("share_context", "summary"))
+    ] = None,
+    project_id: Annotated[
+        str | None, Field(description=_param_desc("share_context", "project_id"))
+    ] = None,
+    request_mode: Annotated[
+        Literal["submit", "discover", "recover", "retry"] | None,
+        Field(description=_param_desc("share_context", "request_mode")),
+    ] = None,
+    operation_id: Annotated[
+        str | None, Field(description=_param_desc("share_context", "operation_id"))
+    ] = None,
+    payload_digest: Annotated[
+        str | None, Field(description=_param_desc("share_context", "payload_digest"))
+    ] = None,
     cwd: _CWD_PARAM = None,
 ) -> dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
+    validate_write_arguments("share_context", locals())
     result = generation_write("share_context", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is None:
+        _, error = _resolve_or_error(project_id, cwd)
+        if error is not None:
+            return error
         raise ValueError("share_context requires a generation replica.")
     return _generation_write_result(result)
 
 
+def _write_argument_validator(operation: str) -> Any:
+    @model_validator(mode="before")
+    def validate_call(cls: Any, value: Any) -> Any:
+        validate_write_arguments(operation, value)
+        return value
+
+    return validate_call
+
+
+def _register_write_validation() -> None:
+    for name in WRITE_SPECS:
+        tool = mcp._tool_manager.get_tool(name)
+        assert tool is not None
+        tool.fn_metadata.arg_model = create_model(
+            name + "ModeArguments",
+            __base__=tool.fn_metadata.arg_model,
+            __validators__={"validate_call": _write_argument_validator(name)},
+        )
+        tool.parameters.update(write_mode_schema(name))
+
+
+_register_write_validation()
 register_argument_validation(mcp)
 
 
