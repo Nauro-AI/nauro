@@ -61,7 +61,9 @@ def test_observation_then_commit_and_cached_receipt(home, status):
     body = _body(record)
     committed = verify_share_response(json.dumps(body).encode(), record.scope, record.payload_json)
     transport = Mock(
-        submit=Mock(return_value=_result(record, status)), lookup=Mock(return_value=committed)
+        spec=share_submission.ShareTransport,
+        submit=Mock(return_value=_result(record, status)),
+        lookup=Mock(return_value=committed),
     )
     assert responses.submit_share(record.scope, transport).structuredContent["unresolved"] is True
     response = responses.recover_share(record.scope, transport)
@@ -94,7 +96,9 @@ def test_retry_looks_up_before_sending_exact_saved_identity(home):
         return _result(record)
 
     transport = Mock(
-        lookup=Mock(return_value=_result(record, "absent")), submit=Mock(side_effect=send)
+        spec=share_submission.ShareTransport,
+        lookup=Mock(return_value=_result(record, "absent")),
+        submit=Mock(side_effect=send),
     )
     response = responses.retry_share(record.scope, transport)
     assert response.isError is False

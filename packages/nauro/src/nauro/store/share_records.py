@@ -7,16 +7,25 @@ import os
 import stat
 import tempfile
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from filelock import BaseFileLock, FileLock, UnixFileLock, WindowsFileLock
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 from nauro_core.provenance import validate_utc_timestamp
-from pydantic import Field, StrictInt, StrictStr, ValidationError, field_validator, model_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from nauro.store.home import nauro_home
 from nauro.store.share_contract import (
@@ -40,6 +49,15 @@ _MAX_BYTES = 2 * 1024 * 1024
 
 
 class ShareSubmission(ClosedModel):
+    connection: StrictStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value: dict[str, Any] = handler(self)
+        if self.connection is None:
+            value.pop("connection", None)
+        return value
+
     schema_version: StrictInt = Field(default=1, ge=1, le=1)
     scope: ShareScope
     created_at: StrictStr
@@ -60,7 +78,7 @@ class ShareSubmission(ClosedModel):
             raise ValueError("share payload digest differs")
         if self.result is not None:
             verify_share_response(
-                self.result.model_dump_json().encode(), self.scope, self.payload_json
+                self.result.model_dump_json().encode(), self.scope, self.payload_json, local=True
             )
         terminal = self.result is not None and not self.result.unresolved
         if (self.phase == "resolved") != terminal:
@@ -115,17 +133,23 @@ def _read(path: Path) -> ShareSubmission | None:
         raise SubmissionRecordCorruptError("The share record did not verify.") from exc
 
 
-def read_share_submission(scope: ShareScope) -> ShareSubmission | None:
-    require_submission_actor(scope.user_id)
+def read_share_submission(
+    scope: ShareScope, *, require_actor: Callable[[str], None] | None = None
+) -> ShareSubmission | None:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
     record = _read(_record_path(scope))
     if record is not None and record.scope != scope:
         raise SubmissionRecordCorruptError("The share record belongs to another scope.")
-    require_submission_actor(scope.user_id)
+    require_actor(scope.user_id)
     return record
 
 
-def list_share_submissions(project_id: str, user_id: str) -> tuple[ShareSubmission, ...]:
-    require_submission_actor(user_id)
+def list_share_submissions(
+    project_id: str, user_id: str, *, require_actor: Callable[[str], None] | None = None
+) -> tuple[ShareSubmission, ...]:
+    require_actor = require_actor or require_submission_actor
+    require_actor(user_id)
     try:
         entries = os.scandir(_directory(project_id, user_id))
     except FileNotFoundError:
@@ -145,13 +169,16 @@ def list_share_submissions(project_id: str, user_id: str) -> tuple[ShareSubmissi
                         "The share record path differs from its scope."
                     )
                 records.append(record)
-    require_submission_actor(user_id)
+    require_actor(user_id)
     return tuple(sorted(records, key=lambda record: (record.created_at, record.scope.operation_id)))
 
 
 @contextmanager
-def share_submission_lock(scope: ShareScope) -> Iterator[None]:
-    require_submission_actor(scope.user_id)
+def share_submission_lock(
+    scope: ShareScope, *, require_actor: Callable[[str], None] | None = None
+) -> Iterator[None]:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
     path = _record_path(scope)
     _ensure_directory(path.parent)
     lock: BaseFileLock = FileLock(str(path.with_suffix(".lock")), timeout=0, mode=0o600)
@@ -161,7 +188,7 @@ def share_submission_lock(scope: ShareScope) -> Iterator[None]:
         if type(lock) not in (UnixFileLock, WindowsFileLock):
             raise SubmissionRecordError("Native share submission locking is unavailable.")
         _directory_sync(path.parent)
-        require_submission_actor(scope.user_id)
+        require_actor(scope.user_id)
         yield
 
 
@@ -186,33 +213,57 @@ def _write(record: ShareSubmission) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def prepare_share_submission(project_id: str, user_id: str, payload: bytes) -> ShareSubmission:
-    require_submission_actor(user_id)
+def prepare_share_submission(
+    project_id: str,
+    user_id: str,
+    payload: bytes,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+    connection: str | None = None,
+) -> ShareSubmission:
+    require_actor = require_actor or require_submission_actor
+    require_actor(user_id)
     record = ShareSubmission(
         scope=ShareScope(project_id=project_id, user_id=user_id, operation_id=uuid.uuid4().hex),
         created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         payload_json=payload.decode("utf-8"),
         payload_digest=hashlib.sha256(payload).hexdigest(),
         phase="prepared",
+        connection=connection,
     )
-    with share_submission_lock(record.scope):
-        if read_share_submission(record.scope) is not None:
+    with share_submission_lock(record.scope, require_actor=require_actor):
+        if read_share_submission(record.scope, require_actor=require_actor) is not None:
             raise SubmissionRecordError("The generated share identity already exists.")
         _write(record)
-        require_submission_actor(user_id)
+        require_actor(user_id)
     return record
 
 
-def mark_share_uncertain(record: ShareSubmission) -> ShareSubmission:
-    if record.phase == "resolved" or read_share_submission(record.scope) != record:
+def mark_share_uncertain(
+    record: ShareSubmission, *, require_actor: Callable[[str], None] | None = None
+) -> ShareSubmission:
+    require_actor = require_actor or require_submission_actor
+    if (
+        record.phase == "resolved"
+        or read_share_submission(record.scope, require_actor=require_actor) != record
+    ):
         raise SubmissionRecordError("The saved share submission cannot make this transition.")
     updated = ShareSubmission.model_validate({**record.model_dump(), "phase": "uncertain"})
     _write(updated)
     return updated
 
 
-def record_share_result(record: ShareSubmission, result: ShareResult) -> ShareSubmission:
-    if record.phase == "resolved" or read_share_submission(record.scope) != record:
+def record_share_result(
+    record: ShareSubmission,
+    result: ShareResult,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> ShareSubmission:
+    require_actor = require_actor or require_submission_actor
+    if (
+        record.phase == "resolved"
+        or read_share_submission(record.scope, require_actor=require_actor) != record
+    ):
         raise SubmissionRecordError("The saved share submission cannot make this transition.")
     updated = ShareSubmission.model_validate(
         {
