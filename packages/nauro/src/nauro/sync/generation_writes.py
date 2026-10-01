@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
 
+from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.read_authority import observe_generation_marker
 from nauro.store.resolution import StoreResolutionError, resolve_project_binding
 from nauro.store.submission_records import SubmissionRecordError
 from nauro.sync.generation_refresh import recover_generation_refresh
 from nauro.sync.generation_refresh_status import REFRESH_FAILURES, replica_status
 from nauro.sync.generation_session import GenerationTransferSession
-from nauro.templates.generation_guidance import regenerate_refreshed_guidance
 
 WRITE_GUIDANCE = (
     "On generation replicas, submit creates and saves an immutable attempt. "
@@ -49,7 +50,12 @@ def _payload(family: str, content: dict[str, Any]) -> bytes:
     return cast(bytes, getattr(contract, f"{family}_payload")(**content))
 
 
-def generation_write(operation: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+def generation_write(
+    operation: str,
+    arguments: dict[str, Any],
+    *,
+    on_refreshed: Callable[[GenerationSnapshotStore], dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
     try:
         binding = resolve_project_binding(
             arguments.get("project_id"), arguments.get("cwd") or Path.cwd()
@@ -76,7 +82,7 @@ def generation_write(operation: str, arguments: dict[str, Any]) -> dict[str, Any
     if mode in {"recover", "retry"} and (not operation_id or not digest):
         raise ValueError("Recovery requires operation_id and payload_digest.")
     with GenerationTransferSession(binding) as session:
-        return _execute(family, mode, content, operation_id, digest, session)
+        return _execute(family, mode, content, operation_id, digest, session, on_refreshed)
 
 
 def _execute(
@@ -86,6 +92,7 @@ def _execute(
     operation_id: str | None,
     digest: str | None,
     session: GenerationTransferSession,
+    on_refreshed: Callable[[GenerationSnapshotStore], dict[str, Any]] | None,
 ) -> dict[str, Any]:
     records = import_module(f"nauro.store.{family}_records")
     submission = import_module(f"nauro.sync.{family}_submission")
@@ -147,5 +154,6 @@ def _execute(
                 "authorization_checked": False,
             }
         else:
-            output["guidance_status"] = regenerate_refreshed_guidance(snapshot)
+            if on_refreshed is not None:
+                output["guidance_status"] = on_refreshed(snapshot)
     return output

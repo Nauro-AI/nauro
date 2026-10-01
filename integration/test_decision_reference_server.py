@@ -12,12 +12,13 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp_server import decision_delivery as delivery
 from mcp_server.decision_probe import create_decision_probe
 from mcp_server.generations import read_generation_pointer
+from tests.test_decision_reference import ORIGIN, probe, signed_transport
+from tests.test_judgment_planning import USER_ID
+
 from nauro.auth import ActiveCredentials
 from nauro.mcp.decision_reference import bind_decision_reference
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from tests.conftest import TEST_PROJECT_ID
-from tests.test_decision_reference import ORIGIN, probe, signed_transport
-from tests.test_judgment_planning import USER_ID
 from tests.test_judgment_transport import _payload
 
 __all__ = ["probe", "signed_transport"]
@@ -261,12 +262,26 @@ def test_installed_client_rejects_altered_evidence(installed, probe, field):
 
 def test_installed_reference_schema_matches_host_and_tool_count(installed):
     from mcp_server.decision_probe import tool_spec
+
     from nauro.mcp.stdio_server import mcp
     from nauro.sync.decision_reference_contract import reference_schema
 
     assert mcp._tool_manager.get_tool("propose_decision").parameters == tool_spec()["inputSchema"]
     assert reference_schema() == tool_spec()["inputSchema"]
-    assert len(mcp._tool_manager.list_tools()) == 10
+    assert {tool.name for tool in mcp._tool_manager.list_tools()} == {
+        "get_context",
+        "get_raw_file",
+        "list_decisions",
+        "get_decision",
+        "diff_since_last_session",
+        "search_decisions",
+        "check_decision",
+        "propose_decision",
+        "flag_question",
+        "update_state",
+        "update_stack",
+        "share_context",
+    }
 
 
 def test_installed_client_duplicate_drafts_stay_inert(installed):

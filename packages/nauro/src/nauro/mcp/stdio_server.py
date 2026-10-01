@@ -50,6 +50,7 @@ from nauro.store.resolution import (
     resolve_project_binding,
     resolve_store,
 )
+from nauro.templates.generation_guidance import regenerate_refreshed_guidance
 
 logger = logging.getLogger("nauro.stdio")
 mcp = FastMCP(
@@ -431,7 +432,7 @@ def flag_question(
 ) -> str | dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
-    result = generation_write("flag_question", locals())
+    result = generation_write("flag_question", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is not None:
         return _generation_write_result(result)
 
@@ -473,7 +474,7 @@ def update_state(
 ) -> str | dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
-    result = generation_write("update_state", locals())
+    result = generation_write("update_state", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is not None:
         return _generation_write_result(result)
     if delta is None:
@@ -504,7 +505,7 @@ def update_stack(
 ) -> dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
-    result = generation_write("update_stack", locals())
+    result = generation_write("update_stack", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is None:
         raise ValueError("update_stack requires a generation replica.")
     return _generation_write_result(result)
@@ -524,7 +525,7 @@ def share_context(
 ) -> dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
-    result = generation_write("share_context", locals())
+    result = generation_write("share_context", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is None:
         raise ValueError("share_context requires a generation replica.")
     return _generation_write_result(result)

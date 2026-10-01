@@ -16,6 +16,7 @@ from nauro_core.mcp_tools import ToolSpec
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.migration_admission import migration_write_guard, require_migration_admission
 from nauro.sync.generation_writes import CONTENT, FAMILIES, generation_write
+from nauro.templates.generation_guidance import regenerate_refreshed_guidance
 
 
 class WriteMode(str, enum.Enum):
@@ -85,7 +86,9 @@ def with_write_options(command: Callable[..., None], spec: ToolSpec) -> Callable
 
     def dispatch(**kwargs: Any) -> None:
         try:
-            result = generation_write(spec["name"], _request(family, kwargs))
+            result = generation_write(
+                spec["name"], _request(family, kwargs), on_refreshed=regenerate_refreshed_guidance
+            )
         except (GenerationAuthorityError, OSError) as error:
             typer.echo(f"Error: {error}", err=True)
             raise typer.Exit(1) from None
