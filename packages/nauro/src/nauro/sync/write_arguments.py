@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from nauro_core.identifiers import IdentifierKind, validate_identifier
-from nauro_core.mcp_tools import UPDATE_STATE
+from nauro_core.mcp_tools import FLAG_QUESTION, UPDATE_STATE
 
-WRITE_SPECS = {"update_state": UPDATE_STATE}
+WRITE_SPECS = {"update_state": UPDATE_STATE, "flag_question": FLAG_QUESTION}
 REFERENCE_FIELDS = {"operation_id", "payload_digest"}
 CONTENT_FIELDS = {
     name: set(spec["input_schema"]["properties"]) - REFERENCE_FIELDS - {"project_id"}
@@ -41,8 +41,19 @@ def validate_write_arguments(operation: str, arguments: dict[str, Any]) -> None:
     if mode in {"recover", "retry"}:
         _require_strings(arguments, sorted(REFERENCE_FIELDS), mode)
     if mode == "submit":
+        if operation == "flag_question":
+            validate_question_content(arguments)
         required = list(WRITE_SPECS[operation]["input_schema"].get("required", []))
         _require_strings(arguments, required, "Submit")
+
+
+def validate_question_content(arguments: dict[str, Any]) -> None:
+    question, resolved_by = arguments.get("question"), arguments.get("resolved_by")
+    if (question is None) == (resolved_by is None):
+        raise ValueError("Submit requires exactly one of question and resolved_by.")
+    _require_strings(arguments, ["question" if resolved_by is None else "resolved_by"], "Submit")
+    if resolved_by is not None and arguments.get("context") is not None:
+        raise ValueError("Resolution cannot take context.")
 
 
 def _require_strings(arguments: dict[str, Any], names: list[str], mode: str) -> None:
@@ -59,6 +70,21 @@ def write_mode_schema(operation: str) -> dict[str, Any]:
         },
     }
     required = list(WRITE_SPECS[operation]["input_schema"].get("required", []))
+    if operation == "flag_question":
+        submit["oneOf"] = [
+            {
+                "required": ["question"],
+                "properties": {"question": {"type": "string"}, "resolved_by": {"type": "null"}},
+            },
+            {
+                "required": ["resolved_by"],
+                "properties": {
+                    "resolved_by": {"type": "string"},
+                    "question": {"type": "null"},
+                    "context": {"type": "null"},
+                },
+            },
+        ]
     submit["required"] = required
     submit["properties"].update({name: {"type": "string"} for name in required})
     reference_properties = {name: {"type": "null"} for name in CONTENT_FIELDS[operation]}
