@@ -83,7 +83,12 @@ def test_guidance_write_failure_preserves_refresh_and_receipt(
         )
         assert result["status"] == "committed"
         assert result["execution"]["receipt_json"] == receipt
-        assert result["guidance_status"]["status"] == "failed"
+        assert result["guidance_status"] == {
+            "status": "failed",
+            "message": "Replica refresh completed, but AGENTS.md regeneration failed. "
+            "Check authorization and file permissions, then run 'nauro sync'. "
+            "Do not resubmit the write.",
+        }
         assert result["replica_status"]["last_refresh_error_code"] is None
         assert "PRIVATE" not in json.dumps(result)
         transport.assert_called_once_with(request_mode="submit")

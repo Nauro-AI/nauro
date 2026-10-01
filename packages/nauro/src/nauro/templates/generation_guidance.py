@@ -18,6 +18,6 @@ def regenerate_refreshed_guidance(snapshot: GenerationSnapshotStore) -> dict[str
             "status": "failed",
             "message": "Replica refresh completed, but AGENTS.md regeneration failed. "
             "Check authorization and file permissions, then run 'nauro sync'. "
-            "Do not resubmit the decision.",
+            "Do not resubmit the write.",
         }
     return {"status": "completed", "updated_repos": len(updated), "warnings": warnings}

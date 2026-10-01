@@ -281,7 +281,12 @@ def _constant_values() -> dict[str, Any]:
 
 def build_contract() -> dict[str, Any]:
     """Assemble the full public-contract snapshot from live sources."""
+    from nauro.mcp.stdio_server import mcp
+
+    state_tool = mcp._tool_manager.get_tool("update_state")
+    assert state_tool is not None
     return {
+        "stdio_state_schema": state_tool.parameters,
         "contract_version": CONTRACT_VERSION,
         "stdio_tool_specs": _tool_specs(),
         "cli_command_tree": _cli_tree(),

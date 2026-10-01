@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 
-@pytest.mark.parametrize("scenario", ["commit_drop", "noop_drop", "noop_saved"])
+@pytest.mark.parametrize("scenario", ["commit_drop", "noop_drop", "noop_saved", "commit_refused"])
 def test_paired_state_transport(scenario):
     interpreter = os.environ.get("NAURO_SERVER_PYTHON")
     source = os.environ.get("NAURO_SERVER_ROOT")

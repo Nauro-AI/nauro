@@ -18,6 +18,7 @@ from pydantic import (
     StrictStr,
     TypeAdapter,
     field_validator,
+    model_validator,
 )
 
 from nauro.store.submission_records import Digest, SubmissionRecordError
@@ -123,7 +124,71 @@ class StateUnavailable(_Response):
     unresolved: Literal[False]
 
 
-StateResult = StateCommitted | StateObserved | StateRevisionObserved | StateUnavailable
+_REFUSAL_CODES = {
+    400: {"invalid_request", "payload_digest_mismatch", "submission_rejected"},
+    401: {"authentication_required", "invalid_token"},
+    403: {
+        "insufficient_scope",
+        "actor_mismatch",
+        "project_not_selected",
+        "pre_team_required",
+        "owner_required",
+        "forbidden",
+    },
+    409: {
+        "single_writer_refused",
+        "generation_authority_required",
+        "shared_generation_authority_required",
+        "generation_required",
+        "shared_representation_required",
+    },
+    413: {"request_too_large"},
+}
+
+
+_PREPUBLICATION_REFUSALS = {
+    "authentication_required",
+    "invalid_token",
+    "insufficient_scope",
+    "actor_mismatch",
+    "project_not_selected",
+    "pre_team_required",
+    "owner_required",
+    "single_writer_refused",
+    "generation_authority_required",
+    "shared_generation_authority_required",
+    "generation_required",
+    "shared_representation_required",
+    "request_too_large",
+    "payload_digest_mismatch",
+    "submission_rejected",
+}
+
+
+class StateRefused(_Response):
+    status: Literal["refused"] = "refused"
+    unresolved: bool = True
+    http_status: StrictInt
+    server_code: StrictStr
+    request_mode: Literal["submit", "lookup"]
+
+    @model_validator(mode="after")
+    def _refusal(self) -> StateRefused:
+        if self.server_code not in _REFUSAL_CODES.get(self.http_status, set()):
+            raise ValueError("unknown state refusal")
+        if not self.unresolved and (not self.before_publication):
+            raise ValueError("state refusal does not establish a no-write outcome")
+        return self
+
+    @property
+    def before_publication(self) -> bool:
+        # The server can emit forbidden or invalid_request during post-write receipt lookup.
+        return self.request_mode == "submit" and self.server_code in _PREPUBLICATION_REFUSALS
+
+
+StateResult = (
+    StateCommitted | StateObserved | StateRevisionObserved | StateUnavailable | StateRefused
+)
 _RESPONSE: TypeAdapter[StateResult] = TypeAdapter(
     Annotated[StateResult, Field(discriminator="status")]
 )
@@ -208,7 +273,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def verify_state_response(
-    raw: bytes, scope: StateScope, payload_json: str, *, lookup: bool = False
+    raw: bytes, scope: StateScope, payload_json: str, *, lookup: bool = False, local: bool = False
 ) -> StateResult:
     try:
         scope = StateScope.model_validate(scope)
@@ -218,6 +283,8 @@ def verify_state_response(
         result = _RESPONSE.validate_python(
             json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
         )
+        if isinstance(result, StateRefused) and not local:
+            raise StateTransportError("Refusals require an HTTP refusal response.")
         digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
         if result.scope != scope or result.payload_digest != digest:
             raise ValueError("state response binding differs")
@@ -233,3 +300,22 @@ def verify_state_response(
         return result
     except (ValueError, TypeError, RecursionError) as exc:
         raise StateTransportError("The state response did not verify.") from exc
+
+
+def verify_state_refusal(
+    raw: bytes, status: int, scope: StateScope, payload_digest: str, *, lookup: bool
+) -> StateRefused:
+    try:
+        body = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
+        if not isinstance(body, dict) or set(body) != {"detail"}:
+            raise StateTransportError("The state refusal body did not verify.")
+        return StateRefused(
+            version=1,
+            scope=scope,
+            payload_digest=payload_digest,
+            http_status=status,
+            server_code=body["detail"],
+            request_mode="lookup" if lookup else "submit",
+        )
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise StateTransportError("The state refusal did not verify.") from exc

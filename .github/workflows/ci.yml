@@ -56,6 +56,11 @@ jobs:
           packages/nauro/src/nauro/store/state_records.py
           packages/nauro/src/nauro/sync/state_submission.py
           packages/nauro/src/nauro/sync/state_transport.py
+          packages/nauro/src/nauro/sync/generation_writes.py
+          packages/nauro/src/nauro/sync/write_arguments.py
+          packages/nauro/src/nauro/sync/write_failures.py
+          packages/nauro/src/nauro/sync/write_revision.py
+          packages/nauro/src/nauro/cli/generation_writes.py
           packages/nauro/src/nauro/store/question_contract.py
           packages/nauro/src/nauro/store/question_records.py
           packages/nauro/src/nauro/sync/question_submission.py
@@ -201,7 +206,7 @@ jobs:
           counts = collections.Counter(case.get("classname", "").split(".")[-1] for root in roots for case in root.iter("testcase"))
           expected = {
               "test_history_paired": 7, "test_question_transport_pair": 4, "test_share_transport_pair": 4,
-              "test_stack_transport_pair": 3, "test_state_transport_pair": 3,
+              "test_stack_transport_pair": 3, "test_state_transport_pair": 4,
               "test_check_decision_cross_surface": 6, "test_diff_since_last_session_cross_surface": 3,
               "test_flag_question_cross_surface": 5, "test_get_context_cross_surface": 3,
               "test_get_decision_cross_surface": 2, "test_get_raw_file_cross_surface": 2,

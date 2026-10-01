@@ -7,16 +7,25 @@ import os
 import stat
 import tempfile
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from filelock import BaseFileLock, FileLock, UnixFileLock, WindowsFileLock
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 from nauro_core.provenance import validate_utc_timestamp
-from pydantic import Field, StrictInt, StrictStr, ValidationError, field_validator, model_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from nauro.store.home import nauro_home
 from nauro.store.state_contract import (
@@ -40,6 +49,15 @@ _MAX_BYTES = 2 * 1024 * 1024
 
 
 class StateSubmission(ClosedModel):
+    connection: StrictStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value: dict[str, Any] = handler(self)
+        if self.connection is None:
+            value.pop("connection", None)
+        return value
+
     schema_version: StrictInt = Field(default=1, ge=1, le=1)
     scope: StateScope
     created_at: StrictStr
@@ -60,7 +78,7 @@ class StateSubmission(ClosedModel):
             raise ValueError("state payload digest differs")
         if self.result is not None:
             verify_state_response(
-                self.result.model_dump_json().encode(), self.scope, self.payload_json
+                self.result.model_dump_json().encode(), self.scope, self.payload_json, local=True
             )
         terminal = self.result is not None and not self.result.unresolved
         if (self.phase == "resolved") != terminal:
@@ -115,17 +133,23 @@ def _read(path: Path) -> StateSubmission | None:
         raise SubmissionRecordCorruptError("The state record did not verify.") from exc
 
 
-def read_state_submission(scope: StateScope) -> StateSubmission | None:
-    require_submission_actor(scope.user_id)
+def read_state_submission(
+    scope: StateScope, *, require_actor: Callable[[str], None] | None = None
+) -> StateSubmission | None:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
     record = _read(_record_path(scope))
     if record is not None and record.scope != scope:
         raise SubmissionRecordCorruptError("The state record belongs to another scope.")
-    require_submission_actor(scope.user_id)
+    require_actor(scope.user_id)
     return record
 
 
-def list_state_submissions(project_id: str, user_id: str) -> tuple[StateSubmission, ...]:
-    require_submission_actor(user_id)
+def list_state_submissions(
+    project_id: str, user_id: str, *, require_actor: Callable[[str], None] | None = None
+) -> tuple[StateSubmission, ...]:
+    require_actor = require_actor or require_submission_actor
+    require_actor(user_id)
     try:
         entries = os.scandir(_directory(project_id, user_id))
     except FileNotFoundError:
@@ -145,13 +169,16 @@ def list_state_submissions(project_id: str, user_id: str) -> tuple[StateSubmissi
                         "The state record path differs from its scope."
                     )
                 records.append(record)
-    require_submission_actor(user_id)
+    require_actor(user_id)
     return tuple(sorted(records, key=lambda record: (record.created_at, record.scope.operation_id)))
 
 
 @contextmanager
-def state_submission_lock(scope: StateScope) -> Iterator[None]:
-    require_submission_actor(scope.user_id)
+def state_submission_lock(
+    scope: StateScope, *, require_actor: Callable[[str], None] | None = None
+) -> Iterator[None]:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
     path = _record_path(scope)
     _ensure_directory(path.parent)
     lock: BaseFileLock = FileLock(str(path.with_suffix(".lock")), timeout=0, mode=0o600)
@@ -161,7 +188,7 @@ def state_submission_lock(scope: StateScope) -> Iterator[None]:
         if type(lock) not in (UnixFileLock, WindowsFileLock):
             raise SubmissionRecordError("Native state submission locking is unavailable.")
         _directory_sync(path.parent)
-        require_submission_actor(scope.user_id)
+        require_actor(scope.user_id)
         yield
 
 
@@ -186,33 +213,57 @@ def _write(record: StateSubmission) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def prepare_state_submission(project_id: str, user_id: str, payload: bytes) -> StateSubmission:
-    require_submission_actor(user_id)
+def prepare_state_submission(
+    project_id: str,
+    user_id: str,
+    payload: bytes,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+    connection: str | None = None,
+) -> StateSubmission:
+    require_actor = require_actor or require_submission_actor
+    require_actor(user_id)
     record = StateSubmission(
         scope=StateScope(project_id=project_id, user_id=user_id, operation_id=uuid.uuid4().hex),
         created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         payload_json=payload.decode("utf-8"),
         payload_digest=hashlib.sha256(payload).hexdigest(),
         phase="prepared",
+        connection=connection,
     )
-    with state_submission_lock(record.scope):
-        if read_state_submission(record.scope) is not None:
+    with state_submission_lock(record.scope, require_actor=require_actor):
+        if read_state_submission(record.scope, require_actor=require_actor) is not None:
             raise SubmissionRecordError("The generated state identity already exists.")
         _write(record)
-        require_submission_actor(user_id)
+        require_actor(user_id)
     return record
 
 
-def mark_state_uncertain(record: StateSubmission) -> StateSubmission:
-    if record.phase == "resolved" or read_state_submission(record.scope) != record:
+def mark_state_uncertain(
+    record: StateSubmission, *, require_actor: Callable[[str], None] | None = None
+) -> StateSubmission:
+    require_actor = require_actor or require_submission_actor
+    if (
+        record.phase == "resolved"
+        or read_state_submission(record.scope, require_actor=require_actor) != record
+    ):
         raise SubmissionRecordError("The saved state submission cannot make this transition.")
     updated = StateSubmission.model_validate({**record.model_dump(), "phase": "uncertain"})
     _write(updated)
     return updated
 
 
-def record_state_result(record: StateSubmission, result: StateResult) -> StateSubmission:
-    if record.phase == "resolved" or read_state_submission(record.scope) != record:
+def record_state_result(
+    record: StateSubmission,
+    result: StateResult,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> StateSubmission:
+    require_actor = require_actor or require_submission_actor
+    if (
+        record.phase == "resolved"
+        or read_state_submission(record.scope, require_actor=require_actor) != record
+    ):
         raise SubmissionRecordError("The saved state submission cannot make this transition.")
     updated = StateSubmission.model_validate(
         {

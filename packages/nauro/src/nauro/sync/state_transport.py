@@ -2,16 +2,30 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import httpx
 
-from nauro.auth import read_active_credentials
-from nauro.store.state_contract import StateResult, StateTransportError, verify_state_response
+from nauro.auth import ActiveCredentials, read_active_credentials
+from nauro.store.state_contract import (
+    StateResult,
+    StateTransportError,
+    verify_state_refusal,
+    verify_state_response,
+)
 from nauro.store.state_records import StateSubmission
 from nauro.store.submission_records import SubmissionActorMismatchError, require_submission_actor
 
 
 class HttpStateTransport:
-    def __init__(self, base_url: str, client: httpx.Client) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.Client,
+        *,
+        credentials: Callable[[], ActiveCredentials] | None = None,
+        require_actor: Callable[[str], None] | None = None,
+    ) -> None:
         url = httpx.URL(base_url)
         if (
             url.scheme != "https"
@@ -24,10 +38,12 @@ class HttpStateTransport:
             raise StateTransportError("State transport requires a trusted HTTPS origin.")
         self._base_url = str(url).rstrip("/")
         self._client = client
+        self._credentials = credentials or read_active_credentials
+        self._require_actor = require_actor or require_submission_actor
 
     def _request(self, record: StateSubmission, *, lookup: bool) -> StateResult:
         record = StateSubmission.model_validate(record)
-        credentials = read_active_credentials()
+        credentials = self._credentials()
         if credentials.user_id != record.scope.user_id:
             raise SubmissionActorMismatchError(
                 "The active account does not own this state submission."
@@ -50,8 +66,7 @@ class HttpStateTransport:
                 timeout=25,
                 follow_redirects=False,
             ) as response:
-                if response.status_code != 200:
-                    raise StateTransportError("The server did not return a state result.")
+                status = response.status_code
                 raw = bytearray()
                 for chunk in response.iter_bytes():
                     raw.extend(chunk)
@@ -61,7 +76,11 @@ class HttpStateTransport:
             raise StateTransportError(
                 "The state outcome is unresolved. Look up its original identity."
             ) from exc
-        require_submission_actor(record.scope.user_id)
+        self._require_actor(record.scope.user_id)
+        if status != 200:
+            return verify_state_refusal(
+                bytes(raw), status, record.scope, record.payload_digest, lookup=lookup
+            )
         return verify_state_response(bytes(raw), record.scope, record.payload_json, lookup=lookup)
 
     def submit(self, record: StateSubmission) -> StateResult:

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from nauro.store.state_contract import (
+    StateRefused,
     StateResult,
     StateScope,
     StateTransportError,
@@ -35,8 +37,11 @@ class StateTransport(Protocol):
     def lookup(self, record: StateSubmission) -> StateResult: ...
 
 
-def _load(scope: StateScope) -> StateSubmission:
-    record = read_state_submission(scope)
+def _load(
+    scope: StateScope, *, require_actor: Callable[[str], None] | None = None
+) -> StateSubmission:
+    require_actor = require_actor or require_submission_actor
+    record = read_state_submission(scope, require_actor=require_actor)
     if record is None:
         raise SubmissionRecordError("The saved state submission is missing.")
     return record
@@ -49,56 +54,103 @@ def _require_window(record: StateSubmission) -> None:
         raise StateRetryExpiredError("The state submission is outside the resend horizon.")
 
 
-def _accept(record: StateSubmission, result: StateResult, *, lookup: bool) -> StateResult:
+def _accept(
+    record: StateSubmission,
+    result: StateResult,
+    *,
+    lookup: bool,
+    require_actor: Callable[[str], None] | None = None,
+) -> StateResult:
+    require_actor = require_actor or require_submission_actor
     result = verify_state_response(
-        result.model_dump_json().encode(), record.scope, record.payload_json, lookup=lookup
+        result.model_dump_json().encode(),
+        record.scope,
+        record.payload_json,
+        lookup=lookup,
+        local=True,
     )
-    require_submission_actor(record.scope.user_id)
-    record_state_result(record, result)
-    require_submission_actor(record.scope.user_id)
+    if isinstance(result, StateRefused) and result.request_mode != (
+        "lookup" if lookup else "submit"
+    ):
+        raise StateTransportError("The refused state request mode differs.")
+    require_actor(record.scope.user_id)
+    record_state_result(record, result, require_actor=require_actor)
+    require_actor(record.scope.user_id)
     return result
 
 
-def _send(record: StateSubmission, transport: StateTransport) -> StateResult:
+def _send(
+    record: StateSubmission,
+    transport: StateTransport,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> StateResult:
+    require_actor = require_actor or require_submission_actor
     _require_window(record)
-    uncertain = mark_state_uncertain(record)
-    require_submission_actor(record.scope.user_id)
+    uncertain = mark_state_uncertain(record, require_actor=require_actor)
+    require_actor(record.scope.user_id)
     _require_window(uncertain)
     result = transport.submit(uncertain)
+    if (
+        isinstance(result, StateRefused)
+        and record.phase == "prepared"
+        and result.before_publication
+    ):
+        result = StateRefused.model_validate({**result.model_dump(), "unresolved": False})
     if result.status == "absent":
         raise StateTransportError("A state send cannot return an absent lookup result.")
-    return _accept(uncertain, result, lookup=False)
+    return _accept(uncertain, result, lookup=False, require_actor=require_actor)
 
 
-def submit_state(scope: StateScope, transport: StateTransport) -> StateResult:
-    require_submission_actor(scope.user_id)
-    with state_submission_lock(scope):
-        record = _load(scope)
+def submit_state(
+    scope: StateScope,
+    transport: StateTransport,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> StateResult:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
+    with state_submission_lock(scope, require_actor=require_actor):
+        record = _load(scope, require_actor=require_actor)
         if record.result is not None and not record.result.unresolved:
             return record.result
         if record.phase != "prepared":
             raise StateRecoveryRequiredError(
                 "Look up the original state operation before retrying."
             )
-        return _send(record, transport)
+        return _send(record, transport, require_actor=require_actor)
 
 
-def recover_state(scope: StateScope, transport: StateTransport) -> StateResult:
-    require_submission_actor(scope.user_id)
-    with state_submission_lock(scope):
-        record = _load(scope)
+def recover_state(
+    scope: StateScope,
+    transport: StateTransport,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> StateResult:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
+    with state_submission_lock(scope, require_actor=require_actor):
+        record = _load(scope, require_actor=require_actor)
         if record.result is not None and not record.result.unresolved:
             return record.result
-        return _accept(record, transport.lookup(record), lookup=True)
+        return _accept(record, transport.lookup(record), lookup=True, require_actor=require_actor)
 
 
-def retry_state(scope: StateScope, transport: StateTransport) -> StateResult:
-    require_submission_actor(scope.user_id)
-    with state_submission_lock(scope):
-        record = _load(scope)
+def retry_state(
+    scope: StateScope,
+    transport: StateTransport,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> StateResult:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
+    with state_submission_lock(scope, require_actor=require_actor):
+        record = _load(scope, require_actor=require_actor)
         if record.result is not None and not record.result.unresolved:
             return record.result
-        result = _accept(record, transport.lookup(record), lookup=True)
+        result = _accept(record, transport.lookup(record), lookup=True, require_actor=require_actor)
         if result.status != "absent":
             return result
-        return _send(_load(scope), transport)
+        return _send(
+            _load(scope, require_actor=require_actor), transport, require_actor=require_actor
+        )

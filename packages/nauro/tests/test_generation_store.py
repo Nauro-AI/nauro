@@ -129,7 +129,7 @@ def test_capture_composition_survives_removed_disk_root(projection, monkeypatch)
     assert store.read_file("context/brief.md") == "Context\n"
 
 
-def test_store_has_only_dormant_generation_consumers():
+def test_store_has_only_named_generation_consumers():
     root = Path(generation_store.__file__).parents[1]
     consumers = []
     for path in root.rglob("*.py"):
@@ -149,6 +149,7 @@ def test_store_has_only_dormant_generation_consumers():
         "sync/generation_guidance.py",
         "sync/generation_refresh.py",
         "sync/generation_refresh_status.py",
+        "sync/generation_writes.py",
         "templates/agents_md.py",
         "templates/agents_md_regen.py",
         "templates/generation_guidance.py",
