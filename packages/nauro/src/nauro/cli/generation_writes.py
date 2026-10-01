@@ -68,6 +68,10 @@ def _parameters(command: Callable[..., None], family: str) -> list[inspect.Param
 
 def _request(family: str, kwargs: dict[str, Any]) -> dict[str, Any]:
     request = {"project_id": kwargs.get("project")}
+    if family == "question" and kwargs.get("question_option") is not None:
+        if kwargs.get("question") is not None:
+            raise ValueError("Pass QUESTION positionally or via --question, not both.")
+        kwargs = {**kwargs, "question": kwargs["question_option"]}
     for name in CONTENT[family] | _options(family).keys():
         value = kwargs.get(name)
         if isinstance(value, enum.Enum):
