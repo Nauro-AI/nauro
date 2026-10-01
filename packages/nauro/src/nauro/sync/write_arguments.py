@@ -5,9 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from nauro_core.identifiers import IdentifierKind, validate_identifier
-from nauro_core.mcp_tools import FLAG_QUESTION, UPDATE_STATE
+from nauro_core.mcp_tools import FLAG_QUESTION, UPDATE_STACK, UPDATE_STATE
 
-WRITE_SPECS = {"update_state": UPDATE_STATE, "flag_question": FLAG_QUESTION}
+WRITE_SPECS = {
+    "update_state": UPDATE_STATE,
+    "flag_question": FLAG_QUESTION,
+    "update_stack": UPDATE_STACK,
+}
 REFERENCE_FIELDS = {"operation_id", "payload_digest"}
 CONTENT_FIELDS = {
     name: set(spec["input_schema"]["properties"]) - REFERENCE_FIELDS - {"project_id"}
@@ -32,7 +36,12 @@ def validate_write_arguments(operation: str, arguments: dict[str, Any]) -> None:
         raise ValueError("Invalid write request mode.")
     revision = arguments.get("expected_revision")
     if revision is not None:
-        validate_identifier(IdentifierKind.state_revision, revision, field="expected_revision")
+        kind = (
+            IdentifierKind.stack_revision
+            if operation == "update_stack"
+            else IdentifierKind.state_revision
+        )
+        validate_identifier(kind, revision, field="expected_revision")
     supplied = {key for key, value in arguments.items() if value is not None}
     if mode != "submit" and supplied & CONTENT_FIELDS[operation]:
         raise ValueError("Reference modes cannot replace content.")

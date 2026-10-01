@@ -284,7 +284,7 @@ run_stdio()
         )
         async with stdio_client(params) as streams, ClientSession(*streams) as session:
             await session.initialize()
-            assert len((await session.list_tools()).tools) == 10
+            assert len((await session.list_tools()).tools) == 11
             result = await session.call_tool(
                 "get_raw_file", {"project_id": PROJECT_ID, "path": "state.md"}
             )

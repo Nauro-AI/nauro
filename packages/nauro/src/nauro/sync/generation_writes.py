@@ -17,6 +17,7 @@ from nauro.sync import state_submission as submission
 from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica, replica_status
 from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.question_writes import execute_question_write
+from nauro.sync.stack_writes import execute_stack_write
 from nauro.sync.state_transport import HttpStateTransport
 from nauro.sync.write_arguments import validate_write_arguments
 from nauro.sync.write_failures import write_failure
@@ -35,9 +36,10 @@ STATE_WRITE_GUIDANCE = (
     "An explicit expected_revision overrides that default; retries keep the saved revision."
 )
 
-FAMILIES = {"update_state": "state", "flag_question": "question"}
+FAMILIES = {"update_state": "state", "flag_question": "question", "update_stack": "stack"}
 CONTENT = {
     "state": {"delta", "expected_revision"},
+    "stack": {"content", "expected_revision"},
     "question": {"question", "context", "targets", "resolved_by"},
 }
 
@@ -56,6 +58,8 @@ def generation_write(
     except StoreResolutionError:
         return None
     if observe_generation_marker(binding) is None:
+        if operation == "update_stack":
+            return None
         if any(
             arguments.get(key) is not None
             for key in ("request_mode", "operation_id", "payload_digest", "expected_revision")
@@ -68,6 +72,9 @@ def generation_write(
     content = {key: arguments[key] for key in CONTENT[family] if arguments.get(key) is not None}
     operation_id, digest = arguments.get("operation_id"), arguments.get("payload_digest")
     with GenerationTransferSession(binding) as session:
+        if family == "stack":
+            output = execute_stack_write(mode, content, operation_id, digest, session)
+            return _finish_write(output, session, on_refreshed)
         if family == "question":
             output = execute_question_write(mode, content, operation_id, digest, session)
             return _finish_write(output, session, on_refreshed)
