@@ -308,7 +308,9 @@ def test_other_stdio_writes_use_typed_transport_before_local_adapter(
         response = tool(name, **args)
         assert response.isError is True
         result = value(response)
-    assert result["status"] == "unresolved"
+    assert result["status"] == "unverified"
+    assert result["error_code"] == "response_unverified"
+    assert result["unresolved"] is True
     assert result["operation_id"] == json.loads(requests[0].content)["operation_id"]
     assert len(requests) == 1
     assert requests[0].url.path == (
