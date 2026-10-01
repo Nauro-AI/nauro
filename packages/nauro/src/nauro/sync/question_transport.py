@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import httpx
 
-from nauro.auth import read_active_credentials
+from nauro.auth import ActiveCredentials, read_active_credentials
 from nauro.store.question_contract import (
     QuestionResult,
     QuestionTransportError,
+    verify_question_refusal,
     verify_question_response,
 )
 from nauro.store.question_records import QuestionSubmission
@@ -15,7 +18,14 @@ from nauro.store.submission_records import SubmissionActorMismatchError, require
 
 
 class HttpQuestionTransport:
-    def __init__(self, base_url: str, client: httpx.Client) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.Client,
+        *,
+        credentials: Callable[[], ActiveCredentials] | None = None,
+        require_actor: Callable[[str], None] | None = None,
+    ) -> None:
         url = httpx.URL(base_url)
         if (
             url.scheme != "https"
@@ -28,10 +38,12 @@ class HttpQuestionTransport:
             raise QuestionTransportError("Question transport requires a trusted HTTPS origin.")
         self._base_url = str(url).rstrip("/")
         self._client = client
+        self._credentials = credentials or read_active_credentials
+        self._require_actor = require_actor or require_submission_actor
 
     def _request(self, record: QuestionSubmission, *, lookup: bool) -> QuestionResult:
         record = QuestionSubmission.model_validate(record)
-        credentials = read_active_credentials()
+        credentials = self._credentials()
         if credentials.user_id != record.scope.user_id:
             raise SubmissionActorMismatchError(
                 "The active account does not own this question submission."
@@ -54,8 +66,7 @@ class HttpQuestionTransport:
                 timeout=25,
                 follow_redirects=False,
             ) as response:
-                if response.status_code != 200:
-                    raise QuestionTransportError("The server did not return a question result.")
+                status = response.status_code
                 raw = bytearray()
                 for chunk in response.iter_bytes():
                     raw.extend(chunk)
@@ -67,7 +78,11 @@ class HttpQuestionTransport:
             raise QuestionTransportError(
                 "The question outcome is unresolved. Look up its original identity."
             ) from exc
-        require_submission_actor(record.scope.user_id)
+        self._require_actor(record.scope.user_id)
+        if status != 200:
+            return verify_question_refusal(
+                bytes(raw), status, record.scope, record.payload_json, lookup=lookup
+            )
         return verify_question_response(
             bytes(raw), record.scope, record.payload_json, lookup=lookup
         )

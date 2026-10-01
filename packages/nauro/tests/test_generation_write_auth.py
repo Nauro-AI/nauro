@@ -7,6 +7,7 @@ import pytest
     "family,payload_args",
     [
         ("state", ("Current work",)),
+        ("question", ("Next step?",)),
     ],
 )
 def test_records_use_explicit_actor_and_keep_connection(
