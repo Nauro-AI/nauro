@@ -24,8 +24,12 @@ from mcp.server import FastMCP
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from nauro_core.constants import MCP_INSTRUCTIONS_STATIC, STATE_REVISION_ABSENT
-from nauro_core.mcp_tools import ToolSpec, get_tool_spec
+from nauro_core.constants import (
+    MCP_INSTRUCTIONS_STATIC,
+    STACK_REVISION_ABSENT,
+    STATE_REVISION_ABSENT,
+)
+from nauro_core.mcp_tools import UPDATE_STACK, ToolSpec, get_tool_spec
 from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field, create_model, model_validator
@@ -100,14 +104,16 @@ def _wrap_with_renderer(
 
 def _spec_kwargs(name: str) -> dict[str, Any]:
     """Build FastMCP @tool() decorator kwargs from the shared registry."""
-    spec: ToolSpec = get_tool_spec(name)
+    spec: ToolSpec = UPDATE_STACK if name == "update_stack" else get_tool_spec(name)
     description = spec["description"]
-    if name in {"update_state", "flag_question"}:
+    if name in {"update_state", "flag_question", "update_stack"}:
         from nauro.sync.generation_writes import STATE_WRITE_GUIDANCE, WRITE_GUIDANCE
 
         description += "\n\n" + WRITE_GUIDANCE
-        if name == "update_state":
-            description += " " + STATE_WRITE_GUIDANCE
+        if name in {"update_state", "update_stack"}:
+            description += " " + STATE_WRITE_GUIDANCE.replace(
+                "State", name.removeprefix("update_").title()
+            )
     return {
         "title": spec["title"],
         "description": description,
@@ -120,8 +126,11 @@ def _param_desc(tool_name: str, param: str) -> str:
 
     Read from the shared registry, not inlined, so the drift guards still cover it.
     """
-    spec: ToolSpec = get_tool_spec(tool_name)
-    if tool_name in {"update_state", "flag_question"} and param in MODE_DESCRIPTIONS:
+    spec: ToolSpec = UPDATE_STACK if tool_name == "update_stack" else get_tool_spec(tool_name)
+    if (
+        tool_name in {"update_state", "flag_question", "update_stack"}
+        and param in MODE_DESCRIPTIONS
+    ):
         return MODE_DESCRIPTIONS[param]
     props = spec["input_schema"].get("properties", {})
     if param not in props or "description" not in props[param]:
@@ -523,6 +532,53 @@ def update_state(
     return render_write_status(result, updated)
 
 
+@mcp.tool(**_spec_kwargs("update_stack"), structured_output=False)
+def update_stack(
+    content: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "content"))
+    ] = None,
+    project_id: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "project_id"))
+    ] = None,
+    request_mode: Annotated[
+        Literal["submit", "discover", "recover", "retry"] | None,
+        Field(description=_param_desc("update_stack", "request_mode")),
+    ] = None,
+    operation_id: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "operation_id"))
+    ] = None,
+    payload_digest: Annotated[
+        str | None, Field(description=_param_desc("update_stack", "payload_digest"))
+    ] = None,
+    expected_revision: Annotated[
+        str | None,
+        Field(
+            pattern=rf"^(?:[0-9a-f]{{64}}|{STACK_REVISION_ABSENT})$",
+            description="Optional stack revision from an authorized read; "
+            "defaults to the installed replica's revision.",
+        ),
+    ] = None,
+    cwd: _CWD_PARAM = None,
+    mcp_ctx: Context | None = None,
+) -> str | dict | CallToolResult:
+    from nauro.sync.generation_writes import generation_write
+
+    validate_write_arguments("update_stack", locals())
+    result = generation_write("update_stack", locals(), on_refreshed=regenerate_refreshed_guidance)
+    if result is not None:
+        return _generation_write_result(result)
+    _, err = _resolve_or_error(project_id, cwd)
+    if err is not None:
+        return err if disconnected_reason_code(err) is not None else err["guidance"]
+    return _generation_write_result(
+        {
+            "status": "blocked",
+            "error_code": "generation_required",
+            "guidance": "update_stack requires a generation replica.",
+        }
+    )
+
+
 class _WriteFuncMetadata(FuncMetadata):
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
         """Preserve scalar strings while retaining encoded-list input compatibility."""
@@ -552,6 +608,7 @@ def _register_write_validation(operation: str) -> None:
 
 _register_write_validation("update_state")
 _register_write_validation("flag_question")
+_register_write_validation("update_stack")
 register_argument_validation(mcp)
 
 

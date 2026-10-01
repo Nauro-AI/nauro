@@ -3,6 +3,7 @@
 import httpx
 
 from nauro.store.question_contract import QuestionTransportError
+from nauro.store.stack_contract import StackTransportError
 from nauro.store.state_contract import StateTransportError
 from nauro.store.submission_records import (
     SubmissionActorMismatchError,
@@ -11,18 +12,24 @@ from nauro.store.submission_records import (
 )
 from nauro.sync.generation_session import GenerationConnectionError
 from nauro.sync.question_submission import QuestionRecoveryRequiredError, QuestionRetryExpiredError
+from nauro.sync.stack_submission import StackRecoveryRequiredError, StackRetryExpiredError
 from nauro.sync.state_submission import StateRecoveryRequiredError, StateRetryExpiredError
 
 
 def write_failure(error: Exception) -> dict[str, object]:
-    if isinstance(error, (StateRetryExpiredError, QuestionRetryExpiredError)):
+    if isinstance(
+        error, (StateRetryExpiredError, QuestionRetryExpiredError, StackRetryExpiredError)
+    ):
         status, code, guidance = (
             "retry_expired",
             "retry_horizon_expired",
             "The original 24-hour retry window has expired. Do not resend this attempt. "
             "Reconcile its outcome before creating a new write.",
         )
-    elif isinstance(error, (StateRecoveryRequiredError, QuestionRecoveryRequiredError)):
+    elif isinstance(
+        error,
+        (StateRecoveryRequiredError, QuestionRecoveryRequiredError, StackRecoveryRequiredError),
+    ):
         status, code, guidance = (
             "recovery_required",
             "lookup_required",
@@ -47,7 +54,7 @@ def write_failure(error: Exception) -> dict[str, object]:
             "transport_outcome_unknown",
             "Recover this saved operation before retrying.",
         )
-    elif isinstance(error, (StateTransportError, QuestionTransportError)):
+    elif isinstance(error, (StateTransportError, QuestionTransportError, StackTransportError)):
         status, code, guidance = (
             "unverified",
             "response_unverified",

@@ -188,7 +188,7 @@ def test_tools_section_is_one_compact_paragraph():
     """
     result = generate_agents_md("myproj", "payload")
     compact = (
-        "Nauro's 10 tools are available over MCP; without MCP, the same tools "
+        "Nauro's tools are available over MCP; without MCP, the same tools "
         "work as `nauro <tool-name>` shell commands (underscores become "
         "hyphens, e.g. `nauro check-decision`). Run `nauro --help` for the "
         "full list."
@@ -199,17 +199,15 @@ def test_tools_section_is_one_compact_paragraph():
     assert "### When to use these tools" not in result
 
 
-def test_tools_paragraph_count_matches_cli_mirror_allowlist():
-    """The rendered tool count must track the CLI mirror surface.
+def test_cli_mirrors_every_registered_stdio_tool():
+    from typer.main import get_command
 
-    The compact paragraph claims N tools mirror as shell commands; that
-    mirror set is AUTOGEN_ALLOWLIST, so the rendered number is pinned to its
-    length instead of being left to drift when a tool is added or removed.
-    """
-    from nauro.cli.autogen import AUTOGEN_ALLOWLIST
+    from nauro.cli.main import app
+    from nauro.mcp.stdio_server import mcp
 
-    result = generate_agents_md("myproj", "payload")
-    assert f"Nauro's {len(AUTOGEN_ALLOWLIST)} tools are available over MCP" in result
+    commands = get_command(app).commands
+    tools = {tool.name.replace("_", "-") for tool in mcp._tool_manager.list_tools()}
+    assert tools <= commands.keys()
 
 
 def test_generate_with_manual_section():
