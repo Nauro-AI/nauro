@@ -284,7 +284,20 @@ run_stdio()
         )
         async with stdio_client(params) as streams, ClientSession(*streams) as session:
             await session.initialize()
-            assert len((await session.list_tools()).tools) == 10
+            assert {tool.name for tool in (await session.list_tools()).tools} == {
+                "get_context",
+                "get_raw_file",
+                "list_decisions",
+                "get_decision",
+                "diff_since_last_session",
+                "search_decisions",
+                "check_decision",
+                "propose_decision",
+                "flag_question",
+                "update_state",
+                "update_stack",
+                "share_context",
+            }
             result = await session.call_tool(
                 "get_raw_file", {"project_id": PROJECT_ID, "path": "state.md"}
             )

@@ -111,7 +111,20 @@ def test_normal_tool_adds_reference_modes_without_new_tools():
     assert "request_mode" in tool.parameters["properties"]
     assert "rationale" not in tool.parameters.get("required", [])
     assert tool.parameters["oneOf"][0]["required"] == ["rationale"]
-    assert len(mcp._tool_manager.list_tools()) == 10
+    assert {tool.name for tool in mcp._tool_manager.list_tools()} == {
+        "get_context",
+        "get_raw_file",
+        "list_decisions",
+        "get_decision",
+        "diff_since_last_session",
+        "search_decisions",
+        "check_decision",
+        "propose_decision",
+        "flag_question",
+        "update_state",
+        "update_stack",
+        "share_context",
+    }
     assert reference_schema()["properties"]["request_mode"]["default"] == "prepare"
 
 
