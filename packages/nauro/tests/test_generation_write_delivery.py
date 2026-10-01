@@ -192,6 +192,38 @@ def test_cli_submits_each_public_operation(delivery, command):
     assert json.loads(result.output)["guidance_status"] == {"status": "updated"}
 
 
+@pytest.mark.parametrize(
+    "command", ["update-state", "flag-question", "update-stack", "share-context"]
+)
+@pytest.mark.parametrize(
+    "status,exit_code", [("committed", 0), ("unresolved", 1), ("discovered", 0)]
+)
+def test_cli_text_preserves_status_and_saved_reference(monkeypatch, command, status, exit_code):
+    from nauro.cli import generation_writes as cli_writes
+    from nauro.cli.main import app
+
+    response = {
+        "status": status,
+        "operation_id": "saved-operation",
+        "payload_digest": "a" * 64,
+        "unresolved": status == "unresolved",
+        "guidance": "Keep this reference.",
+        "replica_status": {"error_code": "receipt_refresh_required"},
+    }
+    monkeypatch.setattr(cli_writes, "generation_write", lambda *a, **k: response)
+    result = CliRunner().invoke(app, [command, "--request-mode", "discover", "--format", "text"])
+    assert result.exit_code == exit_code
+    unresolved = "true" if status == "unresolved" else "false"
+    assert result.stdout == (
+        f"status: {status}\noperation_id: saved-operation\npayload_digest: {'a' * 64}\n"
+        f"unresolved: {unresolved}\nguidance: Keep this reference.\n"
+        'replica_status: {"error_code": "receipt_refresh_required"}\n'
+    )
+    json_result = CliRunner().invoke(app, [command, "--request-mode", "discover", "--no-json"])
+    assert json_result.exit_code == exit_code
+    assert json.loads(json_result.stdout) == response
+
+
 def test_account_switch_refuses_before_send(delivery):
     session, calls, _ = delivery
     session.require_actor.side_effect = ValueError("account changed")

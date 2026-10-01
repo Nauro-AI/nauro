@@ -76,7 +76,7 @@ def _request(family: str, kwargs: dict[str, Any]) -> dict[str, Any]:
             request[name] = value
     if family == "question" and kwargs.get("question_option") is not None:
         if request.get("question") is not None:
-            raise typer.BadParameter("Pass question once.")
+            raise typer.BadParameter("Pass QUESTION positionally or via --question, not both.")
         request["question"] = kwargs["question_option"]
     return request
 
@@ -104,7 +104,15 @@ def with_write_options(command: Callable[..., None], spec: ToolSpec) -> Callable
                 kwargs.pop(name, None)
             command(**kwargs)
             return
-        typer.echo(json.dumps(result, indent=2))
+        if kwargs.get("output_format") == "text":
+            typer.echo(
+                "\n".join(
+                    f"{key}: {value if isinstance(value, str) else json.dumps(value)}"
+                    for key, value in result.items()
+                )
+            )
+        else:
+            typer.echo(json.dumps(result, indent=2))
         if result.get("unresolved") or result.get("status") not in {"committed", "discovered"}:
             raise typer.Exit(1)
 
