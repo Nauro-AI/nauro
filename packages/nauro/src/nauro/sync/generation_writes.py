@@ -131,6 +131,17 @@ def _execute(
     )
     try:
         result = getattr(submission, f"{mode}_{family}")(record.scope, transport, **auth)
+    except getattr(submission, family.title() + "RetryExpiredError"):
+        return {
+            **reference,
+            "status": "retry_expired",
+            "error_code": "retry_horizon_expired",
+            "unresolved": True,
+            "guidance": (
+                "The original 24-hour retry window has expired. Do not resend this attempt. "
+                "Reconcile its outcome before creating a new write."
+            ),
+        }
     except (SubmissionRecordError, *REFRESH_FAILURES):
         return {
             **reference,

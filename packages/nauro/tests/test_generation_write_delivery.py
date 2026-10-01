@@ -200,27 +200,58 @@ def test_account_switch_refuses_before_send(delivery):
     assert calls == []
 
 
-def test_expired_retry_only_looks_up_original_attempt(delivery):
-    from nauro.store import state_records
+@pytest.mark.parametrize("operation,content", CASES)
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+def test_expired_retry_only_looks_up_original_attempt(delivery, operation, content, surface):
+    from nauro.cli.main import app
+    from nauro.mcp import stdio_server
 
     session, calls, behavior = delivery
     behavior["drop"] = True
-    result = writes.generation_write("update_state", {"delta": "Frozen state"})
-    (record,) = state_records.list_state_submissions(
+    result = writes.generation_write(operation, content)
+    family = writes.FAMILIES[operation]
+    records = importlib.import_module(f"nauro.store.{family}_records")
+    (record,) = getattr(records, f"list_{family}_submissions")(
         PROJECT, ACTOR, require_actor=session.require_actor
     )
-    state_records._write(record.model_copy(update={"created_at": "2020-01-01T00:00:00.000000Z"}))
+    records._write(record.model_copy(update={"created_at": "2020-01-01T00:00:00.000000Z"}))
     behavior.update(drop=False, status="absent")
-    retried = writes.generation_write(
-        "update_state",
-        {
-            "request_mode": "retry",
-            "operation_id": result["operation_id"],
-            "payload_digest": result["payload_digest"],
-        },
-    )
-    assert retried["status"] == "unresolved"
-    assert [request.url.path for request in calls] == ["/state/submit", "/state/lookup"]
+    reference = {key: result[key] for key in ("operation_id", "payload_digest")}
+    if surface == "cli":
+        response = CliRunner().invoke(
+            app,
+            [
+                operation.replace("_", "-"),
+                "--request-mode",
+                "retry",
+                "--operation-id",
+                reference["operation_id"],
+                "--payload-digest",
+                reference["payload_digest"],
+            ],
+        )
+        assert response.exit_code == 1, response.output
+        retried = json.loads(response.stdout)
+    else:
+        response = getattr(stdio_server, operation)(request_mode="retry", **reference)
+        assert response.isError is True
+        retried = json.loads(response.content[0].text)
+    assert retried == {
+        **reference,
+        "status": "retry_expired",
+        "error_code": "retry_horizon_expired",
+        "unresolved": True,
+        "guidance": (
+            "The original 24-hour retry window has expired. Do not resend this attempt. "
+            "Reconcile its outcome before creating a new write."
+        ),
+    }
+    route = "questions" if family == "question" else family
+    assert [request.url.path for request in calls] == [f"/{route}/submit", f"/{route}/lookup"]
+    assert [json.loads(request.content)["operation_id"] for request in calls] == [
+        reference["operation_id"],
+        reference["operation_id"],
+    ]
 
 
 def test_saved_generation_attempt_survives_process_restart(delivery):
