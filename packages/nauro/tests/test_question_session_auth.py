@@ -8,7 +8,11 @@ import pytest
 
 from nauro.auth import ActiveCredentials
 from nauro.store import question_records as records
-from nauro.store.question_contract import question_payload, resolution_payload
+from nauro.store.question_contract import (
+    QuestionTransportError,
+    question_payload,
+    resolution_payload,
+)
 from nauro.store.submission_records import SubmissionActorMismatchError
 from nauro.sync import question_submission as submission
 from nauro.sync.question_transport import HttpQuestionTransport
@@ -42,6 +46,7 @@ def test_session_authority_survives_restart_without_global_credentials(home, act
         transport = HttpQuestionTransport(
             "https://example.test",
             client,
+            connection="endpoint-binding",
             credentials=lambda: ActiveCredentials(USER, "session-token"),
             **auth,
         )
@@ -92,3 +97,60 @@ def test_session_account_change_never_accepts_response(home, changed_after_reque
     assert requests == (["/questions/submit"] if changed_after_request else [])
     assert guard.call_count == (1 if changed_after_request else 0)
     assert records.read_question_submission(record.scope).phase == "prepared"
+
+
+@pytest.mark.parametrize("mode", ["submit", "recover", "retry"])
+@pytest.mark.parametrize(
+    "saved,active",
+    [
+        ("https://first.test", "https://second.test"),
+        ("https://first.test", None),
+        (None, "https://second.test"),
+    ],
+)
+def test_connection_mismatch_never_sends_saved_attempt(home, mode, saved, active):
+    record = records.prepare_question_submission(
+        PROJECT, USER, question_payload("Next?"), connection=saved
+    )
+    handler = Mock()
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        transport = HttpQuestionTransport(
+            "https://second.test",
+            client,
+            connection=active,
+            credentials=lambda: ActiveCredentials(USER, "same-user-token"),
+        )
+        with pytest.raises(QuestionTransportError, match="connection does not match"):
+            getattr(submission, f"{mode}_question")(record.scope, transport)
+    handler.assert_not_called()
+    persisted = records.read_question_submission(record.scope)
+    assert persisted.connection == saved
+    assert persisted.payload_json == record.payload_json
+    assert persisted.payload_digest == record.payload_digest
+    assert persisted.result is None
+
+
+@pytest.mark.parametrize("mode", ["submit", "recover", "retry"])
+@pytest.mark.parametrize("connection", [None, "https://first.test", "https://second.test"])
+def test_matching_connection_or_legacy_default_accepts_bound_receipt(home, mode, connection):
+    record = records.prepare_question_submission(
+        PROJECT, USER, question_payload("Next?"), connection=connection
+    )
+    calls = []
+
+    def handler(request):
+        calls.append((str(request.url), request.headers["Authorization"]))
+        return httpx.Response(200, json=_body(record))
+
+    origin = connection or "https://legacy.test"
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        transport = HttpQuestionTransport(
+            origin,
+            client,
+            connection=connection,
+            credentials=lambda: ActiveCredentials(USER, "same-user-token"),
+        )
+        result = getattr(submission, f"{mode}_question")(record.scope, transport)
+    assert result.status == "committed"
+    route = "submit" if mode == "submit" else "lookup"
+    assert calls == [(f"{origin}/questions/{route}", "Bearer same-user-token")]

@@ -23,6 +23,7 @@ class HttpQuestionTransport:
         base_url: str,
         client: httpx.Client,
         *,
+        connection: str | None = None,
         credentials: Callable[[], ActiveCredentials] | None = None,
         require_actor: Callable[[str], None] | None = None,
     ) -> None:
@@ -38,11 +39,16 @@ class HttpQuestionTransport:
             raise QuestionTransportError("Question transport requires a trusted HTTPS origin.")
         self._base_url = str(url).rstrip("/")
         self._client = client
+        self._connection = connection
         self._credentials = credentials or read_active_credentials
         self._require_actor = require_actor or require_submission_actor
 
     def _request(self, record: QuestionSubmission, *, lookup: bool) -> QuestionResult:
         record = QuestionSubmission.model_validate(record)
+        if record.connection != self._connection:
+            raise QuestionTransportError(
+                "The saved question connection does not match this transport."
+            )
         credentials = self._credentials()
         if credentials.user_id != record.scope.user_id:
             raise SubmissionActorMismatchError(
