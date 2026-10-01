@@ -168,7 +168,8 @@ def generate_agents_md(
         "Nauro's 12 tools are available over MCP; without MCP, the same tools "
         "work as `nauro <tool-name>` shell commands (underscores become "
         "hyphens, e.g. `nauro check-decision`). Run `nauro --help` for the "
-        "full list.\n\n"
+        "full list. `update_stack` and `share_context` require an authenticated "
+        "generation replica.\n\n"
         "**Keep public-facing artifacts public.** Paraphrase Nauro rationale instead of\n"
         "citing raw decision or question ids. Internal planning and review may cite ids.\n"
     )

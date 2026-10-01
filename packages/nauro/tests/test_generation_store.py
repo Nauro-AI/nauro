@@ -149,6 +149,7 @@ def test_store_has_only_dormant_generation_consumers():
         "sync/generation_guidance.py",
         "sync/generation_refresh.py",
         "sync/generation_refresh_status.py",
+        "sync/generation_writes.py",
         "templates/agents_md.py",
         "templates/agents_md_regen.py",
         "templates/generation_guidance.py",
