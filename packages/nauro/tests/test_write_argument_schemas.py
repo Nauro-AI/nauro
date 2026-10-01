@@ -9,7 +9,11 @@ from pydantic import ValidationError
 from nauro.mcp.stdio_server import mcp
 
 REFERENCE = {"operation_id": "a" * 32, "payload_digest": "b" * 64}
-PAYLOADS = {"update_state": {"delta": "Current work"}, "flag_question": {"question": "Next?"}}
+PAYLOADS = {
+    "update_state": {"delta": "Current work"},
+    "flag_question": {"question": "Next?"},
+    "update_stack": {"content": "Python"},
+}
 
 
 @pytest.mark.parametrize("name", PAYLOADS)
@@ -118,6 +122,7 @@ def test_state_modes_preserve_registered_tool_inventory():
         "check_decision",
         "flag_question",
         "update_state",
+        "update_stack",
         "search_decisions",
         "get_raw_file",
         "list_decisions",

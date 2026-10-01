@@ -28,7 +28,7 @@ class WriteMode(str, enum.Enum):
 
 def _options(family: str) -> dict[str, type]:
     options = {"request_mode": WriteMode, "operation_id": str, "payload_digest": str}
-    if family == "state":
+    if family in {"state", "stack"}:
         options["expected_revision"] = str
     return options
 
@@ -52,7 +52,7 @@ def _parameters(command: Callable[..., None], family: str) -> list[inspect.Param
         ),
         "operation_id": "Original saved operation identity for recover or retry.",
         "payload_digest": "Original saved payload digest for recover or retry.",
-        "expected_revision": "Optional revision from an authorized state read.",
+        "expected_revision": f"Optional revision from an authorized {family} read.",
     }
     parameters.extend(
         inspect.Parameter(
@@ -99,7 +99,7 @@ def with_write_options(command: Callable[..., None], spec: ToolSpec) -> Callable
             raise typer.BadParameter(str(error)) from None
         if result is None:
             for name in spec["input_schema"].get("required", []):
-                if kwargs.get(name) is None:
+                if family != "stack" and kwargs.get(name) is None:
                     raise typer.BadParameter(f"Missing argument {name.upper()}")
             for name in _options(family):
                 kwargs.pop(name, None)
