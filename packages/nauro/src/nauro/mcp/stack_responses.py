@@ -37,6 +37,12 @@ _RESULT_TEXT = {
 def _response(result: StackResult) -> CallToolResult:
     if isinstance(result, StackCommitted):
         text = "Stack operation committed. This receipt does not establish current local state."
+    elif result.status == "refused":
+        text = f"Stack request refused: {result.server_code}. " + (
+            "The original write outcome remains unknown. Restore access and recover this reference."
+            if result.unresolved
+            else "This attempt did not write. Correct the refusal before a new attempt."
+        )
     else:
         text = _RESULT_TEXT[result.status]
     return CallToolResult(
