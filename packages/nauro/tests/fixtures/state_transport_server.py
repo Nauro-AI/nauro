@@ -8,6 +8,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
+from fastapi import HTTPException
+from mcp_server import state_transport
 from tests.test_authenticated_client_recovery import _tls_context
 from tests.test_judgment_staging import _object_inventory, _scan_table
 from tests.test_state_transport import BASE_STATE, USER_ID, _advance_state, transport
@@ -39,10 +41,22 @@ with httpx.Client(verify=ssl.create_default_context(cafile=certificate), trust_e
 """
 
 
-@pytest.mark.parametrize("scenario", ["commit_drop", "noop_drop", "noop_saved"])
-def test_state_client_restart_over_tls(transport, s3_bucket, tmp_path, scenario):
+@pytest.mark.parametrize("scenario", ["commit_drop", "noop_drop", "noop_saved", "commit_refused"])
+def test_state_client_restart_over_tls(transport, s3_bucket, tmp_path, scenario, monkeypatch):
     context, certificate = _tls_context(transport.key, tmp_path)
     calls, receipts, failures = [], [], []
+    if scenario == "commit_refused":
+        membership = state_transport._membership
+        membership_calls = 0
+
+        def revoke_after_submit(scope):
+            nonlocal membership_calls
+            membership_calls += 1
+            if membership_calls == 2:
+                raise HTTPException(403, "forbidden")
+            return membership(scope)
+
+        monkeypatch.setattr(state_transport, "_membership", revoke_after_submit)
     if scenario.startswith("noop"):
         _advance_state(None)
 
@@ -59,15 +73,16 @@ def test_state_client_restart_over_tls(transport, s3_bucket, tmp_path, scenario)
                     content=body,
                     headers={"Authorization": self.headers["Authorization"]},
                 )
-                assert response.status_code == 200, response.text
+                expected = 403 if scenario == "commit_refused" and len(calls) == 1 else 200
+                assert response.status_code == expected, response.text
                 value = response.json()
-                if value["status"] == "committed":
+                if value.get("status") == "committed":
                     receipts.append(value["receipt_json"])
                 if len(calls) == 1 and scenario.endswith("drop"):
                     self.connection.shutdown(socket.SHUT_RDWR)
                     self.connection.close()
                     return
-                self.send_response(200)
+                self.send_response(response.status_code)
                 self.send_header("Content-Length", str(len(response.content)))
                 self.end_headers()
                 self.wfile.write(response.content)
@@ -104,6 +119,10 @@ def test_state_client_restart_over_tls(transport, s3_bucket, tmp_path, scenario)
         try:
             sent = invoke("send")
             assert sent.returncode == (17 if scenario.endswith("drop") else 0), sent.stderr.decode()
+            if scenario == "commit_refused":
+                assert json.loads(sent.stdout)["status"] == "refused"
+                assert json.loads(sent.stdout)["server_code"] == "forbidden"
+                assert json.loads(sent.stdout)["unresolved"] is True
             if scenario == "noop_saved":
                 assert json.loads(sent.stdout)["unresolved"] is True
                 _advance_state(BASE_STATE)

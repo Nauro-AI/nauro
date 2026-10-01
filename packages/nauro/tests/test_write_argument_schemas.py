@@ -116,3 +116,20 @@ def test_state_modes_preserve_registered_tool_inventory():
         "get_decision",
         "diff_since_last_session",
     }
+
+
+@pytest.mark.parametrize("revision", [None, "absent", "a" * 64, "null", "A" * 64, "a" * 63])
+def test_state_revision_schema_matches_runtime(revision):
+    tool = mcp._tool_manager.get_tool("update_state")
+    arguments = {"delta": "Current work", "expected_revision": revision}
+    if revision is None or revision in {"absent", "a" * 64}:
+        Draft202012Validator(tool.parameters).validate(arguments)
+        tool.fn_metadata.arg_model.model_validate(arguments)
+    else:
+        assert list(Draft202012Validator(tool.parameters).iter_errors(arguments))
+        with pytest.raises(ValidationError):
+            tool.fn_metadata.arg_model.model_validate(arguments)
+    assert tool.parameters["properties"]["expected_revision"]["description"] == (
+        "Optional state revision from an authorized read; "
+        "defaults to the installed replica's revision."
+    )

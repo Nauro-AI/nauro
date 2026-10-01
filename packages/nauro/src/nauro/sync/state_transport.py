@@ -7,7 +7,12 @@ from collections.abc import Callable
 import httpx
 
 from nauro.auth import ActiveCredentials, read_active_credentials
-from nauro.store.state_contract import StateResult, StateTransportError, verify_state_response
+from nauro.store.state_contract import (
+    StateResult,
+    StateTransportError,
+    verify_state_refusal,
+    verify_state_response,
+)
 from nauro.store.state_records import StateSubmission
 from nauro.store.submission_records import SubmissionActorMismatchError, require_submission_actor
 
@@ -61,8 +66,7 @@ class HttpStateTransport:
                 timeout=25,
                 follow_redirects=False,
             ) as response:
-                if response.status_code != 200:
-                    raise StateTransportError("The server did not return a state result.")
+                status = response.status_code
                 raw = bytearray()
                 for chunk in response.iter_bytes():
                     raw.extend(chunk)
@@ -73,6 +77,10 @@ class HttpStateTransport:
                 "The state outcome is unresolved. Look up its original identity."
             ) from exc
         self._require_actor(record.scope.user_id)
+        if status != 200:
+            return verify_state_refusal(
+                bytes(raw), status, record.scope, record.payload_digest, lookup=lookup
+            )
         return verify_state_response(bytes(raw), record.scope, record.payload_json, lookup=lookup)
 
     def submit(self, record: StateSubmission) -> StateResult:

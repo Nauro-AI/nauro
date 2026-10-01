@@ -24,7 +24,7 @@ from mcp.server import FastMCP
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from nauro_core.constants import MCP_INSTRUCTIONS_STATIC
+from nauro_core.constants import MCP_INSTRUCTIONS_STATIC, STATE_REVISION_ABSENT
 from nauro_core.mcp_tools import ToolSpec, get_tool_spec
 from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 from nauro_core.renderers import disconnected_reason_code
@@ -476,7 +476,14 @@ def update_state(
     payload_digest: Annotated[
         str | None, Field(description=_param_desc("update_state", "payload_digest"))
     ] = None,
-    expected_revision: str | None = None,
+    expected_revision: Annotated[
+        str | None,
+        Field(
+            pattern=rf"^(?:[0-9a-f]{{64}}|{STATE_REVISION_ABSENT})$",
+            description="Optional state revision from an authorized read; "
+            "defaults to the installed replica's revision.",
+        ),
+    ] = None,
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
 ) -> str | dict | CallToolResult:

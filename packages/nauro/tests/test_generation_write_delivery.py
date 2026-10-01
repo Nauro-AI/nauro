@@ -419,7 +419,7 @@ def test_nonterminal_observations_preserve_saved_attempt(delivery, status, surfa
     writes.refresh_replica.assert_not_called()
 
 
-@pytest.mark.parametrize("selected", [PROJECT, "Target", ""])
+@pytest.mark.parametrize("selected", [PROJECT, "Target", "", "missing"])
 def test_cli_explicit_project_from_another_repo(delivery, tmp_path, monkeypatch, selected):
     from nauro.cli.main import app
     from nauro.store.registry import register_project_v2
@@ -440,9 +440,10 @@ def test_cli_explicit_project_from_another_repo(delivery, tmp_path, monkeypatch,
 
     result = CliRunner().invoke(app, ["update-state", "Frozen state", "--project", selected])
 
-    if selected == "":
-        assert result.exit_code == 2, result.output
-        assert "No Nauro project found" in result.output
+    if selected in {"", "missing"}:
+        assert result.exit_code == 1, result.output
+        assert f"Unknown project '{selected}'." in result.output
+        assert "Available projects: Other, Target" in result.output
         create_session.assert_not_called()
         assert calls == []
         return
@@ -586,3 +587,64 @@ def test_unavailable_prepare_lock_returns_structured_failure(delivery, monkeypat
         "then recover this reference before another write.",
     }
     assert calls == []
+
+
+def test_cli_legacy_target_survives_unrelated_strict_registry_error(tmp_path, monkeypatch):
+    from nauro.cli.main import app
+    from nauro.demo import create_demo_project
+    from nauro.store.registry import load_registry_v2, register_project_v2, save_registry_v2
+    from nauro.store.resolution import StoreResolutionError, resolve_project_binding
+
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
+    _, store = register_project_v2("Target", [])
+    create_demo_project(store)
+    other, _ = register_project_v2("Other", [])
+    registry = load_registry_v2()
+    registry["projects"][other]["repo_paths"] = ["relative/path"]
+    save_registry_v2(registry)
+    with pytest.raises(StoreResolutionError):
+        resolve_project_binding("Target", None, use_cwd=False)
+
+    response = CliRunner().invoke(app, ["update-state", "New legacy state", "--project", "Target"])
+
+    assert response.exit_code == 0, response.output
+    assert "New legacy state" in (store / "state_current.md").read_text()
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+@pytest.mark.parametrize(
+    "status,code", [(403, "project_not_selected"), (409, "single_writer_refused")]
+)
+def test_public_state_refusal_keeps_saved_reference(delivery, surface, status, code):
+    import asyncio
+
+    from nauro.cli.main import app
+    from nauro.mcp.stdio_server import mcp
+    from nauro.store.state_records import list_state_submissions
+
+    session, _, _ = delivery
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(status, json={"detail": code}))
+    ) as client:
+        session.client = client
+        if surface == "cli":
+            response = CliRunner().invoke(app, ["update-state", "Frozen state"])
+            assert response.exit_code == 1, response.output
+            result = json.loads(response.stdout)
+        else:
+            response = asyncio.run(
+                mcp._tool_manager.get_tool("update_state").run({"delta": "Frozen state"})
+            )
+            assert response.isError is True
+            result = json.loads(response.content[0].text)
+    (saved,) = list_state_submissions(PROJECT, ACTOR, require_actor=session.require_actor)
+    assert result["status"] == "refused"
+    assert result["unresolved"] is False
+    assert result["error_code"] == code
+    assert result["server_code"] == code
+    assert result["http_status"] == status
+    assert result["operation_id"] == saved.scope.operation_id
+    assert result["payload_digest"] == saved.payload_digest
+    assert saved.phase == "resolved"
+    assert "This attempt did not write." in result["guidance"]
+    writes.refresh_replica.assert_not_called()

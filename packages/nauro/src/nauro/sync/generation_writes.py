@@ -48,8 +48,6 @@ def generation_write(
             arguments.get("project_id"), arguments.get("cwd") or Path.cwd(), use_cwd=use_cwd
         )
     except StoreResolutionError:
-        if not use_cwd:
-            raise
         return None
     if observe_generation_marker(binding) is None:
         if any(
@@ -128,6 +126,17 @@ def _execute(
     except (SubmissionRecordError, *REFRESH_FAILURES) as error:
         return {**reference, **write_failure(error)}
     output = {**result.model_dump(mode="json"), **reference}
+    if result.status == "refused":
+        output["error_code"] = result.server_code
+        output["guidance"] = (
+            "Restore the refused request's authorization, project admission, or payload. "
+            + (
+                "The original write outcome remains unknown. Then recover this reference "
+                "before any new write; do not resend while access is refused."
+                if result.unresolved
+                else "This attempt did not write. Correct the refusal before a new attempt."
+            )
+        )
     if result.status == "revision_conflict_observed":
         output["guidance"] = (
             "Refresh the replica and re-read the current document before preparing a new write. "

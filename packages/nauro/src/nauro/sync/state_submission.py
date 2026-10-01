@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from nauro.store.state_contract import (
+    StateRefused,
     StateResult,
     StateScope,
     StateTransportError,
@@ -62,8 +63,16 @@ def _accept(
 ) -> StateResult:
     require_actor = require_actor or require_submission_actor
     result = verify_state_response(
-        result.model_dump_json().encode(), record.scope, record.payload_json, lookup=lookup
+        result.model_dump_json().encode(),
+        record.scope,
+        record.payload_json,
+        lookup=lookup,
+        local=True,
     )
+    if isinstance(result, StateRefused) and result.request_mode != (
+        "lookup" if lookup else "submit"
+    ):
+        raise StateTransportError("The refused state request mode differs.")
     require_actor(record.scope.user_id)
     record_state_result(record, result, require_actor=require_actor)
     require_actor(record.scope.user_id)
@@ -82,6 +91,12 @@ def _send(
     require_actor(record.scope.user_id)
     _require_window(uncertain)
     result = transport.submit(uncertain)
+    if (
+        isinstance(result, StateRefused)
+        and record.phase == "prepared"
+        and result.before_publication
+    ):
+        result = StateRefused.model_validate({**result.model_dump(), "unresolved": False})
     if result.status == "absent":
         raise StateTransportError("A state send cannot return an absent lookup result.")
     return _accept(uncertain, result, lookup=False, require_actor=require_actor)

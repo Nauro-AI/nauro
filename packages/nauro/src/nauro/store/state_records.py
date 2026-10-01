@@ -78,7 +78,7 @@ class StateSubmission(ClosedModel):
             raise ValueError("state payload digest differs")
         if self.result is not None:
             verify_state_response(
-                self.result.model_dump_json().encode(), self.scope, self.payload_json
+                self.result.model_dump_json().encode(), self.scope, self.payload_json, local=True
             )
         terminal = self.result is not None and not self.result.unresolved
         if (self.phase == "resolved") != terminal:

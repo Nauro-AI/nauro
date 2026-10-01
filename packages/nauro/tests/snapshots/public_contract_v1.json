@@ -2090,6 +2090,7 @@
       "expected_revision": {
         "anyOf": [
           {
+            "pattern": "^(?:[0-9a-f]{64}|absent)$",
             "type": "string"
           },
           {
@@ -2097,6 +2098,7 @@
           }
         ],
         "default": null,
+        "description": "Optional state revision from an authorized read; defaults to the installed replica's revision.",
         "title": "Expected Revision"
       },
       "operation_id": {
