@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
@@ -35,8 +36,11 @@ class ShareTransport(Protocol):
     def lookup(self, record: ShareSubmission) -> ShareResult: ...
 
 
-def _load(scope: ShareScope) -> ShareSubmission:
-    record = read_share_submission(scope)
+def _load(
+    scope: ShareScope, *, require_actor: Callable[[str], None] | None = None
+) -> ShareSubmission:
+    require_actor = require_actor or require_submission_actor
+    record = read_share_submission(scope, require_actor=require_actor)
     if record is None:
         raise SubmissionRecordError("The saved share submission is missing.")
     return record
@@ -49,56 +53,89 @@ def _require_window(record: ShareSubmission) -> None:
         raise ShareRetryExpiredError("The share submission is outside the resend horizon.")
 
 
-def _accept(record: ShareSubmission, result: ShareResult, *, lookup: bool) -> ShareResult:
+def _accept(
+    record: ShareSubmission,
+    result: ShareResult,
+    *,
+    lookup: bool,
+    require_actor: Callable[[str], None] | None = None,
+) -> ShareResult:
+    require_actor = require_actor or require_submission_actor
     result = verify_share_response(
         result.model_dump_json().encode(), record.scope, record.payload_json, lookup=lookup
     )
-    require_submission_actor(record.scope.user_id)
-    record_share_result(record, result)
-    require_submission_actor(record.scope.user_id)
+    require_actor(record.scope.user_id)
+    record_share_result(record, result, require_actor=require_actor)
+    require_actor(record.scope.user_id)
     return result
 
 
-def _send(record: ShareSubmission, transport: ShareTransport) -> ShareResult:
+def _send(
+    record: ShareSubmission,
+    transport: ShareTransport,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> ShareResult:
+    require_actor = require_actor or require_submission_actor
     _require_window(record)
-    uncertain = mark_share_uncertain(record)
-    require_submission_actor(record.scope.user_id)
+    uncertain = mark_share_uncertain(record, require_actor=require_actor)
+    require_actor(record.scope.user_id)
     _require_window(uncertain)
     result = transport.submit(uncertain)
     if result.status == "absent":
         raise ShareTransportError("A share send cannot return an absent lookup result.")
-    return _accept(uncertain, result, lookup=False)
+    return _accept(uncertain, result, lookup=False, require_actor=require_actor)
 
 
-def submit_share(scope: ShareScope, transport: ShareTransport) -> ShareResult:
-    require_submission_actor(scope.user_id)
-    with share_submission_lock(scope):
-        record = _load(scope)
+def submit_share(
+    scope: ShareScope,
+    transport: ShareTransport,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> ShareResult:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
+    with share_submission_lock(scope, require_actor=require_actor):
+        record = _load(scope, require_actor=require_actor)
         if record.result is not None and not record.result.unresolved:
             return record.result
         if record.phase != "prepared":
             raise ShareRecoveryRequiredError(
                 "Look up the original share operation before retrying."
             )
-        return _send(record, transport)
+        return _send(record, transport, require_actor=require_actor)
 
 
-def recover_share(scope: ShareScope, transport: ShareTransport) -> ShareResult:
-    require_submission_actor(scope.user_id)
-    with share_submission_lock(scope):
-        record = _load(scope)
+def recover_share(
+    scope: ShareScope,
+    transport: ShareTransport,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> ShareResult:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
+    with share_submission_lock(scope, require_actor=require_actor):
+        record = _load(scope, require_actor=require_actor)
         if record.result is not None and not record.result.unresolved:
             return record.result
-        return _accept(record, transport.lookup(record), lookup=True)
+        return _accept(record, transport.lookup(record), lookup=True, require_actor=require_actor)
 
 
-def retry_share(scope: ShareScope, transport: ShareTransport) -> ShareResult:
-    require_submission_actor(scope.user_id)
-    with share_submission_lock(scope):
-        record = _load(scope)
+def retry_share(
+    scope: ShareScope,
+    transport: ShareTransport,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> ShareResult:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
+    with share_submission_lock(scope, require_actor=require_actor):
+        record = _load(scope, require_actor=require_actor)
         if record.result is not None and not record.result.unresolved:
             return record.result
-        result = _accept(record, transport.lookup(record), lookup=True)
+        result = _accept(record, transport.lookup(record), lookup=True, require_actor=require_actor)
         if result.status != "absent":
             return result
-        return _send(_load(scope), transport)
+        return _send(
+            _load(scope, require_actor=require_actor), transport, require_actor=require_actor
+        )

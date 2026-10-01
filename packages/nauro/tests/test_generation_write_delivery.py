@@ -1,0 +1,267 @@
+"""Installed write entry points retain attempts across uncertain outcomes."""
+
+import importlib
+import json
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import httpx
+import pytest
+from typer.testing import CliRunner
+
+from nauro.auth import ActiveCredentials
+from nauro.sync import generation_writes as writes
+
+PROJECT = "01K00000000000000000000001"
+ACTOR = "01K00000000000000000000002"
+CASES = [
+    ("update_state", {"delta": "Frozen state"}),
+    ("flag_question", {"question": "Which option?"}),
+    ("flag_question", {"targets": ["Q1"], "resolved_by": "D42"}),
+    ("update_stack", {"content": "Python"}),
+    (
+        "share_context",
+        {"slug": "brief", "content": "Details", "pointer_kind": "brief", "summary": "Summary"},
+    ),
+]
+
+
+@pytest.fixture
+def delivery(tmp_path, monkeypatch):
+    monkeypatch.setenv("NAURO_HOME", str(tmp_path))
+    binding = SimpleNamespace(project_id=PROJECT)
+    session = Mock(binding=binding, actor=ACTOR, api_url="https://api.example.test")
+    session.connection.binding.return_value = "connection-a"
+    session.credentials.return_value = ActiveCredentials(ACTOR, "generation-token")
+    session.__enter__ = Mock(return_value=session)
+    session.__exit__ = Mock(return_value=False)
+    monkeypatch.setattr(writes, "resolve_project_binding", lambda *a, **k: binding)
+    monkeypatch.setattr(writes, "observe_generation_marker", lambda b: object())
+    monkeypatch.setattr(writes, "GenerationTransferSession", lambda b: session)
+    monkeypatch.setattr(writes, "recover_generation_refresh", Mock())
+    monkeypatch.setattr(writes, "replica_status", lambda b: {"installed_for_user_id": ACTOR})
+    monkeypatch.setattr(
+        writes, "regenerate_refreshed_guidance", Mock(return_value={"status": "updated"})
+    )
+    calls = []
+    behavior = {"status": "committed", "drop": False}
+
+    def handle(request):
+        assert request.headers["Authorization"] == "Bearer generation-token"
+        calls.append(request)
+        if behavior["drop"]:
+            raise httpx.ReadError("lost response")
+        family = request.url.path.split("/")[1]
+        if family == "questions":
+            family = "question"
+        records = importlib.import_module(f"nauro.store.{family}_records")
+        (saved,) = getattr(records, f"list_{family}_submissions")(
+            PROJECT, ACTOR, require_actor=session.require_actor
+        )
+        fixtures = importlib.import_module(f"tests.test_{family}_submission")
+        return httpx.Response(200, json=fixtures._body(saved, behavior["status"]))
+
+    session.client = httpx.Client(transport=httpx.MockTransport(handle))
+    yield session, calls, behavior
+    session.client.close()
+
+
+@pytest.mark.parametrize("operation,content", CASES)
+def test_public_stdio_commits_and_refreshes_same_session(delivery, operation, content):
+    from nauro.mcp import stdio_server
+
+    session, calls, _ = delivery
+    result = getattr(stdio_server, operation)(project_id=PROJECT, **content)
+    assert result["status"] == "committed"
+    assert len(calls) == 1
+    writes.recover_generation_refresh.assert_called_once_with(
+        session.binding, actor=ACTOR, session=session
+    )
+    session.credentials.assert_called()
+
+
+@pytest.mark.parametrize("operation,content", CASES)
+def test_uncertain_attempt_discover_recover_and_retry(delivery, operation, content):
+    _, calls, behavior = delivery
+    behavior["drop"] = True
+    uncertain = writes.generation_write(operation, content)
+    assert uncertain["status"] == "unresolved"
+    reference = {key: uncertain[key] for key in ("operation_id", "payload_digest")}
+    found = writes.generation_write(operation, {"request_mode": "discover"})
+    assert found["attempts"][0]["scope"]["operation_id"] == reference["operation_id"]
+    behavior.update(drop=False, status="absent")
+    recovered = writes.generation_write(operation, {"request_mode": "recover", **reference})
+    assert recovered["status"] == "absent"
+    assert [request.url.path.split("/")[-1] for request in calls] == ["submit", "lookup"]
+    writes.generation_write(operation, {"request_mode": "retry", **reference})
+    assert [request.url.path.split("/")[-1] for request in calls] == [
+        "submit",
+        "lookup",
+        "lookup",
+        "submit",
+    ]
+    bodies = [json.loads(request.content) for request in calls]
+    assert bodies == [bodies[0]] * 4
+
+
+def test_changed_connection_cannot_recover(delivery):
+    session, calls, behavior = delivery
+    behavior["drop"] = True
+    result = writes.generation_write("update_state", {"delta": "Frozen state"})
+    session.connection.binding.return_value = "connection-b"
+    with pytest.raises(ValueError, match="connection"):
+        writes.generation_write(
+            "update_state",
+            {
+                "request_mode": "recover",
+                "operation_id": result["operation_id"],
+                "payload_digest": result["payload_digest"],
+            },
+        )
+    assert len(calls) == 1
+
+
+def test_committed_refresh_failure_never_resubmits(delivery):
+    _, calls, _ = delivery
+    writes.recover_generation_refresh.side_effect = ValueError("offline")
+    result = writes.generation_write("update_state", {"delta": "Frozen state"})
+    assert result["status"] == "committed"
+    assert result["replica_status"]["error_code"] == "receipt_refresh_required"
+    recovered = writes.generation_write(
+        "update_state",
+        {
+            "request_mode": "retry",
+            "operation_id": result["operation_id"],
+            "payload_digest": result["payload_digest"],
+        },
+    )
+    assert recovered["status"] == "committed"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("operation,content", CASES)
+def test_reference_modes_reject_content(delivery, operation, content):
+    _, calls, _ = delivery
+    with pytest.raises(ValueError, match="replace content"):
+        writes.generation_write(operation, {"request_mode": "discover", **content})
+    assert calls == []
+
+
+def test_stale_revision_returns_original_reference(delivery):
+    _, calls, behavior = delivery
+    behavior["status"] = "revision_conflict_observed"
+    result = writes.generation_write(
+        "update_state", {"delta": "Frozen state", "expected_revision": "a" * 64}
+    )
+    assert result["status"] == "revision_conflict_observed"
+    assert result["current_revision"] == "b" * 64
+    assert result["operation_id"] == json.loads(calls[0].content)["operation_id"]
+
+
+@pytest.mark.parametrize(
+    "command", ["update-state", "flag-question", "update-stack", "share-context"]
+)
+def test_cli_discovery_uses_generation_entry_point(delivery, command):
+    from nauro.cli.main import app
+
+    result = CliRunner().invoke(app, [command, "--request-mode", "discover"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {"status": "discovered", "attempts": []}
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["update-state", "Frozen state"],
+        ["flag-question", "Which option?"],
+        ["flag-question", "--targets", "Q1", "--resolved-by", "D42"],
+        ["update-stack", "Python"],
+        ["share-context", "brief", "Details", "brief", "Summary"],
+    ],
+)
+def test_cli_submits_each_public_operation(delivery, command):
+    from nauro.cli.main import app
+
+    result = CliRunner().invoke(app, command)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["status"] == "committed"
+
+
+def test_account_switch_refuses_before_send(delivery):
+    session, calls, _ = delivery
+    session.require_actor.side_effect = ValueError("account changed")
+    with pytest.raises(ValueError, match="account changed"):
+        writes.generation_write("update_state", {"delta": "Frozen state"})
+    assert calls == []
+
+
+def test_expired_retry_only_looks_up_original_attempt(delivery):
+    from nauro.store import state_records
+
+    session, calls, behavior = delivery
+    behavior["drop"] = True
+    result = writes.generation_write("update_state", {"delta": "Frozen state"})
+    (record,) = state_records.list_state_submissions(
+        PROJECT, ACTOR, require_actor=session.require_actor
+    )
+    state_records._write(record.model_copy(update={"created_at": "2020-01-01T00:00:00.000000Z"}))
+    behavior.update(drop=False, status="absent")
+    retried = writes.generation_write(
+        "update_state",
+        {
+            "request_mode": "retry",
+            "operation_id": result["operation_id"],
+            "payload_digest": result["payload_digest"],
+        },
+    )
+    assert retried["status"] == "unresolved"
+    assert [request.url.path for request in calls] == ["/state/submit", "/state/lookup"]
+
+
+def test_saved_generation_attempt_survives_process_restart(delivery):
+    import os
+    import subprocess
+    import sys
+
+    _, _, behavior = delivery
+    behavior["drop"] = True
+    result = writes.generation_write("update_state", {"delta": "Frozen state"})
+    script = """
+import json, sys
+from nauro.store.state_records import list_state_submissions
+record, = list_state_submissions(sys.argv[1], sys.argv[2], require_actor=lambda actor: None)
+print(json.dumps({
+    'connection': record.connection,
+    'operation_id': record.scope.operation_id,
+    'phase': record.phase
+}))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, PROJECT, ACTOR],
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "connection": "connection-a",
+        "operation_id": result["operation_id"],
+        "phase": "uncertain",
+    }
+
+
+def test_refresh_account_switch_keeps_committed_receipt(delivery, monkeypatch):
+    monkeypatch.setattr(
+        writes, "replica_status", lambda b: {"installed_for_user_id": "another-actor"}
+    )
+    result = writes.generation_write("update_state", {"delta": "Frozen state"})
+    assert result["status"] == "committed"
+    assert result["replica_status"]["error_code"] == "receipt_refresh_required"
+
+
+def test_successful_refresh_regenerates_guidance(delivery, monkeypatch):
+    regenerate = Mock(return_value={"status": "updated"})
+    monkeypatch.setattr(writes, "regenerate_refreshed_guidance", regenerate)
+    result = writes.generation_write("update_state", {"delta": "Frozen state"})
+    assert result["guidance_status"] == {"status": "updated"}
+    regenerate.assert_called_once_with(writes.recover_generation_refresh.return_value)

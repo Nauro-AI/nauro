@@ -524,6 +524,9 @@ def register_autogen_commands(app: typer.Typer) -> None:
             "in cli/autogen.py."
         )
 
+    from nauro.cli.generation_writes import register_extra_writes
+
+    register_extra_writes(app)
     for spec in ALL_TOOLS:
         if spec["name"] not in AUTOGEN_ALLOWLIST:
             continue
@@ -533,4 +536,8 @@ def register_autogen_commands(app: typer.Typer) -> None:
             from nauro.cli.decision_reference import with_reference_options
 
             callback = with_reference_options(callback, spec)
+        if spec["name"] in {"update_state", "flag_question", "update_stack", "share_context"}:
+            from nauro.cli.generation_writes import with_write_options
+
+            callback = with_write_options(callback, spec)
         app.command(name=command_name, help=spec["description"].split("\n\n", 1)[0])(callback)

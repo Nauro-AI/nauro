@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import httpx
 
-from nauro.auth import read_active_credentials
+from nauro.auth import ActiveCredentials, read_active_credentials
 from nauro.store.share_contract import ShareResult, ShareTransportError, verify_share_response
 from nauro.store.share_records import ShareSubmission
 from nauro.store.submission_records import SubmissionActorMismatchError, require_submission_actor
 
 
 class HttpShareTransport:
-    def __init__(self, base_url: str, client: httpx.Client) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.Client,
+        *,
+        credentials: Callable[[], ActiveCredentials] | None = None,
+        require_actor: Callable[[str], None] | None = None,
+    ) -> None:
         url = httpx.URL(base_url)
         if (
             url.scheme != "https"
@@ -24,10 +33,12 @@ class HttpShareTransport:
             raise ShareTransportError("Share transport requires a trusted HTTPS origin.")
         self._base_url = str(url).rstrip("/")
         self._client = client
+        self._credentials = credentials or read_active_credentials
+        self._require_actor = require_actor or require_submission_actor
 
     def _request(self, record: ShareSubmission, *, lookup: bool) -> ShareResult:
         record = ShareSubmission.model_validate(record)
-        credentials = read_active_credentials()
+        credentials = self._credentials()
         if credentials.user_id != record.scope.user_id:
             raise SubmissionActorMismatchError(
                 "The active account does not own this share submission."
@@ -61,7 +72,7 @@ class HttpShareTransport:
             raise ShareTransportError(
                 "The share outcome is unresolved. Look up its original identity."
             ) from exc
-        require_submission_actor(record.scope.user_id)
+        self._require_actor(record.scope.user_id)
         return verify_share_response(bytes(raw), record.scope, record.payload_json, lookup=lookup)
 
     def submit(self, record: ShareSubmission) -> ShareResult:

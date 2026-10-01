@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import httpx
 
-from nauro.auth import read_active_credentials
+from nauro.auth import ActiveCredentials, read_active_credentials
 from nauro.store.stack_contract import StackResult, StackTransportError, verify_stack_response
 from nauro.store.stack_records import StackSubmission
 from nauro.store.submission_records import SubmissionActorMismatchError, require_submission_actor
 
 
 class HttpStackTransport:
-    def __init__(self, base_url: str, client: httpx.Client) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        client: httpx.Client,
+        *,
+        credentials: Callable[[], ActiveCredentials] | None = None,
+        require_actor: Callable[[str], None] | None = None,
+    ) -> None:
         url = httpx.URL(base_url)
         if (
             url.scheme != "https"
@@ -24,10 +33,12 @@ class HttpStackTransport:
             raise StackTransportError("Stack transport requires a trusted HTTPS origin.")
         self._base_url = str(url).rstrip("/")
         self._client = client
+        self._credentials = credentials or read_active_credentials
+        self._require_actor = require_actor or require_submission_actor
 
     def _request(self, record: StackSubmission, *, lookup: bool) -> StackResult:
         record = StackSubmission.model_validate(record)
-        credentials = read_active_credentials()
+        credentials = self._credentials()
         if credentials.user_id != record.scope.user_id:
             raise SubmissionActorMismatchError(
                 "The active account does not own this stack submission."
@@ -61,7 +72,7 @@ class HttpStackTransport:
             raise StackTransportError(
                 "The stack outcome is unresolved. Look up its original identity."
             ) from exc
-        require_submission_actor(record.scope.user_id)
+        self._require_actor(record.scope.user_id)
         return verify_stack_response(bytes(raw), record.scope, record.payload_json, lookup=lookup)
 
     def submit(self, record: StackSubmission) -> StackResult:

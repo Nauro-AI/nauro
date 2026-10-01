@@ -7,16 +7,25 @@ import os
 import stat
 import tempfile
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from filelock import BaseFileLock, FileLock, UnixFileLock, WindowsFileLock
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 from nauro_core.provenance import validate_utc_timestamp
-from pydantic import Field, StrictInt, StrictStr, ValidationError, field_validator, model_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from nauro.store.home import nauro_home
 from nauro.store.stack_contract import (
@@ -40,6 +49,15 @@ _MAX_BYTES = 2 * 1024 * 1024
 
 
 class StackSubmission(ClosedModel):
+    connection: StrictStr | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value: dict[str, Any] = handler(self)
+        if self.connection is None:
+            value.pop("connection", None)
+        return value
+
     schema_version: StrictInt = Field(default=1, ge=1, le=1)
     scope: StackScope
     created_at: StrictStr
@@ -115,17 +133,23 @@ def _read(path: Path) -> StackSubmission | None:
         raise SubmissionRecordCorruptError("The stack record did not verify.") from exc
 
 
-def read_stack_submission(scope: StackScope) -> StackSubmission | None:
-    require_submission_actor(scope.user_id)
+def read_stack_submission(
+    scope: StackScope, *, require_actor: Callable[[str], None] | None = None
+) -> StackSubmission | None:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
     record = _read(_record_path(scope))
     if record is not None and record.scope != scope:
         raise SubmissionRecordCorruptError("The stack record belongs to another scope.")
-    require_submission_actor(scope.user_id)
+    require_actor(scope.user_id)
     return record
 
 
-def list_stack_submissions(project_id: str, user_id: str) -> tuple[StackSubmission, ...]:
-    require_submission_actor(user_id)
+def list_stack_submissions(
+    project_id: str, user_id: str, *, require_actor: Callable[[str], None] | None = None
+) -> tuple[StackSubmission, ...]:
+    require_actor = require_actor or require_submission_actor
+    require_actor(user_id)
     try:
         entries = os.scandir(_directory(project_id, user_id))
     except FileNotFoundError:
@@ -145,13 +169,16 @@ def list_stack_submissions(project_id: str, user_id: str) -> tuple[StackSubmissi
                         "The stack record path differs from its scope."
                     )
                 records.append(record)
-    require_submission_actor(user_id)
+    require_actor(user_id)
     return tuple(sorted(records, key=lambda record: (record.created_at, record.scope.operation_id)))
 
 
 @contextmanager
-def stack_submission_lock(scope: StackScope) -> Iterator[None]:
-    require_submission_actor(scope.user_id)
+def stack_submission_lock(
+    scope: StackScope, *, require_actor: Callable[[str], None] | None = None
+) -> Iterator[None]:
+    require_actor = require_actor or require_submission_actor
+    require_actor(scope.user_id)
     path = _record_path(scope)
     _ensure_directory(path.parent)
     lock: BaseFileLock = FileLock(str(path.with_suffix(".lock")), timeout=0, mode=0o600)
@@ -161,7 +188,7 @@ def stack_submission_lock(scope: StackScope) -> Iterator[None]:
         if type(lock) not in (UnixFileLock, WindowsFileLock):
             raise SubmissionRecordError("Native stack submission locking is unavailable.")
         _directory_sync(path.parent)
-        require_submission_actor(scope.user_id)
+        require_actor(scope.user_id)
         yield
 
 
@@ -186,33 +213,57 @@ def _write(record: StackSubmission) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def prepare_stack_submission(project_id: str, user_id: str, payload: bytes) -> StackSubmission:
-    require_submission_actor(user_id)
+def prepare_stack_submission(
+    project_id: str,
+    user_id: str,
+    payload: bytes,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+    connection: str | None = None,
+) -> StackSubmission:
+    require_actor = require_actor or require_submission_actor
+    require_actor(user_id)
     record = StackSubmission(
         scope=StackScope(project_id=project_id, user_id=user_id, operation_id=uuid.uuid4().hex),
         created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         payload_json=payload.decode("utf-8"),
         payload_digest=hashlib.sha256(payload).hexdigest(),
         phase="prepared",
+        connection=connection,
     )
-    with stack_submission_lock(record.scope):
-        if read_stack_submission(record.scope) is not None:
+    with stack_submission_lock(record.scope, require_actor=require_actor):
+        if read_stack_submission(record.scope, require_actor=require_actor) is not None:
             raise SubmissionRecordError("The generated stack identity already exists.")
         _write(record)
-        require_submission_actor(user_id)
+        require_actor(user_id)
     return record
 
 
-def mark_stack_uncertain(record: StackSubmission) -> StackSubmission:
-    if record.phase == "resolved" or read_stack_submission(record.scope) != record:
+def mark_stack_uncertain(
+    record: StackSubmission, *, require_actor: Callable[[str], None] | None = None
+) -> StackSubmission:
+    require_actor = require_actor or require_submission_actor
+    if (
+        record.phase == "resolved"
+        or read_stack_submission(record.scope, require_actor=require_actor) != record
+    ):
         raise SubmissionRecordError("The saved stack submission cannot make this transition.")
     updated = StackSubmission.model_validate({**record.model_dump(), "phase": "uncertain"})
     _write(updated)
     return updated
 
 
-def record_stack_result(record: StackSubmission, result: StackResult) -> StackSubmission:
-    if record.phase == "resolved" or read_stack_submission(record.scope) != record:
+def record_stack_result(
+    record: StackSubmission,
+    result: StackResult,
+    *,
+    require_actor: Callable[[str], None] | None = None,
+) -> StackSubmission:
+    require_actor = require_actor or require_submission_actor
+    if (
+        record.phase == "resolved"
+        or read_stack_submission(record.scope, require_actor=require_actor) != record
+    ):
         raise SubmissionRecordError("The saved stack submission cannot make this transition.")
     updated = StackSubmission.model_validate(
         {

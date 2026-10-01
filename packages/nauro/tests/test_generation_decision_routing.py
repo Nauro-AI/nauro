@@ -287,14 +287,38 @@ def test_raw_reference_arguments_cannot_change_content(route, extra):
     "name,args",
     [("flag_question", {"question": "Question"}), ("update_state", {"delta": "Change"})],
 )
-def test_other_stdio_writes_refuse_before_local_adapter(route, name, args):
-    with pytest.raises(ToolError, match="not supported"):
-        tool(name, **args)
+def test_other_stdio_writes_use_typed_transport_before_local_adapter(
+    route, monkeypatch, name, args
+):
+    from nauro.sync import generation_writes
+    from nauro.sync.generation_session import GenerationTransferSession
+
+    requests = []
+
+    def unavailable(request):
+        requests.append(request)
+        return httpx.Response(503)
+
+    with httpx.Client(transport=httpx.MockTransport(unavailable)) as client:
+        monkeypatch.setattr(
+            generation_writes,
+            "GenerationTransferSession",
+            lambda binding: GenerationTransferSession(binding, client),
+        )
+        response = tool(name, **args)
+        assert response.isError is True
+        result = value(response)
+    assert result["status"] == "unresolved"
+    assert result["operation_id"] == json.loads(requests[0].content)["operation_id"]
+    assert len(requests) == 1
+    assert requests[0].url.path == (
+        "/questions/submit" if name == "flag_question" else "/state/submit"
+    )
     assert route.authority.calls == []
 
 
 def test_full_inventory_cwd_and_cli_project_selection(route, tmp_path, monkeypatch):
-    assert len(mcp._tool_manager.list_tools()) == 10
+    assert len(mcp._tool_manager.list_tools()) == 12
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
@@ -375,7 +399,7 @@ run_stdio()
         async with stdio_client(params) as streams, ClientSession(*streams) as session:
             await session.initialize()
             listing = await session.list_tools()
-            assert len(listing.tools) == 10
+            assert len(listing.tools) == 12
             decision_tool = next(t for t in listing.tools if t.name == "propose_decision")
             assert decision_tool.outputSchema is None
             schema = decision_tool.inputSchema

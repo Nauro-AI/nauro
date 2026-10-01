@@ -407,6 +407,15 @@
             "type": "boolean"
           },
           {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
+          },
+          {
             "choices": [
               "json",
               "text"
@@ -419,6 +428,15 @@
             "name": "output_format",
             "required": false,
             "type": "choice"
+          },
+          {
+            "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
           },
           {
             "flags": [
@@ -443,6 +461,21 @@
             "name": "question_option",
             "required": false,
             "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
           },
           {
             "flags": [
@@ -1671,6 +1704,104 @@
       },
       {
         "kind": "command",
+        "name": "share-context",
+        "params": [
+          {
+            "kind": "argument",
+            "name": "content",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "kind": "argument",
+            "name": "pointer_kind",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "kind": "argument",
+            "name": "slug",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "kind": "argument",
+            "name": "summary",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
         "name": "status",
         "params": [
           {
@@ -1783,12 +1914,21 @@
       },
       {
         "kind": "command",
-        "name": "update-state",
+        "name": "update-stack",
         "params": [
           {
             "kind": "argument",
-            "name": "delta",
-            "required": true,
+            "name": "content",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--expected-revision"
+            ],
+            "kind": "option",
+            "name": "expected_revision",
+            "required": false,
             "type": "text"
           },
           {
@@ -1802,6 +1942,15 @@
             "name": "json_output",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
           },
           {
             "choices": [
@@ -1819,12 +1968,125 @@
           },
           {
             "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
               "--project"
             ],
             "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "name": "update-state",
+        "params": [
+          {
+            "kind": "argument",
+            "name": "delta",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--expected-revision"
+            ],
+            "kind": "option",
+            "name": "expected_revision",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": true,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--project"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
           }
         ]
       },

@@ -23,6 +23,8 @@ EXPECTED_TOOLS = {
     "propose_decision",
     "search_decisions",
     "update_state",
+    "update_stack",
+    "share_context",
 }
 
 

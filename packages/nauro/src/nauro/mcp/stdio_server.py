@@ -2,9 +2,9 @@
 
 Reads and writes the same store and payloads as the remote HTTP server. Tool
 metadata (descriptions, titles, annotations) lives in ``nauro_core.mcp_tools``,
-not here, so the two transports cannot drift. This server registers 10 of the
-11 shared tools; ``list_projects`` is remote-only because a local install
-auto-resolves to its single project store.
+not here. This server registers 12 tools; ``list_projects`` stays remote-only
+because a local install resolves its project store. Stack and shared-brief
+writes require a generation replica.
 
 Read tools listed in ``nauro_core.renderers.RENDERERS`` answer with a
 ``CallToolResult`` whose ``content[0]`` carries the renderer output, and a
@@ -93,10 +93,19 @@ def _wrap_with_renderer(
 
 def _spec_kwargs(name: str) -> dict[str, Any]:
     """Build FastMCP @tool() decorator kwargs from the shared registry."""
-    spec: ToolSpec = get_tool_spec(name)
+    from nauro_core.mcp_tools import SHARE_CONTEXT, UPDATE_STACK
+
+    spec: ToolSpec = {"update_stack": UPDATE_STACK, "share_context": SHARE_CONTEXT}.get(
+        name
+    ) or get_tool_spec(name)
+    from nauro.sync.generation_writes import FAMILIES, WRITE_GUIDANCE
+
+    description = spec["description"]
+    if name in FAMILIES:
+        description += "\n\n" + WRITE_GUIDANCE
     return {
         "title": spec["title"],
-        "description": spec["description"],
+        "description": description,
         "annotations": ToolAnnotations(**spec["annotations"]),
     }
 
@@ -389,7 +398,15 @@ def propose_decision(
     )
 
 
-@mcp.tool(**_spec_kwargs("flag_question"))
+def _generation_write_result(result: dict[str, Any]) -> dict[str, Any] | CallToolResult:
+    if result.get("unresolved") or result.get("status") not in {"committed", "discovered"}:
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(result))], isError=True
+        )
+    return result
+
+
+@mcp.tool(**_spec_kwargs("flag_question"), structured_output=False)
 def flag_question(
     question: Annotated[
         str | None, Field(description=_param_desc("flag_question", "question"))
@@ -406,14 +423,17 @@ def flag_question(
     project_id: Annotated[
         str | None, Field(description=_param_desc("flag_question", "project_id"))
     ] = None,
+    request_mode: Literal["submit", "discover", "recover", "retry"] | None = None,
+    operation_id: str | None = None,
+    payload_digest: str | None = None,
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
-) -> str | dict:
-    from nauro.mcp.generation_decision import refuse_unadapted_write
+) -> str | dict | CallToolResult:
+    from nauro.sync.generation_writes import generation_write
 
-    refusal = refuse_unadapted_write(project_id, cwd)
-    if refusal is not None:
-        return refusal if disconnected_reason_code(refusal) is not None else refusal["guidance"]
+    result = generation_write("flag_question", locals())
+    if result is not None:
+        return _generation_write_result(result)
 
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
@@ -438,20 +458,26 @@ def flag_question(
     return render_write_status(result, flagged)
 
 
-@mcp.tool(**_spec_kwargs("update_state"))
+@mcp.tool(**_spec_kwargs("update_state"), structured_output=False)
 def update_state(
-    delta: Annotated[str, Field(description=_param_desc("update_state", "delta"))],
+    delta: Annotated[str | None, Field(description=_param_desc("update_state", "delta"))] = None,
     project_id: Annotated[
         str | None, Field(description=_param_desc("update_state", "project_id"))
     ] = None,
+    request_mode: Literal["submit", "discover", "recover", "retry"] | None = None,
+    operation_id: str | None = None,
+    payload_digest: str | None = None,
+    expected_revision: str | None = None,
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
-) -> str | dict:
-    from nauro.mcp.generation_decision import refuse_unadapted_write
+) -> str | dict | CallToolResult:
+    from nauro.sync.generation_writes import generation_write
 
-    refusal = refuse_unadapted_write(project_id, cwd)
-    if refusal is not None:
-        return refusal if disconnected_reason_code(refusal) is not None else refusal["guidance"]
+    result = generation_write("update_state", locals())
+    if result is not None:
+        return _generation_write_result(result)
+    if delta is None:
+        raise ValueError("State updates require delta.")
 
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
@@ -464,6 +490,44 @@ def update_state(
         return f"State updated. {warning}" if warning else "State updated."
 
     return render_write_status(result, updated)
+
+
+@mcp.tool(**_spec_kwargs("update_stack"), structured_output=False)
+def update_stack(
+    content: str | None = None,
+    expected_revision: str | None = None,
+    project_id: str | None = None,
+    request_mode: Literal["submit", "discover", "recover", "retry"] | None = None,
+    operation_id: str | None = None,
+    payload_digest: str | None = None,
+    cwd: _CWD_PARAM = None,
+) -> dict | CallToolResult:
+    from nauro.sync.generation_writes import generation_write
+
+    result = generation_write("update_stack", locals())
+    if result is None:
+        raise ValueError("update_stack requires a generation replica.")
+    return _generation_write_result(result)
+
+
+@mcp.tool(**_spec_kwargs("share_context"), structured_output=False)
+def share_context(
+    slug: str | None = None,
+    content: str | None = None,
+    pointer_kind: Literal["brief", "resume", "selection"] | None = None,
+    summary: str | None = None,
+    project_id: str | None = None,
+    request_mode: Literal["submit", "discover", "recover", "retry"] | None = None,
+    operation_id: str | None = None,
+    payload_digest: str | None = None,
+    cwd: _CWD_PARAM = None,
+) -> dict | CallToolResult:
+    from nauro.sync.generation_writes import generation_write
+
+    result = generation_write("share_context", locals())
+    if result is None:
+        raise ValueError("share_context requires a generation replica.")
+    return _generation_write_result(result)
 
 
 register_argument_validation(mcp)

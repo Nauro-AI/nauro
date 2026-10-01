@@ -608,9 +608,9 @@ class TestToolSpecDescriptionsReachAgent:
         hints = get_type_hints(propose_decision, include_extras=True)
         assert _literal_values(hints["decision_type"]) == set(DECISION_TYPE_VALUES)
 
-    def test_ten_tools_registered(self):
+    def test_twelve_tools_registered(self):
         tools = mcp._tool_manager.list_tools()
-        assert len(tools) == 10
+        assert len(tools) == 12
 
     @pytest.mark.parametrize(
         "tool",
@@ -664,6 +664,8 @@ class TestCwdParamReachesAgent:
         "propose_decision",
         "flag_question",
         "update_state",
+        "update_stack",
+        "share_context",
     )
 
     @pytest.fixture

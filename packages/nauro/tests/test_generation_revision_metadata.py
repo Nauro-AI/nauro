@@ -7,8 +7,10 @@ import pytest
 from nauro.mcp import generation_responses as responses
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_installation import USER_ID
-from tests.test_generation_reads import admitted as admitted
+from tests.test_generation_reads import admitted
 from tests.test_generation_responses import fresh_projection
+
+__all__ = ["admitted"]
 
 
 @pytest.mark.parametrize("level", ["L0", "L1", "L2"])

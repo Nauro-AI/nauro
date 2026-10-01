@@ -94,5 +94,16 @@ def test_legacy_cli_refuses_before_access(tmp_path, monkeypatch, command, contro
         arguments += ["--project", "Replica"]
     result = CliRunner().invoke(app, arguments)
     assert result.exit_code == 1, result.output
-    assert result.stderr == f"Error: nauro {label} is unavailable for generation replicas.\n"
+    if command in {"flag-question", "resolve-question", "update-state"}:
+        errors = {
+            "valid": "Check generation login and project connection.",
+            "corrupt": "The generation authority marker is invalid.",
+            "incomplete": (
+                "Generation replica controls are incomplete; legacy fallback is unavailable."
+            ),
+            "dangling": "Replica control paths cannot contain links.",
+        }
+        assert result.stderr == f"Error: {errors[control]}\n"
+    else:
+        assert result.stderr == f"Error: nauro {label} is unavailable for generation replicas.\n"
     assert (snapshot(store), snapshot(repo)) == before

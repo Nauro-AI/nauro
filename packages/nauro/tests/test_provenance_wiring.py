@@ -171,8 +171,8 @@ class TestCliAttribution:
 
 
 class TestNoNewSurface:
-    def test_ten_tools_still_registered(self):
-        assert len(mcp._tool_manager.list_tools()) == 10
+    def test_twelve_tools_registered(self):
+        assert len(mcp._tool_manager.list_tools()) == 12
 
     def test_autogen_allowlist_unchanged(self):
         assert AUTOGEN_ALLOWLIST == frozenset(
