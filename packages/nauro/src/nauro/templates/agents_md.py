@@ -165,7 +165,7 @@ def generate_agents_md(
     # its only delivery surface.
     parts.append(
         "## Nauro MCP Tools\n\n"
-        "Nauro's 10 tools are available over MCP; without MCP, the same tools "
+        "Nauro's 12 tools are available over MCP; without MCP, the same tools "
         "work as `nauro <tool-name>` shell commands (underscores become "
         "hyphens, e.g. `nauro check-decision`). Run `nauro --help` for the "
         "full list.\n\n"
