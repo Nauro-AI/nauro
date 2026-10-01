@@ -18,6 +18,7 @@ from pydantic import (
     StrictStr,
     TypeAdapter,
     field_validator,
+    model_validator,
 )
 
 from nauro.store.submission_records import Digest, SubmissionRecordError
@@ -125,7 +126,57 @@ class ShareUnavailable(_Response):
     unresolved: Literal[False]
 
 
-ShareResult = ShareCommitted | ShareObserved | ShareSlugObserved | ShareUnavailable
+_REFUSAL_CODES = {
+    400: {"invalid_request", "payload_digest_mismatch", "submission_rejected"},
+    401: {"authentication_required", "invalid_token"},
+    403: {
+        "insufficient_scope",
+        "actor_mismatch",
+        "forbidden",
+    },
+    409: {
+        "single_writer_refused",
+        "generation_authority_required",
+    },
+    413: {"request_too_large"},
+}
+
+
+_PREPUBLICATION_REFUSALS = {
+    "authentication_required",
+    "invalid_token",
+    "insufficient_scope",
+    "actor_mismatch",
+    "single_writer_refused",
+    "generation_authority_required",
+    "request_too_large",
+    "payload_digest_mismatch",
+    "submission_rejected",
+}
+
+
+class ShareRefused(_Response):
+    status: Literal["refused"] = "refused"
+    unresolved: bool = True
+    http_status: StrictInt
+    server_code: StrictStr
+    request_mode: Literal["submit", "lookup"]
+
+    @model_validator(mode="after")
+    def _refusal(self) -> ShareRefused:
+        if self.server_code not in _REFUSAL_CODES.get(self.http_status, set()):
+            raise ValueError("unknown share refusal")
+        if not self.unresolved and (not self.before_publication):
+            raise ValueError("share refusal does not establish a no-write outcome")
+        return self
+
+    @property
+    def before_publication(self) -> bool:
+        # Membership refusal can follow publication. Keep invalid_request unresolved too.
+        return self.request_mode == "submit" and self.server_code in _PREPUBLICATION_REFUSALS
+
+
+ShareResult = ShareCommitted | ShareObserved | ShareSlugObserved | ShareUnavailable | ShareRefused
 _RESPONSE: TypeAdapter[ShareResult] = TypeAdapter(
     Annotated[ShareResult, Field(discriminator="status")]
 )
@@ -216,7 +267,7 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def verify_share_response(
-    raw: bytes, scope: ShareScope, payload_json: str, *, lookup: bool = False
+    raw: bytes, scope: ShareScope, payload_json: str, *, lookup: bool = False, local: bool = False
 ) -> ShareResult:
     try:
         scope = ShareScope.model_validate(scope)
@@ -226,6 +277,8 @@ def verify_share_response(
         result = _RESPONSE.validate_python(
             json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
         )
+        if isinstance(result, ShareRefused) and not local:
+            raise ShareTransportError("Refusals require an HTTP refusal response.")
         digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
         if result.scope != scope or result.payload_digest != digest:
             raise ValueError("share response binding differs")
@@ -238,3 +291,22 @@ def verify_share_response(
         return result
     except (ValueError, TypeError, RecursionError) as exc:
         raise ShareTransportError("The share response did not verify.") from exc
+
+
+def verify_share_refusal(
+    raw: bytes, status: int, scope: ShareScope, payload_digest: str, *, lookup: bool
+) -> ShareRefused:
+    try:
+        body = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
+        if not isinstance(body, dict) or set(body) != {"detail"}:
+            raise ShareTransportError("The share refusal body did not verify.")
+        return ShareRefused(
+            version=1,
+            scope=scope,
+            payload_digest=payload_digest,
+            http_status=status,
+            server_code=body["detail"],
+            request_mode="lookup" if lookup else "submit",
+        )
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise ShareTransportError("The share refusal did not verify.") from exc
