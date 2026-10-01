@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import socket
 import time
@@ -16,6 +17,7 @@ from nauro.store.config import load_config, save_config
 from nauro.store.generation_authority import GenerationAuthorityMarker
 from nauro.store.registry import register_project_v2
 from nauro.sync import generation_credentials as module
+from nauro.sync.auth_errors import AuthenticationError
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.decision_reference_contract import reference_schema
 
@@ -82,6 +84,8 @@ def account(tmp_path, monkeypatch):
     def wire(request):
         calls.append(request)
         if request.url.path == "/oauth/token":
+            if control.get("connect_failure"):
+                raise control["connect_failure"]("synthetic secret", request=request)
             control["count"] += 1
             if control["status"] == "lost":
                 raise httpx.ReadError("secret provider detail")
@@ -96,15 +100,17 @@ def account(tmp_path, monkeypatch):
             }
             claims.update(control["changes"])
             token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": "key"})
-            return httpx.Response(
-                control["status"],
-                json={
-                    "access_token": token,
-                    "refresh_token": f"rotated-{control['count']}",
-                    "token_type": "Bearer",
-                },
-            )
+            body = {
+                "access_token": token,
+                "refresh_token": f"rotated-{control['count']}",
+                "token_type": "Bearer",
+            }
+            if control.get("omit_refresh"):
+                del body["refresh_token"]
+            return httpx.Response(control["status"], json=body)
         if request.url.path == "/.well-known/jwks.json":
+            if control.get("jwks_failure"):
+                raise httpx.ConnectError("synthetic secret", request=request)
             return httpx.Response(200, json={"keys": [jwk]})
         if request.url.path == "/me":
             return httpx.Response(200, json={"user_id": control["me"]})
@@ -151,6 +157,77 @@ def account(tmp_path, monkeypatch):
 
 def command(action):
     return CliRunner().invoke(app, ["auth", action])
+
+
+def test_non_rotating_renewal_keeps_refresh_token_and_verifies_access(account):
+    assert command("login").exit_code == 0
+    before = account.connection.store().read()
+    account.control["omit_refresh"] = True
+    account.calls.clear()
+    assert command("refresh").exit_code == 0
+    after = account.connection.store().read()
+    assert after.refresh_token == before.refresh_token
+    assert after.revision != before.revision
+    assert after.subject == before.subject
+    assert account.connection.store().incomplete() is False
+    assert [r.url.path for r in account.calls] == ["/oauth/token", "/.well-known/jwks.json"]
+    assert command("status").stdout.strip() == "active"
+
+
+@pytest.mark.parametrize("failure", [httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout])
+def test_unsent_renewal_preserves_credentials_for_explicit_retry(account, failure):
+    assert command("login").exit_code == 0
+    before = account.connection.store().read()
+    account.control["connect_failure"] = failure
+    account.calls.clear()
+    result = command("refresh")
+    assert result.exit_code == 1
+    assert "Could not connect to the token endpoint" in result.output
+    assert "synthetic secret" not in result.output
+    assert account.connection.store().read() == before
+    assert account.connection.store().incomplete() is False
+    assert len(account.calls) == 1
+    del account.control["connect_failure"]
+    assert command("refresh").exit_code == 0
+
+
+def test_signing_key_fetch_failure_after_exchange_still_requires_login(account):
+    assert command("login").exit_code == 0
+    account.control["jwks_failure"] = True
+    result = command("refresh")
+    assert result.exit_code == 1
+    assert "login required" in result.output
+    assert "synthetic secret" not in result.output
+    assert account.connection.store().read().refresh_token == ""
+    assert account.connection.store().incomplete() is True
+
+
+def test_initial_login_still_requires_a_refresh_token(account):
+    account.control["omit_refresh"] = True
+    result = command("login")
+    assert result.exit_code == 1
+    assert "token response is incomplete or invalid" in result.output
+    assert account.connection.store().read() is None
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        (AuthenticationError("login_timeout"), "Login timed out"),
+        (AuthenticationError("login_refused"), "Login was refused"),
+        (PermissionError("synthetic secret"), "access was denied"),
+        (OSError(errno.EADDRINUSE, "synthetic secret"), "callback port is in use"),
+    ],
+)
+def test_login_reports_safe_actionable_errors(account, monkeypatch, failure, message):
+    def callback(*args):
+        raise failure
+
+    monkeypatch.setattr(module, "callback_code", callback)
+    result = command("login")
+    assert result.exit_code == 1
+    assert message in result.output
+    assert "synthetic secret" not in result.output
 
 
 def test_normal_lifecycle_preserves_legacy_credentials(account):

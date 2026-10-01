@@ -95,6 +95,14 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         pass
 
 
+def _present_login_url(auth_url: str) -> None:
+    typer.echo("\nOpening browser to authenticate...\n")
+    typer.echo(f"If the browser doesn't open, visit:\n  {auth_url}\n")
+    with contextlib.suppress(Exception):
+        webbrowser.open(auth_url)
+    typer.echo("Waiting for authorization...")
+
+
 def _run_callback_flow(domain: str, client_id: str, audience: str) -> tuple[str, str]:
     """Drive the browser Auth0 callback flow and return ``(auth_code, code_verifier)``.
     Generates PKCE material, serves the redirect on localhost, and waits up to 120 seconds.
@@ -126,13 +134,7 @@ def _run_callback_flow(domain: str, client_id: str, audience: str) -> tuple[str,
         )
         auth_url = f"https://{domain}/authorize?{auth_params}"
 
-        typer.echo("\nOpening browser to authenticate...\n")
-        typer.echo(f"If the browser doesn't open, visit:\n  {auth_url}\n")
-
-        with contextlib.suppress(Exception):
-            webbrowser.open(auth_url)
-
-        typer.echo("Waiting for authorization...")
+        _present_login_url(auth_url)
         server_thread.join(timeout=120)
     finally:
         server.server_close()
@@ -314,7 +316,7 @@ def _reference_auth(action: str, path: Path) -> None:
     from nauro.sync.reference_auth import run_reference_auth
 
     try:
-        typer.echo(run_reference_auth(action, path, typer.echo))
+        typer.echo(run_reference_auth(action, path, _present_login_url))
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
@@ -337,7 +339,7 @@ def _generation_auth(action: str) -> bool:
     from nauro.cli.generation_auth import run_generation_auth
 
     try:
-        result = run_generation_auth(action, REDIRECT_URI, typer.echo)
+        result = run_generation_auth(action, REDIRECT_URI, _present_login_url)
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
