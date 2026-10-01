@@ -13,6 +13,8 @@ from nauro.store.resolution import StoreResolutionError, resolve_project_binding
 from nauro.store.submission_records import SubmissionRecordError
 from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica, replica_status
 from nauro.sync.generation_session import GenerationTransferSession
+from nauro.sync.write_arguments import validate_write_arguments
+from nauro.sync.write_failures import write_failure
 
 WRITE_GUIDANCE = (
     "On generation replicas, submit creates and saves an immutable attempt. "
@@ -68,18 +70,11 @@ def generation_write(
         ):
             raise ValueError("Typed write modes require a generation replica.")
         return None
+    validate_write_arguments(operation, arguments)
     family = FAMILIES[operation]
     mode = arguments.get("request_mode") or "submit"
-    if mode not in {"submit", "discover", "recover", "retry"}:
-        raise ValueError("Invalid write request mode.")
     content = {key: arguments[key] for key in CONTENT[family] if arguments.get(key) is not None}
     operation_id, digest = arguments.get("operation_id"), arguments.get("payload_digest")
-    if mode != "submit" and content:
-        raise ValueError("Reference modes cannot replace content.")
-    if mode in {"submit", "discover"} and (operation_id is not None or digest is not None):
-        raise ValueError("This mode cannot take a saved reference.")
-    if mode in {"recover", "retry"} and (not operation_id or not digest):
-        raise ValueError("Recovery requires operation_id and payload_digest.")
     with GenerationTransferSession(binding) as session:
         return _execute(family, mode, content, operation_id, digest, session, on_refreshed)
 
@@ -130,24 +125,8 @@ def _execute(
     )
     try:
         result = getattr(submission, f"{mode}_{family}")(record.scope, transport, **auth)
-    except getattr(submission, family.title() + "RetryExpiredError"):
-        return {
-            **reference,
-            "status": "retry_expired",
-            "error_code": "retry_horizon_expired",
-            "unresolved": True,
-            "guidance": (
-                "The original 24-hour retry window has expired. Do not resend this attempt. "
-                "Reconcile its outcome before creating a new write."
-            ),
-        }
-    except (SubmissionRecordError, *REFRESH_FAILURES):
-        return {
-            **reference,
-            "status": "unresolved",
-            "unresolved": True,
-            "guidance": "Recover this saved operation before retrying.",
-        }
+    except (SubmissionRecordError, *REFRESH_FAILURES) as error:
+        return {**reference, **write_failure(family, error)}
     output = {**result.model_dump(mode="json"), **reference}
     if result.status == "committed":
         try:

@@ -233,6 +233,57 @@ def test_account_switch_refuses_before_send(delivery):
 
 
 @pytest.mark.parametrize("operation,content", CASES)
+@pytest.mark.parametrize(
+    "failure,status,code",
+    [
+        ("RecoveryRequiredError", "recovery_required", "lookup_required"),
+        ("TransportError", "unverified", "response_unverified"),
+        ("GenerationConnectionError", "blocked", "submission_authority_unavailable"),
+        ("SubmissionActorMismatchError", "blocked", "submission_authority_unavailable"),
+        ("SubmissionRecordCorruptError", "blocked", "submission_record_invalid"),
+        ("SubmissionRecordError", "blocked", "submission_record_unavailable"),
+        ("OSError", "blocked", "submission_record_unavailable"),
+        ("ValueError", "unverified", "write_outcome_unverified"),
+    ],
+)
+def test_write_failure_preserves_reference_and_action(
+    delivery, monkeypatch, operation, content, failure, status, code
+):
+    from nauro.store import submission_records
+    from nauro.sync.generation_session import GenerationConnectionError
+
+    session, calls, _ = delivery
+    family = writes.FAMILIES[operation]
+    submission = importlib.import_module(f"nauro.sync.{family}_submission")
+    contract = importlib.import_module(f"nauro.store.{family}_contract")
+    errors = {
+        "RecoveryRequiredError": getattr(submission, family.title() + "RecoveryRequiredError"),
+        "TransportError": getattr(contract, family.title() + "TransportError"),
+        "GenerationConnectionError": GenerationConnectionError,
+        "SubmissionActorMismatchError": submission_records.SubmissionActorMismatchError,
+        "SubmissionRecordCorruptError": submission_records.SubmissionRecordCorruptError,
+        "SubmissionRecordError": submission_records.SubmissionRecordError,
+        "OSError": OSError,
+        "ValueError": ValueError,
+    }
+    monkeypatch.setattr(
+        submission, f"submit_{family}", Mock(side_effect=errors[failure]("PRIVATE"))
+    )
+    result = writes.generation_write(operation, content)
+    records = importlib.import_module(f"nauro.store.{family}_records")
+    (saved,) = getattr(records, f"list_{family}_submissions")(
+        PROJECT, ACTOR, require_actor=session.require_actor
+    )
+    assert result["status"] == status
+    assert result["error_code"] == code
+    assert result["unresolved"] is True
+    assert result["operation_id"] == saved.scope.operation_id
+    assert result["payload_digest"] == saved.payload_digest
+    assert "PRIVATE" not in json.dumps(result)
+    assert calls == []
+
+
+@pytest.mark.parametrize("operation,content", CASES)
 @pytest.mark.parametrize("surface", ["cli", "stdio"])
 def test_expired_retry_only_looks_up_original_attempt(delivery, operation, content, surface):
     from nauro.cli.main import app
