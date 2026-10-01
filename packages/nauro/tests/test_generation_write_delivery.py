@@ -38,7 +38,7 @@ def delivery(tmp_path, monkeypatch):
     monkeypatch.setattr(writes, "resolve_project_binding", lambda *a, **k: binding)
     monkeypatch.setattr(writes, "observe_generation_marker", lambda b: object())
     monkeypatch.setattr(writes, "GenerationTransferSession", lambda b: session)
-    monkeypatch.setattr(writes, "recover_generation_refresh", Mock())
+    monkeypatch.setattr(writes, "refresh_replica", Mock())
     monkeypatch.setattr(writes, "replica_status", lambda b: {"installed_for_user_id": ACTOR})
     from nauro.cli import generation_writes as cli_writes
     from nauro.mcp import stdio_server
@@ -70,7 +70,7 @@ def delivery(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("operation,content", CASES)
-def test_public_stdio_commits_and_refreshes_same_session(delivery, operation, content):
+def test_public_stdio_commits_and_refreshes_same_authority(delivery, operation, content):
     from nauro.mcp import stdio_server
 
     session, calls, _ = delivery
@@ -78,8 +78,8 @@ def test_public_stdio_commits_and_refreshes_same_session(delivery, operation, co
     assert result["status"] == "committed"
     assert result["guidance_status"] == {"status": "updated"}
     assert len(calls) == 1
-    writes.recover_generation_refresh.assert_called_once_with(
-        session.binding, actor=ACTOR, session=session
+    writes.refresh_replica.assert_called_once_with(
+        session.binding, expected=(session.connection, ACTOR)
     )
     session.credentials.assert_called()
 
@@ -127,7 +127,7 @@ def test_changed_connection_cannot_recover(delivery):
 
 def test_committed_refresh_failure_never_resubmits(delivery):
     _, calls, _ = delivery
-    writes.recover_generation_refresh.side_effect = ValueError("offline")
+    writes.refresh_replica.side_effect = ValueError("offline")
     result = writes.generation_write("update_state", {"delta": "Frozen state"})
     assert result["status"] == "committed"
     assert result["replica_status"]["error_code"] == "receipt_refresh_required"
@@ -333,4 +333,4 @@ def test_successful_refresh_regenerates_guidance(delivery):
         "update_state", {"delta": "Frozen state"}, on_refreshed=regenerate
     )
     assert result["guidance_status"] == {"status": "updated"}
-    regenerate.assert_called_once_with(writes.recover_generation_refresh.return_value)
+    regenerate.assert_called_once_with(writes.refresh_replica.return_value)

@@ -11,8 +11,7 @@ from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.read_authority import observe_generation_marker
 from nauro.store.resolution import StoreResolutionError, resolve_project_binding
 from nauro.store.submission_records import SubmissionRecordError
-from nauro.sync.generation_refresh import recover_generation_refresh
-from nauro.sync.generation_refresh_status import REFRESH_FAILURES, replica_status
+from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica, replica_status
 from nauro.sync.generation_session import GenerationTransferSession
 
 WRITE_GUIDANCE = (
@@ -153,7 +152,7 @@ def _execute(
     if result.status == "committed":
         try:
             session.require_binding(session.binding)
-            snapshot = recover_generation_refresh(session.binding, actor=actor, session=session)
+            snapshot = refresh_replica(session.binding, expected=(session.connection, actor))
             status = replica_status(session.binding)
             session.credentials()
             if status.get("installed_for_user_id") != actor:
