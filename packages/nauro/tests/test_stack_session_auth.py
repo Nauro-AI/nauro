@@ -14,19 +14,31 @@ from nauro.store.stack_contract import (
 )
 from nauro.store.submission_records import SubmissionActorMismatchError
 from nauro.sync import stack_submission as submission
+from nauro.sync.generation_credentials import GenerationConnection
 from nauro.sync.stack_transport import HttpStackTransport
 from tests.test_stack_submission import OTHER, PROJECT, USER, _body, _prepared, home
 
 __all__ = ["home"]
 
 
+def connection_for(origin="https://example.test", client_id="client"):
+    return GenerationConnection(
+        endpoint=origin + "/mcp",
+        issuer="https://issuer.test/",
+        client_id=client_id,
+        audience="https://api.test",
+        redirect_uri="http://127.0.0.1:8080/callback",
+    )
+
+
 def test_session_authority_survives_reload_without_global_credentials(home):
     (home / "config.json").unlink()
     actor_calls = []
     auth = {"require_actor": actor_calls.append}
+    connection = connection_for()
     payload = stack_payload("Frozen stack", "a" * 64)
     record = records.prepare_stack_submission(
-        PROJECT, USER, payload, connection="endpoint-binding", **auth
+        PROJECT, USER, payload, connection=connection.binding(), **auth
     )
     requests = []
 
@@ -42,13 +54,13 @@ def test_session_authority_survives_reload_without_global_credentials(home):
         transport = HttpStackTransport(
             "https://example.test",
             client,
-            connection="endpoint-binding",
+            connection=connection,
             credentials=lambda: ActiveCredentials(USER, "session-token"),
             **auth,
         )
         assert submission.recover_stack(record.scope, transport, **auth).status == "absent"
         saved = records.read_stack_submission(record.scope, **auth)
-        assert saved.connection == "endpoint-binding"
+        assert saved.connection == connection.binding()
         assert saved.payload_json == record.payload_json
         assert submission.retry_stack(saved.scope, transport, **auth).status == "committed"
     assert [request[0] for request in requests] == [
@@ -99,14 +111,18 @@ def test_session_account_change_never_accepts_response(home, changed_after_reque
 @pytest.mark.parametrize(
     "saved,active",
     [
-        ("https://first.test", "https://second.test"),
-        ("https://first.test", None),
-        (None, "https://second.test"),
+        (connection_for("https://first.test"), connection_for("https://second.test")),
+        (connection_for("https://first.test"), None),
+        (None, connection_for("https://second.test")),
+        (
+            connection_for("https://second.test", "first-client"),
+            connection_for("https://second.test", "second-client"),
+        ),
     ],
 )
 def test_connection_mismatch_never_sends_saved_attempt(home, mode, saved, active):
     record = records.prepare_stack_submission(
-        PROJECT, USER, stack_payload("Next?"), connection=saved
+        PROJECT, USER, stack_payload("Next?"), connection=saved.binding() if saved else None
     )
     handler = Mock()
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
@@ -120,17 +136,23 @@ def test_connection_mismatch_never_sends_saved_attempt(home, mode, saved, active
             getattr(submission, f"{mode}_stack")(record.scope, transport)
     handler.assert_not_called()
     persisted = records.read_stack_submission(record.scope)
-    assert persisted.connection == saved
+    assert persisted.connection == (saved.binding() if saved else None)
     assert persisted.payload_json == record.payload_json
     assert persisted.payload_digest == record.payload_digest
     assert persisted.result is None
 
 
 @pytest.mark.parametrize("mode", ["submit", "recover", "retry"])
-@pytest.mark.parametrize("connection", [None, "https://first.test", "https://second.test"])
+@pytest.mark.parametrize(
+    "connection",
+    [None, connection_for("https://first.test"), connection_for("https://second.test")],
+)
 def test_matching_connection_or_legacy_default_accepts_bound_receipt(home, mode, connection):
     record = records.prepare_stack_submission(
-        PROJECT, USER, stack_payload("Next?"), connection=connection
+        PROJECT,
+        USER,
+        stack_payload("Next?"),
+        connection=connection.binding() if connection else None,
     )
     calls = []
 
@@ -138,7 +160,7 @@ def test_matching_connection_or_legacy_default_accepts_bound_receipt(home, mode,
         calls.append((str(request.url), request.headers["Authorization"]))
         return httpx.Response(200, json=_body(record))
 
-    origin = connection or "https://legacy.test"
+    origin = connection.endpoint.removesuffix("/mcp") if connection else "https://legacy.test"
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         transport = HttpStackTransport(
             origin,
@@ -178,3 +200,37 @@ print(record.model_dump_json())
     assert loaded.payload_json == record.payload_json
     assert loaded.payload_digest == record.payload_digest
     assert loaded.phase == "uncertain"
+
+
+@pytest.mark.parametrize("route", ["submit", "lookup"])
+@pytest.mark.parametrize("origin", ["https://other.test", "https://example.test:9443"])
+def test_same_saved_binding_cannot_send_to_another_origin(home, route, origin):
+    connection = connection_for()
+    record = records.prepare_stack_submission(
+        PROJECT, USER, stack_payload("Frozen stack"), connection=connection.binding()
+    )
+    credentials = Mock(return_value=ActiveCredentials(USER, "private-token"))
+    handler = Mock()
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(StackTransportError, match="origin does not match"),
+    ):
+        transport = HttpStackTransport(
+            origin, client, connection=connection, credentials=credentials
+        )
+        getattr(transport, route)(record)
+    credentials.assert_not_called()
+    handler.assert_not_called()
+
+
+@pytest.mark.parametrize("origin", ["https://EXAMPLE.test:443", "https://example.test/"])
+def test_equivalent_normalized_origin_accepts_bound_receipt(home, origin):
+    connection = connection_for()
+    record = records.prepare_stack_submission(
+        PROJECT, USER, stack_payload("Frozen stack"), connection=connection.binding()
+    )
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_body(record)))
+    ) as client:
+        result = HttpStackTransport(origin, client, connection=connection).submit(record)
+    assert result.status == "committed"

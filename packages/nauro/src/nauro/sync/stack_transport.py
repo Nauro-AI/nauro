@@ -15,6 +15,7 @@ from nauro.store.stack_contract import (
 )
 from nauro.store.stack_records import StackSubmission
 from nauro.store.submission_records import SubmissionActorMismatchError, require_submission_actor
+from nauro.sync.generation_credentials import GenerationConnection
 
 
 class HttpStackTransport:
@@ -23,7 +24,7 @@ class HttpStackTransport:
         base_url: str,
         client: httpx.Client,
         *,
-        connection: str | None = None,
+        connection: GenerationConnection | None = None,
         credentials: Callable[[], ActiveCredentials] | None = None,
         require_actor: Callable[[str], None] | None = None,
     ) -> None:
@@ -37,9 +38,13 @@ class HttpStackTransport:
             or url.path not in {"", "/"}
         ):
             raise StackTransportError("Stack transport requires a trusted HTTPS origin.")
+        if connection is not None and url.copy_with(path="/") != httpx.URL(
+            connection.endpoint.removesuffix("/mcp")
+        ).copy_with(path="/"):
+            raise StackTransportError("The stack transport origin does not match its connection.")
         self._base_url = str(url).rstrip("/")
         self._client = client
-        self._connection = connection
+        self._connection = connection.binding() if connection is not None else None
         self._credentials = credentials or read_active_credentials
         self._require_actor = require_actor or require_submission_actor
 
