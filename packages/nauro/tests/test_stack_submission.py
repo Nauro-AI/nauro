@@ -502,11 +502,12 @@ def test_changed_account_during_response_retains_uncertain_record(home):
     assert records.read_stack_submission(record.scope).phase == "uncertain"
 
 
-def test_response_size_limit_retains_uncertainty(home):
+@pytest.mark.parametrize("status", [200, 403, 409])
+def test_response_size_limit_retains_uncertainty(home, status):
     record = _prepared()
     with httpx.Client(
         transport=httpx.MockTransport(
-            lambda request: httpx.Response(200, content=b" " * (64 * 1024 + 1))
+            lambda request: httpx.Response(status, content=b" " * (64 * 1024 + 1))
         )
     ) as client:
         with pytest.raises(StackTransportError):
