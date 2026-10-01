@@ -447,7 +447,6 @@ def flag_question(
 ) -> str | dict | CallToolResult:
     from nauro.sync.generation_writes import generation_write
 
-    validate_write_arguments("flag_question", locals())
     result = generation_write("flag_question", locals(), on_refreshed=regenerate_refreshed_guidance)
     if result is not None:
         return _generation_write_result(result)

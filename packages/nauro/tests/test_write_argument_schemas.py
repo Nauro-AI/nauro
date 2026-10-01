@@ -1,5 +1,7 @@
 """Published write modes reject incomplete submissions before transport setup."""
 
+import asyncio
+
 import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
@@ -88,15 +90,16 @@ def test_project_resolution_error_keeps_specific_guidance(tmp_path, monkeypatch,
 
 @pytest.mark.parametrize("name", PAYLOADS)
 def test_missing_submit_fields_never_reach_transport(monkeypatch, name):
-    from nauro.mcp import stdio_server
+    from mcp.server.fastmcp.exceptions import ToolError
+
     from nauro.sync import generation_writes
 
     def forbidden(*args, **kwargs):
         raise AssertionError("Invalid input reached the write dispatcher")
 
     monkeypatch.setattr(generation_writes, "generation_write", forbidden)
-    with pytest.raises(ValueError, match="requires"):
-        getattr(stdio_server, name)()
+    with pytest.raises(ToolError, match="requires"):
+        asyncio.run(mcp._tool_manager.get_tool(name).run({}))
 
 
 @pytest.mark.parametrize("missing", PAYLOADS["share_context"])
