@@ -161,11 +161,11 @@ def generate_agents_md(
     # Tool catalog collapsed to a pointer: MCP sessions get signatures and
     # per-tool guidance from tools/list, and MCP-less agents reach the CLI
     # mirror via `nauro --help`, so the file names the mirror rule instead of
-    # restating ten signatures. The public-artifacts rule stays: AGENTS.md is
+    # restating signatures. The public-artifacts rule stays: AGENTS.md is
     # its only delivery surface.
     parts.append(
         "## Nauro MCP Tools\n\n"
-        "Nauro's 10 tools are available over MCP; without MCP, the same tools "
+        "Nauro's tools are available over MCP; without MCP, the same tools "
         "work as `nauro <tool-name>` shell commands (underscores become "
         "hyphens, e.g. `nauro check-decision`). Run `nauro --help` for the "
         "full list.\n\n"

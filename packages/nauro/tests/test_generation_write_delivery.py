@@ -17,6 +17,7 @@ PROJECT = "01K00000000000000000000001"
 ACTOR = "01K00000000000000000000002"
 CASES = [
     ("update_state", {"delta": "Frozen state"}),
+    ("update_stack", {"content": "Frozen stack"}),
     ("flag_question", {"question": "Next step?"}),
     ("flag_question", {"resolved_by": "D42", "targets": ["Q1"]}),
 ]
@@ -44,6 +45,9 @@ def delivery(tmp_path, monkeypatch):
     monkeypatch.setattr(
         writes, "capture_write_revision", Mock(return_value="a" * 64), raising=False
     )
+    from nauro.sync import stack_writes
+
+    monkeypatch.setattr(stack_writes, "capture_write_revision", writes.capture_write_revision)
     monkeypatch.setattr(writes, "replica_status", lambda b: {"installed_for_user_id": ACTOR})
     from nauro.cli import generation_writes as cli_writes
     from nauro.mcp import stdio_server
@@ -169,7 +173,7 @@ def test_stale_revision_returns_original_reference(delivery):
     )
 
 
-@pytest.mark.parametrize("command", ["update-state", "flag-question"])
+@pytest.mark.parametrize("command", ["update-state", "flag-question", "update-stack"])
 def test_cli_discovery_uses_generation_entry_point(delivery, command):
     from nauro.cli.main import app
 
@@ -182,6 +186,7 @@ def test_cli_discovery_uses_generation_entry_point(delivery, command):
     "command",
     [
         ["update-state", "Frozen state"],
+        ["update-stack", "Frozen stack"],
         ["flag-question", "Next step?"],
         ["flag-question", "--question", "Next step?"],
         ["flag-question", "--resolved-by", "D42", "--targets", "Q1"],
@@ -196,7 +201,7 @@ def test_cli_submits_each_public_operation(delivery, command):
     assert json.loads(result.output)["guidance_status"] == {"status": "updated"}
 
 
-@pytest.mark.parametrize("command", ["update-state", "flag-question"])
+@pytest.mark.parametrize("command", ["update-state", "flag-question", "update-stack"])
 @pytest.mark.parametrize(
     "status,exit_code", [("committed", 0), ("unresolved", 1), ("discovered", 0)]
 )
@@ -437,7 +442,9 @@ def test_nonterminal_observations_preserve_saved_attempt(delivery, status, surfa
 
 
 @pytest.mark.parametrize("selected", [PROJECT, "Target", "", "missing"])
-@pytest.mark.parametrize("operation,content", [CASES[0], CASES[1]])
+@pytest.mark.parametrize(
+    "operation,content", [case for case in CASES if "resolved_by" not in case[1]]
+)
 def test_cli_explicit_project_from_another_repo(
     delivery, tmp_path, monkeypatch, selected, operation, content
 ):

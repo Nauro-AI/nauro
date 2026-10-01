@@ -16,6 +16,7 @@ from nauro.store.repo_config import save_repo_config
         "flag-question",
         "resolve-question",
         "update-state",
+        "update-stack",
         "import-adr",
         "import-memory-bank",
         "questions-migrate",
@@ -84,6 +85,7 @@ def test_legacy_cli_refuses_before_access(tmp_path, monkeypatch, command, contro
         "flag-question": ["flag-question", "Synthetic question?"],
         "resolve-question": ["flag-question", "--targets", "Q1", "--resolved-by", "D1"],
         "update-state": ["update-state", "Synthetic state"],
+        "update-stack": ["update-stack", "Synthetic stack"],
         "import-adr": ["import", "--adr", str(source)],
         "import-memory-bank": ["import", "--memory-bank", str(source)],
         "questions-migrate": ["questions", "migrate"],
@@ -94,7 +96,7 @@ def test_legacy_cli_refuses_before_access(tmp_path, monkeypatch, command, contro
         arguments += ["--project", "Replica"]
     result = CliRunner().invoke(app, arguments)
     assert result.exit_code == 1, result.output
-    if command in {"update-state", "flag-question", "resolve-question"}:
+    if command in {"update-state", "update-stack", "flag-question", "resolve-question"}:
         expected = {
             "valid": "Check generation login and project connection.",
             "corrupt": "The generation authority marker is invalid.",
