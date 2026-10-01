@@ -36,6 +36,12 @@ _RESULT_TEXT = {
 def _response(result: QuestionResult) -> CallToolResult:
     if result.status == "committed":
         text = "Question operation committed. This receipt does not establish current local state."
+    elif result.status == "refused":
+        text = f"Question request refused: {result.server_code}. " + (
+            "The original write outcome remains unknown. Restore access and recover this reference."
+            if result.unresolved
+            else "This attempt did not write. Correct the refusal before a new attempt."
+        )
     else:
         text = _RESULT_TEXT[result.status]
     return CallToolResult(
