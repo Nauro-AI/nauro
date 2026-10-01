@@ -127,6 +127,8 @@ def test_connection_mismatch_never_sends_saved_attempt(home, mode, saved, active
         share_payload("next-brief", "Next content", "brief", "Next summary"),
         connection=saved.binding() if saved else None,
     )
+    if mode == "retry":
+        record = records.mark_share_uncertain(record)
     handler = Mock()
     credentials = Mock(return_value=ActiveCredentials(USER, "same-user-token"))
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
@@ -144,7 +146,14 @@ def test_connection_mismatch_never_sends_saved_attempt(home, mode, saved, active
     assert persisted.connection == (saved.binding() if saved else None)
     assert persisted.payload_json == record.payload_json
     assert persisted.payload_digest == record.payload_digest
-    assert persisted.result is None
+    assert persisted == record
+    if mode == "submit":
+        origin = saved.endpoint.removesuffix("/mcp") if saved else "https://legacy.test"
+        with httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_body(record)))
+        ) as client:
+            correct = HttpShareTransport(origin, client, connection=saved, credentials=credentials)
+            assert submission.submit_share(record.scope, correct).status == "committed"
 
 
 @pytest.mark.parametrize("mode", ["submit", "recover", "retry"])
@@ -246,5 +255,15 @@ def test_equivalent_normalized_origin_accepts_bound_receipt(home, origin):
     with httpx.Client(
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_body(record)))
     ) as client:
-        result = HttpShareTransport(origin, client, connection=connection).submit(record)
+        result = HttpShareTransport(
+            origin,
+            client,
+            connection=connection,
+            credentials=lambda: ActiveCredentials(USER, "session-token"),
+        ).submit(record)
     assert result.status == "committed"
+
+
+def test_bound_transport_requires_an_explicit_credentials_provider():
+    with httpx.Client() as client, pytest.raises(ShareTransportError, match="credentials provider"):
+        HttpShareTransport("https://example.test", client, connection=connection_for())

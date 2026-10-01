@@ -8,10 +8,10 @@ import pytest
 
 from nauro.mcp import share_responses
 from nauro.store import share_records as records
-from nauro.store.share_contract import ShareTransportError
+from nauro.store.share_contract import ShareRefused, ShareTransportError
 from nauro.sync import share_submission as submission
 from nauro.sync.share_transport import HttpShareTransport
-from tests.test_share_submission import _body, _prepared, home
+from tests.test_share_submission import _body, _prepared, _result, home
 
 __all__ = ["home"]
 
@@ -210,3 +210,27 @@ def test_all_http_bodies_obey_response_byte_limit(home, route, status):
         pytest.raises(ShareTransportError, match="byte limit"),
     ):
         getattr(HttpShareTransport("https://example.test", client), route)(record)
+
+
+@pytest.mark.parametrize("mode", ["submit", "retry"])
+def test_custom_transport_cannot_supply_terminal_refusal(home, mode):
+    record = _prepared()
+    if mode == "retry":
+        records.mark_share_uncertain(record)
+    refusal = ShareRefused(
+        version=1,
+        scope=record.scope,
+        payload_digest=record.payload_digest,
+        http_status=403,
+        server_code="actor_mismatch",
+        request_mode="submit",
+        unresolved=False,
+    )
+    transport = Mock(
+        lookup=Mock(return_value=_result(record, "absent")), submit=Mock(return_value=refusal)
+    )
+    with pytest.raises(ShareTransportError, match="terminal refusal"):
+        getattr(submission, f"{mode}_share")(record.scope, transport)
+    saved = records.read_share_submission(record.scope)
+    assert saved.phase == "uncertain"
+    assert saved.result == (_result(record, "absent") if mode == "retry" else None)
