@@ -9,25 +9,32 @@ import jwt
 
 _MESSAGES = {
     "exchange_not_sent": (
-        "Could not connect to the token endpoint. Check your connection and retry."
+        "Could not connect to the token endpoint.",
+        "Check your connection and retry.",
     ),
-    "login_timeout": "Login timed out. Run 'nauro auth login' again.",
-    "login_refused": "Login was refused. Run 'nauro auth login' to try again.",
+    "login_timeout": ("Login timed out.", "Retry the command that started this login."),
+    "login_refused": ("Login was refused.", "Retry the command that started this login."),
     "request_rejected": (
-        "The authentication service rejected the request. Check your login settings."
+        "The authentication service rejected the request.",
+        "Check your login settings.",
     ),
-    "rate_limited": "The authentication service rate limit was reached. Wait before trying again.",
-    "service_unavailable": "The authentication service is unavailable. Try again later.",
+    "rate_limited": (
+        "The authentication service rate limit was reached.",
+        "Wait before trying again.",
+    ),
+    "service_unavailable": ("The authentication service is unavailable.", "Try again later."),
     "invalid_tokens": (
-        "The token response is incomplete or invalid. Check the OAuth client settings."
+        "The token response is incomplete or invalid.",
+        "Check the OAuth client settings.",
     ),
-    "login_required": "Login required. Run 'nauro auth login' for this project.",
+    "login_required": ("Login required.", "Run 'nauro auth login' for this project."),
 }
 
 
 class AuthenticationError(ValueError):
     def __init__(self, code: str) -> None:
-        super().__init__(_MESSAGES[code])
+        self.reason, recovery = _MESSAGES[code]
+        super().__init__(f"{self.reason} {recovery}")
 
 
 class ExchangeNotSentError(AuthenticationError):
@@ -38,26 +45,30 @@ class ExchangeNotSentError(AuthenticationError):
 class RenewalRequiredError(ValueError):
     def __init__(self, cause: Exception) -> None:
         super().__init__(
-            f"{auth_error_message(cause)} Renewal incomplete; login required. "
+            f"{auth_error_message(cause, recovery=False)} Renewal incomplete; login required. "
             "Run 'nauro auth login' again."
         )
 
 
-def auth_error_message(exc: Exception) -> str:
-    if isinstance(exc, (AuthenticationError, RenewalRequiredError)):
-        return str(exc)
+def auth_error_message(exc: Exception, *, recovery: bool = True) -> str:
+    if isinstance(exc, AuthenticationError):
+        return str(exc) if recovery else exc.reason
+    if isinstance(exc, RenewalRequiredError):
+        return str(exc) if recovery else "Credential renewal did not complete."
     if isinstance(exc, PermissionError):
-        return (
-            "Local authentication storage or callback access was denied. "
-            "Check filesystem and sandbox permissions."
-        )
+        reason = "Local authentication storage or callback access was denied."
+        return reason + (" Check filesystem and sandbox permissions." if recovery else "")
     if isinstance(exc, OSError) and exc.errno == errno.EADDRINUSE:
-        return "The login callback port is in use. Close the other login attempt and try again."
-    if isinstance(exc, httpx.TimeoutException):
-        return "The authentication request timed out."
-    if isinstance(exc, httpx.HTTPError):
-        return "The authentication connection failed."
-    message = "Check the project connection and local credentials, or run 'nauro auth login' again."
-    if isinstance(exc, jwt.PyJWTError):
-        message = "The returned access token could not be verified."
-    return message
+        reason = "The login callback port is in use."
+        return reason + (" Close the other login attempt and try again." if recovery else "")
+    messages = (
+        (httpx.TimeoutException, "The authentication request timed out."),
+        (httpx.HTTPError, "The authentication connection failed."),
+        (jwt.PyJWTError, "The returned access token could not be verified."),
+    )
+    fallback = (
+        "Check the project connection and local credentials, or run 'nauro auth login' again."
+        if recovery
+        else "Authentication failed."
+    )
+    return next((message for kind, message in messages if isinstance(exc, kind)), fallback)

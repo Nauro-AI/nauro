@@ -49,7 +49,7 @@ def test_login_opens_browser_and_keeps_manual_fallback(mode, browser_result):
         args.extend(["--reference-profile", "profile.json"])
     with (
         patch(target, side_effect=authenticate),
-        patch("nauro.cli.commands.auth.webbrowser.open") as open_browser,
+        patch("nauro.cli.auth_presentation.webbrowser.open") as open_browser,
     ):
         if isinstance(browser_result, Exception):
             open_browser.side_effect = browser_result
@@ -294,7 +294,7 @@ class TestAuthLogin:
 
         with (
             patch("nauro.cli.commands.auth.httpx.post", side_effect=fake_post),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -336,7 +336,7 @@ class TestAuthLogin:
             pass
 
         with (
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -372,7 +372,7 @@ class TestAuthLogin:
             pass
 
         with (
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -414,7 +414,7 @@ class TestAuthLogin:
 
         with (
             patch("nauro.cli.commands.auth.httpx.post", side_effect=fake_post),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -469,7 +469,7 @@ class TestAuthLogin:
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
             patch("nauro.auth.time.sleep"),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -512,7 +512,7 @@ class TestAuthLogin:
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
             patch("nauro.auth.time.sleep"),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -560,7 +560,7 @@ class TestAuthLogin:
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
             patch("nauro.auth.time.sleep") as sleep,
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
