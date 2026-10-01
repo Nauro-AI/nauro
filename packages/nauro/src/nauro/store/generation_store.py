@@ -38,6 +38,7 @@ class GenerationStorePathError(GenerationAuthorityError):
 class GenerationSnapshotStore:
     target: GenerationProjectionTarget = field(repr=False)
     _contents: Mapping[str, str] = field(repr=False)
+    _bytes: Mapping[str, bytes] = field(repr=False)
 
     def __init__(self, projection: VerifiedGenerationProjection) -> None:
         verified = verify_generation_projection(
@@ -51,6 +52,9 @@ class GenerationSnapshotStore:
         }
         object.__setattr__(self, "target", verified.target)
         object.__setattr__(self, "_contents", MappingProxyType(contents))
+        object.__setattr__(
+            self, "_bytes", MappingProxyType({a.path: a.content for a in verified.artifacts})
+        )
 
     def read_file(self, path: str) -> str | None:
         try:
@@ -60,6 +64,10 @@ class GenerationSnapshotStore:
                 "The requested path is outside the protected generation."
             ) from exc
         return self._contents.get(canonical)
+
+    def read_bytes(self, path: str) -> bytes | None:
+        self.read_file(path)
+        return self._bytes.get(path)
 
     def write_file(self, path: str, content: str) -> None:
         if path == PROJECT_MD:

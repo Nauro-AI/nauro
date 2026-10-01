@@ -60,6 +60,7 @@ def _finish(
     envelope: dict[str, object] = {
         "store": "local",
         **payload,
+        **read.revisions,
         "project": {"id": identity.project_id, "name": identity.project_id},
         "read_authority": {
             "kind": "generation",
@@ -74,6 +75,9 @@ def _finish(
     if rendered.failure is not None or rendered.text is None:
         return _error("Generation response could not be rendered.")
     text = rendered.text
+    if read.revisions:
+        metadata = "\n".join(f"{name}: {value}" for name, value in read.revisions.items())
+        text = f"{metadata}\n\n{text}"
     _authorize(target, session)
     frame = (
         f"Generation: {identity.generation_id}. Committed: {identity.committed_at}.\n"

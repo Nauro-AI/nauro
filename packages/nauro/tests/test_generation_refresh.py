@@ -522,4 +522,5 @@ def test_refresh_executor_has_only_named_runtime_consumers():
         "sync/migration_installation.py",
         "sync/migration_preservation.py",
         "sync/migration_reconciliation.py",
+        "sync/write_revision.py",
     ]

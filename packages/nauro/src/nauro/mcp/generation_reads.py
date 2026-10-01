@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Generic, Literal, TypeVar
 
 from nauro_core import operations
+from nauro_core.constants import STATE_CURRENT_FILENAME, STATE_LEGACY_FILENAME
 from nauro_core.operations.results import (
     CheckDecisionResult,
     GetContextResult,
@@ -12,6 +13,7 @@ from nauro_core.operations.results import (
     ListDecisionsResult,
     SearchDecisionsResult,
 )
+from nauro_core.operations.update_state import compute_state_revision
 
 from nauro.store.generation_projection import GenerationProjectionIdentity
 from nauro.store.generation_store import GenerationSnapshotStore
@@ -34,13 +36,25 @@ _Result = TypeVar(
 class GenerationReadResult(Generic[_Result]):
     projection: GenerationProjectionIdentity
     result: _Result
+    revisions: dict[str, str] = field(default_factory=dict)
 
 
 def _finish(
-    store: GenerationSnapshotStore, result: _Result, session: TransferSession | None
+    store: GenerationSnapshotStore,
+    result: _Result,
+    session: TransferSession | None,
+    revisions: dict[str, str] | None = None,
 ) -> GenerationReadResult[_Result]:
     _authorize(store.target, session)
-    return GenerationReadResult(store.target.identity, result)
+    return GenerationReadResult(store.target.identity, result, revisions or {})
+
+
+def _revisions(store: GenerationSnapshotStore, path: str | None = None) -> dict[str, str]:
+    result = {}
+    if path in (None, STATE_CURRENT_FILENAME, STATE_LEGACY_FILENAME):
+        current = store.read_bytes(STATE_CURRENT_FILENAME)
+        result["state_revision"] = compute_state_revision(current)
+    return result
 
 
 def get_context(
@@ -51,7 +65,7 @@ def get_context(
     session: TransferSession | None = None,
 ) -> GenerationReadResult[GetContextResult]:
     store = admit_generation_store(binding, actor=actor, session=session)
-    return _finish(store, operations.get_context(store, level), session)
+    return _finish(store, operations.get_context(store, level), session, _revisions(store))
 
 
 def get_decision(
@@ -74,7 +88,7 @@ def get_raw_file(
     session: TransferSession | None = None,
 ) -> GenerationReadResult[GetRawFileResult]:
     store = admit_generation_store(binding, actor=actor, session=session)
-    return _finish(store, operations.get_raw_file(store, path), session)
+    return _finish(store, operations.get_raw_file(store, path), session, _revisions(store, path))
 
 
 def list_decisions(

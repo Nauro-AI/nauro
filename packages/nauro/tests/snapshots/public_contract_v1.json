@@ -1788,7 +1788,16 @@
           {
             "kind": "argument",
             "name": "delta",
-            "required": true,
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--expected-revision"
+            ],
+            "kind": "option",
+            "name": "expected_revision",
+            "required": false,
             "type": "text"
           },
           {
@@ -1802,6 +1811,15 @@
             "name": "json_output",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
           },
           {
             "choices": [
@@ -1819,12 +1837,36 @@
           },
           {
             "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
               "--project"
             ],
             "kind": "option",
             "name": "project",
             "required": false,
             "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
           }
         ]
       },
@@ -1943,6 +1985,181 @@
     "STATE_CURRENT_FILENAME": "state_current.md",
     "STATE_HISTORY_FILENAME": "state_history.md",
     "STATE_MD": "state.md"
+  },
+  "stdio_state_schema": {
+    "oneOf": [
+      {
+        "properties": {
+          "delta": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "null"
+          },
+          "payload_digest": {
+            "type": "null"
+          },
+          "request_mode": {
+            "enum": [
+              "submit",
+              null
+            ]
+          }
+        },
+        "required": [
+          "delta"
+        ]
+      },
+      {
+        "properties": {
+          "delta": {
+            "type": "null"
+          },
+          "expected_revision": {
+            "type": "null"
+          },
+          "operation_id": {
+            "type": "null"
+          },
+          "payload_digest": {
+            "type": "null"
+          },
+          "request_mode": {
+            "const": "discover"
+          }
+        },
+        "required": [
+          "request_mode"
+        ]
+      },
+      {
+        "properties": {
+          "delta": {
+            "type": "null"
+          },
+          "expected_revision": {
+            "type": "null"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "payload_digest": {
+            "type": "string"
+          },
+          "request_mode": {
+            "enum": [
+              "recover",
+              "retry"
+            ]
+          }
+        },
+        "required": [
+          "request_mode",
+          "operation_id",
+          "payload_digest"
+        ]
+      }
+    ],
+    "properties": {
+      "cwd": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional. Absolute working directory used to resolve the project when project_id is omitted.",
+        "title": "Cwd"
+      },
+      "delta": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Description of what changed (e.g. \"Deployed v0.2.0 to staging\").",
+        "title": "Delta"
+      },
+      "expected_revision": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Expected Revision"
+      },
+      "operation_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Original saved operation identity. Required for recover and retry.",
+        "title": "Operation Id"
+      },
+      "payload_digest": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Original saved payload digest. Required for recover and retry.",
+        "title": "Payload Digest"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional; auto-resolved for one project. With several, list ids via list_projects (hosted) or `nauro projects` (local).",
+        "title": "Project Id"
+      },
+      "request_mode": {
+        "anyOf": [
+          {
+            "enum": [
+              "submit",
+              "discover",
+              "recover",
+              "retry"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Submit (default), discover local saved attempts, recover by lookup only, or retry the original attempt only after an absent lookup.",
+        "title": "Request Mode"
+      }
+    },
+    "title": "update_stateArguments",
+    "type": "object"
   },
   "stdio_tool_specs": [
     {

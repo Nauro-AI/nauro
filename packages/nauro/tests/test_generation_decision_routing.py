@@ -285,7 +285,7 @@ def test_raw_reference_arguments_cannot_change_content(route, extra):
 
 @pytest.mark.parametrize(
     "name,args",
-    [("flag_question", {"question": "Question"}), ("update_state", {"delta": "Change"})],
+    [("flag_question", {"question": "Question"})],
 )
 def test_other_stdio_writes_refuse_before_local_adapter(route, name, args):
     with pytest.raises(ToolError, match="not supported"):
@@ -396,7 +396,9 @@ run_stdio()
                 "propose_decision", {"request_mode": "submit", **reference(draft), "title": ""}
             )
             assert invalid.isError is True
-            refused = await session.call_tool("update_state", {"delta": "Forbidden"})
+            refused = await session.call_tool(
+                "update_state", {"delta": "Forbidden", "expected_revision": "absent"}
+            )
             assert refused.isError is True
 
     asyncio.run(exercise())
