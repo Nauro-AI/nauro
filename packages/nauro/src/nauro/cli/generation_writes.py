@@ -83,7 +83,10 @@ def with_write_options(command: Callable[..., None], spec: ToolSpec) -> Callable
     def dispatch(**kwargs: Any) -> None:
         try:
             result = generation_write(
-                spec["name"], _request(family, kwargs), on_refreshed=regenerate_refreshed_guidance
+                spec["name"],
+                _request(family, kwargs),
+                use_cwd=kwargs.get("project") is None,
+                on_refreshed=regenerate_refreshed_guidance,
             )
         except (GenerationAuthorityError, OSError) as error:
             typer.echo(f"Error: {error}", err=True)

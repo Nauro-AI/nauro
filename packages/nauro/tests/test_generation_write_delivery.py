@@ -417,3 +417,172 @@ def test_nonterminal_observations_preserve_saved_attempt(delivery, status, surfa
     assert saved.payload_digest == value["payload_digest"]
     assert saved.payload_json == json.loads(calls[0].content)["payload_json"]
     writes.refresh_replica.assert_not_called()
+
+
+@pytest.mark.parametrize("selected", [PROJECT, "Target", ""])
+def test_cli_explicit_project_from_another_repo(delivery, tmp_path, monkeypatch, selected):
+    from nauro.cli.main import app
+    from nauro.store.registry import register_project_v2
+    from nauro.store.repo_config import save_repo_config
+    from nauro.store.resolution import resolve_project_binding
+
+    session, calls, _ = delivery
+    other = tmp_path / "other"
+    other.mkdir()
+    other_id, _ = register_project_v2("Other", [other])
+    save_repo_config(other, {"mode": "local", "id": other_id, "name": "Other"})
+    register_project_v2("Target", [], project_id=PROJECT)
+    monkeypatch.chdir(other)
+    monkeypatch.setattr(writes, "resolve_project_binding", resolve_project_binding)
+    session.binding = resolve_project_binding(PROJECT, None, use_cwd=False)
+    create_session = Mock(return_value=session)
+    monkeypatch.setattr(writes, "GenerationTransferSession", create_session)
+
+    result = CliRunner().invoke(app, ["update-state", "Frozen state", "--project", selected])
+
+    if selected == "":
+        assert result.exit_code == 2, result.output
+        assert "No Nauro project found" in result.output
+        create_session.assert_not_called()
+        assert calls == []
+        return
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["status"] == "committed"
+    create_session.assert_called_once_with(session.binding)
+    assert json.loads(calls[0].content)["project_id"] == PROJECT
+
+    import asyncio
+
+    from nauro.mcp.stdio_server import mcp
+
+    calls.clear()
+    refused = asyncio.run(
+        mcp._tool_manager.get_tool("update_state").run(
+            {"delta": "Frozen state", "project_id": PROJECT, "cwd": str(other)}
+        )
+    )
+    assert "does not match" in str(refused)
+    assert calls == []
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+def test_guidance_exception_preserves_committed_receipt(delivery, monkeypatch, surface):
+    import asyncio
+
+    from nauro.cli import generation_writes as cli_writes
+    from nauro.cli.main import app
+    from nauro.mcp import stdio_server
+    from nauro.store import state_records
+
+    session, calls, _ = delivery
+    callback = Mock(side_effect=RuntimeError("PRIVATE FAILURE"))
+    monkeypatch.setattr(cli_writes, "regenerate_refreshed_guidance", callback)
+    monkeypatch.setattr(stdio_server, "regenerate_refreshed_guidance", callback)
+    if surface == "cli":
+        response = CliRunner().invoke(app, ["update-state", "Frozen state"])
+        assert response.exit_code == 0, response.output
+        result = json.loads(response.stdout)
+    else:
+        result = asyncio.run(
+            stdio_server.mcp._tool_manager.get_tool("update_state").run({"delta": "Frozen state"})
+        )
+    (saved,) = state_records.list_state_submissions(
+        PROJECT, ACTOR, require_actor=session.require_actor
+    )
+    assert result["status"] == "committed"
+    assert result["receipt_json"] == saved.result.receipt_json
+    assert result["operation_id"] == saved.scope.operation_id
+    assert result["payload_digest"] == saved.payload_digest
+    assert result["guidance_status"] == {
+        "status": "failed",
+        "message": "Replica refresh completed, but guidance regeneration failed. "
+        "Run 'nauro sync' to regenerate guidance. Do not resubmit the write.",
+    }
+    assert "PRIVATE" not in json.dumps(result)
+    assert len(calls) == 1
+
+
+def test_guidance_does_not_swallow_interrupt(delivery):
+    with pytest.raises(KeyboardInterrupt):
+        writes.generation_write(
+            "update_state",
+            {"delta": "Frozen state"},
+            on_refreshed=Mock(side_effect=KeyboardInterrupt),
+        )
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+@pytest.mark.parametrize("mode", ["discover", "recover", "retry", "submit"])
+def test_saved_record_failure_is_structured(delivery, monkeypatch, mode, surface):
+    import asyncio
+
+    from nauro.cli.main import app
+    from nauro.mcp.stdio_server import mcp
+    from nauro.store import state_records
+    from nauro.store.state_contract import state_payload
+
+    session, calls, _ = delivery
+    saved = state_records.prepare_state_submission(
+        PROJECT,
+        ACTOR,
+        state_payload("Frozen state"),
+        connection="connection-a",
+        require_actor=session.require_actor,
+    )
+    path = state_records._record_path(saved.scope)
+    path.write_text("PRIVATE CORRUPT RECORD")
+    reference = {"operation_id": saved.scope.operation_id, "payload_digest": saved.payload_digest}
+    arguments = {"request_mode": mode}
+    if mode in {"recover", "retry"}:
+        arguments.update(reference)
+    elif mode == "submit":
+        arguments["delta"] = "New state"
+        monkeypatch.setattr(
+            state_records.uuid, "uuid4", lambda: SimpleNamespace(hex=saved.scope.operation_id)
+        )
+    if surface == "cli":
+        argv = ["update-state"]
+        for key, value in arguments.items():
+            if key == "delta":
+                argv.append(value)
+            else:
+                argv.extend(["--" + key.replace("_", "-"), value])
+        response = CliRunner().invoke(app, argv)
+        assert response.exit_code == 1, response.output
+        result = json.loads(response.stdout)
+    else:
+        response = asyncio.run(mcp._tool_manager.get_tool("update_state").run(arguments))
+        assert response.isError is True
+        result = json.loads(response.content[0].text)
+    assert result == {
+        **(reference if mode in {"recover", "retry"} else {}),
+        "status": "blocked",
+        "error_code": "submission_record_invalid",
+        "unresolved": True,
+        "guidance": "Preserve the saved record and repair its local storage. "
+        "Reconcile the original operation before creating a new write.",
+    }
+    assert path.read_text() == "PRIVATE CORRUPT RECORD"
+    assert calls == []
+
+
+def test_unavailable_prepare_lock_returns_structured_failure(delivery, monkeypatch):
+    from filelock import Timeout
+
+    from nauro.cli.main import app
+    from nauro.store import state_records
+
+    _, calls, _ = delivery
+    monkeypatch.setattr(
+        state_records, "state_submission_lock", Mock(side_effect=Timeout("PRIVATE LOCK"))
+    )
+    response = CliRunner().invoke(app, ["update-state", "Frozen state"])
+    assert response.exit_code == 1
+    assert json.loads(response.stdout) == {
+        "status": "blocked",
+        "error_code": "submission_record_unavailable",
+        "unresolved": True,
+        "guidance": "Restore access to the saved record, "
+        "then recover this reference before another write.",
+    }
+    assert calls == []

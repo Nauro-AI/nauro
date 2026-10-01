@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -39,13 +40,16 @@ def generation_write(
     operation: str,
     arguments: dict[str, Any],
     *,
+    use_cwd: bool = True,
     on_refreshed: Callable[[GenerationSnapshotStore], dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     try:
         binding = resolve_project_binding(
-            arguments.get("project_id"), arguments.get("cwd") or Path.cwd()
+            arguments.get("project_id"), arguments.get("cwd") or Path.cwd(), use_cwd=use_cwd
         )
     except StoreResolutionError:
+        if not use_cwd:
+            raise
         return None
     if observe_generation_marker(binding) is None:
         if any(
@@ -74,34 +78,44 @@ def _execute(
     project, actor = session.binding.project_id, session.actor
     connection = session.connection.binding()
     auth = {"require_actor": session.require_actor}
-    if mode == "discover":
-        saved = records.list_state_submissions(project, actor, **auth)
-        return {
-            "status": "discovered",
-            "attempts": [
-                record.model_dump(mode="json")
-                for record in saved
-                if record.connection == connection
-            ],
-        }
-    if mode == "submit":
-        if "expected_revision" not in content:
-            content["expected_revision"] = capture_write_revision(
-                session.binding, actor=actor, session=session
+    try:
+        if mode == "discover":
+            saved = records.list_state_submissions(project, actor, **auth)
+            return {
+                "status": "discovered",
+                "attempts": [
+                    record.model_dump(mode="json")
+                    for record in saved
+                    if record.connection == connection
+                ],
+            }
+        if mode == "submit":
+            if "expected_revision" not in content:
+                content["expected_revision"] = capture_write_revision(
+                    session.binding, actor=actor, session=session
+                )
+            record = records.prepare_state_submission(
+                project, actor, state_payload(**content), connection=connection, **auth
             )
-        record = records.prepare_state_submission(
-            project, actor, state_payload(**content), connection=connection, **auth
-        )
-    else:
-        scope = StateScope(project_id=project, user_id=actor, operation_id=cast(str, operation_id))
-        saved_record = records.read_state_submission(scope, **auth)
-        if (
-            saved_record is None
-            or saved_record.connection != connection
-            or saved_record.payload_digest != digest
-        ):
-            raise ValueError("The saved attempt does not match this connection and reference.")
-        record = saved_record
+        else:
+            scope = StateScope(
+                project_id=project, user_id=actor, operation_id=cast(str, operation_id)
+            )
+            saved_record = records.read_state_submission(scope, **auth)
+            if (
+                saved_record is None
+                or saved_record.connection != connection
+                or saved_record.payload_digest != digest
+            ):
+                raise ValueError("The saved attempt does not match this connection and reference.")
+            record = saved_record
+    except (SubmissionRecordError, OSError) as error:
+        reference = {
+            key: value
+            for key, value in (("operation_id", operation_id), ("payload_digest", digest))
+            if value is not None
+        }
+        return {**reference, **write_failure(error)}
     reference = {"operation_id": record.scope.operation_id, "payload_digest": record.payload_digest}
     transport = HttpStateTransport(
         session.api_url,
@@ -120,20 +134,44 @@ def _execute(
             "This saved attempt retains its original revision."
         )
     if result.status == "committed":
-        try:
-            session.require_binding(session.binding)
-            snapshot = refresh_replica(session.binding, expected=(session.connection, actor))
-            status = replica_status(session.binding)
-            session.credentials()
-            if status.get("installed_for_user_id") != actor:
-                raise ValueError("The refresh account changed.")
-            output["replica_status"] = status
-        except REFRESH_FAILURES:
-            output["replica_status"] = {
+        output.update(_refresh_committed(session, on_refreshed))
+    return output
+
+
+def _refresh_committed(
+    session: GenerationTransferSession,
+    on_refreshed: Callable[[GenerationSnapshotStore], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    actor = session.actor
+    try:
+        session.require_binding(session.binding)
+        snapshot = refresh_replica(session.binding, expected=(session.connection, actor))
+        status = replica_status(session.binding)
+        session.credentials()
+        if status.get("installed_for_user_id") != actor:
+            raise ValueError("The refresh account changed.")
+    except REFRESH_FAILURES:
+        return {
+            "replica_status": {
                 "error_code": "receipt_refresh_required",
                 "authorization_checked": False,
             }
-        else:
-            if on_refreshed is not None:
-                output["guidance_status"] = on_refreshed(snapshot)
+        }
+    output = {"replica_status": status}
+    if on_refreshed is not None:
+        output["guidance_status"] = _regenerate_guidance(snapshot, on_refreshed)
     return output
+
+
+def _regenerate_guidance(
+    snapshot: GenerationSnapshotStore,
+    callback: Callable[[GenerationSnapshotStore], dict[str, Any]],
+) -> dict[str, Any]:
+    # Derived guidance must not hide an already committed receipt.
+    with suppress(Exception):
+        return callback(snapshot)
+    return {
+        "status": "failed",
+        "message": "Replica refresh completed, but guidance regeneration failed. "
+        "Run 'nauro sync' to regenerate guidance. Do not resubmit the write.",
+    }
