@@ -407,6 +407,15 @@
             "type": "boolean"
           },
           {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
+          },
+          {
             "choices": [
               "json",
               "text"
@@ -419,6 +428,15 @@
             "name": "output_format",
             "required": false,
             "type": "choice"
+          },
+          {
+            "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
           },
           {
             "flags": [
@@ -443,6 +461,21 @@
             "name": "question_option",
             "required": false,
             "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
           },
           {
             "flags": [
