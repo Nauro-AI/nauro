@@ -316,8 +316,34 @@ def test_question_write_uses_typed_route_before_local_adapter(route, monkeypatch
     assert route.authority.calls == []
 
 
+@pytest.mark.parametrize(
+    "name,args,family",
+    [
+        ("flag_question", {"question": "Question"}, "question"),
+        ("update_stack", {"content": "Python"}, "stack"),
+    ],
+)
+def test_typed_writes_do_not_use_decision_transport(route, monkeypatch, name, args, family):
+    from unittest.mock import Mock
+
+    from nauro.mcp import stdio_server
+    from nauro.sync import generation_writes
+
+    legacy = Mock(side_effect=AssertionError("Legacy question adapter reached"))
+    monkeypatch.setattr(stdio_server, "tool_flag_question", legacy)
+    execute = Mock(return_value={"status": "blocked", "error_code": "test_refusal"})
+    monkeypatch.setattr(generation_writes, f"execute_{family}_write", execute)
+    result = tool(name, **args)
+    assert result.isError is True
+    assert value(result) == {"status": "blocked", "error_code": "test_refusal"}
+    legacy.assert_not_called()
+    assert execute.call_count == 1
+    assert execute.call_args.args[:4] == ("submit", args, None, None)
+    assert route.authority.calls == []
+
+
 def test_full_inventory_cwd_and_cli_project_selection(route, tmp_path, monkeypatch):
-    assert len(mcp._tool_manager.list_tools()) == 10
+    assert len(mcp._tool_manager.list_tools()) == 11
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
@@ -398,7 +424,7 @@ run_stdio()
         async with stdio_client(params) as streams, ClientSession(*streams) as session:
             await session.initialize()
             listing = await session.list_tools()
-            assert len(listing.tools) == 10
+            assert len(listing.tools) == 11
             decision_tool = next(t for t in listing.tools if t.name == "propose_decision")
             assert decision_tool.outputSchema is None
             schema = decision_tool.inputSchema
