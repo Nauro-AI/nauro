@@ -22,6 +22,7 @@ EXPECTED_TOOLS = {
     "list_decisions",
     "propose_decision",
     "search_decisions",
+    "update_stack",
     "update_state",
 }
 

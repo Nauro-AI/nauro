@@ -2221,7 +2221,7 @@
           }
         ],
         "default": null,
-        "description": "Optional stack revision from an authorized read; defaults to the installed replica's revision.",
+        "description": "Optional stack revision from an authorized read, or absent for a missing file. If omitted, use the installed replica's revision. A mismatch returns revision_conflict_observed; retries retain the saved revision.",
         "title": "Expected Revision"
       },
       "operation_id": {

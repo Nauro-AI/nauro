@@ -16,6 +16,7 @@ def _update_stack(
     output_format: OutputFormat = _FORMAT_OPTION,
     json_output: bool = typer.Option(False, "--json/--no-json"),
 ) -> None:
+    """Replace the stack document on a generation replica."""
     resolve_target_project(project)
     typer.echo("Error: update-stack requires a generation replica.", err=True)
     raise typer.Exit(1)

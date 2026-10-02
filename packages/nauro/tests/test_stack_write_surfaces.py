@@ -220,3 +220,19 @@ def test_interrupted_stack_preparation_directs_discovery(delivery, monkeypatch, 
     (saved,) = _call(surface, "discover")["attempts"]
     assert saved["phase"] == "prepared"
     assert saved["result"] is None
+
+
+def test_local_stack_metadata_describes_replica_revision_contract():
+    tool = mcp._tool_manager.get_tool("update_stack")
+    revision = tool.parameters["properties"]["expected_revision"]["description"]
+    assert "revision_conflict_observed" in tool.description
+    assert "stale_revision" not in tool.description
+    assert "installed replica" in tool.description
+    assert "installed replica" in revision
+    assert "revision_conflict_observed" in revision
+
+
+def test_stack_cli_help_describes_replacement_command():
+    result = CliRunner().invoke(app, ["update-stack", "--help"])
+    assert result.exit_code == 0
+    assert "Replace the stack document on a generation replica." in result.stdout

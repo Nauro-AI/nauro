@@ -1,10 +1,9 @@
 """Nauro MCP server: stdio transport, spawned by the MCP client at session start.
 
-Reads and writes the same store and payloads as the remote HTTP server. Tool
-metadata (descriptions, titles, annotations) lives in ``nauro_core.mcp_tools``,
-not here, so the two transports cannot drift. This server registers 10 of the
-11 shared tools; ``list_projects`` is remote-only because a local install
-auto-resolves to its single project store.
+Registers ten shared tools plus the replica-only ``update_stack`` tool. Shared
+metadata lives in ``nauro_core.mcp_tools``; local generation guidance describes
+the installed replica contracts. ``list_projects`` is remote-only because a
+local install auto-resolves to its single project store.
 
 Read tools listed in ``nauro_core.renderers.RENDERERS`` answer with a
 ``CallToolResult`` whose ``content[0]`` carries the renderer output, and a
@@ -26,6 +25,7 @@ from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from nauro_core.constants import (
     MCP_INSTRUCTIONS_STATIC,
+    STACK_DOC_CHAR_LIMIT,
     STACK_REVISION_ABSENT,
     STATE_REVISION_ABSENT,
 )
@@ -106,6 +106,17 @@ def _spec_kwargs(name: str) -> dict[str, Any]:
     """Build FastMCP @tool() decorator kwargs from the shared registry."""
     spec: ToolSpec = UPDATE_STACK if name == "update_stack" else get_tool_spec(name)
     description = spec["description"]
+    if name == "update_stack":
+        description = (
+            "Replace the complete stack.md document on a generation replica. "
+            f"content is the full Markdown replacement, at most {STACK_DOC_CHAR_LIMIT:,} "
+            "characters, stored without normalization. Partial patches are not supported. "
+            "An omitted expected_revision uses the installed replica's revision; an explicit "
+            "revision overrides it. A mismatch returns revision_conflict_observed and does "
+            "not publish the replacement. The saved attempt retains its original revision. "
+            "Record technologies, dependencies and compatibility observations here. "
+            "Goals, constraints and choices with rationale belong in propose_decision."
+        )
     if name in {"update_state", "flag_question", "update_stack"}:
         from nauro.sync.generation_writes import STATE_WRITE_GUIDANCE, WRITE_GUIDANCE
 
@@ -554,8 +565,9 @@ def update_stack(
         str | None,
         Field(
             pattern=rf"^(?:[0-9a-f]{{64}}|{STACK_REVISION_ABSENT})$",
-            description="Optional stack revision from an authorized read; "
-            "defaults to the installed replica's revision.",
+            description="Optional stack revision from an authorized read, or absent for a missing "
+            "file. If omitted, use the installed replica's revision. A mismatch returns "
+            "revision_conflict_observed; retries retain the saved revision.",
         ),
     ] = None,
     cwd: _CWD_PARAM = None,
