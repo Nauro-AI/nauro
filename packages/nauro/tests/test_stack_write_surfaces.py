@@ -94,7 +94,9 @@ def test_stack_receipt_survives_local_failure(delivery, failure):
 
 def test_stack_origin_change_never_sends_credentials(delivery):
     session, calls, _ = delivery
-    session.connection.endpoint = "https://different.example.test/mcp"
+    session.connection = session.connection.model_copy(
+        update={"endpoint": "https://different.example.test/mcp"}
+    )
     result = writes.generation_write("update_stack", {"content": "Python"})
     assert result["status"] == "unverified"
     (saved,) = list_stack_submissions(PROJECT, ACTOR, require_actor=session.require_actor)
