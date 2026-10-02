@@ -266,7 +266,7 @@ def test_installed_reference_schema_matches_host_and_tool_count(installed):
 
     assert mcp._tool_manager.get_tool("propose_decision").parameters == tool_spec()["inputSchema"]
     assert reference_schema() == tool_spec()["inputSchema"]
-    assert len(mcp._tool_manager.list_tools()) == 10
+    assert len(mcp._tool_manager.list_tools()) == 11
 
 
 def test_installed_client_duplicate_drafts_stay_inert(installed):

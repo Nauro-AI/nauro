@@ -17,7 +17,10 @@ from tests.test_generation_write_delivery import ACTOR, delivery
 
 __all__ = ["delivery", "admitted"]
 
-REPLACEMENTS = [("update_state", {"delta": "Changed state"})]
+REPLACEMENTS = [
+    ("update_state", {"delta": "Changed state"}),
+    ("update_stack", {"content": "Changed stack"}),
+]
 
 
 @pytest.mark.parametrize("operation,content", REPLACEMENTS)
@@ -27,7 +30,10 @@ def test_default_revision_is_frozen_before_send(delivery, operation, content):
     payload = json.loads(json.loads(calls[0].content)["payload_json"])
     assert payload["expected_revision"] == "a" * 64
     writes.capture_write_revision.assert_called_once_with(
-        session.binding, actor=ACTOR, session=session
+        session.binding,
+        actor=ACTOR,
+        session=session,
+        **({"family": "stack"} if operation == "update_stack" else {}),
     )
 
 
@@ -73,7 +79,7 @@ def test_unavailable_replica_never_prepares_or_sends(delivery, operation, conten
     assert writes.generation_write(operation, {"request_mode": "discover"})["attempts"] == []
 
 
-@pytest.mark.parametrize("family,path", [("state", "state_current.md")])
+@pytest.mark.parametrize("family,path", [("state", "state_current.md"), ("stack", "stack.md")])
 @pytest.mark.parametrize("body", [b"Original\r\n", b"", b"Original \xff\n", None])
 def test_capture_uses_verified_installed_bytes_without_online_refresh(admitted, family, path, body):
     binding, current, checks = admitted
@@ -86,14 +92,17 @@ def test_capture_uses_verified_installed_bytes_without_online_refresh(admitted, 
     checks.clear()
     session = Mock(spec=GenerationTransferSession)
 
-    revision = write_revision.capture_write_revision(binding, actor=USER_ID, session=session)
+    revision = write_revision.capture_write_revision(
+        binding, actor=USER_ID, session=session, family=family
+    )
 
     assert revision == ("absent" if body is None else hashlib.sha256(body).hexdigest())
     assert checks == []
     session.require_actor.assert_called_with(USER_ID)
 
 
-def test_refresh_between_control_capture_and_file_capture_refuses(admitted, monkeypatch):
+@pytest.mark.parametrize("family", ["state", "stack"])
+def test_refresh_between_control_capture_and_file_capture_refuses(admitted, monkeypatch, family):
     binding, current, _ = admitted
     capture = write_revision._capture_prepared
 
@@ -105,5 +114,5 @@ def test_refresh_between_control_capture_and_file_capture_refuses(admitted, monk
     monkeypatch.setattr(write_revision, "_capture_prepared", interrupted)
     with pytest.raises(ValueError, match="Refresh evidence changed during capture"):
         write_revision.capture_write_revision(
-            binding, actor=USER_ID, session=Mock(spec=GenerationTransferSession)
+            binding, actor=USER_ID, session=Mock(spec=GenerationTransferSession), family=family
         )

@@ -58,6 +58,7 @@ jobs:
           packages/nauro/src/nauro/sync/state_transport.py
           packages/nauro/src/nauro/sync/generation_writes.py
           packages/nauro/src/nauro/sync/question_writes.py
+          packages/nauro/src/nauro/sync/stack_writes.py
           packages/nauro/src/nauro/sync/write_arguments.py
           packages/nauro/src/nauro/sync/write_failures.py
           packages/nauro/src/nauro/sync/write_revision.py
