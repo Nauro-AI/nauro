@@ -24,7 +24,9 @@ MODE_DESCRIPTIONS = {
 }
 
 
-def validate_write_arguments(operation: str, arguments: dict[str, Any]) -> None:
+def validate_write_arguments(
+    operation: str, arguments: dict[str, Any], *, validate_content: bool = True
+) -> None:
     mode = arguments.get("request_mode")
     if mode is None:
         mode = "submit"
@@ -41,7 +43,7 @@ def validate_write_arguments(operation: str, arguments: dict[str, Any]) -> None:
     if mode in {"recover", "retry"}:
         _require_strings(arguments, sorted(REFERENCE_FIELDS), mode)
     if mode == "submit":
-        if operation == "flag_question":
+        if operation == "flag_question" and validate_content:
             validate_question_content(arguments)
         required = list(WRITE_SPECS[operation]["input_schema"].get("required", []))
         _require_strings(arguments, required, "Submit")
@@ -70,21 +72,6 @@ def write_mode_schema(operation: str) -> dict[str, Any]:
         },
     }
     required = list(WRITE_SPECS[operation]["input_schema"].get("required", []))
-    if operation == "flag_question":
-        submit["oneOf"] = [
-            {
-                "required": ["question"],
-                "properties": {"question": {"type": "string"}, "resolved_by": {"type": "null"}},
-            },
-            {
-                "required": ["resolved_by"],
-                "properties": {
-                    "resolved_by": {"type": "string"},
-                    "question": {"type": "null"},
-                    "context": {"type": "null"},
-                },
-            },
-        ]
     submit["required"] = required
     submit["properties"].update({name: {"type": "string"} for name in required})
     reference_properties = {name: {"type": "null"} for name in CONTENT_FIELDS[operation]}

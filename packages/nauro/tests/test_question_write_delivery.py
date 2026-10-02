@@ -108,6 +108,8 @@ def test_registered_question_keeps_scalar_strings_and_encoded_targets(delivery, 
 @pytest.mark.parametrize(
     "arguments",
     [
+        {},
+        {"request_mode": "submit"},
         {"question": "Next?", "resolved_by": "D42"},
         {"resolved_by": "D42", "context": "context"},
         {"request_mode": "null", "question": "Next?"},
@@ -123,9 +125,13 @@ def test_registered_question_keeps_scalar_strings_and_encoded_targets(delivery, 
 def test_invalid_question_mode_fails_schema_and_sdk_before_io(delivery, arguments):
     _, calls, _ = delivery
     tool = mcp._tool_manager.get_tool("flag_question")
-    assert list(Draft202012Validator(tool.parameters).iter_errors(arguments))
-    with pytest.raises(ValidationError):
+    if arguments.get("request_mode") in (None, "submit"):
+        Draft202012Validator(tool.parameters).validate(arguments)
         tool.fn_metadata.arg_model.model_validate(arguments)
+    else:
+        assert list(Draft202012Validator(tool.parameters).iter_errors(arguments))
+        with pytest.raises(ValidationError):
+            tool.fn_metadata.arg_model.model_validate(arguments)
     with pytest.raises(ToolError):
         asyncio.run(tool.run(arguments))
     assert calls == []
@@ -214,3 +220,73 @@ def test_transport_constructor_refusal_keeps_saved_reference(delivery, surface, 
     assert calls == []
     session.credentials.assert_not_called()
     writes.refresh_replica.assert_not_called()
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+@pytest.mark.parametrize("mode", ["submit", "recover"])
+@pytest.mark.parametrize("content", CONTENT)
+def test_generation_connection_loss_retains_question_reference(delivery, surface, mode, content):
+    from nauro.sync.generation_session import GenerationConnectionError
+
+    session, calls, behavior = delivery
+    arguments = content
+    if mode == "recover":
+        behavior["drop"] = True
+        first = invoke(surface, arguments)
+        arguments = {
+            "request_mode": mode,
+            **{k: first[k] for k in ("operation_id", "payload_digest")},
+        }
+        session.require_actor.side_effect = GenerationConnectionError("Account changed")
+    else:
+        session.credentials.side_effect = GenerationConnectionError("Account changed")
+    result = invoke(surface, arguments)
+    session.require_actor.side_effect = None
+    (saved,) = list_question_submissions(PROJECT, ACTOR, require_actor=session.require_actor)
+    assert result["error_code"] == "submission_authority_unavailable"
+    assert result["unresolved"] is True
+    assert result["operation_id"] == saved.scope.operation_id
+    assert result["payload_digest"] == saved.payload_digest
+    assert len(calls) == int(mode == "recover")
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+@pytest.mark.parametrize("content", CONTENT)
+def test_connection_change_after_question_receipt_keeps_commit(delivery, surface, content):
+    from nauro.sync.generation_session import GenerationConnectionError
+
+    session, calls, _ = delivery
+    session.require_binding.side_effect = GenerationConnectionError("Account changed")
+    result = invoke(surface, content)
+    (saved,) = list_question_submissions(PROJECT, ACTOR, require_actor=session.require_actor)
+    assert result["status"] == "committed"
+    assert result["receipt_json"] == saved.result.receipt_json
+    assert result["operation_id"] == saved.scope.operation_id
+    assert result["replica_status"]["error_code"] == "receipt_refresh_required"
+    assert len(calls) == 1
+
+
+def test_account_loss_after_local_prepare_directs_discovery(delivery, monkeypatch):
+    from nauro.store import question_records
+    from nauro.sync.generation_session import GenerationConnectionError
+
+    session, calls, _ = delivery
+    write = question_records._write
+
+    def persist_then_change_account(record):
+        write(record)
+        session.require_actor.side_effect = GenerationConnectionError("Account changed")
+
+    monkeypatch.setattr(question_records, "_write", persist_then_change_account)
+    result = invoke("stdio", {"question": "Next?"})
+    assert result["error_code"] == "submission_authority_unavailable"
+    assert "operation_id" not in result
+    assert result["unresolved"] is False
+    assert "No request was sent" in result["guidance"]
+    assert "discover" in result["guidance"]
+    assert calls == []
+    session.require_actor.side_effect = None
+    found = invoke("stdio", {"request_mode": "discover"})
+    (saved,) = found["attempts"]
+    assert saved["phase"] == "prepared"
+    assert saved["result"] is None

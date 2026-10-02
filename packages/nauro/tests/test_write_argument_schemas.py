@@ -38,9 +38,17 @@ def test_valid_modes_match_schema_and_runtime(name, mode):
 )
 def test_invalid_modes_fail_schema_and_runtime(name, arguments):
     tool = mcp._tool_manager.get_tool(name)
-    assert list(Draft202012Validator(tool.parameters).iter_errors(arguments))
-    with pytest.raises(ValidationError):
+    if name == "flag_question" and arguments in ({}, {"request_mode": "submit"}):
+        from nauro.sync.write_arguments import validate_write_arguments
+
+        Draft202012Validator(tool.parameters).validate(arguments)
         tool.fn_metadata.arg_model.model_validate(arguments)
+        with pytest.raises(ValueError, match="requires"):
+            validate_write_arguments(name, arguments)
+    else:
+        assert list(Draft202012Validator(tool.parameters).iter_errors(arguments))
+        with pytest.raises(ValidationError):
+            tool.fn_metadata.arg_model.model_validate(arguments)
 
 
 @pytest.mark.parametrize("name", PAYLOADS)
@@ -55,7 +63,7 @@ def test_reference_modes_reject_replacement_payload(name, mode):
         tool.fn_metadata.arg_model.model_validate(arguments)
 
 
-@pytest.mark.parametrize("name", PAYLOADS)
+@pytest.mark.parametrize("name", ["update_state"])
 def test_missing_submit_fields_never_reach_transport(monkeypatch, name):
     from mcp.server.fastmcp.exceptions import ToolError
 

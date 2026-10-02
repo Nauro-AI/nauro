@@ -538,7 +538,7 @@ def _register_write_validation(operation: str) -> None:
 
     @model_validator(mode="before")
     def validate_call(cls: Any, value: Any) -> Any:
-        validate_write_arguments(operation, value)
+        validate_write_arguments(operation, value, validate_content=operation != "flag_question")
         return value
 
     model = create_model(

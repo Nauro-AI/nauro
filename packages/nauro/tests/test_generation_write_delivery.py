@@ -128,9 +128,15 @@ def test_changed_connection_cannot_recover(delivery):
     assert len(calls) == 1
 
 
-def test_committed_refresh_failure_never_resubmits(delivery):
-    _, calls, _ = delivery
-    writes.refresh_replica.side_effect = ValueError("offline")
+@pytest.mark.parametrize("failure", ["offline", "account_change"])
+def test_committed_refresh_failure_never_resubmits(delivery, failure):
+    from nauro.sync.generation_session import GenerationConnectionError
+
+    session, calls, _ = delivery
+    if failure == "account_change":
+        session.require_binding.side_effect = GenerationConnectionError("Account changed")
+    else:
+        writes.refresh_replica.side_effect = ValueError("offline")
     result = writes.generation_write("update_state", {"delta": "Frozen state"})
     assert result["status"] == "committed"
     assert result["replica_status"]["error_code"] == "receipt_refresh_required"

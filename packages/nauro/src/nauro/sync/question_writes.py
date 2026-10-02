@@ -9,7 +9,7 @@ from nauro.store.question_contract import QuestionScope, question_payload, resol
 from nauro.store.submission_records import SubmissionRecordError
 from nauro.sync import question_submission as submission
 from nauro.sync.generation_refresh_status import REFRESH_FAILURES
-from nauro.sync.generation_session import GenerationTransferSession
+from nauro.sync.generation_session import GenerationConnectionError, GenerationTransferSession
 from nauro.sync.question_transport import HttpQuestionTransport
 from nauro.sync.write_failures import write_failure
 
@@ -57,8 +57,15 @@ def execute_question_write(
             if saved is None or saved.connection != connection or saved.payload_digest != digest:
                 raise ValueError("The saved attempt does not match this connection and reference.")
             record = saved
-    except (SubmissionRecordError, OSError) as error:
-        return {**reference, **write_failure(error)}
+    except (SubmissionRecordError, OSError, GenerationConnectionError) as error:
+        failure = {**reference, **write_failure(error)}
+        if not reference:
+            failure["unresolved"] = False
+            failure["guidance"] = (
+                "No request was sent. Restore account and local record access, then use discover "
+                "to find any saved prepared attempt before submitting again."
+            )
+        return failure
     reference = {
         "operation_id": record.scope.operation_id,
         "payload_digest": record.payload_digest,
