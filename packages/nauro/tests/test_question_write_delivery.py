@@ -63,7 +63,7 @@ def test_saved_reference_recovery_and_absent_retry_keep_original_content(
     (saved,) = list_question_submissions(PROJECT, ACTOR, require_actor=session.require_actor)
     assert saved.created_at == original.created_at
     assert saved.scope == original.scope
-    session.connection.binding.return_value = "other-connection"
+    session.connection = session.connection.model_copy(update={"client_id": "other-client"})
     assert invoke(surface, {"request_mode": "discover"}) == {"status": "discovered", "attempts": []}
     with pytest.raises(ValueError, match="connection"):
         writes.generation_write("flag_question", {"request_mode": "recover", **reference})
@@ -195,3 +195,22 @@ def test_question_description_only_advertises_question_options():
     assert "expected_revision" not in description
     assert "State submissions" not in description
     assert "Recover only looks up" in description
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+@pytest.mark.parametrize("content", CONTENT)
+def test_transport_constructor_refusal_keeps_saved_reference(delivery, surface, content):
+    session, calls, _ = delivery
+    session.api_url = "https://wrong-origin.test"
+    result = invoke(surface, content)
+    (saved,) = list_question_submissions(PROJECT, ACTOR, require_actor=session.require_actor)
+    assert result["status"] == "unverified"
+    assert result["error_code"] == "response_unverified"
+    assert result["unresolved"] is True
+    assert result["operation_id"] == saved.scope.operation_id
+    assert result["payload_digest"] == saved.payload_digest
+    assert saved.phase == "prepared"
+    assert saved.result is None
+    assert calls == []
+    session.credentials.assert_not_called()
+    writes.refresh_replica.assert_not_called()

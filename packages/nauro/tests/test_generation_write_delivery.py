@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from nauro.auth import ActiveCredentials
 from nauro.sync import generation_writes as writes
+from nauro.sync.generation_credentials import GenerationConnection
 
 PROJECT = "01K00000000000000000000001"
 ACTOR = "01K00000000000000000000002"
@@ -26,7 +27,13 @@ def delivery(tmp_path, monkeypatch):
     monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     binding = SimpleNamespace(project_id=PROJECT)
     session = Mock(binding=binding, actor=ACTOR, api_url="https://api.example.test")
-    session.connection.binding.return_value = "connection-a"
+    session.connection = GenerationConnection(
+        endpoint="https://api.example.test/mcp",
+        issuer="https://issuer.test/",
+        client_id="client",
+        audience="https://api.test",
+        redirect_uri="http://127.0.0.1:8080/callback",
+    )
     session.credentials.return_value = ActiveCredentials(ACTOR, "generation-token")
     session.__enter__ = Mock(return_value=session)
     session.__exit__ = Mock(return_value=False)
@@ -108,7 +115,7 @@ def test_changed_connection_cannot_recover(delivery):
     session, calls, behavior = delivery
     behavior["drop"] = True
     result = writes.generation_write("update_state", {"delta": "Frozen state"})
-    session.connection.binding.return_value = "connection-b"
+    session.connection = session.connection.model_copy(update={"client_id": "other-client"})
     with pytest.raises(ValueError, match="connection"):
         writes.generation_write(
             "update_state",
@@ -338,7 +345,7 @@ def test_saved_generation_attempt_survives_process_restart(delivery, operation, 
     import subprocess
     import sys
 
-    _, _, behavior = delivery
+    session, _, behavior = delivery
     behavior["drop"] = True
     result = writes.generation_write(operation, content)
     script = """
@@ -361,7 +368,7 @@ print(json.dumps({
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout) == {
-        "connection": "connection-a",
+        "connection": session.connection.binding(),
         "operation_id": result["operation_id"],
         "phase": "uncertain",
     }
@@ -542,7 +549,7 @@ def test_saved_record_failure_is_structured(delivery, monkeypatch, mode, surface
         PROJECT,
         ACTOR,
         state_payload("Frozen state"),
-        connection="connection-a",
+        connection=session.connection.binding(),
         require_actor=session.require_actor,
     )
     path = state_records._record_path(saved.scope)

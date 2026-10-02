@@ -63,14 +63,14 @@ def execute_question_write(
         "operation_id": record.scope.operation_id,
         "payload_digest": record.payload_digest,
     }
-    transport = HttpQuestionTransport(
-        session.api_url,
-        session.client,
-        connection=connection,
-        credentials=session.credentials,
-        **auth,
-    )
     try:
+        transport = HttpQuestionTransport(
+            session.api_url,
+            session.client,
+            connection=session.connection,
+            credentials=session.credentials,
+            **auth,
+        )
         result = getattr(submission, f"{mode}_question")(record.scope, transport, **auth)
     except (SubmissionRecordError, *REFRESH_FAILURES) as error:
         return {**reference, **write_failure(error)}
