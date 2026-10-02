@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, NoReturn
 
 import typer
 
+from nauro.cli.auth_presentation import present_login_url
 from nauro.store.migration_admission import MigrationAdmissionError, inspect_migration
 from nauro.store.resolution import DisconnectedProject, RepoResolution
 from nauro.sync.generation_discovery import discover_project_authority
@@ -38,10 +39,6 @@ _OTHER_SERVER = (
 def _refuse(message: str) -> NoReturn:
     typer.echo(message, err=True)
     raise typer.Exit(code=1)
-
-
-def _present(url: str) -> None:
-    typer.echo(f"Sign in to attach this generation project:\n{url}")
 
 
 def _has_replica(store: Path) -> bool:
@@ -132,7 +129,7 @@ def _install(project_id: str, repo: Path) -> None:
 
     try:
         _trusted_registration(project_id)
-        binding = attach_generation(project_id, repo, _present)
+        binding = attach_generation(project_id, repo, present_login_url)
     except (*AUTH_ERRORS, GenerationAuthorityError, PartialAuthConfigError, Timeout) as exc:
         typer.echo(f"Attachment incomplete: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -165,7 +162,7 @@ def _upgrade(project_id: str, repo: Path) -> None:
         with httpx.Client(trust_env=False) as client:
             auth = GenerationAuth(connection, project_id, client)
             if auth.status() != "active":
-                auth.login(_present)
+                auth.login(present_login_url)
             if (
                 get_project_entry_v2(project_id) != entry
                 or (config_path.read_bytes() if config_path.exists() else None) != prior_config

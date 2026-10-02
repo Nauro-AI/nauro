@@ -23,7 +23,7 @@ from nauro.sync.decision_profile import (
 )
 from nauro.sync.decision_reference_contract import reference_schema
 from nauro.sync.reference_auth import ReferenceAuth
-from nauro.sync.reference_oauth import callback_code, verify_access
+from nauro.sync.reference_oauth import callback_code, exchange_tokens, verify_access
 
 PROJECT = "01KQ6AZGNA0B3QBF67NBXP3S45"
 ACTOR = "01K" + "0" * 21 + "08"
@@ -69,19 +69,23 @@ def setup(tmp_path):
     def wire(request):
         calls.append(request)
         if request.url.path == "/.well-known/jwks.json":
+            if control.get("jwks_failure"):
+                raise httpx.ConnectError("synthetic secret", request=request)
             return httpx.Response(200, json={"keys": [jwk]})
         if request.url.path == "/oauth/token":
+            if control.get("connect_failure"):
+                raise control["connect_failure"]("synthetic secret", request=request)
             if control["status"] == "lost":
                 raise httpx.ReadError("synthetic secret", request=request)
             control["generation"] += 1
-            return httpx.Response(
-                control["status"],
-                json={
-                    "access_token": token(jti=str(control["generation"])),
-                    "refresh_token": "rotated-" + str(control["generation"]),
-                    "token_type": "Bearer",
-                },
-            )
+            body = {
+                "access_token": token(jti=str(control["generation"])),
+                "refresh_token": "rotated-" + str(control["generation"]),
+                "token_type": "Bearer",
+            }
+            if control.get("omit_refresh"):
+                del body["refresh_token"]
+            return httpx.Response(control["status"], json=body)
         body = json.loads(request.content)
         if body["method"] == "notifications/initialized":
             return httpx.Response(202)
@@ -143,6 +147,80 @@ def test_renewal_is_visible_to_running_stdio_and_cli_transport(setup):
     ]
     assert len(tool_calls) == 2
     assert [r.headers["authorization"] for r in tool_calls] == ["Bearer " + after] * 2
+
+
+def test_non_rotating_refresh_preserves_existing_refresh_token(setup):
+    before = setup.auth.store.read()
+    setup.control["omit_refresh"] = True
+    setup.auth.refresh()
+    after = setup.auth.store.read()
+    assert after.refresh_token == before.refresh_token
+    assert after.access_token != before.access_token
+    assert setup.auth.status() == "active"
+
+
+@pytest.mark.parametrize("failure", [httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout])
+def test_unsent_reference_renewal_can_be_retried(setup, failure):
+    before = setup.auth.store.read()
+    setup.control["connect_failure"] = failure
+    with pytest.raises(ValueError, match="Could not connect to the token endpoint"):
+        setup.auth.refresh()
+    assert setup.auth.store.read() == before
+    assert setup.auth.store.incomplete() is False
+    assert len(setup.calls) == 1
+    del setup.control["connect_failure"]
+    setup.auth.refresh()
+    assert setup.auth.status() == "active"
+
+
+def test_post_exchange_connection_failure_does_not_restore_old_token(setup):
+    setup.control["jwks_failure"] = True
+    with pytest.raises(ValueError, match="login required"):
+        setup.auth.refresh()
+    assert setup.auth.status() == "reauthentication_required"
+    assert setup.auth.store.read().refresh_token == ""
+
+
+def test_failed_restoration_after_unsent_exchange_keeps_recovery_closed(setup, monkeypatch):
+    before = setup.auth.store.read()
+    write = setup.auth.store.write
+
+    def fail_restore(record):
+        if record == before:
+            raise OSError("synthetic disk failure")
+        write(record)
+
+    monkeypatch.setattr(setup.auth.store, "write", fail_restore)
+    setup.control["connect_failure"] = httpx.ConnectError
+    with pytest.raises(OSError, match="synthetic disk failure"):
+        setup.auth.refresh()
+    assert setup.auth.store.incomplete() is True
+    assert setup.auth.store.read().state == "renewal_in_progress"
+    assert setup.auth.store.read().refresh_token == ""
+
+
+@pytest.mark.parametrize("refresh", [None, "", 42])
+def test_invalid_replacement_token_is_not_treated_as_omission(setup, refresh):
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(
+                    200,
+                    json={
+                        "access_token": "synthetic-access",
+                        "refresh_token": refresh,
+                        "token_type": "Bearer",
+                    },
+                )
+            )
+        ) as client,
+        pytest.raises(ValueError, match="token response is incomplete or invalid"),
+    ):
+        exchange_tokens(
+            setup.profile,
+            client,
+            {"grant_type": "refresh_token", "refresh_token": "synthetic-refresh"},
+        )
 
 
 @pytest.mark.parametrize("status", [401, 429, 503, "lost"])
@@ -378,6 +456,84 @@ def test_callback_rejects_wrong_state_before_accepting_own_attempt(setup):
     assert code == "valid"
     assert 43 <= len(verifier) <= 128
     assert responses == [400, 200]
+
+
+def test_blocking_browser_receives_callback_before_exit(setup, monkeypatch, capsys):
+    import socket
+    import threading
+
+    from nauro.cli.auth_presentation import present_login_url
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    profile = setup.profile.model_copy(update={"redirect_uri": f"http://127.0.0.1:{port}/callback"})
+    responses = []
+    workers = []
+
+    def open_browser(url):
+        workers.append(threading.current_thread())
+        params = parse_qs(urlsplit(url).query)
+        with httpx.Client(trust_env=False, timeout=1) as client:
+            response = client.get(
+                profile.redirect_uri, params={"state": params["state"][0], "code": "valid"}
+            )
+        responses.append((response.status_code, response.text))
+        return True
+
+    monkeypatch.setattr("nauro.cli.auth_presentation.webbrowser.open", open_browser)
+    try:
+        code, verifier = callback_code(profile, present_login_url, timeout=3)
+    finally:
+        for worker in workers:
+            if worker is not threading.current_thread():
+                worker.join(timeout=3)
+    assert code == "valid"
+    assert 43 <= len(verifier) <= 128
+    assert responses == [(200, "Return to the terminal.")]
+    assert "If the browser doesn't open, visit:" in capsys.readouterr().out
+    assert len(workers) == 1
+    assert workers[0].daemon is True
+    assert workers[0].is_alive() is False
+
+
+def test_login_timeout_does_not_wait_for_browser_exit(setup, monkeypatch):
+    import socket
+    import threading
+
+    from nauro.cli.auth_presentation import present_login_url
+    from nauro.sync.auth_errors import AuthenticationError
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    profile = setup.profile.model_copy(update={"redirect_uri": f"http://127.0.0.1:{port}/callback"})
+    entered, release = threading.Event(), threading.Event()
+    workers = []
+
+    def open_browser(url):
+        workers.append(threading.current_thread())
+        entered.set()
+        release.wait(timeout=5)
+        return True
+
+    def present(url):
+        present_login_url(url)
+        assert entered.wait(timeout=3) is True
+
+    monkeypatch.setattr("nauro.cli.auth_presentation.webbrowser.open", open_browser)
+    try:
+        with pytest.raises(AuthenticationError) as refused:
+            callback_code(profile, present, timeout=0.05)
+        assert refused.value.reason == "Login timed out."
+        assert len(workers) == 1
+        assert workers[0].is_alive() is True
+        assert workers[0].daemon is True
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(timeout=3)
+    assert workers[0].is_alive() is False
 
 
 @pytest.mark.parametrize("body", [[], {"token_type": 123}, {"keys": ["wrong"]}])

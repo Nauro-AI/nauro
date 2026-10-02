@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, maintenance/1.20]
   pull_request:
-    branches: [main]
+    branches: [main, maintenance/1.20]
 
 jobs:
   lint:
@@ -160,7 +160,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: Nauro-AI/mcp-server
-          ref: 17a70949c68be9ed6414bfd29aadda33374e784a
+          ref: 1d1532e83ac2ebc517942a5361ca18d7ff752ad1
           token: ${{ secrets.MCP_SERVER_READ_TOKEN }}
           persist-credentials: false
           path: server

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import socket
+import threading
 import time
 
 import httpx
@@ -20,6 +21,7 @@ from nauro.store.registry import get_project_entry_v2, get_store_path_v2
 from nauro.store.repo_config import repo_config_path
 from nauro.store.resolution import resolve_project_binding
 from nauro.sync import generation_attachment as attachment
+from nauro.sync.auth_errors import AuthenticationError
 from nauro.sync.generation_connection import attachment_connection, connection_for
 from nauro.sync.generation_credentials import AccountRecord
 from nauro.sync.generation_refresh import admit_generation_store
@@ -255,12 +257,36 @@ def test_owner_revocation_during_control_publication_stops_marker(hosted, monkey
     assert not repo_config_path(repo).exists()
 
 
+@pytest.mark.parametrize("code", ["login_timeout", "login_refused"])
+def test_attachment_login_failure_retries_the_original_command(hosted, monkeypatch, code):
+    repo, _, credentials, _, _ = hosted
+    with credentials.locked():
+        credentials.write(credentials.empty("logged_out"))
+
+    def login(auth, present_url):
+        assert not get_store_path_v2(PROJECT_ID).exists()
+        raise AuthenticationError(code)
+
+    monkeypatch.setattr(attachment.GenerationAuth, "login", login)
+    result = _run(repo)
+    assert result.exit_code == 1
+    assert "Retry the command that started this login." in result.output
+    assert "nauro auth login" not in result.output
+    assert not repo_config_path(repo).exists()
+
+
 def test_reauthentication_before_marker_uses_generation_login(hosted, monkeypatch):
     repo, connection, credentials, _, _ = hosted
     with credentials.locked():
         record = credentials.read()
         credentials.write(credentials.empty("logged_out"))
     logins = []
+    browser_urls = []
+    browser_opened = threading.Event()
+    monkeypatch.setattr(
+        "nauro.cli.auth_presentation.webbrowser.open",
+        lambda url: browser_urls.append(url) or browser_opened.set() or True,
+    )
 
     def login(auth, present_url):
         assert auth.connection == connection
@@ -274,6 +300,10 @@ def test_reauthentication_before_marker_uses_generation_login(hosted, monkeypatc
     result = _run(repo)
     assert result.exit_code == 0, result.output
     assert logins == [PROJECT_ID]
+    assert browser_opened.wait(timeout=3) is True
+    assert browser_urls == ["https://issuer.example/authorize"]
+    assert "Waiting for authorization..." in result.output
+    assert "If the browser doesn't open, visit:" in result.output
 
 
 def test_generation_change_before_marker_refuses(hosted, monkeypatch):

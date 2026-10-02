@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import stat
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -27,6 +28,64 @@ from tests.conftest import folder_under_home_with_global_config
 
 runner = CliRunner()
 USER_ID = "01K33333333333333333333333"
+
+
+@pytest.mark.parametrize("mode", ["generation", "reference"])
+@pytest.mark.parametrize("browser_result", [True, False, OSError("Browser unavailable")])
+def test_login_opens_browser_and_keeps_manual_fallback(mode, browser_result):
+    url = "https://example.auth0.com/authorize?state=test-state"
+
+    def authenticate(action, connection, present_url):
+        assert action == "login"
+        present_url(url)
+        return "Credentials updated."
+
+    target = (
+        "nauro.cli.generation_auth.run_generation_auth"
+        if mode == "generation"
+        else "nauro.sync.reference_auth.run_reference_auth"
+    )
+    args = ["auth", "login"]
+    if mode == "reference":
+        args.extend(["--reference-profile", "profile.json"])
+    completed = threading.Event()
+
+    def open_url(url):
+        try:
+            if isinstance(browser_result, Exception):
+                raise browser_result
+            return browser_result
+        finally:
+            completed.set()
+
+    with (
+        patch(target, side_effect=authenticate),
+        patch("nauro.cli.auth_presentation.webbrowser.open") as open_browser,
+    ):
+        open_browser.side_effect = open_url
+        result = runner.invoke(app, args)
+        assert completed.wait(timeout=3) is True
+
+    assert result.exit_code == 0, result.output
+    open_browser.assert_called_once_with(url)
+    assert "Opening browser to authenticate..." in result.output
+    assert f"If the browser doesn't open, visit:\n  {url}" in result.output
+    assert "Waiting for authorization..." in result.output
+    assert "Credentials updated." in result.output
+
+
+def test_browser_worker_start_failure_keeps_fallback(capsys):
+    from nauro.cli.auth_presentation import present_login_url
+
+    with (
+        patch("nauro.cli.auth_presentation.threading.Thread.start", side_effect=RuntimeError),
+        patch("nauro.cli.auth_presentation.webbrowser.open") as open_browser,
+    ):
+        present_login_url("https://example.auth0.com/authorize")
+    open_browser.assert_not_called()
+    output = capsys.readouterr().out
+    assert "If the browser doesn't open, visit:\n  https://example.auth0.com/authorize" in output
+    assert "Waiting for authorization..." in output
 
 
 def _json_bytes(value: object) -> bytes:
@@ -258,7 +317,7 @@ class TestAuthLogin:
 
         with (
             patch("nauro.cli.commands.auth.httpx.post", side_effect=fake_post),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -300,7 +359,7 @@ class TestAuthLogin:
             pass
 
         with (
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -336,7 +395,7 @@ class TestAuthLogin:
             pass
 
         with (
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -378,7 +437,7 @@ class TestAuthLogin:
 
         with (
             patch("nauro.cli.commands.auth.httpx.post", side_effect=fake_post),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -433,7 +492,7 @@ class TestAuthLogin:
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
             patch("nauro.auth.time.sleep"),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -476,7 +535,7 @@ class TestAuthLogin:
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
             patch("nauro.auth.time.sleep"),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",
@@ -524,7 +583,7 @@ class TestAuthLogin:
         with (
             patch("nauro.cli.commands.auth.httpx.post", post),
             patch("nauro.auth.time.sleep") as sleep,
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(
                 __import__("http.server", fromlist=["HTTPServer"]).HTTPServer,
                 "__init__",

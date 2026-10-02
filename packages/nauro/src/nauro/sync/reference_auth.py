@@ -11,6 +11,12 @@ import httpx
 import jwt
 
 from nauro.auth import ActiveCredentials
+from nauro.sync.auth_errors import (
+    AuthenticationError,
+    ExchangeNotSentError,
+    RenewalRequiredError,
+    auth_error_message,
+)
 from nauro.sync.decision_profile import RenewalProfile, load_reference_profile
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.reference_credentials import CredentialRecord, CredentialStore, profile_binding
@@ -133,10 +139,11 @@ def run_reference_auth(action: str, path: Path, present_url: Callable[[str], Non
             else:
                 raise ValueError("Unsupported reference authentication action")
         return "Reference credentials updated. No decision request was submitted."
-    except AUTH_ERRORS:
-        raise ValueError(
-            "Reference authentication failed; inspect profile auth status or log in again"
-        ) from None
+    except AUTH_ERRORS as exc:
+        message = auth_error_message(exc).replace(
+            "'nauro auth login'", "'nauro auth login --reference-profile <path>'"
+        )
+        raise ValueError(f"Reference authentication failed. {message}") from None
 
 
 def renew_credentials(
@@ -150,14 +157,18 @@ def renew_credentials(
             or record.state != "active"
             or not record.refresh_token
         ):
-            raise ValueError("Reference login required")
+            raise AuthenticationError("login_required")
         pending = store.empty("renewal_in_progress")
         store.begin()
         store.write(pending)
         try:
             store.write(replacement(record))
             store.finish()
-        except AUTH_ERRORS:
+        except ExchangeNotSentError:
+            store.write(record)
+            store.finish()
+            raise
+        except AUTH_ERRORS as exc:
             store.begin()
             store.write(pending)
-            raise ValueError("Renewal incomplete; reference login required") from None
+            raise RenewalRequiredError(exc) from None
