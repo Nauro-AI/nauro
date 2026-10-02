@@ -67,7 +67,9 @@ def test_observation_then_commit_and_cached_receipt(home, status):
     body["warning"] = "Review keyword overlap."
     committed = verify_state_response(json.dumps(body).encode(), record.scope, record.payload_json)
     transport = Mock(
-        submit=Mock(return_value=_result(record, status)), lookup=Mock(return_value=committed)
+        spec=state_submission.StateTransport,
+        submit=Mock(return_value=_result(record, status)),
+        lookup=Mock(return_value=committed),
     )
     assert responses.submit_state(record.scope, transport).structuredContent["unresolved"] is True
     response = responses.recover_state(record.scope, transport)
@@ -101,7 +103,9 @@ def test_retry_looks_up_before_sending_exact_saved_identity(home):
         return _result(record)
 
     transport = Mock(
-        lookup=Mock(return_value=_result(record, "absent")), submit=Mock(side_effect=send)
+        spec=state_submission.StateTransport,
+        lookup=Mock(return_value=_result(record, "absent")),
+        submit=Mock(side_effect=send),
     )
     response = responses.retry_state(record.scope, transport)
     assert response.isError is False

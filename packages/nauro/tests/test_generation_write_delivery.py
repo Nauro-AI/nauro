@@ -594,9 +594,14 @@ def test_saved_record_failure_is_structured(delivery, monkeypatch, mode, surface
         **(reference if mode in {"recover", "retry"} else {}),
         "status": "blocked",
         "error_code": "submission_record_invalid",
-        "unresolved": True,
-        "guidance": "Preserve the saved record and repair its local storage. "
-        "Reconcile the original operation before creating a new write.",
+        "unresolved": mode in {"recover", "retry"},
+        "guidance": (
+            "Preserve the saved record and repair its local storage. "
+            "Reconcile the original operation before creating a new write."
+            if mode in {"recover", "retry"}
+            else "No request was sent. Restore account and local record access, then use discover "
+            "to find any saved prepared attempt before submitting again."
+        ),
     }
     assert path.read_text() == "PRIVATE CORRUPT RECORD"
     assert calls == []
@@ -617,9 +622,11 @@ def test_unavailable_prepare_lock_returns_structured_failure(delivery, monkeypat
     assert json.loads(response.stdout) == {
         "status": "blocked",
         "error_code": "submission_record_unavailable",
-        "unresolved": True,
-        "guidance": "Restore access to the saved record, "
-        "then recover this reference before another write.",
+        "unresolved": False,
+        "guidance": (
+            "No request was sent. Restore account and local record access, then use discover "
+            "to find any saved prepared attempt before submitting again."
+        ),
     }
     assert calls == []
 
