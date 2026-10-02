@@ -255,7 +255,7 @@ def test_transport_preserves_body_and_refuses_redirect(home):
             HttpQuestionTransport("https://example.test", client).submit(record)
 
 
-def test_no_production_consumers():
+def test_question_modules_have_only_named_production_consumers():
     root = Path(__file__).parents[1] / "src" / "nauro"
     modules = {
         "nauro.mcp.question_responses",
@@ -278,7 +278,14 @@ def test_no_production_consumers():
                 continue
             if names & modules:
                 found.append(str(path.relative_to(root)))
-    assert found == []
+    assert sorted(found) == [
+        "sync/question_writes.py",
+        "sync/question_writes.py",
+        "sync/question_writes.py",
+        "sync/question_writes.py",
+        "sync/write_failures.py",
+        "sync/write_failures.py",
+    ]
 
 
 def test_file_barrier_failure_prevents_send(home, monkeypatch):

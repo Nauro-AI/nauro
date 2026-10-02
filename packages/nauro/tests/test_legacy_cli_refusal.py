@@ -94,7 +94,7 @@ def test_legacy_cli_refuses_before_access(tmp_path, monkeypatch, command, contro
         arguments += ["--project", "Replica"]
     result = CliRunner().invoke(app, arguments)
     assert result.exit_code == 1, result.output
-    if command == "update-state":
+    if command in {"update-state", "flag-question", "resolve-question"}:
         expected = {
             "valid": "Check generation login and project connection.",
             "corrupt": "The generation authority marker is invalid.",

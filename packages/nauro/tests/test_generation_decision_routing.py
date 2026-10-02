@@ -283,13 +283,36 @@ def test_raw_reference_arguments_cannot_change_content(route, extra):
     assert route.authority.commits == 0
 
 
-@pytest.mark.parametrize(
-    "name,args",
-    [("flag_question", {"question": "Question"})],
-)
-def test_other_stdio_writes_refuse_before_local_adapter(route, name, args):
-    with pytest.raises(ToolError, match="not supported"):
-        tool(name, **args)
+def test_question_write_uses_typed_route_before_local_adapter(route, monkeypatch):
+    from nauro.sync import generation_writes
+    from nauro.sync.generation_session import GenerationTransferSession
+
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(503)
+
+    monkeypatch.setattr(
+        generation_writes,
+        "GenerationTransferSession",
+        lambda binding: GenerationTransferSession(
+            binding, httpx.Client(transport=httpx.MockTransport(respond))
+        ),
+    )
+    result = tool("flag_question", question="Question")
+    assert result.isError is True
+    response = value(result)
+    assert response["error_code"] == "response_unverified"
+    assert response["unresolved"] is True
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.method == "POST"
+    assert request.url.path == "/questions/submit"
+    assert request.headers["Authorization"] == "Bearer synthetic"
+    body = json.loads(request.content)
+    assert response["operation_id"] == body["operation_id"]
+    assert response["payload_digest"] == body["payload_digest"]
     assert route.authority.calls == []
 
 

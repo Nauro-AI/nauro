@@ -338,3 +338,27 @@ class TestStdioNamesEveryStatus:
             stdio_string
             == tool_flag_question(vanished, resolved_by="D42", targets=["Q1"])["guidance"]
         )
+
+
+@pytest.mark.parametrize("extra", [{"context": "Resolution context"}, {"question": ""}])
+def test_registered_local_resolution_preserves_kernel_semantics(seeded_repo, extra):
+    import asyncio
+
+    from jsonschema import Draft202012Validator
+
+    pid, store_path = seeded_repo
+    _seed_resolvable(store_path)
+    arguments = {"project_id": pid, "resolved_by": "D42", "targets": ["Q1"], **extra}
+    tool = stdio_module.mcp._tool_manager.get_tool("flag_question")
+    Draft202012Validator(tool.parameters).validate(arguments)
+    assert asyncio.run(tool.run(arguments)) == "Question(s) resolved."
+
+
+@pytest.mark.parametrize("arguments", [{}, {"question": "New?", "resolved_by": "D42"}])
+def test_registered_local_invalid_question_keeps_readable_kernel_rejection(seeded_repo, arguments):
+    import asyncio
+
+    pid, _ = seeded_repo
+    expected = stdio_flag_question(project_id=pid, **arguments)
+    tool = stdio_module.mcp._tool_manager.get_tool("flag_question")
+    assert asyncio.run(tool.run({"project_id": pid, **arguments})) == expected

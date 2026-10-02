@@ -102,10 +102,12 @@ def _spec_kwargs(name: str) -> dict[str, Any]:
     """Build FastMCP @tool() decorator kwargs from the shared registry."""
     spec: ToolSpec = get_tool_spec(name)
     description = spec["description"]
-    if name == "update_state":
-        from nauro.sync.generation_writes import WRITE_GUIDANCE
+    if name in {"update_state", "flag_question"}:
+        from nauro.sync.generation_writes import STATE_WRITE_GUIDANCE, WRITE_GUIDANCE
 
         description += "\n\n" + WRITE_GUIDANCE
+        if name == "update_state":
+            description += " " + STATE_WRITE_GUIDANCE
     return {
         "title": spec["title"],
         "description": description,
@@ -119,7 +121,7 @@ def _param_desc(tool_name: str, param: str) -> str:
     Read from the shared registry, not inlined, so the drift guards still cover it.
     """
     spec: ToolSpec = get_tool_spec(tool_name)
-    if tool_name == "update_state" and param in MODE_DESCRIPTIONS:
+    if tool_name in {"update_state", "flag_question"} and param in MODE_DESCRIPTIONS:
         return MODE_DESCRIPTIONS[param]
     props = spec["input_schema"].get("properties", {})
     if param not in props or "description" not in props[param]:
@@ -403,7 +405,7 @@ def propose_decision(
     )
 
 
-@mcp.tool(**_spec_kwargs("flag_question"))
+@mcp.tool(**_spec_kwargs("flag_question"), structured_output=False)
 def flag_question(
     question: Annotated[
         str | None, Field(description=_param_desc("flag_question", "question"))
@@ -420,14 +422,26 @@ def flag_question(
     project_id: Annotated[
         str | None, Field(description=_param_desc("flag_question", "project_id"))
     ] = None,
+    request_mode: Annotated[
+        Literal["submit", "discover", "recover", "retry"] | None,
+        Field(description=_param_desc("flag_question", "request_mode")),
+    ] = None,
+    operation_id: Annotated[
+        str | None, Field(description=_param_desc("flag_question", "operation_id"))
+    ] = None,
+    payload_digest: Annotated[
+        str | None, Field(description=_param_desc("flag_question", "payload_digest"))
+    ] = None,
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
-) -> str | dict:
-    from nauro.mcp.generation_decision import refuse_unadapted_write
+) -> str | dict | CallToolResult:
+    from nauro.sync.generation_writes import generation_write
 
-    refusal = refuse_unadapted_write(project_id, cwd)
-    if refusal is not None:
-        return refusal if disconnected_reason_code(refusal) is not None else refusal["guidance"]
+    generation = generation_write(
+        "flag_question", locals(), on_refreshed=regenerate_refreshed_guidance
+    )
+    if generation is not None:
+        return _generation_write_result(generation)
 
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
@@ -509,31 +523,35 @@ def update_state(
     return render_write_status(result, updated)
 
 
-class _StateFuncMetadata(FuncMetadata):
+class _WriteFuncMetadata(FuncMetadata):
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
-        """Keep scalar state strings intact, including the literal string null."""
-        return data.copy()
+        """Preserve scalar strings while retaining encoded-list input compatibility."""
+        parsed = super().pre_parse_json(
+            {key: value for key, value in data.items() if key == "targets"}
+        )
+        return {**data, **parsed}
 
 
-def _register_state_validation() -> None:
-    tool = mcp._tool_manager.get_tool("update_state")
+def _register_write_validation(operation: str) -> None:
+    tool = mcp._tool_manager.get_tool(operation)
     assert tool is not None
 
     @model_validator(mode="before")
     def validate_call(cls: Any, value: Any) -> Any:
-        validate_write_arguments("update_state", value)
+        validate_write_arguments(operation, value, validate_content=operation != "flag_question")
         return value
 
     model = create_model(
-        "StateModeArguments",
+        f"{operation}ModeArguments",
         __base__=tool.fn_metadata.arg_model,
         __validators__={"validate_call": cast(Any, validate_call)},
     )
-    tool.fn_metadata = _StateFuncMetadata(arg_model=model)
-    tool.parameters.update(write_mode_schema("update_state"))
+    tool.fn_metadata = _WriteFuncMetadata(arg_model=model)
+    tool.parameters.update(write_mode_schema(operation))
 
 
-_register_state_validation()
+_register_write_validation("update_state")
+_register_write_validation("flag_question")
 register_argument_validation(mcp)
 
 
