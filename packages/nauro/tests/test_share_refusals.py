@@ -6,14 +6,25 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
+from nauro.auth import ActiveCredentials
 from nauro.mcp import share_responses
 from nauro.store import share_records as records
 from nauro.store.share_contract import ShareRefused, ShareTransportError
 from nauro.sync import share_submission as submission
 from nauro.sync.share_transport import HttpShareTransport
-from tests.test_share_submission import _body, _prepared, _result, home
+from tests.test_share_session_auth import connection_for
+from tests.test_share_submission import PROJECT, USER, _body, _prepared, _result, home
 
 __all__ = ["home"]
+ADMISSION_REFUSALS = [
+    (403, "project_not_selected"),
+    (403, "owner_required"),
+    (403, "pre_team_required"),
+    (409, "shared_generation_authority_required"),
+    (409, "generation_required"),
+    (409, "shared_representation_required"),
+    (429, "rate_limited"),
+]
 
 
 @pytest.mark.parametrize("status,code", [(403, "actor_mismatch"), (409, "single_writer_refused")])
@@ -126,7 +137,10 @@ def test_retry_refusal_does_not_erase_original_unknown_send(home):
         (403, b'{"detail":null}'),
         (403, b"not json"),
         (503, b'{"detail":"single_writer_refused"}'),
-        (429, b'{"detail":"rate_limited"}'),
+        (429, b'{"detail":"unknown_refusal"}'),
+        (403, b'{"detail":"rate_limited"}'),
+        (429, b'{"detail":"project_not_selected"}'),
+        (503, b'{"detail":"rate_limited"}'),
         (302, b'{"detail":"actor_mismatch"}'),
     ],
 )
@@ -213,7 +227,8 @@ def test_all_http_bodies_obey_response_byte_limit(home, route, status):
 
 
 @pytest.mark.parametrize("mode", ["submit", "retry"])
-def test_custom_transport_cannot_supply_terminal_refusal(home, mode):
+@pytest.mark.parametrize("status,code", [(403, "actor_mismatch"), *ADMISSION_REFUSALS])
+def test_custom_transport_cannot_supply_terminal_refusal(home, mode, status, code):
     record = _prepared()
     if mode == "retry":
         records.mark_share_uncertain(record)
@@ -221,8 +236,8 @@ def test_custom_transport_cannot_supply_terminal_refusal(home, mode):
         version=1,
         scope=record.scope,
         payload_digest=record.payload_digest,
-        http_status=403,
-        server_code="actor_mismatch",
+        http_status=status,
+        server_code=code,
         request_mode="submit",
         unresolved=False,
     )
@@ -234,3 +249,72 @@ def test_custom_transport_cannot_supply_terminal_refusal(home, mode):
     saved = records.read_share_submission(record.scope)
     assert saved.phase == "uncertain"
     assert saved.result == (_result(record, "absent") if mode == "retry" else None)
+
+
+@pytest.mark.parametrize("status,code", ADMISSION_REFUSALS)
+@pytest.mark.parametrize("mode", ["submit", "lookup", "uncertain_lookup", "retry"])
+def test_bound_admission_refusal_preserves_original_attempt(home, status, code, mode):
+    from nauro.store.share_contract import share_payload
+
+    connection = connection_for()
+    record = records.prepare_share_submission(
+        PROJECT,
+        USER,
+        share_payload("brief", "Original content", "brief", "Original summary"),
+        connection=connection.binding(),
+    )
+    if mode in {"uncertain_lookup", "retry"}:
+        records.mark_share_uncertain(record)
+    calls = []
+
+    def handler(request):
+        calls.append((request.url.path, json.loads(request.content)))
+        assert request.headers["Authorization"] == "Bearer bound-token"
+        if mode == "retry" and request.url.path.endswith("lookup"):
+            return httpx.Response(200, json=_body(record, "absent"))
+        return httpx.Response(status, json={"detail": code})
+
+    method = (
+        submission.submit_share
+        if mode == "submit"
+        else submission.retry_share
+        if mode == "retry"
+        else submission.recover_share
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        transport = HttpShareTransport(
+            "https://example.test",
+            client,
+            connection=connection,
+            credentials=lambda: ActiveCredentials(USER, "bound-token"),
+        )
+        result = method(record.scope, transport)
+        assert result.status == "refused" and result.server_code == code
+        assert result.http_status == status
+        assert result.request_mode == ("submit" if mode in {"submit", "retry"} else "lookup")
+        assert result.unresolved is (mode != "submit")
+        saved = records.read_share_submission(record.scope)
+        assert saved.phase == ("resolved" if mode == "submit" else "uncertain")
+        assert saved.result == result
+        assert (saved.scope, saved.payload_digest, saved.payload_json, saved.connection) == (
+            record.scope,
+            record.payload_digest,
+            record.payload_json,
+            record.connection,
+        )
+        if mode == "submit":
+            for cached in (
+                submission.submit_share,
+                submission.recover_share,
+                submission.retry_share,
+            ):
+                assert cached(record.scope, transport) == result
+    assert [path for path, _ in calls] == (
+        ["/share/lookup", "/share/submit"]
+        if mode == "retry"
+        else ["/share/submit" if mode == "submit" else "/share/lookup"]
+    )
+    for _, body in calls:
+        assert body["operation_id"] == record.scope.operation_id
+        assert body["payload_digest"] == record.payload_digest
+        assert body["payload_json"] == record.payload_json

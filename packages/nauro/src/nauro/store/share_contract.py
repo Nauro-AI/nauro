@@ -133,12 +133,19 @@ _REFUSAL_CODES = {
         "insufficient_scope",
         "actor_mismatch",
         "forbidden",
+        "project_not_selected",
+        "owner_required",
+        "pre_team_required",
     },
     409: {
         "single_writer_refused",
         "generation_authority_required",
+        "shared_generation_authority_required",
+        "generation_required",
+        "shared_representation_required",
     },
     413: {"request_too_large"},
+    429: {"rate_limited"},
 }
 
 
@@ -152,6 +159,13 @@ _PREPUBLICATION_REFUSALS = {
     "request_too_large",
     "payload_digest_mismatch",
     "submission_rejected",
+    "project_not_selected",
+    "owner_required",
+    "pre_team_required",
+    "shared_generation_authority_required",
+    "generation_required",
+    "shared_representation_required",
+    "rate_limited",
 }
 
 
