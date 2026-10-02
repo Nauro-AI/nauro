@@ -40,7 +40,7 @@ UNREPORTED = (
     "A saved conversion exists for this project but the server does not report "
     "generation authority; owner recovery is required before this project can be attached."
 )
-SIGN_IN = "Sign in to attach this generation project:\nhttps://login.example/start"
+SIGN_IN = "If the browser doesn't open, visit:\n  https://login.example/start"
 
 
 def _forbidden(*args, **kwargs):
@@ -52,6 +52,11 @@ def routed(tmp_path, monkeypatch):
     repo = hosted_fixture.__wrapped__(tmp_path, monkeypatch)[0]
     state = {"authority": GENERATION, "result": SimpleNamespace(phase="completed")}
     calls: list[tuple] = []
+    state["browser_urls"] = []
+    monkeypatch.setattr(
+        "nauro.cli.auth_presentation.webbrowser.open",
+        lambda url: state["browser_urls"].append(url) or True,
+    )
 
     def discover(project_id):
         calls.append(("discover", project_id))
@@ -220,7 +225,7 @@ def test_production_single_writer_answer_runs_the_legacy_block(routed, tmp_path,
     ],
 )
 def test_generation_installs_every_other_destination(routed, tmp_path, monkeypatch, local):
-    repo, _, calls = routed
+    repo, state, calls = routed
     _forbid_legacy(monkeypatch)
     if local == "bound_empty":
         _bound(tmp_path, content=False)
@@ -243,6 +248,8 @@ def test_generation_installs_every_other_destination(routed, tmp_path, monkeypat
     assert result.exit_code == 0, result.output
     assert calls == [("discover", PID), ("install", PID, repo)]
     assert SIGN_IN in result.output
+    assert "Waiting for authorization..." in result.output
+    assert state["browser_urls"] == ["https://login.example/start"]
     assert f"Attached generation project 'Synth' to {repo.resolve()}" in result.output
 
 
@@ -315,6 +322,8 @@ def test_upgrade_logs_in_before_the_session(routed, tmp_path, monkeypatch, rebin
     )
     result = _run(repo)
     assert SIGN_IN in result.output
+    assert "Waiting for authorization..." in result.output
+    assert state["browser_urls"] == ["https://login.example/start"]
     if rebind:
         assert result.exit_code == 1
         assert "Upgrade incomplete: The project association changed during login." in result.output
