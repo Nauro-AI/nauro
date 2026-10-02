@@ -62,7 +62,9 @@ def test_observation_then_commit_and_cached_receipt(home):
         json.dumps(body).encode(), record.scope, record.payload_json
     )
     transport = Mock(
-        submit=Mock(return_value=_result(record, status)), lookup=Mock(return_value=committed)
+        spec=["submit", "lookup"],
+        submit=Mock(return_value=_result(record, status)),
+        lookup=Mock(return_value=committed),
     )
     assert (
         responses.submit_question(record.scope, transport).structuredContent["unresolved"] is True
@@ -98,7 +100,9 @@ def test_retry_looks_up_before_sending_exact_saved_identity(home, action):
         return _result(record)
 
     transport = Mock(
-        lookup=Mock(return_value=_result(record, "absent")), submit=Mock(side_effect=send)
+        spec=["submit", "lookup"],
+        lookup=Mock(return_value=_result(record, "absent")),
+        submit=Mock(side_effect=send),
     )
     response = responses.retry_question(record.scope, transport)
     assert response.isError is False

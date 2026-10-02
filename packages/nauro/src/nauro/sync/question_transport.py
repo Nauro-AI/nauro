@@ -15,6 +15,7 @@ from nauro.store.question_contract import (
 )
 from nauro.store.question_records import QuestionSubmission
 from nauro.store.submission_records import SubmissionActorMismatchError, require_submission_actor
+from nauro.sync.generation_credentials import GenerationConnection
 
 
 class HttpQuestionTransport:
@@ -23,7 +24,7 @@ class HttpQuestionTransport:
         base_url: str,
         client: httpx.Client,
         *,
-        connection: str | None = None,
+        connection: GenerationConnection | None = None,
         credentials: Callable[[], ActiveCredentials] | None = None,
         require_actor: Callable[[str], None] | None = None,
     ) -> None:
@@ -37,18 +38,31 @@ class HttpQuestionTransport:
             or url.path not in {"", "/"}
         ):
             raise QuestionTransportError("Question transport requires a trusted HTTPS origin.")
+        if connection is not None and url.copy_with(path="/") != httpx.URL(
+            connection.endpoint.removesuffix("/mcp")
+        ).copy_with(path="/"):
+            raise QuestionTransportError(
+                "The question transport origin does not match its connection."
+            )
+        if connection is not None and credentials is None:
+            raise QuestionTransportError(
+                "A bound question transport requires a credentials provider."
+            )
         self._base_url = str(url).rstrip("/")
         self._client = client
-        self._connection = connection
-        self._credentials = credentials or read_active_credentials
+        self._connection = connection.binding() if connection is not None else None
+        self._credentials = read_active_credentials if credentials is None else credentials
         self._require_actor = require_actor or require_submission_actor
 
-    def _request(self, record: QuestionSubmission, *, lookup: bool) -> QuestionResult:
-        record = QuestionSubmission.model_validate(record)
+    def validate_binding(self, record: QuestionSubmission) -> None:
         if record.connection != self._connection:
             raise QuestionTransportError(
                 "The saved question connection does not match this transport."
             )
+
+    def _request(self, record: QuestionSubmission, *, lookup: bool) -> QuestionResult:
+        record = QuestionSubmission.model_validate(record)
+        self.validate_binding(record)
         credentials = self._credentials()
         if credentials.user_id != record.scope.user_id:
             raise SubmissionActorMismatchError(

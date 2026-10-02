@@ -8,7 +8,11 @@ import pytest
 
 from nauro.mcp import question_responses
 from nauro.store import question_records as records
-from nauro.store.question_contract import QuestionTransportError
+from nauro.store.question_contract import (
+    QuestionRefused,
+    QuestionTransportError,
+    verify_question_response,
+)
 from nauro.sync import question_submission as submission
 from nauro.sync.question_transport import HttpQuestionTransport
 from tests.test_question_submission import _body, _prepared, home
@@ -211,3 +215,34 @@ def test_dormant_response_adapter_preserves_refusal_evidence(home, mode, action)
             "The original write outcome remains unknown. Restore access and recover this reference."
         )
     )
+
+
+@pytest.mark.parametrize("action", ["append", "resolve"])
+@pytest.mark.parametrize("mode", ["submit", "retry"])
+def test_custom_transport_cannot_supply_terminal_refusal(home, mode, action):
+    record = _prepared(action)
+    if mode == "retry":
+        records.mark_question_uncertain(record)
+    refusal = QuestionRefused(
+        version=1,
+        scope=record.scope,
+        payload_digest=record.payload_digest,
+        action=action,
+        http_status=403,
+        server_code="actor_mismatch",
+        request_mode="submit",
+        unresolved=False,
+    )
+    absent = verify_question_response(
+        json.dumps(_body(record, "absent")).encode(), record.scope, record.payload_json, lookup=True
+    )
+    transport = Mock(
+        spec=["submit", "lookup"],
+        lookup=Mock(return_value=absent),
+        submit=Mock(return_value=refusal),
+    )
+    with pytest.raises(QuestionTransportError, match="terminal refusal"):
+        getattr(submission, f"{mode}_question")(record.scope, transport)
+    saved = records.read_question_submission(record.scope)
+    assert saved.phase == "uncertain"
+    assert saved.result == (absent if mode == "retry" else None)
