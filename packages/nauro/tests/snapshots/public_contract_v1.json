@@ -1816,6 +1816,96 @@
       },
       {
         "kind": "command",
+        "name": "update-stack",
+        "params": [
+          {
+            "kind": "argument",
+            "name": "content",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--expected-revision"
+            ],
+            "kind": "option",
+            "name": "expected_revision",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--project",
+              "-p"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
+          }
+        ]
+      },
+      {
+        "kind": "command",
         "name": "update-state",
         "params": [
           {
@@ -2018,6 +2108,183 @@
     "STATE_CURRENT_FILENAME": "state_current.md",
     "STATE_HISTORY_FILENAME": "state_history.md",
     "STATE_MD": "state.md"
+  },
+  "stdio_stack_schema": {
+    "oneOf": [
+      {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "null"
+          },
+          "payload_digest": {
+            "type": "null"
+          },
+          "request_mode": {
+            "enum": [
+              "submit",
+              null
+            ]
+          }
+        },
+        "required": [
+          "content"
+        ]
+      },
+      {
+        "properties": {
+          "content": {
+            "type": "null"
+          },
+          "expected_revision": {
+            "type": "null"
+          },
+          "operation_id": {
+            "type": "null"
+          },
+          "payload_digest": {
+            "type": "null"
+          },
+          "request_mode": {
+            "const": "discover"
+          }
+        },
+        "required": [
+          "request_mode"
+        ]
+      },
+      {
+        "properties": {
+          "content": {
+            "type": "null"
+          },
+          "expected_revision": {
+            "type": "null"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "payload_digest": {
+            "type": "string"
+          },
+          "request_mode": {
+            "enum": [
+              "recover",
+              "retry"
+            ]
+          }
+        },
+        "required": [
+          "request_mode",
+          "operation_id",
+          "payload_digest"
+        ]
+      }
+    ],
+    "properties": {
+      "content": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "The complete replacement stack.md document; stored byte-exact with no normalization.",
+        "title": "Content"
+      },
+      "cwd": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional. Absolute working directory used to resolve the project when project_id is omitted.",
+        "title": "Cwd"
+      },
+      "expected_revision": {
+        "anyOf": [
+          {
+            "pattern": "^(?:[0-9a-f]{64}|absent)$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional stack revision from an authorized read, or absent for a missing file. If omitted, use the installed replica's revision. A mismatch returns revision_conflict_observed; retries retain the saved revision.",
+        "title": "Expected Revision"
+      },
+      "operation_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Original saved operation identity. Required for recover and retry.",
+        "title": "Operation Id"
+      },
+      "payload_digest": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Original saved payload digest. Required for recover and retry.",
+        "title": "Payload Digest"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional; auto-resolved for one project. With several, list ids via list_projects (hosted) or `nauro projects` (local).",
+        "title": "Project Id"
+      },
+      "request_mode": {
+        "anyOf": [
+          {
+            "enum": [
+              "submit",
+              "discover",
+              "recover",
+              "retry"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Submit (default), discover local saved attempts, recover by lookup only, or retry the original attempt only after an absent lookup.",
+        "title": "Request Mode"
+      }
+    },
+    "title": "update_stackArguments",
+    "type": "object"
   },
   "stdio_state_schema": {
     "oneOf": [

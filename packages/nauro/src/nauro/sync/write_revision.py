@@ -1,6 +1,9 @@
 """Capture a replacement precondition without refreshing the writer's replica."""
 
-from nauro_core.constants import STATE_CURRENT_FILENAME
+from typing import Literal
+
+from nauro_core.constants import STACK_MD, STATE_CURRENT_FILENAME
+from nauro_core.operations.update_stack import compute_stack_revision
 from nauro_core.operations.update_state import compute_state_revision
 
 from nauro.store.generation_authority import RefreshRequiredError
@@ -14,6 +17,7 @@ def capture_write_revision(
     *,
     actor: str,
     session: GenerationTransferSession,
+    family: Literal["state", "stack"] = "state",
 ) -> str:
     with _locked(binding, actor, session) as paths:
         controls = _controls(paths)
@@ -26,8 +30,8 @@ def capture_write_revision(
         or projection.target.identity.installed_for_user_id != actor
     ):
         raise RefreshRequiredError("The captured replica belongs to another writer.")
-    path = STATE_CURRENT_FILENAME
+    path = STACK_MD if family == "stack" else STATE_CURRENT_FILENAME
     content = next(
         (artifact.content for artifact in projection.artifacts if artifact.path == path), None
     )
-    return compute_state_revision(content)
+    return compute_stack_revision(content) if family == "stack" else compute_state_revision(content)

@@ -52,13 +52,15 @@ Principal commands (run `nauro --help` for the full surface):
 
 Command groups: `setup <claude-code|cursor|codex|all>`, `auth <login|status|logout>`, `config <get|list|unset>`, `telemetry <status|enable|disable|reset>`, `validate`, `projects`, `questions`, `hook`.
 
-The 10 read/write MCP tools are also mirrored as CLI commands, auto-generated from the tool allowlist in `cli/autogen.py` (underscored tool names become hyphenated commands). For example: `nauro check-decision`, `nauro diff-since-last-session [--days N]`, and `nauro propose-decision <rationale> [--title TITLE] [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` (single-call commit on Tier 1 clean; Tier 2 BM25 hits surface as advisory `similar_decisions` on the same response). `--title` is optional: `operation="update"` appends rationale only, so a rationale-only update omits it.
+Ten shared read/write MCP tools are mirrored as CLI commands, auto-generated from the tool allowlist in `cli/autogen.py` (underscored tool names become hyphenated commands). For example: `nauro check-decision`, `nauro diff-since-last-session [--days N]`, and `nauro propose-decision <rationale> [--title TITLE] [--operation add|update|supersede] [--rejected JSON] [--files-affected PATH ...]` (single-call commit on Tier 1 clean; Tier 2 BM25 hits surface as advisory `similar_decisions` on the same response). `--title` is optional: `operation="update"` appends rationale only, so a rationale-only update omits it.
 
 `list[str]` flags (`--files-affected`, `--resolves-questions`) repeat: `--files-affected a.py --files-affected b.py`. `list[dict]` flags (`--rejected`) take a single JSON value: inline (`'[{...}]'`), `@file.json`, or `-` to read from stdin.
 
-## MCP tools (11 total in `nauro_core.mcp_tools` — 8 read, 3 write)
+`nauro update-stack [CONTENT]` is registered explicitly and writes only through an attached generation replica.
 
-The local stdio server registers 10; `list_projects` is remote-only since local installs auto-resolve to the single project store.
+## MCP tools (11 local: 7 read, 4 write)
+
+The local stdio server registers ten shared tools plus `update_stack`. `list_projects` remains remote-only since local installs auto-resolve to the single project store.
 
 Read:
 - `get_context(project, level)` — L0 concise summary, L1 working set, L2 full dump
@@ -74,6 +76,7 @@ Write:
 - `propose_decision(project, title, rationale, ...)` — record a decision (single-call commit on Tier 1 clean)
 - `flag_question(project, question, context)` — flag an open question
 - `update_state(project, delta)` — report what was completed
+- `update_stack(content, ...)`: replace the stack document on a generation replica; an omitted revision uses the installed replica revision.
 
 ## AGENTS.md
 

@@ -535,7 +535,7 @@ def test_resolved_record_cannot_be_reopened(home):
         records.record_stack_result(saved, _result(record, "absent"))
 
 
-def test_stack_modules_have_no_production_consumers():
+def test_stack_modules_have_only_typed_write_consumers():
     import ast
     from pathlib import Path
 
@@ -561,7 +561,7 @@ def test_stack_modules_have_no_production_consumers():
                 continue
             if imports & modules:
                 found.append(str(path.relative_to(root)))
-    assert found == []
+    assert sorted(found) == ["sync/stack_writes.py"] * 4 + ["sync/write_failures.py"] * 2
 
 
 @pytest.mark.parametrize("content", ["\x01" * 40000, "😀" * 40000], ids=["escaped", "unicode"])
