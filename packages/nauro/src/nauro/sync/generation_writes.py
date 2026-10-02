@@ -16,6 +16,7 @@ from nauro.store.submission_records import SubmissionRecordError
 from nauro.sync import state_submission as submission
 from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica, replica_status
 from nauro.sync.generation_session import GenerationTransferSession
+from nauro.sync.question_writes import execute_question_write
 from nauro.sync.state_transport import HttpStateTransport
 from nauro.sync.write_arguments import validate_write_arguments
 from nauro.sync.write_failures import write_failure
@@ -28,12 +29,17 @@ WRITE_GUIDANCE = (
     "only when absent and within its original 24-hour horizon. Reference modes cannot accept "
     "content. An uncertain result includes the reference: recover it before another write. "
     "A committed receipt with receipt_refresh_required is committed; refresh the replica."
-    " State submissions default to the installed replica's document revision. "
+)
+STATE_WRITE_GUIDANCE = (
+    "State submissions default to the installed replica's document revision. "
     "An explicit expected_revision overrides that default; retries keep the saved revision."
 )
 
-FAMILIES = {"update_state": "state"}
-CONTENT = {"state": {"delta", "expected_revision"}}
+FAMILIES = {"update_state": "state", "flag_question": "question"}
+CONTENT = {
+    "state": {"delta", "expected_revision"},
+    "question": {"question", "context", "targets", "resolved_by"},
+}
 
 
 def generation_write(
@@ -62,6 +68,9 @@ def generation_write(
     content = {key: arguments[key] for key in CONTENT[family] if arguments.get(key) is not None}
     operation_id, digest = arguments.get("operation_id"), arguments.get("payload_digest")
     with GenerationTransferSession(binding) as session:
+        if family == "question":
+            output = execute_question_write(mode, content, operation_id, digest, session)
+            return _finish_write(output, session, on_refreshed)
         return _execute(mode, content, operation_id, digest, session, on_refreshed)
 
 
@@ -126,23 +135,31 @@ def _execute(
     except (SubmissionRecordError, *REFRESH_FAILURES) as error:
         return {**reference, **write_failure(error)}
     output = {**result.model_dump(mode="json"), **reference}
-    if result.status == "refused":
-        output["error_code"] = result.server_code
+    return _finish_write(output, session, on_refreshed)
+
+
+def _finish_write(
+    output: dict[str, Any],
+    session: GenerationTransferSession,
+    on_refreshed: Callable[[GenerationSnapshotStore], dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if output.get("status") == "refused":
+        output["error_code"] = output["server_code"]
         output["guidance"] = (
             "Restore the refused request's authorization, project admission, or payload. "
             + (
                 "The original write outcome remains unknown. Then recover this reference "
                 "before any new write; do not resend while access is refused."
-                if result.unresolved
+                if output["unresolved"]
                 else "This attempt did not write. Correct the refusal before a new attempt."
             )
         )
-    if result.status == "revision_conflict_observed":
+    if output.get("status") == "revision_conflict_observed":
         output["guidance"] = (
             "Refresh the replica and re-read the current document before preparing a new write. "
             "This saved attempt retains its original revision."
         )
-    if result.status == "committed":
+    if output.get("status") == "committed":
         output.update(_refresh_committed(session, on_refreshed))
     return output
 

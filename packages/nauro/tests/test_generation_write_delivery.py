@@ -11,10 +11,15 @@ from typer.testing import CliRunner
 
 from nauro.auth import ActiveCredentials
 from nauro.sync import generation_writes as writes
+from nauro.sync.generation_credentials import GenerationConnection
 
 PROJECT = "01K00000000000000000000001"
 ACTOR = "01K00000000000000000000002"
-CASES = [("update_state", {"delta": "Frozen state"})]
+CASES = [
+    ("update_state", {"delta": "Frozen state"}),
+    ("flag_question", {"question": "Next step?"}),
+    ("flag_question", {"resolved_by": "D42", "targets": ["Q1"]}),
+]
 
 
 @pytest.fixture
@@ -22,7 +27,13 @@ def delivery(tmp_path, monkeypatch):
     monkeypatch.setenv("NAURO_HOME", str(tmp_path))
     binding = SimpleNamespace(project_id=PROJECT)
     session = Mock(binding=binding, actor=ACTOR, api_url="https://api.example.test")
-    session.connection.binding.return_value = "connection-a"
+    session.connection = GenerationConnection(
+        endpoint="https://api.example.test/mcp",
+        issuer="https://issuer.test/",
+        client_id="client",
+        audience="https://api.test",
+        redirect_uri="http://127.0.0.1:8080/callback",
+    )
     session.credentials.return_value = ActiveCredentials(ACTOR, "generation-token")
     session.__enter__ = Mock(return_value=session)
     session.__exit__ = Mock(return_value=False)
@@ -48,7 +59,7 @@ def delivery(tmp_path, monkeypatch):
         calls.append(request)
         if behavior["drop"]:
             raise httpx.ReadError("lost response")
-        family = request.url.path.split("/")[1]
+        family = request.url.path.split("/")[1].removesuffix("s")
         records = importlib.import_module(f"nauro.store.{family}_records")
         (saved,) = getattr(records, f"list_{family}_submissions")(
             PROJECT, ACTOR, require_actor=session.require_actor
@@ -104,7 +115,7 @@ def test_changed_connection_cannot_recover(delivery):
     session, calls, behavior = delivery
     behavior["drop"] = True
     result = writes.generation_write("update_state", {"delta": "Frozen state"})
-    session.connection.binding.return_value = "connection-b"
+    session.connection = session.connection.model_copy(update={"client_id": "other-client"})
     with pytest.raises(ValueError, match="connection"):
         writes.generation_write(
             "update_state",
@@ -158,7 +169,7 @@ def test_stale_revision_returns_original_reference(delivery):
     )
 
 
-@pytest.mark.parametrize("command", ["update-state"])
+@pytest.mark.parametrize("command", ["update-state", "flag-question"])
 def test_cli_discovery_uses_generation_entry_point(delivery, command):
     from nauro.cli.main import app
 
@@ -171,6 +182,9 @@ def test_cli_discovery_uses_generation_entry_point(delivery, command):
     "command",
     [
         ["update-state", "Frozen state"],
+        ["flag-question", "Next step?"],
+        ["flag-question", "--question", "Next step?"],
+        ["flag-question", "--resolved-by", "D42", "--targets", "Q1"],
     ],
 )
 def test_cli_submits_each_public_operation(delivery, command):
@@ -182,7 +196,7 @@ def test_cli_submits_each_public_operation(delivery, command):
     assert json.loads(result.output)["guidance_status"] == {"status": "updated"}
 
 
-@pytest.mark.parametrize("command", ["update-state"])
+@pytest.mark.parametrize("command", ["update-state", "flag-question"])
 @pytest.mark.parametrize(
     "status,exit_code", [("committed", 0), ("unresolved", 1), ("discovered", 0)]
 )
@@ -317,7 +331,7 @@ def test_expired_retry_only_looks_up_original_attempt(delivery, operation, conte
             "Reconcile its outcome before creating a new write."
         ),
     }
-    route = family
+    route = "questions" if family == "question" else family
     assert [request.url.path for request in calls] == [f"/{route}/submit", f"/{route}/lookup"]
     assert [json.loads(request.content)["operation_id"] for request in calls] == [
         reference["operation_id"],
@@ -325,18 +339,21 @@ def test_expired_retry_only_looks_up_original_attempt(delivery, operation, conte
     ]
 
 
-def test_saved_generation_attempt_survives_process_restart(delivery):
+@pytest.mark.parametrize("operation,content", CASES)
+def test_saved_generation_attempt_survives_process_restart(delivery, operation, content):
     import os
     import subprocess
     import sys
 
-    _, _, behavior = delivery
+    session, _, behavior = delivery
     behavior["drop"] = True
-    result = writes.generation_write("update_state", {"delta": "Frozen state"})
+    result = writes.generation_write(operation, content)
     script = """
-import json, sys
-from nauro.store.state_records import list_state_submissions
-record, = list_state_submissions(sys.argv[1], sys.argv[2], require_actor=lambda actor: None)
+import importlib, json, sys
+records = importlib.import_module("nauro.store." + sys.argv[3] + "_records")
+record, = getattr(records, "list_" + sys.argv[3] + "_submissions")(
+    sys.argv[1], sys.argv[2], require_actor=lambda actor: None
+)
 print(json.dumps({
     'connection': record.connection,
     'operation_id': record.scope.operation_id,
@@ -344,14 +361,14 @@ print(json.dumps({
 }))
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, PROJECT, ACTOR],
+        [sys.executable, "-c", script, PROJECT, ACTOR, writes.FAMILIES[operation]],
         capture_output=True,
         text=True,
         env=os.environ.copy(),
     )
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout) == {
-        "connection": "connection-a",
+        "connection": session.connection.binding(),
         "operation_id": result["operation_id"],
         "phase": "uncertain",
     }
@@ -420,7 +437,10 @@ def test_nonterminal_observations_preserve_saved_attempt(delivery, status, surfa
 
 
 @pytest.mark.parametrize("selected", [PROJECT, "Target", "", "missing"])
-def test_cli_explicit_project_from_another_repo(delivery, tmp_path, monkeypatch, selected):
+@pytest.mark.parametrize("operation,content", [CASES[0], CASES[1]])
+def test_cli_explicit_project_from_another_repo(
+    delivery, tmp_path, monkeypatch, selected, operation, content
+):
     from nauro.cli.main import app
     from nauro.store.registry import register_project_v2
     from nauro.store.repo_config import save_repo_config
@@ -438,7 +458,9 @@ def test_cli_explicit_project_from_another_repo(delivery, tmp_path, monkeypatch,
     create_session = Mock(return_value=session)
     monkeypatch.setattr(writes, "GenerationTransferSession", create_session)
 
-    result = CliRunner().invoke(app, ["update-state", "Frozen state", "--project", selected])
+    result = CliRunner().invoke(
+        app, [operation.replace("_", "-"), next(iter(content.values())), "--project", selected]
+    )
 
     if selected in {"", "missing"}:
         assert result.exit_code == 1, result.output
@@ -458,8 +480,8 @@ def test_cli_explicit_project_from_another_repo(delivery, tmp_path, monkeypatch,
 
     calls.clear()
     refused = asyncio.run(
-        mcp._tool_manager.get_tool("update_state").run(
-            {"delta": "Frozen state", "project_id": PROJECT, "cwd": str(other)}
+        mcp._tool_manager.get_tool(operation).run(
+            {**content, "project_id": PROJECT, "cwd": str(other)}
         )
     )
     assert "does not match" in str(refused)
@@ -527,7 +549,7 @@ def test_saved_record_failure_is_structured(delivery, monkeypatch, mode, surface
         PROJECT,
         ACTOR,
         state_payload("Frozen state"),
-        connection="connection-a",
+        connection=session.connection.binding(),
         require_actor=session.require_actor,
     )
     path = state_records._record_path(saved.scope)
@@ -589,7 +611,13 @@ def test_unavailable_prepare_lock_returns_structured_failure(delivery, monkeypat
     assert calls == []
 
 
-def test_cli_legacy_target_survives_unrelated_strict_registry_error(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "command,filename",
+    [("update-state", "state_current.md"), ("flag-question", "open-questions.md")],
+)
+def test_cli_legacy_target_survives_unrelated_strict_registry_error(
+    tmp_path, monkeypatch, command, filename
+):
     from nauro.cli.main import app
     from nauro.demo import create_demo_project
     from nauro.store.registry import load_registry_v2, register_project_v2, save_registry_v2
@@ -605,10 +633,10 @@ def test_cli_legacy_target_survives_unrelated_strict_registry_error(tmp_path, mo
     with pytest.raises(StoreResolutionError):
         resolve_project_binding("Target", None, use_cwd=False)
 
-    response = CliRunner().invoke(app, ["update-state", "New legacy state", "--project", "Target"])
+    response = CliRunner().invoke(app, [command, "New legacy state", "--project", "Target"])
 
     assert response.exit_code == 0, response.output
-    assert "New legacy state" in (store / "state_current.md").read_text()
+    assert "New legacy state" in (store / filename).read_text()
 
 
 @pytest.mark.parametrize("surface", ["cli", "stdio"])
