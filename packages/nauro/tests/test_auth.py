@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import stat
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -47,15 +48,23 @@ def test_login_opens_browser_and_keeps_manual_fallback(mode, browser_result):
     args = ["auth", "login"]
     if mode == "reference":
         args.extend(["--reference-profile", "profile.json"])
+    completed = threading.Event()
+
+    def open_url(url):
+        try:
+            if isinstance(browser_result, Exception):
+                raise browser_result
+            return browser_result
+        finally:
+            completed.set()
+
     with (
         patch(target, side_effect=authenticate),
         patch("nauro.cli.auth_presentation.webbrowser.open") as open_browser,
     ):
-        if isinstance(browser_result, Exception):
-            open_browser.side_effect = browser_result
-        else:
-            open_browser.return_value = browser_result
+        open_browser.side_effect = open_url
         result = runner.invoke(app, args)
+        assert completed.wait(timeout=3) is True
 
     assert result.exit_code == 0, result.output
     open_browser.assert_called_once_with(url)
@@ -63,6 +72,20 @@ def test_login_opens_browser_and_keeps_manual_fallback(mode, browser_result):
     assert f"If the browser doesn't open, visit:\n  {url}" in result.output
     assert "Waiting for authorization..." in result.output
     assert "Credentials updated." in result.output
+
+
+def test_browser_worker_start_failure_keeps_fallback(capsys):
+    from nauro.cli.auth_presentation import present_login_url
+
+    with (
+        patch("nauro.cli.auth_presentation.threading.Thread.start", side_effect=RuntimeError),
+        patch("nauro.cli.auth_presentation.webbrowser.open") as open_browser,
+    ):
+        present_login_url("https://example.auth0.com/authorize")
+    open_browser.assert_not_called()
+    output = capsys.readouterr().out
+    assert "If the browser doesn't open, visit:\n  https://example.auth0.com/authorize" in output
+    assert "Waiting for authorization..." in output
 
 
 def _json_bytes(value: object) -> bytes:

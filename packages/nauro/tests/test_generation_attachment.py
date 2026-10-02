@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import socket
+import threading
 import time
 
 import httpx
@@ -281,9 +282,10 @@ def test_reauthentication_before_marker_uses_generation_login(hosted, monkeypatc
         credentials.write(credentials.empty("logged_out"))
     logins = []
     browser_urls = []
+    browser_opened = threading.Event()
     monkeypatch.setattr(
         "nauro.cli.auth_presentation.webbrowser.open",
-        lambda url: browser_urls.append(url) or True,
+        lambda url: browser_urls.append(url) or browser_opened.set() or True,
     )
 
     def login(auth, present_url):
@@ -298,6 +300,7 @@ def test_reauthentication_before_marker_uses_generation_login(hosted, monkeypatc
     result = _run(repo)
     assert result.exit_code == 0, result.output
     assert logins == [PROJECT_ID]
+    assert browser_opened.wait(timeout=3) is True
     assert browser_urls == ["https://issuer.example/authorize"]
     assert "Waiting for authorization..." in result.output
     assert "If the browser doesn't open, visit:" in result.output

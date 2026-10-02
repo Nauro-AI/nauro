@@ -458,6 +458,84 @@ def test_callback_rejects_wrong_state_before_accepting_own_attempt(setup):
     assert responses == [400, 200]
 
 
+def test_blocking_browser_receives_callback_before_exit(setup, monkeypatch, capsys):
+    import socket
+    import threading
+
+    from nauro.cli.auth_presentation import present_login_url
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    profile = setup.profile.model_copy(update={"redirect_uri": f"http://127.0.0.1:{port}/callback"})
+    responses = []
+    workers = []
+
+    def open_browser(url):
+        workers.append(threading.current_thread())
+        params = parse_qs(urlsplit(url).query)
+        with httpx.Client(trust_env=False, timeout=1) as client:
+            response = client.get(
+                profile.redirect_uri, params={"state": params["state"][0], "code": "valid"}
+            )
+        responses.append((response.status_code, response.text))
+        return True
+
+    monkeypatch.setattr("nauro.cli.auth_presentation.webbrowser.open", open_browser)
+    try:
+        code, verifier = callback_code(profile, present_login_url, timeout=3)
+    finally:
+        for worker in workers:
+            if worker is not threading.current_thread():
+                worker.join(timeout=3)
+    assert code == "valid"
+    assert 43 <= len(verifier) <= 128
+    assert responses == [(200, "Return to the terminal.")]
+    assert "If the browser doesn't open, visit:" in capsys.readouterr().out
+    assert len(workers) == 1
+    assert workers[0].daemon is True
+    assert workers[0].is_alive() is False
+
+
+def test_login_timeout_does_not_wait_for_browser_exit(setup, monkeypatch):
+    import socket
+    import threading
+
+    from nauro.cli.auth_presentation import present_login_url
+    from nauro.sync.auth_errors import AuthenticationError
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    profile = setup.profile.model_copy(update={"redirect_uri": f"http://127.0.0.1:{port}/callback"})
+    entered, release = threading.Event(), threading.Event()
+    workers = []
+
+    def open_browser(url):
+        workers.append(threading.current_thread())
+        entered.set()
+        release.wait(timeout=5)
+        return True
+
+    def present(url):
+        present_login_url(url)
+        assert entered.wait(timeout=3) is True
+
+    monkeypatch.setattr("nauro.cli.auth_presentation.webbrowser.open", open_browser)
+    try:
+        with pytest.raises(AuthenticationError) as refused:
+            callback_code(profile, present, timeout=0.05)
+        assert refused.value.reason == "Login timed out."
+        assert len(workers) == 1
+        assert workers[0].is_alive() is True
+        assert workers[0].daemon is True
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(timeout=3)
+    assert workers[0].is_alive() is False
+
+
 @pytest.mark.parametrize("body", [[], {"token_type": 123}, {"keys": ["wrong"]}])
 def test_malformed_provider_responses_are_safe(setup, body):
     with httpx.Client(
