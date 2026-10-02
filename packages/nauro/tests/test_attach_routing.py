@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -53,9 +54,10 @@ def routed(tmp_path, monkeypatch):
     state = {"authority": GENERATION, "result": SimpleNamespace(phase="completed")}
     calls: list[tuple] = []
     state["browser_urls"] = []
+    state["browser_opened"] = threading.Event()
     monkeypatch.setattr(
         "nauro.cli.auth_presentation.webbrowser.open",
-        lambda url: state["browser_urls"].append(url) or True,
+        lambda url: state["browser_urls"].append(url) or state["browser_opened"].set() or True,
     )
 
     def discover(project_id):
@@ -249,6 +251,7 @@ def test_generation_installs_every_other_destination(routed, tmp_path, monkeypat
     assert calls == [("discover", PID), ("install", PID, repo)]
     assert SIGN_IN in result.output
     assert "Waiting for authorization..." in result.output
+    assert state["browser_opened"].wait(timeout=3) is True
     assert state["browser_urls"] == ["https://login.example/start"]
     assert f"Attached generation project 'Synth' to {repo.resolve()}" in result.output
 
@@ -323,6 +326,7 @@ def test_upgrade_logs_in_before_the_session(routed, tmp_path, monkeypatch, rebin
     result = _run(repo)
     assert SIGN_IN in result.output
     assert "Waiting for authorization..." in result.output
+    assert state["browser_opened"].wait(timeout=3) is True
     assert state["browser_urls"] == ["https://login.example/start"]
     if rebind:
         assert result.exit_code == 1
