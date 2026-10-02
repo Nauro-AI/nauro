@@ -87,10 +87,15 @@ def _send(
 ) -> StackResult:
     require_actor = require_actor or require_submission_actor
     _require_window(record)
+    preflight = getattr(transport, "validate_binding", None)
+    if callable(preflight):
+        preflight(record)
     uncertain = mark_stack_uncertain(record, require_actor=require_actor)
     require_actor(record.scope.user_id)
     _require_window(uncertain)
     result = transport.submit(uncertain)
+    if isinstance(result, StackRefused) and not result.unresolved:
+        raise StackTransportError("A stack transport cannot supply a terminal refusal.")
     if (
         isinstance(result, StackRefused)
         and record.phase == "prepared"

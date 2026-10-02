@@ -136,6 +136,7 @@ def test_connection_mismatch_never_sends_saved_attempt(home, mode, saved, active
             getattr(submission, f"{mode}_stack")(record.scope, transport)
     handler.assert_not_called()
     persisted = records.read_stack_submission(record.scope)
+    assert persisted == record
     assert persisted.connection == (saved.binding() if saved else None)
     assert persisted.payload_json == record.payload_json
     assert persisted.payload_digest == record.payload_digest
@@ -232,5 +233,78 @@ def test_equivalent_normalized_origin_accepts_bound_receipt(home, origin):
     with httpx.Client(
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_body(record)))
     ) as client:
-        result = HttpStackTransport(origin, client, connection=connection).submit(record)
+        result = HttpStackTransport(
+            origin,
+            client,
+            connection=connection,
+            credentials=lambda: ActiveCredentials(USER, "session-token"),
+        ).submit(record)
     assert result.status == "committed"
+
+
+def test_bound_transport_requires_provider_before_credentials_or_http(home, monkeypatch):
+    from nauro.sync import stack_transport
+
+    credentials = Mock()
+    handler = Mock()
+    monkeypatch.setattr(stack_transport, "read_active_credentials", credentials)
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(StackTransportError, match="credentials provider"),
+    ):
+        HttpStackTransport("https://example.test", client, connection=connection_for())
+    credentials.assert_not_called()
+    handler.assert_not_called()
+
+
+def test_wrong_binding_preflight_preserves_attempt_for_correct_submit(home):
+    connection = connection_for()
+    record = records.prepare_stack_submission(
+        PROJECT, USER, stack_payload("Frozen stack", "a" * 64), connection=connection.binding()
+    )
+    provider = Mock(return_value=ActiveCredentials(USER, "session-token"))
+    handler = Mock(return_value=httpx.Response(200, json=_body(record)))
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        wrong = HttpStackTransport(
+            "https://example.test",
+            client,
+            connection=connection_for(client_id="other"),
+            credentials=provider,
+        )
+        with pytest.raises(StackTransportError):
+            submission.submit_stack(record.scope, wrong)
+        assert records.read_stack_submission(record.scope) == record
+        provider.assert_not_called()
+        handler.assert_not_called()
+        right = HttpStackTransport(
+            "https://example.test", client, connection=connection, credentials=provider
+        )
+        assert submission.submit_stack(record.scope, right).status == "committed"
+    request = handler.call_args.args[0]
+    body = json.loads(request.content)
+    assert body["payload_json"] == record.payload_json
+    assert body["operation_id"] == record.scope.operation_id
+    assert body["payload_digest"] == record.payload_digest
+    assert records.read_stack_submission(record.scope).created_at == record.created_at
+    assert handler.call_count == provider.call_count == 1
+
+
+@pytest.mark.parametrize("mode", ["recover", "retry"])
+def test_wrong_binding_keeps_original_uncertainty(home, mode):
+    record = records.prepare_stack_submission(
+        PROJECT, USER, stack_payload("Frozen"), connection=connection_for().binding()
+    )
+    record = records.mark_stack_uncertain(record)
+    provider, handler = Mock(), Mock()
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        transport = HttpStackTransport(
+            "https://example.test",
+            client,
+            connection=connection_for(client_id="other"),
+            credentials=provider,
+        )
+        with pytest.raises(StackTransportError):
+            getattr(submission, f"{mode}_stack")(record.scope, transport)
+    assert records.read_stack_submission(record.scope) == record
+    provider.assert_not_called()
+    handler.assert_not_called()

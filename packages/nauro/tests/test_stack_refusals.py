@@ -198,3 +198,35 @@ def test_dormant_response_adapter_preserves_refusal_evidence(home, mode):
             "The original write outcome remains unknown. Restore access and recover this reference."
         )
     )
+
+
+@pytest.mark.parametrize("mode", ["submit", "retry"])
+def test_custom_transport_cannot_forge_terminal_refusal(home, mode):
+    from nauro.store.stack_contract import StackRefused, verify_stack_response
+
+    record = _prepared()
+    if mode == "retry":
+        records.mark_stack_uncertain(record)
+    refusal = StackRefused(
+        version=1,
+        scope=record.scope,
+        status="refused",
+        payload_digest=record.payload_digest,
+        unresolved=False,
+        http_status=409,
+        server_code="single_writer_refused",
+        request_mode="submit",
+    )
+    absent = verify_stack_response(
+        json.dumps(_body(record, "absent")).encode(), record.scope, record.payload_json, lookup=True
+    )
+    transport = Mock(submit=Mock(return_value=refusal), lookup=Mock(return_value=absent))
+    with pytest.raises(StackTransportError):
+        getattr(submission, f"{mode}_stack")(record.scope, transport)
+    saved = records.read_stack_submission(record.scope)
+    assert saved.phase == "uncertain"
+    assert saved.result is None if mode == "submit" else saved.result.status == "absent"
+    assert saved.scope == record.scope
+    assert saved.payload_json == record.payload_json
+    assert saved.payload_digest == record.payload_digest
+    assert saved.created_at == record.created_at

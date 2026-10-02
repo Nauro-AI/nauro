@@ -42,16 +42,21 @@ class HttpStackTransport:
             connection.endpoint.removesuffix("/mcp")
         ).copy_with(path="/"):
             raise StackTransportError("The stack transport origin does not match its connection.")
+        if connection is not None and credentials is None:
+            raise StackTransportError("A bound stack transport requires a credentials provider.")
         self._base_url = str(url).rstrip("/")
         self._client = client
         self._connection = connection.binding() if connection is not None else None
-        self._credentials = credentials or read_active_credentials
+        self._credentials = read_active_credentials if credentials is None else credentials
         self._require_actor = require_actor or require_submission_actor
+
+    def validate_binding(self, record: StackSubmission) -> None:
+        if record.connection != self._connection:
+            raise StackTransportError("The saved stack connection does not match this transport.")
 
     def _request(self, record: StackSubmission, *, lookup: bool) -> StackResult:
         record = StackSubmission.model_validate(record)
-        if record.connection != self._connection:
-            raise StackTransportError("The saved stack connection does not match this transport.")
+        self.validate_binding(record)
         credentials = self._credentials()
         if credentials.user_id != record.scope.user_id:
             raise SubmissionActorMismatchError(
