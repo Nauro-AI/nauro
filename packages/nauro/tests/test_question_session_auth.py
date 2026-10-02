@@ -15,10 +15,21 @@ from nauro.store.question_contract import (
 )
 from nauro.store.submission_records import SubmissionActorMismatchError
 from nauro.sync import question_submission as submission
+from nauro.sync.generation_credentials import GenerationConnection
 from nauro.sync.question_transport import HttpQuestionTransport
 from tests.test_question_submission import OTHER, PROJECT, USER, _body, _prepared, home
 
 __all__ = ["home"]
+
+
+def connection_for(origin="https://example.test", client_id="client"):
+    return GenerationConnection(
+        endpoint=origin + "/mcp",
+        issuer="https://issuer.test/",
+        client_id=client_id,
+        audience="https://api.test",
+        redirect_uri="http://127.0.0.1:8080/callback",
+    )
 
 
 @pytest.mark.parametrize("action", ["append", "resolve"])
@@ -29,8 +40,9 @@ def test_session_authority_survives_restart_without_global_credentials(home, act
     payload = (
         question_payload("Next?") if action == "append" else resolution_payload(("Q1",), "D42")
     )
+    connection = connection_for()
     record = records.prepare_question_submission(
-        PROJECT, USER, payload, connection="endpoint-binding", **auth
+        PROJECT, USER, payload, connection=connection.binding(), **auth
     )
     requests = []
 
@@ -46,13 +58,13 @@ def test_session_authority_survives_restart_without_global_credentials(home, act
         transport = HttpQuestionTransport(
             "https://example.test",
             client,
-            connection="endpoint-binding",
+            connection=connection,
             credentials=lambda: ActiveCredentials(USER, "session-token"),
             **auth,
         )
         assert submission.recover_question(record.scope, transport, **auth).status == "absent"
         saved = records.read_question_submission(record.scope, **auth)
-        assert saved.connection == "endpoint-binding"
+        assert saved.connection == connection.binding()
         assert saved.payload_json == record.payload_json
         assert submission.retry_question(saved.scope, transport, **auth).status == "committed"
     assert [request[0] for request in requests] == [
@@ -103,38 +115,68 @@ def test_session_account_change_never_accepts_response(home, changed_after_reque
 @pytest.mark.parametrize(
     "saved,active",
     [
-        ("https://first.test", "https://second.test"),
-        ("https://first.test", None),
-        (None, "https://second.test"),
+        (connection_for("https://first.test"), connection_for("https://second.test")),
+        (connection_for("https://first.test"), None),
+        (None, connection_for("https://second.test")),
+        (
+            connection_for("https://second.test", "first"),
+            connection_for("https://second.test", "second"),
+        ),
     ],
 )
-def test_connection_mismatch_never_sends_saved_attempt(home, mode, saved, active):
+@pytest.mark.parametrize("action", ["append", "resolve"])
+def test_connection_mismatch_never_sends_saved_attempt(home, mode, saved, active, action):
     record = records.prepare_question_submission(
-        PROJECT, USER, question_payload("Next?"), connection=saved
+        PROJECT,
+        USER,
+        question_payload("Next?") if action == "append" else resolution_payload(("Q1",), "D42"),
+        connection=saved.binding() if saved else None,
     )
+    if mode == "retry":
+        record = records.mark_question_uncertain(record)
     handler = Mock()
+    credentials = Mock(return_value=ActiveCredentials(USER, "same-user-token"))
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         transport = HttpQuestionTransport(
             "https://second.test",
             client,
             connection=active,
-            credentials=lambda: ActiveCredentials(USER, "same-user-token"),
+            credentials=credentials,
         )
         with pytest.raises(QuestionTransportError, match="connection does not match"):
             getattr(submission, f"{mode}_question")(record.scope, transport)
     handler.assert_not_called()
     persisted = records.read_question_submission(record.scope)
-    assert persisted.connection == saved
+    credentials.assert_not_called()
+    assert persisted.connection == (saved.binding() if saved else None)
     assert persisted.payload_json == record.payload_json
     assert persisted.payload_digest == record.payload_digest
-    assert persisted.result is None
+    assert persisted == record
+    if mode == "submit":
+        origin = saved.endpoint.removesuffix("/mcp") if saved else "https://legacy.test"
+        with httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_body(record)))
+        ) as client:
+            correct = HttpQuestionTransport(
+                origin, client, connection=saved, credentials=credentials
+            )
+            assert submission.submit_question(record.scope, correct).status == "committed"
 
 
 @pytest.mark.parametrize("mode", ["submit", "recover", "retry"])
-@pytest.mark.parametrize("connection", [None, "https://first.test", "https://second.test"])
-def test_matching_connection_or_legacy_default_accepts_bound_receipt(home, mode, connection):
+@pytest.mark.parametrize(
+    "connection",
+    [None, connection_for("https://first.test"), connection_for("https://second.test")],
+)
+@pytest.mark.parametrize("action", ["append", "resolve"])
+def test_matching_connection_or_legacy_default_accepts_bound_receipt(
+    home, mode, connection, action
+):
     record = records.prepare_question_submission(
-        PROJECT, USER, question_payload("Next?"), connection=connection
+        PROJECT,
+        USER,
+        question_payload("Next?") if action == "append" else resolution_payload(("Q1",), "D42"),
+        connection=connection.binding() if connection else None,
     )
     calls = []
 
@@ -142,7 +184,7 @@ def test_matching_connection_or_legacy_default_accepts_bound_receipt(home, mode,
         calls.append((str(request.url), request.headers["Authorization"]))
         return httpx.Response(200, json=_body(record))
 
-    origin = connection or "https://legacy.test"
+    origin = connection.endpoint.removesuffix("/mcp") if connection else "https://legacy.test"
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         transport = HttpQuestionTransport(
             origin,
@@ -154,3 +196,60 @@ def test_matching_connection_or_legacy_default_accepts_bound_receipt(home, mode,
     assert result.status == "committed"
     route = "submit" if mode == "submit" else "lookup"
     assert calls == [(f"{origin}/questions/{route}", "Bearer same-user-token")]
+
+
+@pytest.mark.parametrize("route", ["submit", "lookup"])
+@pytest.mark.parametrize("origin", ["https://other.test", "https://example.test:9443"])
+def test_same_saved_binding_cannot_send_to_another_origin(home, route, origin):
+    connection = connection_for()
+    record = records.prepare_question_submission(
+        PROJECT,
+        USER,
+        question_payload("Exact question?"),
+        connection=connection.binding(),
+    )
+    credentials = Mock(return_value=ActiveCredentials(USER, "private-token"))
+    handler = Mock()
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(QuestionTransportError, match="origin does not match"),
+    ):
+        transport = HttpQuestionTransport(
+            origin, client, connection=connection, credentials=credentials
+        )
+        getattr(transport, route)(record)
+    credentials.assert_not_called()
+    handler.assert_not_called()
+
+
+@pytest.mark.parametrize("origin", ["https://EXAMPLE.test:443", "https://example.test/"])
+def test_equivalent_normalized_origin_accepts_bound_receipt(home, origin):
+    connection = connection_for()
+    record = records.prepare_question_submission(
+        PROJECT,
+        USER,
+        question_payload("Exact question?"),
+        connection=connection.binding(),
+    )
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=_body(record)))
+    ) as client:
+        result = HttpQuestionTransport(
+            origin,
+            client,
+            connection=connection,
+            credentials=lambda: ActiveCredentials(USER, "session-token"),
+        ).submit(record)
+    assert result.status == "committed"
+
+
+def test_bound_transport_requires_an_explicit_credentials_provider(monkeypatch):
+    credentials, handler = Mock(), Mock()
+    monkeypatch.setattr("nauro.sync.question_transport.read_active_credentials", credentials)
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as client,
+        pytest.raises(QuestionTransportError, match="credentials provider"),
+    ):
+        HttpQuestionTransport("https://example.test", client, connection=connection_for())
+    credentials.assert_not_called()
+    handler.assert_not_called()
