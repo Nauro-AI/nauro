@@ -15,6 +15,7 @@ from nauro.store.state_contract import (
 )
 from nauro.store.state_records import StateSubmission
 from nauro.store.submission_records import SubmissionActorMismatchError, require_submission_actor
+from nauro.sync.generation_credentials import GenerationConnection
 
 
 class HttpStateTransport:
@@ -23,6 +24,7 @@ class HttpStateTransport:
         base_url: str,
         client: httpx.Client,
         *,
+        connection: GenerationConnection | None = None,
         credentials: Callable[[], ActiveCredentials] | None = None,
         require_actor: Callable[[str], None] | None = None,
     ) -> None:
@@ -36,13 +38,25 @@ class HttpStateTransport:
             or url.path not in {"", "/"}
         ):
             raise StateTransportError("State transport requires a trusted HTTPS origin.")
+        if connection is not None and url.copy_with(path="/") != httpx.URL(
+            connection.endpoint.removesuffix("/mcp")
+        ).copy_with(path="/"):
+            raise StateTransportError("The state transport origin does not match its connection.")
+        if connection is not None and credentials is None:
+            raise StateTransportError("A bound state transport requires a credentials provider.")
         self._base_url = str(url).rstrip("/")
         self._client = client
-        self._credentials = credentials or read_active_credentials
+        self._connection = connection.binding() if connection is not None else None
+        self._credentials = read_active_credentials if credentials is None else credentials
         self._require_actor = require_actor or require_submission_actor
+
+    def validate_binding(self, record: StateSubmission) -> None:
+        if record.connection != self._connection:
+            raise StateTransportError("The saved state connection does not match this transport.")
 
     def _request(self, record: StateSubmission, *, lookup: bool) -> StateResult:
         record = StateSubmission.model_validate(record)
+        self.validate_binding(record)
         credentials = self._credentials()
         if credentials.user_id != record.scope.user_id:
             raise SubmissionActorMismatchError(

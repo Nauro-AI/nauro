@@ -15,7 +15,7 @@ from nauro.store.state_contract import StateScope, state_payload
 from nauro.store.submission_records import SubmissionRecordError
 from nauro.sync import state_submission as submission
 from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica, replica_status
-from nauro.sync.generation_session import GenerationTransferSession
+from nauro.sync.generation_session import GenerationConnectionError, GenerationTransferSession
 from nauro.sync.question_writes import execute_question_write
 from nauro.sync.stack_writes import execute_stack_write
 from nauro.sync.state_transport import HttpStateTransport
@@ -123,21 +123,29 @@ def _execute(
             ):
                 raise ValueError("The saved attempt does not match this connection and reference.")
             record = saved_record
-    except (SubmissionRecordError, OSError) as error:
+    except (SubmissionRecordError, OSError, GenerationConnectionError) as error:
         reference = {
             key: value
             for key, value in (("operation_id", operation_id), ("payload_digest", digest))
             if value is not None
         }
-        return {**reference, **write_failure(error)}
+        failure = {**reference, **write_failure(error)}
+        if not reference:
+            failure["unresolved"] = False
+            failure["guidance"] = (
+                "No request was sent. Restore account and local record access, then use discover "
+                "to find any saved prepared attempt before submitting again."
+            )
+        return failure
     reference = {"operation_id": record.scope.operation_id, "payload_digest": record.payload_digest}
-    transport = HttpStateTransport(
-        session.api_url,
-        session.client,
-        credentials=session.credentials,
-        **auth,
-    )
     try:
+        transport = HttpStateTransport(
+            session.api_url,
+            session.client,
+            connection=session.connection,
+            credentials=session.credentials,
+            **auth,
+        )
         result = getattr(submission, f"{mode}_state")(record.scope, transport, **auth)
     except (SubmissionRecordError, *REFRESH_FAILURES) as error:
         return {**reference, **write_failure(error)}

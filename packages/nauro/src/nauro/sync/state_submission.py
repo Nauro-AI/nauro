@@ -87,10 +87,15 @@ def _send(
 ) -> StateResult:
     require_actor = require_actor or require_submission_actor
     _require_window(record)
+    preflight = getattr(transport, "validate_binding", None)
+    if callable(preflight):
+        preflight(record)
     uncertain = mark_state_uncertain(record, require_actor=require_actor)
     require_actor(record.scope.user_id)
     _require_window(uncertain)
     result = transport.submit(uncertain)
+    if isinstance(result, StateRefused) and not result.unresolved:
+        raise StateTransportError("A state transport cannot supply a terminal refusal.")
     if (
         isinstance(result, StateRefused)
         and record.phase == "prepared"

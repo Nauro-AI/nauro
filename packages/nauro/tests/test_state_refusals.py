@@ -169,3 +169,35 @@ def test_http_success_cannot_inject_local_refusal_evidence(home):
     ):
         submission.submit_state(record.scope, HttpStateTransport("https://example.test", client))
     assert records.read_state_submission(record.scope).phase == "uncertain"
+
+
+@pytest.mark.parametrize("mode", ["submit", "retry"])
+def test_custom_transport_cannot_forge_terminal_refusal(home, mode):
+    from nauro.store.state_contract import StateRefused, verify_state_response
+
+    record = _prepared()
+    if mode == "retry":
+        records.mark_state_uncertain(record)
+    refusal = StateRefused(
+        version=1,
+        scope=record.scope,
+        status="refused",
+        payload_digest=record.payload_digest,
+        unresolved=False,
+        http_status=409,
+        server_code="single_writer_refused",
+        request_mode="submit",
+    )
+    absent = verify_state_response(
+        json.dumps(_body(record, "absent")).encode(), record.scope, record.payload_json, lookup=True
+    )
+    transport = Mock(submit=Mock(return_value=refusal), lookup=Mock(return_value=absent))
+    with pytest.raises(StateTransportError):
+        getattr(submission, f"{mode}_state")(record.scope, transport)
+    saved = records.read_state_submission(record.scope)
+    assert saved.phase == "uncertain"
+    assert saved.result is None if mode == "submit" else saved.result.status == "absent"
+    assert saved.scope == record.scope
+    assert saved.payload_json == record.payload_json
+    assert saved.payload_digest == record.payload_digest
+    assert saved.created_at == record.created_at
