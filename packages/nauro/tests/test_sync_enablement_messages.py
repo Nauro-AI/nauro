@@ -164,7 +164,7 @@ class TestAuthLoginNextSteps:
         with (
             patch("nauro.cli.commands.auth.httpx.post", side_effect=fake_post),
             patch("nauro.cli.commands.auth.httpx.get", side_effect=fake_get),
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(_HTTPServer, "__init__", _fake_server_init),
             patch.object(_HTTPServer, "handle_request", fake_handle_request),
             patch.object(_HTTPServer, "server_close", _fake_server_close),
@@ -183,7 +183,7 @@ class TestAuthLoginNextSteps:
             _CallbackHandler.error = None
 
         with (
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(_HTTPServer, "__init__", _fake_server_init),
             patch.object(_HTTPServer, "handle_request", fake_handle_request),
             patch.object(_HTTPServer, "server_close", _fake_server_close),
@@ -200,7 +200,7 @@ class TestAuthLoginNextSteps:
             _CallbackHandler.error = "access_denied"
 
         with (
-            patch("nauro.cli.commands.auth.webbrowser.open"),
+            patch("nauro.cli.auth_presentation.webbrowser.open"),
             patch.object(_HTTPServer, "__init__", _fake_server_init),
             patch.object(_HTTPServer, "handle_request", fake_handle_request),
             patch.object(_HTTPServer, "server_close", _fake_server_close),

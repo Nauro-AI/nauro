@@ -7,6 +7,7 @@ from collections.abc import Callable
 import httpx
 
 from nauro.auth import PartialAuthConfigError
+from nauro.sync.auth_errors import auth_error_message
 from nauro.sync.generation_connection import selected_connection
 from nauro.sync.generation_credentials import GenerationAuth
 from nauro.sync.reference_auth import AUTH_ERRORS
@@ -33,8 +34,5 @@ def run_generation_auth(
             else:
                 raise ValueError("Unsupported authentication action")
         return "Generation credentials updated. No decision was submitted."
-    except (*AUTH_ERRORS, PartialAuthConfigError):
-        raise ValueError(
-            "Generation authentication failed. "
-            "Check project settings and auth status, or log in again."
-        ) from None
+    except (*AUTH_ERRORS, PartialAuthConfigError) as exc:
+        raise ValueError(f"Generation authentication failed. {auth_error_message(exc)}") from None

@@ -17,6 +17,7 @@ import typer
 
 from nauro.auth import DEFAULT_API_URL
 from nauro.cli._reporters import StderrReporter
+from nauro.cli.auth_presentation import present_login_url
 from nauro.cli.connection_routing import route_attach
 from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
@@ -114,7 +115,7 @@ def attach(
             binding = attach_generation(
                 project_id,
                 repo_path,
-                lambda url: typer.echo(f"Sign in to attach this generation project:\n{url}"),
+                present_login_url,
             )
         except (*AUTH_ERRORS, GenerationAuthorityError, PartialAuthConfigError, Timeout) as exc:
             typer.echo(f"Attachment incomplete: {exc}", err=True)

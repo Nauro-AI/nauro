@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import httpx
 import jwt
 
+from nauro.sync.auth_errors import AuthenticationError, ExchangeNotSentError
 from nauro.sync.decision_profile import RenewalProfile
 from nauro.sync.decision_reference_contract import _json
 
@@ -28,7 +29,12 @@ class OAuthSettings(Protocol):
 def response_json(client: httpx.Client, method: str, url: str, **kwargs: Any) -> Any:
     with client.stream(method, url, timeout=15, follow_redirects=False, **kwargs) as response:
         if response.status_code != 200:
-            raise ValueError("Authentication request failed")
+            code = "request_rejected"
+            if response.status_code == 429:
+                code = "rate_limited"
+            elif response.status_code >= 500:
+                code = "service_unavailable"
+            raise AuthenticationError(code)
         data = bytearray()
         for chunk in response.iter_bytes():
             data.extend(chunk)
@@ -92,13 +98,18 @@ def verify_access(profile: RenewalProfile, token: str, client: httpx.Client) -> 
 def exchange_tokens(
     profile: OAuthSettings, client: httpx.Client, grant: dict[str, str]
 ) -> tuple[str, str]:
-    body = response_json(
-        client,
-        "POST",
-        profile.issuer + "oauth/token",
-        json={"client_id": profile.client_id, **grant},
-    )
+    try:
+        body = response_json(
+            client,
+            "POST",
+            profile.issuer + "oauth/token",
+            json={"client_id": profile.client_id, **grant},
+        )
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+        raise ExchangeNotSentError() from None
     access, refresh = body.get("access_token"), body.get("refresh_token")
+    if "refresh_token" not in body and grant.get("grant_type") == "refresh_token":
+        refresh = grant.get("refresh_token")
     if (
         not isinstance(access, str)
         or not access
@@ -107,7 +118,7 @@ def exchange_tokens(
         or not isinstance(body.get("token_type"), str)
         or body["token_type"].lower() != "bearer"
     ):
-        raise ValueError("Incomplete rotating credentials")
+        raise AuthenticationError("invalid_tokens")
     return access, refresh
 
 
@@ -177,6 +188,8 @@ def callback_code(
         deadline = time.monotonic() + timeout
         while not result and time.monotonic() < deadline:
             server.handle_request()
-    if not result or result[0] is None:
-        raise ValueError("Reference login refused or timed out")
+    if not result:
+        raise AuthenticationError("login_timeout")
+    if result[0] is None:
+        raise AuthenticationError("login_refused")
     return result[0], verifier
