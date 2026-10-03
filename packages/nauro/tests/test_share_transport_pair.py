@@ -47,3 +47,41 @@ def test_paired_share_transport(scenario):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "1 passed" in result.stdout
     assert "skipped" not in result.stdout
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+@pytest.mark.parametrize("outcome", ["receipt", "restart-recovery"])
+def test_paired_share_public_surfaces(surface, outcome):
+    interpreter = os.environ.get("NAURO_SERVER_PYTHON")
+    source = os.environ.get("NAURO_SERVER_ROOT")
+    if not interpreter or not source:
+        pytest.skip("Set NAURO_SERVER_PYTHON and NAURO_SERVER_ROOT for paired sharing surfaces.")
+    root = Path(source).resolve()
+    probe = Path(__file__).parent / "fixtures" / "share_surface_server.py"
+    result = subprocess.run(
+        [
+            interpreter,
+            "-m",
+            "pytest",
+            "-q",
+            "--noconftest",
+            "-c",
+            str(root / "pyproject.toml"),
+            "-p",
+            "tests.conftest",
+            f"{probe}::test_public_mutation_and_second_replica[{outcome}-{surface}]",
+            "--tb=short",
+        ],
+        cwd=root,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join([str(root / "src"), str(root)]),
+            "NAURO_CLIENT_PYTHON": sys.executable,
+            "AWS_DEFAULT_REGION": "us-east-1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "1 passed" in result.stdout and "skipped" not in result.stdout

@@ -3,6 +3,7 @@
 import httpx
 
 from nauro.store.question_contract import QuestionTransportError
+from nauro.store.share_contract import ShareTransportError
 from nauro.store.stack_contract import StackTransportError
 from nauro.store.state_contract import StateTransportError
 from nauro.store.submission_records import (
@@ -12,13 +13,20 @@ from nauro.store.submission_records import (
 )
 from nauro.sync.generation_session import GenerationConnectionError
 from nauro.sync.question_submission import QuestionRecoveryRequiredError, QuestionRetryExpiredError
+from nauro.sync.share_submission import ShareRecoveryRequiredError, ShareRetryExpiredError
 from nauro.sync.stack_submission import StackRecoveryRequiredError, StackRetryExpiredError
 from nauro.sync.state_submission import StateRecoveryRequiredError, StateRetryExpiredError
 
 
 def write_failure(error: Exception) -> dict[str, object]:
     if isinstance(
-        error, (StateRetryExpiredError, QuestionRetryExpiredError, StackRetryExpiredError)
+        error,
+        (
+            StateRetryExpiredError,
+            QuestionRetryExpiredError,
+            StackRetryExpiredError,
+            ShareRetryExpiredError,
+        ),
     ):
         status, code, guidance = (
             "retry_expired",
@@ -28,7 +36,12 @@ def write_failure(error: Exception) -> dict[str, object]:
         )
     elif isinstance(
         error,
-        (StateRecoveryRequiredError, QuestionRecoveryRequiredError, StackRecoveryRequiredError),
+        (
+            StateRecoveryRequiredError,
+            QuestionRecoveryRequiredError,
+            StackRecoveryRequiredError,
+            ShareRecoveryRequiredError,
+        ),
     ):
         status, code, guidance = (
             "recovery_required",
@@ -54,7 +67,10 @@ def write_failure(error: Exception) -> dict[str, object]:
             "transport_outcome_unknown",
             "Recover this saved operation before retrying.",
         )
-    elif isinstance(error, (StateTransportError, QuestionTransportError, StackTransportError)):
+    elif isinstance(
+        error,
+        (StateTransportError, QuestionTransportError, StackTransportError, ShareTransportError),
+    ):
         status, code, guidance = (
             "unverified",
             "response_unverified",

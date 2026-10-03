@@ -608,9 +608,9 @@ class TestToolSpecDescriptionsReachAgent:
         hints = get_type_hints(propose_decision, include_extras=True)
         assert _literal_values(hints["decision_type"]) == set(DECISION_TYPE_VALUES)
 
-    def test_eleven_tools_registered(self):
+    def test_twelve_tools_registered(self):
         tools = mcp._tool_manager.list_tools()
-        assert len(tools) == 11
+        assert len(tools) == 12
 
     @pytest.mark.parametrize(
         "tool",
@@ -626,6 +626,7 @@ class TestToolSpecDescriptionsReachAgent:
             "flag_question",
             "update_state",
             "update_stack",
+            "share_context",
         ],
     )
     def test_project_id_property_alignment_with_toolspec(self, tools_by_name, tool):
@@ -666,6 +667,7 @@ class TestCwdParamReachesAgent:
         "flag_question",
         "update_state",
         "update_stack",
+        "share_context",
     )
 
     @pytest.fixture

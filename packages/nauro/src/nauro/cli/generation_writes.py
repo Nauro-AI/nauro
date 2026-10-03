@@ -99,7 +99,7 @@ def with_write_options(command: Callable[..., None], spec: ToolSpec) -> Callable
             raise typer.BadParameter(str(error)) from None
         if result is None:
             for name in spec["input_schema"].get("required", []):
-                if family != "stack" and kwargs.get(name) is None:
+                if family not in {"stack", "share"} and kwargs.get(name) is None:
                     raise typer.BadParameter(f"Missing argument {name.upper()}")
             for name in _options(family):
                 kwargs.pop(name, None)

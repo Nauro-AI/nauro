@@ -123,6 +123,7 @@ def test_state_modes_preserve_registered_tool_inventory():
         "flag_question",
         "update_state",
         "update_stack",
+        "share_context",
         "search_decisions",
         "get_raw_file",
         "list_decisions",

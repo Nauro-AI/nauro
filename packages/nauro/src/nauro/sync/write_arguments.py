@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from nauro_core.identifiers import IdentifierKind, validate_identifier
-from nauro_core.mcp_tools import FLAG_QUESTION, UPDATE_STACK, UPDATE_STATE
+from nauro_core.mcp_tools import FLAG_QUESTION, SHARE_CONTEXT, UPDATE_STACK, UPDATE_STATE
 
 WRITE_SPECS = {
+    "share_context": SHARE_CONTEXT,
     "update_state": UPDATE_STATE,
     "flag_question": FLAG_QUESTION,
     "update_stack": UPDATE_STACK,
@@ -36,6 +37,8 @@ def validate_write_arguments(
         mode = "submit"
     if not isinstance(mode, str) or mode not in {"submit", "discover", "recover", "retry"}:
         raise ValueError("Invalid write request mode.")
+    if operation == "share_context" and arguments.get("expected_revision") is not None:
+        raise ValueError("Sharing does not accept an expected revision.")
     revision = arguments.get("expected_revision")
     if revision is not None:
         kind = (

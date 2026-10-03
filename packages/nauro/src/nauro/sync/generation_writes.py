@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,6 +17,7 @@ from nauro.sync import state_submission as submission
 from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica, replica_status
 from nauro.sync.generation_session import GenerationConnectionError, GenerationTransferSession
 from nauro.sync.question_writes import execute_question_write
+from nauro.sync.share_writes import execute_share_write
 from nauro.sync.stack_writes import execute_stack_write
 from nauro.sync.state_transport import HttpStateTransport
 from nauro.sync.write_arguments import validate_write_arguments
@@ -36,8 +37,14 @@ STATE_WRITE_GUIDANCE = (
     "An explicit expected_revision overrides that default; retries keep the saved revision."
 )
 
-FAMILIES = {"update_state": "state", "flag_question": "question", "update_stack": "stack"}
+FAMILIES = {
+    "update_state": "state",
+    "flag_question": "question",
+    "update_stack": "stack",
+    "share_context": "share",
+}
 CONTENT = {
+    "share": {"slug", "content", "pointer_kind", "summary"},
     "state": {"delta", "expected_revision"},
     "stack": {"content", "expected_revision"},
     "question": {"question", "context", "targets", "resolved_by"},
@@ -58,7 +65,7 @@ def generation_write(
     except StoreResolutionError:
         return None
     if observe_generation_marker(binding) is None:
-        if operation == "update_stack":
+        if operation in {"update_stack", "share_context"}:
             return None
         if any(
             arguments.get(key) is not None
@@ -71,12 +78,32 @@ def generation_write(
     mode = arguments.get("request_mode") or "submit"
     content = {key: arguments[key] for key in CONTENT[family] if arguments.get(key) is not None}
     operation_id, digest = arguments.get("operation_id"), arguments.get("payload_digest")
-    with GenerationTransferSession(binding) as session:
-        if family == "stack":
-            output = execute_stack_write(mode, content, operation_id, digest, session)
-            return _finish_write(output, session, on_refreshed)
-        if family == "question":
-            output = execute_question_write(mode, content, operation_id, digest, session)
+    with ExitStack() as sessions:
+        try:
+            session = sessions.enter_context(GenerationTransferSession(binding))
+        except GenerationConnectionError as error:
+            if family != "share":
+                raise
+            reference = (
+                {"operation_id": operation_id, "payload_digest": digest}
+                if mode in {"recover", "retry"}
+                else {}
+            )
+            failure = {**reference, **write_failure(error)}
+            if not reference:
+                failure["unresolved"] = False
+                failure["guidance"] = (
+                    "No sharing request was sent. Restore the account and project connection, "
+                    "then repeat this mode."
+                )
+            return failure
+        executor = {
+            "share": execute_share_write,
+            "stack": execute_stack_write,
+            "question": execute_question_write,
+        }.get(family)
+        if executor is not None:
+            output = executor(mode, content, operation_id, digest, session)
             return _finish_write(output, session, on_refreshed)
         return _execute(mode, content, operation_id, digest, session, on_refreshed)
 
@@ -168,6 +195,12 @@ def _finish_write(
                 if output["unresolved"]
                 else "This attempt did not write. Correct the refusal before a new attempt."
             )
+        )
+    if output.get("status") == "slug_conflict_observed":
+        output["guidance"] = (
+            "The slug is occupied, but this saved attempt remains unresolved. "
+            "Recover its original reference and reconcile the outcome before another operation. "
+            "Do not change the slug or payload of this attempt."
         )
     if output.get("status") == "revision_conflict_observed":
         output["guidance"] = (

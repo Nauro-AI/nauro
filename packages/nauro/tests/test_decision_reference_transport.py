@@ -111,7 +111,7 @@ def test_normal_tool_adds_reference_modes_without_new_tools():
     assert "request_mode" in tool.parameters["properties"]
     assert "rationale" not in tool.parameters.get("required", [])
     assert tool.parameters["oneOf"][0]["required"] == ["rationale"]
-    assert len(mcp._tool_manager.list_tools()) == 11
+    assert len(mcp._tool_manager.list_tools()) == 12
     assert reference_schema()["properties"]["request_mode"]["default"] == "prepare"
 
 
