@@ -1,5 +1,7 @@
 """Immutable context briefs through an attached generation replica."""
 
+from enum import Enum
+
 import typer
 from nauro_core.mcp_tools import SHARE_CONTEXT
 
@@ -7,13 +9,20 @@ from nauro.cli.autogen import OutputFormat
 from nauro.cli.generation_writes import with_write_options
 from nauro.cli.utils import resolve_target_project
 
+_POINTER_KIND_OPTION = typer.Option(None, help="brief, resume, or selection.")
 _FORMAT_OPTION = typer.Option(OutputFormat.json, "--format")
+
+
+class PointerKind(str, Enum):
+    brief = "brief"
+    resume = "resume"
+    selection = "selection"
 
 
 def _share_context(
     slug: str = typer.Argument(..., help="Permanent brief slug."),
     content: str = typer.Argument(..., help="Complete immutable brief body."),
-    pointer_kind: str | None = typer.Option(None, help="brief, resume, or selection."),
+    pointer_kind: PointerKind | None = _POINTER_KIND_OPTION,
     summary: str | None = typer.Option(None, help="Single-line discovery summary."),
     project: str | None = typer.Option(None, "--project", "-p"),
     output_format: OutputFormat = _FORMAT_OPTION,

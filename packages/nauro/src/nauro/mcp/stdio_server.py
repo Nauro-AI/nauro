@@ -609,7 +609,8 @@ def share_context(
         str | None, Field(description=_param_desc("share_context", "content"))
     ] = None,
     pointer_kind: Annotated[
-        str | None, Field(description=_param_desc("share_context", "pointer_kind"))
+        Literal["brief", "resume", "selection"] | None,
+        Field(description=_param_desc("share_context", "pointer_kind")),
     ] = None,
     summary: Annotated[
         str | None, Field(description=_param_desc("share_context", "summary"))

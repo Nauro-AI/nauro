@@ -1757,13 +1757,18 @@
             "type": "text"
           },
           {
+            "choices": [
+              "brief",
+              "resume",
+              "selection"
+            ],
             "flags": [
               "--pointer-kind"
             ],
             "kind": "option",
             "name": "pointer_kind",
             "required": false,
-            "type": "text"
+            "type": "choice"
           },
           {
             "flags": [
@@ -2368,6 +2373,11 @@
       "pointer_kind": {
         "anyOf": [
           {
+            "enum": [
+              "brief",
+              "resume",
+              "selection"
+            ],
             "type": "string"
           },
           {

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -78,7 +78,25 @@ def generation_write(
     mode = arguments.get("request_mode") or "submit"
     content = {key: arguments[key] for key in CONTENT[family] if arguments.get(key) is not None}
     operation_id, digest = arguments.get("operation_id"), arguments.get("payload_digest")
-    with GenerationTransferSession(binding) as session:
+    with ExitStack() as sessions:
+        try:
+            session = sessions.enter_context(GenerationTransferSession(binding))
+        except GenerationConnectionError as error:
+            if family != "share":
+                raise
+            reference = (
+                {"operation_id": operation_id, "payload_digest": digest}
+                if mode in {"recover", "retry"}
+                else {}
+            )
+            failure = {**reference, **write_failure(error)}
+            if not reference:
+                failure["unresolved"] = False
+                failure["guidance"] = (
+                    "No sharing request was sent. Restore the account and project connection, "
+                    "then repeat this mode."
+                )
+            return failure
         executor = {
             "share": execute_share_write,
             "stack": execute_stack_write,

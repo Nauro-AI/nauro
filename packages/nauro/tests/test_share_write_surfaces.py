@@ -232,3 +232,55 @@ def test_cli_help_and_text_reference(delivery):
     )
     assert result.exit_code == 1
     assert "operation_id:" in result.stdout and "payload_digest:" in result.stdout
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+@pytest.mark.parametrize("mode", ["submit", "discover", "recover", "retry"])
+@pytest.mark.parametrize("boundary", ["construction", "entry"])
+def test_session_admission_failure_preserves_only_supplied_reference(
+    delivery, monkeypatch, surface, mode, boundary
+):
+    session, calls, _ = delivery
+    reference = {"operation_id": "saved-operation", "payload_digest": "a" * 64}
+    arguments = CONTENT if mode == "submit" else reference if mode in {"recover", "retry"} else {}
+    failure = GenerationConnectionError("PRIVATE account unavailable")
+    if boundary == "construction":
+        monkeypatch.setattr(writes, "GenerationTransferSession", Mock(side_effect=failure))
+    else:
+        session.__enter__.side_effect = failure
+    result = call(surface, mode, **arguments)
+    expected_reference = reference if mode in {"recover", "retry"} else {}
+    assert result["status"] == "blocked"
+    assert result["error_code"] == "submission_authority_unavailable"
+    assert result["unresolved"] is bool(expected_reference)
+    assert {key: result[key] for key in reference if key in result} == expected_reference
+    assert "PRIVATE" not in json.dumps(result)
+    assert list_share_submissions(PROJECT, ACTOR, require_actor=session.require_actor) == ()
+    assert calls == []
+    writes.refresh_replica.assert_not_called()
+
+
+@pytest.mark.parametrize("surface", ["cli", "stdio"])
+@pytest.mark.parametrize("kind", ["brief", "resume", "selection"])
+def test_advertised_pointer_kind_choices_match_canonical_runtime(delivery, surface, kind):
+    import jsonschema
+    from nauro_core.constants import POINTER_PREFIX_BY_KIND
+    from typer.main import get_command
+
+    tool = mcp._tool_manager.get_tool("share_context")
+    options = tool.parameters["properties"]["pointer_kind"]["anyOf"]
+    assert next(option["enum"] for option in options if "enum" in option) == list(
+        POINTER_PREFIX_BY_KIND
+    )
+    command = get_command(app).commands["share-context"]
+    pointer = next(parameter for parameter in command.params if parameter.name == "pointer_kind")
+    assert list(pointer.type.choices) == list(POINTER_PREFIX_BY_KIND)
+    help_result = CliRunner().invoke(app, ["share-context", "--help"])
+    assert help_result.exit_code == 0
+    assert "brief|resume|selection" in help_result.stdout
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({**CONTENT, "pointer_kind": "unknown"}, tool.parameters)
+    result = call(surface, **{**CONTENT, "pointer_kind": kind})
+    assert result["status"] == "committed"
+    _, calls, _ = delivery
+    assert json.loads(json.loads(calls[0].content)["payload_json"])["pointer_kind"] == kind
