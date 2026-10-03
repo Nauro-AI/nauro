@@ -12,6 +12,7 @@ from nauro.sync.decision_reference_contract import (
     DecisionReferenceError,
     reference_schema,
 )
+from nauro.sync.hosted_question_schema import question_schema
 
 READ_SPECS = {spec["name"]: spec for spec in (GET_CONTEXT, GET_DECISION)}
 
@@ -49,7 +50,12 @@ def negotiate_registry(result: Any) -> bool:
         if not isinstance(tool, dict) or not isinstance(tool.get("name"), str):
             raise DecisionReferenceError("Unexpected isolated tool registry")
         name = tool["name"]
-        if name in names or name not in schemas or tool.get("inputSchema") != schemas[name]:
+        if name in names or name not in schemas:
+            raise DecisionReferenceError("Unexpected isolated tool registry")
+        accepted = [schemas[name]]
+        if len(tools) == len(HOSTED_TOOLS) and name == "flag_question":
+            accepted.append(question_schema())
+        if tool.get("inputSchema") not in accepted:
             raise DecisionReferenceError("Unexpected isolated tool registry")
         names.add(name)
     return len(tools) == 3

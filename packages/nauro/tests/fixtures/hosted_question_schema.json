@@ -1,0 +1,272 @@
+{
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "operation_id"
+            ]
+          },
+          {
+            "required": [
+              "payload_digest"
+            ]
+          }
+        ]
+      },
+      "oneOf": [
+        {
+          "not": {
+            "required": [
+              "resolved_by"
+            ]
+          },
+          "required": [
+            "question"
+          ]
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "question"
+                ]
+              },
+              {
+                "required": [
+                  "context"
+                ]
+              }
+            ]
+          },
+          "required": [
+            "resolved_by",
+            "targets"
+          ]
+        }
+      ],
+      "properties": {
+        "request_mode": {
+          "const": "submit"
+        }
+      },
+      "required": [
+        "request_mode"
+      ]
+    },
+    {
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "context"
+            ]
+          },
+          {
+            "required": [
+              "question"
+            ]
+          },
+          {
+            "required": [
+              "resolved_by"
+            ]
+          },
+          {
+            "required": [
+              "targets"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "request_mode": {
+          "const": "recover"
+        }
+      },
+      "required": [
+        "request_mode",
+        "project_id",
+        "operation_id",
+        "payload_digest"
+      ]
+    },
+    {
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "context"
+            ]
+          },
+          {
+            "required": [
+              "question"
+            ]
+          },
+          {
+            "required": [
+              "resolved_by"
+            ]
+          },
+          {
+            "required": [
+              "targets"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "request_mode": {
+          "const": "retry"
+        }
+      },
+      "required": [
+        "request_mode",
+        "project_id",
+        "operation_id",
+        "payload_digest"
+      ]
+    },
+    {
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "context"
+            ]
+          },
+          {
+            "required": [
+              "operation_id"
+            ]
+          },
+          {
+            "required": [
+              "payload_digest"
+            ]
+          },
+          {
+            "required": [
+              "question"
+            ]
+          },
+          {
+            "required": [
+              "resolved_by"
+            ]
+          },
+          {
+            "required": [
+              "targets"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "request_mode": {
+          "const": "discover"
+        }
+      },
+      "required": [
+        "request_mode",
+        "project_id"
+      ]
+    },
+    {
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "operation_id"
+            ]
+          },
+          {
+            "required": [
+              "payload_digest"
+            ]
+          },
+          {
+            "required": [
+              "request_mode"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "after": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "context": {
+      "description": "Optional context about why this question matters.",
+      "type": "string"
+    },
+    "operation_id": {
+      "maxLength": 43,
+      "minLength": 43,
+      "pattern": "^question-request:[0-9A-HJKMNP-TV-Z]{26}$",
+      "type": "string"
+    },
+    "payload_digest": {
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "project_id": {
+      "description": "Optional; auto-resolved for one project. With several, list ids via list_projects (hosted) or `nauro projects` (local).",
+      "type": "string"
+    },
+    "question": {
+      "description": "The question to flag; omit when passing resolved_by.",
+      "type": "string"
+    },
+    "request_mode": {
+      "enum": [
+        "submit",
+        "recover",
+        "retry",
+        "discover"
+      ],
+      "type": "string"
+    },
+    "resolved_by": {
+      "description": "Decision id (e.g. D123) resolving the entries in targets; when set, the call resolves instead of appending.",
+      "type": "string"
+    },
+    "targets": {
+      "description": "Question ids (Q### or legacy timestamp form). On flag: optional duplicate candidates - if any is already resolved, the call short-circuits without appending. On resolve: the entries to stamp; every id must exist.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "type": "object"
+}
