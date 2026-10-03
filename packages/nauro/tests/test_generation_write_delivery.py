@@ -16,6 +16,10 @@ from nauro.sync.generation_credentials import GenerationConnection
 PROJECT = "01K00000000000000000000001"
 ACTOR = "01K00000000000000000000002"
 CASES = [
+    (
+        "share_context",
+        {"slug": "brief", "content": "null", "pointer_kind": "brief", "summary": "Context"},
+    ),
     ("update_state", {"delta": "Frozen state"}),
     ("update_stack", {"content": "Frozen stack"}),
     ("flag_question", {"question": "Next step?"}),
@@ -69,7 +73,15 @@ def delivery(tmp_path, monkeypatch):
             PROJECT, ACTOR, require_actor=session.require_actor
         )
         fixtures = importlib.import_module(f"tests.test_{family}_submission")
-        return httpx.Response(200, json=fixtures._body(saved, behavior["status"]))
+        return httpx.Response(
+            200,
+            json=fixtures._body(
+                saved,
+                behavior.get("submit_status", behavior["status"])
+                if request.url.path.endswith("/submit")
+                else behavior["status"],
+            ),
+        )
 
     session.client = httpx.Client(transport=httpx.MockTransport(handle))
     yield session, calls, behavior
@@ -472,7 +484,24 @@ def test_cli_explicit_project_from_another_repo(
     monkeypatch.setattr(writes, "GenerationTransferSession", create_session)
 
     result = CliRunner().invoke(
-        app, [operation.replace("_", "-"), next(iter(content.values())), "--project", selected]
+        app,
+        [
+            operation.replace("_", "-"),
+            next(iter(content.values())),
+            *(
+                [
+                    content["content"],
+                    "--pointer-kind",
+                    content["pointer_kind"],
+                    "--summary",
+                    content["summary"],
+                ]
+                if operation == "share_context"
+                else []
+            ),
+            "--project",
+            selected,
+        ],
     )
 
     if selected in {"", "missing"}:

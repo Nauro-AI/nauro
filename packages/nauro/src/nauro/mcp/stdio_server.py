@@ -1,6 +1,6 @@
 """Nauro MCP server: stdio transport, spawned by the MCP client at session start.
 
-Registers ten shared tools plus the replica-only ``update_stack`` tool. Shared
+Registers ten shared tools plus replica-only stack and sharing tools. Shared
 metadata lives in ``nauro_core.mcp_tools``; local generation guidance describes
 the installed replica contracts. ``list_projects`` is remote-only because a
 local install auto-resolves to its single project store.
@@ -29,7 +29,7 @@ from nauro_core.constants import (
     STACK_REVISION_ABSENT,
     STATE_REVISION_ABSENT,
 )
-from nauro_core.mcp_tools import UPDATE_STACK, ToolSpec, get_tool_spec
+from nauro_core.mcp_tools import SHARE_CONTEXT, UPDATE_STACK, ToolSpec, get_tool_spec
 from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
 from nauro_core.renderers import disconnected_reason_code
 from pydantic import Field, create_model, model_validator
@@ -104,8 +104,17 @@ def _wrap_with_renderer(
 
 def _spec_kwargs(name: str) -> dict[str, Any]:
     """Build FastMCP @tool() decorator kwargs from the shared registry."""
-    spec: ToolSpec = UPDATE_STACK if name == "update_stack" else get_tool_spec(name)
+    spec: ToolSpec = {"update_stack": UPDATE_STACK, "share_context": SHARE_CONTEXT}.get(
+        name
+    ) or get_tool_spec(name)
     description = spec["description"]
+    if name == "share_context":
+        description = (
+            "Publish an immutable context/<slug>.md brief and its discovery pointer atomically "
+            "on a generation replica. Slugs are permanent. A slug_conflict_observed result "
+            "remains unresolved: recover the saved reference and reconcile its outcome before "
+            "another operation. Never change the saved payload during recovery."
+        )
     if name == "update_stack":
         description = (
             "Replace the complete stack.md document on a generation replica. "
@@ -117,7 +126,7 @@ def _spec_kwargs(name: str) -> dict[str, Any]:
             "Record technologies, dependencies and compatibility observations here. "
             "Goals, constraints and choices with rationale belong in propose_decision."
         )
-    if name in {"update_state", "flag_question", "update_stack"}:
+    if name in {"update_state", "flag_question", "update_stack", "share_context"}:
         from nauro.sync.generation_writes import STATE_WRITE_GUIDANCE, WRITE_GUIDANCE
 
         description += "\n\n" + WRITE_GUIDANCE
@@ -137,9 +146,11 @@ def _param_desc(tool_name: str, param: str) -> str:
 
     Read from the shared registry, not inlined, so the drift guards still cover it.
     """
-    spec: ToolSpec = UPDATE_STACK if tool_name == "update_stack" else get_tool_spec(tool_name)
+    spec: ToolSpec = {"update_stack": UPDATE_STACK, "share_context": SHARE_CONTEXT}.get(
+        tool_name
+    ) or get_tool_spec(tool_name)
     if (
-        tool_name in {"update_state", "flag_question", "update_stack"}
+        tool_name in {"update_state", "flag_question", "update_stack", "share_context"}
         and param in MODE_DESCRIPTIONS
     ):
         return MODE_DESCRIPTIONS[param]
@@ -591,6 +602,52 @@ def update_stack(
     )
 
 
+@mcp.tool(**_spec_kwargs("share_context"), structured_output=False)
+def share_context(
+    slug: Annotated[str | None, Field(description=_param_desc("share_context", "slug"))] = None,
+    content: Annotated[
+        str | None, Field(description=_param_desc("share_context", "content"))
+    ] = None,
+    pointer_kind: Annotated[
+        str | None, Field(description=_param_desc("share_context", "pointer_kind"))
+    ] = None,
+    summary: Annotated[
+        str | None, Field(description=_param_desc("share_context", "summary"))
+    ] = None,
+    project_id: Annotated[
+        str | None, Field(description=_param_desc("share_context", "project_id"))
+    ] = None,
+    request_mode: Annotated[
+        Literal["submit", "discover", "recover", "retry"] | None,
+        Field(description=_param_desc("share_context", "request_mode")),
+    ] = None,
+    operation_id: Annotated[
+        str | None, Field(description=_param_desc("share_context", "operation_id"))
+    ] = None,
+    payload_digest: Annotated[
+        str | None, Field(description=_param_desc("share_context", "payload_digest"))
+    ] = None,
+    cwd: _CWD_PARAM = None,
+    mcp_ctx: Context | None = None,
+) -> str | dict | CallToolResult:
+    from nauro.sync.generation_writes import generation_write
+
+    validate_write_arguments("share_context", locals())
+    result = generation_write("share_context", locals(), on_refreshed=regenerate_refreshed_guidance)
+    if result is not None:
+        return _generation_write_result(result)
+    _, err = _resolve_or_error(project_id, cwd)
+    if err is not None:
+        return err if disconnected_reason_code(err) is not None else err["guidance"]
+    return _generation_write_result(
+        {
+            "status": "blocked",
+            "error_code": "generation_required",
+            "guidance": "share_context requires a generation replica.",
+        }
+    )
+
+
 class _WriteFuncMetadata(FuncMetadata):
     def pre_parse_json(self, data: dict[str, Any]) -> dict[str, Any]:
         """Preserve scalar strings while retaining encoded-list input compatibility."""
@@ -621,6 +678,7 @@ def _register_write_validation(operation: str) -> None:
 _register_write_validation("update_state")
 _register_write_validation("flag_question")
 _register_write_validation("update_stack")
+_register_write_validation("share_context")
 register_argument_validation(mcp)
 
 

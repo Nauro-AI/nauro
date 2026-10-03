@@ -58,9 +58,9 @@ Ten shared read/write MCP tools are mirrored as CLI commands, auto-generated fro
 
 `nauro update-stack [CONTENT]` is registered explicitly and writes only through an attached generation replica.
 
-## MCP tools (11 local: 7 read, 4 write)
+## MCP tools (12 local: 7 read, 5 write)
 
-The local stdio server registers ten shared tools plus `update_stack`. `list_projects` remains remote-only since local installs auto-resolve to the single project store.
+The local stdio server registers ten shared tools plus replica-only `update_stack` and `share_context`. `list_projects` remains remote-only since local installs auto-resolve to the single project store.
 
 Read:
 - `get_context(project, level)` — L0 concise summary, L1 working set, L2 full dump
@@ -76,6 +76,7 @@ Write:
 - `propose_decision(project, title, rationale, ...)` — record a decision (single-call commit on Tier 1 clean)
 - `flag_question(project, question, context)` — flag an open question
 - `update_state(project, delta)` — report what was completed
+- `share_context(slug, content, pointer_kind, summary, ...)`: publish an immutable brief and discovery pointer on a generation replica.
 - `update_stack(content, ...)`: replace the stack document on a generation replica; an omitted revision uses the installed replica revision.
 
 ## AGENTS.md
@@ -118,3 +119,5 @@ src/nauro/
 tests/
   fixtures/              # pre-scaffolded stores
 ```
+
+`nauro share-context SLUG CONTENT --pointer-kind brief --summary TEXT` supports submit, discover, recover, and retry modes. Reference modes retain the saved payload and identity.

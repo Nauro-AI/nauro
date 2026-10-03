@@ -73,6 +73,7 @@ def _register_commands() -> None:
         repair,
         serve,
         setup,
+        share,
         stack,
         status,
         sync,
@@ -97,6 +98,7 @@ def _register_commands() -> None:
     app.command(name="serve")(serve.serve)
     app.command(name="render-plugin", hidden=True)(render_plugin.render_plugin)
     app.add_typer(setup.setup_app, name="setup")
+    app.command(name="share-context")(share.share_context)
     app.command(name="update-stack")(stack.update_stack)
     app.command(name="status")(status.status)
     app.command(name="doctor")(doctor.doctor)

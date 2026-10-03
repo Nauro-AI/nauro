@@ -59,6 +59,7 @@ jobs:
           packages/nauro/src/nauro/sync/generation_writes.py
           packages/nauro/src/nauro/sync/question_writes.py
           packages/nauro/src/nauro/sync/stack_writes.py
+          packages/nauro/src/nauro/sync/share_writes.py
           packages/nauro/src/nauro/sync/write_arguments.py
           packages/nauro/src/nauro/sync/write_failures.py
           packages/nauro/src/nauro/sync/write_revision.py
@@ -177,6 +178,27 @@ jobs:
         working-directory: client
       - run: uv sync --locked --all-extras --python 3.12
         working-directory: server
+      - name: Start pinned DynamoDB Local for sharing publication proofs
+        run: |
+          mkdir -p "$RUNNER_TEMP/dynamodb"
+          curl --fail --silent --show-error --location --max-time 120 https://d1ni2b6xgvw0s0.cloudfront.net/v2.x/dynamodb_local_latest.tar.gz -o "$RUNNER_TEMP/dynamodb/runtime.tar.gz"
+          echo "f80bcec477f85f57e2c77f8d54aa6b672a8403fceff0c450560aee1cf6c21163  $RUNNER_TEMP/dynamodb/runtime.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/dynamodb/runtime.tar.gz" -C "$RUNNER_TEMP/dynamodb"
+          java -Djava.library.path="$RUNNER_TEMP/dynamodb/DynamoDBLocal_lib" -jar "$RUNNER_TEMP/dynamodb/DynamoDBLocal.jar" -inMemory -sharedDb -disableTelemetry -port 18764 > "$RUNNER_TEMP/dynamodb/runtime.log" 2>&1 &
+          echo "NAURO_REQUIRE_DYNAMODB_LOCAL=1" >> "$GITHUB_ENV"
+          echo "NAURO_TEST_DYNAMODB_LOCAL_ENDPOINT=http://127.0.0.1:18764" >> "$GITHUB_ENV"
+          python - <<'PYWAIT'
+          import socket
+          import time
+          for attempt in range(60):
+              try:
+                  with socket.create_connection(("127.0.0.1", 18764), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(0.5)
+          else:
+              raise SystemExit("DynamoDB Local did not start")
+          PYWAIT
       - name: Run installed client suites against the pinned server
         working-directory: client
         env:
@@ -207,7 +229,7 @@ jobs:
           roots = [E.parse(name).getroot() for name in ("paired-client.xml", "paired-cross.xml", "paired-integration.xml")]
           counts = collections.Counter(case.get("classname", "").split(".")[-1] for root in roots for case in root.iter("testcase"))
           expected = {
-              "test_history_paired": 7, "test_question_transport_pair": 4, "test_share_transport_pair": 4,
+              "test_history_paired": 7, "test_question_transport_pair": 4, "test_share_transport_pair": 8,
               "test_stack_transport_pair": 3, "test_state_transport_pair": 4,
               "test_check_decision_cross_surface": 6, "test_diff_since_last_session_cross_surface": 3,
               "test_flag_question_cross_surface": 5, "test_get_context_cross_surface": 3,

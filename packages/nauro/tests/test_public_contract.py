@@ -285,11 +285,14 @@ def build_contract() -> dict[str, Any]:
 
     state_tool = mcp._tool_manager.get_tool("update_state")
     stack_tool = mcp._tool_manager.get_tool("update_stack")
+    share_tool = mcp._tool_manager.get_tool("share_context")
+    assert share_tool is not None
     assert stack_tool is not None
     assert state_tool is not None
     return {
         "stdio_state_schema": state_tool.parameters,
         "stdio_stack_schema": stack_tool.parameters,
+        "stdio_share_schema": share_tool.parameters,
         "contract_version": CONTRACT_VERSION,
         "stdio_tool_specs": _tool_specs(),
         "cli_command_tree": _cli_tree(),

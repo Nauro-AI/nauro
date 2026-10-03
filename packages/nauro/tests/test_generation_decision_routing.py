@@ -343,7 +343,7 @@ def test_typed_writes_do_not_use_decision_transport(route, monkeypatch, name, ar
 
 
 def test_full_inventory_cwd_and_cli_project_selection(route, tmp_path, monkeypatch):
-    assert len(mcp._tool_manager.list_tools()) == 11
+    assert len(mcp._tool_manager.list_tools()) == 12
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
@@ -424,7 +424,7 @@ run_stdio()
         async with stdio_client(params) as streams, ClientSession(*streams) as session:
             await session.initialize()
             listing = await session.list_tools()
-            assert len(listing.tools) == 11
+            assert len(listing.tools) == 12
             decision_tool = next(t for t in listing.tools if t.name == "propose_decision")
             assert decision_tool.outputSchema is None
             schema = decision_tool.inputSchema

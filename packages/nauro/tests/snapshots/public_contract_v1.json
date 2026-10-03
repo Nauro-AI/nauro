@@ -1704,6 +1704,111 @@
       },
       {
         "kind": "command",
+        "name": "share-context",
+        "params": [
+          {
+            "kind": "argument",
+            "name": "content",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "default": false,
+            "flags": [
+              "--json",
+              "--no-json"
+            ],
+            "is_flag": true,
+            "kind": "option",
+            "name": "json_output",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "flags": [
+              "--operation-id"
+            ],
+            "kind": "option",
+            "name": "operation_id",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "json",
+              "text"
+            ],
+            "default": "json",
+            "flags": [
+              "--format"
+            ],
+            "kind": "option",
+            "name": "output_format",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "flags": [
+              "--payload-digest"
+            ],
+            "kind": "option",
+            "name": "payload_digest",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--pointer-kind"
+            ],
+            "kind": "option",
+            "name": "pointer_kind",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--project",
+              "-p"
+            ],
+            "kind": "option",
+            "name": "project",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "choices": [
+              "discover",
+              "recover",
+              "retry",
+              "submit"
+            ],
+            "flags": [
+              "--request-mode"
+            ],
+            "kind": "option",
+            "name": "request_mode",
+            "required": false,
+            "type": "choice"
+          },
+          {
+            "kind": "argument",
+            "name": "slug",
+            "required": false,
+            "type": "text"
+          },
+          {
+            "flags": [
+              "--summary"
+            ],
+            "kind": "option",
+            "name": "summary",
+            "required": false,
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "kind": "command",
         "name": "status",
         "params": [
           {
@@ -2108,6 +2213,232 @@
     "STATE_CURRENT_FILENAME": "state_current.md",
     "STATE_HISTORY_FILENAME": "state_history.md",
     "STATE_MD": "state.md"
+  },
+  "stdio_share_schema": {
+    "oneOf": [
+      {
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "operation_id": {
+            "type": "null"
+          },
+          "payload_digest": {
+            "type": "null"
+          },
+          "pointer_kind": {
+            "type": "string"
+          },
+          "request_mode": {
+            "enum": [
+              "submit",
+              null
+            ]
+          },
+          "slug": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "content",
+          "pointer_kind",
+          "summary"
+        ]
+      },
+      {
+        "properties": {
+          "content": {
+            "type": "null"
+          },
+          "operation_id": {
+            "type": "null"
+          },
+          "payload_digest": {
+            "type": "null"
+          },
+          "pointer_kind": {
+            "type": "null"
+          },
+          "request_mode": {
+            "const": "discover"
+          },
+          "slug": {
+            "type": "null"
+          },
+          "summary": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "request_mode"
+        ]
+      },
+      {
+        "properties": {
+          "content": {
+            "type": "null"
+          },
+          "operation_id": {
+            "type": "string"
+          },
+          "payload_digest": {
+            "type": "string"
+          },
+          "pointer_kind": {
+            "type": "null"
+          },
+          "request_mode": {
+            "enum": [
+              "recover",
+              "retry"
+            ]
+          },
+          "slug": {
+            "type": "null"
+          },
+          "summary": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "request_mode",
+          "operation_id",
+          "payload_digest"
+        ]
+      }
+    ],
+    "properties": {
+      "content": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "The complete immutable brief body (at most 51,200 UTF-8 bytes).",
+        "title": "Content"
+      },
+      "cwd": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional. Absolute working directory used to resolve the project when project_id is omitted.",
+        "title": "Cwd"
+      },
+      "operation_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Original saved operation identity. Required for recover and retry.",
+        "title": "Operation Id"
+      },
+      "payload_digest": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Original saved payload digest. Required for recover and retry.",
+        "title": "Payload Digest"
+      },
+      "pointer_kind": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Discovery-pointer kind: brief (shared context), resume (in-flight work handoff), or selection (parked candidate set).",
+        "title": "Pointer Kind"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional; auto-resolved for one project. With several, list ids via list_projects (hosted) or `nauro projects` (local).",
+        "title": "Project Id"
+      },
+      "request_mode": {
+        "anyOf": [
+          {
+            "enum": [
+              "submit",
+              "discover",
+              "recover",
+              "retry"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Submit (default), discover local saved attempts, recover by lookup only, or retry the original attempt only after an absent lookup.",
+        "title": "Request Mode"
+      },
+      "slug": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Brief name: 1-120 lowercase ASCII letters, digits, or internal hyphens. Maps only to context/<slug>.md.",
+        "title": "Slug"
+      },
+      "summary": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Nonempty single line (at most 300 characters) with at least one visible character, carried in the discovery pointer; match the brief's own summary.",
+        "title": "Summary"
+      }
+    },
+    "title": "share_contextArguments",
+    "type": "object"
   },
   "stdio_stack_schema": {
     "oneOf": [
