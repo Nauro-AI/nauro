@@ -491,7 +491,7 @@ RENDER_CASES = [
     # ── CodexConfig ──
     (
         CodexConfigOutcome(CodexConfigKind.PRESERVED_OTHER_PROJECTS, CFG),
-        [f"Codex: preserved nauro entry in {CFG} (other nauro projects still registered)"],
+        [f"Codex: preserved nauro entry in {CFG} (other projects or uncertain registry evidence)"],
     ),
     (
         CodexConfigOutcome(CodexConfigKind.REFUSED_SYMLINK, CFG, refusal=USER_REFUSAL),
@@ -581,7 +581,7 @@ RENDER_CASES = [
     ),
     (
         SkillOutcome(SkillKind.PRESERVED, base_label="~/.claude/skills"),
-        ["  preserved ~/.claude/skills/nauro-* (other nauro projects still registered)"],
+        ["  preserved ~/.claude/skills/nauro-* (other projects or uncertain registry evidence)"],
     ),
     (
         SkillOutcome(SkillKind.PRESERVED_MODIFIED, target=TARGET),
@@ -615,7 +615,7 @@ RENDER_CASES = [
     ),
     (
         AgentOutcome(AgentKind.PRESERVED),
-        ["  preserved ~/.claude/agents/nauro-* (other nauro projects still registered)"],
+        ["  preserved ~/.claude/agents/nauro-* (other projects or uncertain registry evidence)"],
     ),
     (
         AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=USER_REFUSAL),

@@ -358,10 +358,10 @@ def test_adopt_remove_last_repo_keeps_user_scope_for_other_project(tmp_path: Pat
         result.stdout,
         [
             "Removing Nauro integration across surfaces:",
-            "preserved ~/.claude/skills/nauro-* (other nauro projects still registered)",
-            "preserved ~/.claude/agents/nauro-* (other nauro projects still registered)",
+            "preserved ~/.claude/skills/nauro-* (other projects or uncertain registry evidence)",
+            "preserved ~/.claude/agents/nauro-* (other projects or uncertain registry evidence)",
             "Codex: preserved nauro entry in ",
-            "preserved ~/.agents/skills/nauro-* (other nauro projects still registered)",
+            "preserved ~/.agents/skills/nauro-* (other projects or uncertain registry evidence)",
             f"removed project registry entry {pid}",
         ],
     )
