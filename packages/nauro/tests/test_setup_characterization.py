@@ -59,7 +59,7 @@ CLAUDE_NEXT_LINE = (
     " The MCP server will start automatically.\n"
 )
 
-CURSOR_NEXT_LINE = "Next: open this repo in Cursor and start a chat - Nauro MCP will connect.\n"
+CURSOR_NEXT_LINE = "Next: open this repo in Cursor and verify that Nauro MCP connects.\n"
 
 CODEX_NEXT_LINE = "Next: run a Codex session - it reads ~/.codex/config.toml on start.\n"
 
@@ -138,7 +138,8 @@ def _all_add_plain_expected() -> str:
         "\n"
         "  {TMP}/repo: wrote nauro to .mcp.json\n"
         "  wrote {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
-        "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+        "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+        "  {TMP}/repo: no nauro entry to remove\n"
         "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
         "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
         "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
@@ -262,10 +263,12 @@ class TestCursorTranscripts:
         assert _norm(result.stdout, tmp_path) == (
             "Configured Nauro (Cursor) for project 'proj':\n"
             "\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "\n"
             + CURSOR_NEXT_LINE
-            + "This command writes .cursor/mcp.json only. Install Cursor rules and "
+            + "This command writes ~/.cursor/mcp.json and removes owned legacy wiring. "
+            "Install Cursor rules and "
             "project agents with 'nauro setup all --with-skills --with-subagents'.\n"
             "\n" + TRY_IT_LINE
         )
@@ -281,7 +284,8 @@ class TestCursorTranscripts:
         assert _norm(result.stdout, tmp_path) == (
             "Removed Nauro (Cursor) for project 'proj':\n"
             "\n"
-            "  {TMP}/repo: removed nauro from .cursor/mcp.json\n"
+            "  {TMP}: removed nauro from {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
         )
         assert result.stderr == ""
 
@@ -384,7 +388,8 @@ class TestSetupAllTranscripts:
             "  installed {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  installed {TMP}/.claude/agents/nauro-investigator.md\n"
             "  {TMP}/repo: wrote nauro hook to .claude/settings.local.json\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
@@ -445,7 +450,8 @@ class TestSetupAllTranscripts:
             "  no agent at {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  no agent at {TMP}/.claude/agents/nauro-investigator.md\n"
             "  {TMP}/repo: no nauro hook to remove\n"
-            "  {TMP}/repo: removed nauro from .cursor/mcp.json\n"
+            "  {TMP}: removed nauro from {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  no skill at {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  no skill at {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
@@ -491,7 +497,8 @@ class TestSetupAllTranscripts:
             "  preserved ~/.claude/skills/nauro-* (other nauro projects still registered)\n"
             "  preserved ~/.claude/agents/nauro-* (other nauro projects still registered)\n"
             "  {TMP}/repo: no nauro hook to remove\n"
-            "  {TMP}/repo: removed nauro from .cursor/mcp.json\n"
+            "  {TMP}: preserved .cursor/mcp.json: other projects or unreadable registry evidence\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  no skill at {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  no skill at {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
@@ -515,7 +522,7 @@ class TestSetupAllTranscripts:
         assert (tmp_path / ".agents" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
 
     def test_add_multi_repo_interleaving(self, tmp_path: Path, monkeypatch):
-        """Per-repo ordering: all .mcp.json writes first, then per-repo Cursor pairs."""
+        """Write global Cursor once, then clean legacy wiring before per-repo rules."""
         _register_project(tmp_path, monkeypatch, repos=("repo1", "repo2"))
 
         result = runner.invoke(app, ["setup", "all"])
@@ -527,9 +534,10 @@ class TestSetupAllTranscripts:
             "  {TMP}/repo1: wrote nauro to .mcp.json\n"
             "  {TMP}/repo2: wrote nauro to .mcp.json\n"
             "  wrote {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
-            "  {TMP}/repo1: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo1: no nauro entry to remove\n"
+            "  {TMP}/repo2: no nauro entry to remove\n"
             "  wrote {TMP}/repo1/.cursor/rules/nauro-adopt.mdc\n"
-            "  {TMP}/repo2: wrote nauro to .cursor/mcp.json\n"
             "  wrote {TMP}/repo2/.cursor/rules/nauro-adopt.mdc\n"
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
@@ -565,7 +573,8 @@ class TestSetupAllTranscripts:
             "  wrote {TMP}/.claude/skills/nauro-context/SKILL.md\n"
             "  wrote {TMP}/.claude/skills/nauro-loop/SKILL.md\n"
             "  wrote {TMP}/.claude/skills/nauro-interview/SKILL.md\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
@@ -609,7 +618,8 @@ class TestSetupAllTranscripts:
             "  installed {TMP}/.claude/agents/nauro-reviewer.md\n"
             "  installed {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  installed {TMP}/.claude/agents/nauro-investigator.md\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  installed {TMP}/repo/.cursor/agents/nauro-planner.md\n"
             "  installed {TMP}/repo/.cursor/agents/nauro-executor.md\n"
@@ -651,7 +661,8 @@ class TestSetupAllTranscripts:
             "  {TMP}/repo: wrote nauro to .mcp.json\n"
             "  wrote {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
             "  {TMP}/repo: wrote nauro hook to .claude/settings.local.json\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
@@ -695,7 +706,8 @@ class TestSetupAllTranscripts:
             "  unchanged {TMP}/.claude/agents/nauro-reviewer.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-investigator.md\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: {TMP}/.cursor/mcp.json already configured\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  unchanged {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  unchanged {TMP}/repo/.cursor/agents/nauro-planner.md\n"
             "  unchanged {TMP}/repo/.cursor/agents/nauro-executor.md\n"
@@ -741,7 +753,8 @@ class TestSetupAllTranscripts:
             "  unchanged {TMP}/.claude/agents/nauro-reviewer.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-investigator.md\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: {TMP}/.cursor/mcp.json already configured\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  unchanged {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  unchanged {TMP}/repo/.cursor/agents/nauro-planner.md\n"
             "  unchanged {TMP}/repo/.cursor/agents/nauro-executor.md\n"
@@ -790,7 +803,8 @@ class TestSetupAllTranscripts:
             "  removed {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  removed {TMP}/.claude/agents/nauro-investigator.md\n"
             "  {TMP}/repo: no nauro hook to remove\n"
-            "  {TMP}/repo: removed nauro from .cursor/mcp.json\n"
+            "  {TMP}: removed nauro from {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
@@ -862,7 +876,8 @@ class TestSetupAllTranscripts:
             "  removed {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  removed {TMP}/.claude/agents/nauro-investigator.md\n"
             "  {TMP}/repo: no nauro hook to remove\n"
-            "  {TMP}/repo: removed nauro from .cursor/mcp.json\n"
+            "  {TMP}: removed nauro from {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  removed {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
@@ -970,8 +985,10 @@ class TestCommandIdempotency:
         assert second.exit_code == 0
 
         _assert_trees_identical(tree_first, _tree_bytes(tmp_path))
-        # The second run re-reports "wrote" rather than a no-op.
-        assert second.stdout == first.stdout
+        assert second.stdout == first.stdout.replace(
+            f"wrote nauro to {tmp_path}/.cursor/mcp.json",
+            f"{tmp_path}/.cursor/mcp.json already configured",
+        )
         assert second.stderr == ""
 
     def test_codex_rerun(self, tmp_path: Path, monkeypatch):
@@ -985,7 +1002,7 @@ class TestCommandIdempotency:
         assert second.exit_code == 0
 
         _assert_trees_identical(tree_first, _tree_bytes(tmp_path))
-        # Unlike the JSON MCP sinks, codex reports an explicit no-op.
+        # Codex reports an explicit no-op.
         assert _norm(second.stdout, tmp_path) == (
             "Codex: nauro already configured in {TMP}/.codex/config.toml\n"
             "\n" + CODEX_NEXT_LINE + "\n" + TRY_IT_LINE
@@ -1004,7 +1021,7 @@ class TestCommandIdempotency:
         assert second.exit_code == 0
 
         _assert_trees_identical(tree_first, _tree_bytes(tmp_path))
-        # MCP JSON sinks re-report "wrote". Skills, agents, hooks, and Codex
+        # Claude MCP re-reports "wrote". Skills, agents, hooks, Cursor and Codex
         # report explicit no-op statuses. The unchanged AGENTS.md is skipped,
         # so its regen section disappears from the rerun transcript.
         assert _norm(second.stdout, tmp_path) == (
@@ -1022,7 +1039,8 @@ class TestCommandIdempotency:
             "  unchanged {TMP}/.claude/agents/nauro-tech-lead.md\n"
             "  unchanged {TMP}/.claude/agents/nauro-investigator.md\n"
             "  {TMP}/repo: nauro hook already present in .claude/settings.local.json\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: {TMP}/.cursor/mcp.json already configured\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  unchanged {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "  unchanged {TMP}/repo/.cursor/rules/nauro-ship-task.mdc\n"
             "  unchanged {TMP}/repo/.cursor/rules/nauro-context.mdc\n"
@@ -1066,7 +1084,7 @@ class TestPartialFailure:
     def test_cursor_symlink_in_one_repo_of_two(self, tmp_path: Path, monkeypatch):
         """A symlinked .cursor in repo1 refuses only that repo's Cursor artifacts.
 
-        Everything else (both .mcp.json files, repo2's Cursor pair, codex,
+        Everything else (both .mcp.json files, global Cursor, repo2's rules, codex,
         skills, both AGENTS.md files) is still configured, and the command
         exits 0.
         """
@@ -1084,13 +1102,14 @@ class TestPartialFailure:
             "  {TMP}/repo1: wrote nauro to .mcp.json\n"
             "  {TMP}/repo2: wrote nauro to .mcp.json\n"
             "  wrote {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
             "  {TMP}/repo1: refused to modify {TMP}/repo1/.cursor/mcp.json:"
             " {TMP}/repo1/.cursor is a symlink; Nauro does not write through symlinks in a"
             " repo checkout\n"
+            "  {TMP}/repo2: no nauro entry to remove\n"
             "  {TMP}/repo1: refused to modify {TMP}/repo1/.cursor/rules/nauro-adopt.mdc:"
             " {TMP}/repo1/.cursor is a symlink; Nauro does not write through symlinks in a"
             " repo checkout\n"
-            "  {TMP}/repo2: wrote nauro to .cursor/mcp.json\n"
             "  wrote {TMP}/repo2/.cursor/rules/nauro-adopt.mdc\n"
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
@@ -1110,7 +1129,8 @@ class TestPartialFailure:
         # Everything else configured.
         assert (paths[0] / ".mcp.json").is_file()
         assert (paths[0] / "AGENTS.md").is_file()
-        assert (paths[1] / ".cursor" / "mcp.json").is_file()
+        assert (tmp_path / ".cursor" / "mcp.json").is_file()
+        assert not (paths[1] / ".cursor" / "mcp.json").exists()
         assert (paths[1] / ".cursor" / "rules" / "nauro-adopt.mdc").is_file()
         assert (tmp_path / ".codex" / "config.toml").is_file()
         assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
@@ -1131,7 +1151,8 @@ class TestPartialFailure:
             "  {TMP}/repo: refused to modify {TMP}/repo/.mcp.json: it is a symlink; Nauro"
             " does not write through symlinks in a repo checkout\n"
             "  wrote {TMP}/.claude/skills/nauro-adopt/SKILL.md\n"
-            "  {TMP}/repo: wrote nauro to .cursor/mcp.json\n"
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n"
             "  wrote {TMP}/repo/.cursor/rules/nauro-adopt.mdc\n"
             "Codex: wrote nauro to {TMP}/.codex/config.toml\n"
             "  wrote {TMP}/.agents/skills/nauro-adopt/SKILL.md\n"
@@ -1145,7 +1166,8 @@ class TestPartialFailure:
         assert result.stderr == ""
         assert (paths[0] / ".mcp.json").is_symlink()
         assert outside.read_text() == "{}"
-        assert (paths[0] / ".cursor" / "mcp.json").is_file()
+        assert (tmp_path / ".cursor" / "mcp.json").is_file()
+        assert not (paths[0] / ".cursor" / "mcp.json").exists()
         assert (paths[0] / "AGENTS.md").is_file()
 
 
@@ -1180,8 +1202,17 @@ class TestResolverWarningShape:
 
         result = runner.invoke(app, ["setup", "all"])
 
-        assert result.exit_code == 0
-        assert _norm(result.stdout, tmp_path) == _all_add_plain_expected()
+        assert result.exit_code == 1
+        assert _norm(result.stdout, tmp_path) == _all_add_plain_expected().removesuffix(
+            "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+        ).replace(
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n",
+            "  {TMP}: could not configure {TMP}/.cursor/mcp.json: "
+            "no working durable absolute Nauro executable; "
+            "run 'pipx install nauro' or 'uv tool install nauro', then retry\n",
+        )
+        assert not (tmp_path / ".cursor" / "mcp.json").exists()
         assert normalize_transcript(
             result.stderr, {sibling: "{NAURO_CMD}", str(tmp_path): "{TMP}"}
         ) == (
@@ -1201,8 +1232,17 @@ class TestResolverWarningShape:
 
         result = runner.invoke(app, ["setup", "all"])
 
-        assert result.exit_code == 0
-        assert _norm(result.stdout, tmp_path) == _all_add_plain_expected()
+        assert result.exit_code == 1
+        assert _norm(result.stdout, tmp_path) == _all_add_plain_expected().removesuffix(
+            "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+        ).replace(
+            "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
+            "  {TMP}/repo: no nauro entry to remove\n",
+            "  {TMP}: could not configure {TMP}/.cursor/mcp.json: "
+            "no working durable absolute Nauro executable; "
+            "run 'pipx install nauro' or 'uv tool install nauro', then retry\n",
+        )
+        assert not (tmp_path / ".cursor" / "mcp.json").exists()
         assert normalize_transcript(
             result.stderr, {sibling: "{NAURO_CMD}", str(tmp_path): "{TMP}"}
         ) == (

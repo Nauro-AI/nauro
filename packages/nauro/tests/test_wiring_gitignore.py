@@ -292,9 +292,9 @@ def test_adopt_gitignores_wiring_and_unadopt_removes_block(tmp_path, monkeypatch
 
     content = (repo / ".gitignore").read_text(encoding="utf-8")
     assert "/.mcp.json" in content
-    assert "/.cursor/mcp.json" in content
+    assert "/.cursor/mcp.json" not in content
     assert _is_effectively_ignored(repo, ".mcp.json")
-    assert _is_effectively_ignored(repo, ".cursor/mcp.json")
+    assert not (repo / ".cursor/mcp.json").exists()
     # Identity surfaces stay committable.
     assert not _is_effectively_ignored(repo, "AGENTS.md")
     assert not _is_effectively_ignored(repo, ".nauro/config.json")
@@ -330,7 +330,7 @@ def test_adopt_refuses_tracked_wiring_but_completes(tmp_path, monkeypatch):
     assert "git rm --cached .mcp.json" in result.output
     # The tracked file was never written; the other wiring surface proceeded.
     assert (repo / ".mcp.json").read_text(encoding="utf-8") == "{}\n"
-    cursor_config = json.loads((repo / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
+    cursor_config = json.loads((Path.home() / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
     assert "nauro" in cursor_config["mcpServers"]
     assert (repo / ".nauro" / "config.json").is_file()
 

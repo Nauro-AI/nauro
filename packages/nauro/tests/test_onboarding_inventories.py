@@ -93,7 +93,7 @@ def test_adopt_default_inventory(tmp_path: Path, monkeypatch):
             ".agents/skills/nauro-adopt/SKILL.md",
             ".claude/skills/nauro-adopt/SKILL.md",
             ".codex/config.toml",
-            "repo/.cursor/mcp.json",
+            ".cursor/mcp.json",
             "repo/.cursor/rules/nauro-adopt.mdc",
             "repo/.gitignore",
             "repo/.mcp.json",
@@ -109,8 +109,8 @@ def test_adopt_default_inventory(tmp_path: Path, monkeypatch):
             "Wiring MCP and installing skills across surfaces:",
             "wrote nauro to .mcp.json",
             "added .mcp.json to .gitignore",
-            "wrote nauro to .cursor/mcp.json",
-            "added .cursor/mcp.json to .gitignore",
+            f"wrote nauro to {tmp_path / '.cursor/mcp.json'}",
+            "no nauro entry to remove",
             "Codex: wrote nauro to ",
             "regenerated AGENTS.md",
             "CLAUDE.md imports AGENTS.md (Claude Code bridge)",
@@ -156,7 +156,7 @@ def test_adopt_with_skills_and_subagents_inventory(tmp_path: Path, monkeypatch):
             "repo/.cursor/agents/nauro-reviewer.md",
             "repo/.cursor/agents/nauro-tech-lead.md",
             "repo/.cursor/agents/nauro-investigator.md",
-            "repo/.cursor/mcp.json",
+            ".cursor/mcp.json",
             "repo/.cursor/rules/nauro-adopt.mdc",
             "repo/.cursor/rules/nauro-context.mdc",
             "repo/.cursor/rules/nauro-interview.mdc",
@@ -231,7 +231,7 @@ def test_adopt_remove_round_trip_inventory(tmp_path: Path, monkeypatch):
         [
             "Removing Nauro integration across surfaces:",
             "removed nauro from .mcp.json",
-            "removed nauro from .cursor/mcp.json",
+            f"removed nauro from {tmp_path / '.cursor/mcp.json'}",
             "Codex: removed nauro from ",
             "removed generated AGENTS.md",
             f"removed project registry entry {pid}",
@@ -346,6 +346,7 @@ def test_adopt_remove_last_repo_keeps_user_scope_for_other_project(tmp_path: Pat
             ".agents/skills/nauro-adopt/SKILL.md",
             ".claude/skills/nauro-adopt/SKILL.md",
             ".codex/config.toml",
+            ".cursor/mcp.json",
         }
     )
     # The preserved codex file still carries the nauro entry, not an

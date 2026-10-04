@@ -3,8 +3,7 @@
 Subcommands:
   nauro setup claude-code  — register MCP server in <repo>/.mcp.json (project scope)
                              for each of the project's repos
-  nauro setup cursor       — register MCP server in <repo>/.cursor/mcp.json
-                             for each of the project's repos
+  nauro setup cursor       — register MCP server in ~/.cursor/mcp.json
   nauro setup codex        — register MCP server in ~/.codex/config.toml
 """
 
@@ -90,9 +89,7 @@ def claude_code(
 # ─── Cursor ─────────────────────────────────────────────────────────────────
 
 
-# Cursor reads MCP servers from `<repo>/.cursor/mcp.json` (per-project).
-# User-global "Rules for AI" live in the IDE Settings UI, not a file path —
-# so MCP wiring is per-project here.
+# Cursor MCP wiring is shared through the user-global configuration.
 # Docs: https://cursor.com/docs
 
 
@@ -112,12 +109,15 @@ def cursor(
 
     action = "Removed" if remove else "Configured"
     typer.echo(f"{action} Nauro (Cursor) for project '{project_name}':\n")
-    _echo_outcomes(cursor_surfaces(project_repos, remove=remove))
+    _echo_outcomes(
+        cursor_surfaces(project_repos, remove=remove, current_project_key=_store_path.name)
+    )
 
     if not remove:
-        typer.echo("\nNext: open this repo in Cursor and start a chat - Nauro MCP will connect.")
+        typer.echo("\nNext: open this repo in Cursor and verify that Nauro MCP connects.")
         typer.echo(
-            "This command writes .cursor/mcp.json only. Install Cursor rules and "
+            "This command writes ~/.cursor/mcp.json and removes owned legacy wiring. "
+            "Install Cursor rules and "
             "project agents with 'nauro setup all --with-skills --with-subagents'."
         )
         typer.echo(f"\n{CHECK_HINT_LINE}")

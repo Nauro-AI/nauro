@@ -74,6 +74,22 @@ def test_rawline_is_frozen():
 WRITE_FAILURE = WriteFailure(REPO / "AGENTS.md", 13, "Permission denied")
 
 RENDER_CASES = [
+    (
+        JsonMcpOutcome(JsonMcpKind.INSTALL_FAILED, REPO, ".cursor/mcp.json"),
+        [
+            f"  {REPO}: could not configure .cursor/mcp.json: "
+            "no working durable absolute Nauro executable; "
+            "run 'pipx install nauro' or 'uv tool install nauro', then retry"
+        ],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.UNCHANGED, REPO, ".cursor/mcp.json"),
+        [f"  {REPO}: .cursor/mcp.json already configured"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.PRESERVED, REPO, ".cursor/mcp.json", detail="uncertain"),
+        [f"  {REPO}: preserved .cursor/mcp.json: uncertain"],
+    ),
     (RawLine("verbatim"), ["verbatim"]),
     (
         AgentsMdOutcome(AgentsMdKind.WRITE_FAILED, REPO, write_failure=WRITE_FAILURE),

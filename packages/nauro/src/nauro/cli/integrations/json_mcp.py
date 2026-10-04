@@ -211,29 +211,36 @@ def recorded_mcp_commands(repo: Path) -> McpWiring:
     wired, nothing to probe. A missing or off-shape config records nothing; an unreadable or
     unparseable one is recorded as such and the other config is still inspected.
     """
-    commands: list[str | None] = []
-    unreadable: list[UnreadableFileError] = []
-    for rel in (".mcp.json", ".cursor/mcp.json"):
-        path = repo / rel
-        try:
-            text = read_text_or_absent(path)
-            raw = json.loads(text) if text is not None else None
-        except UnreadableFileError as exc:
-            unreadable.append(exc)
-            continue
-        except (json.JSONDecodeError, RecursionError) as exc:
-            unreadable.append(UnreadableFileError(path, f"invalid JSON: {exc}"))
-            continue
-        if raw is None:
-            continue
-        try:
-            document = _parse_mcp_document(raw)
-        except McpShapeError:
-            continue
-        servers = document.mcp_servers
-        if "nauro" not in servers:
-            continue
-        entry = servers["nauro"]
-        command = entry.get("command") if isinstance(entry, dict) else None
-        commands.append(command if isinstance(command, str) and command else None)
-    return McpWiring(tuple(commands), tuple(unreadable))
+    return _recorded_json_mcp(repo / ".mcp.json", report_shape_error=False)
+
+
+def recorded_cursor_command() -> McpWiring:
+    """Inspect the shared Cursor entry without executing its command."""
+    return _recorded_json_mcp(Path.home() / ".cursor/mcp.json")
+
+
+def recorded_legacy_cursor_command(repo: Path) -> McpWiring:
+    """Inspect repository Cursor entries for migration diagnostics."""
+    return _recorded_json_mcp(repo / ".cursor/mcp.json")
+
+
+def _recorded_json_mcp(path: Path, *, report_shape_error: bool = True) -> McpWiring:
+    try:
+        text = read_text_or_absent(path)
+        raw = json.loads(text) if text is not None else None
+    except UnreadableFileError as exc:
+        return McpWiring(unreadable=(exc,))
+    except (json.JSONDecodeError, RecursionError) as exc:
+        return McpWiring(unreadable=(UnreadableFileError(path, f"invalid JSON: {exc}"),))
+    if text is None:
+        return McpWiring()
+    try:
+        document = _parse_mcp_document(raw)
+    except McpShapeError as exc:
+        failures = (UnreadableFileError(path, str(exc)),) if report_shape_error else ()
+        return McpWiring(unreadable=failures)
+    if "nauro" not in document.mcp_servers:
+        return McpWiring()
+    entry = document.mcp_servers["nauro"]
+    command = entry.get("command") if isinstance(entry, dict) else None
+    return McpWiring((command if isinstance(command, str) and command else None,))

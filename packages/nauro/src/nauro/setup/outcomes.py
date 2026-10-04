@@ -49,6 +49,9 @@ class RawLine:
 
 
 class JsonMcpKind(Enum):
+    INSTALL_FAILED = auto()
+    PRESERVED = auto()
+    UNCHANGED = auto()
     REFUSED_SYMLINK = auto()
     REFUSED_TRACKED = auto()
     PARSE_ERROR = auto()
@@ -67,7 +70,7 @@ class JsonMcpOutcome:
     kind: JsonMcpKind
     repo_path: Path
     label: str
-    refusal: SymlinkRefusal | None = None
+    refusal: SymlinkRefusal | UserSymlinkRefusal | None = None
     detail: str | None = None
     git_warnings: tuple[str, ...] = ()
     gitignore: GitIgnoreResult | None = None
@@ -309,6 +312,7 @@ ArtifactOutcome = (
 _FAILED_KINDS: frozenset[Enum] = frozenset(
     {
         JsonMcpKind.WRITE_FAILED,
+        JsonMcpKind.INSTALL_FAILED,
         ClaudeHookKind.WRITE_FAILED,
         CodexConfigKind.WRITE_FAILED,
         CodexHookKind.WRITE_FAILED,

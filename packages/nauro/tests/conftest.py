@@ -282,11 +282,11 @@ def _neutralize_nauro_command_probe(monkeypatch):
 
     monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda cmd, **kwargs: True)
     monkeypatch.setattr(nauro_command, "_is_durable_install_path", lambda path: True)
-    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_resolution.cache_clear()
     nauro_command._find_nauro_codex_hook_command.cache_clear()
     yield
     nauro_command._find_nauro_codex_hook_command.cache_clear()
-    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_resolution.cache_clear()
 
 
 @pytest.fixture(autouse=True)

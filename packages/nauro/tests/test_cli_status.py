@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 import nauro.cli.commands.status as status_mod
@@ -249,8 +250,9 @@ def test_status_mcp_partial_repo_wiring(tmp_path, monkeypatch):
     assert "MCP           active (wired in 1/2 repos)" in result.output
 
 
-def test_status_mcp_cursor_wiring_counts(tmp_path, monkeypatch):
-    """A nauro entry in .cursor/mcp.json counts as repo wiring."""
+@pytest.mark.parametrize("global_wired", [False, True])
+def test_status_legacy_cursor_is_migration_evidence(tmp_path, monkeypatch, global_wired):
+    """Repository Cursor wiring needs migration to the global configuration."""
     _setup_project(tmp_path, monkeypatch)
     cursor_dir = tmp_path / ".cursor"
     cursor_dir.mkdir()
@@ -258,9 +260,26 @@ def test_status_mcp_cursor_wiring_counts(tmp_path, monkeypatch):
         json.dumps({"mcpServers": {"nauro": {"command": "nauro"}}})
     )
 
-    result = runner.invoke(app, ["status"])
+    if global_wired:
+        target = Path.home() / ".cursor/mcp.json"
+        target.parent.mkdir(parents=True)
+        target.write_bytes((cursor_dir / "mcp.json").read_bytes())
+    before = (cursor_dir / "mcp.json").read_bytes()
+    result = runner.invoke(app, ["status", "--no-probe"])
     assert result.exit_code == 0
-    assert "MCP           active (wired in 1/1 repos)" in result.output
+    assert ("Cursor global" if global_wired else "MCP           inactive") in result.output
+    assert (
+        "legacy Cursor in 1 repos. From each affected repository root, run 'nauro setup cursor' "
+        "first. Keep legacy files unchanged unless setup reports global configuration written "
+        "or already correct. Before cleanup, confirm installer-owned stdio shape "
+        "(see Cursor migration in the package README); preserve custom, hosted, or uncertain "
+        "entries. Only then: for an entirely machine-local tracked file, run "
+        "'git rm --cached .cursor/mcp.json', commit the tracking change, and rerun setup. "
+        "For a shared tracked file, remove only the confirmed owned mcpServers.nauro entry, "
+        "keep all other content tracked, commit the edit, and rerun setup. "
+        "Let setup migrate untracked owned entries."
+    ) in result.output
+    assert (cursor_dir / "mcp.json").read_bytes() == before
 
 
 def test_status_mcp_codex_global_only(tmp_path, monkeypatch):
@@ -803,3 +822,65 @@ def test_status_says_quarantines_are_unreadable_rather_than_absent(tmp_path, mon
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0, result.output
     assert "Quarantined decision-number collisions: could not be read" in result.output
+
+
+def test_status_cursor_global_independent_safe_and_read_only(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    config = Path.home() / ".cursor" / "mcp.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(json.dumps({"mcpServers": {"nauro": {"command": "nauro"}}}))
+    before = config.read_bytes()
+    calls = []
+    monkeypatch.setattr(
+        nauro_command, "probe_nauro_command", lambda cmd, **kw: calls.append(cmd) or True
+    )
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "Cursor global" in result.output
+    assert "Codex global" not in result.output
+    assert "legacy Cursor" not in result.output
+    assert calls == ["nauro"]
+    calls.clear()
+    result = runner.invoke(app, ["status", "--no-probe"])
+    assert result.exit_code == 0
+    assert "Cursor global" in result.output
+    assert calls == []
+    assert config.read_bytes() == before
+    config.write_text(json.dumps({"mcpServers": {"nauro": {"command": "/tmp/not-nauro"}}}))
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "not a nauro install, not probed" in result.output
+    assert calls == []
+    config.write_bytes(b"\xff")
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "MCP           unknown" in result.output
+    assert str(config) in result.output
+    assert config.read_bytes() == b"\xff"
+
+
+@pytest.mark.parametrize("global_config", [True, False])
+def test_cursor_null_is_unreadable_for_status_and_reconnect(
+    tmp_path, monkeypatch, capsys, global_config
+):
+    from nauro.cli.commands.reconnect import _echo_setup_hint_if_unwired
+
+    _setup_project(tmp_path, monkeypatch)
+    repo = Path.cwd()
+    config = (Path.home() if global_config else repo) / ".cursor/mcp.json"
+    config.parent.mkdir(parents=True)
+    config.write_text("null")
+    result = runner.invoke(app, ["status", "--no-probe"])
+    assert result.exit_code == 0
+    assert "MCP           unknown" in result.output
+    assert str(config) in result.output
+    _echo_setup_hint_if_unwired(repo)
+    captured = capsys.readouterr()
+    assert f"Could not read {config}: TOP_LEVEL_NOT_OBJECT" in captured.err
+    assert captured.out == ""
+    assert config.read_text() == "null"
+    config.unlink()
+    (repo / ".mcp.json").write_text("null")
+    from nauro.cli.integrations.json_mcp import recorded_mcp_commands
+
+    assert recorded_mcp_commands(repo).unreadable == ()

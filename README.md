@@ -82,7 +82,9 @@ Skip this command if the desktop wizard already adopted your repository. Restart
 
 Approve one existing decision you want future sessions to remember. Start a fresh session and ask about a task where it matters. Check how the agent uses the reason.
 
-Run `nauro status` to check the connection. See [agent workflows](https://nauro.ai/docs/agents-and-skills) and [setup details](https://nauro.ai/docs/quickstart).
+Cursor requires a working durable absolute Nauro executable for global MCP wiring. Claude/Codex retain their existing fallback behavior. Follow [Cursor migration](packages/nauro/README.md#cursor-migration) before changing legacy wiring.
+
+Run `nauro status` to inspect configuration and executable availability. See [agent workflows](https://nauro.ai/docs/agents-and-skills) and [setup details](https://nauro.ai/docs/quickstart).
 
 The bundled `nauro-investigator` studies Claude and Codex logs for supported findings about Nauro use and development work. See the [investigator guide](docs/investigator.md) for a bounded first run and a research notebook that later runs can resume.
 

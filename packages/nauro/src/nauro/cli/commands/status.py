@@ -268,6 +268,8 @@ class _WiringSnapshot:
     registry: _RegistryFacts
     repo_mcp: _Probe[tuple[tuple[str | None, ...], ...]]
     codex: _Probe[_CodexGlobal]
+    cursor: json_mcp.McpWiring
+    legacy_cursor: tuple[json_mcp.McpWiring, ...]
     hooks: _Probe[tuple[_CodexHookState, ...]]
     agents: _Probe[int]
     skills: _Probe[_SkillArtifacts]
@@ -287,10 +289,19 @@ class _WiringSnapshot:
         return self.codex.value.wired
 
     @property
+    def cursor_global(self) -> bool:
+        return self.cursor.wired
+
+    @property
+    def legacy_cursor_repos(self) -> int:
+        return sum(wiring.wired for wiring in self.legacy_cursor)
+
+    @property
     def mcp_commands(self) -> frozenset[str]:
         recorded = {command for commands in self.repo_mcp.value for command in commands if command}
         if self.codex.value.command:
             recorded.add(self.codex.value.command)
+        recorded.update(command for command in self.cursor.commands if command)
         return frozenset(recorded)
 
     @property
@@ -306,7 +317,11 @@ class _WiringSnapshot:
 
     @property
     def mcp_unreadable(self) -> tuple[UnreadableFileError, ...]:
-        return self._unreadable(self.repo_mcp, self.codex)
+        return (
+            self._unreadable(self.repo_mcp, self.codex)
+            + self.cursor.unreadable
+            + tuple(failure for wiring in self.legacy_cursor for failure in wiring.unreadable)
+        )
 
     @property
     def hooks_unreadable(self) -> tuple[UnreadableFileError, ...]:
@@ -472,6 +487,8 @@ def _collect_wiring(registry: _RegistryFacts) -> _WiringSnapshot:
     wirings = [json_mcp.recorded_mcp_commands(repo) for repo in repos]
     snapshot = _WiringSnapshot(
         registry=registry,
+        cursor=json_mcp.recorded_cursor_command(),
+        legacy_cursor=tuple(json_mcp.recorded_legacy_cursor_command(repo) for repo in repos),
         repo_mcp=_Probe(
             tuple(wiring.commands for wiring in wirings),
             tuple(failure for wiring in wirings for failure in wiring.unreadable),
@@ -530,16 +547,32 @@ def _broken_line(line: str, failures: tuple[UnreadableFileError, ...]) -> str:
 
 def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
     failures = snapshot.mcp_unreadable
-    if not snapshot.mcp_wired and not snapshot.codex_global:
+    legacy = (
+        f"; legacy Cursor in {snapshot.legacy_cursor_repos} repos. "
+        "From each affected repository root, run 'nauro setup cursor' first. "
+        "Keep legacy files unchanged unless setup reports global configuration written "
+        "or already correct. Before cleanup, confirm installer-owned stdio shape "
+        "(see Cursor migration in the package README); preserve custom, hosted, or uncertain "
+        "entries. Only then: for an entirely machine-local tracked file, run "
+        "'git rm --cached .cursor/mcp.json', commit the tracking change, and rerun setup. "
+        "For a shared tracked file, remove only the confirmed owned mcpServers.nauro entry, "
+        "keep all other content tracked, commit the edit, and rerun setup. "
+        "Let setup migrate untracked owned entries."
+        if snapshot.legacy_cursor_repos
+        else ""
+    )
+    if not snapshot.mcp_wired and not snapshot.codex_global and not snapshot.cursor_global:
         if failures:
             return _unknown_line("MCP", failures)
-        return "  MCP           inactive - run 'nauro setup all'"
+        return "  MCP           inactive - run 'nauro setup all'" + legacy
     details = []
     if snapshot.repo_count:
         details.append(f"wired in {snapshot.mcp_wired}/{snapshot.repo_count} repos")
     if snapshot.codex_global:
         details.append("Codex global")
-    detail = "; ".join(details)
+    if snapshot.cursor_global:
+        details.append("Cursor global")
+    detail = "; ".join(details) + legacy
     healthy = probes.mcp is None or all(
         probes.mcp.get(command, True) for command in snapshot.mcp_commands
     )
@@ -927,6 +960,8 @@ class _McpPayload(BaseModel):
     repo_count: int
     wired_repos: int
     codex_global: bool
+    cursor_global: bool
+    legacy_cursor_repos: int
     probed: bool
     healthy: bool | None
     untrusted_commands: int
@@ -1055,6 +1090,8 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
             repo_count=snapshot.repo_count,
             wired_repos=snapshot.mcp_wired,
             codex_global=snapshot.codex_global,
+            cursor_global=snapshot.cursor_global,
+            legacy_cursor_repos=snapshot.legacy_cursor_repos,
             probed=mcp_probed,
             healthy=mcp_healthy,
             untrusted_commands=len(snapshot.untrusted_mcp_commands),
