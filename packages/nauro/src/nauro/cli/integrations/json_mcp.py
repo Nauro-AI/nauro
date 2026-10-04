@@ -232,7 +232,7 @@ def _recorded_json_mcp(path: Path, *, report_shape_error: bool = True) -> McpWir
         return McpWiring(unreadable=(exc,))
     except (json.JSONDecodeError, RecursionError) as exc:
         return McpWiring(unreadable=(UnreadableFileError(path, f"invalid JSON: {exc}"),))
-    if raw is None:
+    if text is None:
         return McpWiring()
     try:
         document = _parse_mcp_document(raw)

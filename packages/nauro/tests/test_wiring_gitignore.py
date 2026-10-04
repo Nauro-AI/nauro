@@ -88,7 +88,7 @@ def test_ensure_appends_second_entry_into_existing_block(tmp_path: Path):
     assert content.count(GITIGNORE_BLOCK_END) == 1
     assert "/.mcp.json" in content
     assert "/.cursor/mcp.json" in content
-    assert not (repo / ".cursor/mcp.json").exists()
+    assert _is_effectively_ignored(repo, ".cursor/mcp.json")
 
 
 def test_ensure_respects_existing_user_ignore_rule(tmp_path: Path):

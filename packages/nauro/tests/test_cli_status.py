@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 import nauro.cli.commands.status as status_mod
@@ -838,3 +839,30 @@ def test_status_cursor_global_independent_safe_and_read_only(tmp_path, monkeypat
     assert "MCP           unknown" in result.output
     assert str(config) in result.output
     assert config.read_bytes() == b"\xff"
+
+
+@pytest.mark.parametrize("global_config", [True, False])
+def test_cursor_null_is_unreadable_for_status_and_reconnect(
+    tmp_path, monkeypatch, capsys, global_config
+):
+    from nauro.cli.commands.reconnect import _echo_setup_hint_if_unwired
+
+    _setup_project(tmp_path, monkeypatch)
+    repo = Path.cwd()
+    config = (Path.home() if global_config else repo) / ".cursor/mcp.json"
+    config.parent.mkdir(parents=True)
+    config.write_text("null")
+    result = runner.invoke(app, ["status", "--no-probe"])
+    assert result.exit_code == 0
+    assert "MCP           unknown" in result.output
+    assert str(config) in result.output
+    _echo_setup_hint_if_unwired(repo)
+    captured = capsys.readouterr()
+    assert f"Could not read {config}: TOP_LEVEL_NOT_OBJECT" in captured.err
+    assert captured.out == ""
+    assert config.read_text() == "null"
+    config.unlink()
+    (repo / ".mcp.json").write_text("null")
+    from nauro.cli.integrations.json_mcp import recorded_mcp_commands
+
+    assert recorded_mcp_commands(repo).unreadable == ()
