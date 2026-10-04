@@ -19,7 +19,6 @@ from nauro.cli.integrations.skills import (
     materialize_skills_cursor_for_repo,
 )
 from nauro.cli.integrations.user_scope import (
-    _cursor_safe_to_clear,
     _registered_project_keys,
     _user_scope_safe_to_clear,
 )
@@ -135,7 +134,7 @@ def cursor_surfaces(
 ) -> list[ArtifactOutcome]:
     """Configure shared Cursor wiring before removing owned legacy entries."""
     if remove and (
-        clear_user_scope_override is False or not _cursor_safe_to_clear(current_project_key)
+        clear_user_scope_override is False or not _user_scope_safe_to_clear(current_project_key)
     ):
         global_result = JsonMcpOutcome(
             JsonMcpKind.PRESERVED,
@@ -174,15 +173,21 @@ def codex_surfaces(*, remove: bool, with_hooks: bool) -> list[ArtifactOutcome]:
     # project, so this teardown preserves the entry while any project remains
     # in the registry (it clears only on an empty registry). Clearing on the
     # last project goes through 'nauro setup all --remove'.
-    registered_count = len(_registered_project_keys()) if remove else 0
-    if registered_count:
+    registered = _registered_project_keys() if remove else set()
+    if registered is None or registered:
+        registered_count = len(registered) if registered is not None else 0
         config_path = codex_config_path()
         count_phrase = (
             "1 nauro project" if registered_count == 1 else f"{registered_count} nauro projects"
         )
+        evidence = (
+            f"{count_phrase} registered"
+            if registered is not None
+            else "registry evidence is unreadable"
+        )
         outcomes.append(
             RawLine(
-                f"Codex: preserved nauro entry in {config_path} ({count_phrase} registered; "
+                f"Codex: preserved nauro entry in {config_path} ({evidence}; "
                 "run 'nauro setup all --remove' on the last project to clear this "
                 "user-global entry)"
             )
@@ -418,10 +423,11 @@ def setup_all_surfaces(
     Multi-repo un-adopt passes ``clear_user_scope_override=False`` (default: project-granular)."""
     if not remove and store_path is not None:
         check_guidance_available(store_path)
-    if clear_user_scope_override is not None:
-        clear_user_scope = clear_user_scope_override
-    else:
-        clear_user_scope = _user_scope_safe_to_clear(current_project_key) if remove else True
+    clear_user_scope = (
+        clear_user_scope_override is not False and _user_scope_safe_to_clear(current_project_key)
+        if remove
+        else clear_user_scope_override is not False
+    )
 
     outcomes: list[ArtifactOutcome] = []
     outcomes.extend(

@@ -317,7 +317,7 @@ def _render_codex_config(o: CodexConfigOutcome) -> list[str]:
         case CodexConfigKind.PRESERVED_OTHER_PROJECTS:
             return [
                 f"Codex: preserved nauro entry in {o.config_path} "
-                "(other nauro projects still registered)"
+                "(other projects or uncertain registry evidence)"
             ]
         case CodexConfigKind.REFUSED_SYMLINK:
             return [f"Codex: {o.refusal.message}"]
@@ -418,7 +418,10 @@ def _render_skill(o: SkillOutcome) -> list[str]:
         case SkillKind.REFUSED_SYMLINK:
             return [_skill_refusal_line(o)]
         case SkillKind.PRESERVED:
-            return [f"  preserved {o.base_label}/nauro-* (other nauro projects still registered)"]
+            return [
+                f"  preserved {o.base_label}/nauro-* "
+                "(other projects or uncertain registry evidence)"
+            ]
         case SkillKind.UPDATED:
             return [f"  updated {o.target} (previous saved to {o.backup_name})"]
         case SkillKind.MIGRATED_LEGACY:
@@ -454,7 +457,7 @@ def _render_agent(o: AgentOutcome) -> list[str]:
             return [f"  skipped agents on surface {o.surface!r}: {o.detail}"]
         case AgentKind.PRESERVED:
             base = "~/.codex/agents" if o.surface == "codex" else "~/.claude/agents"
-            return [f"  preserved {base}/nauro-* (other nauro projects still registered)"]
+            return [f"  preserved {base}/nauro-* (other projects or uncertain registry evidence)"]
         case AgentKind.REFUSED_SYMLINK:
             return [f"  {o.refusal.message}"]
         case AgentKind.UPDATED:
