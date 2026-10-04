@@ -171,7 +171,10 @@ def _plain_parameter_types() -> tuple[Any, Any]:
 def _type_node(value: Any) -> dict[str, Any]:
     name = getattr(value, "name", type(value).__name__)
     for exemplar, aliases, canonical in zip(
-        _plain_parameter_types(), (("text", "str"), ("integer", "int")), ("text", "integer")
+        _plain_parameter_types(),
+        (("text", "str"), ("integer", "int")),
+        ("text", "integer"),
+        strict=True,
     ):
         if (
             type(value) is exemplar[0]

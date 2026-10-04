@@ -11,8 +11,9 @@ from tests.test_public_contract import _param_node
 
 def parameter(annotation=str, **options):
     app = typer.Typer()
+    option = typer.Option(..., **options)
 
-    def probe(value=typer.Option(..., **options)):
+    def probe(value=option):
         pass
 
     probe.__annotations__ = {"value": annotation}
