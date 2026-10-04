@@ -250,7 +250,8 @@ def test_status_mcp_partial_repo_wiring(tmp_path, monkeypatch):
     assert "MCP           active (wired in 1/2 repos)" in result.output
 
 
-def test_status_legacy_cursor_is_migration_evidence(tmp_path, monkeypatch):
+@pytest.mark.parametrize("global_wired", [False, True])
+def test_status_legacy_cursor_is_migration_evidence(tmp_path, monkeypatch, global_wired):
     """Repository Cursor wiring needs migration to the global configuration."""
     _setup_project(tmp_path, monkeypatch)
     cursor_dir = tmp_path / ".cursor"
@@ -259,10 +260,26 @@ def test_status_legacy_cursor_is_migration_evidence(tmp_path, monkeypatch):
         json.dumps({"mcpServers": {"nauro": {"command": "nauro"}}})
     )
 
-    result = runner.invoke(app, ["status"])
+    if global_wired:
+        target = Path.home() / ".cursor/mcp.json"
+        target.parent.mkdir(parents=True)
+        target.write_bytes((cursor_dir / "mcp.json").read_bytes())
+    before = (cursor_dir / "mcp.json").read_bytes()
+    result = runner.invoke(app, ["status", "--no-probe"])
     assert result.exit_code == 0
-    assert "MCP           inactive" in result.output
-    assert "legacy Cursor in 1 repos" in result.output
+    assert ("Cursor global" if global_wired else "MCP           inactive") in result.output
+    assert (
+        "legacy Cursor in 1 repos. From each affected repository root, run 'nauro setup cursor' "
+        "first. Keep legacy files unchanged unless setup reports global configuration written "
+        "or already correct. Before cleanup, confirm installer-owned stdio shape "
+        "(see Cursor migration in the package README); preserve custom, hosted, or uncertain "
+        "entries. Only then: for an entirely machine-local tracked file, run "
+        "'git rm --cached .cursor/mcp.json', commit the tracking change, and rerun setup. "
+        "For a shared tracked file, remove only the confirmed owned mcpServers.nauro entry, "
+        "keep all other content tracked, commit the edit, and rerun setup. "
+        "Let setup migrate untracked owned entries."
+    ) in result.output
+    assert (cursor_dir / "mcp.json").read_bytes() == before
 
 
 def test_status_mcp_codex_global_only(tmp_path, monkeypatch):
@@ -821,6 +838,7 @@ def test_status_cursor_global_independent_safe_and_read_only(tmp_path, monkeypat
     assert result.exit_code == 0
     assert "Cursor global" in result.output
     assert "Codex global" not in result.output
+    assert "legacy Cursor" not in result.output
     assert calls == ["nauro"]
     calls.clear()
     result = runner.invoke(app, ["status", "--no-probe"])

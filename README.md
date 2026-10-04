@@ -82,7 +82,7 @@ Skip this command if the desktop wizard already adopted your repository. Restart
 
 Approve one existing decision you want future sessions to remember. Start a fresh session and ask about a task where it matters. Check how the agent uses the reason.
 
-Cursor MCP uses the user-global `~/.cursor/mcp.json`. Setup migrates owned repository entries after the global write succeeds. Restart Cursor and verify its MCP connection.
+Cursor requires a working durable absolute Nauro executable for global MCP wiring. Claude/Codex retain their existing fallback behavior. Follow [Cursor migration](packages/nauro/README.md#cursor-migration) before changing legacy wiring.
 
 Run `nauro status` to inspect configuration and executable availability. See [agent workflows](https://nauro.ai/docs/agents-and-skills) and [setup details](https://nauro.ai/docs/quickstart).
 

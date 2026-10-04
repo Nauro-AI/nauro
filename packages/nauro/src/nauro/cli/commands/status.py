@@ -548,7 +548,16 @@ def _broken_line(line: str, failures: tuple[UnreadableFileError, ...]) -> str:
 def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
     failures = snapshot.mcp_unreadable
     legacy = (
-        f"; legacy Cursor in {snapshot.legacy_cursor_repos} repos - run 'nauro setup cursor'"
+        f"; legacy Cursor in {snapshot.legacy_cursor_repos} repos. "
+        "From each affected repository root, run 'nauro setup cursor' first. "
+        "Keep legacy files unchanged unless setup reports global configuration written "
+        "or already correct. Before cleanup, confirm installer-owned stdio shape "
+        "(see Cursor migration in the package README); preserve custom, hosted, or uncertain "
+        "entries. Only then: for an entirely machine-local tracked file, run "
+        "'git rm --cached .cursor/mcp.json', commit the tracking change, and rerun setup. "
+        "For a shared tracked file, remove only the confirmed owned mcpServers.nauro entry, "
+        "keep all other content tracked, commit the edit, and rerun setup. "
+        "Let setup migrate untracked owned entries."
         if snapshot.legacy_cursor_repos
         else ""
     )

@@ -59,9 +59,24 @@ For cross-surface onboarding, run `nauro adopt --with-skills --with-subagents`. 
 
 Cursor runs `nauro-ship-task` natively. `nauro-loop` Program Delivery stays on hold.
 
-Restart, then seed the store with `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat. On a new machine, run `nauro setup cursor`, then restart Cursor and verify its MCP connection. Setup writes user-global `~/.cursor/mcp.json` and removes owned repository wiring after success. Commit `.nauro/config.json`, `.cursor/rules/nauro-*.mdc`, and `.cursor/agents/nauro-*.md`. Keep the global MCP configuration machine-local.
+Restart, then seed the store with `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat. Cursor requires a working durable absolute Nauro executable for user-global `~/.cursor/mcp.json`; otherwise installation fails. Claude/Codex retain their existing fallback behavior. Follow the migration steps below before changing legacy wiring. Commit `.nauro/config.json`, `.cursor/rules/nauro-*.mdc`, and `.cursor/agents/nauro-*.md`. Keep the global MCP configuration machine-local.
 
 Cursor Cloud Agents need separate MCP configuration at `cursor.com/agents`. If you use Nauro's hosted connector there, link and sync the project first.
+
+### Cursor migration
+
+First, from the affected repository root, run `nauro setup cursor`. Do not change legacy `.cursor/mcp.json` or its tracking unless setup reports global configuration was written or already correct. If setup fails or is uncertain, keep the legacy file and entry unchanged. This verifies configuration, not a live Cursor connection.
+
+Before either remedy below, confirm the legacy entry has the installer's owned stdio shape: only `type`, `command`, and `args` fields; `type` absent or `stdio`; `args` exactly `["serve", "--stdio"]`; and `command` either bare `nauro`/`nauro.exe` or an absolute path whose filename is `nauro`/`nauro.exe` (case-insensitive). A key named `nauro` alone does not prove ownership. Preserve custom, hosted/HTTP, additional-field, and uncertain entries. Do not adapt an unrecognized entry to make it pass this check.
+
+Only after global configuration succeeds and ownership is confirmed:
+
+- **Entire file intentionally machine-local:** from the affected repository root, run `git rm --cached .cursor/mcp.json`. This removes the file from Git's index and keeps the working copy. Commit that tracking change, then rerun `nauro setup cursor` for guarded migration. Do not use this path for shared configuration or unrelated content that should remain tracked.
+- **Shared tracked file:** Keep the file tracked. Manually remove only the confirmed installer-owned `mcpServers.nauro` entry. Preserve all other entries and configuration. Commit that targeted edit, then rerun `nauro setup cursor`. Do not remove the entire `mcpServers` object or shared file.
+- **Untracked owned entry:** let setup perform the guarded migration. No manual untracking is needed.
+
+Restart Cursor and verify its MCP connection after setup succeeds.
+
 
 Re-running onboarding refreshes Nauro-owned workflow files and saves differing copies as backups. It leaves third-party skills and agents untouched. Pass `--force-overwrite` only when you do not want backups.
 

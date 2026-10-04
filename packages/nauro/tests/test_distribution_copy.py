@@ -123,3 +123,30 @@ def test_contributor_catalogs_describe_retrieval_without_judgment() -> None:
         text = (ROOT / relative).read_text(encoding="utf-8")
         assert "surface related decisions without writing" in text
         assert "check for conflicts without writing" not in text
+
+
+def test_cursor_migration_guidance_preserves_order_and_ownership() -> None:
+    root = (ROOT / "README.md").read_text()
+    text = (ROOT / "packages/nauro/README.md").read_text()
+    for copy in (root, text):
+        assert "working durable absolute Nauro executable" in copy
+        assert "Claude/Codex retain their existing fallback behavior" in copy
+    assert "packages/nauro/README.md#cursor-migration" in root
+    guidance = text.split("### Cursor migration", 1)[1]
+    assert guidance.index("global configuration was written or already correct") < guidance.index(
+        "Before either remedy"
+    )
+    assert guidance.index("Before either remedy") < guidance.index("git rm --cached")
+    for required in (
+        "only `type`, `command`, and `args` fields",
+        "`type` absent or `stdio`",
+        'exactly `["serve", "--stdio"]`',
+        "Preserve custom, hosted/HTTP, additional-field, and uncertain entries",
+        "from the affected repository root",
+        "keeps the working copy",
+        "Keep the file tracked",
+        "only the confirmed installer-owned `mcpServers.nauro` entry",
+        "Commit that tracking change",
+        "Commit that targeted edit",
+    ):
+        assert required in guidance
