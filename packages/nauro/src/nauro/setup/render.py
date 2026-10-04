@@ -130,10 +130,15 @@ def _render_agents_md(o: AgentsMdOutcome) -> list[str]:
 
 def _render_json_mcp(o: JsonMcpOutcome) -> list[str]:
     match o.kind:
-        case JsonMcpKind.PRESERVED:
-            return [f"  {o.repo_path}: preserved {o.label}: {o.detail}"]
-        case JsonMcpKind.UNCHANGED:
-            return [f"  {o.repo_path}: {o.label} already configured"]
+        case JsonMcpKind.INSTALL_FAILED | JsonMcpKind.PRESERVED | JsonMcpKind.UNCHANGED:
+            messages = {
+                JsonMcpKind.INSTALL_FAILED: f"could not configure {o.label}: "
+                "no working durable absolute Nauro executable; "
+                "run 'pipx install nauro' or 'uv tool install nauro', then retry",
+                JsonMcpKind.PRESERVED: f"preserved {o.label}: {o.detail}",
+                JsonMcpKind.UNCHANGED: f"{o.label} already configured",
+            }
+            return [f"  {o.repo_path}: {messages[o.kind]}"]
         case JsonMcpKind.WRITE_FAILED:
             return [f"  {o.repo_path}: {_failed_write(o.write_failure)}"]
         case JsonMcpKind.REFUSED_SYMLINK:

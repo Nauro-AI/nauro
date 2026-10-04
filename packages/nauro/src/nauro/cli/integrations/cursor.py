@@ -8,7 +8,7 @@ from pathlib import Path
 from nauro.cli import nauro_command
 from nauro.cli.integrations._json_config import write_json_config
 from nauro.cli.integrations.json_mcp import McpShapeError, _parse_mcp_document
-from nauro.setup.git_hygiene import remove_wiring_ignore_entry
+from nauro.setup.git_hygiene import remove_wiring_ignore_entry, wiring_path_is_tracked
 from nauro.setup.outcomes import JsonMcpKind, JsonMcpOutcome, WriteFailure
 from nauro.store.local_files import UnreadableFileError, read_text_or_absent
 from nauro.store.write_safety import find_file_symlink, find_symlink
@@ -27,12 +27,23 @@ def _owned(entry: object) -> bool:
     )
 
 
-def configure_cursor(*, remove: bool, repo: Path | None = None) -> JsonMcpOutcome:
+def configure_cursor(
+    *, remove: bool, repo: Path | None = None, migration: bool = False
+) -> JsonMcpOutcome:
     """Write global wiring or remove an owned legacy entry without changing siblings."""
     root = repo if repo is not None else Path.home()
     path = root / ".cursor/mcp.json"
     label = str(path) if repo is None else ".cursor/mcp.json"
     try:
+        refusal = find_symlink(root, label) if repo is not None else find_file_symlink(path)
+        if refusal is not None:
+            return JsonMcpOutcome(JsonMcpKind.REFUSED_SYMLINK, root, label, refusal=refusal)
+        if repo is not None and path.resolve() == (Path.home() / ".cursor/mcp.json").resolve():
+            return JsonMcpOutcome(
+                JsonMcpKind.PRESERVED, root, label, detail="shared global configuration"
+            )
+        if migration and wiring_path_is_tracked(root, label):
+            return JsonMcpOutcome(JsonMcpKind.REFUSED_TRACKED, root, label)
         return _edit_cursor(root, path, label, remove=remove, legacy=repo is not None)
     except (UnreadableFileError, json.JSONDecodeError, McpShapeError, RecursionError) as exc:
         return JsonMcpOutcome(JsonMcpKind.PARSE_ERROR, root, label, detail=str(exc))
@@ -45,26 +56,27 @@ def configure_cursor(*, remove: bool, repo: Path | None = None) -> JsonMcpOutcom
 def _edit_cursor(
     root: Path, path: Path, label: str, *, remove: bool, legacy: bool
 ) -> JsonMcpOutcome:
-    refusal = find_symlink(root, label) if legacy else find_file_symlink(path)
-    if refusal is not None:
-        return JsonMcpOutcome(JsonMcpKind.REFUSED_SYMLINK, root, label, refusal=refusal)
     text = read_text_or_absent(path)
     raw = json.loads(text) if text is not None else {}
     document = _parse_mcp_document(raw)
     if remove:
         return _remove_cursor(root, path, label, raw, document.mcp_servers, legacy=legacy)
-    command = nauro_command._find_nauro_command()
+    if "nauro" in document.mcp_servers and not _owned(document.mcp_servers["nauro"]):
+        return JsonMcpOutcome(
+            JsonMcpKind.PRESERVED, root, label, detail="entry ownership is uncertain"
+        )
+    resolution = nauro_command._find_nauro_resolution()
+    command = resolution.command
     if not (
         Path(command).is_absolute()
         and nauro_command.is_nauro_entrypoint(command)
         and nauro_command._is_durable_install_path(Path(command))
-        and nauro_command.probe_nauro_command(command)
+        and resolution.validated
     ):
         return JsonMcpOutcome(
-            JsonMcpKind.PRESERVED,
+            JsonMcpKind.INSTALL_FAILED,
             root,
             label,
-            detail="no working durable absolute Nauro executable",
         )
     desired = {"type": "stdio", "command": command, "args": ["serve", "--stdio"]}
     if document.mcp_servers.get("nauro") == desired:

@@ -50,9 +50,10 @@ def test_unsuitable_command_preserves_legacy(tmp_path, monkeypatch, command):
 
     path = legacy(tmp_path / "repo")
     original = path.read_bytes()
-    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", lambda: command)
+    monkeypatch.setattr(nauro_command, "_interpreter_sibling_candidate", lambda: command)
+    monkeypatch.setattr(nauro_command.shutil, "which", lambda name: None)
     outcomes = orchestrator.cursor_surfaces([path.parent.parent], remove=False)
-    assert [item.kind for item in outcomes] == [JsonMcpKind.PRESERVED]
+    assert [item.kind for item in outcomes] == [JsonMcpKind.INSTALL_FAILED]
     assert path.read_bytes() == original
     assert not (Path.home() / ".cursor/mcp.json").exists()
 
@@ -66,7 +67,7 @@ def test_unusable_executable_preserves_legacy(tmp_path, monkeypatch, probe):
     monkeypatch.setattr(nauro_command, probe, lambda *args, **kwargs: False)
     assert (
         orchestrator.cursor_surfaces([path.parent.parent], remove=False)[0].kind
-        is JsonMcpKind.PRESERVED
+        is JsonMcpKind.INSTALL_FAILED
     )
     assert path.read_bytes() == original
 
@@ -276,3 +277,130 @@ def test_retry_cleans_managed_ignore_after_legacy_file_is_gone(tmp_path):
     result = orchestrator.cursor_surfaces([repo], remove=False)
     assert result[1].kind is JsonMcpKind.NOTHING_TO_REMOVE
     assert not (repo / ".gitignore").exists()
+
+
+@pytest.mark.parametrize("alias", [False, True])
+def test_home_repository_never_cleans_shared_target(tmp_path, alias):
+    home = Path.home()
+    home.mkdir()
+    repo = home
+    if alias:
+        repo = tmp_path / "home-alias"
+        repo.symlink_to(home, target_is_directory=True)
+    result = orchestrator.cursor_surfaces([repo], remove=False)
+    target = home / ".cursor/mcp.json"
+    assert result[0].kind is JsonMcpKind.WROTE
+    original = target.read_bytes()
+    result = orchestrator.cursor_surfaces([repo], remove=True, clear_user_scope_override=False)
+    assert result[0].kind is JsonMcpKind.PRESERVED
+    assert target.read_bytes() == original
+    result = orchestrator.cursor_surfaces([repo], remove=True)
+    assert [item.kind for item in result].count(JsonMcpKind.REMOVED) == 1
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("sibling", [False, True])
+def test_tracked_legacy_requires_explicit_teardown(tmp_path, sibling):
+    import subprocess
+
+    repo = tmp_path / "repo"
+    path = legacy(repo)
+    raw = json.loads(path.read_text())
+    if sibling:
+        raw["mcpServers"]["other"] = {"command": "other"}
+        path.write_text(json.dumps(raw))
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", ".cursor/mcp.json"], check=True)
+    before = path.read_bytes()
+    ignore = repo / ".gitignore"
+    ignore.write_bytes(b"user-rule\n")
+    result = orchestrator.cursor_surfaces([repo], remove=False)
+    assert result[0].kind is JsonMcpKind.WROTE
+    assert result[1].kind is JsonMcpKind.REFUSED_TRACKED
+    assert path.read_bytes() == before
+    assert ignore.read_bytes() == b"user-rule\n"
+    result = orchestrator.cursor_surfaces([repo], remove=True)
+    assert result[1].kind is JsonMcpKind.REMOVED
+    if sibling:
+        assert json.loads(path.read_text()) == {"mcpServers": {"other": {"command": "other"}}}
+    else:
+        assert not path.exists()
+    assert ignore.read_bytes() == b"user-rule\n"
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        None,
+        {},
+        {"command": "wrapper"},
+        {"command": "nauro", "args": ["custom"]},
+        {"command": "nauro", "args": ["serve", "--stdio"], "env": {"KEEP": "yes"}},
+    ],
+)
+def test_custom_global_entry_preserves_all_bytes_and_legacy(tmp_path, entry):
+    path = legacy(tmp_path / "repo")
+    before = path.read_bytes()
+    target = Path.home() / ".cursor/mcp.json"
+    target.parent.mkdir(parents=True)
+    original = json.dumps({"mcpServers": {"nauro": entry}, "metadata": "keep"}).encode()
+    target.write_bytes(original)
+    result = orchestrator.cursor_surfaces([path.parent.parent], remove=False)
+    assert [item.kind for item in result] == [JsonMcpKind.PRESERVED]
+    assert target.read_bytes() == original
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("command", ["cursor", "all"])
+def test_failed_install_exits_one_and_shared_preservation_succeeds(tmp_path, monkeypatch, command):
+    from typer.testing import CliRunner
+
+    from nauro.cli import nauro_command
+    from nauro.cli.main import app
+    from nauro.store.registry import register_project_v2
+    from nauro.templates.scaffolds import scaffold_project_store
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _, store = register_project_v2("example", [repo])
+    scaffold_project_store("example", store)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda *a, **kw: False)
+    result = CliRunner().invoke(app, ["setup", command])
+    assert result.exit_code == 1
+    assert "durable" in result.output
+    assert not (Path.home() / ".cursor/mcp.json").exists()
+    other = tmp_path / "other"
+    other.mkdir()
+    register_project_v2("other", [other])
+    result = CliRunner().invoke(app, ["setup", command, "--remove"])
+    assert result.exit_code == 0
+    assert "preserved" in result.output
+
+
+@pytest.mark.parametrize(
+    "arguments", [["setup", "cursor"], ["setup", "all"], ["adopt", "--name", "example"]]
+)
+def test_public_setup_preserves_tracked_cursor_wiring(tmp_path, monkeypatch, arguments):
+    import subprocess
+
+    from typer.testing import CliRunner
+
+    from nauro.cli.main import app
+    from nauro.store.registry import register_project_v2
+    from nauro.templates.scaffolds import scaffold_project_store
+
+    repo = tmp_path / "repo"
+    target = legacy(repo)
+    before = target.read_bytes()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "add", ".cursor/mcp.json"], check=True)
+    monkeypatch.chdir(repo)
+    if arguments[0] == "setup":
+        _, store = register_project_v2("example", [repo])
+        scaffold_project_store("example", store)
+    result = CliRunner().invoke(app, arguments)
+    assert result.exit_code == 0, result.output
+    assert ".cursor/mcp.json is tracked by git" in result.output
+    assert target.read_bytes() == before
+    assert (Path.home() / ".cursor/mcp.json").is_file()

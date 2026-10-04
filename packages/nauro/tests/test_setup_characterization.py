@@ -1202,12 +1202,15 @@ class TestResolverWarningShape:
 
         result = runner.invoke(app, ["setup", "all"])
 
-        assert result.exit_code == 0
-        assert _norm(result.stdout, tmp_path) == _all_add_plain_expected().replace(
+        assert result.exit_code == 1
+        assert _norm(result.stdout, tmp_path) == _all_add_plain_expected().removesuffix(
+            "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+        ).replace(
             "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
             "  {TMP}/repo: no nauro entry to remove\n",
-            "  {TMP}: preserved {TMP}/.cursor/mcp.json: "
-            "no working durable absolute Nauro executable\n",
+            "  {TMP}: could not configure {TMP}/.cursor/mcp.json: "
+            "no working durable absolute Nauro executable; "
+            "run 'pipx install nauro' or 'uv tool install nauro', then retry\n",
         )
         assert not (tmp_path / ".cursor" / "mcp.json").exists()
         assert normalize_transcript(
@@ -1229,12 +1232,15 @@ class TestResolverWarningShape:
 
         result = runner.invoke(app, ["setup", "all"])
 
-        assert result.exit_code == 0
-        assert _norm(result.stdout, tmp_path) == _all_add_plain_expected().replace(
+        assert result.exit_code == 1
+        assert _norm(result.stdout, tmp_path) == _all_add_plain_expected().removesuffix(
+            "\n" + ALL_RESTART_LINE + "\n" + TRY_IT_LINE
+        ).replace(
             "  {TMP}: wrote nauro to {TMP}/.cursor/mcp.json\n"
             "  {TMP}/repo: no nauro entry to remove\n",
-            "  {TMP}: preserved {TMP}/.cursor/mcp.json: "
-            "no working durable absolute Nauro executable\n",
+            "  {TMP}: could not configure {TMP}/.cursor/mcp.json: "
+            "no working durable absolute Nauro executable; "
+            "run 'pipx install nauro' or 'uv tool install nauro', then retry\n",
         )
         assert not (tmp_path / ".cursor" / "mcp.json").exists()
         assert normalize_transcript(

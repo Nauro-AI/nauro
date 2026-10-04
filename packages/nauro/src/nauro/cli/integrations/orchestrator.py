@@ -152,7 +152,7 @@ def cursor_surfaces(
         if not repo_path.is_dir():
             outcomes.append(RawLine(f"  {repo_path}: repo path missing, skipped"))
             continue
-        outcomes.append(configure_cursor(remove=True, repo=repo_path))
+        outcomes.append(configure_cursor(remove=True, repo=repo_path, migration=not remove))
     return outcomes
 
 

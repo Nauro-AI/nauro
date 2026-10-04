@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 import typer
@@ -136,36 +137,45 @@ _UNRESOLVED_COMMAND_WARNING = (
 )
 
 
+@dataclass(frozen=True)
+class NauroCommandResolution:
+    command: str
+    validated: bool
+
+
 @functools.cache
+def _find_nauro_resolution() -> NauroCommandResolution:
+    """Cache command and validation together for the lifetime of the process."""
+    return _resolve_nauro_resolution()
+
+
 def _find_nauro_command() -> str:
-    """Resolve and process-cache the nauro entrypoint recorded into MCP and hook configs.
-    Cached so ``setup all`` probes once rather than once per sink; warnings surface only on the
-    cache-miss resolution. Tests reset with ``_find_nauro_command.cache_clear()``.
-    """
-    return _resolve_nauro_command()
+    """Return the process-cached entrypoint for MCP and hook configuration."""
+    return _find_nauro_resolution().command
 
 
 def _resolve_nauro_command() -> str:
-    """Pick the nauro entrypoint to record into MCP and hook configs.
-    Prefers an interpreter-sibling that runs and looks durable, else a durable PATH shim, else
-    the sibling with a fragility warning, else the best absolute path or bare ``nauro``.
-    """
+    """Resolve an entrypoint without caching, retaining fallback warnings."""
+    return _resolve_nauro_resolution().command
+
+
+def _resolve_nauro_resolution() -> NauroCommandResolution:
     sibling = _interpreter_sibling_candidate()
     which = shutil.which("nauro")
 
     if sibling is not None and _is_durable_install_path(sibling) and probe_nauro_command(sibling):
-        return sibling
+        return NauroCommandResolution(sibling, True)
 
     if which is not None and _is_durable_install_path(which) and probe_nauro_command(which):
-        return which
+        return NauroCommandResolution(which, True)
 
     if sibling is not None and probe_nauro_command(sibling):
         typer.echo(_FRAGILE_COMMAND_WARNING.format(command=sibling), err=True)
-        return sibling
+        return NauroCommandResolution(sibling, True)
 
     fallback = sibling or which or "nauro"
     typer.echo(_UNRESOLVED_COMMAND_WARNING.format(command=fallback), err=True)
-    return fallback
+    return NauroCommandResolution(fallback, False)
 
 
 @functools.cache

@@ -238,7 +238,7 @@ def test_find_nauro_command_memoizes_resolution(monkeypatch):
     monkeypatch.setattr(nauro_command.shutil, "which", lambda name: None)
     monkeypatch.setattr(nauro_command, "probe_nauro_command", counting_probe)
     monkeypatch.setattr(nauro_command, "_is_durable_install_path", lambda p: True)
-    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_resolution.cache_clear()
 
     first = nauro_command._find_nauro_command()
     after_first = len(calls)
@@ -267,7 +267,7 @@ def test_setup_all_resolves_command_once(tmp_path, monkeypatch):
         nauro_command, "probe_nauro_command", lambda cmd, **k: calls.append(cmd) or True
     )
     monkeypatch.setattr(nauro_command, "_is_durable_install_path", lambda p: True)
-    nauro_command._find_nauro_command.cache_clear()
+    nauro_command._find_nauro_resolution.cache_clear()
 
     setup_all_surfaces([repo1, repo2], remove=False)
 
@@ -372,3 +372,37 @@ def test_probe_safe_rejects_a_symlinked_ancestor_inside_the_repo(tmp_path):
 
 def test_probe_safe_treats_an_unresolvable_path_as_unsafe(tmp_path):
     assert not nauro_command.is_probe_safe("/opt/nauro\0/bin/nauro", [tmp_path])
+
+
+@pytest.mark.parametrize("result_first", [False, True])
+def test_resolution_shares_validation_and_refreshes_after_reset(monkeypatch, result_first):
+    calls = []
+    sibling = "/opt/bin/nauro"
+    working = True
+    _wire_resolver(
+        monkeypatch,
+        sibling=sibling,
+        which=None,
+        probe=lambda command, **kwargs: calls.append(command) or working,
+        durable=lambda command: True,
+    )
+    first = (
+        nauro_command._find_nauro_resolution if result_first else nauro_command._find_nauro_command
+    )
+    first()
+    assert nauro_command._find_nauro_command() == sibling
+    assert nauro_command._find_nauro_resolution().validated is True
+    assert calls == [sibling]
+    working = False
+    assert nauro_command._find_nauro_resolution().validated is True
+    assert calls == [sibling]
+    nauro_command._find_nauro_resolution.cache_clear()
+    assert nauro_command._find_nauro_resolution().validated is False
+    assert nauro_command._find_nauro_command() == sibling
+    after_failure = len(calls)
+    working = True
+    assert nauro_command._find_nauro_resolution().validated is False
+    assert len(calls) == after_failure
+    nauro_command._find_nauro_resolution.cache_clear()
+    assert nauro_command._find_nauro_resolution().validated is True
+    assert len(calls) == after_failure + 1

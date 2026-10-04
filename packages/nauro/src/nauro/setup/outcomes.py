@@ -49,6 +49,7 @@ class RawLine:
 
 
 class JsonMcpKind(Enum):
+    INSTALL_FAILED = auto()
     PRESERVED = auto()
     UNCHANGED = auto()
     REFUSED_SYMLINK = auto()
@@ -311,6 +312,7 @@ ArtifactOutcome = (
 _FAILED_KINDS: frozenset[Enum] = frozenset(
     {
         JsonMcpKind.WRITE_FAILED,
+        JsonMcpKind.INSTALL_FAILED,
         ClaudeHookKind.WRITE_FAILED,
         CodexConfigKind.WRITE_FAILED,
         CodexHookKind.WRITE_FAILED,

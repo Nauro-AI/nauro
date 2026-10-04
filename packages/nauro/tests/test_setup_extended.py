@@ -214,8 +214,8 @@ def test_configure_codex_remove_does_not_resolve_command(tmp_path: Path, monkeyp
     def _fail() -> str:
         raise AssertionError("command resolution must not run on remove")
 
-    monkeypatch.setattr(nauro_command, "_resolve_nauro_command", _fail)
-    nauro_command._find_nauro_command.cache_clear()
+    monkeypatch.setattr(nauro_command, "_resolve_nauro_resolution", _fail)
+    nauro_command._find_nauro_resolution.cache_clear()
 
     msg = _configure_codex(remove=True, config_path=config_path)
 
