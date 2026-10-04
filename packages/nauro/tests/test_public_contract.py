@@ -66,6 +66,7 @@ import json
 import os
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +153,45 @@ def _tool_specs() -> list[dict[str, Any]]:
     return sorted(specs, key=lambda spec: spec["name"])
 
 
+@lru_cache(maxsize=1)
+def _plain_parameter_types() -> tuple[Any, Any]:
+    app = typer.Typer()
+
+    @app.command()
+    def probe(text: str, number: int) -> None:
+        pass
+
+    parameters = {
+        p.name: (type(p.type), vars(p.type).copy(), p.type.name)
+        for p in typer.main.get_command(app).params
+    }
+    return parameters["text"], parameters["number"]
+
+
+def _type_node(value: Any) -> dict[str, Any]:
+    name = getattr(value, "name", type(value).__name__)
+    for exemplar, aliases, canonical in zip(
+        _plain_parameter_types(),
+        (("text", "str"), ("integer", "int")),
+        ("text", "integer"),
+        strict=True,
+    ):
+        if (
+            type(value) is exemplar[0]
+            and vars(value) == exemplar[1]
+            and name in aliases
+            and exemplar[2] in aliases
+        ):
+            return {"type": canonical}
+    node = {"type": name}
+    if name in {"text", "str", "integer", "int"}:
+        node["type_implementation"] = f"{type(value).__module__}.{type(value).__qualname__}"
+    for attribute in ("min", "max", "min_open", "max_open", "clamp"):
+        if hasattr(value, attribute):
+            node[attribute] = getattr(value, attribute)
+    return node
+
+
 def _param_node(param: click.Parameter) -> dict[str, Any]:
     # Classify by Click's stable ``param_type_name`` ("option" / "argument")
     # and read option-only attributes by capability, not isinstance. Across
@@ -162,7 +202,7 @@ def _param_node(param: click.Parameter) -> dict[str, Any]:
     node: dict[str, Any] = {
         "name": param.name,
         "kind": kind,
-        "type": getattr(param.type, "name", type(param.type).__name__),
+        **_type_node(param.type),
         "required": bool(param.required),
     }
     if kind == "option":
