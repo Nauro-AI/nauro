@@ -41,8 +41,8 @@ def _git_init(repo: Path) -> None:
 # ─── nauro setup cursor ─────────────────────────────────────────────────────
 
 
-def test_setup_cursor_writes_repo_mcp_json(tmp_path: Path, monkeypatch):
-    """`nauro setup cursor` writes <repo>/.cursor/mcp.json for each project repo."""
+def test_setup_cursor_writes_global_mcp_json(tmp_path: Path, monkeypatch):
+    """`nauro setup cursor` writes the user-global .cursor/mcp.json."""
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _pid, store_path = register_project_v2("myproj", [repo])
@@ -52,7 +52,7 @@ def test_setup_cursor_writes_repo_mcp_json(tmp_path: Path, monkeypatch):
     result = runner.invoke(app, ["setup", "cursor"])
     assert result.exit_code == 0, result.output
 
-    config_path = repo / ".cursor" / "mcp.json"
+    config_path = Path.home() / ".cursor" / "mcp.json"
     assert config_path.is_file()
     data = json.loads(config_path.read_text())
     assert data["mcpServers"]["nauro"]["args"] == ["serve", "--stdio"]
@@ -68,12 +68,12 @@ def test_setup_cursor_remove_clears_entry(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(repo)
 
     runner.invoke(app, ["setup", "cursor"])
-    assert (repo / ".cursor" / "mcp.json").is_file()
+    assert (Path.home() / ".cursor" / "mcp.json").is_file()
 
     result = runner.invoke(app, ["setup", "cursor", "--remove"])
     assert result.exit_code == 0, result.output
     # Nauro was the only entry, so the now-empty config file is unlinked.
-    assert not (repo / ".cursor" / "mcp.json").is_file()
+    assert not (Path.home() / ".cursor" / "mcp.json").is_file()
 
 
 def test_configure_cursor_preserves_other_mcp_servers(tmp_path: Path):
@@ -341,7 +341,7 @@ def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatc
     mcp_data = json.loads((repo / ".mcp.json").read_text())
     assert mcp_data["mcpServers"]["nauro"]["args"] == ["serve", "--stdio"]
     # Cursor + Codex:
-    assert (repo / ".cursor" / "mcp.json").is_file()
+    assert (Path.home() / ".cursor" / "mcp.json").is_file()
     assert (tmp_path / ".codex" / "config.toml").is_file()
 
     # Skill files (materialized):
@@ -448,7 +448,8 @@ def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, m
     assert not (repo_a / ".cursor" / "mcp.json").is_file()
     # And proj-b's per-repo wiring stayed put.
     assert (repo_b / ".mcp.json").is_file()
-    assert (repo_b / ".cursor" / "mcp.json").is_file()
+    assert (Path.home() / ".cursor" / "mcp.json").is_file()
+    assert not (repo_b / ".cursor" / "mcp.json").exists()
 
 
 def test_remove_keeps_shared_agents_and_reports_backups(tmp_path: Path, monkeypatch):

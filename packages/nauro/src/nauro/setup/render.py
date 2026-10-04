@@ -130,6 +130,10 @@ def _render_agents_md(o: AgentsMdOutcome) -> list[str]:
 
 def _render_json_mcp(o: JsonMcpOutcome) -> list[str]:
     match o.kind:
+        case JsonMcpKind.PRESERVED:
+            return [f"  {o.repo_path}: preserved {o.label}: {o.detail}"]
+        case JsonMcpKind.UNCHANGED:
+            return [f"  {o.repo_path}: {o.label} already configured"]
         case JsonMcpKind.WRITE_FAILED:
             return [f"  {o.repo_path}: {_failed_write(o.write_failure)}"]
         case JsonMcpKind.REFUSED_SYMLINK:

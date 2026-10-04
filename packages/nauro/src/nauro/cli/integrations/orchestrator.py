@@ -10,14 +10,19 @@ from nauro.cli.integrations.claude_hooks import materialize_hooks_claude_code
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import _configure_codex, codex_config_path
 from nauro.cli.integrations.codex_hooks import _nearest_codex_hooks_repo, materialize_hooks_codex
-from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo, _configure_mcp
+from nauro.cli.integrations.cursor import configure_cursor
+from nauro.cli.integrations.json_mcp import _configure_mcp
 from nauro.cli.integrations.legacy import _remove_claude_md
 from nauro.cli.integrations.skills import (
     materialize_skills_claude_code,
     materialize_skills_codex,
     materialize_skills_cursor_for_repo,
 )
-from nauro.cli.integrations.user_scope import _registered_project_keys, _user_scope_safe_to_clear
+from nauro.cli.integrations.user_scope import (
+    _cursor_safe_to_clear,
+    _registered_project_keys,
+    _user_scope_safe_to_clear,
+)
 from nauro.cli.utils import _resolve_project_entry, resolve_target_project
 from nauro.constants import AGENTS_MD
 from nauro.setup.claude_bridge import remove_claude_bridge
@@ -121,14 +126,33 @@ def _regenerated_agents_md_lines(
     return lines
 
 
-def cursor_surfaces(project_repos: list[Path], *, remove: bool) -> list[ArtifactOutcome]:
-    """Wire Cursor MCP per repo. Returns the per-repo status lines."""
-    outcomes: list[ArtifactOutcome] = []
+def cursor_surfaces(
+    project_repos: list[Path],
+    *,
+    remove: bool,
+    current_project_key: str | None = None,
+    clear_user_scope_override: bool | None = None,
+) -> list[ArtifactOutcome]:
+    """Configure shared Cursor wiring before removing owned legacy entries."""
+    if remove and (
+        clear_user_scope_override is False or not _cursor_safe_to_clear(current_project_key)
+    ):
+        global_result = JsonMcpOutcome(
+            JsonMcpKind.PRESERVED,
+            Path.home(),
+            ".cursor/mcp.json",
+            detail="other projects or unreadable registry evidence",
+        )
+    else:
+        global_result = configure_cursor(remove=remove)
+    outcomes: list[ArtifactOutcome] = [global_result]
+    if not remove and global_result.kind not in {JsonMcpKind.WROTE, JsonMcpKind.UNCHANGED}:
+        return outcomes
     for repo_path in project_repos:
         if not repo_path.is_dir():
             outcomes.append(RawLine(f"  {repo_path}: repo path missing, skipped"))
             continue
-        outcomes.append(_configure_cursor_for_repo(repo_path, remove=remove))
+        outcomes.append(configure_cursor(remove=True, repo=repo_path))
     return outcomes
 
 
@@ -259,13 +283,19 @@ def _all_cursor_lines(
     with_subagents: bool,
     with_skills: bool,
     force_overwrite: bool,
+    current_project_key: str | None,
+    clear_user_scope_override: bool | None,
 ) -> list[ArtifactOutcome]:
     """Cursor surface lines for ``setup_all_surfaces``: MCP, skills, and agents per repo."""
-    outcomes: list[ArtifactOutcome] = []
+    outcomes = cursor_surfaces(
+        project_repos,
+        remove=remove,
+        current_project_key=current_project_key,
+        clear_user_scope_override=clear_user_scope_override,
+    )
     for repo in project_repos:
         if not repo.is_dir():
             continue
-        outcomes.append(_configure_cursor_for_repo(repo, remove=remove))
         outcomes.extend(
             materialize_skills_cursor_for_repo(
                 repo,
@@ -409,6 +439,8 @@ def setup_all_surfaces(
         _all_cursor_lines(
             project_repos,
             remove=remove,
+            current_project_key=current_project_key,
+            clear_user_scope_override=clear_user_scope_override,
             with_subagents=with_subagents,
             with_skills=with_skills,
             force_overwrite=force_overwrite,

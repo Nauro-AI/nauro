@@ -74,6 +74,14 @@ def test_rawline_is_frozen():
 WRITE_FAILURE = WriteFailure(REPO / "AGENTS.md", 13, "Permission denied")
 
 RENDER_CASES = [
+    (
+        JsonMcpOutcome(JsonMcpKind.UNCHANGED, REPO, ".cursor/mcp.json"),
+        [f"  {REPO}: .cursor/mcp.json already configured"],
+    ),
+    (
+        JsonMcpOutcome(JsonMcpKind.PRESERVED, REPO, ".cursor/mcp.json", detail="uncertain"),
+        [f"  {REPO}: preserved .cursor/mcp.json: uncertain"],
+    ),
     (RawLine("verbatim"), ["verbatim"]),
     (
         AgentsMdOutcome(AgentsMdKind.WRITE_FAILED, REPO, write_failure=WRITE_FAILURE),

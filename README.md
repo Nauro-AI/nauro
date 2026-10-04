@@ -82,7 +82,9 @@ Skip this command if the desktop wizard already adopted your repository. Restart
 
 Approve one existing decision you want future sessions to remember. Start a fresh session and ask about a task where it matters. Check how the agent uses the reason.
 
-Run `nauro status` to check the connection. See [agent workflows](https://nauro.ai/docs/agents-and-skills) and [setup details](https://nauro.ai/docs/quickstart).
+Cursor MCP uses the user-global `~/.cursor/mcp.json`. Setup migrates owned repository entries after the global write succeeds. Restart Cursor and verify its MCP connection.
+
+Run `nauro status` to inspect configuration and executable availability. See [agent workflows](https://nauro.ai/docs/agents-and-skills) and [setup details](https://nauro.ai/docs/quickstart).
 
 The bundled `nauro-investigator` studies Claude and Codex logs for supported findings about Nauro use and development work. See the [investigator guide](docs/investigator.md) for a bounded first run and a research notebook that later runs can resume.
 

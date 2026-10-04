@@ -249,8 +249,8 @@ def test_status_mcp_partial_repo_wiring(tmp_path, monkeypatch):
     assert "MCP           active (wired in 1/2 repos)" in result.output
 
 
-def test_status_mcp_cursor_wiring_counts(tmp_path, monkeypatch):
-    """A nauro entry in .cursor/mcp.json counts as repo wiring."""
+def test_status_legacy_cursor_is_migration_evidence(tmp_path, monkeypatch):
+    """Repository Cursor wiring needs migration to the global configuration."""
     _setup_project(tmp_path, monkeypatch)
     cursor_dir = tmp_path / ".cursor"
     cursor_dir.mkdir()
@@ -260,7 +260,8 @@ def test_status_mcp_cursor_wiring_counts(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "MCP           active (wired in 1/1 repos)" in result.output
+    assert "MCP           inactive" in result.output
+    assert "legacy Cursor in 1 repos" in result.output
 
 
 def test_status_mcp_codex_global_only(tmp_path, monkeypatch):
@@ -803,3 +804,37 @@ def test_status_says_quarantines_are_unreadable_rather_than_absent(tmp_path, mon
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0, result.output
     assert "Quarantined decision-number collisions: could not be read" in result.output
+
+
+def test_status_cursor_global_independent_safe_and_read_only(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    config = Path.home() / ".cursor" / "mcp.json"
+    config.parent.mkdir(parents=True)
+    config.write_text(json.dumps({"mcpServers": {"nauro": {"command": "nauro"}}}))
+    before = config.read_bytes()
+    calls = []
+    monkeypatch.setattr(
+        nauro_command, "probe_nauro_command", lambda cmd, **kw: calls.append(cmd) or True
+    )
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "Cursor global" in result.output
+    assert "Codex global" not in result.output
+    assert calls == ["nauro"]
+    calls.clear()
+    result = runner.invoke(app, ["status", "--no-probe"])
+    assert result.exit_code == 0
+    assert "Cursor global" in result.output
+    assert calls == []
+    assert config.read_bytes() == before
+    config.write_text(json.dumps({"mcpServers": {"nauro": {"command": "/tmp/not-nauro"}}}))
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "not a nauro install, not probed" in result.output
+    assert calls == []
+    config.write_bytes(b"\xff")
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert "MCP           unknown" in result.output
+    assert str(config) in result.output
+    assert config.read_bytes() == b"\xff"

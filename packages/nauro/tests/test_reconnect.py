@@ -208,3 +208,27 @@ def test_reconnect_reports_an_unreadable_mcp_config_instead_of_the_setup_hint(tm
     captured = capsys.readouterr()
     assert f"Could not read {repo / '.mcp.json'}" in captured.err
     assert "Next: run" not in captured.out
+
+
+def test_reconnect_cursor_global_and_legacy_hint(tmp_path, capsys):
+    from pathlib import Path
+
+    from nauro.cli.commands.reconnect import _echo_setup_hint_if_unwired
+
+    repo = _local_repo(tmp_path)
+    legacy = repo / ".cursor" / "mcp.json"
+    legacy.parent.mkdir()
+    legacy.write_text('{"mcpServers":{"nauro":{"command":"nauro"}}}')
+    _echo_setup_hint_if_unwired(repo)
+    assert "Next: run" in capsys.readouterr().out
+    config = Path.home() / ".cursor" / "mcp.json"
+    config.parent.mkdir(parents=True)
+    config.write_bytes(legacy.read_bytes())
+    _echo_setup_hint_if_unwired(repo)
+    assert capsys.readouterr().out == ""
+    config.write_bytes(b"\xff")
+    _echo_setup_hint_if_unwired(repo)
+    captured = capsys.readouterr()
+    assert str(config) in captured.err
+    assert "Next: run" not in captured.out
+    assert config.read_bytes() == b"\xff"

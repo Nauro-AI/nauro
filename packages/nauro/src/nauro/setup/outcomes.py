@@ -49,6 +49,8 @@ class RawLine:
 
 
 class JsonMcpKind(Enum):
+    PRESERVED = auto()
+    UNCHANGED = auto()
     REFUSED_SYMLINK = auto()
     REFUSED_TRACKED = auto()
     PARSE_ERROR = auto()
@@ -67,7 +69,7 @@ class JsonMcpOutcome:
     kind: JsonMcpKind
     repo_path: Path
     label: str
-    refusal: SymlinkRefusal | None = None
+    refusal: SymlinkRefusal | UserSymlinkRefusal | None = None
     detail: str | None = None
     git_warnings: tuple[str, ...] = ()
     gitignore: GitIgnoreResult | None = None

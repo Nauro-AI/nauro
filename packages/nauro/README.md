@@ -59,7 +59,7 @@ For cross-surface onboarding, run `nauro adopt --with-skills --with-subagents`. 
 
 Cursor runs `nauro-ship-task` natively. `nauro-loop` Program Delivery stays on hold.
 
-Restart, then seed the store with `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat. On a new machine, run `nauro setup cursor`, then restart Cursor. Commit `.nauro/config.json`, `.cursor/rules/nauro-*.mdc`, and `.cursor/agents/nauro-*.md`, not the gitignored, machine-local `.cursor/mcp.json`.
+Restart, then seed the store with `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat. On a new machine, run `nauro setup cursor`, then restart Cursor and verify its MCP connection. Setup writes user-global `~/.cursor/mcp.json` and removes owned repository wiring after success. Commit `.nauro/config.json`, `.cursor/rules/nauro-*.mdc`, and `.cursor/agents/nauro-*.md`. Keep the global MCP configuration machine-local.
 
 Cursor Cloud Agents need separate MCP configuration at `cursor.com/agents`. If you use Nauro's hosted connector there, link and sync the project first.
 

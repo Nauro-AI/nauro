@@ -88,6 +88,8 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
             "repo_count": 1,
             "wired_repos": 0,
             "codex_global": False,
+            "cursor_global": False,
+            "legacy_cursor_repos": 0,
             "probed": False,
             "healthy": None,
             "untrusted_commands": 0,
@@ -373,6 +375,8 @@ def test_status_json_counts_untrusted_commands_and_never_probes_them(tmp_path, m
         "repo_count": 1,
         "wired_repos": 1,
         "codex_global": False,
+        "cursor_global": False,
+        "legacy_cursor_repos": 0,
         "probed": False,
         "healthy": None,
         "untrusted_commands": 1,
@@ -394,3 +398,31 @@ def test_status_json_names_the_files_it_could_not_read(tmp_path, monkeypatch):
     assert payload["mcp"]["unreadable"] == [str(repo / ".mcp.json")]
     assert payload["mcp"]["wired_repos"] == 0
     assert payload["codex_hooks"]["unreadable"] == []
+
+
+def test_status_json_separates_cursor_global_and_legacy(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    _, repo = _setup_project(tmp_path, monkeypatch)
+    legacy = repo / ".cursor" / "mcp.json"
+    global_config = Path.home() / ".cursor" / "mcp.json"
+    for config in (legacy, global_config):
+        config.parent.mkdir(parents=True)
+        config.write_text(json.dumps({"mcpServers": {"nauro": {"command": "nauro"}}}))
+    result = runner.invoke(app, ["status", "--json", "--no-probe"])
+    assert result.exit_code == 0
+    mcp = json.loads(result.stdout)["mcp"]
+    assert mcp["cursor_global"] is True
+    assert mcp["codex_global"] is False
+    assert mcp["wired_repos"] == 0
+    assert mcp["legacy_cursor_repos"] == 1
+    assert mcp["probed"] is False
+    assert mcp["healthy"] is None
+    global_config.write_bytes(b"\xff")
+    result = runner.invoke(app, ["status", "--json", "--no-probe"])
+    assert result.exit_code == 0
+    mcp = json.loads(result.stdout)["mcp"]
+    assert mcp["cursor_global"] is False
+    assert mcp["legacy_cursor_repos"] == 1
+    assert mcp["unreadable"] == [str(global_config)]
+    assert global_config.read_bytes() == b"\xff"

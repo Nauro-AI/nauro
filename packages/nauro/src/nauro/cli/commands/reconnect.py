@@ -9,7 +9,11 @@ import typer
 
 from nauro.cli._reporters import StderrReporter
 from nauro.cli.generation_writes import legacy_write_guard, require_legacy_write
-from nauro.cli.integrations.json_mcp import recorded_mcp_commands
+from nauro.cli.integrations.json_mcp import (
+    recorded_cursor_command,
+    recorded_legacy_cursor_command,
+    recorded_mcp_commands,
+)
 from nauro.store.recovery import (
     RecoveryError,
     bind_local_store,
@@ -48,9 +52,12 @@ def _echo_setup_hint_if_unwired(repo_root: Path) -> None:
     read-only and soft-failing, and a wired repo stays silent.
     """
     wiring = recorded_mcp_commands(repo_root)
-    for failure in wiring.unreadable:
+    cursor = recorded_cursor_command()
+    legacy = recorded_legacy_cursor_command(repo_root)
+    unreadable = wiring.unreadable + cursor.unreadable + legacy.unreadable
+    for failure in unreadable:
         typer.echo(f"Could not read {failure.path}: {failure.reason}", err=True)
-    if wiring.unreadable or wiring.wired:
+    if unreadable or wiring.wired or cursor.wired:
         return
     typer.echo("Next: run 'nauro setup all' to wire this machine's agents.")
 
