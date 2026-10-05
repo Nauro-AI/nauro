@@ -13,6 +13,7 @@ from nauro.sync.decision_reference_contract import (
     reference_schema,
 )
 from nauro.sync.hosted_question_schema import question_schema
+from nauro.sync.hosted_state_schema import state_schema
 
 READ_SPECS = {spec["name"]: spec for spec in (GET_CONTEXT, GET_DECISION)}
 
@@ -55,6 +56,8 @@ def negotiate_registry(result: Any) -> bool:
         accepted = [schemas[name]]
         if len(tools) == len(HOSTED_TOOLS) and name == "flag_question":
             accepted.append(question_schema())
+        if len(tools) == len(HOSTED_TOOLS) and name == "update_state":
+            accepted.append(state_schema())
         if tool.get("inputSchema") not in accepted:
             raise DecisionReferenceError("Unexpected isolated tool registry")
         names.add(name)

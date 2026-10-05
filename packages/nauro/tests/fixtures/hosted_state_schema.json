@@ -1,0 +1,183 @@
+{
+  "type": "object",
+  "properties": {
+    "delta": {
+      "type": "string",
+      "description": "Description of what changed (e.g. \"Deployed v0.2.0 to staging\")."
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Optional; auto-resolved for one project. With several, list ids via list_projects (hosted) or `nauro projects` (local)."
+    },
+    "expected_revision": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": [
+            "absent"
+          ]
+        },
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      ],
+      "description": "Required for generation state submission. Use the revision from an authorized state read; use absent only when that read established absence. Retry preserves the original revision."
+    },
+    "request_mode": {
+      "type": "string",
+      "enum": [
+        "submit",
+        "recover",
+        "retry",
+        "discover"
+      ]
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^state-request:[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+      "minLength": 40,
+      "maxLength": 40
+    },
+    "payload_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "after": {
+      "type": "string",
+      "maxLength": 256
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "request_mode": {
+          "const": "submit"
+        }
+      },
+      "required": [
+        "request_mode",
+        "delta",
+        "expected_revision"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "request_mode",
+          "delta",
+          "expected_revision"
+        ]
+      }
+    },
+    {
+      "required": [
+        "delta",
+        "expected_revision"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "delta",
+          "expected_revision"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "request_mode": {
+          "const": "recover"
+        }
+      },
+      "required": [
+        "request_mode",
+        "project_id",
+        "operation_id",
+        "payload_digest"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "request_mode",
+          "operation_id",
+          "payload_digest"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "request_mode": {
+          "const": "retry"
+        }
+      },
+      "required": [
+        "request_mode",
+        "project_id",
+        "operation_id",
+        "payload_digest"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "request_mode",
+          "operation_id",
+          "payload_digest"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "request_mode": {
+          "const": "discover"
+        }
+      },
+      "required": [
+        "request_mode",
+        "project_id"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "request_mode",
+          "after"
+        ]
+      }
+    },
+    {
+      "required": [
+        "delta"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "expected_revision"
+            ]
+          },
+          {
+            "required": [
+              "operation_id"
+            ]
+          },
+          {
+            "required": [
+              "payload_digest"
+            ]
+          },
+          {
+            "required": [
+              "request_mode"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
