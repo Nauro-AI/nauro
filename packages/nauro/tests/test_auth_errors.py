@@ -2,7 +2,12 @@ import httpx
 import jwt
 import pytest
 
-from nauro.sync.auth_errors import AuthenticationError, RenewalRequiredError, auth_error_message
+from nauro.sync.auth_errors import (
+    AuthenticationError,
+    RenewalRequiredError,
+    VerificationRequiredError,
+    auth_error_message,
+)
 
 
 @pytest.mark.parametrize(
@@ -47,3 +52,11 @@ def test_unfenced_rate_limit_keeps_retry_guidance():
 )
 def test_jwt_errors_are_specific_without_exposing_exception_contents(cause, expected):
     assert auth_error_message(cause("synthetic secret")) == expected
+
+
+def test_expired_pending_token_leads_with_login_recovery():
+    assert auth_error_message(VerificationRequiredError(jwt.ExpiredSignatureError("secret"))) == (
+        "The returned access token has expired. Access remains blocked. "
+        "Run 'nauro auth login'. "
+        "If this machine's clock is incorrect, correct it before signing in."
+    )

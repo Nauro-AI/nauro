@@ -311,6 +311,8 @@ def test_expired_saved_response_stays_blocked_without_reusing_refresh_token(acco
         result = command("refresh")
         assert result.exit_code == 1
         assert "access token has expired" in result.output
+        assert "Run 'nauro auth login'" in result.output
+        assert "Run 'nauro auth refresh'" not in result.output
         with pytest.raises(ValueError):
             module.generation_credentials(account.connection, ACTOR)
     assert len([r for r in account.calls if r.url.path == "/oauth/token"]) == 1

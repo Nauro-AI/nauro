@@ -328,6 +328,44 @@ def test_persistent_storage_failure_after_exchange_keeps_marker(setup, monkeypat
         profile_credentials(setup.profile)
 
 
+@pytest.mark.parametrize("failure_point", ["before_replace", "directory_sync"])
+def test_received_response_survives_one_time_storage_failure(setup, monkeypatch, failure_point):
+    store = setup.auth.store
+    original_write, original_sync = store.write, store.sync_directory
+    failed = []
+
+    def write(record):
+        if failure_point == "before_replace" and record.needs_verification() and not failed:
+            failed.append(failure_point)
+            raise OSError("temporary storage failure")
+        original_write(record)
+
+    def sync():
+        record = store.read()
+        if failure_point == "directory_sync" and record.needs_verification() and not failed:
+            failed.append(failure_point)
+            raise OSError("temporary directory sync failure")
+        original_sync()
+
+    monkeypatch.setattr(store, "write", write)
+    monkeypatch.setattr(store, "sync_directory", sync)
+    with pytest.raises(ValueError, match="retry verification without another token exchange"):
+        setup.auth.refresh()
+    assert failed == [failure_point]
+    assert store.read().refresh_token == "rotated-1"
+    assert store.read().needs_verification() is True
+    assert store.incomplete() is True
+    assert setup.auth.status() == "verification_required"
+    with pytest.raises(ValueError):
+        profile_credentials(setup.profile)
+    assert [r.url.path for r in setup.calls] == ["/oauth/token"]
+    restarted = ReferenceAuth(setup.profile, setup.client)
+    restarted.refresh()
+    assert restarted.status() == "active"
+    assert store.read().refresh_token == "rotated-1"
+    assert [r.url.path for r in setup.calls] == ["/oauth/token", "/.well-known/jwks.json"]
+
+
 def test_profile_binding_and_private_files(setup):
     assert "original-refresh" not in repr(setup.auth.store.read())
     changed = setup.profile.model_copy(update={"client_id": "other-client"})

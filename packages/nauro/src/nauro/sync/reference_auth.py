@@ -179,16 +179,6 @@ def renew_credentials(
         store.write(pending)
         try:
             access, refresh = exchange(record)
-            received = record.model_copy(
-                update={
-                    "revision": secrets.token_hex(32),
-                    "state": "renewal_in_progress",
-                    "access_token": access,
-                    "refresh_token": refresh,
-                    "expires_at": 0,
-                }
-            )
-            store.write(received)
         except ExchangeNotSentError:
             store.write(record)
             store.finish()
@@ -197,6 +187,21 @@ def renew_credentials(
             store.begin()
             store.write(pending)
             raise RenewalRequiredError(exc) from None
+        received = record.model_copy(
+            update={
+                "revision": secrets.token_hex(32),
+                "state": "renewal_in_progress",
+                "access_token": access,
+                "refresh_token": refresh,
+                "expires_at": 0,
+            }
+        )
+        try:
+            store.write(received)
+        except AUTH_ERRORS as exc:
+            # A write can replace the file before its directory sync fails.
+            store.write(received)
+            raise VerificationRequiredError(exc) from None
         _complete_verification(store, received, replacement)
 
 

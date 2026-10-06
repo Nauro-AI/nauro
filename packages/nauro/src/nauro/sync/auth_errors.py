@@ -60,10 +60,17 @@ class RenewalRequiredError(ValueError):
 
 class VerificationRequiredError(ValueError):
     def __init__(self, cause: Exception) -> None:
-        super().__init__(
-            f"{auth_error_message(cause, recovery=False)} Access remains blocked. "
+        recovery = (
             "Run 'nauro auth refresh' to retry verification without another token exchange. "
             "If verification keeps failing, run 'nauro auth login'."
+        )
+        if isinstance(cause, jwt.ExpiredSignatureError):
+            recovery = (
+                "Run 'nauro auth login'. "
+                "If this machine's clock is incorrect, correct it before signing in."
+            )
+        super().__init__(
+            f"{auth_error_message(cause, recovery=False)} Access remains blocked. {recovery}"
         )
 
 

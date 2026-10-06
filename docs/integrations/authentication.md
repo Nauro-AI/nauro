@@ -25,7 +25,7 @@ Authentication status checks and reads do not silently renew credentials.
 | `active` | Continue using Nauro. |
 | `expired` | Run `nauro auth refresh`. |
 | `logged_out` | Run `nauro auth login`. |
-| `verification_required` | Run `nauro auth refresh` to verify the saved response. This sends no new token exchange. Access remains blocked until verification succeeds. |
+| `verification_required` | Run `nauro auth refresh` to verify the saved response without a new token exchange. If the saved token has expired, run `nauro auth login`. Access remains blocked until verification succeeds. |
 | `reauthentication_required` | Run `nauro auth login`; renewal cannot reuse the saved credentials. |
 | Token endpoint could not be reached before sending | Credentials remain saved. Check the connection, then retry renewal explicitly. |
 | Exchange outcome is uncertain | Sign in again. The old rotating token may have been consumed. |
@@ -55,6 +55,9 @@ Token issue and not-before timestamps allow at most five seconds of clock skew.
 This allowance does not extend token expiration or relax signature, issuer,
 audience, account, client, or permission checks. Larger clock differences produce
 a specific error. Check the operating system's time synchronization before retrying.
+This allowance applies only to local verification. The server checks tokens against
+its own clock and can refuse a token whose issue or not-before time is still in
+the future there. Local `active` status does not guarantee server authorization.
 
 Older clients report a saved, unverified response as `reauthentication_required`.
 Use the updated client to resume verification. Credential files remain compatible;
