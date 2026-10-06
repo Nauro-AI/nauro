@@ -1,6 +1,8 @@
 import asyncio
 import json
 import time
+from datetime import datetime
+from types import SimpleNamespace
 
 import httpx
 import jwt
@@ -8,17 +10,62 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp_server import decision_delivery as delivery
 from mcp_server.generations import read_generation_pointer
+from tests.test_decision_reference import ORIGIN, probe, signed_transport
+from tests.test_judgment_planning import USER_ID, _table
+from typer.testing import CliRunner
+
 from nauro.cli import decision_reference as cli
 from nauro.cli.main import app
 from nauro.mcp.decision_reference import reference_server
 from nauro.sync.decision_profile import RenewalProfile, profile_transport
 from nauro.sync.reference_auth import ReferenceAuth
+from nauro.sync.reference_oauth import verified_claims
 from tests.conftest import TEST_PROJECT_ID
-from tests.test_decision_reference import ORIGIN, probe, signed_transport
-from tests.test_judgment_planning import USER_ID, _table
-from typer.testing import CliRunner
 
 __all__ = ["probe", "signed_transport"]
+
+
+@pytest.mark.parametrize("client_offset,token_offset,status", [(-2, 0, 200), (0, 2, 401)])
+def test_client_clock_allowance_preserves_server_authority(
+    probe, signed_transport, monkeypatch, client_offset, token_offset, status
+):
+    now = int(time.time())
+    clock = {"offset": client_offset}
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromtimestamp(now + clock["offset"], tz=tz)
+
+    monkeypatch.setattr(jwt.api_jwt, "datetime", Clock)
+    profile = SimpleNamespace(
+        issuer="https://test.auth0.com/",
+        audience=ORIGIN + "/mcp",
+        client_id="synthetic-installed-client",
+    )
+    claims = {
+        **signed_transport.claims,
+        "aud": profile.audience,
+        "azp": profile.client_id,
+        "iat": now + token_offset,
+        "nbf": now + token_offset,
+        "exp": now + 600,
+    }
+    token = jwt.encode(claims, signed_transport.key, algorithm="RS256", headers={"kid": "test"})
+    jwk = jwt.algorithms.RSAAlgorithm.to_jwk(signed_transport.key.public_key(), as_dict=True)
+    jwk["kid"] = "test"
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"keys": [jwk]}))
+    ) as client:
+        assert verified_claims(profile, token, client) == claims
+
+    clock["offset"] = 0
+    response = probe.post(
+        "/mcp",
+        headers={"Authorization": "Bearer " + token},
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    )
+    assert response.status_code == status
 
 
 @pytest.mark.parametrize("revoke", [False, True])

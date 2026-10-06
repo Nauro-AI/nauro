@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 from nauro.auth import ActiveCredentials
 from nauro.store.home import nauro_home
+from nauro.sync.auth_errors import AuthenticationError
 from nauro.sync.decision_profile import _private_json
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.reference_auth import AUTH_ERRORS, renew_credentials
@@ -202,14 +203,20 @@ class GenerationAuth:
         def replacement(before: CredentialRecord) -> AccountRecord:
             if not isinstance(before, AccountRecord):
                 raise ValueError("Generation login required")
-            access, refresh, claims = self._tokens(
-                {"grant_type": "refresh_token", "refresh_token": before.refresh_token}
-            )
+            claims = verified_claims(self.connection, before.access_token, self.client)
             if claims["sub"] != before.subject:
-                raise ValueError("Account changed during renewal")
-            return self._record(access, refresh, claims, before.user_id)
+                raise AuthenticationError("token_identity")
+            return self._record(before.access_token, before.refresh_token, claims, before.user_id)
 
-        renew_credentials(self.store, replacement)
+        renew_credentials(
+            self.store,
+            lambda record: exchange_tokens(
+                self.connection,
+                self.client,
+                {"grant_type": "refresh_token", "refresh_token": record.refresh_token},
+            ),
+            replacement,
+        )
 
     def logout(self) -> None:
         with self.store.locked():
@@ -219,6 +226,8 @@ class GenerationAuth:
     def status(self) -> str:
         with self.store.locked():
             record = self.store.read()
+            if record and record.needs_verification():
+                return "verification_required"
             if self.store.incomplete() or (record and record.state == "renewal_in_progress"):
                 return "reauthentication_required"
             if record is None or record.state == "logged_out":

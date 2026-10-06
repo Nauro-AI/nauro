@@ -97,6 +97,7 @@ def account(tmp_path, monkeypatch):
                 "iat": int(time.time()),
                 "exp": int(time.time()) + 600,
                 "scope": "read:context write:context",
+                "jti": str(control["count"]),
             }
             claims.update(control["changes"])
             token = jwt.encode(claims, key, algorithm="RS256", headers={"kid": "key"})
@@ -191,15 +192,130 @@ def test_unsent_renewal_preserves_credentials_for_explicit_retry(account, failur
     assert command("refresh").exit_code == 0
 
 
-def test_signing_key_fetch_failure_after_exchange_still_requires_login(account):
+@pytest.mark.parametrize("non_rotating", [False, True])
+def test_signing_key_failure_can_resume_without_another_exchange(account, non_rotating):
     assert command("login").exit_code == 0
+    before = account.connection.store().read()
+    account.control["omit_refresh"] = non_rotating
+    account.calls.clear()
     account.control["jwks_failure"] = True
     result = command("refresh")
     assert result.exit_code == 1
-    assert "login required" in result.output
+    assert "retry verification without another token exchange" in result.output
     assert "synthetic secret" not in result.output
-    assert account.connection.store().read().refresh_token == ""
+    pending = account.connection.store().read()
+    assert pending.refresh_token == (before.refresh_token if non_rotating else "rotated-2")
+    assert pending.access_token != before.access_token
     assert account.connection.store().incomplete() is True
+    assert command("status").stdout.strip() == "verification_required"
+    with pytest.raises(ValueError):
+        module.generation_credentials(account.connection, ACTOR)
+    account.control["jwks_failure"] = False
+    assert command("refresh").exit_code == 0
+    after = account.connection.store().read()
+    assert after.access_token == pending.access_token
+    assert after.refresh_token == pending.refresh_token
+    assert after.subject == before.subject
+    assert after.user_id == before.user_id
+    assert command("status").stdout.strip() == "active"
+    assert [r.url.path for r in account.calls] == [
+        "/oauth/token",
+        "/.well-known/jwks.json",
+        "/.well-known/jwks.json",
+    ]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"iss": "https://other.example/"},
+        {"aud": "other"},
+        {"azp": "other"},
+        {"sub": "other"},
+        {"scope": "read:context"},
+    ],
+)
+def test_retry_never_admits_invalid_received_credentials(account, changes):
+    assert command("login").exit_code == 0
+    account.calls.clear()
+    account.control["changes"] = changes
+    assert command("refresh").exit_code == 1
+    pending = account.connection.store().read()
+    account.control["changes"] = {}
+    assert command("refresh").exit_code == 1
+    assert account.connection.store().read() == pending
+    assert command("status").stdout.strip() == "verification_required"
+    with pytest.raises(ValueError):
+        module.generation_credentials(account.connection, ACTOR)
+    assert [r.url.path for r in account.calls] == [
+        "/oauth/token",
+        "/.well-known/jwks.json",
+        "/.well-known/jwks.json",
+    ]
+
+
+def test_logout_discards_pending_verification_and_prevents_recovery(account):
+    assert command("login").exit_code == 0
+    account.control["jwks_failure"] = True
+    assert command("refresh").exit_code == 1
+    account.calls.clear()
+    assert command("logout").exit_code == 0
+    account.control["jwks_failure"] = False
+    assert command("refresh").exit_code == 1
+    assert command("status").stdout.strip() == "logged_out"
+    record = account.connection.store().read()
+    assert record.access_token == ""
+    assert record.refresh_token == ""
+    assert account.calls == []
+
+
+def test_clock_recovery_verifies_the_saved_response_without_another_exchange(account, monkeypatch):
+    from datetime import datetime, timezone
+
+    assert command("login").exit_code == 0
+    clock = {"now": int(time.time())}
+
+    class Clock:
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromtimestamp(clock["now"], timezone.utc)
+
+    monkeypatch.setattr("jwt.api_jwt.datetime", Clock)
+    monkeypatch.setattr("nauro.sync.reference_oauth.time.time", lambda: clock["now"])
+    account.control["changes"] = {"iat": clock["now"] + 10}
+    account.calls.clear()
+    result = command("refresh")
+    assert result.exit_code == 1
+    assert "timestamp is ahead of this machine's clock" in result.output
+    assert command("status").stdout.strip() == "verification_required"
+    pending = account.connection.store().read()
+    with pytest.raises(ValueError):
+        module.generation_credentials(account.connection, ACTOR)
+    clock["now"] += 6
+    assert command("refresh").exit_code == 0
+    assert account.connection.store().read().access_token == pending.access_token
+    assert account.connection.store().read().refresh_token == pending.refresh_token
+    assert command("status").stdout.strip() == "active"
+    assert [r.url.path for r in account.calls] == [
+        "/oauth/token",
+        "/.well-known/jwks.json",
+        "/.well-known/jwks.json",
+    ]
+
+
+def test_expired_saved_response_stays_blocked_without_reusing_refresh_token(account):
+    assert command("login").exit_code == 0
+    account.control["changes"] = {"exp": 1}
+    account.calls.clear()
+    for _ in range(2):
+        result = command("refresh")
+        assert result.exit_code == 1
+        assert "access token has expired" in result.output
+        assert "Run 'nauro auth login'" in result.output
+        assert "Run 'nauro auth refresh'" not in result.output
+        with pytest.raises(ValueError):
+            module.generation_credentials(account.connection, ACTOR)
+    assert len([r for r in account.calls if r.url.path == "/oauth/token"]) == 1
 
 
 def test_initial_login_still_requires_a_refresh_token(account):
@@ -418,7 +534,7 @@ def test_normal_renewal_durability_failure_closes_admission(account, monkeypatch
         assert account.calls == []
     else:
         assert account.connection.store().incomplete() is True
-        assert command("status").stdout.strip() == "reauthentication_required"
+        assert command("status").stdout.strip() == "verification_required"
         with pytest.raises(ValueError):
             module.generation_credentials(account.connection, ACTOR)
 

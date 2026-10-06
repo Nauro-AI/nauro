@@ -42,6 +42,14 @@ class CredentialRecord(BaseModel):
     refresh_token: str = Field(default="", repr=False)
     expires_at: int = 0
 
+    def needs_verification(self) -> bool:
+        return (
+            self.state == "renewal_in_progress"
+            and bool(self.access_token)
+            and bool(self.refresh_token)
+            and self.expires_at == 0
+        )
+
 
 class CredentialStore:
     def __init__(self, path: Path, binding: str, actor: str) -> None:

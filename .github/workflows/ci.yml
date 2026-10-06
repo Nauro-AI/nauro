@@ -243,7 +243,7 @@ jobs:
               "test_list_decisions_cross_surface": 2, "test_propose_decision_cross_surface": 4,
               "test_search_decisions_cross_surface": 2, "test_update_state_cross_surface": 4,
               "test_decision_reference_cli_server": 3, "test_decision_reference_server": 17,
-              "test_decision_reference_startup_server": 2, "test_reference_auth_server": 2,
+              "test_decision_reference_startup_server": 2, "test_reference_auth_server": 4,
               "test_reference_reads_server": 1, "test_generation_discovery_server": 4,
           }
           assert dict(counts) == expected, dict(counts)

@@ -15,12 +15,13 @@ from nauro.sync.auth_errors import (
     AuthenticationError,
     ExchangeNotSentError,
     RenewalRequiredError,
+    VerificationRequiredError,
     auth_error_message,
 )
 from nauro.sync.decision_profile import RenewalProfile, load_reference_profile
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.reference_credentials import CredentialRecord, CredentialStore, profile_binding
-from nauro.sync.reference_oauth import callback_code, exchange
+from nauro.sync.reference_oauth import callback_code, exchange, exchange_tokens, verify_access
 
 AUTH_ERRORS = (
     ValueError,
@@ -92,17 +93,22 @@ class ReferenceAuth:
     def refresh(self) -> None:
         def replacement(record: CredentialRecord) -> CredentialRecord:
             return self._record(
-                exchange(
-                    self.profile,
-                    self.client,
-                    {
-                        "grant_type": "refresh_token",
-                        "refresh_token": record.refresh_token,
-                    },
+                (
+                    record.access_token,
+                    record.refresh_token,
+                    verify_access(self.profile, record.access_token, self.client),
                 )
             )
 
-        renew_credentials(self.store, replacement)
+        renew_credentials(
+            self.store,
+            lambda record: exchange_tokens(
+                self.profile,
+                self.client,
+                {"grant_type": "refresh_token", "refresh_token": record.refresh_token},
+            ),
+            replacement,
+        )
 
     def logout(self) -> None:
         with self.store.locked():
@@ -112,6 +118,8 @@ class ReferenceAuth:
     def status(self) -> str:
         with self.store.locked():
             record = self.store.read()
+            if record and record.needs_verification():
+                return "verification_required"
             if self.store.incomplete():
                 return "reauthentication_required"
             if record is None or record.state == "logged_out":
@@ -140,17 +148,25 @@ def run_reference_auth(action: str, path: Path, present_url: Callable[[str], Non
                 raise ValueError("Unsupported reference authentication action")
         return "Reference credentials updated. No decision request was submitted."
     except AUTH_ERRORS as exc:
-        message = auth_error_message(exc).replace(
-            "'nauro auth login'", "'nauro auth login --reference-profile <path>'"
-        )
+        message = auth_error_message(exc)
+        for command in ("login", "refresh"):
+            message = message.replace(
+                f"'nauro auth {command}'", f"'nauro auth {command} --reference-profile <path>'"
+            )
         raise ValueError(f"Reference authentication failed. {message}") from None
 
 
 def renew_credentials(
-    store: CredentialStore, replacement: Callable[[CredentialRecord], CredentialRecord]
+    store: CredentialStore,
+    exchange: Callable[[CredentialRecord], tuple[str, str]],
+    replacement: Callable[[CredentialRecord], CredentialRecord],
 ) -> None:
     with store.locked():
         record = store.read()
+        if record and record.needs_verification():
+            store.begin()
+            _complete_verification(store, record, replacement)
+            return
         if (
             store.incomplete()
             or record is None
@@ -162,8 +178,7 @@ def renew_credentials(
         store.begin()
         store.write(pending)
         try:
-            store.write(replacement(record))
-            store.finish()
+            access, refresh = exchange(record)
         except ExchangeNotSentError:
             store.write(record)
             store.finish()
@@ -172,3 +187,33 @@ def renew_credentials(
             store.begin()
             store.write(pending)
             raise RenewalRequiredError(exc) from None
+        received = record.model_copy(
+            update={
+                "revision": secrets.token_hex(32),
+                "state": "renewal_in_progress",
+                "access_token": access,
+                "refresh_token": refresh,
+                "expires_at": 0,
+            }
+        )
+        try:
+            store.write(received)
+        except AUTH_ERRORS as exc:
+            # A write can replace the file before its directory sync fails.
+            store.write(received)
+            raise VerificationRequiredError(exc) from None
+        _complete_verification(store, received, replacement)
+
+
+def _complete_verification(
+    store: CredentialStore,
+    received: CredentialRecord,
+    replacement: Callable[[CredentialRecord], CredentialRecord],
+) -> None:
+    try:
+        store.write(replacement(received))
+        store.finish()
+    except AUTH_ERRORS as exc:
+        store.begin()
+        store.write(received)
+        raise VerificationRequiredError(exc) from None

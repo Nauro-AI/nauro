@@ -173,12 +173,23 @@ def test_unsent_reference_renewal_can_be_retried(setup, failure):
     assert setup.auth.status() == "active"
 
 
-def test_post_exchange_connection_failure_does_not_restore_old_token(setup):
+def test_post_exchange_connection_failure_preserves_received_token_for_verification(setup):
     setup.control["jwks_failure"] = True
-    with pytest.raises(ValueError, match="login required"):
+    with pytest.raises(ValueError, match="retry verification without another token exchange"):
         setup.auth.refresh()
-    assert setup.auth.status() == "reauthentication_required"
-    assert setup.auth.store.read().refresh_token == ""
+    assert setup.auth.status() == "verification_required"
+    assert setup.auth.store.read().refresh_token == "rotated-1"
+    with pytest.raises(ValueError):
+        profile_credentials(setup.profile)
+    setup.control["jwks_failure"] = False
+    restarted = ReferenceAuth(setup.profile, setup.client)
+    restarted.refresh()
+    assert restarted.status() == "active"
+    assert [r.url.path for r in setup.calls] == [
+        "/oauth/token",
+        "/.well-known/jwks.json",
+        "/.well-known/jwks.json",
+    ]
 
 
 def test_failed_restoration_after_unsent_exchange_keeps_recovery_closed(setup, monkeypatch):
@@ -291,9 +302,13 @@ def test_durable_replacement_failure_keeps_renewal_fenced(setup, monkeypatch):
     monkeypatch.setattr(setup.auth.store, "write", fail)
     with pytest.raises(ValueError):
         setup.auth.refresh()
-    assert setup.auth.status() == "reauthentication_required"
+    assert setup.auth.status() == "verification_required"
     with pytest.raises(ValueError):
         profile_credentials(setup.profile)
+    assert len([r for r in setup.calls if r.url.path == "/oauth/token"]) == 1
+    monkeypatch.setattr(setup.auth.store, "write", original)
+    setup.auth.refresh()
+    assert setup.auth.status() == "active"
     assert len([r for r in setup.calls if r.url.path == "/oauth/token"]) == 1
 
 
@@ -311,6 +326,44 @@ def test_persistent_storage_failure_after_exchange_keeps_marker(setup, monkeypat
     assert setup.auth.store.incomplete() is True
     with pytest.raises(ValueError):
         profile_credentials(setup.profile)
+
+
+@pytest.mark.parametrize("failure_point", ["before_replace", "directory_sync"])
+def test_received_response_survives_one_time_storage_failure(setup, monkeypatch, failure_point):
+    store = setup.auth.store
+    original_write, original_sync = store.write, store.sync_directory
+    failed = []
+
+    def write(record):
+        if failure_point == "before_replace" and record.needs_verification() and not failed:
+            failed.append(failure_point)
+            raise OSError("temporary storage failure")
+        original_write(record)
+
+    def sync():
+        record = store.read()
+        if failure_point == "directory_sync" and record.needs_verification() and not failed:
+            failed.append(failure_point)
+            raise OSError("temporary directory sync failure")
+        original_sync()
+
+    monkeypatch.setattr(store, "write", write)
+    monkeypatch.setattr(store, "sync_directory", sync)
+    with pytest.raises(ValueError, match="retry verification without another token exchange"):
+        setup.auth.refresh()
+    assert failed == [failure_point]
+    assert store.read().refresh_token == "rotated-1"
+    assert store.read().needs_verification() is True
+    assert store.incomplete() is True
+    assert setup.auth.status() == "verification_required"
+    with pytest.raises(ValueError):
+        profile_credentials(setup.profile)
+    assert [r.url.path for r in setup.calls] == ["/oauth/token"]
+    restarted = ReferenceAuth(setup.profile, setup.client)
+    restarted.refresh()
+    assert restarted.status() == "active"
+    assert store.read().refresh_token == "rotated-1"
+    assert [r.url.path for r in setup.calls] == ["/oauth/token", "/.well-known/jwks.json"]
 
 
 def test_profile_binding_and_private_files(setup):
@@ -370,8 +423,9 @@ def exchange(profile, client, grant):
         time.sleep(30)
     else:
         time.sleep(0.3)
-    return ('next-access', grant['refresh_token'] + '-next', int(time.time()) + 600)
-module.exchange = exchange
+    return ('next-access', grant['refresh_token'] + '-next')
+module.exchange_tokens = exchange
+module.verify_access = lambda *_: int(time.time()) + 600
 auth.refresh()
 """
 
@@ -547,6 +601,36 @@ def test_malformed_provider_responses_are_safe(setup, body):
         assert auth.status() == "reauthentication_required"
 
 
+@pytest.mark.parametrize("claim", ["iat", "nbf"])
+@pytest.mark.parametrize(("ahead", "accepted"), [(0, True), (2, True), (5, True), (6, False)])
+def test_timestamp_tolerance_has_a_fixed_boundary(setup, monkeypatch, claim, ahead, accepted):
+    from datetime import datetime, timezone
+
+    now = 2_000_000_000
+
+    class Clock:
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.fromtimestamp(now, timezone.utc)
+
+    monkeypatch.setattr("jwt.api_jwt.datetime", Clock)
+    monkeypatch.setattr("nauro.sync.reference_oauth.time.time", lambda: now)
+    token = setup.token(**{claim: now + ahead})
+    if accepted:
+        assert verify_access(setup.profile, token, setup.client) == now + 600
+    else:
+        with pytest.raises(jwt.ImmatureSignatureError):
+            verify_access(setup.profile, token, setup.client)
+
+
+@pytest.mark.parametrize("expired_by", [0, 1, 5, 6])
+def test_clock_tolerance_never_extends_expiration(setup, monkeypatch, expired_by):
+    now = int(time.time())
+    monkeypatch.setattr("nauro.sync.reference_oauth.time.time", lambda: now)
+    with pytest.raises(jwt.ExpiredSignatureError):
+        verify_access(setup.profile, setup.token(exp=now - expired_by), setup.client)
+
+
 def test_wrong_signature_is_rejected(setup):
     other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     token = jwt.encode(
@@ -588,6 +672,40 @@ auth.refresh()
     assert log.exists() is (mode == "after")
     if mode == "after":
         assert log.read_text().splitlines() == ["original-refresh"]
+
+
+def test_restart_verifies_saved_response_without_replaying_exchange(setup, tmp_path):
+    log = tmp_path / "saved-response"
+    bootstrap = CHILD.replace(
+        "auth.refresh()",
+        """
+original = auth.store.write
+def write(record):
+    original(record)
+    if record.needs_verification():
+        log.with_suffix('.ready').write_text('ready')
+        time.sleep(30)
+auth.store.write = write
+auth.refresh()
+""",
+    )
+    child = subprocess.Popen([sys.executable, "-c", bootstrap, str(setup.path), str(log), "run"])
+    try:
+        wait_log(log.with_suffix(".ready"))
+    finally:
+        child.kill()
+        child.wait()
+    assert setup.auth.status() == "verification_required"
+    with pytest.raises(ValueError):
+        profile_credentials(setup.profile)
+    restarted = subprocess.run(
+        [sys.executable, "-c", CHILD, str(setup.path), str(log), "run"],
+        timeout=10,
+        capture_output=True,
+    )
+    assert restarted.returncode == 0, restarted.stderr.decode()
+    assert setup.auth.status() == "active"
+    assert log.read_text().splitlines() == ["original-refresh"]
 
 
 def test_refresh_lock_blocks_readers_and_logout_until_release(setup, tmp_path):
