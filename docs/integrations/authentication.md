@@ -29,7 +29,7 @@ Authentication status checks and reads do not silently renew credentials.
 | `reauthentication_required` | Run `nauro auth login`; renewal cannot reuse the saved credentials. |
 | Token endpoint could not be reached before sending | Credentials remain saved. Check the connection, then retry renewal explicitly. |
 | Exchange outcome is uncertain | Sign in again. The old rotating token may have been consumed. |
-| Token verification fails after a complete response is saved | Correct the reported clock, connection, or token configuration problem, then retry verification with `nauro auth refresh`. Sign in again if verification cannot succeed. |
+| Token verification fails after a complete response is saved | Correct the reported clock, connection, or token configuration problem, then retry verification with `nauro auth refresh`. Sign in again when the error asks for login or verification cannot succeed. |
 | Local storage or callback access denied | Check filesystem and sandbox permissions. |
 | Callback port in use | Finish or close the other login attempt, then retry. |
 
@@ -66,5 +66,7 @@ older clients continue to block access to unverified tokens.
 For an explicit reference profile, add `--reference-profile <path>` to each
 authentication command. Use the same profile for login, status, refresh, and logout.
 
-Errors report safe categories. Do not include tokens, provider response bodies,
-authorization codes, or full authorization URLs in bug reports.
+Errors report safe categories. A verification error can name the missing required
+claim or the token library's error type, but never token contents or claim values.
+Do not include tokens, provider response bodies, authorization codes, or full
+authorization URLs in bug reports.

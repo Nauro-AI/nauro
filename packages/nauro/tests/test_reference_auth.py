@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.mcp.decision_reference import reference_server
 from nauro.sync import reference_auth as auth_module
+from nauro.sync.auth_errors import AuthenticationError, auth_error_message
 from nauro.sync.decision_profile import (
     RenewalProfile,
     load_reference_profile,
@@ -71,7 +72,9 @@ def setup(tmp_path):
         if request.url.path == "/.well-known/jwks.json":
             if control.get("jwks_failure"):
                 raise httpx.ConnectError("synthetic secret", request=request)
-            return httpx.Response(200, json={"keys": [jwk]})
+            if "jwks_body" in control:
+                return httpx.Response(200, content=control["jwks_body"])
+            return httpx.Response(200, json={"keys": control.get("keys", [jwk])})
         if request.url.path == "/oauth/token":
             if control.get("connect_failure"):
                 raise control["connect_failure"]("synthetic secret", request=request)
@@ -119,6 +122,8 @@ def setup(tmp_path):
             client=client,
             calls=calls,
             control=control,
+            jwk=jwk,
+            wire=wire,
         )
 
 
@@ -629,6 +634,67 @@ def test_clock_tolerance_never_extends_expiration(setup, monkeypatch, expired_by
     monkeypatch.setattr("nauro.sync.reference_oauth.time.time", lambda: now)
     with pytest.raises(jwt.ExpiredSignatureError):
         verify_access(setup.profile, setup.token(exp=now - expired_by), setup.client)
+
+
+def test_signing_key_mismatch_surfaces_typed_message(setup, monkeypatch):
+    original = httpx.Client
+    monkeypatch.setattr(
+        "nauro.sync.reference_auth.httpx.Client",
+        lambda: original(transport=httpx.MockTransport(setup.wire)),
+    )
+    setup.control["keys"] = [{**setup.jwk, "kid": "other"}]
+    with pytest.raises(ValueError) as failure:
+        auth_module.run_reference_auth("refresh", setup.path, lambda _: None)
+    assert "signing key does not match a supported issuer key" in str(failure.value)
+    assert setup.auth.status() == "verification_required"
+
+
+def test_header_without_key_id_is_a_signing_key_error(setup):
+    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    token = jwt.encode({"exp": int(time.time()) + 600}, other, algorithm="RS256")
+    with pytest.raises(AuthenticationError) as failure:
+        verify_access(setup.profile, token, setup.client)
+    assert failure.value.reason == (
+        "The access token signing key does not match a supported issuer key."
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("n", "synthetic secret"), ("e", "synthetic secret"), ("n", 123)]
+)
+def test_malformed_matching_key_is_a_signing_key_error(setup, field, value):
+    setup.control["keys"] = [{**setup.jwk, field: value}]
+    with pytest.raises(AuthenticationError) as failure:
+        verify_access(setup.profile, setup.token(), setup.client)
+    message = auth_error_message(failure.value)
+    assert message.startswith("The access token signing key does not match")
+    assert "synthetic secret" not in message
+    assert setup.jwk[field] not in message
+
+
+@pytest.mark.parametrize("exp", [time.time() + 600.5, "invalid", True])
+def test_non_integer_expiry_is_a_typed_error(setup, exp):
+    with pytest.raises(AuthenticationError) as failure:
+        verify_access(setup.profile, setup.token(exp=exp), setup.client)
+    message = auth_error_message(failure.value)
+    assert message == (
+        "The access token expiry claim is not an integer timestamp. Run 'nauro auth login' again."
+    )
+    assert str(exp) not in message
+
+
+def test_deeply_nested_response_is_rejected_without_traceback(setup):
+    setup.control["jwks_body"] = b"[" * 10_000 + b"]" * 10_000
+    with pytest.raises(ValueError) as failure:
+        verify_access(setup.profile, setup.token(), setup.client)
+    # A recursive parser hits the depth guard; an iterative one (Python 3.14)
+    # parses the array and then refuses it for not being an object.
+    assert str(failure.value) in {
+        "Authentication response exceeds limit",
+        "Authentication response must be an object",
+    }
+    assert failure.value.__cause__ is None
+    assert "[[" not in str(failure.value)
 
 
 def test_wrong_signature_is_rejected(setup):

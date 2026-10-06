@@ -7,6 +7,8 @@ import errno
 import httpx
 import jwt
 
+REQUIRED_TOKEN_CLAIMS = ("exp", "iat", "iss", "aud", "sub", "azp", "scope")
+
 _MESSAGES = {
     "exchange_not_sent": (
         "Could not connect to the token endpoint.",
@@ -36,6 +38,14 @@ _MESSAGES = {
         "The token is missing required permissions.",
         "Check the OAuth client permissions.",
     ),
+    "signing_key": (
+        "The access token signing key does not match a supported issuer key.",
+        "Check the OAuth issuer settings.",
+    ),
+    "token_expiry": (
+        "The access token expiry claim is not an integer timestamp.",
+        "Run 'nauro auth login' again.",
+    ),
 }
 
 
@@ -48,6 +58,11 @@ class AuthenticationError(ValueError):
 class ExchangeNotSentError(AuthenticationError):
     def __init__(self) -> None:
         super().__init__("exchange_not_sent")
+
+
+class InvalidExpiryClaimError(AuthenticationError):
+    def __init__(self) -> None:
+        super().__init__("token_expiry")
 
 
 class RenewalRequiredError(ValueError):
@@ -69,6 +84,8 @@ class VerificationRequiredError(ValueError):
                 "Run 'nauro auth login'. "
                 "If this machine's clock is incorrect, correct it before signing in."
             )
+        elif isinstance(cause, InvalidExpiryClaimError):
+            recovery = "Run 'nauro auth login' again."
         super().__init__(
             f"{auth_error_message(cause, recovery=False)} Access remains blocked. {recovery}"
         )
@@ -87,6 +104,11 @@ def auth_error_message(exc: Exception, *, recovery: bool = True) -> str:
     if isinstance(exc, OSError) and exc.errno == errno.EADDRINUSE:
         reason = "The login callback port is in use."
         return reason + (" Close the other login attempt and try again." if recovery else "")
+    missing_claim = (
+        f"The access token is missing the required claim '{exc.claim}'."
+        if isinstance(exc, jwt.MissingRequiredClaimError) and exc.claim in REQUIRED_TOKEN_CLAIMS
+        else "The access token is missing a required claim."
+    )
     messages = (
         (httpx.TimeoutException, "The authentication request timed out."),
         (httpx.HTTPError, "The authentication connection failed."),
@@ -95,10 +117,13 @@ def auth_error_message(exc: Exception, *, recovery: bool = True) -> str:
         (jwt.InvalidSignatureError, "The access token signature is invalid."),
         (jwt.InvalidIssuerError, "The access token issuer does not match this connection."),
         (jwt.InvalidAudienceError, "The access token audience does not match this connection."),
-        (jwt.MissingRequiredClaimError, "The access token is missing a required claim."),
+        (jwt.MissingRequiredClaimError, missing_claim),
         (jwt.InvalidIssuedAtError, "The access token has an invalid issue timestamp."),
         (jwt.DecodeError, "The access token format or claim types are invalid."),
-        (jwt.PyJWTError, "The returned access token could not be verified."),
+        (
+            jwt.PyJWTError,
+            f"The returned access token could not be verified ({type(exc).__name__}).",
+        ),
     )
     fallback = (
         "Check the project connection and local credentials, or run 'nauro auth login' again."

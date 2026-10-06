@@ -112,7 +112,7 @@ def account(tmp_path, monkeypatch):
         if request.url.path == "/.well-known/jwks.json":
             if control.get("jwks_failure"):
                 raise httpx.ConnectError("synthetic secret", request=request)
-            return httpx.Response(200, json={"keys": [jwk]})
+            return httpx.Response(200, json={"keys": control.get("keys", [jwk])})
         if request.url.path == "/me":
             return httpx.Response(200, json={"user_id": control["me"]})
         assert request.url == connection.endpoint
@@ -153,6 +153,7 @@ def account(tmp_path, monkeypatch):
         control=control,
         client=client,
         config_before=config_before,
+        jwk=jwk,
     )
 
 
@@ -254,6 +255,26 @@ def test_retry_never_admits_invalid_received_credentials(account, changes):
     ]
 
 
+@pytest.mark.parametrize(
+    "keys",
+    [
+        lambda jwk: [{**jwk, "kid": "other"}],
+        lambda jwk: [jwk, jwk],
+        lambda jwk: [{**jwk, "kty": "EC"}],
+        lambda jwk: ["wrong"],
+    ],
+    ids=["unknown_kid", "ambiguous_kid", "unsupported_type", "invalid_set"],
+)
+def test_signing_key_mismatch_names_the_signing_key(account, keys):
+    assert command("login").exit_code == 0
+    account.control["keys"] = keys(account.jwk)
+    result = command("refresh")
+    assert result.exit_code == 1
+    assert "signing key does not match a supported issuer key" in result.output
+    assert "retry verification without another token exchange" in result.output
+    assert command("status").stdout.strip() == "verification_required"
+
+
 def test_logout_discards_pending_verification_and_prevents_recovery(account):
     assert command("login").exit_code == 0
     account.control["jwks_failure"] = True
@@ -301,6 +322,18 @@ def test_clock_recovery_verifies_the_saved_response_without_another_exchange(acc
         "/.well-known/jwks.json",
         "/.well-known/jwks.json",
     ]
+
+
+@pytest.mark.parametrize("exp", [time.time() + 600.5, "invalid", True])
+def test_invalid_expiry_claim_requires_login_instead_of_retry(account, exp):
+    assert command("login").exit_code == 0
+    account.control["changes"] = {"exp": exp}
+    result = command("refresh")
+    assert result.exit_code == 1
+    assert "expiry claim is not an integer timestamp" in result.output
+    assert "Run 'nauro auth login' again." in result.output
+    assert "nauro auth refresh" not in result.output
+    assert str(exp) not in result.output
 
 
 def test_expired_saved_response_stays_blocked_without_reusing_refresh_token(account):

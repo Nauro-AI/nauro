@@ -14,7 +14,12 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import httpx
 import jwt
 
-from nauro.sync.auth_errors import AuthenticationError, ExchangeNotSentError
+from nauro.sync.auth_errors import (
+    REQUIRED_TOKEN_CLAIMS,
+    AuthenticationError,
+    ExchangeNotSentError,
+    InvalidExpiryClaimError,
+)
 from nauro.sync.decision_profile import RenewalProfile
 from nauro.sync.decision_reference_contract import _json
 
@@ -42,7 +47,10 @@ def response_json(client: httpx.Client, method: str, url: str, **kwargs: Any) ->
             data.extend(chunk)
             if len(data) > 65536:
                 raise ValueError("Authentication response exceeds limit")
-        value = _json(bytes(data))
+        try:
+            value = _json(bytes(data))
+        except RecursionError:
+            raise ValueError("Authentication response exceeds limit") from None
         if not isinstance(value, dict):
             raise ValueError("Authentication response must be an object")
         return value
@@ -51,23 +59,30 @@ def response_json(client: httpx.Client, method: str, url: str, **kwargs: Any) ->
 def verified_claims(profile: OAuthSettings, token: str, client: httpx.Client) -> dict[str, Any]:
     header = jwt.get_unverified_header(token)
     if header.get("alg") != "RS256" or not isinstance(header.get("kid"), str):
-        raise ValueError("Unsupported token signing key")
+        raise AuthenticationError("signing_key")
     keys = response_json(client, "GET", profile.issuer + ".well-known/jwks.json")
     if not isinstance(keys.get("keys"), list) or not all(
         isinstance(key, dict) for key in keys["keys"]
     ):
-        raise ValueError("Invalid signing key set")
+        raise AuthenticationError("signing_key")
     candidates = [key for key in keys["keys"] if key.get("kid") == header["kid"]]
     if len(candidates) != 1:
-        raise ValueError("Ambiguous token signing key")
+        raise AuthenticationError("signing_key")
     candidate = candidates[0]
     if (
         candidate.get("kty") != "RSA"
         or candidate.get("use", "sig") != "sig"
         or candidate.get("alg", "RS256") != "RS256"
     ):
-        raise ValueError("Unsupported signing key")
-    key = jwt.PyJWK.from_dict(candidate, algorithm="RS256")
+        raise AuthenticationError("signing_key")
+    try:
+        key = jwt.PyJWK.from_dict(candidate, algorithm="RS256")
+    except (jwt.PyJWTError, ValueError, TypeError) as exc:
+        raise AuthenticationError("signing_key") from exc
+    # PyJWT rejects some non-integer expiry values as generic decode errors.
+    unverified = jwt.decode(token, options={"verify_signature": False})
+    if "exp" in unverified and type(unverified["exp"]) is not int:
+        raise InvalidExpiryClaimError()
     claims = jwt.decode(
         token,
         key.key,
@@ -75,7 +90,7 @@ def verified_claims(profile: OAuthSettings, token: str, client: httpx.Client) ->
         issuer=profile.issuer,
         audience=profile.audience,
         leeway=TOKEN_CLOCK_SKEW_SECONDS,
-        options={"require": ["exp", "iat", "iss", "aud", "sub", "azp", "scope"]},
+        options={"require": list(REQUIRED_TOKEN_CLAIMS)},
     )
     if (
         not isinstance(claims["sub"], str)
@@ -87,7 +102,7 @@ def verified_claims(profile: OAuthSettings, token: str, client: httpx.Client) ->
     if not isinstance(scope, str) or not {"read:context", "write:context"} <= set(scope.split()):
         raise AuthenticationError("token_scopes")
     if type(claims["exp"]) is not int:
-        raise ValueError("Invalid token expiry")
+        raise InvalidExpiryClaimError()
     # Tolerate small issue/not-before clock differences without extending token expiry.
     if claims["exp"] <= time.time():
         raise jwt.ExpiredSignatureError()
