@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from nauro_core.constants import STACK_NON_AUTHORITATIVE_FRAMING
 from nauro_core.protected_generation_membership import (
     InvalidGenerationPath,
     validate_protected_generation_path,
@@ -77,6 +78,8 @@ def _finish(
     text = rendered.text
     if read.revisions:
         metadata = "\n".join(f"{name}: {value}" for name, value in read.revisions.items())
+        if "stack_revision" in read.revisions:
+            metadata = f"{metadata}\n{STACK_NON_AUTHORITATIVE_FRAMING}"
         text = f"{metadata}\n\n{text}"
     _authorize(target, session)
     frame = (

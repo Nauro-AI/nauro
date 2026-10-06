@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Generic, Literal, TypeVar
 
 from nauro_core import operations
-from nauro_core.constants import STATE_CURRENT_FILENAME, STATE_LEGACY_FILENAME
+from nauro_core.constants import STACK_MD, STATE_CURRENT_FILENAME, STATE_LEGACY_FILENAME
 from nauro_core.operations.results import (
     CheckDecisionResult,
     GetContextResult,
@@ -13,6 +13,7 @@ from nauro_core.operations.results import (
     ListDecisionsResult,
     SearchDecisionsResult,
 )
+from nauro_core.operations.update_stack import compute_stack_revision
 from nauro_core.operations.update_state import compute_state_revision
 
 from nauro.store.generation_projection import GenerationProjectionIdentity
@@ -54,6 +55,8 @@ def _revisions(store: GenerationSnapshotStore, path: str | None = None) -> dict[
     if path in (None, STATE_CURRENT_FILENAME, STATE_LEGACY_FILENAME):
         current = store.read_bytes(STATE_CURRENT_FILENAME)
         result["state_revision"] = compute_state_revision(current)
+    if path == STACK_MD:
+        result["stack_revision"] = compute_stack_revision(store.read_bytes(STACK_MD))
     return result
 
 
