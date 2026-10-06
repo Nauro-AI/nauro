@@ -18,6 +18,8 @@ from nauro.sync.auth_errors import AuthenticationError, ExchangeNotSentError
 from nauro.sync.decision_profile import RenewalProfile
 from nauro.sync.decision_reference_contract import _json
 
+TOKEN_CLOCK_SKEW_SECONDS = 5
+
 
 class OAuthSettings(Protocol):
     issuer: str
@@ -72,6 +74,7 @@ def verified_claims(profile: OAuthSettings, token: str, client: httpx.Client) ->
         algorithms=["RS256"],
         issuer=profile.issuer,
         audience=profile.audience,
+        leeway=TOKEN_CLOCK_SKEW_SECONDS,
         options={"require": ["exp", "iat", "iss", "aud", "sub", "azp", "scope"]},
     )
     if (
@@ -79,19 +82,22 @@ def verified_claims(profile: OAuthSettings, token: str, client: httpx.Client) ->
         or not claims["sub"]
         or claims["azp"] != profile.client_id
     ):
-        raise ValueError("Token identity differs from profile")
+        raise AuthenticationError("token_identity")
     scope = claims["scope"]
     if not isinstance(scope, str) or not {"read:context", "write:context"} <= set(scope.split()):
-        raise ValueError("Required token scopes missing")
+        raise AuthenticationError("token_scopes")
     if type(claims["exp"]) is not int:
         raise ValueError("Invalid token expiry")
+    # Tolerate small issue/not-before clock differences without extending token expiry.
+    if claims["exp"] <= time.time():
+        raise jwt.ExpiredSignatureError()
     return claims
 
 
 def verify_access(profile: RenewalProfile, token: str, client: httpx.Client) -> int:
     claims = verified_claims(profile, token, client)
     if claims["sub"] != profile.expected_subject:
-        raise ValueError("Token identity differs from profile")
+        raise AuthenticationError("token_identity")
     return int(claims["exp"])
 
 

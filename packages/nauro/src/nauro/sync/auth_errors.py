@@ -28,6 +28,14 @@ _MESSAGES = {
         "Check the OAuth client settings.",
     ),
     "login_required": ("Login required.", "Run 'nauro auth login' for this project."),
+    "token_identity": (
+        "The token identity does not match this connection.",
+        "Check the OAuth client settings.",
+    ),
+    "token_scopes": (
+        "The token is missing required permissions.",
+        "Check the OAuth client permissions.",
+    ),
 }
 
 
@@ -50,11 +58,22 @@ class RenewalRequiredError(ValueError):
         )
 
 
+class VerificationRequiredError(ValueError):
+    def __init__(self, cause: Exception) -> None:
+        super().__init__(
+            f"{auth_error_message(cause, recovery=False)} Access remains blocked. "
+            "Run 'nauro auth refresh' to retry verification without another token exchange. "
+            "If verification keeps failing, run 'nauro auth login'."
+        )
+
+
 def auth_error_message(exc: Exception, *, recovery: bool = True) -> str:
     if isinstance(exc, AuthenticationError):
         return str(exc) if recovery else exc.reason
     if isinstance(exc, RenewalRequiredError):
         return str(exc) if recovery else "Credential renewal did not complete."
+    if isinstance(exc, VerificationRequiredError):
+        return str(exc) if recovery else "Received credentials need verification."
     if isinstance(exc, PermissionError):
         reason = "Local authentication storage or callback access was denied."
         return reason + (" Check filesystem and sandbox permissions." if recovery else "")
@@ -64,6 +83,14 @@ def auth_error_message(exc: Exception, *, recovery: bool = True) -> str:
     messages = (
         (httpx.TimeoutException, "The authentication request timed out."),
         (httpx.HTTPError, "The authentication connection failed."),
+        (jwt.ExpiredSignatureError, "The returned access token has expired."),
+        (jwt.ImmatureSignatureError, "The token timestamp is ahead of this machine's clock."),
+        (jwt.InvalidSignatureError, "The access token signature is invalid."),
+        (jwt.InvalidIssuerError, "The access token issuer does not match this connection."),
+        (jwt.InvalidAudienceError, "The access token audience does not match this connection."),
+        (jwt.MissingRequiredClaimError, "The access token is missing a required claim."),
+        (jwt.InvalidIssuedAtError, "The access token has an invalid issue timestamp."),
+        (jwt.DecodeError, "The access token format or claim types are invalid."),
         (jwt.PyJWTError, "The returned access token could not be verified."),
     )
     fallback = (
