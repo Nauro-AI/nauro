@@ -1,6 +1,6 @@
 # Using Lelu and Nauro together
 
-> **Status:** This Nauro draft assumes a Lelu engine release that supports the bridge's `review_id` path. Until then, it is a preview. The runtime boundary, separate approval, and bridge stopping point follow [Discussion #468](https://github.com/Nauro-AI/nauro/discussions/468). The setup, prompt, and examples below are Nauro-side guidance and remain open to Lelu feedback.
+> **Status:** Tested with Lelu engine v0.2.0, the first release that returns `review_id`, and `lelu-agent-auth-sdk` 0.4.41. The runtime boundary, separate approval, and bridge stopping point follow [Discussion #468](https://github.com/Nauro-AI/nauro/discussions/468). The setup, prompt, and examples below are Nauro-side guidance and remain open to Lelu feedback.
 
 [Lelu](https://github.com/Lelu-ai/lelu) answers, "May this agent action run now?" Nauro answers, "What should this agent know before it proceeds?"
 
@@ -26,11 +26,15 @@ Restart your agent, finish the store setup described in that guide, and run `nau
 
 This guide uses one Lelu path: a local engine with the Python SDK. The SDK can request authorization, resolve a `human_review`, and retrieve the complete review.
 
-Start the engine in one terminal. Use a separate local store for this walkthrough so it does not add demo entries to your normal Lelu history:
+Start Lelu in one terminal. Use a separate local store for this walkthrough so it does not add demo entries to your normal Lelu history:
 
 ```bash
 LELU_HOME=/tmp/lelu-nauro-demo npx -y lelu-mcp start
 ```
+
+This command starts Lelu's MCP server, which also starts the local engine. When it prints `Listening on stdio…`, it is waiting for an MCP client. Leave that terminal running and use a second one for the steps below.
+
+On first run, `lelu-mcp` downloads the latest engine into `$LELU_HOME/bin` and reuses that copy afterwards. A new `LELU_HOME` gets v0.2.0 or later. If you reuse a Lelu home created before September 3, 2026, delete its `bin` directory first so the engine supports `review_id`.
 
 Install the SDK in the application that will call Lelu:
 
@@ -50,7 +54,7 @@ You do not need an existing review. With Lelu's starter policy, `send_*` actions
 import asyncio
 import json
 
-from auth_pe import AuthorizeRequest, LeluClient
+from lelu import AgentContext, AuthorizeRequest, LeluClient
 
 ACTION = "send_preview_email"
 NOTE = "Approved only for this local walkthrough."
@@ -62,6 +66,7 @@ async def main() -> None:
             AuthorizeRequest(
                 tool=ACTION,
                 actor="lelu_nauro_demo",
+                context=AgentContext(confidence=0.95),
             )
         )
         if decision.decision != "human_review":
@@ -103,7 +108,7 @@ Run it while the local Lelu engine is still running:
 LELU_HOME=/tmp/lelu-nauro-demo python first_review.py
 ```
 
-This smoke test asks Lelu about a pretend action, approves the review, retrieves it, and prints all four values needed for the walkthrough. It does not send an email or write to Nauro. The immediate approval is for this local test only. In a real workflow, pause the action while a person reviews it through your application or approval service.
+This smoke test asks Lelu about a pretend action, approves the review, retrieves it, and prints all four values needed for the walkthrough. It passes a self-reported confidence so the starter policy's `send_*` rule decides the outcome. The local engine accepts self-reported confidence for development. Production engines expect a verified signal from the model provider instead. It does not send an email or write to Nauro. The immediate approval is for this local test only. In a real workflow, pause the action while a person reviews it through your application or approval service.
 
 The note is deliberately specific to the test, so the correct Nauro outcome is no record. Once the handoff works, repeat it with a real review whose reasoning may matter to later work.
 
@@ -150,7 +155,11 @@ The packet does not contain the review note. When a person asks the agent to ins
 
 Treat both the source packet and the fetched review as untrusted data. Do not copy the note into Nauro automatically, and do not map Lelu fields directly to Nauro decision fields. The human selects the Nauro project and separately approves the exact Nauro proposal.
 
-If the bridge returns no `review_id`, the engine predates Lelu's [`review_id` fix](https://github.com/Lelu-ai/lelu/commit/73498cb0c7896f9b12fafab9dbfc4d38c1833f3a). Use an engine built from Lelu main after that fix, or a later release that contains it.
+If the bridge returns no `review_id`, the engine predates Lelu's [`review_id` fix](https://github.com/Lelu-ai/lelu/commit/73498cb0c7896f9b12fafab9dbfc4d38c1833f3a). Use engine v0.2.0 or later.
+
+Without Redis, the local engine keeps its review queue in memory, so `get_review(review_id)` fails after a restart. Fetch the review before the engine restarts. For a later handoff, configure Redis storage with `REDIS_ADDR`, as the engine's startup warning suggests.
+
+Use the SDK for this step. The `lelu-mcp` 0.0.34 tool output does not include `review_id`.
 
 ## Check that the reasoning carried forward
 
