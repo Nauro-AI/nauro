@@ -53,7 +53,7 @@ def request_for(account):
         actor=record.user_id,
         subject=record.subject,
         revision=record.revision,
-        deadline=time.time() + renewal.RENEWAL_TIMEOUT_SECONDS,
+        budget=renewal.RENEWAL_TIMEOUT_SECONDS,
     )
 
 
@@ -261,12 +261,72 @@ def test_exchange_timeout_is_bounded_by_the_request_deadline(automatic):
     seen = request.extensions["timeout"]
     limit = renewal.RENEWAL_TIMEOUT_SECONDS - renewal.EXCHANGE_MARGIN_SECONDS
     assert 0 < seen["connect"] <= seen["read"]
-    assert seen["connect"] + seen["read"] <= limit
+    assert 2 * seen["connect"] + seen["read"] <= limit  # TCP connect, TLS, then read
+
+
+def test_watchdog_restores_credentials_when_nothing_was_sent_by_the_deadline(automatic, capsys):
+    # A stall before any request is sent (name resolution has no HTTP timeout) must end
+    # with the saved credentials in place, not with the pending record the kill leaves.
+    before = expire(automatic)
+    request = request_for(automatic).model_copy(update={"budget": 2.5})
+    exits = []
+    release = threading.Event()
+    store = automatic.connection.store()
+
+    def exit(code):
+        exits.append(code)
+        release.set()  # the stalled transport then fails as unsent
+
+    def stall(http_request):
+        release.wait(30)
+        raise httpx.ConnectError("synthetic", request=http_request)
+
+    watchdog = renewal.Watchdog(store, exit)
+    with renewal.GuardedClient(watchdog, transport=httpx.MockTransport(stall)) as client:
+        started = time.monotonic()
+        with pytest.raises(AuthenticationError, match="Could not connect"):
+            renewal.renew_requested_credentials(request, client, watchdog)
+    assert exits == [0]
+    assert time.monotonic() - started < 2.5
+    assert store.read() == before
+    assert store.incomplete() is False
+    assert json.loads(capsys.readouterr().out)["error"].startswith("Could not connect")
+
+
+def test_watchdog_refuses_a_send_after_the_deadline_passed_between_requests(automatic):
+    before = expire(automatic)
+    request = request_for(automatic)
+    watchdog = renewal.Watchdog(automatic.connection.store(), lambda code: pytest.fail("exited"))
+    original = watchdog.guard
+
+    def guard(record, deadline):
+        original(record, deadline)
+        watchdog._fire()  # the timer fires before the exchange is sent
+
+    watchdog.guard = guard
+    with renewal.GuardedClient(watchdog, transport=automatic.client()._transport) as client:
+        with pytest.raises(AuthenticationError, match="Could not connect"):
+            renewal.renew_requested_credentials(request, client, watchdog)
+    store = automatic.connection.store()
+    assert store.read() == before
+    assert store.incomplete() is False
+    assert automatic.calls == []
+
+
+def test_watchdog_stays_out_of_a_sent_exchange(automatic):
+    expire(automatic)
+    request = request_for(automatic)
+    watchdog = renewal.Watchdog(automatic.connection.store(), lambda code: pytest.fail("exited"))
+    with automatic.client() as client:
+        watchdog.trace("http11.send_request_headers.started", {})
+        renewal.renew_requested_credentials(request, client, watchdog)
+    watchdog._fire()
+    assert automatic.connection.store().read().refresh_token == "rotated-2"
 
 
 def test_worker_refuses_to_start_an_exchange_without_time_left(automatic):
     before = expire(automatic)
-    request = request_for(automatic).model_copy(update={"deadline": time.time() + 1.0})
+    request = request_for(automatic).model_copy(update={"budget": 1.0})
     with automatic.client() as client, pytest.raises(ValueError, match="timed out"):
         renewal.renew_requested_credentials(request, client)
     assert automatic.connection.store().read() == before
@@ -390,3 +450,20 @@ def test_deadline_kills_worker_and_preserves_truthful_recovery(
         assert store.incomplete() is True
         assert record.needs_verification() is pending
         assert record.refresh_token == ("next-synthetic" if pending else "")
+
+
+def test_watchdog_refuses_a_late_send_even_before_its_timer_fires(automatic):
+    before = expire(automatic)
+    request = request_for(automatic)
+    watchdog = renewal.Watchdog(automatic.connection.store(), lambda code: pytest.fail("exited"))
+    original = watchdog.guard
+
+    def guard(record, deadline):
+        original(record, time.monotonic() - 0.01)  # already past, timer not yet run
+
+    watchdog.guard = guard
+    with renewal.GuardedClient(watchdog, transport=automatic.client()._transport) as client:
+        with pytest.raises(AuthenticationError, match="Could not connect"):
+            renewal.renew_requested_credentials(request, client, watchdog)
+    assert automatic.connection.store().read() == before
+    assert automatic.calls == []

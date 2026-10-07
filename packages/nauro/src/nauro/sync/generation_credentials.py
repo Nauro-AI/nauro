@@ -217,16 +217,17 @@ class GenerationAuth:
             return self._record(before.access_token, before.refresh_token, claims, before.user_id)
 
         def exchange(record: CredentialRecord) -> tuple[str, str]:
-            # A wall-clock deadline bounds the exchange so it fails inside this process
+            # A monotonic deadline bounds the exchange so it fails inside this process
             # instead of being killed mid-exchange: a connect that never completes restores
             # the record, while a sent request whose response stalls is an uncertain
-            # exchange. Connect and read share the remaining time and cannot outlive it.
+            # exchange. The TCP connect and the TLS handshake each get the connect budget,
+            # and together with the read they cannot outlive the deadline.
             timeout: float | httpx.Timeout = 15.0
             if deadline is not None:
-                remaining = max(0.2, min(15.0, deadline - time.time()))
-                connect = max(0.1, min(5.0, remaining / 2))
+                remaining = max(0.2, min(15.0, deadline - time.monotonic()))
+                connect = max(0.1, min(5.0, remaining / 4))
                 timeout = httpx.Timeout(
-                    max(0.1, remaining - connect), connect=connect, pool=connect
+                    max(0.1, remaining - 2 * connect), connect=connect, pool=connect
                 )
             return exchange_tokens(
                 self.connection,

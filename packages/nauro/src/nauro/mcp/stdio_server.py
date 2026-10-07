@@ -703,11 +703,15 @@ def _pull_on_startup() -> None:
                     logger.warning("%s", guidance["message"])
                 for warning in guidance.get("warnings", []):
                     logger.warning("%s", warning)
-            except REFRESH_FAILURES:
-                logger.warning(
-                    "session-start refresh: incomplete; run 'nauro status' "
-                    "and run 'nauro auth refresh' if credential renewal failed."
-                )
+            except REFRESH_FAILURES as exc:
+                from nauro.sync.generation_session import GenerationConnectionError
+
+                # Connection errors carry the recovery that applies: explicit renewal
+                # when that can help, login when the saved credentials are gone.
+                recovery = "run 'nauro status' and check generation login."
+                if isinstance(exc, GenerationConnectionError):
+                    recovery = str(exc)
+                logger.warning("session-start refresh: incomplete; %s", recovery)
             return
         project_key, store_path = binding.project_id, binding.store_path
 

@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, ConfigDict
 
 from nauro.auth import ActiveCredentials
-from nauro.sync.auth_errors import AuthenticationError, auth_error_message
+from nauro.sync.auth_errors import AuthenticationError, ExchangeNotSentError, auth_error_message
 from nauro.sync.decision_profile import _private_json
 from nauro.sync.generation_credentials import (
     AccountRecord,
@@ -20,7 +24,7 @@ from nauro.sync.generation_credentials import (
     generation_credentials,
 )
 from nauro.sync.reference_auth import AUTH_ERRORS
-from nauro.sync.reference_credentials import CredentialRecord
+from nauro.sync.reference_credentials import CredentialRecord, CredentialStore
 
 RENEWAL_WINDOW_SECONDS = 60
 RENEWAL_TIMEOUT_SECONDS = 8.0
@@ -31,7 +35,13 @@ RETRY_DELAY_SECONDS = 30
 EXCHANGE_MARGIN_SECONDS = 1.5
 TIMEOUT_MESSAGE = "Credential renewal timed out. Run 'nauro auth refresh' to recover."
 FAILURE_MESSAGE = "Credential renewal failed. Run 'nauro auth refresh' to recover."
-WORKER_CODE = "from nauro.sync.generation_renewal import main\nmain()\n"
+# The worker clocks its own startup before the imports that dominate it.
+WORKER_CODE = (
+    "import time\n"
+    "started = time.monotonic()\n"
+    "from nauro.sync.generation_renewal import main\n"
+    "main(started)\n"
+)
 
 
 class RenewalError(ValueError):
@@ -46,7 +56,7 @@ class RenewalRequest(BaseModel):
     actor: str
     subject: str
     revision: str
-    deadline: float  # wall-clock time shared with the worker; it stops before the kill
+    budget: float  # seconds the worker may spend; it stops before the supervisor's kill
 
 
 class RenewalOutcome(BaseModel):
@@ -120,7 +130,7 @@ def acquire_generation_credentials(
             actor=actor,
             subject=record.subject,
             revision=record.revision,
-            deadline=time.time() + _remaining(deadline),
+            budget=_remaining(deadline),
         )
     try:
         _run_worker(request, _remaining(deadline))
@@ -159,7 +169,19 @@ def _run_worker(request: RenewalRequest, timeout: float) -> None:
         raise RenewalError(outcome.error)
 
 
-def renew_requested_credentials(request: RenewalRequest, client: httpx.Client) -> None:
+def renew_requested_credentials(
+    request: RenewalRequest,
+    client: httpx.Client,
+    watchdog: Watchdog | None = None,
+    *,
+    started: float | None = None,
+) -> None:
+    # The budget runs on the monotonic clock from the worker's first line, so its whole
+    # startup counts and a wall-clock adjustment cannot stretch the exchange past the
+    # supervisor's kill. The margin covers the interpreter start before that first line.
+    if started is None:
+        started = time.monotonic()
+    deadline = started + request.budget - EXCHANGE_MARGIN_SECONDS
     auth = GenerationAuth(request.connection, request.project, client)
     store = auth.store
 
@@ -183,16 +205,93 @@ def renew_requested_credentials(request: RenewalRequest, client: httpx.Client) -
             return False
         if not record.needs_verification() and (store.incomplete() or record.state != "active"):
             raise AuthenticationError("login_required")
-        if request.deadline - time.time() < EXCHANGE_MARGIN_SECONDS:
+        if deadline - time.monotonic() <= 0:
             raise RenewalError(TIMEOUT_MESSAGE)  # nothing has been written yet
         _claim_retry(request)
+        if watchdog is not None:
+            watchdog.guard(record, deadline)
         return True
 
     auth.refresh(
-        needed=needed,
-        lock_timeout=max(0.1, request.deadline - time.time() - EXCHANGE_MARGIN_SECONDS),
-        deadline=request.deadline - EXCHANGE_MARGIN_SECONDS,
+        needed=needed, lock_timeout=max(0.1, deadline - time.monotonic()), deadline=deadline
     )
+
+
+class Watchdog:
+    """Restores the saved credentials if the deadline passes before a request was sent.
+
+    HTTP timeouts do not bound name resolution, and the supervisor's kill would leave the
+    pending record in place. Fired mid-flight and unsent, it writes the saved record back,
+    reports an unsent exchange and ends the process under the lock the sender must take.
+    """
+
+    def __init__(self, store: CredentialStore, exit: Callable[[int], Any] = os._exit) -> None:
+        self.store, self.exit = store, exit
+        self.lock = threading.Lock()
+        self.record: CredentialRecord | None = None
+        self.deadline = float("inf")
+        self.in_flight = self.sent = self.aborting = False
+
+    def guard(self, record: CredentialRecord, deadline: float) -> None:
+        self.record, self.deadline = record, deadline
+        timer = threading.Timer(max(0.0, deadline - time.monotonic()), self._fire)
+        timer.daemon = True
+        timer.start()
+
+    def _expired(self) -> bool:
+        # The timer thread can run late; the sending path checks the deadline itself.
+        if self.aborting or time.monotonic() >= self.deadline:
+            self.aborting = True
+        return self.aborting
+
+    @contextlib.contextmanager
+    def flight(self) -> Iterator[None]:
+        with self.lock:
+            if self._expired():
+                raise ExchangeNotSentError()
+            self.in_flight = True
+        try:
+            yield
+        finally:
+            with self.lock:
+                self.in_flight = False
+
+    def trace(self, name: str, info: dict[str, Any]) -> None:
+        if name.endswith("send_request_headers.started"):
+            with self.lock:
+                if not self.sent and self._expired():
+                    raise ExchangeNotSentError()
+                self.sent = True
+
+    def _fire(self) -> None:
+        with self.lock:
+            if self.sent or self.record is None:
+                return
+            # Past the deadline nothing may be sent any more. Between requests the main
+            # thread restores on its own when the next send is refused; mid-flight it is
+            # blocked in network I/O, so the restore happens here and the process ends.
+            self.aborting = True
+            if not self.in_flight:
+                return
+            self.store.write(self.record)
+            self.store.finish()
+            outcome = RenewalOutcome(error=auth_error_message(ExchangeNotSentError()))
+            sys.stdout.write(outcome.model_dump_json())
+            sys.stdout.flush()
+            self.exit(0)
+
+
+class GuardedClient(httpx.Client):
+    """An HTTP client whose every send runs under the watchdog's flight lock."""
+
+    def __init__(self, watchdog: Watchdog, **kwargs: Any) -> None:
+        super().__init__(trust_env=False, **kwargs)
+        self.watchdog = watchdog
+
+    def send(self, request: httpx.Request, **kwargs: Any) -> httpx.Response:
+        request.extensions["trace"] = self.watchdog.trace
+        with self.watchdog.flight():
+            return super().send(request, **kwargs)
 
 
 def _claim_retry(request: RenewalRequest) -> None:
@@ -220,11 +319,12 @@ def _claim_retry(request: RenewalRequest) -> None:
     store.write_private(path, retry.model_dump_json().encode())
 
 
-def main() -> None:
+def main(started: float | None = None) -> None:
     try:
         request = RenewalRequest.model_validate_json(sys.stdin.read(65537))
-        with httpx.Client(trust_env=False) as client:
-            renew_requested_credentials(request, client)
+        watchdog = Watchdog(request.connection.store())
+        with GuardedClient(watchdog) as client:
+            renew_requested_credentials(request, client, watchdog, started=started)
         outcome = RenewalOutcome()
     except AUTH_ERRORS as exc:
         outcome = RenewalOutcome(error=auth_error_message(exc))
