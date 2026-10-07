@@ -119,9 +119,11 @@ class AccountStore(CredentialStore):
         )
 
 
-def generation_credentials(connection: GenerationConnection, actor: str) -> ActiveCredentials:
+def generation_credentials(
+    connection: GenerationConnection, actor: str, *, lock_timeout: float = 2.0
+) -> ActiveCredentials:
     store = connection.store()
-    with store.locked():
+    with store.locked(timeout=lock_timeout):
         record = store.read()
         if (
             store.incomplete()
@@ -199,7 +201,13 @@ class GenerationAuth:
                 self.store.begin()
                 raise
 
-    def refresh(self) -> None:
+    def refresh(
+        self,
+        *,
+        needed: Callable[[CredentialRecord | None], bool] | None = None,
+        lock_timeout: float = 2.0,
+        deadline: float | None = None,
+    ) -> None:
         def replacement(before: CredentialRecord) -> AccountRecord:
             if not isinstance(before, AccountRecord):
                 raise ValueError("Generation login required")
@@ -208,14 +216,27 @@ class GenerationAuth:
                 raise AuthenticationError("token_identity")
             return self._record(before.access_token, before.refresh_token, claims, before.user_id)
 
-        renew_credentials(
-            self.store,
-            lambda record: exchange_tokens(
+        def exchange(record: CredentialRecord) -> tuple[str, str]:
+            # A wall-clock deadline bounds the exchange so it fails inside this process
+            # instead of being killed mid-exchange: a connect that never completes restores
+            # the record, while a sent request whose response stalls is an uncertain
+            # exchange. Connect and read share the remaining time and cannot outlive it.
+            timeout: float | httpx.Timeout = 15.0
+            if deadline is not None:
+                remaining = max(0.2, min(15.0, deadline - time.time()))
+                connect = max(0.1, min(5.0, remaining / 2))
+                timeout = httpx.Timeout(
+                    max(0.1, remaining - connect), connect=connect, pool=connect
+                )
+            return exchange_tokens(
                 self.connection,
                 self.client,
                 {"grant_type": "refresh_token", "refresh_token": record.refresh_token},
-            ),
-            replacement,
+                timeout=timeout,
+            )
+
+        renew_credentials(
+            self.store, exchange, replacement, needed=needed, lock_timeout=lock_timeout
         )
 
     def logout(self) -> None:

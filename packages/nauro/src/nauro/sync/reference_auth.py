@@ -160,9 +160,14 @@ def renew_credentials(
     store: CredentialStore,
     exchange: Callable[[CredentialRecord], tuple[str, str]],
     replacement: Callable[[CredentialRecord], CredentialRecord],
+    *,
+    needed: Callable[[CredentialRecord | None], bool] | None = None,
+    lock_timeout: float = 2.0,
 ) -> None:
-    with store.locked():
+    with store.locked(timeout=lock_timeout):
         record = store.read()
+        if needed is not None and not needed(record):
+            return
         if record and record.needs_verification():
             store.begin()
             _complete_verification(store, record, replacement)

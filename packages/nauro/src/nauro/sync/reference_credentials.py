@@ -140,7 +140,16 @@ class CredentialStore:
         data = record.model_dump_json().encode()
         if len(data) > 65536:
             raise ValueError("Credentials exceed size limit")
-        temporary = self.path.with_name(f".{self.path.name}.{secrets.token_hex(16)}.tmp")
+        self.write_private(self.path, data)
+
+    def write_private(self, path: Path, data: bytes) -> None:
+        if path.parent != self.path.parent or len(data) > 65536:
+            raise ValueError("Invalid private record location or size")
+        if path.exists() or path.is_symlink():
+            _private_json(path)
+            if path.lstat().st_nlink != 1:
+                raise ValueError("Private record hard links are refused")
+        temporary = path.with_name(f".{path.name}.{secrets.token_hex(16)}.tmp")
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _BINARY, 0o600)
         try:
             with os.fdopen(fd, "wb") as stream:
@@ -148,7 +157,7 @@ class CredentialStore:
                 stream.write(data)
                 stream.flush()
                 os.fsync(stream.fileno())
-            durability.durable_rename(temporary, self.path)
+            durability.durable_rename(temporary, path)
             self.sync_directory()
         finally:
             temporary.unlink(missing_ok=True)

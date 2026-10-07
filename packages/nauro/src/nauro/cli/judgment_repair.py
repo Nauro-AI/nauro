@@ -22,6 +22,11 @@ from nauro.store.recovery_actions import (
 )
 from nauro.sync.generation_connection import attachment_connection
 from nauro.sync.generation_credentials import generation_credentials
+from nauro.sync.generation_renewal import (
+    RENEWAL_TIMEOUT_SECONDS,
+    acquire_generation_credentials,
+    renewal_deadline,
+)
 from nauro.sync.recovery_transport import RecoveryTransport
 
 
@@ -176,7 +181,8 @@ def run(
     validate_identifier(IdentifierKind.ulid, project, field="project")
     connection = attachment_connection(DEFAULT_AUTH_REDIRECT_URI)
     account = connection.store()
-    with account.locked():
+    deadline = renewal_deadline()
+    with account.locked(timeout=RENEWAL_TIMEOUT_SECONDS):
         record = account.read()
         if record is None:
             raise ValueError("Run nauro auth login for this generation endpoint")
@@ -187,6 +193,7 @@ def run(
             raise ValueError("The trusted connection changed")
         return generation_credentials(connection, actor)
 
+    acquire_generation_credentials(connection, project, actor, deadline=deadline)
     credentials()
     store = RecoveryActionStore(connection.binding(), project, actor)
     with httpx.Client(trust_env=False) as client:

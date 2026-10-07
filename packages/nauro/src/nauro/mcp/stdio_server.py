@@ -706,7 +706,7 @@ def _pull_on_startup() -> None:
             except REFRESH_FAILURES:
                 logger.warning(
                     "session-start refresh: incomplete; run 'nauro status' "
-                    "and check generation login."
+                    "and run 'nauro auth refresh' if credential renewal failed."
                 )
             return
         project_key, store_path = binding.project_id, binding.store_path

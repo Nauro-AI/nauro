@@ -33,8 +33,15 @@ class OAuthSettings(Protocol):
     redirect_uri: str
 
 
-def response_json(client: httpx.Client, method: str, url: str, **kwargs: Any) -> Any:
-    with client.stream(method, url, timeout=15, follow_redirects=False, **kwargs) as response:
+def response_json(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    *,
+    timeout: float | httpx.Timeout = 15,
+    **kwargs: Any,
+) -> Any:
+    with client.stream(method, url, timeout=timeout, follow_redirects=False, **kwargs) as response:
         if response.status_code != 200:
             code = "request_rejected"
             if response.status_code == 429:
@@ -117,13 +124,18 @@ def verify_access(profile: RenewalProfile, token: str, client: httpx.Client) -> 
 
 
 def exchange_tokens(
-    profile: OAuthSettings, client: httpx.Client, grant: dict[str, str]
+    profile: OAuthSettings,
+    client: httpx.Client,
+    grant: dict[str, str],
+    *,
+    timeout: float | httpx.Timeout = 15,
 ) -> tuple[str, str]:
     try:
         body = response_json(
             client,
             "POST",
             profile.issuer + "oauth/token",
+            timeout=timeout,
             json={"client_id": profile.client_id, **grant},
         )
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):

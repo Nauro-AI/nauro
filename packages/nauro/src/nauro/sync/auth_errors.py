@@ -10,6 +10,10 @@ import jwt
 REQUIRED_TOKEN_CLAIMS = ("exp", "iat", "iss", "aud", "sub", "azp", "scope")
 
 _MESSAGES = {
+    "renewal_paused": (
+        "Automatic renewal is paused after a recent attempt.",
+        "Retry shortly or run 'nauro auth refresh'.",
+    ),
     "exchange_not_sent": (
         "Could not connect to the token endpoint.",
         "Check your connection and retry.",
