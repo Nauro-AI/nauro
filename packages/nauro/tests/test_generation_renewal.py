@@ -304,9 +304,11 @@ def test_watchdog_refuses_a_send_after_the_deadline_passed_between_requests(auto
         watchdog._fire()  # the timer fires before the exchange is sent
 
     watchdog.guard = guard
-    with renewal.GuardedClient(watchdog, transport=automatic.client()._transport) as client:
-        with pytest.raises(AuthenticationError, match="Could not connect"):
-            renewal.renew_requested_credentials(request, client, watchdog)
+    with (
+        renewal.GuardedClient(watchdog, transport=automatic.client()._transport) as client,
+        pytest.raises(AuthenticationError, match="Could not connect"),
+    ):
+        renewal.renew_requested_credentials(request, client, watchdog)
     store = automatic.connection.store()
     assert store.read() == before
     assert store.incomplete() is False
@@ -462,8 +464,10 @@ def test_watchdog_refuses_a_late_send_even_before_its_timer_fires(automatic):
         original(record, time.monotonic() - 0.01)  # already past, timer not yet run
 
     watchdog.guard = guard
-    with renewal.GuardedClient(watchdog, transport=automatic.client()._transport) as client:
-        with pytest.raises(AuthenticationError, match="Could not connect"):
-            renewal.renew_requested_credentials(request, client, watchdog)
+    with (
+        renewal.GuardedClient(watchdog, transport=automatic.client()._transport) as client,
+        pytest.raises(AuthenticationError, match="Could not connect"),
+    ):
+        renewal.renew_requested_credentials(request, client, watchdog)
     assert automatic.connection.store().read() == before
     assert automatic.calls == []
