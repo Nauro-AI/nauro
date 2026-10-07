@@ -1,0 +1,196 @@
+{
+  "type": "object",
+  "properties": {
+    "slug": {
+      "type": "string",
+      "description": "Brief name: 1-120 lowercase ASCII letters, digits, or internal hyphens. Maps only to context/<slug>.md."
+    },
+    "content": {
+      "type": "string",
+      "description": "The complete immutable brief body (at most 51,200 UTF-8 bytes)."
+    },
+    "pointer_kind": {
+      "type": "string",
+      "enum": [
+        "brief",
+        "resume",
+        "selection"
+      ],
+      "description": "Discovery-pointer kind: brief (shared context), resume (in-flight work handoff), or selection (parked candidate set)."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Nonempty single line (at most 300 characters) with at least one visible character, carried in the discovery pointer; match the brief's own summary."
+    },
+    "operation_id": {
+      "type": "string",
+      "description": "Legacy projects: required client-generated idempotency identifier (1-128 printable ASCII characters); resending it with the same payload returns the original outcome. Selected generation projects: omit it on submission, because the server issues the identity and refuses a caller-supplied one; pass the server-issued share-request identity only to recover or retry."
+    },
+    "project_id": {
+      "type": "string",
+      "description": "Optional; auto-resolved for one project. With several, list ids via list_projects (hosted) or `nauro projects` (local)."
+    },
+    "request_mode": {
+      "type": "string",
+      "enum": [
+        "submit",
+        "recover",
+        "retry",
+        "discover"
+      ]
+    },
+    "payload_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "minLength": 64,
+      "maxLength": 64
+    },
+    "after": {
+      "type": "string",
+      "maxLength": 256
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "request_mode",
+        "slug",
+        "content",
+        "pointer_kind",
+        "summary"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "request_mode",
+          "slug",
+          "content",
+          "pointer_kind",
+          "summary"
+        ]
+      },
+      "properties": {
+        "request_mode": {
+          "const": "submit"
+        }
+      }
+    },
+    {
+      "required": [
+        "slug",
+        "content",
+        "pointer_kind",
+        "summary"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "slug",
+          "content",
+          "pointer_kind",
+          "summary"
+        ]
+      }
+    },
+    {
+      "required": [
+        "request_mode",
+        "project_id",
+        "operation_id",
+        "payload_digest"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "request_mode",
+          "operation_id",
+          "payload_digest"
+        ]
+      },
+      "properties": {
+        "request_mode": {
+          "const": "recover"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^share-request:[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "minLength": 40,
+          "maxLength": 40
+        }
+      }
+    },
+    {
+      "required": [
+        "request_mode",
+        "project_id",
+        "operation_id",
+        "payload_digest"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "request_mode",
+          "operation_id",
+          "payload_digest"
+        ]
+      },
+      "properties": {
+        "request_mode": {
+          "const": "retry"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^share-request:[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "minLength": 40,
+          "maxLength": 40
+        }
+      }
+    },
+    {
+      "required": [
+        "request_mode",
+        "project_id"
+      ],
+      "propertyNames": {
+        "enum": [
+          "project_id",
+          "request_mode",
+          "after"
+        ]
+      },
+      "properties": {
+        "request_mode": {
+          "const": "discover"
+        }
+      }
+    },
+    {
+      "required": [
+        "slug",
+        "content",
+        "pointer_kind",
+        "summary",
+        "operation_id"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "after"
+            ]
+          },
+          {
+            "required": [
+              "payload_digest"
+            ]
+          },
+          {
+            "required": [
+              "request_mode"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
