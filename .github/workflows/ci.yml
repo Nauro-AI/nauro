@@ -6,11 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -99,6 +104,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
       - run: uv sync --locked --package nauro-core --all-extras --python 3.12
@@ -115,6 +122,8 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --locked --package nauro-core --all-extras --python ${{ matrix.python-version }}
@@ -127,6 +136,8 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv python install ${{ matrix.python-version }}
       - run: uv sync --locked --package nauro --all-extras --python ${{ matrix.python-version }}
@@ -167,6 +178,7 @@ jobs:
           fi
       - uses: actions/checkout@v6
         with:
+          persist-credentials: false
           path: client
       - uses: actions/checkout@v6
         with:
@@ -267,6 +279,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
       - run: uv sync --locked --package nauro --all-extras --python 3.12
@@ -328,6 +342,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.10
       - run: uv sync --locked --package nauro --all-extras --python 3.10
@@ -346,6 +362,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
       - run: |
