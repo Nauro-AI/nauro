@@ -730,8 +730,11 @@ def _pull_on_startup() -> None:
 
 def run_stdio() -> None:
     """Run the MCP server over stdio (called by `nauro serve --stdio`)."""
-    _pull_on_startup()
-    try:
-        mcp.run(transport="stdio")
-    finally:
-        decision_session.close()
+    from nauro.sync.generation_pool import reuse_generation_connections
+
+    with reuse_generation_connections():
+        try:
+            _pull_on_startup()
+            mcp.run(transport="stdio")
+        finally:
+            decision_session.close()

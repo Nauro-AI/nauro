@@ -86,6 +86,7 @@ jobs:
           packages/nauro/src/nauro/sync/hosted_stack_schema.py
           packages/nauro/src/nauro/sync/hosted_share_schema.py
           packages/nauro/src/nauro/mcp/reference_reads.py
+          packages/nauro/src/nauro/sync/generation_pool.py
           packages/nauro/src/nauro/sync/generation_renewal.py
           packages/nauro/src/nauro/sync/reference_auth.py
           packages/nauro/src/nauro/sync/reference_credentials.py
@@ -315,6 +316,8 @@ jobs:
           packages/nauro/tests/test_credential_platform.py
           packages/nauro/tests/test_reference_auth.py
           packages/nauro/tests/test_generation_credentials.py
+          packages/nauro/tests/test_generation_pool.py
+          packages/nauro/tests/test_generation_pool_reads.py
           packages/nauro/tests/test_generation_renewal.py
           packages/nauro/tests/test_generation_renewal_surfaces.py
           packages/nauro/tests/test_decision_reference_startup.py
