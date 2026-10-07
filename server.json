@@ -8,12 +8,12 @@
     "url": "https://github.com/Nauro-AI/nauro",
     "source": "github"
   },
-  "version": "1.21.2",
+  "version": "1.21.3",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "nauro",
-      "version": "1.21.2",
+      "version": "1.21.3",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
