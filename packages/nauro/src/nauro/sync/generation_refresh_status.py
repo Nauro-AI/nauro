@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -26,6 +27,11 @@ from nauro.store.resolution import ResolvedProjectBinding, resolve_project_bindi
 from nauro.sync.generation_connection import connection_for
 from nauro.sync.generation_credentials import AccountRecord, GenerationConnection
 from nauro.sync.generation_refresh import recover_generation_refresh
+from nauro.sync.generation_renewal import (
+    RENEWAL_TIMEOUT_SECONDS,
+    acquire_generation_credentials,
+    renewal_deadline,
+)
 from nauro.sync.generation_session import GenerationConnectionError, GenerationTransferSession
 from nauro.sync.remote import TransferBoundaryError
 
@@ -77,12 +83,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-def _account(binding: ResolvedProjectBinding) -> tuple[GenerationConnection, AccountRecord]:
+def _account(
+    binding: ResolvedProjectBinding, *, deadline: float | None = None
+) -> tuple[GenerationConnection, AccountRecord]:
     try:
         if resolve_project_binding(binding.project_id, None, use_cwd=False) != binding:
             raise GenerationConnectionError("The project binding changed.")
         connection = connection_for(binding, DEFAULT_AUTH_REDIRECT_URI)
-        with connection.store().locked():
+        # Another process may hold the credential lock for a whole renewal; a caller that
+        # goes on to acquire credentials shares one budget with that wait.
+        timeout = RENEWAL_TIMEOUT_SECONDS
+        if deadline is not None:
+            timeout = max(0.0, deadline - time.monotonic())
+        with connection.store().locked(timeout=timeout):
             account = connection.store().read()
         if account is None or not account.user_id:
             raise GenerationConnectionError("Generation login required.")
@@ -125,10 +138,16 @@ def refresh_replica(
     *,
     expected: tuple[GenerationConnection, str] | None = None,
 ) -> GenerationSnapshotStore:
-    connection, account = _account(binding)
+    deadline = renewal_deadline()
+    connection, account = _account(binding, deadline=deadline)
     actor = account.user_id
     if expected is not None and (connection, actor) != expected:
         raise GenerationConnectionError("The refresh account changed.")
+    renewal_error: ValueError | OSError | None = None
+    try:
+        acquire_generation_credentials(connection, binding.project_id, actor, deadline=deadline)
+    except (ValueError, OSError) as exc:
+        renewal_error = exc
     paths = refresh_paths(binding, actor)
     if not paths.actor.is_dir():
         raise RefreshRequiredError("An installed actor replica is required.")
@@ -157,7 +176,7 @@ def refresh_replica(
 
         save(attempt)
         try:
-            with GenerationTransferSession(binding) as session:
+            with _renewed_session(binding, renewal_error) as session:
                 if session.actor != actor or session.connection != connection:
                     raise GenerationConnectionError("The refresh account changed.")
                 store = recover_generation_refresh(binding, actor=actor, session=session)
@@ -175,6 +194,14 @@ def refresh_replica(
             )
             save(attempt.model_copy(update={"error_code": code}))
             raise
+
+
+def _renewed_session(
+    binding: ResolvedProjectBinding, error: ValueError | OSError | None
+) -> GenerationTransferSession:
+    if error is not None:
+        raise GenerationConnectionError(str(error)) from error
+    return GenerationTransferSession(binding, renew=False)
 
 
 def replica_status(binding: ResolvedProjectBinding) -> dict[str, object]:

@@ -16,6 +16,11 @@ from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.generation_connection import selected_connection
 from nauro.sync.generation_credentials import GenerationConnection, generation_credentials
 from nauro.sync.generation_refresh_status import REFRESH_FAILURES, refresh_replica, replica_status
+from nauro.sync.generation_renewal import (
+    RENEWAL_TIMEOUT_SECONDS,
+    acquire_generation_credentials,
+    renewal_deadline,
+)
 
 REFUSED_STATUSES = {"stale", "unresolved", "pending", "expired", "conflict", "disposed"}
 Selection = tuple[GenerationConnection, str]
@@ -61,7 +66,8 @@ class DecisionSession:
         with self._lock:
             connection, project = selected
             store = connection.store()
-            with store.locked():
+            deadline = renewal_deadline()
+            with store.locked(timeout=RENEWAL_TIMEOUT_SECONDS):
                 record = store.read()
                 if record is None:
                     raise ValueError("Run nauro auth login in this project")
@@ -72,6 +78,8 @@ class DecisionSession:
                     raise ValueError("Project authority or connection changed")
                 return generation_credentials(connection, actor)
 
+            acquire_generation_credentials(connection, project, actor, deadline=deadline)
+            credentials()
             key = (connection.binding(), project, actor)
             if self._key != key:
                 self.close()

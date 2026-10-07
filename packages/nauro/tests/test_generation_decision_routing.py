@@ -121,12 +121,21 @@ class Authority:
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})
 
 
+_connect = socket.socket.connect
+
+
 @pytest.fixture
 def route(tmp_path, monkeypatch):
     def forbidden(*_args, **_kwargs):
         raise AssertionError("Unapproved path")
 
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    def external_forbidden(sock, address, *args):
+        # asyncio builds its self-pipe from a loopback socketpair on Windows.
+        if isinstance(address, tuple) and address[0] in {"127.0.0.1", "::1"}:
+            return _connect(sock, address, *args)
+        return forbidden()
+
+    monkeypatch.setattr(socket.socket, "connect", external_forbidden)
     home = tmp_path / "home"
     home.mkdir(mode=0o700)
     monkeypatch.setenv("NAURO_HOME", str(home))

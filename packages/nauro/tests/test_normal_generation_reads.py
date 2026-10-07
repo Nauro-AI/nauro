@@ -32,11 +32,21 @@ def forbidden(*_args, **_kwargs):
     pytest.fail("Legacy, automatic or external path executed")
 
 
+_connect = socket.socket.connect
+
+
+def external_forbidden(sock, address, *args):
+    # asyncio builds its self-pipe from a loopback socketpair on Windows.
+    if isinstance(address, tuple) and address[0] in {"127.0.0.1", "::1"}:
+        return _connect(sock, address, *args)
+    return forbidden()
+
+
 @pytest.fixture
 def normal(tmp_path, monkeypatch):
     monkeypatch.setenv("NAURO_HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", external_forbidden)
     register_project_v2(
         "Nauro", [], project_id=PROJECT_ID, mode="cloud", server_url="https://api.test"
     )
@@ -56,8 +66,8 @@ def normal(tmp_path, monkeypatch):
     monkeypatch.setattr(installation, "read_active_user_id", forbidden)
     monkeypatch.setattr(generation_acquisition, "with_token_refresh", forbidden)
 
-    def factory(b):
-        return GenerationTransferSession(b, server.session.client)
+    def factory(b, **kwargs):
+        return GenerationTransferSession(b, server.session.client, **kwargs)
 
     monkeypatch.setattr(read_dispatch, "GenerationTransferSession", factory)
     monkeypatch.setattr(generation_refresh_status, "GenerationTransferSession", factory)
@@ -127,8 +137,14 @@ def test_explicit_sync_refreshes_and_never_writes_flat_store_or_runs_hooks(norma
 
 
 @pytest.mark.parametrize("change", ["expired", "logout", "actor", "marker", "endpoint"])
-def test_changed_authority_refuses_without_legacy_fallback(normal, change):
+def test_changed_authority_refuses_without_legacy_fallback(normal, change, monkeypatch):
     from nauro.store.config import load_config, save_config
+    from nauro.sync import generation_renewal
+
+    def unavailable(*args):
+        raise ValueError("Synthetic provider unavailable")
+
+    monkeypatch.setattr(generation_renewal, "_run_worker", unavailable)
 
     binding, server, connection = normal
     if change in {"expired", "logout", "actor"}:
