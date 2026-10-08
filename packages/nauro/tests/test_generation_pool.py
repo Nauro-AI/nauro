@@ -154,3 +154,43 @@ def test_stdio_scope_covers_startup_and_concurrent_worker_calls(wire, monkeypatc
     assert len(transports[0].requests) == 3
     assert transports[0].closes == 1
     close.assert_called_once_with()
+
+
+def test_idle_cache_is_bounded_and_keeps_recently_used_binding(wire):
+    binding, connection, transports = wire
+    with pool.reuse_generation_connections():
+        for actor in range(8):
+            with pool.generation_client(binding, connection, str(actor)):
+                pass
+        with pool.generation_client(binding, connection, "0"):
+            pass
+        with pool.generation_client(binding, connection, "8"):
+            pass
+        assert len(transports) == 9
+        assert [t.closes for t in transports] == [0, 1, 0, 0, 0, 0, 0, 0, 0]
+        with pool.generation_client(binding, connection, "0"):
+            pass
+        assert len(transports) == 9
+        with pool.generation_client(binding, connection, "1"):
+            pass
+        assert len(transports) == 10
+        assert transports[2].closes == 1
+    assert [t.closes for t in transports] == [1] * 10
+
+
+def test_idle_eviction_never_closes_active_borrowers(wire):
+    binding, connection, transports = wire
+    with pool.reuse_generation_connections():
+        first = pool.generation_client(binding, connection, "active")
+        second = pool.generation_client(binding, connection, "active")
+        for actor in range(20):
+            with pool.generation_client(binding, connection, str(actor)):
+                pass
+        assert len(transports) == 21
+        assert [t.closes for t in transports] == [0] + [1] * 12 + [0] * 8
+        first.close()
+        assert second.get("https://api.test/read").status_code == 200
+        assert transports[0].closes == 0
+        second.close()
+        assert [t.closes for t in transports] == [0] + [1] * 13 + [0] * 7
+    assert [t.closes for t in transports] == [1] * 21

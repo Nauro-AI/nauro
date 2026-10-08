@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -14,6 +15,7 @@ from nauro.store.resolution import ResolvedProjectBinding
 from nauro.sync.generation_credentials import GenerationConnection
 
 _Key = tuple[ResolvedProjectBinding, str, str]
+_MAX_IDLE_TRANSPORTS = 8
 
 
 @dataclass
@@ -23,8 +25,9 @@ class _Entry:
 
 
 class _BorrowedTransport(httpx.BaseTransport):
-    def __init__(self, pool: _Pool, entry: _Entry) -> None:
+    def __init__(self, pool: _Pool, key: _Key, entry: _Entry) -> None:
         self._pool = pool
+        self._key = key
         self._entry = entry
         self._closed = False
 
@@ -36,8 +39,8 @@ class _BorrowedTransport(httpx.BaseTransport):
             if not self._closed:
                 self._closed = True
                 self._entry.borrowers -= 1
-                if self._pool.closed and self._entry.borrowers == 0:
-                    self._entry.transport.close()
+                if self._entry.borrowers == 0:
+                    self._pool.release(self._key, self._entry)
 
 
 class _Pool:
@@ -45,6 +48,7 @@ class _Pool:
         self.lock = Lock()
         self.closed = False
         self._entries: dict[_Key, _Entry] = {}
+        self._idle: OrderedDict[_Key, _Entry] = OrderedDict()
 
     def client(self, key: _Key) -> httpx.Client:
         with self.lock:
@@ -54,13 +58,24 @@ class _Pool:
             if entry is None:
                 entry = _Entry(httpx.HTTPTransport(trust_env=False))
                 self._entries[key] = entry
+            self._idle.pop(key, None)
             entry.borrowers += 1
-        borrowed = _BorrowedTransport(self, entry)
+        borrowed = _BorrowedTransport(self, key, entry)
         try:
             return httpx.Client(transport=borrowed, trust_env=False)
         except BaseException:
             borrowed.close()
             raise
+
+    def release(self, key: _Key, entry: _Entry) -> None:
+        if self.closed:
+            entry.transport.close()
+            return
+        self._idle[key] = entry
+        if len(self._idle) > _MAX_IDLE_TRANSPORTS:
+            oldest, retired = self._idle.popitem(last=False)
+            del self._entries[oldest]
+            retired.transport.close()
 
     def close(self) -> None:
         with self.lock:
@@ -71,6 +86,7 @@ class _Pool:
                 if entry.borrowers == 0:
                     entry.transport.close()
             self._entries.clear()
+            self._idle.clear()
 
 
 _active_pool: ContextVar[_Pool | None] = ContextVar("generation_connection_pool", default=None)
