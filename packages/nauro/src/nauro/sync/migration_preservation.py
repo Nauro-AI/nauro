@@ -29,7 +29,7 @@ from nauro.store.registry import get_project_entry_v2, get_store_path_v2
 from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_path
 from nauro.store.resolution import resolve_project_binding
 from nauro.sync.generation_attachment import InitialAttachmentSession
-from nauro.sync.generation_refresh import _authorize
+from nauro.sync.generation_refresh import authorize_installed_target
 from nauro.sync.migration_admission import load_migration_plan, verify_migration_source
 
 
@@ -296,7 +296,7 @@ def preserve_migration_source(
             raise MigrationAdmissionError("Preservation session binding differs.")
         target = GenerationProjectionTarget(binding, plan.projection)
         require_registered_migration_source(record)
-        _authorize(target, session)
+        authorize_installed_target(target, session)
         located = record.model_copy(update={"store": str(current_source(record))})
         verify_migration_source(located, raw)
         root = source.parent / plan.backup_directory_name
@@ -323,7 +323,7 @@ def preserve_migration_source(
         sync_parents(paths, root)
         verify_migration_source(located, raw)
         require_registered_migration_source(record)
-        _authorize(target, session)
+        authorize_installed_target(target, session)
         if load_migration_plan(source) != (record, raw):
             raise MigrationAdmissionError("Preservation admission changed.")
         return root

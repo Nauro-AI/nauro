@@ -332,6 +332,7 @@ jobs:
           packages/nauro/tests/test_stdio_startup_authority.py
           packages/nauro/tests/test_generation_connection_refusal.py
           packages/nauro/tests/test_unchanged_generation_refresh.py
+          packages/nauro/tests/test_generation_capture_once.py
           packages/nauro/tests/test_attachment_projection_reuse.py
           packages/nauro/tests/test_generation_refresh_reuse.py
           packages/nauro/tests/test_sync/test_generation_acquisition.py

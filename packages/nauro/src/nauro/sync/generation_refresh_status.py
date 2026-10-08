@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -22,11 +23,15 @@ from nauro.store.generation_refresh_io import (
 from nauro.store.generation_refresh_state import RefreshControlPair, _pointer
 from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.home import nauro_home
-from nauro.store.replica_control import _native_control_lock, _validate_managed_path
+from nauro.store.replica_control import (
+    ReplicaControlBusyError,
+    _native_control_lock,
+    _validate_managed_path,
+)
 from nauro.store.resolution import ResolvedProjectBinding, resolve_project_binding
 from nauro.sync.generation_connection import connection_for
 from nauro.sync.generation_credentials import AccountRecord, GenerationConnection
-from nauro.sync.generation_refresh import recover_generation_refresh
+from nauro.sync.generation_refresh import commit_generation_refresh, prepare_generation_refresh
 from nauro.sync.generation_renewal import (
     RENEWAL_TIMEOUT_SECONDS,
     acquire_generation_credentials,
@@ -156,6 +161,14 @@ def refresh_replica(
     attempt_path = _attempt_path(binding, connection, actor)
     lock = attempt_path.with_suffix(".lock")
     _validate_managed_path(home, lock)
+
+    def save(value: RefreshAttempt) -> None:
+        selected, current = _account(binding)
+        if selected != connection or current.user_id != actor:
+            raise GenerationConnectionError("The refresh account changed.")
+        value = RefreshAttempt.model_validate(value.model_dump())
+        durable_replace(evidence, attempt_path, value.model_dump_json().encode())
+
     with _native_control_lock(home, lock, 0):
         prior = _read_attempt(binding, connection, actor)
         attempt = RefreshAttempt(
@@ -166,34 +179,31 @@ def refresh_replica(
             succeeded_at=prior.succeeded_at if prior else None,
             error_code="refresh_incomplete",
         )
-
-        def save(value: RefreshAttempt) -> None:
-            selected, current = _account(binding)
-            if selected != connection or current.user_id != actor:
-                raise GenerationConnectionError("The refresh account changed.")
-            value = RefreshAttempt.model_validate(value.model_dump())
-            durable_replace(evidence, attempt_path, value.model_dump_json().encode())
-
         save(attempt)
-        try:
-            with _renewed_session(binding, renewal_error) as session:
-                if session.actor != actor or session.connection != connection:
-                    raise GenerationConnectionError("The refresh account changed.")
-                store = recover_generation_refresh(binding, actor=actor, session=session)
+    try:
+        with _renewed_session(binding, renewal_error) as session:
+            if session.actor != actor or session.connection != connection:
+                raise GenerationConnectionError("The refresh account changed.")
+            prepared = prepare_generation_refresh(binding, actor=actor, session=session)
+            with _native_control_lock(home, lock, 0):
+                store = commit_generation_refresh(prepared, session=session)
                 session.credentials()
                 save(attempt.model_copy(update={"succeeded_at": _now(), "error_code": None}))
                 session.credentials()
                 return store
-        except Exception as exc:
-            code = (
-                "generation_connection_unavailable"
-                if isinstance(exc, GenerationConnectionError)
-                else "refresh_required"
-                if isinstance(exc, RefreshRequiredError)
-                else "refresh_failed"
-            )
-            save(attempt.model_copy(update={"error_code": code}))
-            raise
+    except Exception as exc:
+        code = (
+            "generation_connection_unavailable"
+            if isinstance(exc, GenerationConnectionError)
+            else "refresh_required"
+            if isinstance(exc, RefreshRequiredError)
+            else "refresh_failed"
+        )
+        # A record this attempt did not write belongs to a later attempt and is kept.
+        with suppress(ReplicaControlBusyError), _native_control_lock(home, lock, 0):
+            if _read_attempt(binding, connection, actor) == attempt:
+                save(attempt.model_copy(update={"error_code": code}))
+        raise
 
 
 def _renewed_session(

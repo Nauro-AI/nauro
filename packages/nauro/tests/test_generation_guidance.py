@@ -46,7 +46,7 @@ def test_guidance_preserves_exact_l0_and_identifies_generation(connected):
     assert text == expected.content
     assert notice == guidance.generation_notice(current[0].target.identity)
     assert "UNPUBLISHED" not in text
-    assert len(checks) == 4
+    assert len(checks) == 1
 
 
 @pytest.mark.parametrize("failure", ["scope", "credentials", "render"])
@@ -70,16 +70,16 @@ def test_guidance_rechecks_before_return(connected, monkeypatch, failure):
         guidance.read_generation_guidance(binding.store_path, render)
 
 
-def test_stale_guidance_never_renders_or_refreshes(connected, monkeypatch):
+def test_stale_guidance_refuses_without_refresh(connected, monkeypatch):
     binding, current, _ = connected
     current[0] = _target()
 
     def forbidden(*args, **kwargs):
-        pytest.fail("Stale guidance must not render or refresh")
+        pytest.fail("Stale guidance must not refresh")
 
     monkeypatch.setattr("nauro.sync.generation_refresh.recover_generation_refresh", forbidden)
     with pytest.raises(PermissionError, match="Generation guidance unavailable"):
-        guidance.read_generation_guidance(binding.store_path, forbidden)
+        guidance.read_generation_guidance(binding.store_path, lambda store: "MUST NOT ESCAPE")
 
 
 def test_generation_prompt_uses_verified_snapshot_and_scoped_dedup(connected, monkeypatch):

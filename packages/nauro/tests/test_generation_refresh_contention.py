@@ -61,13 +61,13 @@ def test_control_contention_refuses_without_changing_replica(replica, phase):
     def attempt():
         held = ExitStack()
         if phase == "install":
-            authorize = refresh._authorize
+            install = refresh.install_generation_root
 
-            def hold_after_authorization(*args):
-                authorize(*args)
+            def hold_before_install(*args, **kwargs):
                 held.enter_context(_held_elsewhere(lock))
+                return install(*args, **kwargs)
 
-            refresh._authorize = hold_after_authorization
+            refresh.install_generation_root = hold_before_install
         else:
             held.enter_context(_held_elsewhere(lock))
         try:

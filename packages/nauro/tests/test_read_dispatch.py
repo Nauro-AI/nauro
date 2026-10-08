@@ -95,7 +95,7 @@ def test_generation_uses_prepared_text_without_legacy_render(cloud, monkeypatch,
         structuredContent=expected.envelope,
     )
     assert actual.structuredContent["replica_status"]["last_refresh_attempt_at"] is None
-    assert len(checks) == 5
+    assert len(checks) == 1
 
 
 @pytest.mark.parametrize("name,kwargs", CASES + [("diff_since_last_session", {})])

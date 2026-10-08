@@ -76,9 +76,7 @@ def test_response_and_dispatch_keep_authority_without_private_wire_fields(cloud,
     assert inspect.signature(composed) == inspect.signature(dispatch.diff_since_last_session)
 
 
-@pytest.mark.parametrize(
-    "fault", ["scope", "advance", "account", "pointer", "intent", "barrier", "network"]
-)
+@pytest.mark.parametrize("fault", ["scope", "advance", "account", "network"])
 def test_changes_during_history_discard_result(admitted, monkeypatch, fault):
     binding, current, _ = admitted
     target = current[0].target
@@ -101,17 +99,6 @@ def test_changes_during_history_discard_result(admitted, monkeypatch, fault):
             refresh.recover_generation_refresh(binding, actor=USER_ID)
         elif fault == "account":
             monkeypatch.setattr(installation, "read_active_user_id", lambda: OTHER)
-        elif fault == "pointer":
-            paths = refresh.refresh_paths(binding, USER_ID)
-            paths.pointer.write_bytes(b"corrupt")
-        elif fault == "intent":
-            refresh.refresh_paths(binding, USER_ID).intent.unlink()
-        elif fault == "barrier":
-
-            def fail(*a, **k):
-                raise OSError("PRIVATE")
-
-            monkeypatch.setattr(refresh, "sync_file", fail)
         else:
             raise httpx.ReadError("PRIVATE")
         return httpx.Response(200, json=response_body(target))

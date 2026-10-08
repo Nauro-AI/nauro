@@ -6,6 +6,7 @@ import base64
 import hashlib
 import threading
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass, field
 from functools import partial
 
 import httpx
@@ -22,6 +23,7 @@ from nauro.store.generation_authority import (
 from nauro.store.generation_projection import (
     GenerationProjectionIdentity,
     GenerationProjectionTarget,
+    GenerationProjectionVerificationError,
     VerifiedGenerationProjection,
     _parse_manifest,
     _strict_json_preflight,
@@ -74,6 +76,13 @@ class GenerationSupersededError(GenerationAuthorityError):
 
 class LegacyStoreAuthorityError(GenerationAuthorityError):
     code = "legacy_store_authority"
+
+
+@dataclass(frozen=True)
+class ObservedGenerationProjection:
+    target: GenerationProjectionTarget
+    manifest_json: bytes
+    session: TransferSession = field(repr=False, compare=False)
 
 
 class _ProjectionResponse(pyd.BaseModel):
@@ -393,8 +402,20 @@ def _acquire_once(
     binding: ResolvedProjectBinding,
     user_id: str,
     prior: VerifiedGenerationProjection | None,
+    observed: ObservedGenerationProjection | None,
 ) -> VerifiedGenerationProjection:
-    target, envelope = _fetch_projection(session, api_url, binding, user_id)
+    if observed is None:
+        target, envelope = _fetch_projection(session, api_url, binding, user_id)
+    else:
+        target, envelope = observed.target, observed.manifest_json
+        if observed.session is not session:
+            raise GenerationProjectionVerificationError(
+                "The observed projection came from another session."
+            )
+        if target.binding != binding:
+            raise GenerationAcquisitionError("The observed projection belongs to another binding.")
+        if target.identity.installed_for_user_id != user_id:
+            raise ReplicaActorMismatchError(_OTHER_ACCOUNT)
     manifest = _parse_manifest(target, envelope)
     reusable = _reusable_bytes(prior, target)
     bodies = [
@@ -424,6 +445,7 @@ def acquire_generation_projection(
     active_user_id: str | None,
     session: TransferSession | None = None,
     prior: VerifiedGenerationProjection | None = None,
+    observed: ObservedGenerationProjection | None = None,
 ) -> VerifiedGenerationProjection:
     if binding.mode != "cloud":
         raise GenerationAcquisitionError("Generation acquisition requires a cloud project binding.")
@@ -443,8 +465,9 @@ def acquire_generation_projection(
         while True:
             attempts += 1
             try:
-                return _acquire_once(active, api_url, binding, user_id, prior)
+                return _acquire_once(active, api_url, binding, user_id, prior, observed)
             except GenerationSupersededError:
+                observed = None
                 if attempts >= _MAX_ACQUISITION_ATTEMPTS:
                     raise
 
@@ -455,6 +478,17 @@ def check_generation_projection(
     active_user_id: str,
     session: TransferSession | None = None,
 ) -> GenerationProjectionTarget:
+    return observe_generation_projection(
+        binding, active_user_id=active_user_id, session=session
+    ).target
+
+
+def observe_generation_projection(
+    binding: ResolvedProjectBinding,
+    *,
+    active_user_id: str,
+    session: TransferSession | None = None,
+) -> ObservedGenerationProjection:
     if binding.mode != "cloud":
         raise GenerationAcquisitionError("Generation acquisition requires a cloud project binding.")
     user_id = validate_identifier(IdentifierKind.ulid, active_user_id, field="active_user_id")
@@ -466,7 +500,7 @@ def check_generation_projection(
         )
         target, manifest = _fetch_projection(active, api_url, binding, user_id)
         _parse_manifest(target, manifest)
-        return target
+        return ObservedGenerationProjection(target, manifest, active)
 
 
 __all__ = [

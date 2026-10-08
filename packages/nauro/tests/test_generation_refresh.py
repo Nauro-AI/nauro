@@ -8,6 +8,7 @@ import sys
 
 import pytest
 
+from nauro.mcp import generation_reads as reads
 from nauro.store import generation_installation as installation
 from nauro.store import generation_refresh_io as durable
 from nauro.store.generation_authority import RefreshRequiredError, ReplicaActorMismatchError
@@ -20,6 +21,7 @@ from nauro.store.generation_read import read_installed_generation
 from nauro.store.generation_refresh_intent import decode_intent, encode_intent
 from nauro.store.generation_refresh_state import GenerationRefreshEvidenceError
 from nauro.sync import generation_refresh as refresh
+from nauro.sync.generation_acquisition import ObservedGenerationProjection
 from tests.test_generation_installation import USER_ID, _projection
 
 
@@ -51,7 +53,16 @@ def replica(monkeypatch):
     current = [_target()]
     monkeypatch.setattr(refresh, "acquire_generation_projection", lambda *a, **k: current[0])
     monkeypatch.setattr(refresh, "check_generation_projection", lambda *a, **k: current[0].target)
+    monkeypatch.setattr(refresh, "observe_generation_projection", _observe(current))
     return base.target.binding, current
+
+
+def _observe(current):
+    def observe(*a, **k):
+        target = refresh.check_generation_projection(*a, **k)
+        return ObservedGenerationProjection(target, current[0].manifest_json, k["session"])
+
+    return observe
 
 
 def _child_path():
@@ -62,6 +73,11 @@ def _child_path():
 
 def _bootstrap(binding):
     return refresh.prepare_initial_generation_refresh(binding, actor=USER_ID)
+
+
+def _admit_and_authorize(binding):
+    store = refresh.admit_generation_store(binding, actor=USER_ID)
+    refresh.authorize_installed_target(store.target, None)
 
 
 def _active(binding):
@@ -133,7 +149,7 @@ def test_revoked_scope_reconciles_each_partial_state_and_preserves_evidence(
     observed = paths.pointer.read_bytes(), paths.carrier.read_bytes()
     current[0] = _target("01K77777777777777777777777", "c" * 64)
     with pytest.raises(RefreshRequiredError):
-        refresh.admit_generation_store(binding, actor=USER_ID)
+        _admit_and_authorize(binding)
     monkeypatch.setattr(refresh, "durable_replace", original)
     assert (
         refresh.recover_generation_refresh(binding, actor=USER_ID).read_file("state.md")
@@ -208,7 +224,7 @@ def test_authorization_failure_and_changed_account_deny_without_mutation(replica
 
     monkeypatch.setattr(refresh, "check_generation_projection", revoked)
     with pytest.raises(RefreshRequiredError):
-        refresh.admit_generation_store(binding, actor=USER_ID)
+        _admit_and_authorize(binding)
     monkeypatch.setattr(installation, "read_active_user_id", lambda: "01K88888888888888888888888")
     with pytest.raises(ReplicaActorMismatchError):
         refresh.recover_generation_refresh(binding, actor=USER_ID)
@@ -232,12 +248,16 @@ def test_process_loss_after_replacement_recovers_from_exact_evidence(replica, bo
 import os
 from nauro.store import generation_installation as installation
 from nauro.sync import generation_refresh as refresh
+from nauro.sync.generation_acquisition import ObservedGenerationProjection
 from tests.test_generation_refresh import _target
 from tests.test_generation_installation import USER_ID
 installation.read_active_user_id = lambda: USER_ID
 projection = _target()
 refresh.acquire_generation_projection = lambda *a, **k: projection
 refresh.check_generation_projection = lambda *a, **k: projection.target
+refresh.observe_generation_projection = lambda *a, **k: ObservedGenerationProjection(
+    projection.target, projection.manifest_json, k["session"]
+)
 original = refresh.durable_replace
 def stop(paths, path, raw):
     original(paths, path, raw)
@@ -295,20 +315,18 @@ def test_predecessor_failures_refuse_without_replacing_active_intent(replica, mo
 
 
 def test_final_authorization_change_prevents_disclosure(replica, monkeypatch):
-    binding, current = replica
+    binding, _ = replica
     refresh.commit_generation_refresh(_bootstrap(binding))
     calls = []
 
     def changing(*args, **kwargs):
         calls.append(1)
-        if len(calls) == 3:
-            return _target("01K77777777777777777777777", "c" * 64).target
-        return current[0].target
+        return _target("01K77777777777777777777777", "c" * 64).target
 
     monkeypatch.setattr(refresh, "check_generation_projection", changing)
     with pytest.raises(RefreshRequiredError):
-        refresh.admit_generation_store(binding, actor=USER_ID)
-    assert len(calls) == 3
+        reads.get_raw_file(binding, "state.md", actor=USER_ID)
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize("boundary", ["manifest", "artifact", "directory"])
@@ -364,6 +382,7 @@ from nauro.store import generation_installation as installation
 from nauro.store import _platform_durability as durability
 from nauro.store import generation_refresh_io as durable
 from nauro.sync import generation_refresh as refresh
+from nauro.sync.generation_acquisition import ObservedGenerationProjection
 from tests.test_generation_refresh import _target
 from tests.test_generation_installation import USER_ID
 installation.read_active_user_id = lambda: USER_ID
@@ -371,6 +390,9 @@ projection = _target('01K77777777777777777777777', 'c' * 64)
 paths = durable.refresh_paths(projection.target.binding, USER_ID)
 refresh.acquire_generation_projection = lambda *a, **k: projection
 refresh.check_generation_projection = lambda *a, **k: projection.target
+refresh.observe_generation_projection = lambda *a, **k: ObservedGenerationProjection(
+    projection.target, projection.manifest_json, k["session"]
+)
 original = refresh.durable_replace
 archive = refresh.preserve_predecessor
 link = os.link
@@ -461,12 +483,16 @@ import os
 from nauro.store import generation_installation as installation
 from nauro.store import generation_refresh_io as durable
 from nauro.sync import generation_refresh as refresh
+from nauro.sync.generation_acquisition import ObservedGenerationProjection
 from tests.test_generation_refresh import _target
 from tests.test_generation_installation import USER_ID
 installation.read_active_user_id = lambda: USER_ID
 projection = _target()
 refresh.acquire_generation_projection = lambda *a, **k: projection
 refresh.check_generation_projection = lambda *a, **k: projection.target
+refresh.observe_generation_projection = lambda *a, **k: ObservedGenerationProjection(
+    projection.target, projection.manifest_json, k["session"]
+)
 paths = durable.refresh_paths(projection.target.binding, USER_ID)
 replace = durable.durability.durable_rename
 barrier = durable.sync_directory

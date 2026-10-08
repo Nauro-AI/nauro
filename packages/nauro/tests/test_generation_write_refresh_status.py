@@ -23,7 +23,8 @@ def test_committed_write_records_current_refresh_attempt(
     earlier = "2026-09-01T00:00:00.000000Z"
     current = "2026-09-01T00:01:00.000000Z"
     refresh = Mock(return_value=object())
-    monkeypatch.setattr(status, "recover_generation_refresh", refresh)
+    monkeypatch.setattr(status, "prepare_generation_refresh", refresh)
+    monkeypatch.setattr(status, "commit_generation_refresh", Mock(return_value=object()))
     monkeypatch.setattr(status, "_now", lambda: earlier)
     status.refresh_replica(binding)
     monkeypatch.setattr(status, "_now", lambda: current)

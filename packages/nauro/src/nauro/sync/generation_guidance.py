@@ -10,7 +10,11 @@ from nauro.store.generation_projection import GenerationProjectionIdentity
 from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.read_authority import observe_generation_marker, require_legacy_context
 from nauro.store.resolution import ResolvedProjectBinding, resolve_project_binding
-from nauro.sync.generation_refresh import _authorize, admit_generation_store
+from nauro.sync.generation_refresh import (
+    admit_generation_store,
+    authorize_installed_target,
+    confirm_installed_target,
+)
 from nauro.sync.generation_session import GenerationTransferSession
 from nauro.sync.remote import TransferBoundaryError
 
@@ -36,7 +40,8 @@ def read_generation_guidance(
         with GenerationTransferSession(binding) as session:
             store = _select_snapshot(binding, session, snapshot)
             result = render(store)
-            _authorize(store.target, session)
+            if snapshot is None:
+                authorize_installed_target(store.target, session)
             session.credentials()
             return result, store.target.identity
     except (ValueError, OSError, httpx.HTTPError, TransferBoundaryError) as exc:
@@ -78,5 +83,5 @@ def _select_snapshot(
     if snapshot.target.binding != binding:
         raise ValueError("Guidance snapshot belongs to another binding")
     session.require_binding(binding)
-    _authorize(snapshot.target, session)
+    confirm_installed_target(binding, session.actor, snapshot.target, session)
     return snapshot
