@@ -478,29 +478,33 @@ def check_generation_projection(
     active_user_id: str,
     session: TransferSession | None = None,
 ) -> GenerationProjectionTarget:
-    return observe_generation_projection(
-        binding, active_user_id=active_user_id, session=session
-    ).target
+    with operation_session(session) as active:
+        return _observe(binding, active_user_id, active).target
 
 
 def observe_generation_projection(
-    binding: ResolvedProjectBinding,
-    *,
-    active_user_id: str,
-    session: TransferSession | None = None,
+    binding: ResolvedProjectBinding, *, active_user_id: str, session: TransferSession
+) -> ObservedGenerationProjection:
+    """Observe under a live caller session so acquisition can reuse it on that session."""
+    if session is None:
+        raise GenerationAcquisitionError("A reusable observation requires a caller session.")
+    return _observe(binding, active_user_id, session)
+
+
+def _observe(
+    binding: ResolvedProjectBinding, active_user_id: str, session: TransferSession
 ) -> ObservedGenerationProjection:
     if binding.mode != "cloud":
         raise GenerationAcquisitionError("Generation acquisition requires a cloud project binding.")
     user_id = validate_identifier(IdentifierKind.ulid, active_user_id, field="active_user_id")
-    with operation_session(session) as active:
-        if isinstance(active, GenerationTransferSession):
-            active.require_binding(binding)
-        api_url = (
-            active.api_url if isinstance(active, GenerationTransferSession) else resolve_api_url()
-        )
-        target, manifest = _fetch_projection(active, api_url, binding, user_id)
-        _parse_manifest(target, manifest)
-        return ObservedGenerationProjection(target, manifest, active)
+    if isinstance(session, GenerationTransferSession):
+        session.require_binding(binding)
+    api_url = (
+        session.api_url if isinstance(session, GenerationTransferSession) else resolve_api_url()
+    )
+    target, manifest = _fetch_projection(session, api_url, binding, user_id)
+    _parse_manifest(target, manifest)
+    return ObservedGenerationProjection(target, manifest, session)
 
 
 __all__ = [
