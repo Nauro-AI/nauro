@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nauro"
-version = "1.22.0"
+version = "1.22.1"
 description = "What every agent should know. Keep your project's direction in human hands as agents do more of the work."
 readme = "README.md"
 license = "Apache-2.0"
