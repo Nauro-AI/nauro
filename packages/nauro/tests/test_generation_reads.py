@@ -15,7 +15,7 @@ from nauro.store.generation_authority import RefreshRequiredError, ReplicaActorM
 from nauro.store.generation_store import GenerationSnapshotStore, GenerationStorePathError
 from nauro.sync import generation_refresh as refresh
 from tests.test_generation_installation import USER_ID, _projection
-from tests.test_generation_refresh import _target
+from tests.test_generation_refresh import _observe, _target
 
 CASES = [
     ("get_context", (0,), {}),
@@ -61,6 +61,7 @@ def admitted(monkeypatch):
 
     monkeypatch.setattr(refresh, "acquire_generation_projection", lambda *a, **k: current[0])
     monkeypatch.setattr(refresh, "check_generation_projection", authorize)
+    monkeypatch.setattr(refresh, "observe_generation_projection", _observe(current))
     refresh.commit_generation_refresh(
         refresh.prepare_initial_generation_refresh(binding, actor=USER_ID)
     )
@@ -80,7 +81,7 @@ def test_each_read_uses_one_admitted_snapshot(admitted, name, args, kwargs):
         assert response.result == expected
         assert response.projection == projection.target.identity
         assert "STALE" not in repr(response)
-        assert len(checks) == 4
+        assert len(checks) == 1
         assert all(item == (binding, USER_ID, None) for item in checks)
         checks.clear()
 
@@ -242,7 +243,7 @@ def test_http_authorization_repeats_without_artifact_downloads(tmp_path, monkeyp
         server.counts = {"projection": 0, "presign": 0, "object": 0}
         server.requests.clear()
         server.projection_hook = lambda n, p: (
-            httpx.Response(final_status) if n == 4 and final_status == 403 else p
+            httpx.Response(final_status) if n == 1 and final_status == 403 else p
         )
         if final_status == 403:
             with pytest.raises(TransferBoundaryError) as raised:
@@ -252,8 +253,8 @@ def test_http_authorization_repeats_without_artifact_downloads(tmp_path, monkeyp
             result = reads.get_raw_file(binding, "state.md", actor=USER_ID, session=server.session)
             assert result.result.content == "HTTP authorized state"
             assert result.projection == projection.target.identity
-        assert server.counts == {"projection": 4, "presign": 0, "object": 0}
-        assert [bearer for _, _, _, bearer in server.requests] == ["Bearer tok_orig"] * 4
+        assert server.counts == {"projection": 1, "presign": 0, "object": 0}
+        assert [bearer for _, _, _, bearer in server.requests] == ["Bearer tok_orig"]
     finally:
         server.session.client.close()
 
@@ -271,7 +272,7 @@ def test_next_read_requires_new_authorization_after_refresh(admitted):
     assert after.result.content == "fresh state\n"
     assert after.projection == current[0].target.identity
     assert before.projection.generation_id != after.projection.generation_id
-    assert len(checks) == 4
+    assert len(checks) == 1
 
 
 def test_corrupt_installed_bytes_refuse_before_rendering(admitted, monkeypatch):

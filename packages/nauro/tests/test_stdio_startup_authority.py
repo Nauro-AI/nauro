@@ -274,7 +274,7 @@ def test_startup_failure_is_visible_without_fallback(installed, monkeypatch, cap
     else:
         monkeypatch.setattr(
             refresh_status,
-            "recover_generation_refresh",
+            "prepare_generation_refresh",
             lambda *a, **kw: (_ for _ in ()).throw(httpx.ConnectError("PRIVATE")),
         )
     stdio_server._pull_on_startup()
@@ -297,7 +297,7 @@ def test_interrupted_attempt_remains_visible(installed, monkeypatch):
     with monkeypatch.context() as fault:
         fault.setattr(
             refresh_status,
-            "recover_generation_refresh",
+            "prepare_generation_refresh",
             lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt()),
         )
         with pytest.raises(KeyboardInterrupt):
@@ -407,7 +407,7 @@ def test_unchanged_startup_checks_projection_without_downloading(installed):
     _, binding, _, _, _, calls, legacy = installed
     calls.clear()
     stdio_server._pull_on_startup()
-    assert [request.url.path for request in calls] == ["/generations/projection"] * 5
+    assert [request.url.path for request in calls] == ["/generations/projection"]
     assert _status(binding)["last_refresh_error_code"] is None
     assert _status(binding)["last_refresh_succeeded_at"] is not None
     assert legacy == []

@@ -14,9 +14,8 @@ from nauro.mcp import generation_reads as reads
 from nauro.mcp.generation_reads import GenerationReadResult, _Result
 from nauro.mcp.rendering import try_render_envelope
 from nauro.store.generation_authority import GenerationAuthorityError
-from nauro.store.generation_projection import GenerationProjectionTarget
 from nauro.store.resolution import ResolvedProjectBinding
-from nauro.sync.generation_refresh import _authorize, admit_generation_store
+from nauro.sync.generation_refresh import admit_generation_store, authorize_installed_target
 from nauro.sync.history_transport import HttpHistoryTransport
 from nauro.sync.remote import TransferBoundaryError, TransferSession, resolve_api_url
 
@@ -44,10 +43,8 @@ def _unavailable() -> GenerationToolResponse:
 
 
 def _finish(
-    binding: ResolvedProjectBinding,
     read: GenerationReadResult[_Result],
     tool_name: str,
-    session: TransferSession | None,
     renderer_kwargs: dict[str, object] | None = None,
 ) -> GenerationToolResponse:
     payload = read.result.model_dump(mode="json", exclude_none=True)
@@ -57,7 +54,6 @@ def _finish(
             str(failure.get("reason", "Read failed.")), kind=str(failure.get("kind", "error"))
         )
     identity = read.projection
-    target = GenerationProjectionTarget(binding, identity)
     envelope: dict[str, object] = {
         "store": "local",
         **payload,
@@ -81,7 +77,6 @@ def _finish(
         if "stack_revision" in read.revisions:
             metadata = f"{metadata}\n{STACK_NON_AUTHORITATIVE_FRAMING}"
         text = f"{metadata}\n\n{text}"
-    _authorize(target, session)
     frame = (
         f"Generation: {identity.generation_id}. Committed: {identity.committed_at}.\n"
         "Authorization checked for this read."
@@ -112,7 +107,7 @@ def get_context(
         return _error("Invalid level. Use L0, L1 or L2.", kind="rejected")
     try:
         read = reads.get_context(binding, level, actor=actor, session=session)
-        return _finish(binding, read, "get_context", session, {"level": level})
+        return _finish(read, "get_context", {"level": level})
     except _READ_FAILURES:
         return _unavailable()
 
@@ -127,7 +122,7 @@ def get_decision(
 ) -> GenerationToolResponse:
     try:
         read = reads.get_decision(binding, number, mode, actor=actor, session=session)
-        return _finish(binding, read, "get_decision", session, {"mode": mode})
+        return _finish(read, "get_decision", {"mode": mode})
     except _READ_FAILURES:
         return _unavailable()
 
@@ -145,7 +140,7 @@ def get_raw_file(
         return _error("Invalid or unavailable generation path.", kind="rejected")
     try:
         read = reads.get_raw_file(binding, canonical, actor=actor, session=session)
-        return _finish(binding, read, "get_raw_file", session, {"path": canonical})
+        return _finish(read, "get_raw_file", {"path": canonical})
     except _READ_FAILURES:
         return _unavailable()
 
@@ -162,7 +157,7 @@ def list_decisions(
         read = reads.list_decisions(
             binding, limit, include_superseded, actor=actor, session=session
         )
-        return _finish(binding, read, "list_decisions", session)
+        return _finish(read, "list_decisions")
     except _READ_FAILURES:
         return _unavailable()
 
@@ -187,7 +182,7 @@ def search_decisions(
             use_embeddings=use_embeddings,
             session=session,
         )
-        return _finish(binding, read, "search_decisions", session, {"query": query})
+        return _finish(read, "search_decisions", {"query": query})
     except _READ_FAILURES:
         return _unavailable()
 
@@ -210,7 +205,7 @@ def check_decision(
             use_embeddings=use_embeddings,
             session=session,
         )
-        return _finish(binding, read, "check_decision", session)
+        return _finish(read, "check_decision")
     except _READ_FAILURES:
         return _unavailable()
 
@@ -240,9 +235,7 @@ def diff_since_last_session(
         }
         if result.cutoff_date_used is not None:
             envelope["cutoff_date_used"] = result.cutoff_date_used
-        final = admit_generation_store(binding, actor=actor, session=session)
-        if final.target != store.target:
-            return _unavailable()
+        authorize_installed_target(store.target, session)
         return GenerationToolResponse(envelope, result.text, False)
     except (GenerationAuthorityError, TransferBoundaryError, ActiveUserReadError, OSError):
         return _unavailable()

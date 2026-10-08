@@ -23,8 +23,8 @@ from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_p
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.generation_attachment_record import validate_retained_projection
 from nauro.sync.generation_refresh import (
-    _authorize,
     admit_generation_store,
+    authorize_installed_target,
     commit_generation_refresh,
     prepare_generation_refresh,
     prepare_initial_generation_refresh,
@@ -209,7 +209,7 @@ def continue_migration_installation(
         if plan.projection != projection.target.identity:
             raise MigrationAdmissionError("Conversion projection differs from the saved plan.")
         _registration(record, session)
-        _authorize(projection.target, session)
+        authorize_installed_target(projection.target, session)
         _backup(record, plan, raw)
         if record.phase == "blocked":
             located = record.model_copy(update={"store": str(current_source(record))})
@@ -222,9 +222,9 @@ def continue_migration_installation(
         verify_migration_source(located, raw)
         if record.phase == "installing":
             _registration(record, session)
-            _authorize(projection.target, session)
+            authorize_installed_target(projection.target, session)
             _install(projection, session)
             _registration(record, session)
-            _authorize(projection.target, session)
+            authorize_installed_target(projection.target, session)
             record = _advance(record, raw, "completed")
         return record

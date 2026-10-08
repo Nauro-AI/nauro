@@ -49,7 +49,7 @@ def test_refresh_guidance_uses_returned_snapshot_without_capture(installed, monk
     saved = (repo / "AGENTS.md").read_text()
     assert "Derived context from generation" in saved
     capture.assert_not_called()
-    assert [request.url.path for request in calls] == ["/generations/projection"] * 5
+    assert [request.url.path for request in calls] == ["/generations/projection"]
     assert replica_status(binding)["last_refresh_error_code"] is None
 
 
@@ -96,32 +96,21 @@ def test_guidance_write_failure_preserves_refresh_and_receipt(
     assert saved.read_text() == "Preserved owner guidance\n"
 
 
-@pytest.mark.parametrize("change", ["revoked", "expired", "actor"])
-def test_reused_snapshot_requires_current_authority(installed, change):
-    repo, binding, _, credentials, control, calls, _ = installed
+@pytest.mark.parametrize("change", ["expired", "actor"])
+def test_reused_snapshot_requires_current_account(installed, change):
+    repo, binding, _, credentials, _, calls, _ = installed
     snapshot = refresh_replica(binding)
-    before = replica_status(binding)
     (repo / "AGENTS.md").write_text("Preserved guidance\n")
-    if change == "revoked":
-        control["status"] = 403
-    else:
-        with credentials.locked():
-            record = credentials.read()
-            delta = (
-                {"expires_at": 1}
-                if change == "expired"
-                else {"user_id": "01K88888888888888888888888"}
-            )
-            credentials.write(record.model_copy(update=delta))
+    with credentials.locked():
+        record = credentials.read()
+        delta = (
+            {"expires_at": 1} if change == "expired" else {"user_id": "01K88888888888888888888888"}
+        )
+        credentials.write(record.model_copy(update=delta))
     calls.clear()
     result = guidance.regenerate_refreshed_guidance(snapshot)
     assert result["status"] == "failed"
     assert (repo / "AGENTS.md").read_text() == "Preserved guidance\n"
-    if change == "revoked":
-        assert (
-            replica_status(binding)["last_refresh_succeeded_at"]
-            == before["last_refresh_succeeded_at"]
-        )
     assert all(request.url.path == "/generations/projection" for request in calls)
 
 

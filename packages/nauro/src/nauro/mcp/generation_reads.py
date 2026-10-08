@@ -19,7 +19,7 @@ from nauro_core.operations.update_state import compute_state_revision
 from nauro.store.generation_projection import GenerationProjectionIdentity
 from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.resolution import ResolvedProjectBinding
-from nauro.sync.generation_refresh import _authorize, admit_generation_store
+from nauro.sync.generation_refresh import admit_generation_store, authorize_installed_target
 from nauro.sync.remote import TransferSession
 
 _Result = TypeVar(
@@ -46,7 +46,7 @@ def _finish(
     session: TransferSession | None,
     revisions: dict[str, str] | None = None,
 ) -> GenerationReadResult[_Result]:
-    _authorize(store.target, session)
+    authorize_installed_target(store.target, session)
     return GenerationReadResult(store.target.identity, result, revisions or {})
 
 

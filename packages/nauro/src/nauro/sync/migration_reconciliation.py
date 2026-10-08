@@ -42,7 +42,7 @@ from nauro.store.resolution import ResolvedProjectBinding
 from nauro.sync.generation_acquisition import acquire_generation_projection
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.generation_attachment_record import validate_retained_projection
-from nauro.sync.generation_refresh import _authorize
+from nauro.sync.generation_refresh import authorize_installed_target
 from nauro.sync.migration_admission import (
     _publish_successor,
     _read_plan,
@@ -123,7 +123,7 @@ def reconcile_admitted_migration(
                     + _RECOVERY
                 )
             plan = prepare_legacy_migration_plan(assessment)
-            _authorize(projection.target, session)
+            authorize_installed_target(projection.target, session)
             session.require_actor(expected.actor)
             successor = MigrationAdmission(
                 migration_id=plan.migration_id,

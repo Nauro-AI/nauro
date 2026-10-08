@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from nauro.mcp import generation_reads as reads
 from nauro.store.generation_authority import GenerationAuthorityError, RefreshRequiredError
 from nauro.store.generation_refresh_state import GenerationRefreshEvidenceError
 from nauro.sync import generation_refresh as refresh
@@ -92,14 +93,15 @@ def test_control_change_during_preparation_refuses(replica, monkeypatch, when):
     assert paths.carrier.read_bytes() == b"changed"
 
 
-def test_generation_advancing_after_capture_refuses_commit(replica, monkeypatch):
+def test_generation_advancing_after_capture_installs_then_next_read_refuses(replica, monkeypatch):
     binding, current = replica
     paths, before, _ = _complete(binding, monkeypatch)
     prepared = refresh.prepare_generation_refresh(binding, actor=USER_ID)
     current[0] = _target(generation="01K77777777777777777777777")
-    with pytest.raises(RefreshRequiredError):
-        refresh.commit_generation_refresh(prepared)
+    assert refresh.commit_generation_refresh(prepared).target == prepared.projection.target
     assert paths.intent.read_bytes() == before
+    with pytest.raises(RefreshRequiredError):
+        reads.get_raw_file(binding, "state.md", actor=USER_ID)
 
 
 def test_unchanged_target_still_refuses_failed_final_barrier(replica, monkeypatch):
@@ -212,21 +214,20 @@ def test_completion_repeats_each_failed_barrier(replica, monkeypatch, boundary):
     )
 
 
-@pytest.mark.parametrize("check", [2, 3])
-def test_completion_revocation_refuses_before_return(replica, monkeypatch, check):
+def test_revocation_after_preparation_refuses_the_next_read(replica, monkeypatch):
     binding, _ = replica
     paths, before, _ = _complete(binding, monkeypatch)
-    original = refresh.check_generation_projection
+    prepared = refresh.prepare_generation_refresh(binding, actor=USER_ID)
     calls = []
 
-    def authorize(*a, **kw):
+    def revoked(*a, **kw):
         calls.append(None)
-        if len(calls) == check:
-            raise RefreshRequiredError("revoked")
-        return original(*a, **kw)
+        raise RefreshRequiredError("revoked")
 
-    monkeypatch.setattr(refresh, "check_generation_projection", authorize)
+    monkeypatch.setattr(refresh, "check_generation_projection", revoked)
+    assert refresh.commit_generation_refresh(prepared).read_file("state.md") == "fresh state\n"
+    assert calls == []
     with pytest.raises(RefreshRequiredError, match="revoked"):
-        refresh.recover_generation_refresh(binding, actor=USER_ID)
-    assert len(calls) == check
+        reads.get_raw_file(binding, "state.md", actor=USER_ID)
+    assert len(calls) == 1
     assert paths.intent.read_bytes() == before

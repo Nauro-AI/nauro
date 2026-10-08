@@ -54,10 +54,11 @@ from nauro.store.resolution import ResolvedProjectBinding
 from nauro.sync.generation_acquisition import (
     acquire_generation_projection,
     check_generation_projection,
+    observe_generation_projection,
     same_replica_scope,
 )
 from nauro.sync.generation_session import GenerationTransferSession
-from nauro.sync.remote import TransferSession
+from nauro.sync.remote import TransferSession, operation_session
 
 
 class GenerationRefreshDurabilityError(GenerationAuthorityError):
@@ -130,7 +131,9 @@ def _target(binding: ResolvedProjectBinding, intent: RefreshIntent) -> Generatio
     return GenerationProjectionTarget(binding, identity)
 
 
-def _authorize(target: GenerationProjectionTarget, session: TransferSession | None) -> None:
+def authorize_installed_target(
+    target: GenerationProjectionTarget, session: TransferSession | None
+) -> None:
     actor = target.identity.installed_for_user_id
     _require_actor(actor, session)
     current = check_generation_projection(target.binding, active_user_id=actor, session=session)
@@ -195,20 +198,25 @@ def _prepare(
             manifest_json=acquired.manifest_json,
             artifacts=tuple((artifact.path, artifact.content) for artifact in acquired.artifacts),
         )
-        _authorize(projection.target, session)
+        authorize_installed_target(projection.target, session)
         return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
-    if installed_target is not None:
-        if installed_target.identity.installed_for_user_id != actor:
-            raise GenerationRefreshEvidenceError("Refresh target belongs to another actor.")
-        current = check_generation_projection(binding, active_user_id=actor, session=session)
-        if current == installed_target:
-            projection = _capture_prepared(binding, actor, session, (marker, pointer, carrier), raw)
-            return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
-        if same_replica_scope(installed_target, current):
-            prior = _capture_prepared(binding, actor, session, (marker, pointer, carrier), raw)
-    projection = acquire_generation_projection(
-        binding, active_user_id=actor, session=session, prior=prior
-    )
+    if installed_target is not None and installed_target.identity.installed_for_user_id != actor:
+        raise GenerationRefreshEvidenceError("Refresh target belongs to another actor.")
+    controls = (marker, pointer, carrier)
+    with operation_session(session) as active:
+        observation = None
+        if installed_target is not None:
+            observation = observe_generation_projection(
+                binding, active_user_id=actor, session=active
+            )
+            if observation.target == installed_target:
+                projection = _capture_prepared(binding, actor, session, controls, raw)
+                return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
+            if same_replica_scope(installed_target, observation.target):
+                prior = _capture_prepared(binding, actor, session, controls, raw)
+        projection = acquire_generation_projection(
+            binding, active_user_id=actor, session=active, prior=prior, observed=observation
+        )
     return PreparedGenerationRefresh(projection, marker, pointer, carrier, raw)
 
 
@@ -261,17 +269,13 @@ def _sync_target(paths: RefreshPaths, projection: VerifiedGenerationProjection) 
 
 
 def _complete(
-    paths: RefreshPaths,
-    intent: RefreshIntent,
-    projection: VerifiedGenerationProjection,
-    session: TransferSession | None,
+    paths: RefreshPaths, intent: RefreshIntent, projection: VerifiedGenerationProjection
 ) -> GenerationSnapshotStore:
     if projection.target != _target(projection.target.binding, intent):
         raise GenerationRefreshEvidenceError("Refresh target differs from retained intent.")
     raw = encode_intent(intent)
     if _intent(paths)[0] != raw or intent.classify(*_controls(paths)) != "target_present":
         raise RefreshRequiredError("Explicit refresh recovery is required before admission.")
-    _authorize(projection.target, session)
     _sync_target(paths, projection)
     for path in (paths.marker, paths.intent, paths.carrier, paths.pointer):
         sync_file(paths, path)
@@ -282,7 +286,6 @@ def _complete(
     if _intent(paths)[0] != raw or intent.classify(*_controls(paths)) != "target_present":
         raise GenerationRefreshEvidenceError("Refresh evidence changed during completion.")
     _sync_target(paths, projection)
-    _authorize(projection.target, session)
     if _intent(paths)[0] != raw or intent.classify(*_controls(paths)) != "target_present":
         raise GenerationRefreshEvidenceError("Refresh evidence changed before admission.")
     return GenerationSnapshotStore(projection)
@@ -294,14 +297,12 @@ def _resume(
     projection: VerifiedGenerationProjection,
     session: TransferSession | None,
 ) -> GenerationSnapshotStore:
-    _authorize(projection.target, session)
     _sync_target(paths, projection)
     sync_file(paths, paths.marker)
     sync_file(paths, paths.intent)
     sync_parents(paths, paths.actor)
     if _intent(paths)[0] != encode_intent(intent):
         raise GenerationRefreshEvidenceError("Refresh intent changed before publication.")
-    _authorize(projection.target, session)
     state = intent.classify(*_controls(paths))
     if state == "base_present":
         _require_actor(projection.target.identity.installed_for_user_id, session)
@@ -312,7 +313,7 @@ def _resume(
         sync_parents(paths, paths.actor)
         _require_actor(projection.target.identity.installed_for_user_id, session)
         durable_replace(paths, paths.pointer, intent.target_pointer_json.encode())
-    return _complete(paths, intent, projection, session)
+    return _complete(paths, intent, projection)
 
 
 def commit_generation_refresh(
@@ -337,15 +338,13 @@ def commit_generation_refresh(
                 _target(target.binding, prior) == target
                 and prior.classify(*controls) == "target_present"
             ):
-                return _complete(paths, prior, projection, session)
-    _authorize(target, session)
+                return _complete(paths, prior, projection)
     install_generation_root(projection, timeout=0)
     with _locked(target.binding, actor, session) as paths:
         if _controls(paths) != (prepared.marker, prepared.pointer, prepared.carrier):
             raise GenerationRefreshEvidenceError("The prepared refresh base is stale.")
         if read_evidence(paths, paths.intent) != prepared.prior_intent:
             raise GenerationRefreshEvidenceError("The prepared refresh intent is stale.")
-        _authorize(target, session)
         _sync_target(paths, projection)
         for path in (paths.marker, paths.pointer, paths.carrier):
             sync_file(paths, path)
@@ -366,19 +365,34 @@ def commit_generation_refresh(
 def admit_generation_store(
     binding: ResolvedProjectBinding, *, actor: str, session: TransferSession | None = None
 ) -> GenerationSnapshotStore:
+    """Capture the installed generation locally; callers authorize before disclosure."""
     with _locked(binding, actor, session) as paths:
         _, intent = _intent(paths)
         if intent.classify(*_controls(paths)) != "target_present":
             raise RefreshRequiredError("Explicit refresh recovery is required before admission.")
-        target = _target(binding, intent)
-        _authorize(target, session)
         authority = GenerationProjectAuthority(
             binding,
             _parse_marker(intent.marker_json),
             _pointer(intent.target_pointer_json.encode()),
         )
         projection = _capture(authority)
-        return _complete(paths, intent, projection, session)
+        return _complete(paths, intent, projection)
+
+
+def confirm_installed_target(
+    binding: ResolvedProjectBinding,
+    actor: str,
+    target: GenerationProjectionTarget,
+    session: TransferSession | None,
+) -> None:
+    """Require that the completed installed pointer still names the refreshed target."""
+    with _locked(binding, actor, session) as paths:
+        _, intent = _intent(paths)
+        if (
+            intent.classify(*_controls(paths)) != "target_present"
+            or _target(binding, intent) != target
+        ):
+            raise RefreshRequiredError("The installed generation differs from the refresh.")
 
 
 def recover_generation_refresh(

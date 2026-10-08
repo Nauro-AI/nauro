@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from nauro_core import renderers
+from nauro_core import operations, renderers
 from nauro_core.renderers import L2_CHAR_BUDGET
 
 from nauro.mcp import generation_responses as responses
@@ -49,7 +49,7 @@ def test_response_content_and_metadata_use_one_generation(admitted, name, args, 
         assert "POISON" not in repr(result)
         assert USER_ID not in repr(result)
         assert identity.projection_scope_id not in repr(result)
-        assert len(checks) == 5
+        assert len(checks) == 1
         checks.clear()
 
 
@@ -68,24 +68,29 @@ def replace_projection_binding(projection, binding):
 
 @pytest.mark.parametrize("name,args,kwargs", CASES)
 @pytest.mark.parametrize("failure", ["scope", "account", "renderer"])
-def test_no_payload_escapes_a_failure_during_rendering(
+def test_no_payload_escapes_a_failure_before_return(
     admitted, monkeypatch, name, args, kwargs, failure
 ):
     binding, current, _ = admitted
-    original = renderers.RENDERERS[name]
 
-    def interrupt(*a, **k):
-        if failure == "scope":
-            current[0] = _target()
-        elif failure == "account":
-            monkeypatch.setattr(
-                installation, "read_active_user_id", lambda: "01K44444444444444444444444"
-            )
-        else:
-            raise RuntimeError("PRIVATE CAPTURED CONTENT")
-        return original(*a, **k)
+    def interrupt(original):
+        def call(*a, **k):
+            if failure == "scope":
+                current[0] = _target()
+            elif failure == "account":
+                monkeypatch.setattr(
+                    installation, "read_active_user_id", lambda: "01K44444444444444444444444"
+                )
+            else:
+                raise RuntimeError("PRIVATE CAPTURED CONTENT")
+            return original(*a, **k)
 
-    monkeypatch.setitem(renderers.RENDERERS, name, interrupt)
+        return call
+
+    if failure == "renderer":
+        monkeypatch.setitem(renderers.RENDERERS, name, interrupt(renderers.RENDERERS[name]))
+    else:
+        monkeypatch.setattr(operations, name, interrupt(getattr(operations, name)))
     result = getattr(responses, name)(binding, *args, actor=USER_ID, **kwargs)
     assert result.is_error is True
     assert set(result.envelope) == {"store", "error"}
