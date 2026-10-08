@@ -11,6 +11,7 @@ from nauro.store.resolution import ResolvedProjectBinding, resolve_project_bindi
 from nauro.sync.auth_errors import AuthenticationError
 from nauro.sync.generation_connection import connection_for
 from nauro.sync.generation_credentials import generation_credentials
+from nauro.sync.generation_pool import generation_client
 from nauro.sync.generation_renewal import (
     RENEWAL_TIMEOUT_SECONDS,
     RenewalError,
@@ -55,7 +56,11 @@ class GenerationTransferSession(TransferSession):
             if isinstance(exc, (RenewalError, AuthenticationError)):
                 message = f"{message} {exc}"
             raise GenerationConnectionError(message) from exc
-        super().__init__(client or httpx.Client(trust_env=False))
+        super().__init__(
+            client
+            if client is not None
+            else generation_client(binding, self.connection, self.actor)
+        )
         self._owned = client is None
 
     def __enter__(self) -> GenerationTransferSession:
