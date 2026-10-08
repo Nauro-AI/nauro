@@ -264,6 +264,24 @@ def test_acquisition_refuses_a_foreign_observation(hosted, change, expected):
     assert server.paths == []
 
 
+def test_observation_is_reusable_only_under_a_caller_session(hosted):
+    _, binding, server = hosted
+    with pytest.raises(acquisition.GenerationAcquisitionError):
+        acquisition.observe_generation_projection(
+            binding, active_user_id=fixtures.USER_ID, session=None
+        )
+    assert server.paths == []
+    with GenerationTransferSession(binding) as session:
+        observed = acquisition.observe_generation_projection(
+            binding, active_user_id=fixtures.USER_ID, session=session
+        )
+        acquired = acquisition.acquire_generation_projection(
+            binding, active_user_id=fixtures.USER_ID, session=session, observed=observed
+        )
+    assert acquired.target == observed.target
+    assert server.paths == ADVANCED
+
+
 @pytest.mark.parametrize("later", ["success", "incomplete"])
 @pytest.mark.parametrize("clock", ["forward", "backward"])
 def test_failed_refresh_keeps_a_newer_success(hosted, monkeypatch, later, clock):
