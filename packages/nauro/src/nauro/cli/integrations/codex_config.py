@@ -27,33 +27,48 @@ def codex_config_path() -> Path:
 
 @dataclass(frozen=True)
 class _CodexNauroEntry:
-    """Typed view of the ``[mcp_servers.nauro]`` keys Nauro owns: ``command`` and ``args``
-    are rewritten to Nauro's values and ``startup_timeout_sec`` is raised to Nauro's floor;
-    other keys the user added are never touched. A field is ``None`` when its key is missing
-    or off-shape, so each owned key is compared and rewritten independently.
+    """Typed view of the ``[mcp_servers.nauro]`` keys Nauro reads: ``command`` and ``args``
+    are rewritten to Nauro's values, ``startup_timeout_sec`` is set to Nauro's floor unless
+    the entry's startup budget already meets it through either Codex key, and the millisecond
+    alias is read but never written. A field is ``None`` when its key is missing or off-shape.
     """
 
     command: str | None
     args: list[str] | None
-    startup_timeout_sec: int | None
+    startup_timeout_sec: int | float | None
+    startup_timeout_ms: int | float | None
+
+    @property
+    def startup_budget(self) -> float | None:
+        """The startup budget Codex applies: the seconds key first, else the millisecond alias."""
+        if self.startup_timeout_sec is not None:
+            return float(self.startup_timeout_sec)
+        if self.startup_timeout_ms is not None:
+            return self.startup_timeout_ms / 1000
+        return None
+
+
+def _seconds(value: object) -> int | float | None:
+    """A TOML number as a plain number; booleans and every other shape read as absent."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value) if isinstance(value, int) else float(value)
 
 
 def _parse_codex_nauro_entry(entry: object) -> _CodexNauroEntry:
     """Parse an existing ``mcp_servers.nauro`` value into the typed view."""
     if not isinstance(entry, dict):
-        return _CodexNauroEntry(command=None, args=None, startup_timeout_sec=None)
+        return _CodexNauroEntry(None, None, None, None)
     command = entry.get("command")
     args = entry.get("args")
-    timeout = entry.get("startup_timeout_sec")
     parsed_args: list[str] | None = None
     if isinstance(args, list) and all(isinstance(item, str) for item in args):
         parsed_args = [str(item) for item in args]
     return _CodexNauroEntry(
         command=str(command) if isinstance(command, str) else None,
         args=parsed_args,
-        startup_timeout_sec=(
-            int(timeout) if isinstance(timeout, int) and not isinstance(timeout, bool) else None
-        ),
+        startup_timeout_sec=_seconds(entry.get("startup_timeout_sec")),
+        startup_timeout_ms=_seconds(entry.get("startup_timeout_ms")),
     )
 
 
@@ -165,10 +180,14 @@ def _edit_codex_config(
             document["mcp_servers"] = servers
         entry = servers.get("nauro")
         current = _parse_codex_nauro_entry(entry)
+        budget_met = (current.startup_budget or 0) >= CODEX_STARTUP_TIMEOUT_SEC
         desired = _CodexNauroEntry(
             command=_find_nauro_command(),
             args=["serve", "--stdio"],
-            startup_timeout_sec=max(CODEX_STARTUP_TIMEOUT_SEC, current.startup_timeout_sec or 0),
+            startup_timeout_sec=(
+                current.startup_timeout_sec if budget_met else CODEX_STARTUP_TIMEOUT_SEC
+            ),
+            startup_timeout_ms=current.startup_timeout_ms,
         )
         if current == desired:
             return CodexConfigOutcome(CodexConfigKind.ALREADY_CONFIGURED, config_path)

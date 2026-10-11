@@ -173,14 +173,40 @@ def test_setup_codex_writes_config_toml(tmp_path: Path):
 @pytest.mark.parametrize(
     ("seeded", "expected", "kind"),
     [
-        ("5", 20, CodexConfigKind.WROTE),
-        ("60", 60, CodexConfigKind.ALREADY_CONFIGURED),
-        ('"20"', 20, CodexConfigKind.WROTE),
+        ("startup_timeout_sec = 5", {"startup_timeout_sec": 20}, CodexConfigKind.WROTE),
+        (
+            "startup_timeout_sec = 60",
+            {"startup_timeout_sec": 60},
+            CodexConfigKind.ALREADY_CONFIGURED,
+        ),
+        (
+            "startup_timeout_sec = 60.5",
+            {"startup_timeout_sec": 60.5},
+            CodexConfigKind.ALREADY_CONFIGURED,
+        ),
+        ('startup_timeout_sec = "20"', {"startup_timeout_sec": 20}, CodexConfigKind.WROTE),
+        (
+            "startup_timeout_ms = 60000",
+            {"startup_timeout_ms": 60000},
+            CodexConfigKind.ALREADY_CONFIGURED,
+        ),
+        (
+            "startup_timeout_ms = 5000",
+            {"startup_timeout_ms": 5000, "startup_timeout_sec": 20},
+            CodexConfigKind.WROTE,
+        ),
     ],
-    ids=["raised-to-the-floor", "higher-value-kept", "off-shape-replaced"],
+    ids=[
+        "raised-to-the-floor",
+        "higher-value-kept",
+        "fractional-value-kept",
+        "off-shape-replaced",
+        "millisecond-alias-kept",
+        "low-millisecond-alias-overridden",
+    ],
 )
-def test_setup_codex_raises_a_low_startup_timeout_and_keeps_a_higher_one(
-    tmp_path: Path, seeded: str, expected: int, kind: CodexConfigKind
+def test_setup_codex_raises_a_low_startup_budget_and_keeps_a_higher_one(
+    tmp_path: Path, seeded: str, expected: dict, kind: CodexConfigKind
 ):
     config_path = tmp_path / ".codex" / "config.toml"
     config_path.parent.mkdir()
@@ -188,7 +214,7 @@ def test_setup_codex_raises_a_low_startup_timeout_and_keeps_a_higher_one(
         "[mcp_servers.nauro]\n"
         f'command = "{_find_nauro_command()}"\n'
         'args = ["serve", "--stdio"]\n'
-        f"startup_timeout_sec = {seeded}\n",
+        f"{seeded}\n",
         encoding="utf-8",
     )
 
@@ -196,8 +222,9 @@ def test_setup_codex_raises_a_low_startup_timeout_and_keeps_a_higher_one(
 
     assert msg.kind is kind
     with config_path.open("rb") as f:
-        data = tomllib.load(f)
-    assert data["mcp_servers"]["nauro"]["startup_timeout_sec"] == expected
+        entry = tomllib.load(f)["mcp_servers"]["nauro"]
+    timeouts = {key: value for key, value in entry.items() if key.startswith("startup_timeout")}
+    assert timeouts == expected
 
 
 def test_setup_codex_remove_clears_entry(tmp_path: Path):
