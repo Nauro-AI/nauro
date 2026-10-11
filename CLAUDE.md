@@ -70,11 +70,11 @@ Principal commands (run `nauro --help` for the full surface):
 - `nauro link` — promote a local-only project to cloud
 - `nauro note <text>` — append a decision (default) or question (if text ends with `?` or `--question` flag)
 - `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
-- `nauro log` — list recent snapshots with metadata
+- `nauro log` — list recent snapshots with metadata; on a generation replica only `--decisions` serves, from the installed generation, since snapshots stay on the server
 - `nauro status` — capability table for the current project (active surfaces, absolute store path)
-- `nauro doctor` — report deterministic store-integrity defects (unparseable decision files, dangling or cyclic supersession refs, status contradictions) plus repairable supersede backref orphans; report-only, always exits 0
+- `nauro doctor` — report deterministic store-integrity defects (unparseable decision files, dangling or cyclic supersession refs, status contradictions) plus repairable supersede backref orphans; report-only, always exits 0; a generation replica is diagnosed through its installed generation
 - `nauro repair` — flip the single unambiguous supersede backref orphan after interactive confirmation; every other shape is reported with guidance and left alone
-- `nauro graph` — render the decision graph to one self-contained HTML file in the store directory and open it
+- `nauro graph` — render the decision graph to one self-contained HTML file in the store directory (the Nauro home for a generation replica) and open it
 - `nauro serve` — start the local MCP server (stdio transport)
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records

@@ -3,18 +3,25 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import typer
+from nauro_core.operations.store import Store
 
 from nauro.mcp.read_dispatch import GENERATION_READS, generation_response
 from nauro.store.generation_authority import GenerationAuthorityError
-from nauro.store.read_authority import observe_generation_marker
+from nauro.store.generation_projection import GenerationProjectionIdentity
+from nauro.store.migration_admission import MigrationAdmissionError
+from nauro.store.read_authority import observe_generation_marker, require_legacy_context
 from nauro.store.resolution import resolve_project_binding
+from nauro.sync.generation_guidance import read_generation_guidance
 from nauro.sync.generation_refresh_status import refresh_replica, replica_status
 from nauro.sync.remote import TransferBoundaryError
 from nauro.templates.generation_guidance import regenerate_refreshed_guidance
+
+_T = TypeVar("_T")
 
 
 def read_command(name: str, project: str, options: dict[str, Any], *, text: bool) -> bool:
@@ -95,3 +102,38 @@ def status_command(project: str, *, json_output: bool) -> bool:
     if status.get("error_code"):
         raise typer.Exit(1)
     return True
+
+
+def render_installed(
+    store_path: Path, render: Callable[[Store], _T]
+) -> tuple[_T, GenerationProjectionIdentity] | None:
+    """Render through the installed generation; None on a legacy store, exit 1 when unreadable."""
+    try:
+        return read_generation_guidance(store_path, render)
+    except PermissionError as exc:
+        typer.echo(
+            "Error: The installed generation could not be read. "
+            "Check 'nauro auth status', then run 'nauro sync'.",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+
+def require_legacy_snapshots(store_path: Path) -> None:
+    """Refuse the local snapshot archive on a generation replica; the server keeps that history."""
+    try:
+        require_legacy_context(store_path)
+    except MigrationAdmissionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    except PermissionError as exc:
+        typer.echo(
+            "Error: Snapshots of a generation replica stay on the server. "
+            "Run 'nauro diff-since-last-session' for recent history.",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+
+
+def generation_line(identity: GenerationProjectionIdentity) -> str:
+    return f"Generation: {identity.generation_id}, committed {identity.committed_at}"

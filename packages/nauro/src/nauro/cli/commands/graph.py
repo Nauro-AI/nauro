@@ -7,7 +7,8 @@ an integrated open-questions list. ``--open`` (default on) opens it in a browser
 The output lands in the store directory by default because the HTML embeds a store
 extract — titles, metadata, question summaries, and full bodies unless
 ``--no-include-bodies`` — and a current-directory default would invite committing
-that into a repo. ``--output`` overrides the location.
+that into a repo. A generation replica renders its installed generation into the
+Nauro home instead, keeping its root free of foreign files. ``--output`` overrides.
 
 ``--format json`` emits the same payload on stdout instead: no file is written and
 no browser opens. It is the machine-read the desktop viewer consumes. ``--output``
@@ -26,12 +27,16 @@ import typer
 from nauro_core import build_graph_payload, parse_decision
 from nauro_core.constants import OPEN_QUESTIONS_MD
 from nauro_core.decision_model import Decision
+from nauro_core.operations.decision_lookup import scan_decision_records
+from nauro_core.operations.store import Store
 from nauro_core.questions import OpenQuestionsFile
 
+from nauro.cli.generation_reads import generation_line, render_installed
 from nauro.cli.utils import resolve_target_project
 from nauro.constants import DECISIONS_DIR
 from nauro.graph import DEFAULT_GRAPH_FILENAME, render_html
 from nauro.store._atomic import atomic_write_text
+from nauro.store.home import nauro_home
 from nauro.store.reader import read_text_lenient
 
 
@@ -70,19 +75,43 @@ def _read_open_questions(store_path: Path) -> OpenQuestionsFile | None:
     if not questions_path.exists():
         return None
     try:
-        return OpenQuestionsFile.parse(read_text_lenient(questions_path))
+        content = read_text_lenient(questions_path)
+    except OSError as exc:
+        typer.echo(f"Skipping unreadable open-questions file: {exc}", err=True)
+        return None
+    return _parse_open_questions(content)
+
+
+def _parse_open_questions(content: str | None) -> OpenQuestionsFile | None:
+    """Parse open-questions content when present; an unparseable file warns and drops out."""
+    if content is None:
+        return None
+    try:
+        return OpenQuestionsFile.parse(content)
     except Exception as exc:
         typer.echo(f"Skipping unreadable open-questions file: {exc}", err=True)
         return None
 
 
-def _resolve_output_path(output: Path | None, store_path: Path) -> Path:
+def _generation_inputs(store: Store) -> tuple[list[Decision], OpenQuestionsFile | None]:
+    """The installed generation's parseable decisions and open questions, warning per skip."""
+    records, failures, _stems = scan_decision_records(store)
+    for failure in failures:
+        typer.echo(
+            f"Skipping unreadable decision file {failure.stem}.md: {failure.error}", err=True
+        )
+    return [record.decision for record in records], _parse_open_questions(
+        store.read_file(OPEN_QUESTIONS_MD)
+    )
+
+
+def _resolve_output_path(output: Path | None, default: Path) -> Path:
     """Resolve where the HTML is written.
-    With no ``--output`` the file lands at ``<store>/nauro-graph.html``. An ``--output`` naming
-    an existing directory writes the default filename inside it; otherwise it is the file path.
+    With no ``--output`` the file lands at ``default``. An ``--output`` naming an existing
+    directory writes the default filename inside it; otherwise it is the file path.
     """
     if output is None:
-        return store_path / DEFAULT_GRAPH_FILENAME
+        return default
     output = output.expanduser()
     if output.is_dir():
         return output / DEFAULT_GRAPH_FILENAME
@@ -131,8 +160,15 @@ def graph(
 
     project_name, store_path = resolve_target_project(project)
 
-    decisions = _read_decisions_lenient(store_path)
-    questions = _read_open_questions(store_path)
+    captured = render_installed(store_path, _generation_inputs)
+    if captured is None:
+        decisions = _read_decisions_lenient(store_path)
+        questions = _read_open_questions(store_path)
+        default_output = store_path / DEFAULT_GRAPH_FILENAME
+    else:
+        (decisions, questions), identity = captured
+        default_output = nauro_home() / f"nauro-graph-{identity.project_id}.html"
+        typer.echo(generation_line(identity), err=True)
     payload = build_graph_payload(
         decisions, questions, project=project_name, include_bodies=include_bodies
     )
@@ -144,7 +180,7 @@ def graph(
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     html = render_html(payload, generated_at=generated_at)
 
-    out_path = _resolve_output_path(output, store_path)
+    out_path = _resolve_output_path(output, default_output)
     # newline="\n" keeps the file byte-identical across platforms so its sha is
     # stable wherever it is generated.
     atomic_write_text(out_path, html, newline="\n")
