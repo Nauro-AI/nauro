@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import typer
 
 from nauro.auth import load_access_token
-from nauro.cli.generation_reads import refresh_command
+from nauro.cli.generation_reads import refresh_command, status_command
 from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import resolve_target_project
 from nauro.setup.outcomes import BridgeOutcome
@@ -191,32 +191,36 @@ def _pull_via_presign(
         raise typer.Exit(code=1) from exc
 
 
-def _show_status(project_flag: str | None) -> None:
-    """Show cloud sync status — two states only.
-    Authenticated prints the server URL and this project's last-sync info; otherwise it points at
-    ``nauro auth login``.
-    """
+def _show_authentication() -> bool:
+    """Print the presign authentication state; True when a token is on hand."""
     from nauro.sync.remote import resolve_api_url
 
     if not load_access_token():
         typer.echo("Sync: not authenticated. Run 'nauro auth login'.")
-        return
-
+        return False
     typer.echo("Sync: authenticated (presign)")
     typer.echo(f"  Server: {resolve_api_url()}")
+    return True
 
+
+def _show_status(project_flag: str | None) -> None:
+    """Show cloud sync status: a generation replica reports its refresh state; otherwise two
+    states only, authenticated with the server URL and this project's last-sync info, or a
+    pointer at ``nauro auth login``. A cwd that maps to no project is not an error here.
+    """
     try:
-        project_name, store_path = resolve_target_project(project_flag)
+        target: tuple[str, Path] | None = resolve_target_project(project_flag)
     except typer.Exit:
-        # resolve_target_project raises typer.Exit (a RuntimeError, not a
-        # SystemExit, so the previous `except SystemExit` never caught it). When
-        # no project resolves from the cwd, swallow it so --status stays a clean
-        # two-state report instead of erroring out. An explicit --project that
-        # fails to resolve is a real error, though, so its message and a nonzero
-        # exit must agree: re-raise that case.
         if project_flag is not None:
+            _show_authentication()
             raise
+        target = None
+
+    if target is not None and status_command(target[1].name, json_output=False):
         return
+    if not _show_authentication() or target is None:
+        return
+    project_name, store_path = target
 
     from nauro.sync._path_diagnostics import _StoreRootPreparationError
     from nauro.sync.push import plan_push

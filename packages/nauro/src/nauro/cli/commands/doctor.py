@@ -2,13 +2,13 @@
 
 Reads the local store and reports structural defects in the decision set:
 unparseable decision files, dangling or cyclic supersession refs, status
-contradictions, duplicate decision numbers, and duplicate active titles.
-Report-only, and it exits 0 whether or not it finds defects, because a defect
-is information for the user, not a failed command.
+contradictions, duplicate decision numbers, and duplicate active titles. It
+exits 0 whether or not it finds defects, since a defect is information, not a
+failed command; only a replica whose generation cannot be read exits 1.
 
 Supersede backref orphans get their own section and their own count: they are
-repairable rather than blocking, and the section names ``nauro repair``.
-Detection and the gated flip stay in different commands.
+repairable rather than blocking, and the section names the route: ``nauro
+repair`` on a legacy store; a replica has no route yet, so they stay reported.
 
 Scope boundary: doctor reads only the decision store, so its findings are
 deterministic with no false positives. Everything else that can be off on a
@@ -20,8 +20,15 @@ from __future__ import annotations
 import typer
 from nauro_core.doctor import StoreDiagnosis, diagnose_store
 
+from nauro.cli.generation_reads import generation_line, render_installed
 from nauro.cli.utils import resolve_target_project
 from nauro.store.filesystem_store import FilesystemStore
+
+_REPAIR_LEGACY = "  Fix: run 'nauro repair' to review and confirm the backref."
+_REPAIR_REPLICA = (
+    "  Fix: unavailable on a generation replica: 'nauro repair' cannot write here and "
+    "no hosted route flips a backref yet, so the orphan stays reported."
+)
 
 
 def _label(number: int) -> str:
@@ -42,7 +49,7 @@ def _render_unknown_keys(diagnosis: StoreDiagnosis) -> list[str]:
     return lines
 
 
-def _render_orphans(diagnosis: StoreDiagnosis) -> list[str]:
+def _render_orphans(diagnosis: StoreDiagnosis, fix: str) -> list[str]:
     """Render the repairable supersede-orphan section, or nothing."""
     if not diagnosis.supersede_orphans:
         return []
@@ -55,7 +62,7 @@ def _render_orphans(diagnosis: StoreDiagnosis) -> list[str]:
             f"  {_label(row.child)} supersedes {_label(row.target)}, but "
             f"{_label(row.target)} is still active with no superseded_by backref"
         )
-    lines.append("  Fix: run 'nauro repair' to review and confirm the backref.")
+    lines.append(fix)
     lines.append("")
     return lines
 
@@ -67,14 +74,14 @@ def _render_repairable_total(diagnosis: StoreDiagnosis) -> list[str]:
     return [f"Found {len(diagnosis.supersede_orphans)} repairable defect(s)."]
 
 
-def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
+def _render_report(diagnosis: StoreDiagnosis, fix: str) -> list[str]:
     """Render a diagnosis as human-readable report lines."""
     lines: list[str] = []
 
     if diagnosis.is_clean:
         return [
             "No integrity defects found.",
-            *_render_orphans(diagnosis),
+            *_render_orphans(diagnosis, fix),
             *_render_unknown_keys(diagnosis),
             *_render_repairable_total(diagnosis),
         ]
@@ -137,7 +144,7 @@ def _render_report(diagnosis: StoreDiagnosis) -> list[str]:
                 )
         lines.append("")
 
-    lines.extend(_render_orphans(diagnosis))
+    lines.extend(_render_orphans(diagnosis, fix))
     lines.extend(_render_unknown_keys(diagnosis))
 
     total = (
@@ -166,8 +173,13 @@ def doctor(
     """
     project_name, store_path = resolve_target_project(project)
 
-    diagnosis = diagnose_store(FilesystemStore(store_path))
-
-    typer.echo(f"Project: {project_name}\n")
-    for line in _render_report(diagnosis):
+    captured = render_installed(store_path, diagnose_store)
+    typer.echo(f"Project: {project_name}")
+    if captured is None:
+        diagnosis, fix = diagnose_store(FilesystemStore(store_path)), _REPAIR_LEGACY
+    else:
+        (diagnosis, identity), fix = captured, _REPAIR_REPLICA
+        typer.echo(generation_line(identity))
+    typer.echo("")
+    for line in _render_report(diagnosis, fix):
         typer.echo(line)

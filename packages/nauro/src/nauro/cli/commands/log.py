@@ -4,7 +4,15 @@ import json
 from pathlib import Path
 
 import typer
+from nauro_core.decision_model import Decision
+from nauro_core.operations.decision_lookup import scan_decision_records
+from nauro_core.operations.store import Store
 
+from nauro.cli.generation_reads import (
+    generation_line,
+    render_installed,
+    require_legacy_snapshots,
+)
 from nauro.cli.utils import resolve_target_project
 from nauro.store.reader import _list_decisions
 from nauro.store.snapshot import list_snapshots, load_snapshot
@@ -45,12 +53,20 @@ def log(
     _project_name, store_path = resolve_target_project(project)
 
     if decisions:
-        if json_output:
-            _emit_decisions_json(store_path, show_all=all_decisions)
+        captured = render_installed(store_path, _generation_decisions)
+        if captured is None:
+            all_decs = _list_decisions(store_path)
         else:
-            _show_decisions(store_path, show_all=all_decisions)
+            all_decs, identity = captured
+            if not json_output:
+                typer.echo(generation_line(identity))
+        if json_output:
+            _emit_decisions_json(all_decs, show_all=all_decisions)
+        else:
+            _show_decisions(all_decs, show_all=all_decisions)
         return
 
+    require_legacy_snapshots(store_path)
     snapshots = list_snapshots(store_path)
 
     if json_output:
@@ -72,7 +88,13 @@ def log(
         _show_summary(store_path, shown)
 
 
-def _decision_rows(store_path: Path, *, show_all: bool) -> list[dict]:
+def _generation_decisions(store: Store) -> list[Decision]:
+    """Every parseable decision of the installed generation, sorted by number."""
+    records, _failures, _stems = scan_decision_records(store)
+    return [record.decision for record in records]
+
+
+def _decision_rows(all_decs: list[Decision], *, show_all: bool) -> list[dict]:
     """Decision listing rows, superseded entries filtered unless ``show_all``."""
     return [
         {
@@ -82,19 +104,17 @@ def _decision_rows(store_path: Path, *, show_all: bool) -> list[dict]:
             "title": d.title,
             "superseded_by": d.superseded_by,
         }
-        for d in _list_decisions(store_path)
+        for d in all_decs
         if show_all or str(d.status.value) != "superseded"
     ]
 
 
-def _emit_decisions_json(store_path: Path, *, show_all: bool) -> None:
-    typer.echo(json.dumps(_decision_rows(store_path, show_all=show_all), indent=2))
+def _emit_decisions_json(all_decs: list[Decision], *, show_all: bool) -> None:
+    typer.echo(json.dumps(_decision_rows(all_decs, show_all=show_all), indent=2))
 
 
-def _show_decisions(store_path: Path, show_all: bool = False) -> None:
+def _show_decisions(all_decs: list[Decision], show_all: bool = False) -> None:
     """Display decision list with status."""
-    all_decs = _list_decisions(store_path)
-
     if not all_decs:
         typer.echo("No decisions yet.")
         return
