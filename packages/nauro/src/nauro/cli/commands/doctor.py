@@ -2,13 +2,13 @@
 
 Reads the local store and reports structural defects in the decision set:
 unparseable decision files, dangling or cyclic supersession refs, status
-contradictions, duplicate decision numbers, and duplicate active titles.
-Report-only, and it exits 0 whether or not it finds defects, because a defect
-is information for the user, not a failed command.
+contradictions, duplicate decision numbers, and duplicate active titles. It
+exits 0 whether or not it finds defects, since a defect is information, not a
+failed command; only a replica whose generation cannot be read exits 1.
 
 Supersede backref orphans get their own section and their own count: they are
-repairable rather than blocking, and the section names the repair route, which
-is ``nauro repair`` on a legacy store and a hosted write on a generation replica.
+repairable rather than blocking, and the section names the route: ``nauro
+repair`` on a legacy store; a replica has no route yet, so they stay reported.
 
 Scope boundary: doctor reads only the decision store, so its findings are
 deterministic with no false positives. Everything else that can be off on a
@@ -26,8 +26,8 @@ from nauro.store.filesystem_store import FilesystemStore
 
 _REPAIR_LEGACY = "  Fix: run 'nauro repair' to review and confirm the backref."
 _REPAIR_REPLICA = (
-    "  Fix: a generation replica is read-only, so 'nauro repair' cannot flip the "
-    "backref here; correct it on the hosted project."
+    "  Fix: unavailable on a generation replica: 'nauro repair' cannot write here and "
+    "no hosted route flips a backref yet, so the orphan stays reported."
 )
 
 

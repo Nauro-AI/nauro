@@ -20,6 +20,7 @@ from __future__ import annotations
 import enum
 import json
 import webbrowser
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -79,30 +80,43 @@ def _read_open_questions(store_path: Path) -> OpenQuestionsFile | None:
     except OSError as exc:
         typer.echo(f"Skipping unreadable open-questions file: {exc}", err=True)
         return None
-    return _parse_open_questions(content)
+    questions, warning = _parse_open_questions(content)
+    if warning is not None:
+        typer.echo(warning, err=True)
+    return questions
 
 
-def _parse_open_questions(content: str | None) -> OpenQuestionsFile | None:
-    """Parse open-questions content when present; an unparseable file warns and drops out."""
-    if content is None:
-        return None
+def _parse_open_questions(content: str) -> tuple[OpenQuestionsFile | None, str | None]:
+    """Parse open-questions content; an unparseable file yields the warning owed instead."""
     try:
-        return OpenQuestionsFile.parse(content)
+        return OpenQuestionsFile.parse(content), None
     except Exception as exc:
-        typer.echo(f"Skipping unreadable open-questions file: {exc}", err=True)
-        return None
+        return None, f"Skipping unreadable open-questions file: {exc}"
 
 
-def _generation_inputs(store: Store) -> tuple[list[Decision], OpenQuestionsFile | None]:
-    """The installed generation's parseable decisions and open questions, warning per skip."""
+@dataclass(frozen=True)
+class _GraphInputs:
+    """What the graph is built from, with the warnings owed for skipped generation files."""
+
+    decisions: list[Decision]
+    questions: OpenQuestionsFile | None
+    warnings: tuple[str, ...] = ()
+
+
+def _generation_inputs(store: Store) -> _GraphInputs:
+    """Read the installed generation's graph inputs, holding the warnings until authorized."""
     records, failures, _stems = scan_decision_records(store)
-    for failure in failures:
-        typer.echo(
-            f"Skipping unreadable decision file {failure.stem}.md: {failure.error}", err=True
-        )
-    return [record.decision for record in records], _parse_open_questions(
-        store.read_file(OPEN_QUESTIONS_MD)
-    )
+    warnings = [
+        f"Skipping unreadable decision file {failure.stem}.md: {failure.error}"
+        for failure in failures
+    ]
+    content = store.read_file(OPEN_QUESTIONS_MD)
+    questions = None
+    if content is not None:
+        questions, warning = _parse_open_questions(content)
+        if warning is not None:
+            warnings.append(warning)
+    return _GraphInputs([record.decision for record in records], questions, tuple(warnings))
 
 
 def _resolve_output_path(output: Path | None, default: Path) -> Path:
@@ -162,15 +176,16 @@ def graph(
 
     captured = render_installed(store_path, _generation_inputs)
     if captured is None:
-        decisions = _read_decisions_lenient(store_path)
-        questions = _read_open_questions(store_path)
+        inputs = _GraphInputs(_read_decisions_lenient(store_path), _read_open_questions(store_path))
         default_output = store_path / DEFAULT_GRAPH_FILENAME
     else:
-        (decisions, questions), identity = captured
+        inputs, identity = captured
         default_output = nauro_home() / f"nauro-graph-{identity.project_id}.html"
         typer.echo(generation_line(identity), err=True)
+    for warning in inputs.warnings:
+        typer.echo(warning, err=True)
     payload = build_graph_payload(
-        decisions, questions, project=project_name, include_bodies=include_bodies
+        inputs.decisions, inputs.questions, project=project_name, include_bodies=include_bodies
     )
 
     if format is GraphFormat.json:

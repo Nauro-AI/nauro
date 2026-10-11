@@ -17,6 +17,7 @@ from nauro_core.decision_model import Decision, format_decision
 from typer.testing import CliRunner
 
 from nauro.cli.main import app
+from nauro.store.generation_authority import RefreshRequiredError
 from nauro.store.home import nauro_home
 from tests import test_generation_installation as fixtures
 from tests.test_stdio_startup_authority import installed as installed_fixture
@@ -90,7 +91,7 @@ def test_doctor_diagnoses_the_installed_generation(replica):
     assert "Unparseable decision files (1):" in result.stdout
     assert "003-broken" in result.stdout
     assert "D2 supersedes D1, but D1 is still active" in result.stdout
-    assert "cannot flip the backref here" in result.stdout
+    assert "no hosted route flips a backref yet" in result.stdout
     assert "run 'nauro repair'" not in result.stdout
 
 
@@ -150,3 +151,15 @@ def test_unreadable_generation_refuses_with_guidance(replica, monkeypatch, comma
     assert result.exit_code == 1
     assert "The installed generation could not be read" in result.stderr
     assert "private detail" not in result.output
+
+
+def test_graph_withholds_generation_diagnostics_until_authorized(replica, monkeypatch):
+    def refuse(target, session):
+        raise RefreshRequiredError("The current authorized projection requires reconciliation.")
+
+    monkeypatch.setattr("nauro.sync.generation_guidance.authorize_installed_target", refuse)
+    result = runner.invoke(app, ["graph", "--format", "json", "--project", replica.project_id])
+    assert result.exit_code == 1
+    assert "The installed generation could not be read" in result.stderr
+    assert "003-broken" not in result.output
+    assert "reconciliation" not in result.output
