@@ -41,9 +41,9 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
         ├── nauro CLI              reads/writes directly
         ├── local MCP (stdio)      reads/writes directly, spawned by Claude Code
         │
-        └── nauro sync ──────►  S3 bucket (remote storage)
-                                     │
-                                     └── remote MCP (Lambda, separate repo) reads/writes via S3
+        └── nauro sync ──────►  hosted storage (a legacy cloud project pushes; a generation
+                                     │           replica refreshes its installed generation instead)
+                                     └── remote MCP (hosted HTTP server, separate repo) reads/writes it
 ```
 
 ## Config and credentials
@@ -51,6 +51,7 @@ All files are freeform markdown. No database. No JSON for content — JSON only 
 User config lives at `~/.nauro/config.json` (written by `nauro auth login` and other feature-specific commands; inspect with `nauro config get/list/unset`, which resolve top-level keys only):
 - `auth` object — credentials from `nauro auth login`, nested under one top-level `auth` key (so inspect with `nauro config get auth`, not a dotted path): `access_token` is the Auth0 bearer sent to the presign sync endpoints; `refresh_token` mints a fresh access token when the bearer expires; `sub` is the raw JWT subject id (identity; the block also persists `sanitized_sub` and `user_id`)
 - Auth0 domain, client ID, API URL, and audience ship as defaults in `nauro/auth.py`; env vars (`NAURO_AUTH0_*`, `NAURO_API_URL`) or config keys override (domain + client_id must be set as a pair)
+- A project on generation authority renews its credentials automatically before authenticated generation work (`sync/generation_renewal.py`, `sync/generation_credentials.py`, `sync/generation_session.py`); `nauro auth refresh` renews explicitly
 - `NAURO_HOME` env var overrides `~/.nauro/` for testing
 
 ## Stack
@@ -65,27 +66,31 @@ User config lives at `~/.nauro/config.json` (written by `nauro auth login` and o
 Principal commands (run `nauro --help` for the full surface):
 
 - `nauro init <name>` — register a new project in `~/.nauro/`, scaffold the store, associate repo paths
-- `nauro adopt` — adopt an existing repo: register it, wire MCP across surfaces, install the `/nauro-adopt` skill (`--with-skills` / `--with-subagents` add the opt-in skills and bundled subagents)
-- `nauro attach <project_id>` — associate the current repo with an existing cloud project
+- `nauro adopt` — adopt an existing repo: register it, wire MCP across surfaces, install the `/nauro-adopt` skill (`--with-skills` adds the four opt-in skills; `--with-subagents` adds the five bundled subagents)
+- `nauro attach <project_id>` — associate the current repo with an existing cloud project (`--generation` installs an initial generation replica)
+- `nauro reconnect` — connect or recover the project already named by this repository's `.nauro/config.json`
 - `nauro link` — promote a local-only project to cloud
 - `nauro note <text>` — append a decision (default) or question (if text ends with `?` or `--question` flag)
-- `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos
+- `nauro sync` — capture a snapshot, regenerate `AGENTS.md` in all associated repos; a generation replica instead refreshes its installed generation from the server and never pushes local files (`--push-only` is refused)
 - `nauro log` — list recent snapshots with metadata; on a generation replica only `--decisions` serves, from the installed generation, since snapshots stay on the server
-- `nauro status` — capability table for the current project (active surfaces, absolute store path)
-- `nauro doctor` — report deterministic store-integrity defects (unparseable decision files, dangling or cyclic supersession refs, status contradictions) plus repairable supersede backref orphans; report-only, exits 0 whether or not it finds defects; a generation replica is diagnosed through its installed generation and exits 1 only when that generation cannot be read
-- `nauro repair` — flip the single unambiguous supersede backref orphan after interactive confirmation; every other shape is reported with guidance and left alone
+- `nauro journal` — emit the project's write-path provenance journal as a JSON array on stdout
+- `nauro status` — capability table for the current project (active surfaces, absolute store path); a generation replica reports its refresh state instead (generation, last refresh attempt, last successful refresh)
+- `nauro doctor` — report deterministic store-integrity defects (unparseable decision files, dangling or cyclic supersession refs, status contradictions, duplicate decision numbers, duplicate active titles) plus repairable supersede backref orphans; report-only, exits 0 whether or not it finds defects; a generation replica is diagnosed through its installed generation and exits 1 only when that generation cannot be read
+- `nauro repair` — flip the single unambiguous supersede backref orphan after interactive confirmation; every other shape is reported with guidance and left alone; a generation replica refuses the local repair, and `--judgment --project <project_id>` inspects or recovers a hosted judgment instead (`--saga`, `--resume`, `--abandon`, `--action`, `--resend-action`)
 - `nauro graph` — render the decision graph to one self-contained HTML file in the store directory (the Nauro home for a generation replica) and open it
+- `nauro share-context <slug> <content> --pointer-kind <brief|resume|selection> --summary <text>` — publish an immutable brief and discovery pointer; writes only through an attached generation replica
+- `nauro update-stack <content>` — replace the stack document; writes only through an attached generation replica
 - `nauro serve` — start the local MCP server (stdio transport)
 - `nauro import --memory-bank <path>` — migrate a Cline/Roo Code Memory Bank
 - `nauro import --adr <path>` — migrate Architecture Decision Records
 
-Command groups: `nauro setup <claude-code|cursor|codex|all>`, `nauro auth <login|status|logout>`, `nauro config <get|list|unset>`, `nauro telemetry <status|enable|disable|reset>`, `nauro validate`, `nauro projects`, `nauro questions`, `nauro hook`.
+Command groups: `nauro setup <claude-code|cursor|codex|all>`, `nauro auth <login|status|logout|refresh>`, `nauro config <get|list|unset>`, `nauro telemetry <status|enable|disable|reset>` (inert compatibility commands), `nauro validate <status>`, `nauro projects <list|rm>`, `nauro questions <migrate>`, `nauro hook <user-prompt-submit|codex-bootstrap>`.
 
-The 10 read/write MCP tools are also mirrored as CLI commands — `nauro check-decision`, `nauro propose-decision`, `nauro get-context`, `nauro diff-since-last-session [--days N]`, … — auto-generated from the tool allowlist in `cli/autogen.py` (underscored tool names become hyphenated commands).
+The 10 read/write MCP tools are also mirrored as CLI commands — `nauro check-decision`, `nauro propose-decision`, `nauro get-context`, `nauro diff-since-last-session [--days N]`, … — auto-generated from the tool allowlist in `cli/autogen.py` (underscored tool names become hyphenated commands). `share-context` and `update-stack` are registered explicitly in `cli/main.py`, not autogenerated. Both take `--request-mode submit|discover|recover|retry` with `--operation-id` and `--payload-digest` for recover and retry (reference modes retain the saved payload and identity); `update-stack` adds `--expected-revision`.
 
-## MCP tools (11 total in `nauro_core.mcp_tools` — 8 read, 3 write)
+## MCP tools (12 local: 7 read, 5 write; 14 hosted)
 
-The local stdio server registers 10; `list_projects` is remote-only since local installs auto-resolve to the single project store.
+`nauro_core.mcp_tools` holds 11 shared specs (`ALL_TOOLS`: 8 read, 3 write). `HOSTED_TOOLS` adds `update_stack`, `share_context` and `create_project` for the hosted HTTP server (14). The local stdio server registers 12: the shared tools minus `list_projects`, plus `update_stack` and `share_context`, which write only through an attached generation replica. `list_projects` and `create_project` are hosted-only; local installs auto-resolve to the single project store.
 
 Read:
 - `get_context(project, level)` — L0 concise summary, L1 working set, L2 full dump
@@ -95,12 +100,15 @@ Read:
 - `diff_since_last_session(project, days)` — what changed since last session
 - `search_decisions(project, query, limit)` — keyword search across decisions
 - `check_decision(proposed_approach)`: surface related decisions without writing
-- `list_projects()` — list user's projects (remote-only)
+- `list_projects()` — list user's projects (hosted-only)
 
 Write:
 - `propose_decision(project, title, rationale, ...)` — record a decision (single-call commit on Tier 1 clean)
 - `flag_question(project, question, context)` — flag an open question
 - `update_state(project, delta)` — report what was completed
+- `share_context(slug, content, pointer_kind, summary, ...)` — publish an immutable brief and discovery pointer on a generation replica
+- `update_stack(content, expected_revision, ...)` — replace the stack document on a generation replica; an omitted revision uses the installed replica revision
+- `create_project(name, operation_id)` — create an empty hosted project (hosted-only)
 
 ## AGENTS.md
 
@@ -152,10 +160,13 @@ Nauro holds a high code bar. These apply to every change and are enforced in rev
 ```
 packages/nauro/
   src/nauro/
+    agents/                # bundled subagent bodies + per-surface renderer
     auth.py                # Auth0 defaults, token load, single-flight refresh, 401 retry
     cli/
       main.py              # Typer app entry point
       commands/            # one module per command
+      generation_reads.py  # route reads and sync through an installed generation replica
+      generation_writes.py # typed generation writes through the standard CLI commands
     mcp/
       stdio_server.py      # stdio MCP server (FastMCP)
       tools.py             # canonical transport-agnostic tool adapters
@@ -169,7 +180,12 @@ packages/nauro/
       resolution.py        # project resolution from CWD
       config.py            # ~/.nauro/config.json read/write
       validator.py         # structural checks on store contents
+    sync/
+      generation_renewal.py     # bounded automatic credential acquisition before generation work
+      generation_credentials.py # account credentials for projects on generation authority
+      generation_session.py     # credentials for one resolved generation replica operation
     setup/                 # Typer-free wiring helpers: git hygiene, setup outcomes, render, CLAUDE.md bridge
+    skills/                # bundled skill bodies
     templates/
       scaffolds.py         # nauro init template strings
       agents_md.py         # AGENTS.md generation
