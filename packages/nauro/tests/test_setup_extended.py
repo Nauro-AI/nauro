@@ -12,10 +12,11 @@ import pytest
 from typer.testing import CliRunner
 
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
-from nauro.cli.integrations.codex_config import _configure_codex
+from nauro.cli.integrations.codex_config import CODEX_STARTUP_TIMEOUT_SEC, _configure_codex
 from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo
 from nauro.cli.integrations.skills import _remove_bundled_skill, materialize_skills_cursor_for_repo
 from nauro.cli.main import app
+from nauro.cli.nauro_command import _find_nauro_command
 from nauro.setup.outcomes import (
     ClaudeUserConfigKind,
     CodexConfigKind,
@@ -166,6 +167,64 @@ def test_setup_codex_writes_config_toml(tmp_path: Path):
     with config_path.open("rb") as f:
         data = tomllib.load(f)
     assert data["mcp_servers"]["nauro"]["args"] == ["serve", "--stdio"]
+    assert data["mcp_servers"]["nauro"]["startup_timeout_sec"] == CODEX_STARTUP_TIMEOUT_SEC == 20
+
+
+@pytest.mark.parametrize(
+    ("seeded", "expected", "kind"),
+    [
+        ("startup_timeout_sec = 5", {"startup_timeout_sec": 20}, CodexConfigKind.WROTE),
+        (
+            "startup_timeout_sec = 60",
+            {"startup_timeout_sec": 60},
+            CodexConfigKind.ALREADY_CONFIGURED,
+        ),
+        (
+            "startup_timeout_sec = 60.5",
+            {"startup_timeout_sec": 60.5},
+            CodexConfigKind.ALREADY_CONFIGURED,
+        ),
+        ('startup_timeout_sec = "20"', {"startup_timeout_sec": 20}, CodexConfigKind.WROTE),
+        (
+            "startup_timeout_ms = 60000",
+            {"startup_timeout_ms": 60000},
+            CodexConfigKind.ALREADY_CONFIGURED,
+        ),
+        (
+            "startup_timeout_ms = 5000",
+            {"startup_timeout_ms": 5000, "startup_timeout_sec": 20},
+            CodexConfigKind.WROTE,
+        ),
+    ],
+    ids=[
+        "raised-to-the-floor",
+        "higher-value-kept",
+        "fractional-value-kept",
+        "off-shape-replaced",
+        "millisecond-alias-kept",
+        "low-millisecond-alias-overridden",
+    ],
+)
+def test_setup_codex_raises_a_low_startup_budget_and_keeps_a_higher_one(
+    tmp_path: Path, seeded: str, expected: dict, kind: CodexConfigKind
+):
+    config_path = tmp_path / ".codex" / "config.toml"
+    config_path.parent.mkdir()
+    config_path.write_text(
+        "[mcp_servers.nauro]\n"
+        f'command = "{_find_nauro_command()}"\n'
+        'args = ["serve", "--stdio"]\n'
+        f"{seeded}\n",
+        encoding="utf-8",
+    )
+
+    msg = _configure_codex(remove=False, config_path=config_path)
+
+    assert msg.kind is kind
+    with config_path.open("rb") as f:
+        entry = tomllib.load(f)["mcp_servers"]["nauro"]
+    timeouts = {key: value for key, value in entry.items() if key.startswith("startup_timeout")}
+    assert timeouts == expected
 
 
 def test_setup_codex_remove_clears_entry(tmp_path: Path):

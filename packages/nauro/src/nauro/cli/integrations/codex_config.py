@@ -15,6 +15,11 @@ from nauro.store._atomic import atomic_write_text
 from nauro.store.local_files import UnreadableFileError
 from nauro.store.write_safety import find_file_symlink
 
+# Codex gives a server ten seconds to answer initialize. A replica's startup
+# refresh spends about two seconds initializing plus up to eight renewing an
+# expired credential, and a second process renewing at once waits on the first.
+CODEX_STARTUP_TIMEOUT_SEC = 20
+
 
 def codex_config_path() -> Path:
     return Path.home() / ".codex" / "config.toml"
@@ -22,21 +27,38 @@ def codex_config_path() -> Path:
 
 @dataclass(frozen=True)
 class _CodexNauroEntry:
-    """Typed view of the ``[mcp_servers.nauro]`` keys Nauro owns.
-
-    Only ``command`` and ``args`` belong to Nauro; other keys the user added are never
-    touched. A field is ``None`` when its key is missing or off-shape, so each owned key
-    is compared and rewritten independently and a matching key keeps its formatting.
+    """Typed view of the ``[mcp_servers.nauro]`` keys Nauro reads: ``command`` and ``args``
+    are rewritten to Nauro's values, ``startup_timeout_sec`` is set to Nauro's floor unless
+    the entry's startup budget already meets it through either Codex key, and the millisecond
+    alias is read but never written. A field is ``None`` when its key is missing or off-shape.
     """
 
     command: str | None
     args: list[str] | None
+    startup_timeout_sec: int | float | None
+    startup_timeout_ms: int | float | None
+
+    @property
+    def startup_budget(self) -> float | None:
+        """The startup budget Codex applies: the seconds key first, else the millisecond alias."""
+        if self.startup_timeout_sec is not None:
+            return float(self.startup_timeout_sec)
+        if self.startup_timeout_ms is not None:
+            return self.startup_timeout_ms / 1000
+        return None
+
+
+def _seconds(value: object) -> int | float | None:
+    """A TOML number as a plain number; booleans and every other shape read as absent."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value) if isinstance(value, int) else float(value)
 
 
 def _parse_codex_nauro_entry(entry: object) -> _CodexNauroEntry:
     """Parse an existing ``mcp_servers.nauro`` value into the typed view."""
     if not isinstance(entry, dict):
-        return _CodexNauroEntry(command=None, args=None)
+        return _CodexNauroEntry(None, None, None, None)
     command = entry.get("command")
     args = entry.get("args")
     parsed_args: list[str] | None = None
@@ -45,6 +67,8 @@ def _parse_codex_nauro_entry(entry: object) -> _CodexNauroEntry:
     return _CodexNauroEntry(
         command=str(command) if isinstance(command, str) else None,
         args=parsed_args,
+        startup_timeout_sec=_seconds(entry.get("startup_timeout_sec")),
+        startup_timeout_ms=_seconds(entry.get("startup_timeout_ms")),
     )
 
 
@@ -65,17 +89,21 @@ def _apply_nauro_entry(
             entry["command"] = desired.command
         if current.args != desired.args:
             entry["args"] = desired.args
+        if current.startup_timeout_sec != desired.startup_timeout_sec:
+            entry["startup_timeout_sec"] = desired.startup_timeout_sec
     elif isinstance(servers, InlineTable):
         # A block table nested inside an inline parent renders invalid
         # TOML; match the user's inline style instead.
         inline = tomlkit.inline_table()
         inline["command"] = desired.command
         inline["args"] = desired.args
+        inline["startup_timeout_sec"] = desired.startup_timeout_sec
         servers["nauro"] = inline
     else:
         table = tomlkit.table()
         table["command"] = desired.command
         table["args"] = desired.args
+        table["startup_timeout_sec"] = desired.startup_timeout_sec
         servers["nauro"] = table
         # Appended without a leading blank line: a reparse attributes the
         # separator to the preceding entry, which would strand a stray
@@ -147,12 +175,20 @@ def _edit_codex_config(
         del servers["nauro"]
         status = CodexConfigOutcome(CodexConfigKind.REMOVED, config_path)
     else:
-        desired = _CodexNauroEntry(command=_find_nauro_command(), args=["serve", "--stdio"])
         if servers is None:
             servers = tomlkit.table(is_super_table=False)
             document["mcp_servers"] = servers
         entry = servers.get("nauro")
         current = _parse_codex_nauro_entry(entry)
+        budget_met = (current.startup_budget or 0) >= CODEX_STARTUP_TIMEOUT_SEC
+        desired = _CodexNauroEntry(
+            command=_find_nauro_command(),
+            args=["serve", "--stdio"],
+            startup_timeout_sec=(
+                current.startup_timeout_sec if budget_met else CODEX_STARTUP_TIMEOUT_SEC
+            ),
+            startup_timeout_ms=current.startup_timeout_ms,
+        )
         if current == desired:
             return CodexConfigOutcome(CodexConfigKind.ALREADY_CONFIGURED, config_path)
         _apply_nauro_entry(servers, entry, current, desired)
