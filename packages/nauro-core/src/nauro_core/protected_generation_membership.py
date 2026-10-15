@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from nauro_core.identifiers import IdentifierKind, is_identifier
 
+QUESTIONS_PROVENANCE_JSON = "questions-provenance.json"
 _TOP_LEVEL_GENERATION_MEMBERS = frozenset(
     {
         "project.md",
@@ -12,10 +13,10 @@ _TOP_LEVEL_GENERATION_MEMBERS = frozenset(
         "state_history.md",
         "stack.md",
         "open-questions.md",
-        "questions-provenance.json",
+        QUESTIONS_PROVENANCE_JSON,
     }
 )
-_SNAPSHOT_TOP_LEVEL_MEMBERS = _TOP_LEVEL_GENERATION_MEMBERS - {"questions-provenance.json"}
+_SNAPSHOT_TOP_LEVEL_MEMBERS = _TOP_LEVEL_GENERATION_MEMBERS - {QUESTIONS_PROVENANCE_JSON}
 
 
 class InvalidGenerationPath(ValueError):
@@ -82,4 +83,18 @@ def validate_protected_generation_path(path: object) -> str:
     canonical = _require_canonical_path(path)
     if not is_protected_generation_member(canonical):
         raise UnknownGenerationPath(f"path is not a protected generation member: {canonical!r}.")
+    return canonical
+
+
+def canonical_generation_read_path(path: str) -> str:
+    """Canonicalize a caller-supplied read path to a protected-generation member.
+
+    Raises :class:`InvalidGenerationPath`, including for the questions provenance sidecar.
+    """
+    if not path or path.startswith("/") or "\\" in path or ".." in path.split("/"):
+        raise InvalidGenerationPath("Invalid generation path.")
+    canonical = "/".join(part for part in path.split("/") if part not in ("", "."))
+    canonical = validate_protected_generation_path(canonical)
+    if canonical == QUESTIONS_PROVENANCE_JSON:
+        raise InvalidGenerationPath("Generic provenance access is unavailable.")
     return canonical

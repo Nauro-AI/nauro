@@ -6,7 +6,7 @@ from typing import Literal
 from nauro_core.constants import STACK_NON_AUTHORITATIVE_FRAMING
 from nauro_core.protected_generation_membership import (
     InvalidGenerationPath,
-    validate_protected_generation_path,
+    canonical_generation_read_path,
 )
 
 from nauro.auth import ActiveUserReadError
@@ -84,16 +84,6 @@ def _finish(
     return GenerationToolResponse(envelope, f"{text}\n\n{frame}" if text else frame, False)
 
 
-def _raw_path(path: str) -> str:
-    if not path or path.startswith("/") or "\\" in path or ".." in path.split("/"):
-        raise InvalidGenerationPath("Invalid generation path.")
-    canonical = "/".join(part for part in path.split("/") if part not in ("", "."))
-    canonical = validate_protected_generation_path(canonical)
-    if canonical == "questions-provenance.json":
-        raise InvalidGenerationPath("Generic provenance access is unavailable.")
-    return canonical
-
-
 def get_context(
     binding: ResolvedProjectBinding,
     level: int | str = "L0",
@@ -135,7 +125,7 @@ def get_raw_file(
     session: TransferSession | None = None,
 ) -> GenerationToolResponse:
     try:
-        canonical = _raw_path(path)
+        canonical = canonical_generation_read_path(path)
     except InvalidGenerationPath:
         return _error("Invalid or unavailable generation path.", kind="rejected")
     try:

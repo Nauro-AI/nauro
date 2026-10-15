@@ -19,9 +19,7 @@
 {"path":"packages/nauro-core/src/nauro_core/operations/diff_since_last_session.py","rule":"PERF401","count":6}
 {"path":"packages/nauro-core/src/nauro_core/operations/planning.py","rule":"N818","count":1}
 {"path":"packages/nauro-core/src/nauro_core/operations/propose_decision.py","rule":"BLE001","count":2}
-{"path":"packages/nauro-core/src/nauro_core/operations/propose_decision.py","rule":"PLR0911","count":1}
 {"path":"packages/nauro-core/src/nauro_core/operations/propose_decision.py","rule":"TRY300","count":1}
-{"path":"packages/nauro-core/src/nauro_core/operations/repair.py","rule":"C901","count":1}
 {"path":"packages/nauro-core/src/nauro_core/protected_generation_membership.py","rule":"N818","count":1}
 {"path":"packages/nauro-core/src/nauro_core/provenance.py","rule":"N818","count":2}
 {"path":"packages/nauro-core/src/nauro_core/question_provenance.py","rule":"N818","count":7}

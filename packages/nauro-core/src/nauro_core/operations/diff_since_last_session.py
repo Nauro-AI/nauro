@@ -57,8 +57,6 @@ def diff_since_last_session(
     normal success results, ``error`` unset. ``store`` is retained only for kernel-shape
     uniformity; ``cutoff_date_used`` is the requested cutoff, not the baseline's timestamp.
     """
-    # ``store`` is part of the locked kernel signature; the diff body
-    # operates on the supplied snapshot dicts only.
     del store
 
     if latest_snapshot is None or baseline_snapshot is None:
@@ -141,11 +139,11 @@ def _render_diff(snap_a: dict, snap_b: dict, cutoff_date_used: str | None = None
 
 def _summarize_new_file(filename: str, content: str) -> str:
     """Produce a one-line summary for a new file."""
-    if filename.startswith(DECISIONS_DIR + "/"):
-        for line in content.split("\n"):
-            if line.startswith("# "):
-                return line.removeprefix("# ").strip()
+    if not filename.startswith(DECISIONS_DIR + "/"):
         return ""
+    for line in content.split("\n"):
+        if line.startswith("# "):
+            return line.removeprefix("# ").strip()
     return ""
 
 
@@ -190,16 +188,15 @@ def _diff_state(old: str, new: str) -> list[str]:
         if old_val != new_val:
             changes.append(f"{field}: {old_val!r} → {new_val!r}")
 
-    old_items = [
-        line.strip()
-        for line in old.split("\n")
-        if line.strip().startswith("- ") and "none yet" not in line
-    ]
-    new_items = [
-        line.strip()
-        for line in new.split("\n")
-        if line.strip().startswith("- ") and "none yet" not in line
-    ]
+    def extract_items(content: str) -> list[str]:
+        return [
+            line.strip()
+            for line in content.split("\n")
+            if line.strip().startswith("- ") and "none yet" not in line
+        ]
+
+    old_items = extract_items(old)
+    new_items = extract_items(new)
     added = [i for i in new_items if i not in old_items]
     for item in added:
         changes.append(f"+ Completed: {item.removeprefix('- ')}")

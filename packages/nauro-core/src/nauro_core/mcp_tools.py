@@ -23,7 +23,7 @@ from nauro_core.constants import (
     STACK_DOC_CHAR_LIMIT,
     STACK_REVISION_ABSENT,
 )
-from nauro_core.decision_model import DECISION_TYPE_VALUES
+from nauro_core.decision_model import DECISION_TYPE_VALUES, DecisionConfidence, Reversibility
 from nauro_core.protocol import (
     _PROPOSAL_VISIBILITY_DETAIL,
     APPROVAL_BEFORE_PROPOSE,
@@ -371,7 +371,7 @@ PROPOSE_DECISION: ToolSpec = {
             },
             "confidence": {
                 "type": "string",
-                "enum": ["high", "medium", "low"],
+                "enum": [c.value for c in DecisionConfidence],
                 # No schema default: the adapter applies "medium" for add/
                 # supersede when confidence is unset, and relies on an unset
                 # (None) value to recognise "caller did not send confidence" on
@@ -391,7 +391,7 @@ PROPOSE_DECISION: ToolSpec = {
             },
             "reversibility": {
                 "type": "string",
-                "enum": ["easy", "moderate", "hard"],
+                "enum": [r.value for r in Reversibility],
                 "description": (
                     "Cost to reverse later: 'easy' = config or one-file "
                     "change; 'moderate' = multi-day migration; 'hard' = "

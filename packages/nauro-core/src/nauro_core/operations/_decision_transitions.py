@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from dataclasses import fields as dataclass_fields
 from datetime import date
 
 from nauro_core.decision_model import (
@@ -18,13 +19,6 @@ from nauro_core.decision_model import (
 from nauro_core.questions import OpenQuestionsFile
 
 _SLUG_MAX_LENGTH = 60
-_PROVENANCE_FIELDS = (
-    "proposed_by",
-    "approved_by",
-    "approved_at",
-    "proposal_id",
-    "proposed_base_commit",
-)
 
 
 @dataclass(frozen=True)
@@ -81,13 +75,7 @@ def build_new_decision(
     """Build a new current decision from explicit frozen inputs."""
     fields: dict[str, object] = dict(extra_frontmatter or {})
     if provenance is not None:
-        fields.update(
-            proposed_by=provenance.proposed_by,
-            approved_by=provenance.approved_by,
-            approved_at=provenance.approved_at,
-            proposal_id=provenance.proposal_id,
-            proposed_base_commit=provenance.proposed_base_commit,
-        )
+        fields.update(asdict(provenance))
     return Decision(
         date=decision_date,
         version=1,
@@ -110,15 +98,11 @@ def apply_current_version_provenance(
     provenance: DecisionProvenance | None,
 ) -> Decision:
     """Apply one complete approval group, or clear a group for a new local version."""
-    update = {field: None for field in _PROVENANCE_FIELDS}
-    if provenance is not None:
-        update.update(
-            proposed_by=provenance.proposed_by,
-            approved_by=provenance.approved_by,
-            approved_at=provenance.approved_at,
-            proposal_id=provenance.proposal_id,
-            proposed_base_commit=provenance.proposed_base_commit,
-        )
+    update = (
+        asdict(provenance)
+        if provenance is not None
+        else {field.name: None for field in dataclass_fields(DecisionProvenance)}
+    )
     return decision.model_copy(update=update)
 
 

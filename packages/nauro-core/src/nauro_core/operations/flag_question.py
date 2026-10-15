@@ -119,10 +119,7 @@ def _short_circuit_if_resolved(
             "if a newer flag is intended despite the existing resolution, "
             "resend without targets."
         )
-        return FlagQuestionResult(
-            status="rejected",
-            error=ErrorPayload(kind="rejected", reason=reason),
-        )
+        return _reject(reason)
     return None
 
 
