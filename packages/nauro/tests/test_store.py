@@ -782,6 +782,25 @@ def test_validate_project_md_at_token_threshold_is_silent(tmp_path: Path):
     assert [w for w in warnings if "estimated tokens" in w] == []
 
 
+@pytest.mark.parametrize(
+    ("project_md", "expected"),
+    [
+        ("[a [b]\n", ["project.md: 1 unfilled prompt(s) remaining - e.g. [a [b]"]),
+        ("[][x]\n", ["project.md: 1 unfilled prompt(s) remaining - e.g. [x]"]),
+        ("[t](u)\n", []),
+        ("Still [open\n", []),
+    ],
+    ids=["nested", "empty-then-filled", "link", "unterminated"],
+)
+def test_validate_unfilled_prompt_bracket_spans(
+    tmp_path: Path, project_md: str, expected: list[str]
+):
+    store = _clean_store_with_project_md(tmp_path, project_md)
+
+    warnings = validate_store(store)
+    assert [w for w in warnings if "unfilled prompt" in w] == expected
+
+
 def _minimal_v2_decision(path: Path, num: int, title: str) -> None:
     """Write a minimal valid v2 decision file for tests that just need one file."""
     path.write_text(

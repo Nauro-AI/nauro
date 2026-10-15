@@ -1,7 +1,7 @@
 """Store validation — checks for common issues in the project store."""
 
 import logging
-import re
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +23,23 @@ from nauro.store.reader import read_text_lenient
 logger = logging.getLogger("nauro.store.validator")
 
 
+def _bracket_spans(content: str) -> Iterator[tuple[str, int]]:
+    """Yield the inner text and end index of each non-empty ``[...]`` span, left to right.
+
+    A span runs from a ``[`` to the next ``]``, so ``[a [b]`` yields ``a [b``.
+    """
+    start = content.find("[")
+    while start != -1:
+        close = content.find("]", start + 1)
+        if close == -1:
+            return
+        if close == start + 1:
+            start = content.find("[", start + 1)
+            continue
+        yield content[start + 1 : close], close + 1
+        start = content.find("[", close + 1)
+
+
 def validate_store(store_path: Path) -> list[str]:
     """Validate a project store and return its warnings, empty when clean.
 
@@ -38,8 +55,7 @@ def validate_store(store_path: Path) -> list[str]:
         content = read_text_lenient(filepath)
         # Filter out markdown links [text](url) and timestamps [2026-01-01 ...]
         unfilled = []
-        for m in re.finditer(r"\[([^\]]+)\]", content):
-            p = m.group(1)
+        for p, end in _bracket_spans(content):
             if (
                 len(p) >= 10
                 and p[4] == "-"
@@ -50,7 +66,6 @@ def validate_store(store_path: Path) -> list[str]:
             ):
                 continue
             # Check if this bracket is part of a markdown link [text](...)
-            end = m.end()
             if end < len(content) and content[end] == "(":
                 continue
             unfilled.append(p)
