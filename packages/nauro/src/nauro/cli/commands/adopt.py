@@ -25,18 +25,24 @@ from typing import NoReturn
 import typer
 
 from nauro.agents import AGENT_NAMES
+from nauro.cli._setup_options import (
+    FORCE_OVERWRITE_OPTION,
+    WITH_SKILLS_OPTION,
+    WITH_SUBAGENTS_OPTION,
+    echo_install_notices,
+)
 from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.integrations.echo import echo_outcomes
-from nauro.cli.integrations.orchestrator import (
-    SHIP_TASK_NEEDS_SUBAGENTS_NOTICE,
-    SUBAGENTS_CONNECTOR_NAME_NOTICE,
-    setup_all_surfaces,
-)
+from nauro.cli.integrations.orchestrator import setup_all_surfaces
 from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 from nauro.cli.nauro_command import _find_nauro_command
-from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
+from nauro.cli.utils import (
+    refuse_global_config_collision,
+    refuse_repo_config_symlink,
+    write_repo_config,
+)
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
-from nauro.setup.git_hygiene import public_surface_git_warnings
+from nauro.setup.git_hygiene import is_git_repo
 from nauro.skills import load_adopt_body
 from nauro.store.migration_admission import migration_write_guard
 from nauro.store.registry import (
@@ -51,37 +57,14 @@ from nauro.store.registry import (
     remove_repo_v2,
     resolve_registered_store_path_v2,
 )
-from nauro.store.repo_config import RepoConfigSchemaError, load_repo_config, save_repo_config
+from nauro.store.repo_config import RepoConfigSchemaError, load_repo_config
 from nauro.store.write_safety import SymlinkRefusal, find_symlink
 from nauro.templates.scaffolds import scaffold_project_store
-
-
-def _echo_repo_config_warnings(repo_root: Path) -> None:
-    for warning in public_surface_git_warnings(repo_root, ".nauro/config.json"):
-        typer.echo(warning, err=True)
 
 
 def _resolve_repo_root(repo_arg: Path | None) -> Path:
     """Return the absolute path of the repo root to adopt."""
     return (repo_arg if repo_arg is not None else Path.cwd()).resolve()
-
-
-def _is_git_repo(repo_root: Path) -> bool:
-    """Return True iff ``repo_root`` is inside a git working tree.
-    Adopt must refuse a non-git directory before registering it, so the skill's git-init
-    recovery path stays available.
-    """
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except (FileNotFoundError, OSError):
-        return False
-    return proc.returncode == 0
 
 
 def _smoke_test_wired_binary(nauro_cmd: str, timeout: float = 1.5) -> str | None:
@@ -185,10 +168,7 @@ def _install_into_adopted_repo(
             with_skills=with_skills,
         )
     )
-    if with_skills and not with_subagents:
-        typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
-    if with_subagents:
-        typer.echo(f"\n{SUBAGENTS_CONNECTOR_NAME_NOTICE}")
+    echo_install_notices(with_skills, with_subagents)
     if failed:
         _exit_writes_failed("nauro setup all")
     typer.echo("\nNext: restart your agent so it picks up the newly installed files.")
@@ -214,7 +194,7 @@ def _unadopt_symlink_refusals(repo_root: Path) -> list[SymlinkRefusal]:
     # .gitignore is a teardown target only inside a git working tree — the
     # managed-block removal skips non-git directories entirely, so a symlinked
     # .gitignore there must not abort an otherwise valid un-adopt.
-    if _is_git_repo(repo_root):
+    if is_git_repo(repo_root):
         targets.append(".gitignore")
     return [refusal for rel in targets if (refusal := find_symlink(repo_root, rel)) is not None]
 
@@ -399,34 +379,9 @@ def adopt(
         "--no-setup-and-skills",
         help="Skip MCP wiring + skill materialization (for users with existing wiring).",
     ),
-    with_subagents: bool = typer.Option(
-        False,
-        "--with-subagents",
-        help=(
-            "Install Nauro's bundled workflow subagents (nauro-planner, "
-            "nauro-executor, nauro-reviewer, nauro-tech-lead, nauro-investigator) into "
-            "~/.claude/agents/ for Claude Code, .cursor/agents/ in each registered "
-            "repo for Cursor, and ~/.codex/agents/ for Codex. Off by default."
-        ),
-    ),
-    force_overwrite: bool = typer.Option(
-        False,
-        "--force-overwrite",
-        help=(
-            "Overwrite differing bundled Nauro skills and agent definitions "
-            "without saving .bak files. By default, refresh preserves the "
-            "previous content in a sibling backup."
-        ),
-    ),
-    with_skills: bool = typer.Option(
-        False,
-        "--with-skills",
-        help=(
-            "Install Nauro's bundled opt-in skills "
-            "(nauro-ship-task, nauro-context, nauro-loop, nauro-interview) alongside the "
-            "always-installed nauro-adopt skill. Independent of --with-subagents."
-        ),
-    ),
+    with_subagents: bool = WITH_SUBAGENTS_OPTION,
+    force_overwrite: bool = FORCE_OVERWRITE_OPTION,
+    with_skills: bool = WITH_SKILLS_OPTION,
     remove: bool = typer.Option(
         False,
         "--remove",
@@ -516,7 +471,7 @@ def adopt(
     # ── git precondition ───────────────────────────────────────────────────
     # Refuse before any registration or config write so the /nauro-adopt
     # skill's 'git init, then re-run' recovery actually works.
-    if not _is_git_repo(repo_root):
+    if not is_git_repo(repo_root):
         typer.echo(
             "Error: nauro adopt must be run inside a git repository. "
             "Run `git init` first, or pass --repo <path> to point at one.",
@@ -577,15 +532,7 @@ def adopt(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from None
 
-    save_repo_config(
-        repo_root,
-        {
-            "mode": REPO_CONFIG_MODE_LOCAL,
-            "id": pid,
-            "name": project_name,
-        },
-    )
-    _echo_repo_config_warnings(repo_root)
+    write_repo_config(repo_root, mode=REPO_CONFIG_MODE_LOCAL, project_id=pid, name=project_name)
     scaffold_project_store(project_name, store_path)
 
     typer.echo(f"Adopted project '{project_name}' (id: {pid})")
@@ -608,11 +555,7 @@ def adopt(
             )
         )
 
-        if with_skills and not with_subagents:
-            typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
-
-        if with_subagents:
-            typer.echo(f"\n{SUBAGENTS_CONNECTOR_NAME_NOTICE}")
+        echo_install_notices(with_skills, with_subagents)
 
         warning = _smoke_test_wired_binary(_find_nauro_command())
         if warning:

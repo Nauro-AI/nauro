@@ -27,6 +27,12 @@ import typer
 from nauro_core.mcp_tools import ALL_TOOLS, ToolSpec
 
 from nauro.cli._json_input import parse_json_list_of_dicts
+from nauro.cli._option_spelling import (
+    AUTOGEN_PRIMARY_POSITIONAL,
+    merge_primary_positional,
+    option_flag,
+    primary_option_alias,
+)
 from nauro.cli.generation_reads import read_command, require_legacy_read
 from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.utils import cli_origin, resolve_target_project
@@ -55,18 +61,6 @@ AUTOGEN_ALLOWLIST: frozenset[str] = frozenset(
     }
 )
 
-# Optional schema properties promoted to the command's positional argument.
-# The generic rule — only required properties become positionals — leaves a
-# tool whose primary payload is optional in the schema without a positional
-# form: flag_question's ``question`` may be omitted (the resolve action
-# passes ``resolved_by`` instead), yet ``nauro flag-question "..."`` is the
-# invocation the flag action naturally suggests. A tool named here surfaces
-# the designated string property both as an optional positional argument and
-# as its regular option flag; dispatch merges the two spellings and rejects
-# the call when both carry a value. The MCP schema is unchanged.
-AUTOGEN_PRIMARY_POSITIONAL: dict[str, str] = {
-    "flag_question": "question",
-}
 
 # Properties that should never reach the CLI surface. project_id is
 # replaced by ``--project NAME``; cwd is implicit from the working
@@ -86,23 +80,10 @@ def _command_name(tool_name: str) -> str:
     return tool_name.replace("_", "-")
 
 
-def _option_flag(property_name: str) -> str:
-    """Build the long-form Typer option flag for a schema property."""
-    return "--" + property_name.replace("_", "-")
-
-
 def _bool_option_flag(property_name: str) -> str:
     """Build the ``--flag/--no-flag`` form for a boolean option."""
     kebab = property_name.replace("_", "-")
     return f"--{kebab}/--no-{kebab}"
-
-
-def _primary_option_alias(property_name: str) -> str:
-    """Return the signature name for the option spelling of a primary positional.
-    Only the Python parameter name is aliased; the rendered flag keeps the property's own
-    name, and dispatch merges the alias back into the schema property.
-    """
-    return f"{property_name}_option"
 
 
 def _primary_positional_params(name: str, prop: dict[str, Any]) -> list[inspect.Parameter]:
@@ -115,11 +96,11 @@ def _primary_positional_params(name: str, prop: dict[str, Any]) -> list[inspect.
         annotation=str,
     )
     option = inspect.Parameter(
-        name=_primary_option_alias(name),
+        name=primary_option_alias(name),
         kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
         default=typer.Option(
             None,
-            _option_flag(name),
+            option_flag(name),
             help=f"{desc} Equivalent to passing the value positionally.",
         ),
         annotation=str,
@@ -143,7 +124,7 @@ def _schema_to_typer_params(spec: ToolSpec) -> list[inspect.Parameter]:
         raise ValueError(
             f"Primary positional {primary!r} for {spec['name']!r} must be an "
             "optional string property in the tool schema. Fix "
-            "AUTOGEN_PRIMARY_POSITIONAL in cli/autogen.py."
+            "AUTOGEN_PRIMARY_POSITIONAL in cli/_option_spelling.py."
         )
 
     params: list[inspect.Parameter] = []
@@ -280,14 +261,14 @@ def _optional_param(name: str, prop: dict[str, Any]) -> tuple[Any, Any]:
             enum_type,
             typer.Option(
                 default_member,
-                _option_flag(name),
+                option_flag(name),
                 help=desc,
             ),
         )
     if prop_type == "string":
-        return (str, typer.Option(default_value, _option_flag(name), help=desc))
+        return (str, typer.Option(default_value, option_flag(name), help=desc))
     if prop_type == "integer":
-        return (int, typer.Option(default_value, _option_flag(name), help=desc))
+        return (int, typer.Option(default_value, option_flag(name), help=desc))
     if prop_type == "boolean":
         return (
             bool,
@@ -304,7 +285,7 @@ def _optional_param(name: str, prop: dict[str, Any]) -> tuple[Any, Any]:
                 list[str],
                 typer.Option(
                     None,
-                    _option_flag(name),
+                    option_flag(name),
                     help=f"{desc} Repeat the flag for each value.",
                 ),
             )
@@ -313,7 +294,7 @@ def _optional_param(name: str, prop: dict[str, Any]) -> tuple[Any, Any]:
                 str | None,
                 typer.Option(
                     None,
-                    _option_flag(name),
+                    option_flag(name),
                     help=(
                         f"{desc} Pass JSON: literal '[{{...}}]', '@file.json', or '-' for stdin."
                     ),
@@ -395,7 +376,7 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
     # it is merged into the schema property at dispatch and never reaches
     # the adapter under its alias name.
     primary = AUTOGEN_PRIMARY_POSITIONAL.get(tool_name)
-    primary_alias = _primary_option_alias(primary) if primary is not None else None
+    primary_alias = primary_option_alias(primary) if primary is not None else None
 
     # Names of the schema-derived arguments, in dispatch order. These
     # are passed positionally to the adapter to match its
@@ -442,15 +423,7 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
         kwargs.pop("json_output", None)
         output_format = kwargs.pop("output_format", OutputFormat.json)
 
-        if primary is not None:
-            option_value = kwargs.pop(primary_alias, None)
-            if option_value is not None:
-                if kwargs.get(primary) is not None:
-                    raise typer.BadParameter(
-                        f"Pass {primary.upper()} positionally or via "
-                        f"{_option_flag(primary)}, not both."
-                    )
-                kwargs[primary] = option_value
+        kwargs = merge_primary_positional(tool_name, kwargs)
 
         _project_name, store_path = resolve_target_project(project)
         if tool_name in {"propose_decision", "flag_question", "update_state"}:
@@ -460,7 +433,7 @@ def _make_command(spec: ToolSpec) -> Callable[..., None]:
             raw = kwargs.get(name)
             if raw is None:
                 continue
-            kwargs[name] = parse_json_list_of_dicts(raw, _option_flag(name))
+            kwargs[name] = parse_json_list_of_dicts(raw, option_flag(name))
 
         for name in enum_arg_names:
             value = kwargs.get(name)
@@ -521,7 +494,7 @@ def register_autogen_commands(app: typer.Typer) -> None:
         raise RuntimeError(
             f"Primary-positional map references non-allowlisted tools: "
             f"{sorted(unknown_primary)}. Update AUTOGEN_PRIMARY_POSITIONAL "
-            "in cli/autogen.py."
+            "in cli/_option_spelling.py."
         )
 
     for spec in ALL_TOOLS:

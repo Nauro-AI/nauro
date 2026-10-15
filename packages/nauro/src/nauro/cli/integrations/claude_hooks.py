@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from nauro.cli._codex_hooks import strip_owned_hook_entries
 from nauro.cli.integrations._json_config import write_json_config
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.setup.git_hygiene import (
@@ -325,32 +326,7 @@ def _strip_hook_entries(raw: dict) -> bool:
     if not isinstance(event_matchers, list):
         return False
 
-    removed = False
-    surviving_matchers = []
-    for matcher in event_matchers:
-        if not isinstance(matcher, dict):
-            surviving_matchers.append(matcher)
-            continue
-        entries = matcher.get("hooks", [])
-        # An off-shape hooks value (null, scalar, object) is user content the
-        # strip does not own: pass the matcher through untouched rather than
-        # crashing — this path also runs best-effort against the shared file.
-        if not isinstance(entries, list):
-            surviving_matchers.append(matcher)
-            continue
-        kept = [e for e in entries if not _is_nauro_hook(e)]
-        removed_here = len(entries) - len(kept)
-        if removed_here:
-            removed = True
-        if removed_here == 0:
-            surviving_matchers.append(matcher)
-        elif kept:
-            matcher = {**matcher, "hooks": kept}
-            surviving_matchers.append(matcher)
-        elif set(matcher) - {"hooks"}:
-            surviving_matchers.append({**matcher, "hooks": []})
-        # Drop only the installer-owned matcher shell with no user metadata.
-
+    surviving_matchers, removed = strip_owned_hook_entries(event_matchers, _is_nauro_hook)
     if not removed:
         return False
 

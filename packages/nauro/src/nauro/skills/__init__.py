@@ -23,7 +23,6 @@ from typing import Literal
 
 from nauro_core.protocol import substitute_protocol_fragments
 
-Surface = Literal["claude_code", "cursor", "codex"]
 SkillName = Literal[
     "nauro-adopt",
     "nauro-ship-task",
@@ -266,13 +265,18 @@ def _strip_template_header(text: str) -> str:
     return text
 
 
+def _load_template(filename: str) -> str:
+    """Return the packaged template ``filename`` with its header stripped and fragments resolved."""
+    raw = resources.files(__package__).joinpath(filename).read_text(encoding="utf-8")
+    return substitute_protocol_fragments(_strip_template_header(raw))
+
+
 def load_adopt_body() -> str:
     """Return the canonical ``/nauro-adopt`` skill body (no frontmatter).
 
     Protocol-fragment tokens in the source template are resolved before return.
     """
-    raw = resources.files(__package__).joinpath("adopt_body.md").read_text(encoding="utf-8")
-    return substitute_protocol_fragments(_strip_template_header(raw))
+    return _load_template("adopt_body.md")
 
 
 def load_ship_task_body(surface: str = "claude_code") -> str:
@@ -280,8 +284,7 @@ def load_ship_task_body(surface: str = "claude_code") -> str:
 
     The prerequisites token resolves per surface; an unknown surface raises ``ValueError``.
     """
-    raw = resources.files(__package__).joinpath("ship_task_body.md").read_text(encoding="utf-8")
-    body = substitute_protocol_fragments(_strip_template_header(raw))
+    body = _load_template("ship_task_body.md")
     prerequisites = _for_surface(_SHIP_TASK_PREREQUISITES, surface)
     body = body.replace(_SHIP_TASK_PREREQUISITES_TOKEN, prerequisites)
     if surface == "cursor":
@@ -292,22 +295,19 @@ def load_ship_task_body(surface: str = "claude_code") -> str:
 
 def load_context_body() -> str:
     """Return the ``/nauro-context`` skill body (no frontmatter), protocol fragments resolved."""
-    raw = resources.files(__package__).joinpath("context_body.md").read_text(encoding="utf-8")
-    return substitute_protocol_fragments(_strip_template_header(raw))
+    return _load_template("context_body.md")
 
 
 def load_loop_body(surface: str = "claude_code") -> str:
     """Return the ``/nauro-loop`` skill body (no frontmatter) for ``surface``."""
-    raw = resources.files(__package__).joinpath("loop_body.md").read_text(encoding="utf-8")
-    body = substitute_protocol_fragments(_strip_template_header(raw))
+    body = _load_template("loop_body.md")
     lifecycle = _for_surface(_LOOP_PROGRAM_DELIVERY_LIFECYCLES, surface)
     return body.replace(_LOOP_PROGRAM_DELIVERY_LIFECYCLE_TOKEN, lifecycle)
 
 
 def load_interview_body() -> str:
     """Return the ``nauro-interview`` skill body with protocol fragments resolved."""
-    raw = resources.files(__package__).joinpath("interview_body.md").read_text(encoding="utf-8")
-    return substitute_protocol_fragments(_strip_template_header(raw))
+    return _load_template("interview_body.md")
 
 
 @dataclass(frozen=True)
@@ -357,7 +357,6 @@ def render_skill(surface: str, skill_name: str) -> str:
 __all__ = [
     "SKILL_DESCRIPTIONS",
     "SkillName",
-    "Surface",
     "load_adopt_body",
     "load_context_body",
     "load_interview_body",

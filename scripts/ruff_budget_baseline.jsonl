@@ -43,9 +43,7 @@
 {"path":"packages/nauro/src/nauro/auth.py","rule":"TRY004","count":1}
 {"path":"packages/nauro/src/nauro/auth.py","rule":"TRY301","count":3}
 {"path":"packages/nauro/src/nauro/cli/_codex_hooks.py","rule":"PLR0911","count":1}
-{"path":"packages/nauro/src/nauro/cli/autogen.py","rule":"C901","count":2}
-{"path":"packages/nauro/src/nauro/cli/autogen.py","rule":"PLR0912","count":1}
-{"path":"packages/nauro/src/nauro/cli/autogen.py","rule":"PLR0915","count":1}
+{"path":"packages/nauro/src/nauro/cli/autogen.py","rule":"C901","count":1}
 {"path":"packages/nauro/src/nauro/cli/commands/adopt.py","rule":"C901","count":2}
 {"path":"packages/nauro/src/nauro/cli/commands/adopt.py","rule":"PLR0912","count":2}
 {"path":"packages/nauro/src/nauro/cli/commands/adopt.py","rule":"PLR0915","count":2}
@@ -66,7 +64,6 @@
 {"path":"packages/nauro/src/nauro/cli/commands/init.py","rule":"C901","count":1}
 {"path":"packages/nauro/src/nauro/cli/commands/init.py","rule":"PLR0912","count":1}
 {"path":"packages/nauro/src/nauro/cli/commands/init.py","rule":"PLR0915","count":1}
-{"path":"packages/nauro/src/nauro/cli/commands/link.py","rule":"C901","count":1}
 {"path":"packages/nauro/src/nauro/cli/commands/link.py","rule":"PLR0915","count":1}
 {"path":"packages/nauro/src/nauro/cli/commands/repair.py","rule":"PERF401","count":2}
 {"path":"packages/nauro/src/nauro/cli/commands/serve.py","rule":"B008","count":1}
@@ -78,10 +75,7 @@
 {"path":"packages/nauro/src/nauro/cli/commands/sync.py","rule":"PLR0912","count":1}
 {"path":"packages/nauro/src/nauro/cli/generation_auth.py","rule":"TRY300","count":1}
 {"path":"packages/nauro/src/nauro/cli/generation_reads.py","rule":"TRY301","count":1}
-{"path":"packages/nauro/src/nauro/cli/integrations/claude_hooks.py","rule":"C901","count":1}
 {"path":"packages/nauro/src/nauro/cli/integrations/claude_hooks.py","rule":"PLR0911","count":1}
-{"path":"packages/nauro/src/nauro/cli/integrations/claude_hooks.py","rule":"PLR0912","count":1}
-{"path":"packages/nauro/src/nauro/cli/integrations/claude_hooks.py","rule":"PLW2901","count":1}
 {"path":"packages/nauro/src/nauro/cli/integrations/claude_user_config.py","rule":"PLR0911","count":1}
 {"path":"packages/nauro/src/nauro/cli/integrations/codex_config.py","rule":"C901","count":1}
 {"path":"packages/nauro/src/nauro/cli/integrations/codex_config.py","rule":"PLR0911","count":1}

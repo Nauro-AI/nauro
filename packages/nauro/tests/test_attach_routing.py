@@ -103,7 +103,7 @@ def _forbid_legacy(monkeypatch):
         "restore_cloud_store",
         "scaffold_empty_store",
         "bind_project_store_v2",
-        "warn_then_regen",
+        "regen_agents_md_fail_soft",
     ):
         monkeypatch.setattr(f"nauro.cli.commands.attach.{name}", _forbidden)
 

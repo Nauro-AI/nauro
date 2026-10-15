@@ -14,6 +14,7 @@ from nauro.cli.integrations.json_mcp import (
     recorded_legacy_cursor_command,
     recorded_mcp_commands,
 )
+from nauro.cli.utils import regen_agents_md_fail_soft
 from nauro.store.recovery import (
     RecoveryError,
     bind_local_store,
@@ -23,7 +24,6 @@ from nauro.store.recovery import (
 from nauro.store.registry import StoreBindingError, bind_project_store_v2
 from nauro.store.repo_config import find_repo_config, load_repo_config, save_repo_config
 from nauro.store.resolution import DisconnectedProject, RepoResolution, resolve_from_cwd
-from nauro.templates.agents_md_regen import warn_then_regen
 
 
 def _render_actions(actions: tuple[str, ...]) -> None:
@@ -35,15 +35,6 @@ def _render_actions(actions: tuple[str, ...]) -> None:
     }
     for action in actions:
         typer.echo(f"  {action}: {labels[action]}")
-
-
-def _finish_connection(repo_root: Path, store_path: Path, project_id: str) -> None:
-    warn_then_regen(
-        project_id,
-        store_path,
-        warn=lambda message: typer.echo(message, err=True),
-        fail_soft=True,
-    )
 
 
 def _echo_setup_hint_if_unwired(repo_root: Path) -> None:
@@ -107,7 +98,7 @@ def reconnect() -> None:
         try:
             if action == "locate":
                 resolved = bind_local_store(repo_root, store_path)
-                _finish_connection(repo_root, resolved.store_path, resolved.project_id)
+                regen_agents_md_fail_soft(resolved.project_id, resolved.store_path)
                 typer.echo(f"Connected '{resolved.display_name}' to {resolved.store_path}")
                 _echo_setup_hint_if_unwired(repo_root)
                 return
@@ -134,7 +125,7 @@ def reconnect() -> None:
                     f"Cloud project is now named {remote_name!r}; updating the local records."
                 )
                 save_repo_config(repo_root, {**config, "name": remote_name})
-            _finish_connection(repo_root, bound, connection.project_id)
+            regen_agents_md_fail_soft(connection.project_id, bound)
             typer.echo(f"Restored and connected '{remote_name}'.")
             typer.echo(f"  Store: {bound}")
             _echo_setup_hint_if_unwired(repo_root)

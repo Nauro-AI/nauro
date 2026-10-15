@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 import nauro.cli.commands.repair as repair_module
 from nauro.cli.main import app
 from nauro.store.journal import read_events
-from nauro.store.registry import RegistryEntryV2, register_project_v2
+from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import write_decision_file
 
@@ -258,19 +258,29 @@ def test_unknown_project_exits_nonzero(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("mode", ["local", "cloud"])
-def test_both_registered_modes_are_eligible(mode: str) -> None:
-    entry = RegistryEntryV2(
-        name="repairproj",
+def test_both_registered_modes_have_a_readable_registry_entry(tmp_path: Path, mode: str) -> None:
+    _pid, store = register_project_v2(
+        "repairproj",
+        [tmp_path],
         mode=mode,
         server_url="https://example.invalid" if mode == "cloud" else None,
     )
-    assert repair_module.classify_repair_eligibility(entry).eligible is True
+    assert repair_module._registry_entry(store.name) is not None
 
 
-def test_store_without_a_registry_entry_is_refused() -> None:
-    eligibility = repair_module.classify_repair_eligibility(None)
-    assert eligibility.eligible is False
-    assert "nauro status" in eligibility.guidance
+def test_store_without_a_registry_entry_is_refused(tmp_path: Path, monkeypatch) -> None:
+    store = _new_store(tmp_path)
+    _seed_orphan(store)
+    before = _target_body(store)
+    monkeypatch.setattr(repair_module, "get_project_v2", lambda *_: None)
+
+    result = runner.invoke(app, ["repair", "--project", "repairproj"], input="y\n")
+
+    assert result.exit_code == 0
+    assert "no readable registry entry" in result.stdout
+    assert "Run 'nauro status'." in result.stdout
+    assert _target_body(store) == before
+    assert read_events(store) == []
 
 
 @pytest.mark.parametrize("phase", ["before_plan", "after_confirmation"])
@@ -298,7 +308,7 @@ def test_authority_inspection_failure_refuses_without_repair(tmp_path, monkeypat
     monkeypatch.setattr(Path, "lstat", inspect)
     monkeypatch.setattr(repair_module.typer, "confirm", confirm)
     monkeypatch.setattr(
-        repair_module, "run_post_commit", lambda *a, **k: pytest.fail("Repair post-commit ran")
+        repair_module, "echo_post_commit", lambda *a, **k: pytest.fail("Repair post-commit ran")
     )
     result = runner.invoke(app, ["repair", "--project", "repairproj"])
     assert result.exit_code == 1

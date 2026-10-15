@@ -4,13 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from nauro.cli.integrations._bundled_files import bundled_file_refusal, retained_backup_name
 from nauro.setup.outcomes import SkillKind, SkillOutcome, WriteFailure
-from nauro.store.write_safety import (
-    SymlinkRefusal,
-    UserSymlinkRefusal,
-    find_file_symlink,
-    find_symlink,
-)
+from nauro.store.write_safety import UserSymlinkRefusal
 
 # Cursor has no user-global skills path (its User Rules live in the IDE Settings UI);
 # Cursor skills ship per-project.
@@ -25,24 +21,22 @@ OPT_IN_SKILL_NAMES: tuple[str, ...] = (
 )
 
 
-def _claude_skill_dir() -> Path:
+def claude_skill_dir() -> Path:
     return Path.home() / ".claude" / "skills"
 
 
-def _codex_skill_dir() -> Path:
+def codex_skill_dir() -> Path:
     return Path.home() / ".agents" / "skills"
+
+
+def legacy_codex_skill_dir() -> Path:
+    return Path.home() / ".codex" / "skills"
 
 
 # The legacy ~/.codex/skills copy is moved aside only once its replacement exists.
 _REPLACEMENT_IN_PLACE = frozenset(
     {SkillKind.WROTE, SkillKind.UNCHANGED, SkillKind.OVERWROTE, SkillKind.UPDATED}
 )
-
-
-def _skill_refusal(target: Path, repo: Path | None) -> SymlinkRefusal | UserSymlinkRefusal | None:
-    if repo is None:
-        return find_file_symlink(target)
-    return find_symlink(repo, target.relative_to(repo).as_posix())
 
 
 def _install_bundled_skill(
@@ -75,7 +69,7 @@ def _install_bundled_skill_io(
     force_overwrite: bool,
     repo: Path | None = None,
 ) -> SkillOutcome:
-    refusal = _skill_refusal(target, repo)
+    refusal = bundled_file_refusal(target, repo)
     if refusal is not None:
         return SkillOutcome(SkillKind.REFUSED_SYMLINK, target=target, refusal=refusal, repo=repo)
 
@@ -87,7 +81,7 @@ def _install_bundled_skill_io(
             target.write_text(bundled, encoding="utf-8")
             return SkillOutcome(SkillKind.OVERWROTE, target=target, repo=repo)
         backup = target.with_name(target.name + ".bak")
-        backup_refusal = _skill_refusal(backup, repo)
+        backup_refusal = bundled_file_refusal(backup, repo)
         if backup_refusal is not None:
             return SkillOutcome(
                 SkillKind.REFUSED_SYMLINK,
@@ -107,20 +101,6 @@ def _install_bundled_skill_io(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(bundled, encoding="utf-8")
     return SkillOutcome(SkillKind.WROTE, target=target, repo=repo)
-
-
-def _retained_backup_name(target: Path) -> str | None:
-    """Return a sibling ``.bak`` name when that backup is a real file.
-
-    Removal never deletes the backup. It may be the only copy of a local edit.
-    """
-    backup = target.with_name(target.name + ".bak")
-    try:
-        if backup.is_symlink() or not backup.is_file():
-            return None
-    except OSError:
-        return None
-    return backup.name
 
 
 def _remove_bundled_skill(
@@ -149,10 +129,10 @@ def _remove_bundled_skill_io(
     stop_above: Path,
     repo: Path | None = None,
 ) -> SkillOutcome:
-    refusal = _skill_refusal(target, repo)
+    refusal = bundled_file_refusal(target, repo)
     if refusal is not None:
         return SkillOutcome(SkillKind.REFUSED_SYMLINK, target=target, refusal=refusal, repo=repo)
-    backup_name = _retained_backup_name(target)
+    backup_name = retained_backup_name(target)
     if not target.is_file():
         return SkillOutcome(SkillKind.ABSENT, target=target, repo=repo, backup_name=backup_name)
     if target.read_text(encoding="utf-8") != bundled:
@@ -174,7 +154,7 @@ def _remove_bundled_skill_io(
 
 
 def _migrate_legacy_codex_skill(name: str) -> SkillOutcome | None:
-    source = Path.home() / ".codex" / "skills" / name
+    source = legacy_codex_skill_dir() / name
     try:
         return _migrate_legacy_codex_skill_io(source, name)
     except OSError as exc:
@@ -235,7 +215,7 @@ def materialize_skills_claude_code(
     """
     from nauro.skills import render_skill
 
-    base = _claude_skill_dir()
+    base = claude_skill_dir()
     if remove and not clear_user_scope:
         return [SkillOutcome(SkillKind.PRESERVED, base_label="~/.claude/skills")]
 
@@ -269,7 +249,7 @@ def materialize_skills_codex(
     """
     from nauro.skills import render_skill
 
-    base = _codex_skill_dir()
+    base = codex_skill_dir()
     if remove and not clear_user_scope:
         return [SkillOutcome(SkillKind.PRESERVED, base_label="~/.agents/skills")]
 

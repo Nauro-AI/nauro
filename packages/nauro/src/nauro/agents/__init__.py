@@ -19,9 +19,6 @@ from __future__ import annotations
 import json
 from importlib import resources
 from pathlib import Path
-from typing import Literal
-
-Surface = Literal["claude_code", "cursor", "codex"]
 
 AGENT_NAMES: tuple[str, ...] = (
     "nauro-planner",
@@ -131,7 +128,6 @@ def emit_plugin_agents(dest: Path) -> list[Path]:
 
 __all__ = [
     "AGENT_NAMES",
-    "Surface",
     "emit_plugin_agents",
     "load_agent_body",
     "render_agent",

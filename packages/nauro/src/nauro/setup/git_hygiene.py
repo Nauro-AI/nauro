@@ -232,6 +232,11 @@ def public_surface_git_warnings(repo_root: Path, rel_path: str) -> list[str]:
     return [_untracked_warning(rel_path)]
 
 
+def is_git_repo(path: Path) -> bool:
+    """Return True iff ``path`` is inside a git working tree."""
+    return _git_root(path) is not None
+
+
 def _git_root(path: Path) -> Path | None:
     proc = _run_git(path, "rev-parse", "--show-toplevel")
     if proc is None or proc.returncode != 0:

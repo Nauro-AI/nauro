@@ -69,7 +69,7 @@ def test_legacy_connection_refuses_replica_before_side_effects(
             "require_cloud_membership",
             "restore_cloud_store",
             "bind_project_store_v2",
-            "warn_then_regen",
+            "regen_agents_md_fail_soft",
         ):
             monkeypatch.setattr(f"nauro.cli.commands.{module}.{name}", forbidden)
     monkeypatch.setattr("nauro.cli.commands.reconnect.bind_local_store", forbidden)

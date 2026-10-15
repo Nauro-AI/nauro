@@ -22,12 +22,16 @@ import typer
 
 from nauro.auth import DEFAULT_API_URL
 from nauro.cli.generation_writes import legacy_write_guard
-from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
+from nauro.cli.utils import (
+    refuse_global_config_collision,
+    refuse_repo_config_symlink,
+    regen_agents_md_fail_soft,
+    write_repo_config,
+)
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
     REPO_CONFIG_MODE_LOCAL,
 )
-from nauro.setup.git_hygiene import public_surface_git_warnings
 from nauro.store.registry import (
     add_repo_v2,
     find_projects_by_name_v2,
@@ -38,11 +42,9 @@ from nauro.store.repo_config import (
     RepoConfigSchemaError,
     load_repo_config,
     repo_config_path,
-    save_repo_config,
 )
 from nauro.store.resolution import DisconnectedProject, resolve_registered_project
 from nauro.sync.cloud_projects import CloudProjectError, create_project
-from nauro.templates.agents_md_regen import warn_then_regen
 from nauro.templates.scaffolds import scaffold_project_store
 
 _CURSOR_NEW_REPO_NOTICE = (
@@ -50,24 +52,6 @@ _CURSOR_NEW_REPO_NOTICE = (
     "Run 'nauro setup all --with-skills --with-subagents' to install "
     "Cursor rules and project agents in each registered repo."
 )
-
-
-def _echo_repo_config_warnings(repo_path: Path) -> None:
-    for warning in public_surface_git_warnings(repo_path, ".nauro/config.json"):
-        typer.echo(warning, err=True)
-
-
-def _echo_warning(message: str) -> None:
-    typer.echo(message, err=True)
-
-
-def _regenerate_after_init(project_id: str, store_path: Path) -> None:
-    warn_then_regen(
-        project_id,
-        store_path,
-        warn=_echo_warning,
-        fail_soft=True,
-    )
 
 
 def _check_config_overwrite(
@@ -218,18 +202,10 @@ def _init_demo(name: str, repo_paths: list[Path], force: bool) -> None:
             )
 
         for rp in repo_paths:
-            save_repo_config(
-                rp,
-                {
-                    "mode": REPO_CONFIG_MODE_LOCAL,
-                    "id": pid,
-                    "name": name,
-                },
-            )
-            _echo_repo_config_warnings(rp)
+            write_repo_config(rp, mode=REPO_CONFIG_MODE_LOCAL, project_id=pid, name=name)
 
         create_demo_project(store_path)
-        _regenerate_after_init(pid, store_path)
+        regen_agents_md_fail_soft(pid, store_path)
         cwd_is_git = (Path.cwd() / ".git").is_dir()
 
         typer.echo(f"Initialized demo project '{name}'")
@@ -366,17 +342,9 @@ def init(
                     # Per-repo config is the source of truth for "is this repo
                     # adopted?". The cloud-mode branch is rejected above, so all
                     # surviving entries here are local-mode.
-                    save_repo_config(
-                        rp,
-                        {
-                            "mode": REPO_CONFIG_MODE_LOCAL,
-                            "id": pid,
-                            "name": name,
-                        },
-                    )
-                    _echo_repo_config_warnings(rp)
+                    write_repo_config(rp, mode=REPO_CONFIG_MODE_LOCAL, project_id=pid, name=name)
                     added.append(rp.resolve())
-                _regenerate_after_init(pid, store_path)
+                regen_agents_md_fail_soft(pid, store_path)
                 typer.echo(f"Updated project '{name}'")
                 typer.echo(f"  Store: {store_path}")
                 for rp in added:
@@ -428,18 +396,15 @@ def init(
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
         for rp in repo_paths:
-            save_repo_config(
+            write_repo_config(
                 rp,
-                {
-                    "mode": REPO_CONFIG_MODE_CLOUD,
-                    "id": pid,
-                    "name": name,
-                    "server_url": DEFAULT_API_URL,
-                },
+                mode=REPO_CONFIG_MODE_CLOUD,
+                project_id=pid,
+                name=name,
+                server_url=DEFAULT_API_URL,
             )
-            _echo_repo_config_warnings(rp)
         scaffold_project_store(name, store_path)
-        _regenerate_after_init(pid, store_path)
+        regen_agents_md_fail_soft(pid, store_path)
         typer.echo(f"Initialized cloud project '{name}'")
         typer.echo(f"  Project id: {pid}")
         typer.echo(f"  Store: {store_path}")
@@ -466,18 +431,10 @@ def init(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     for rp in repo_paths:
-        save_repo_config(
-            rp,
-            {
-                "mode": REPO_CONFIG_MODE_LOCAL,
-                "id": pid,
-                "name": name,
-            },
-        )
-        _echo_repo_config_warnings(rp)
+        write_repo_config(rp, mode=REPO_CONFIG_MODE_LOCAL, project_id=pid, name=name)
 
     scaffold_project_store(name, store_path)
-    _regenerate_after_init(pid, store_path)
+    regen_agents_md_fail_soft(pid, store_path)
     typer.echo(f"Initialized project '{name}'")
     typer.echo(f"  Project id: {pid}")
     typer.echo(f"  Store: {store_path}")

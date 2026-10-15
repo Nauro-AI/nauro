@@ -226,6 +226,27 @@ def agents_md_is_safe_to_replace(agents_md_path: Path) -> bool:
     return HEADER_MARKER in content and FOOTER_MARKER in content
 
 
+def agents_md_skip_warning(repo_path: Path, *, overwrite_unmanaged: bool) -> str | None:
+    """Return the warning for a repo whose ``AGENTS.md`` must not be written, else ``None``.
+    Never writes through a pre-planted symlink, regardless of ``overwrite_unmanaged``.
+    """
+    if not repo_path.is_dir():
+        return (
+            f"  Warning: repo path does not exist, skipping AGENTS.md: {repo_path}\n"
+            f"  Fix: remove from registry or update path in ~/.nauro/registry.json"
+        )
+    refusal = find_symlink(repo_path, AGENTS_MD)
+    if refusal is not None:
+        return f"  Warning: {refusal.message}"
+    agents_md_path = repo_path / AGENTS_MD
+    if not overwrite_unmanaged and not agents_md_is_safe_to_replace(agents_md_path):
+        return (
+            "  Warning: existing AGENTS.md is not Nauro-generated; "
+            f"left unchanged: {agents_md_path}"
+        )
+    return None
+
+
 def regenerate_agents_md_for_project(
     project_key: str,
     store_path: Path,
@@ -255,15 +276,9 @@ def regenerate_agents_md_for_project(
 
     for repo_str in repo_paths:
         repo_path = Path(repo_str)
-        if not repo_path.is_dir():
-            continue
-        # Never write through a pre-planted symlink, regardless of
-        # overwrite_unmanaged; warn_then_regen surfaces the refusal.
-        if find_symlink(repo_path, AGENTS_MD) is not None:
+        if agents_md_skip_warning(repo_path, overwrite_unmanaged=overwrite_unmanaged) is not None:
             continue
         agents_md_path = repo_path / AGENTS_MD
-        if not overwrite_unmanaged and not agents_md_is_safe_to_replace(agents_md_path):
-            continue
         preserved = parse_preserved_sections(agents_md_path)
         content = generate_agents_md(
             display_name,

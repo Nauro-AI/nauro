@@ -22,6 +22,7 @@ from nauro_core.decision_model import (
     Reversibility,
     format_decision,
 )
+from nauro_core.snapshot import serialize_snapshot
 
 from nauro import constants
 
@@ -542,15 +543,12 @@ def create_demo_project(store_path: Path) -> None:
         **decision_files,
     }
 
-    snapshot = {
-        "schema_version": 1,
-        "version": 1,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "trigger": "demo project created",
-        "trigger_detail": "",
-        "token_count": sum(len(v) for v in files.values()) // 4,
-        "files": files,
-    }
+    snapshot = serialize_snapshot(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        trigger="demo project created",
+        files=files,
+        version=1,
+    )
 
     (snapshots_dir / "v001.json").write_text(
         json.dumps(snapshot, indent=2) + "\n", encoding="utf-8"

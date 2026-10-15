@@ -76,11 +76,11 @@ def test_legacy_cli_refuses_before_access(tmp_path, monkeypatch, command, contro
     for name in ("tool_flag_question", "tool_update_state"):
         monkeypatch.setattr(tools, name, forbidden)
     importer = import_module("nauro.cli.commands.import_cmd")
-    for name in ("_import_memory_bank", "_import_adrs", "run_post_commit"):
+    for name in ("_import_memory_bank", "_import_adrs", "echo_post_commit"):
         monkeypatch.setattr(importer, name, forbidden)
     questions = import_module("nauro.cli.commands.questions")
     monkeypatch.setattr(questions, "FilesystemStore", forbidden)
-    monkeypatch.setattr(questions, "run_post_commit", forbidden)
+    monkeypatch.setattr(questions, "echo_post_commit", forbidden)
     arguments = {
         "flag-question": ["flag-question", "Synthetic question?"],
         "resolve-question": ["flag-question", "--targets", "Q1", "--resolved-by", "D1"],

@@ -16,12 +16,11 @@ import typer
 
 from nauro.auth import DEFAULT_API_URL, load_access_token
 from nauro.cli.generation_writes import legacy_write_guard
-from nauro.cli.utils import refuse_repo_config_symlink
+from nauro.cli.utils import refuse_repo_config_symlink, write_repo_config
 from nauro.constants import (
     REPO_CONFIG_MODE_CLOUD,
     REPO_CONFIG_MODE_LOCAL,
 )
-from nauro.setup.git_hygiene import public_surface_git_warnings
 from nauro.store.registry import (
     get_project_v2,
     rename_project_id_v2,
@@ -30,7 +29,6 @@ from nauro.store.repo_config import (
     RepoConfigSchemaError,
     find_repo_config,
     load_repo_config,
-    save_repo_config,
 )
 from nauro.store.resolution import DisconnectedProject, resolve_registered_project
 from nauro.sync.cloud_projects import CloudProjectError, create_project
@@ -127,17 +125,13 @@ def link(
                 typer.echo(f"Error: {exc}", err=True)
                 raise typer.Exit(code=1) from exc
 
-            save_repo_config(
+            write_repo_config(
                 repo_root,
-                {
-                    "mode": REPO_CONFIG_MODE_CLOUD,
-                    "id": cloud_id,
-                    "name": name,
-                    "server_url": DEFAULT_API_URL,
-                },
+                mode=REPO_CONFIG_MODE_CLOUD,
+                project_id=cloud_id,
+                name=name,
+                server_url=DEFAULT_API_URL,
             )
-            for warning in public_surface_git_warnings(repo_root, ".nauro/config.json"):
-                typer.echo(warning, err=True)
 
             typer.echo(f"Linked '{name}' to cloud project")
             typer.echo(f"  Old id: {local_id}")
