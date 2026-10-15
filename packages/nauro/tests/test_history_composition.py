@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import inspect
 from pathlib import Path
 
 import httpx
@@ -14,6 +13,7 @@ from nauro.store import generation_installation as installation
 from nauro.sync import generation_refresh as refresh
 from nauro.sync import generation_refresh_status as refresh_status
 from nauro.sync import history_transport as transport
+from tests._generation_refresh import recover_generation_refresh
 from tests.test_generation_installation import USER_ID
 from tests.test_generation_reads import admitted as admitted
 from tests.test_history_transport import OTHER, response_body
@@ -47,8 +47,8 @@ def test_response_and_dispatch_keep_authority_without_private_wire_fields(cloud,
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         adapter = transport.HttpHistoryTransport(binding.server_url, client)
         result = responses.diff_since_last_session(binding, 7, actor=USER_ID, transport=adapter)
-        composed = dispatch.history_dispatch(adapter)
-        actual = composed(project_id=binding.project_id, days=7)
+        monkeypatch.setattr(dispatch, "HttpHistoryTransport", lambda *a, **k: adapter)
+        actual = dispatch.diff_since_last_session(project_id=binding.project_id, days=7)
     assert result.is_error is False
     assert result.envelope == {
         "store": "local",
@@ -73,7 +73,6 @@ def test_response_and_dispatch_keep_authority_without_private_wire_fields(cloud,
         for p in binding.store_path.rglob("*")
         if p.is_file()
     } == before
-    assert inspect.signature(composed) == inspect.signature(dispatch.diff_since_last_session)
 
 
 @pytest.mark.parametrize("fault", ["scope", "advance", "account", "network"])
@@ -96,7 +95,7 @@ def test_changes_during_history_discard_result(admitted, monkeypatch, fault):
             from tests.test_generation_refresh import _target
 
             current[0] = _target()
-            refresh.recover_generation_refresh(binding, actor=USER_ID)
+            recover_generation_refresh(binding, actor=USER_ID)
         elif fault == "account":
             monkeypatch.setattr(installation, "read_active_user_id", lambda: OTHER)
         else:
@@ -133,7 +132,6 @@ def test_failed_admission_never_requests_or_repairs(admitted, monkeypatch, fault
     def forbidden(*a, **k):
         pytest.fail("Unexpected history request or refresh")
 
-    monkeypatch.setattr(refresh, "recover_generation_refresh", forbidden)
     monkeypatch.setattr(refresh, "commit_generation_refresh", forbidden)
     with httpx.Client(transport=httpx.MockTransport(forbidden)) as client:
         result = responses.diff_since_last_session(

@@ -14,6 +14,7 @@ from nauro.store import generation_installation as installation
 from nauro.store.generation_authority import RefreshRequiredError, ReplicaActorMismatchError
 from nauro.store.generation_store import GenerationSnapshotStore, GenerationStorePathError
 from nauro.sync import generation_refresh as refresh
+from tests._generation_refresh import recover_generation_refresh
 from tests.test_generation_installation import USER_ID, _projection
 from tests.test_generation_refresh import _observe, _target
 
@@ -265,7 +266,7 @@ def test_next_read_requires_new_authorization_after_refresh(admitted):
     current[0] = _target()
     with pytest.raises(RefreshRequiredError):
         reads.get_raw_file(binding, "state.md", actor=USER_ID)
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     checks.clear()
     after = reads.get_raw_file(binding, "state.md", actor=USER_ID)
     assert before.result.content == "# State\n\nVerified generation state.\n"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP
@@ -12,8 +11,7 @@ from pydantic import create_model, model_validator
 
 from nauro.mcp.decision_reference import INSTRUCTIONS
 from nauro.mcp.resolution_errors import resolution_error_envelope
-from nauro.store.read_authority import observe_generation_marker
-from nauro.store.resolution import NoProjectError, StoreResolutionError, resolve_project_binding
+from nauro.store.resolution import StoreResolutionError
 from nauro.sync.decision_reference_contract import CONTENT, reference_schema, validate_arguments
 from nauro.sync.generation_decision import (
     REFUSED_STATUSES,
@@ -98,15 +96,3 @@ def register_argument_validation(server: FastMCP) -> None:
     )
     tool.parameters["oneOf"] = schema["oneOf"]
     tool.description += "\n\nFor generation-backed projects: " + INSTRUCTIONS
-
-
-def refuse_unadapted_write(project_id: str | None, cwd: str | None) -> dict[str, Any] | None:
-    try:
-        binding = resolve_project_binding(project_id, cwd or Path.cwd())
-    except NoProjectError:
-        return None
-    except StoreResolutionError as error:
-        return resolution_error_envelope(error)
-    if observe_generation_marker(binding) is not None:
-        raise ValueError("This mutation is not supported for a generation-backed project")
-    return None

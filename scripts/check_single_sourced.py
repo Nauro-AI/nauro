@@ -40,8 +40,6 @@ FORBIDDEN: frozenset[str] = frozenset(
         "resolve_decision_id",
         "_resolve_affected_decision_id",
         "serialize_snapshot",
-        "normalize_snapshot",
-        "snapshot_schema_version",
     }
 )
 

@@ -77,7 +77,9 @@ def test_stale_guidance_refuses_without_refresh(connected, monkeypatch):
     def forbidden(*args, **kwargs):
         pytest.fail("Stale guidance must not refresh")
 
-    monkeypatch.setattr("nauro.sync.generation_refresh.recover_generation_refresh", forbidden)
+    monkeypatch.setattr(
+        "nauro.sync.generation_refresh_status.prepare_generation_refresh", forbidden
+    )
     with pytest.raises(PermissionError, match="Generation guidance unavailable"):
         guidance.read_generation_guidance(binding.store_path, lambda store: "MUST NOT ESCAPE")
 

@@ -210,6 +210,16 @@ class TestScreenStructural:
         base.update(overrides)
         return base
 
+    def _active(self, num, title):
+        return Decision(
+            date=date(2026, 4, 7),
+            confidence=DecisionConfidence.medium,
+            status=DecisionStatus.active,
+            num=num,
+            title=title,
+            rationale="Some rationale text here.",
+        )
+
     def test_clean_pass(self):
         action, reason = screen_structural(self._proposal(), set(), [])
         assert action == "pass"
@@ -244,7 +254,7 @@ class TestScreenStructural:
 
     def test_title_dedup_active(self):
         proposal = self._proposal()
-        active = [{"title": "Use FastAPI for MCP server", "num": 42}]
+        active = [self._active(42, "Use FastAPI for MCP server")]
         action, reason = screen_structural(proposal, set(), active)
         assert action == "reject"
         assert "active decision already has this title" in reason.lower()
@@ -252,7 +262,7 @@ class TestScreenStructural:
 
     def test_title_dedup_case_insensitive(self):
         proposal = self._proposal()
-        active = [{"title": "use fastapi for mcp server", "num": 42}]
+        active = [self._active(42, "use fastapi for mcp server")]
         action, _reason = screen_structural(proposal, set(), active)
         assert action == "reject"
 

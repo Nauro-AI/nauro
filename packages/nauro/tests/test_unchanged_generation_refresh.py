@@ -6,6 +6,7 @@ from nauro.mcp import generation_reads as reads
 from nauro.store.generation_authority import GenerationAuthorityError, RefreshRequiredError
 from nauro.store.generation_refresh_state import GenerationRefreshEvidenceError
 from nauro.sync import generation_refresh as refresh
+from tests._generation_refresh import recover_generation_refresh
 from tests.test_generation_installation import USER_ID
 from tests.test_generation_refresh import _active, _bootstrap, _target
 from tests.test_generation_refresh import replica as replica
@@ -30,7 +31,7 @@ def test_unchanged_refresh_preserves_intent_and_repeats_barriers(replica, monkey
         original(paths, path)
 
     monkeypatch.setattr(refresh, "sync_file", sync)
-    result = refresh.recover_generation_refresh(binding, actor=USER_ID)
+    result = recover_generation_refresh(binding, actor=USER_ID)
     assert result.read_file("state.md") == "fresh state\n"
     assert paths.intent.read_bytes() == before
     assert {paths.marker, paths.pointer, paths.carrier, paths.intent} <= set(synced)
@@ -56,7 +57,7 @@ def test_invalid_installed_evidence_never_falls_back_to_download(
     else:
         target.write_bytes(b"broken")
     with pytest.raises(GenerationAuthorityError):
-        refresh.recover_generation_refresh(binding, actor=USER_ID)
+        recover_generation_refresh(binding, actor=USER_ID)
     assert target.exists() is (damage == "corrupt")
     if damage == "corrupt":
         assert target.read_bytes() == b"broken"
@@ -72,7 +73,7 @@ def test_revocation_precedes_local_capture(replica, monkeypatch):
 
     monkeypatch.setattr(refresh, "check_generation_projection", refuse)
     with pytest.raises(RefreshRequiredError, match="revoked"):
-        refresh.recover_generation_refresh(binding, actor=USER_ID)
+        recover_generation_refresh(binding, actor=USER_ID)
 
 
 @pytest.mark.parametrize("when", ["authorization", "capture"])
@@ -116,12 +117,11 @@ def test_unchanged_target_still_refuses_failed_final_barrier(replica, monkeypatc
 
     monkeypatch.setattr(refresh, "sync_file", fail)
     with pytest.raises(refresh.GenerationRefreshDurabilityError):
-        refresh.recover_generation_refresh(binding, actor=USER_ID)
+        recover_generation_refresh(binding, actor=USER_ID)
     assert paths.intent.read_bytes() == before
     monkeypatch.setattr(refresh, "sync_file", original)
     assert (
-        refresh.recover_generation_refresh(binding, actor=USER_ID).read_file("state.md")
-        == "fresh state\n"
+        recover_generation_refresh(binding, actor=USER_ID).read_file("state.md") == "fresh state\n"
     )
 
 
@@ -144,7 +144,7 @@ def test_changed_identity_uses_existing_acquisition(replica, monkeypatch, change
     monkeypatch.setattr(refresh, "acquire_generation_projection", acquire)
     if change == "scope":
         monkeypatch.setattr(refresh, "_capture", lambda *a: pytest.fail("Captured obsolete root"))
-    result = refresh.recover_generation_refresh(binding, actor=USER_ID)
+    result = recover_generation_refresh(binding, actor=USER_ID)
     assert downloaded == [(current[0].target, previous if change == "generation" else None)]
     assert result.target == current[0].target
 
@@ -158,7 +158,7 @@ def test_completed_target_does_not_reinstall_or_replace_controls(replica, monkey
     monkeypatch.setattr(
         refresh, "durable_replace", lambda *a: pytest.fail("Replaced completed controls")
     )
-    result = refresh.recover_generation_refresh(binding, actor=USER_ID)
+    result = recover_generation_refresh(binding, actor=USER_ID)
     assert result.read_file("state.md") == "fresh state\n"
     assert paths.intent.read_bytes() == before
 
@@ -206,11 +206,10 @@ def test_completion_repeats_each_failed_barrier(replica, monkeypatch, boundary):
         else:
             fault.setattr(refresh, "sync_file", sync)
         with pytest.raises(refresh.GenerationRefreshDurabilityError):
-            refresh.recover_generation_refresh(binding, actor=USER_ID)
+            recover_generation_refresh(binding, actor=USER_ID)
     assert paths.intent.read_bytes() == before
     assert (
-        refresh.recover_generation_refresh(binding, actor=USER_ID).read_file("state.md")
-        == "fresh state\n"
+        recover_generation_refresh(binding, actor=USER_ID).read_file("state.md") == "fresh state\n"
     )
 
 

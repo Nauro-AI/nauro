@@ -16,6 +16,7 @@ from nauro_core.constants import (
 )
 from nauro_core.decision_model import (
     DECISION_TYPE_VALUES,
+    Decision,
     DecisionConfidence,
     DecisionSource,
     Reversibility,
@@ -48,13 +49,11 @@ def __getattr__(name: str) -> list[str]:
 _SCAFFOLD_SEED_TITLE = "Initial project setup"
 
 
-def is_scaffold_seed(decision) -> bool:
+def is_scaffold_seed(decision: Decision) -> bool:
     """Detect the scaffold-seeded first decision: ``num == 1`` plus the exact
-    scaffold title. Accepts a ``Decision`` object or the legacy dict shape.
+    scaffold title.
     """
-    if hasattr(decision, "num"):
-        return decision.num == 1 and decision.title == _SCAFFOLD_SEED_TITLE
-    return decision.get("num") == 1 and decision.get("title") == _SCAFFOLD_SEED_TITLE
+    return decision.num == 1 and decision.title == _SCAFFOLD_SEED_TITLE
 
 
 def check_bm25_similarity(
@@ -129,7 +128,7 @@ _OPTIONAL_ENUM_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 def screen_structural(
     proposal: dict,
     existing_hashes: set[str],
-    active_decisions: list[dict],
+    active_decisions: list[Decision],
 ) -> tuple[str, str | None]:
     """Structural Tier-1 screen, no I/O: schema and enum fields, minimum rationale
     length, rejected-item labels, hash dedup, and title dedup against the caller-filtered
@@ -183,21 +182,13 @@ def screen_structural(
         return ("reject", "Exact duplicate of existing decision (hash match).")
 
     # Title dedup against active decisions (caller filters to active, minus any
-    # supersede target). Entries may be either Decision objects or lightweight
-    # dicts (the mcp-server tier-1 path loads just title+num from S3 without
-    # full parsing). Handle both shapes.
+    # supersede target).
     title_normalized = normalize_title(title)
     for d in active_decisions:
-        if hasattr(d, "title"):
-            existing_title = d.title
-            existing_num = d.num
-        else:
-            existing_title = d.get("title", "")
-            existing_num = d.get("num", "?")
-        if normalize_title(existing_title) == title_normalized:
+        if normalize_title(d.title) == title_normalized:
             return (
                 "reject",
-                f"An active decision already has this title: D{existing_num}. "
+                f"An active decision already has this title: D{d.num}. "
                 'Use operation="supersede" to replace it, or operation="update" '
                 "to append rationale — not a second add.",
             )

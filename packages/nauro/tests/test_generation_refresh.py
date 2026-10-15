@@ -22,6 +22,7 @@ from nauro.store.generation_refresh_intent import decode_intent, encode_intent
 from nauro.store.generation_refresh_state import GenerationRefreshEvidenceError
 from nauro.sync import generation_refresh as refresh
 from nauro.sync.generation_acquisition import ObservedGenerationProjection
+from tests._generation_refresh import recover_generation_refresh
 from tests.test_generation_installation import USER_ID, _projection
 
 
@@ -152,8 +153,7 @@ def test_revoked_scope_reconciles_each_partial_state_and_preserves_evidence(
         _admit_and_authorize(binding)
     monkeypatch.setattr(refresh, "durable_replace", original)
     assert (
-        refresh.recover_generation_refresh(binding, actor=USER_ID).read_file("state.md")
-        == "fresh state\n"
+        recover_generation_refresh(binding, actor=USER_ID).read_file("state.md") == "fresh state\n"
     )
     _, new_raw, successor = _active(binding)
     assert successor.kind == "reconcile"
@@ -181,11 +181,11 @@ def test_repeated_reconciliation_preserves_each_predecessor(replica, monkeypatch
     first = _active(binding)[1]
     current[0] = _target("01K77777777777777777777777", "c" * 64)
     with pytest.raises(refresh.GenerationRefreshDurabilityError):
-        refresh.recover_generation_refresh(binding, actor=USER_ID)
+        recover_generation_refresh(binding, actor=USER_ID)
     second = _active(binding)[1]
     current[0] = _target("01K88888888888888888888888", "d" * 64)
     monkeypatch.setattr(refresh, "durable_replace", original)
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     paths, _, _ = _active(binding)
     for raw in (first, second):
         assert (paths.history / f"{hashlib.sha256(raw).hexdigest()}.json").read_bytes() == raw
@@ -227,7 +227,7 @@ def test_authorization_failure_and_changed_account_deny_without_mutation(replica
         _admit_and_authorize(binding)
     monkeypatch.setattr(installation, "read_active_user_id", lambda: "01K88888888888888888888888")
     with pytest.raises(ReplicaActorMismatchError):
-        refresh.recover_generation_refresh(binding, actor=USER_ID)
+        recover_generation_refresh(binding, actor=USER_ID)
     assert paths.intent.read_bytes() == before
 
 
@@ -275,8 +275,7 @@ refresh.commit_generation_refresh(prepared)
     assert result.returncode == 73, result.stderr.decode()
     old = _active(binding)[1]
     assert (
-        refresh.recover_generation_refresh(binding, actor=USER_ID).read_file("state.md")
-        == "fresh state\n"
+        recover_generation_refresh(binding, actor=USER_ID).read_file("state.md") == "fresh state\n"
     )
     assert _active(binding)[1] == old
 
@@ -418,7 +417,9 @@ def stop(paths, path, raw):
         os._exit(73)
 refresh.durable_replace = stop
 refresh.preserve_predecessor = save
-refresh.recover_generation_refresh(projection.target.binding, actor=USER_ID)
+refresh.commit_generation_refresh(
+    refresh.prepare_generation_refresh(projection.target.binding, actor=USER_ID)
+)
 """
     env = dict(os.environ, REFRESH_STOP=boundary)
     env["PYTHONPATH"] = _child_path()
@@ -428,8 +429,7 @@ refresh.recover_generation_refresh(projection.target.binding, actor=USER_ID)
     assert process.returncode == 73, process.stderr.decode()
     current[0] = _target("01K77777777777777777777777", "c" * 64)
     assert (
-        refresh.recover_generation_refresh(binding, actor=USER_ID).read_file("state.md")
-        == "fresh state\n"
+        recover_generation_refresh(binding, actor=USER_ID).read_file("state.md") == "fresh state\n"
     )
     paths, _, _ = _active(binding)
     assert (
@@ -520,8 +520,7 @@ refresh.commit_generation_refresh(prepared)
     )
     assert result.returncode == 73, result.stderr.decode()
     assert (
-        refresh.recover_generation_refresh(binding, actor=USER_ID).read_file("state.md")
-        == "fresh state\n"
+        recover_generation_refresh(binding, actor=USER_ID).read_file("state.md") == "fresh state\n"
     )
 
 

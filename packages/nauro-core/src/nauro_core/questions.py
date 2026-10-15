@@ -481,14 +481,6 @@ class OpenQuestionsFile(BaseModel):
         return [e for e in self.unresolved_entries if not e.is_discovery_pointer]
 
     @property
-    def discovery_pointers(self) -> list[QuestionEntry]:
-        """Unresolved entries that are discovery pointers, in file order.
-
-        The complement of :attr:`genuine_open_entries`: breadcrumbs, not questions.
-        """
-        return [e for e in self.unresolved_entries if e.is_discovery_pointer]
-
-    @property
     def numbered_entries(self) -> list[QuestionEntry]:
         """Entries carrying a ``Q`` number, resolved history included, in file order.
 

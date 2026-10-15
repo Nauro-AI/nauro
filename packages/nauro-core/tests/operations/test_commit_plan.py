@@ -915,29 +915,6 @@ _MOVED_FUNCTION_METADATA = {
 }
 
 
-def _observations_for(prepared):
-    import nauro_core.operations.commit_plan as contract
-
-    observations = []
-    for probe in prepared.claim_probes:
-        if isinstance(probe, contract.AbsentTitleClaimProbe):
-            observations.append(
-                contract.AbsentTitleClaimObservation(normalized_title=probe.normalized_title)
-            )
-        elif isinstance(probe, contract.OwnedTitleClaimProbe):
-            observations.append(
-                contract.CommittedTitleClaimObservation(
-                    normalized_title=probe.normalized_title,
-                    owner_decision_number=probe.expected_owner_decision_number,
-                )
-            )
-        else:
-            observations.append(
-                contract.AbsentContentClaimObservation(content_hash=probe.content_hash)
-            )
-    return observations
-
-
 def test_commit_plan_facade_exports_only_contract_and_phase_entry_points() -> None:
     import inspect
 

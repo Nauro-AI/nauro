@@ -127,8 +127,7 @@ def test_plan_binds_every_assessed_byte_to_backup_or_quarantine(
 
     plan = prepare_legacy_migration_plan(assessment)
 
-    assert set(plan.entries) == set(plan.backup_entries) | set(plan.quarantine_entries)
-    assert set(plan.backup_entries).isdisjoint(plan.quarantine_entries)
+    assert {entry.disposition for entry in plan.entries} <= {"legacy_backup", "quarantine"}
     assert {entry.source_path for entry in plan.entries} == {
         *(stamp.path for stamp in assessment.protected_files),
         *(stamp.path for stamp in assessment.snapshot_files),

@@ -102,7 +102,6 @@ class TestPublicShape:
         derived = {
             "operation",
             "source",
-            "state_timestamp",
             "source_revision",
             "previous_revision",
             "new_revision",
@@ -259,7 +258,6 @@ class TestPlanningOutcomes:
         plan = _plan()
         assert plan.operation == "update_state"
         assert plan.source == "current"
-        assert plan.state_timestamp == "2026-08-19T07:37Z"
         assert plan.updated_at == UPDATED_AT
         assert plan.result == UpdateStateResult(status="ok")
         assert plan.state_current_effect.observed_bytes == CURRENT
@@ -285,7 +283,6 @@ class TestPlanningOutcomes:
         assert plan.updated_at == UPDATED_AT
         assert plan.updated_at is not None
         assert plan.updated_at.tzinfo is timezone.utc
-        assert plan.state_timestamp == "2026-08-19T07:37Z"
 
     def test_overlap_warning_keeps_first_matching_line_and_exact_wording(self) -> None:
         current = (
@@ -360,7 +357,6 @@ class TestPlanningOutcomes:
         assert plan.source_revision == STATE_REVISION_ABSENT
         assert plan.result == UpdateStateResult(status="noop")
         assert plan.updated_at is None
-        assert plan.state_timestamp is None
         assert plan.state_current_effect == StateFileEffect(
             observed_bytes=None,
             replacement_bytes=None,
@@ -485,4 +481,4 @@ class TestLocalParity:
     def test_planner_does_not_read_the_clock(self) -> None:
         with patch("nauro_core.state._utc_timestamp", side_effect=AssertionError("clock read")):
             plan = _plan()
-        assert plan.state_timestamp == "2026-08-19T07:37Z"
+        assert plan.updated_at == UPDATED_AT

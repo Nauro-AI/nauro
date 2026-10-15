@@ -9,30 +9,17 @@ CLI-specific constants are defined locally.
 """
 
 # ── Re-exports from nauro-core (shared across nauro + mcp-server) ──
-# DECISION_TYPES comes from the public facade because its canonical source is
-# the DecisionType enum in nauro_core.decision_model, not nauro_core.constants.
-from nauro_core import DECISION_TYPES as DECISION_TYPES
 from nauro_core.constants import CHARS_PER_TOKEN as CHARS_PER_TOKEN
 from nauro_core.constants import DECISION_HASHES_FILE as DECISION_HASHES_FILE
 from nauro_core.constants import DECISIONS_DIR as DECISIONS_DIR
-from nauro_core.constants import L0_DECISIONS_SUMMARY_LIMIT as L0_DECISIONS_SUMMARY_LIMIT
-from nauro_core.constants import L0_QUESTIONS_LIMIT as L0_QUESTIONS_LIMIT
-from nauro_core.constants import L1_DECISIONS_LIMIT as L1_DECISIONS_LIMIT
-from nauro_core.constants import L1_DECISIONS_SUMMARY_LIMIT as L1_DECISIONS_SUMMARY_LIMIT
-from nauro_core.constants import MIN_RATIONALE_LENGTH as MIN_RATIONALE_LENGTH
 from nauro_core.constants import OPEN_QUESTIONS_MD as OPEN_QUESTIONS_MD
 from nauro_core.constants import POINTER_FLAG_PREFIXES as POINTER_FLAG_PREFIXES
 from nauro_core.constants import PROJECT_MD as PROJECT_MD
-from nauro_core.constants import REVERSIBILITY_LEVELS as REVERSIBILITY_LEVELS
-from nauro_core.constants import SNAPSHOT_SCHEMA_VERSION as SNAPSHOT_SCHEMA_VERSION
 from nauro_core.constants import SNAPSHOTS_DIR as SNAPSHOTS_DIR
-from nauro_core.constants import STACK_EMPTY_MARKER as STACK_EMPTY_MARKER
 from nauro_core.constants import STACK_MD as STACK_MD
 from nauro_core.constants import STATE_CURRENT_FILENAME as STATE_CURRENT_FILENAME
 from nauro_core.constants import STATE_HISTORY_FILENAME as STATE_HISTORY_FILENAME
 from nauro_core.constants import STATE_LEGACY_FILENAME as STATE_LEGACY_FILENAME
-from nauro_core.constants import STATE_MD as STATE_MD
-from nauro_core.constants import VALID_CONFIDENCES as VALID_CONFIDENCES
 
 # ── Environment variables (CLI-specific) ──
 NAURO_HOME_ENV = "NAURO_HOME"

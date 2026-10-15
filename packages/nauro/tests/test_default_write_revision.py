@@ -6,10 +6,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from nauro.sync import generation_refresh as refresh
 from nauro.sync import generation_writes as writes
 from nauro.sync import write_revision
 from nauro.sync.generation_session import GenerationTransferSession
+from tests._generation_refresh import recover_generation_refresh
 from tests.test_generation_installation import USER_ID
 from tests.test_generation_reads import admitted
 from tests.test_generation_responses import fresh_projection
@@ -87,7 +87,7 @@ def test_capture_uses_verified_installed_bytes_without_online_refresh(admitted, 
     if body is not None:
         artifacts[path] = body
     current[0] = fresh_projection(artifacts)
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     current[0] = fresh_projection({path: b"Newer hosted content"})
     checks.clear()
     session = Mock(spec=GenerationTransferSession)
@@ -108,7 +108,7 @@ def test_refresh_between_control_capture_and_file_capture_refuses(admitted, monk
 
     def interrupted(*args, **kwargs):
         current[0] = fresh_projection({"state_current.md": b"Other process refreshed"})
-        refresh.recover_generation_refresh(binding, actor=USER_ID)
+        recover_generation_refresh(binding, actor=USER_ID)
         return capture(*args, **kwargs)
 
     monkeypatch.setattr(write_revision, "_capture_prepared", interrupted)
