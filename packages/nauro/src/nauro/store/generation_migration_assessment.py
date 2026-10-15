@@ -17,19 +17,13 @@ from nauro.store._atomic import is_tmp_sibling
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.generation_projection import VerifiedGenerationProjection
 from nauro.store.replica_control import (
+    _READ_FLAGS,
     ReplicaControlReadError,
     _is_link_or_reparse,
     _validate_managed_path,
     locked_replica_control_snapshot,
 )
 
-_READ_FLAGS = (
-    os.O_RDONLY
-    | getattr(os, "O_CLOEXEC", 0)
-    | getattr(os, "O_BINARY", 0)
-    | getattr(os, "O_NONBLOCK", 0)
-    | getattr(os, "O_NOFOLLOW", 0)
-)
 _READ_CHUNK_BYTES = 1024 * 1024
 _PULL_SPOOL_PREFIX = ".pull-spool-"
 _SNAPSHOTS_DIRECTORY = "snapshots"
@@ -318,15 +312,22 @@ def assess_preserved_legacy_source(
         f"legacy-source-{projection.target.binding.project_id}-"
     ):
         raise LegacyMigrationAssessmentError("The preserved legacy source location differs.")
-    _require_legacy_root(location)
-    _require_empty_control_lock(location)
+    return _classify(projection, *inventory_legacy_location(location))
+
+
+def inventory_legacy_location(
+    path: Path,
+) -> tuple[tuple[LegacyFileStamp, ...], tuple[str, ...], tuple[str, ...]]:
+    """Inventory a legacy root between root and empty-control-lock checks on both sides."""
+    _require_legacy_root(path)
+    _require_empty_control_lock(path)
     try:
-        files, directories, pending = _inventory(location)
+        inventory = _inventory(path)
     except (OSError, ReplicaControlReadError) as exc:
         raise LegacyMigrationAssessmentError("The legacy inventory is unavailable.") from exc
-    _require_empty_control_lock(location)
-    _require_legacy_root(location)
-    return _classify(projection, files, directories, pending)
+    _require_empty_control_lock(path)
+    _require_legacy_root(path)
+    return inventory
 
 
 def _classify(

@@ -7,16 +7,11 @@ import os
 import shutil
 import stat
 from pathlib import Path, PurePosixPath
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict
 
 from nauro.store import _platform_durability as durability
 from nauro.store.generation_migration_assessment import _inventory, _stamp_file
-from nauro.store.generation_projection import (
-    GenerationProjectionIdentity,
-    GenerationProjectionTarget,
-)
+from nauro.store.generation_migration_plan import _Entry, _Plan, decode_migration_plan
+from nauro.store.generation_projection import GenerationProjectionTarget
 from nauro.store.generation_refresh_io import RefreshPaths, sync_file, sync_parents
 from nauro.store.migration_admission import (
     MigrationAdmission,
@@ -30,79 +25,11 @@ from nauro.store.replica_control import _is_link_or_reparse, _validate_managed_p
 from nauro.store.resolution import resolve_project_binding
 from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.generation_refresh import authorize_installed_target
-from nauro.sync.migration_admission import load_migration_plan, verify_migration_source
-
-
-class _Entry(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    source_path: str
-    destination_path: str
-    size: int
-    sha256: str
-    source_class: Literal["identical", "divergent", "local_only", "snapshot", "evidence"]
-    disposition: Literal["legacy_backup", "quarantine"]
-    recovery_kind: Literal[
-        "archive_only", "restore_only", "typed_resubmission", "preserved_unsupported"
-    ]
-    recovery_routes: list[Literal["propose_decision"]]
-    offer_export: bool
-
-
-class _Plan(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    schema_version: Literal[1]
-    migration_id: str
-    created_at: str
-    backup_directory_name: str
-    project_id: str
-    server_url: str
-    directory_paths: list[str]
-    assessment_capture_digest: str
-    projection: GenerationProjectionIdentity
-    server_only_paths: list[str]
-    entries: list[_Entry]
-
-
-def _relative(value: str) -> str:
-    path = PurePosixPath(value)
-    if (
-        not value
-        or value == "."
-        or path.is_absolute()
-        or ".." in path.parts
-        or "\\" in value
-        or path.as_posix() != value
-    ):
-        raise MigrationAdmissionError("Preservation path is unsafe.")
-    return value
-
-
-def decode_migration_plan(raw: bytes, record: MigrationAdmission) -> _Plan:
-    plan = _Plan.model_validate_json(raw)
-    if (
-        plan.migration_id != record.migration_id
-        or plan.project_id != record.project_id
-        or plan.server_url != record.endpoint
-        or plan.projection.installed_for_user_id != record.actor
-        or plan.projection.project_id != record.project_id
-        or len({entry.source_path for entry in plan.entries}) != len(plan.entries)
-    ):
-        raise MigrationAdmissionError("Preservation plan binding differs.")
-    name = _relative(plan.backup_directory_name)
-    if (
-        "/" in name
-        or not name.startswith(f"legacy-backup-{record.project_id}-")
-        or not name.endswith("-" + record.migration_id)
-    ):
-        raise MigrationAdmissionError("Preservation location differs.")
-    for directory in plan.directory_paths:
-        _relative(directory)
-    for entry in plan.entries:
-        prefix = "legacy" if entry.disposition == "legacy_backup" else "quarantine"
-        if entry.destination_path != prefix + "/" + _relative(entry.source_path) or entry.size < 0:
-            raise MigrationAdmissionError("Preservation entry differs.")
-        MigrationAdmission.digest(entry.sha256)
-    return plan
+from nauro.sync.migration_admission import (
+    load_expected_migration_plan,
+    load_migration_plan,
+    verify_migration_source,
+)
 
 
 def _directories(plan: _Plan) -> set[str]:
@@ -202,6 +129,23 @@ def _inspect_backup(root: Path, plan: _Plan, raw: bytes) -> set[str]:
     return found
 
 
+def complete_backup_names(plan: _Plan) -> set[str]:
+    return {"plan.json", *(entry.destination_path for entry in plan.entries)}
+
+
+def sync_complete_backup(root: Path, plan: _Plan, raw: bytes, *, message: str) -> None:
+    """Refuse an incomplete backup with message, else flush its files, directories and root."""
+    found = _inspect_backup(root, plan, raw)
+    if found != complete_backup_names(plan):
+        raise MigrationAdmissionError(message)
+    paths = RefreshPaths(root.parent, root.parent)
+    for path in sorted(found):
+        sync_file(paths, root / path)
+    for directory in sorted(_directories(plan), reverse=True):
+        sync_parents(paths, root / directory)
+    sync_parents(paths, root)
+
+
 def _mkdir(root: Path, path: Path) -> None:
     _validate_managed_path(root, path)
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -284,9 +228,9 @@ def preserve_migration_source(
         raise MigrationAdmissionError("Preservation requires an admitted plan and owner session.")
     source = Path(record.store)
     with migration_lock(source):
-        current, raw = load_migration_plan(source)
-        if current != record:
-            raise MigrationAdmissionError("Preservation admission changed.")
+        raw = load_expected_migration_plan(
+            source, record, changed="Preservation admission changed."
+        )
         plan = decode_migration_plan(raw, record)
         binding = session.binding
         if (binding.project_id, binding.server_url) != (
@@ -313,14 +257,7 @@ def preserve_migration_source(
             session.require_actor(record.actor)
             if entry.destination_path not in found:
                 _copy(Path(located.store), root, entry)
-        found = _inspect_backup(root, plan, raw)
-        if found != {"plan.json", *(entry.destination_path for entry in plan.entries)}:
-            raise MigrationAdmissionError("Preservation is incomplete.")
-        for path in sorted(found):
-            sync_file(paths, root / path)
-        for directory in sorted(_directories(plan), reverse=True):
-            sync_parents(paths, root / directory)
-        sync_parents(paths, root)
+        sync_complete_backup(root, plan, raw, message="Preservation is incomplete.")
         verify_migration_source(located, raw)
         require_registered_migration_source(record)
         authorize_installed_target(target, session)

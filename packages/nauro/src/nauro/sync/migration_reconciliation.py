@@ -10,31 +10,23 @@ from typing import Literal
 
 from nauro.store import _platform_durability as durability
 from nauro.store.generation_authority import GenerationAuthorityError
-from nauro.store.generation_installation import (
-    _GENERATIONS_DIR,
-    _STAGING_DIR,
-    _STAGING_TOKEN_BYTES,
-    _root_key,
-)
+from nauro.store.generation_installation import _STAGING_TOKEN_BYTES, _layout
 from nauro.store.generation_migration_assessment import (
-    LegacyFileStamp,
     _require_empty_control_lock,
     assess_preserved_legacy_source,
 )
-from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
+from nauro.store.generation_migration_plan import plan_source_stamps, prepare_legacy_migration_plan
 from nauro.store.generation_projection import GenerationProjectionTarget
 from nauro.store.generation_read import capture_generation_root
 from nauro.store.generation_refresh_io import RefreshPaths, sync_parents
 from nauro.store.migration_admission import (
     MigrationAdmission,
     MigrationAdmissionError,
-    migration_lock,
+    busy_migration_lock,
     retained_source,
 )
 from nauro.store.replica_control import (
     _REPLICA_CONTROL_LOCK_NAME,
-    _REPLICA_CONTROL_ROOT_NAME,
-    ReplicaControlBusyError,
     _is_link_or_reparse,
     _validate_managed_path,
 )
@@ -48,10 +40,15 @@ from nauro.sync.migration_admission import (
     _read_plan,
     _require_replacement_binding,
     inspect_previous_migration,
+    load_expected_migration_plan,
     load_migration_plan,
 )
 from nauro.sync.migration_installation import _registration, _vacant_store
-from nauro.sync.migration_preservation import _inspect_backup, decode_migration_plan
+from nauro.sync.migration_preservation import (
+    _inspect_backup,
+    complete_backup_names,
+    decode_migration_plan,
+)
 
 _RECOVERY = "owner recovery is required."
 
@@ -92,58 +89,49 @@ def reconcile_admitted_migration(
         session.binding, active_user_id=expected.actor, session=session
     )
     store = Path(expected.store)
-    try:
-        with migration_lock(store, timeout=0):
-            current, old_raw = load_migration_plan(store)
-            if current != expected:
-                raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
-            old = decode_migration_plan(old_raw, expected)
-            location, relocated = _locate(expected)
-            found = _inspect_backup(store.parent / old.backup_directory_name, old, old_raw)
-            complete = {"plan.json", *(entry.destination_path for entry in old.entries)}
-            if expected.phase not in {"blocked", "reassessed"} and found != complete:
-                raise MigrationAdmissionError("Earlier preservation is incomplete; " + _RECOVERY)
-            assessment = assess_preserved_legacy_source(projection, location)
-            stamps = tuple(
-                sorted(LegacyFileStamp(e.source_path, e.size, e.sha256) for e in old.entries)
+    with busy_migration_lock(store, timeout=0):
+        old_raw = load_expected_migration_plan(store, expected)
+        old = decode_migration_plan(old_raw, expected)
+        location, relocated = _locate(expected)
+        found = _inspect_backup(store.parent / old.backup_directory_name, old, old_raw)
+        if expected.phase not in {"blocked", "reassessed"} and found != complete_backup_names(old):
+            raise MigrationAdmissionError("Earlier preservation is incomplete; " + _RECOVERY)
+        assessment = assess_preserved_legacy_source(projection, location)
+        stamps = plan_source_stamps(old)
+        files = (
+            *assessment.protected_files,
+            *assessment.snapshot_files,
+            *assessment.evidence_files,
+        )
+        changed = tuple(sorted(files)) != stamps or assessment.directory_paths != tuple(
+            old.directory_paths
+        )
+        if not changed and old.projection == projection.target.identity:
+            raise MigrationAdmissionError("Nothing changed; continue the saved upgrade.")
+        if changed and (relocated or expected.phase not in {"blocked", "reassessed"}):
+            raise MigrationAdmissionError(
+                "The retained project files changed after this upgrade was admitted; " + _RECOVERY
             )
-            files = (
-                *assessment.protected_files,
-                *assessment.snapshot_files,
-                *assessment.evidence_files,
-            )
-            changed = tuple(sorted(files)) != stamps or assessment.directory_paths != tuple(
-                old.directory_paths
-            )
-            if not changed and old.projection == projection.target.identity:
-                raise MigrationAdmissionError("Nothing changed; continue the saved upgrade.")
-            if changed and (relocated or expected.phase not in {"blocked", "reassessed"}):
-                raise MigrationAdmissionError(
-                    "The retained project files changed after this upgrade was admitted; "
-                    + _RECOVERY
-                )
-            plan = prepare_legacy_migration_plan(assessment)
-            authorize_installed_target(projection.target, session)
-            session.require_actor(expected.actor)
-            successor = MigrationAdmission(
-                migration_id=plan.migration_id,
-                project_id=expected.project_id,
-                actor=expected.actor,
-                endpoint=expected.endpoint,
-                store=expected.store,
-                plan_digest=plan.plan_digest,
-                predecessor_digest=hashlib.sha256(expected.canonical_bytes()).hexdigest(),
-                phase="reassessed",
-                source_id=expected.source_id or (expected.migration_id if relocated else None),
-            )
-            _require_replacement_binding(expected, successor)
-            decode_migration_plan(plan.manifest_json, successor)
-            _publish_successor(store, expected, successor, plan.manifest_json)
-            if load_migration_plan(store) != (successor, plan.manifest_json):
-                raise MigrationAdmissionError("The reassessed upgrade was not retained.")
-            return successor
-    except ReplicaControlBusyError as exc:
-        raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc
+        plan = prepare_legacy_migration_plan(assessment)
+        authorize_installed_target(projection.target, session)
+        session.require_actor(expected.actor)
+        successor = MigrationAdmission(
+            migration_id=plan.migration_id,
+            project_id=expected.project_id,
+            actor=expected.actor,
+            endpoint=expected.endpoint,
+            store=expected.store,
+            plan_digest=plan.plan_digest,
+            predecessor_digest=hashlib.sha256(expected.canonical_bytes()).hexdigest(),
+            phase="reassessed",
+            source_id=expected.source_id or (expected.migration_id if relocated else None),
+        )
+        _require_replacement_binding(expected, successor)
+        decode_migration_plan(plan.manifest_json, successor)
+        _publish_successor(store, expected, successor, plan.manifest_json)
+        if load_migration_plan(store) != (successor, plan.manifest_json):
+            raise MigrationAdmissionError("The reassessed upgrade was not retained.")
+        return successor
 
 
 def stale_replica_folder(record: MigrationAdmission) -> Path | None:
@@ -169,7 +157,8 @@ def _only_staging(record: MigrationAdmission, raw: bytes) -> bool:
     binding = ResolvedProjectBinding(
         store, record.project_id, record.project_id, "cloud", record.endpoint
     )
-    prefix = _root_key(GenerationProjectionTarget(binding, identity)) + "-"
+    layout = _layout(store, GenerationProjectionTarget(binding, identity))
+    prefix = layout.root_key + "-"
     info = os.lstat(store)
     same_device = info.st_dev == os.stat(store.parent).st_dev
     listing = _entries(store) if _real_directory(info) and same_device else {}
@@ -177,24 +166,19 @@ def _only_staging(record: MigrationAdmission, raw: bytes) -> bool:
         lock = os.lstat(store / _REPLICA_CONTROL_LOCK_NAME)
         if not stat.S_ISREG(lock.st_mode) or lock.st_size != 0 or lock.st_nlink != 1:
             return False
-    chain = (
-        _REPLICA_CONTROL_ROOT_NAME,
-        f"v{identity.store_format_version}",
-        "actors",
-        identity.installed_for_user_id,
-    )
     current = store
-    for name in chain:
+    for name in layout.actor.relative_to(store).parts:
         if set(listing) != {name} or not _real_directory(listing[name]):
             return False
         current = current / name
         listing = _entries(current)
-    generations = listing.pop(_GENERATIONS_DIR, None)
+    generations = listing.pop(layout.generations.name, None)
     empty = generations is None or (
-        _real_directory(generations) and not _entries(current / _GENERATIONS_DIR)
+        _real_directory(generations) and not _entries(layout.generations)
     )
-    exact = empty and set(listing) == {_STAGING_DIR} and _real_directory(listing[_STAGING_DIR])
-    staged = list(_entries(current / _STAGING_DIR).items()) if exact else []
+    staging = layout.staging_dir.name
+    exact = empty and set(listing) == {staging} and _real_directory(listing[staging])
+    staged = list(_entries(layout.staging_dir).items()) if exact else []
     if len(staged) != 1:
         return False
     name, entry = staged[0]
@@ -277,26 +261,21 @@ def set_aside_stale_replica(
         session.binding, active_user_id=expected.actor, session=session
     )
     store = Path(expected.store)
-    try:
-        with migration_lock(store, timeout=0):
-            current, raw = load_migration_plan(store)
-            if current != expected:
-                raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
-            if decode_migration_plan(raw, expected).projection == projection.target.identity:
-                raise MigrationAdmissionError(
-                    "The earlier installation still matches the hosted record; continue it instead."
-                )
-            _require_earlier_replica(expected, raw, session, folder, shape)
-            try:
-                durability.durable_rename(store, folder, replace=False)
-            except durability.REFUSED as exc:
-                raise MigrationAdmissionError(durability.refusal("move", store, exc)) from exc
-            sync_parents(RefreshPaths(store.parent, store.parent), store.parent)
-            if load_migration_plan(store) != (expected, raw) or os.path.lexists(store):
-                raise MigrationAdmissionError("The saved upgrade changed during the move.")
-            return folder
-    except ReplicaControlBusyError as exc:
-        raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc
+    with busy_migration_lock(store, timeout=0):
+        raw = load_expected_migration_plan(store, expected)
+        if decode_migration_plan(raw, expected).projection == projection.target.identity:
+            raise MigrationAdmissionError(
+                "The earlier installation still matches the hosted record; continue it instead."
+            )
+        _require_earlier_replica(expected, raw, session, folder, shape)
+        try:
+            durability.durable_rename(store, folder, replace=False)
+        except durability.REFUSED as exc:
+            raise MigrationAdmissionError(durability.refusal("move", store, exc)) from exc
+        sync_parents(RefreshPaths(store.parent, store.parent), store.parent)
+        if load_migration_plan(store) != (expected, raw) or os.path.lexists(store):
+            raise MigrationAdmissionError("The saved upgrade changed during the move.")
+        return folder
 
 
 def describe_reassessment(

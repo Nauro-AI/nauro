@@ -31,16 +31,16 @@ from nauro.sync.generation_refresh import (
 )
 from nauro.sync.migration_admission import (
     MigrationSourceRefusedError,
+    load_expected_migration_plan,
     load_migration_plan,
     verify_migration_source,
 )
 from nauro.sync.migration_preservation import (
-    _directories,
-    _inspect_backup,
     _Plan,
     _require_registration,
     decode_migration_plan,
     preserve_migration_source,
+    sync_complete_backup,
 )
 
 
@@ -56,9 +56,7 @@ def verify_admitted_migration_source(record: MigrationAdmission) -> None:
     """Refuse a replacing or installing upgrade whose retained source no longer matches."""
     if record.phase not in {"replacing", "installing"}:
         raise MigrationAdmissionError("Retained source checks require an admitted upgrade.")
-    current, raw = load_migration_plan(Path(record.store))
-    if current != record:
-        raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
+    raw = load_expected_migration_plan(Path(record.store), record)
     source, location = Path(record.store), current_source(record)
     if (
         record.phase == "replacing"
@@ -114,15 +112,7 @@ def _sync_admission(record: MigrationAdmission, raw: bytes) -> None:
 
 def _backup(record: MigrationAdmission, plan: _Plan, raw: bytes) -> None:
     root = Path(record.store).parent / plan.backup_directory_name
-    found = _inspect_backup(root, plan, raw)
-    if found != {"plan.json", *(entry.destination_path for entry in plan.entries)}:
-        raise MigrationAdmissionError("Conversion requires complete preservation.")
-    paths = RefreshPaths(root.parent, root.parent)
-    for name in sorted(found):
-        sync_file(paths, root / name)
-    for name in sorted(_directories(plan), reverse=True):
-        sync_parents(paths, root / name)
-    sync_parents(paths, root)
+    sync_complete_backup(root, plan, raw, message="Conversion requires complete preservation.")
 
 
 def _replace_source(record: MigrationAdmission, raw: bytes) -> None:
@@ -193,9 +183,9 @@ def continue_migration_installation(
     if record.phase == "blocked":
         preserve_migration_source(record, session)
     with migration_lock(source):
-        current, raw = load_migration_plan(source)
-        if current != record:
-            raise MigrationAdmissionError("Inspect the current conversion before continuing.")
+        raw = load_expected_migration_plan(
+            source, record, changed="Inspect the current conversion before continuing."
+        )
         _sync_admission(record, raw)
         plan = decode_migration_plan(raw, record)
         _registration(record, session)

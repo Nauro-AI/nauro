@@ -13,6 +13,7 @@ from typing import Literal
 from nauro_core.identifiers import IdentifierKind, validate_identifier
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from nauro.store.generation_authority import _parse_marker
 from nauro.store.home import nauro_home
 from nauro.store.replica_control import (
     ReplicaControlBusyError,
@@ -197,8 +198,6 @@ def require_migration_admission(store: Path) -> None:
         raise MigrationAdmissionError("Project conversion is incomplete; reopen connection setup.")
 
     if record is not None and record.phase == "completed":
-        from nauro.store.generation_authority import _parse_marker
-
         path = store / ".replica/authority.json"
         _validate_managed_path(store, path)
         raw = _read_optional_file(path)
@@ -260,10 +259,17 @@ def migration_lock(store: Path, *, timeout: float = 0) -> Iterator[None]:
 
 
 @contextmanager
-def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
+def busy_migration_lock(store: Path, *, timeout: float) -> Iterator[None]:
+    """Hold the migration lock, reporting a busy lock anywhere in the body as admission busy."""
     try:
         with migration_lock(store, timeout=timeout):
-            require_migration_admission(store)
             yield
     except ReplicaControlBusyError as exc:
         raise MigrationAdmissionError("Another local operation is busy; try again later.") from exc
+
+
+@contextmanager
+def migration_write_guard(store: Path, *, timeout: float = 10) -> Iterator[None]:
+    with busy_migration_lock(store, timeout=timeout):
+        require_migration_admission(store)
+        yield

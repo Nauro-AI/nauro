@@ -168,7 +168,7 @@ _VALID_MODES_V2 = (REPO_CONFIG_MODE_LOCAL, REPO_CONFIG_MODE_CLOUD)
 _MAX_PROJECT_NAME_LEN = 100
 
 
-def _validate_project_name(name: str) -> str:
+def validate_project_name(name: str) -> str:
     """Return the stripped project name, or raise ``ValueError``.
 
     Rejects empty, over 100 chars, a path separator, ``..``, or a non-printable.
@@ -358,7 +358,7 @@ def bind_project_store_v2(
     """Bind an existing, validated local store to a v2 project, creating the registry entry
     if needed but never the store directory. ``update_name`` is reserved for callers
     holding the authoritative (cloud) name; repo config never overwrites registry identity."""
-    name = _validate_project_name(name)
+    name = validate_project_name(name)
     if mode not in _VALID_MODES_V2:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
     if mode == REPO_CONFIG_MODE_CLOUD and not server_url:
@@ -535,7 +535,7 @@ def register_project_v2(
     ``project_id`` is minted when absent, ``mode`` is ``local`` or ``cloud``, and
     ``cloud`` requires ``server_url``; a duplicate id or bad name raises ``ValueError``.
     """
-    name = _validate_project_name(name)
+    name = validate_project_name(name)
     if mode not in _VALID_MODES_V2:
         raise ValueError(f"Invalid mode {mode!r}; expected one of {_VALID_MODES_V2}.")
     if mode == REPO_CONFIG_MODE_CLOUD and not server_url:

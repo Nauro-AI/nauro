@@ -44,6 +44,7 @@ from nauro.store.registry import (
     registered_store_path_hint_v2,
     resolve_registered_store_path_v2,
     resolve_v2_from_path,
+    validate_project_name,
     validate_registry_entry_v2,
 )
 from nauro.store.repo_config import (
@@ -155,15 +156,7 @@ class DisconnectedProject:
 
 
 def _canonical_project_name(value: str) -> str:
-    if (
-        value != value.strip()
-        or not value
-        or len(value) > 100
-        or "/" in value
-        or "\\" in value
-        or ".." in value
-        or any(not char.isprintable() for char in value)
-    ):
+    if validate_project_name(value) != value:
         raise ValueError("project name is not canonical")
     return value
 
