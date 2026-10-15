@@ -11,8 +11,8 @@ from __future__ import annotations
 from datetime import date
 
 import nauro_core.embeddings as embeddings_mod
-import numpy as np
 import pytest
+from conftest import StubEmbeddingModel
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
@@ -55,30 +55,7 @@ def _store() -> InMemoryStore:
     )
 
 
-@pytest.fixture(autouse=True)
-def _reset_model_cache():
-    embeddings_mod._model = None
-    embeddings_mod._load_failed = False
-    yield
-    embeddings_mod._model = None
-    embeddings_mod._load_failed = False
-
-
-class _StubModel:
-    def __init__(self, vectors: dict[str, list[float]], default: list[float]):
-        self._vectors = vectors
-        self._default = default
-
-    def encode(self, texts):
-        out = []
-        for text in texts:
-            vec = self._default
-            for needle, v in self._vectors.items():
-                if needle in text:
-                    vec = v
-                    break
-            out.append(vec)
-        return np.asarray(out, dtype=np.float32)
+pytestmark = pytest.mark.usefixtures("reset_embedding_model_cache")
 
 
 class TestCheckDecisionFlag:
@@ -111,7 +88,7 @@ class TestCheckDecisionFlag:
         off = check_decision(store, "Add a Memcached session cache", use_embeddings=False)
         off_nums = [extract_num(d.id) for d in off.related_decisions]
 
-        stub = _StubModel(
+        stub = StubEmbeddingModel(
             vectors={
                 "Identity tokens omit email scope": [1.0, 0.0],
                 "Add a Memcached session cache": [1.0, 0.0],
@@ -154,7 +131,7 @@ class TestSearchDecisionsFlag:
         off = search_decisions(store, "Memcached session", use_embeddings=False)
         off_nums = [h.number for h in off.results]
 
-        stub = _StubModel(
+        stub = StubEmbeddingModel(
             vectors={
                 "Identity tokens omit email scope": [1.0, 0.0],
                 "Memcached session": [1.0, 0.0],
@@ -201,7 +178,7 @@ class TestSearchDecisionsFlag:
         assert len(off_nums) == limit
         assert 99 not in off_nums
 
-        stub = _StubModel(
+        stub = StubEmbeddingModel(
             vectors={
                 "Identity tokens omit email scope": [1.0, 0.0],
                 "caching strategy": [1.0, 0.0],
@@ -245,7 +222,7 @@ class TestSearchDecisionsFlag:
         # Precondition: BM25 alone returns decision 1 as the single hit.
         assert [h.number for h in off.results] == [1]
 
-        stub = _StubModel(
+        stub = StubEmbeddingModel(
             vectors={
                 "Identity tokens omit email scope": [1.0, 0.0],
                 "caching strategy": [1.0, 0.0],

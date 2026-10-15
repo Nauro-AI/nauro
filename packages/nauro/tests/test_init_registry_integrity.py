@@ -12,7 +12,6 @@ fixtures; tests that need a specific cwd override on the same monkeypatch.
 from __future__ import annotations
 
 import os
-import subprocess
 
 import pytest
 from typer.testing import CliRunner
@@ -20,12 +19,9 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.store import registry
 from nauro.store.registry import find_projects_by_name_v2, register_project_v2
+from tests.conftest import git_init
 
 runner = CliRunner()
-
-
-def _git_init(repo) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
 
 
 # ── duplicate-claim refusal ────────────────────────────────────────────────────
@@ -242,7 +238,7 @@ def test_init_demo_without_name_still_uses_demo_project(tmp_path, monkeypatch):
 
 
 def test_init_warns_for_unignored_repo_config_in_git_repo(tmp_path, monkeypatch):
-    _git_init(tmp_path)
+    git_init(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, ["init", "gitproj"])
@@ -254,7 +250,7 @@ def test_init_warns_for_unignored_repo_config_in_git_repo(tmp_path, monkeypatch)
 
 
 def test_init_suppresses_repo_config_warning_when_ignored(tmp_path, monkeypatch):
-    _git_init(tmp_path)
+    git_init(tmp_path)
     (tmp_path / ".gitignore").write_text(".nauro/config.json\nAGENTS.md\n")
     monkeypatch.chdir(tmp_path)
 

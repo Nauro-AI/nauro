@@ -5,22 +5,10 @@ from nauro.cli.main import app
 from nauro.store.generation_authority import GenerationAuthorityMarker
 from nauro.store.registry import get_store_path_v2, register_project_v2
 from nauro.store.repo_config import save_repo_config
+from tests.directory_links import tree
 from tests.test_generation_migration_assessment import _symlink
 
 PID = "01K33333333333333333333333"
-
-
-def tree(root):
-    return {
-        str(path.relative_to(root)): (
-            ("link", str(path.readlink()))
-            if path.is_symlink()
-            else ("dir", None)
-            if path.is_dir()
-            else ("file", path.read_bytes())
-        )
-        for path in root.rglob("*")
-    }
 
 
 @pytest.mark.parametrize("controls", ["valid", "corrupt", "empty", "dangling"])

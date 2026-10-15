@@ -39,12 +39,6 @@ from nauro_core.decision_model import (  # noqa: E402
 )
 from nauro_core.operations import search_decisions  # noqa: E402
 
-from tests.conftest import moto_s3_bucket  # noqa: E402
-from tests.cross_surface.conftest import (  # noqa: E402
-    seed_cloud_store,
-    seed_filesystem_store,
-)
-
 CloudStore = cloud_store_module.CloudStore
 
 # Fixed seed: two active decisions whose titles + rationale make BM25
@@ -75,19 +69,6 @@ SEED_DECISIONS: dict[str, str] = {
         )
     ),
 }
-
-
-@pytest.fixture
-def both_stores(tmp_path, monkeypatch):
-    """Yield a (FilesystemStore, CloudStore) pair seeded with identical decisions.
-
-    The cloud half lives inside a moto-mocked S3 + an env-pointed bucket so
-    the test never touches AWS.
-    """
-    with moto_s3_bucket(monkeypatch) as s3_client:
-        fs_store = seed_filesystem_store(tmp_path, SEED_DECISIONS)
-        cloud = seed_cloud_store(s3_client, SEED_DECISIONS)
-        yield fs_store, cloud
 
 
 def test_search_decisions_result_matches_across_stores(both_stores):

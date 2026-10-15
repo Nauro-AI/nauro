@@ -10,9 +10,6 @@ the kernel must never import it.
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
-
 import pytest
 from nauro_core.operations import (
     DiffSinceLastSessionResult,
@@ -289,46 +286,6 @@ def test_store_field_absent_from_result_model_dump() -> None:
     result = diff_since_last_session(InMemoryStore(), _baseline(), _latest())
     dumped = result.model_dump(mode="json")
     assert "store" not in dumped
-
-
-# --- Import-graph negative constraint ---
-#
-# The kernel must not depend on snapshot discovery primitives — those
-# sit in the local package (filesystem) and the cloud package (S3) and
-# are explicitly outside the locked Store protocol. Pinning the
-# constraint as an AST scan keeps the no-drift-by-construction guarantee
-# from accidentally regressing through a casual import.
-
-
-def _kernel_imports() -> set[str]:
-    module_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "nauro_core"
-        / "operations"
-        / "diff_since_last_session.py"
-    )
-    tree = ast.parse(module_path.read_text())
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            for alias in node.names:
-                imported.add(f"{module}.{alias.name}")
-                imported.add(alias.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                imported.add(alias.name)
-    return imported
-
-
-def test_kernel_does_not_import_snapshot_discovery() -> None:
-    imported = _kernel_imports()
-    forbidden = {"list_snapshots", "load_snapshot", "resolve_diff_snapshots"}
-    assert forbidden.isdisjoint(imported), (
-        f"kernel imports snapshot discovery primitives: {forbidden & imported}; "
-        "those live in the adapter, not the kernel."
-    )
 
 
 # ── Rendered text keeps content-leading markers (removeprefix, not lstrip) ──

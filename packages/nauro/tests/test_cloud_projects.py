@@ -18,11 +18,6 @@ from nauro.sync.cloud_projects import (
 from tests.conftest import seed_auth_config
 
 
-def _seed_token(monkeypatch, tmp_path, token: str = "test-token") -> None:
-    """Write a config.json with an OAuth access token, mirroring `nauro auth login`."""
-    seed_auth_config(access_token=token)
-
-
 def _stub_request(handler):
     """Patch httpx.request inside cloud_projects with `handler(method, url, **kwargs)`."""
     return patch.object(cloud_projects.httpx, "request", side_effect=handler)
@@ -33,7 +28,7 @@ def _stub_request(handler):
 
 def test_create_project_success_sends_bearer_and_body(tmp_path, monkeypatch):
     """POST /projects with a JSON body and Authorization header; parses response."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     captured: dict = {}
@@ -74,7 +69,7 @@ def test_create_project_401_without_refresh_token_raises_auth_login_hint(tmp_pat
     ``AuthRefreshError`` ("No refresh token stored…"), which the cloud
     client surfaces as ``CloudProjectError`` whose message still points
     the user at ``nauro auth login``."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     def handler(method, url, **kwargs):
@@ -181,7 +176,7 @@ def test_create_project_403_renders_forbidden_message(tmp_path, monkeypatch):
     """403 is distinct from 401: the user is authenticated but lacks
     access to the resource. The error message should reflect that
     instead of telling them to re-login."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     def handler(method, url, **kwargs):
@@ -197,7 +192,7 @@ def test_create_project_403_renders_forbidden_message(tmp_path, monkeypatch):
 
 def test_create_project_server_error_renders_message(tmp_path, monkeypatch):
     """A 5xx raises CloudProjectError noting the server failure."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     def handler(method, url, **kwargs):
@@ -210,7 +205,7 @@ def test_create_project_server_error_renders_message(tmp_path, monkeypatch):
 
 def test_create_project_network_error_renders_message(tmp_path, monkeypatch):
     """Transport-level failures surface as CloudProjectError, not raw httpx errors."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     def handler(method, url, **kwargs):
@@ -234,7 +229,7 @@ def test_no_token_raises_before_request(tmp_path, monkeypatch):
 
 def test_list_projects_empty(tmp_path, monkeypatch):
     """GET /projects with no projects → empty list."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     def handler(method, url, **kwargs):
@@ -247,7 +242,7 @@ def test_list_projects_empty(tmp_path, monkeypatch):
 
 def test_list_projects_preserves_server_order(tmp_path, monkeypatch):
     """Two projects come back in the order the server returned them."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     server_payload = [
@@ -283,7 +278,7 @@ def test_list_projects_preserves_server_order(tmp_path, monkeypatch):
 
 def test_list_projects_accepts_wrapped_envelope(tmp_path, monkeypatch):
     """Server may wrap as {"projects": [...]}; client tolerates either shape."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     def handler(method, url, **kwargs):
@@ -310,7 +305,7 @@ def test_list_projects_accepts_wrapped_envelope(tmp_path, monkeypatch):
 
 def test_default_api_url_used_when_env_absent(tmp_path, monkeypatch):
     """With no NAURO_API_URL and no config api_url, the public default is used."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.delenv("NAURO_API_URL", raising=False)
 
     captured: dict = {}
@@ -328,7 +323,7 @@ def test_default_api_url_used_when_env_absent(tmp_path, monkeypatch):
 
 def test_malformed_project_payload_raises(tmp_path, monkeypatch):
     """A response missing required fields surfaces as CloudProjectError."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
     def handler(method, url, **kwargs):

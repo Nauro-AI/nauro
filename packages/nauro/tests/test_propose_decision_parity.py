@@ -30,7 +30,6 @@ from pathlib import Path
 
 import pytest
 
-from nauro.mcp import tools as mcp_tools
 from nauro.mcp.stdio_server import propose_decision as stdio_propose_decision
 from nauro.mcp.tools import tool_propose_decision
 from nauro.store import post_commit as post_commit_module
@@ -38,23 +37,7 @@ from nauro.templates.agents_md_regen import warn_then_regen
 from tests._writer_compat import append_decision
 from tests.conftest import register_v2_repo
 
-
-@pytest.fixture(autouse=True)
-def _no_push(monkeypatch):
-    """Suppress the best-effort cloud push so the parity layer stays local."""
-    monkeypatch.setattr(mcp_tools, "_try_push", lambda _store_path: None)
-
-
-@pytest.fixture(autouse=True)
-def _no_regen(monkeypatch):
-    """Suppress AGENTS.md regen so the parity layer stays local."""
-    monkeypatch.setattr(post_commit_module, "warn_then_regen", lambda *args, **kwargs: [])
-
-
-@pytest.fixture(autouse=True)
-def _no_snapshot(monkeypatch):
-    """Suppress snapshot capture so the parity layer doesn't touch snapshots/."""
-    monkeypatch.setattr(post_commit_module, "capture_snapshot", lambda *args, **kwargs: None)
+pytestmark = pytest.mark.usefixtures("local_only_writes")
 
 
 @pytest.fixture
@@ -62,16 +45,6 @@ def seeded_repo(tmp_path, monkeypatch):
     """Register a project, scaffold the store, and chdir into the repo."""
     result = register_v2_repo(tmp_path, "parity-propose", monkeypatch=monkeypatch)
     return result.pid, result.store_path
-
-
-@pytest.fixture
-def missing_store(tmp_path, monkeypatch):
-    """A repo with no associated project store at all."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    nonexistent = tmp_path / "projects" / "nope"
-    monkeypatch.chdir(repo)
-    return nonexistent
 
 
 # ── Confirmed branch ─────────────────────────────────────────────────────
@@ -362,7 +335,7 @@ def test_regen_runs_only_on_confirmed(seeded_repo, monkeypatch):
         regen_called.append((args, kwargs))
         return []
 
-    # Test-local override takes precedence over the autouse fixture's stub.
+    # Test-local override takes precedence over the local_only_writes fixture's stub.
     monkeypatch.setattr(post_commit_module, "warn_then_regen", _regen)
 
     # Tier 1 reject — no regen.

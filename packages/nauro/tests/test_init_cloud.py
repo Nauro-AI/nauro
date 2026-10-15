@@ -30,11 +30,6 @@ from tests.conftest import seed_auth_config
 runner = CliRunner()
 
 
-def _seed_token(monkeypatch, tmp_path):
-    """Make cloud_projects believe the user is authenticated."""
-    seed_auth_config()
-
-
 # ── local mode ────────────────────────────────────────────────────────────────
 
 
@@ -163,7 +158,7 @@ def test_init_agents_read_failure_is_nonfatal_after_registration(tmp_path, monke
 
 def test_init_cloud_uses_server_minted_id(tmp_path, monkeypatch):
     """`nauro init --cloud` mirrors the server's project_id locally."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
@@ -206,7 +201,7 @@ def test_init_cloud_uses_server_minted_id(tmp_path, monkeypatch):
 
 
 def test_init_cloud_preserves_hand_authored_agents_md(tmp_path, monkeypatch):
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
     sentinel = b"# Cloud repo agent rules\n\nKeep these instructions.\n"
@@ -241,7 +236,7 @@ def test_init_cloud_refuses_config_symlink_before_remote_create(tmp_path, monkey
     refused init leaves an orphaned cloud project behind. Pins exit 1, the
     refusal message, zero create_project calls, and no registry entry.
     """
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
@@ -270,7 +265,7 @@ def test_init_cloud_refuses_config_symlink_before_remote_create(tmp_path, monkey
 
 def test_init_cloud_renders_server_error(tmp_path, monkeypatch):
     """A cloud failure surfaces the server message and writes nothing locally."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
@@ -299,7 +294,7 @@ def test_init_demo_plus_cloud_rejects_at_entry(tmp_path, monkeypatch):
     same input would surface as a test failure rather than masquerading as
     the intended rejection.
     """
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
 
     def explode(*_args, **_kwargs):
@@ -326,7 +321,7 @@ def test_init_demo_plus_cloud_rejects_at_entry(tmp_path, monkeypatch):
 
 def test_add_repo_to_cloud_project_errors_with_attach_hint(tmp_path, monkeypatch):
     """`nauro init <cloud-name> --add-repo …` must point users at attach."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
     server_id = "01KQ6AZGNA0B3QBF67NBXP3S45"

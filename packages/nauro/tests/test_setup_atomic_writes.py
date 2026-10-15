@@ -40,10 +40,13 @@ from nauro.cli.integrations.json_mcp import _configure_mcp
 from nauro.cli.nauro_command import _find_nauro_command
 from nauro.store import _atomic
 
-pytestmark = pytest.mark.skipif(
-    os.name == "nt",
-    reason="POSIX-shaped byte expectations; home redirection is env-based",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX-shaped byte expectations; home redirection is env-based",
+    ),
+    pytest.mark.usefixtures("home_at_tmp_path"),
+]
 
 # Survivor entries: each remove case must rewrite the file (not unlink it),
 # and each add case must merge into existing content.
@@ -233,19 +236,6 @@ DRIVERS = [
 @pytest.fixture(params=DRIVERS, ids=lambda driver: driver.id)
 def driver(request):
     return request.param
-
-
-@pytest.fixture(autouse=True)
-def _isolated_home(tmp_path: Path, monkeypatch):
-    """Point the home directory at ``tmp_path`` for every test.
-
-    The prune sink writes ``Path.home() / ".claude.json"``. Both HOME and
-    USERPROFILE are redirected so the developer's real file stays out of
-    reach even if the module-level nt skip is ever lifted (``Path.home()``
-    resolves USERPROFILE on Windows).
-    """
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
 
 def _failing_replace(src, dst):

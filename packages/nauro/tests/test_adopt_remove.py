@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -18,22 +17,9 @@ from nauro.store.registry import (
     get_store_path_v2,
 )
 from nauro.store.repo_config import save_repo_config
+from tests.conftest import adopt_env, git_init
 
 runner = CliRunner()
-
-
-def _git_init(repo: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-
-
-def _adopt_env(monkeypatch, tmp_path: Path) -> Path:
-    """Isolated HOME (diverts ~/.claude, ~/.codex, ~/.agents, ~/.nauro) + a git repo."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _git_init(repo)
-    monkeypatch.chdir(repo)
-    return repo
 
 
 def _pid_of(repo: Path) -> str:
@@ -41,7 +27,7 @@ def _pid_of(repo: Path) -> str:
 
 
 def test_remove_unadopts_repo_and_keeps_store(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
     store_path = get_store_path_v2(_pid_of(repo))
     assert store_path.is_dir()
@@ -63,7 +49,7 @@ def test_remove_unadopts_repo_and_keeps_store(tmp_path, monkeypatch):
 
 
 def test_remove_purge_store_deletes_store(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     runner.invoke(app, ["adopt", "--name", "alpha"])
     store_path = get_store_path_v2(_pid_of(repo))
     assert store_path.is_dir()
@@ -74,7 +60,7 @@ def test_remove_purge_store_deletes_store(tmp_path, monkeypatch):
 
 
 def test_remove_purge_store_deletes_external_bound_store(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
     pid = _pid_of(repo)
@@ -101,7 +87,7 @@ def test_remove_purge_store_deletes_external_bound_store(tmp_path, monkeypatch):
 
 
 def test_remove_with_malformed_store_path_leaves_store_untouched(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
     pid = _pid_of(repo)
     default_store = get_store_path_v2(pid)
@@ -118,7 +104,7 @@ def test_remove_with_malformed_store_path_leaves_store_untouched(tmp_path, monke
 
 
 def test_remove_purge_refuses_malformed_store_path(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
     pid = _pid_of(repo)
     default_store = get_store_path_v2(pid)
@@ -139,14 +125,14 @@ def test_remove_purge_refuses_malformed_store_path(tmp_path, monkeypatch):
 
 
 def test_remove_on_unadopted_repo_errors(tmp_path, monkeypatch):
-    _adopt_env(monkeypatch, tmp_path)  # git repo, never adopted
+    adopt_env(monkeypatch, tmp_path)  # git repo, never adopted
     result = runner.invoke(app, ["adopt", "--remove", "--yes"])
     assert result.exit_code == 1
     assert "not adopted" in result.output.lower()
 
 
 def test_remove_strips_generated_agents_md_but_keeps_manual_section(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     runner.invoke(app, ["adopt", "--name", "alpha"])
     agents = repo / "AGENTS.md"
     # Edit the existing (generated-empty) # Manual section, the way a user would:
@@ -169,7 +155,7 @@ def test_remove_strips_generated_agents_md_but_keeps_manual_section(tmp_path, mo
 
 
 def test_remove_aborts_on_declined_confirmation(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     runner.invoke(app, ["adopt", "--name", "alpha"])
 
     result = runner.invoke(app, ["adopt", "--remove"], input="n\n")
@@ -184,10 +170,10 @@ def test_remove_purge_store_refused_when_other_repos_remain(tmp_path, monkeypatc
     monkeypatch.setenv("HOME", str(tmp_path))
     repo_a = tmp_path / "repoA"
     repo_a.mkdir()
-    _git_init(repo_a)
+    git_init(repo_a)
     repo_b = tmp_path / "repoB"
     repo_b.mkdir()
-    _git_init(repo_b)
+    git_init(repo_b)
     monkeypatch.chdir(repo_a)
     assert runner.invoke(app, ["adopt", "--name", "multi"]).exit_code == 0
     pid = _pid_of(repo_a)
@@ -208,10 +194,10 @@ def test_remove_multi_repo_drops_only_this_repo_and_keeps_shared_scope(tmp_path,
     monkeypatch.setenv("HOME", str(tmp_path))
     repo_a = tmp_path / "repoA"
     repo_a.mkdir()
-    _git_init(repo_a)
+    git_init(repo_a)
     repo_b = tmp_path / "repoB"
     repo_b.mkdir()
-    _git_init(repo_b)
+    git_init(repo_b)
     monkeypatch.chdir(repo_a)
     assert runner.invoke(app, ["adopt", "--name", "multi"]).exit_code == 0
     pid = _pid_of(repo_a)
@@ -251,7 +237,7 @@ def test_remove_aborts_when_teardown_target_is_symlinked(tmp_path, monkeypatch):
     Nothing is removed and nothing is deregistered: the wiring, the per-repo
     config, and the registry entry all survive intact.
     """
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
     # Swap the wired .mcp.json for a symlink, as a hostile checkout would plant.
     outside = tmp_path / "outside.json"
@@ -272,7 +258,7 @@ def test_remove_aborts_when_teardown_target_is_symlinked(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
 def test_remove_aborts_when_cursor_agents_directory_is_symlinked(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
     assert result.exit_code == 0, result.output
 
@@ -315,7 +301,7 @@ def test_remove_symlinked_config_refused_before_read(tmp_path, monkeypatch):
 
 
 def test_remove_rejects_add_path_flags(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     runner.invoke(app, ["adopt", "--name", "alpha"])
     result = runner.invoke(app, ["adopt", "--remove", "--with-subagents", "--yes"])
     assert result.exit_code == 1
@@ -324,7 +310,7 @@ def test_remove_rejects_add_path_flags(tmp_path, monkeypatch):
 
 
 def test_purge_store_requires_remove(tmp_path, monkeypatch):
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
     result = runner.invoke(app, ["adopt", "--purge-store"])
     assert result.exit_code == 1
     assert "requires --remove" in result.output

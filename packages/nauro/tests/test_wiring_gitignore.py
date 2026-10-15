@@ -26,18 +26,15 @@ from nauro.setup.git_hygiene import (
     remove_wiring_ignore_entry,
     wiring_path_is_tracked,
 )
+from tests.conftest import adopt_env, git_init
 
 runner = CliRunner()
-
-
-def _git_init(repo: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
 
 
 def _git_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    _git_init(repo)
+    git_init(repo)
     return repo
 
 
@@ -275,17 +272,8 @@ def test_wiring_path_is_tracked_soft_fails_outside_git(tmp_path: Path):
 # ── adopt / un-adopt symmetry ──────────────────────────────────────────────────
 
 
-def _adopt_env(monkeypatch, tmp_path: Path) -> Path:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _git_init(repo)
-    monkeypatch.chdir(repo)
-    return repo
-
-
 def test_adopt_gitignores_wiring_and_unadopt_removes_block(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -307,7 +295,7 @@ def test_adopt_gitignores_wiring_and_unadopt_removes_block(tmp_path, monkeypatch
 
 
 def test_unadopt_preserves_user_gitignore_lines(tmp_path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     (repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
 
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
@@ -319,7 +307,7 @@ def test_unadopt_preserves_user_gitignore_lines(tmp_path, monkeypatch):
 
 def test_adopt_refuses_tracked_wiring_but_completes(tmp_path, monkeypatch):
     """A tracked wiring file refuses only that surface; adoption itself lands."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     (repo / ".mcp.json").write_text("{}\n", encoding="utf-8")
     subprocess.run(["git", "add", ".mcp.json"], cwd=repo, check=True)
 
@@ -339,7 +327,7 @@ def test_adopt_refuses_tracked_wiring_but_completes(tmp_path, monkeypatch):
 def test_unadopt_aborts_on_symlinked_gitignore_in_git_repo(tmp_path, monkeypatch):
     """Inside a git tree the teardown mutates .gitignore, so a planted link
     there halts un-adopt with wiring and registry intact."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
     (repo / ".gitignore").unlink()
     outside = tmp_path / "outside-gitignore"
@@ -357,7 +345,7 @@ def test_unadopt_aborts_on_symlinked_gitignore_in_git_repo(tmp_path, monkeypatch
 def test_unadopt_proceeds_with_symlinked_gitignore_outside_git(tmp_path, monkeypatch):
     """Without a git tree no codec touches .gitignore, so a symlinked one
     must not abort the teardown."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
     (repo / ".gitignore").unlink()
     outside = tmp_path / "outside-gitignore"
@@ -377,7 +365,7 @@ def test_unadopt_proceeds_with_symlinked_gitignore_outside_git(tmp_path, monkeyp
 
 def test_single_surface_remove_drops_only_its_own_entry(tmp_path, monkeypatch):
     """`setup cursor --remove` keeps the .mcp.json entry other surfaces still need."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
 
     result = runner.invoke(app, ["setup", "cursor", "--remove"])

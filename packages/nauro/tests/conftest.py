@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,7 +12,9 @@ import pytest
 from nauro_core.decision_model import Decision, format_decision
 
 from nauro.constants import DECISIONS_DIR, PROJECT_MD, REPO_CONFIG_MODE_LOCAL
+from nauro.mcp import tools as mcp_tools
 from nauro.mcp.tools import tool_get_context
+from nauro.store import post_commit as post_commit_module
 from nauro.store.config import save_config
 from nauro.store.registry import register_project_v2
 from nauro.store.repo_config import save_repo_config
@@ -318,3 +321,56 @@ def _isolate_home(tmp_path, monkeypatch):
     user-global writers create their own parents.
     """
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+
+@pytest.fixture
+def missing_store(tmp_path, monkeypatch):
+    """Chdir into a repo with no associated project store and return the absent store path."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    nonexistent = tmp_path / "projects" / "nope"
+    monkeypatch.chdir(repo)
+    return nonexistent
+
+
+@pytest.fixture
+def scaffolded_store(tmp_path: Path) -> Path:
+    """Pre-scaffolded project store in tmp_path."""
+    store_path = tmp_path / "projects" / "testproj"
+    scaffold_project_store("testproj", store_path)
+    return store_path
+
+
+@pytest.fixture
+def no_cloud_push(monkeypatch):
+    """Suppress the best-effort cloud push so a write stays local."""
+    monkeypatch.setattr(mcp_tools, "_try_push", lambda _store_path: None)
+
+
+@pytest.fixture
+def local_only_writes(no_cloud_push, monkeypatch):
+    """Keep a write local: no cloud push, AGENTS.md regeneration, or snapshot capture."""
+    monkeypatch.setattr(post_commit_module, "warn_then_regen", lambda *args, **kwargs: [])
+    monkeypatch.setattr(post_commit_module, "capture_snapshot", lambda *args, **kwargs: None)
+
+
+@pytest.fixture
+def home_at_tmp_path(tmp_path, monkeypatch):
+    """Point HOME and USERPROFILE at ``tmp_path`` itself, so user-scope writes land in the tree."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+
+def git_init(repo: Path) -> None:
+    """Initialize a git repo. ``adopt`` refuses non-git directories."""
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+
+
+def adopt_env(monkeypatch, tmp_path: Path) -> Path:
+    """Isolate HOME (diverting ~/.claude, ~/.codex, ~/.agents) and chdir into a fresh git repo."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    git_init(repo)
+    monkeypatch.chdir(repo)
+    return repo

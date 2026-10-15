@@ -87,16 +87,6 @@ def empty_repo(tmp_path, monkeypatch):
     return pid, store_path
 
 
-@pytest.fixture
-def missing_store(tmp_path, monkeypatch):
-    """A repo with no associated Nauro project store at all."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    nonexistent = tmp_path / "projects" / "nope"
-    monkeypatch.chdir(repo)
-    return nonexistent
-
-
 def _stdio_rendered(pid: str, level) -> str:
     """Return the rendered stdio surface text for the parity comparison.
 

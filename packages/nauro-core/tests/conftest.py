@@ -5,12 +5,16 @@ search/embeddings tests previously duplicated per module. Plain functions
 rather than fixtures: the tests call them at module scope to build shared
 ``DECISIONS`` lists and inline stores, mirroring how the nauro package exposes
 ``seed_consented_config`` and friends from its own ``tests/conftest.py``.
+The embeddings stub and its cache-reset fixture live here too; numpy loads
+only when the stub encodes, so importing this module keeps numpy lazy.
 """
 
 from __future__ import annotations
 
 from datetime import date
 
+import nauro_core.embeddings as embeddings_mod
+import pytest
 from nauro_core.decision_model import (
     Decision,
     DecisionConfidence,
@@ -74,3 +78,38 @@ def make_decision(num: int, title: str, rationale: str, status: str = "active") 
         title=title,
         rationale=rationale,
     )
+
+
+@pytest.fixture
+def reset_embedding_model_cache():
+    """Clear the in-process model cache so each test sees a clean load state."""
+    embeddings_mod._model = None
+    embeddings_mod._load_failed = False
+    yield
+    embeddings_mod._model = None
+    embeddings_mod._load_failed = False
+
+
+class StubEmbeddingModel:
+    """Deterministic stand-in for a Model2Vec ``StaticModel``.
+
+    ``encode`` returns a fixed unit vector per text keyed off a substring, so a
+    chosen query lands closest to a target decision the BM25 path would miss.
+    """
+
+    def __init__(self, vectors: dict[str, list[float]], default: list[float]):
+        self._vectors = vectors
+        self._default = default
+
+    def encode(self, texts):
+        import numpy as np
+
+        out = []
+        for text in texts:
+            vec = self._default
+            for needle, v in self._vectors.items():
+                if needle in text:
+                    vec = v
+                    break
+            out.append(vec)
+        return np.asarray(out, dtype=np.float32)

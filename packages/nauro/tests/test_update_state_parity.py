@@ -28,7 +28,6 @@ from typer.testing import CliRunner
 from nauro.cli.main import app as cli_app
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.mcp import stdio_server as stdio_module
-from nauro.mcp import tools as mcp_tools
 from nauro.mcp.stdio_server import update_state as stdio_update_state
 from nauro.mcp.tools import tool_update_state
 from nauro.store.registry import register_project_v2
@@ -36,11 +35,7 @@ from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import register_v2_repo
 
-
-@pytest.fixture(autouse=True)
-def _no_push(monkeypatch):
-    """Suppress the best-effort cloud push so the parity layer stays local."""
-    monkeypatch.setattr(mcp_tools, "_try_push", lambda _store_path: None)
+pytestmark = pytest.mark.usefixtures("no_cloud_push")
 
 
 @pytest.fixture
@@ -72,16 +67,6 @@ def overlap_repo(tmp_path, monkeypatch):
     (store_path / "state_current.md").write_text("- Implemented OAuth login flow with PKCE\n")
     monkeypatch.chdir(repo)
     return pid, store_path
-
-
-@pytest.fixture
-def missing_store(tmp_path, monkeypatch):
-    """A repo with no associated project store at all."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    nonexistent = tmp_path / "projects" / "nope"
-    monkeypatch.chdir(repo)
-    return nonexistent
 
 
 def _cli_envelope(args: list[str]) -> tuple[int, dict | None, str]:

@@ -14,8 +14,6 @@ layer (the CLI never talks to S3 directly).
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -32,21 +30,16 @@ from nauro.sync.state import (
     save_state,
 )
 from nauro.sync.transfer import NullReporter
-from tests.conftest import seed_auth_config
-from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project, patched_remote_get
-
-
-def _ok(status: int, payload: dict) -> httpx.Response:
-    return httpx.Response(
-        status,
-        content=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
-
-
-def _seed_token(access_token: str = "tok_orig", refresh_token: str = "refresh_orig") -> None:
-    seed_auth_config(variant="sync", access_token=access_token, refresh_token=refresh_token)
-
+from tests.test_sync.conftest import (
+    CLOUD_PID,
+    _manifest,
+    _ok,
+    _presign,
+    _scaffolded_cloud_project,
+    _seed_token,
+    patched_remote_get,
+    seed_synced_state,
+)
 
 # --- mode detection ---
 
@@ -133,40 +126,13 @@ class TestModeDetection:
 
 
 class TestPullViaPresign:
-    @pytest.fixture()
-    def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("pullproj", tmp_path, project_id=CLOUD_PID)
-        _seed_token()
-        return store
-
-    def _manifest_response(
-        self, files: list[dict], next_cursor: str | None = None
-    ) -> httpx.Response:
-        return _ok(200, {"files": files, "next_cursor": next_cursor})
-
-    def _presign_response(self, ops: list[dict]) -> httpx.Response:
-        return _ok(
-            200,
-            {
-                "urls": [
-                    {
-                        "verb": op["verb"],
-                        "path": op["path"],
-                        "url": f"https://s3.example/{op['verb']}/{op['path']}",
-                        "expires_at": "2026-05-16T13:00:00Z",
-                    }
-                    for op in ops
-                ]
-            },
-        )
-
     def test_manifest_pagination_two_pages_collapse(self, cloud_store):
         """The CLI must walk ``next_cursor`` until the server returns None."""
-        page_one = self._manifest_response(
+        page_one = _manifest(
             [{"path": "decisions/001.md", "etag": '"e1"', "size": 1, "last_modified": "x"}],
             next_cursor="cursor_abc",
         )
-        page_two = self._manifest_response(
+        page_two = _manifest(
             [{"path": "decisions/002.md", "etag": '"e2"', "size": 1, "last_modified": "x"}],
             next_cursor=None,
         )
@@ -186,7 +152,7 @@ class TestPullViaPresign:
             patch.object(
                 remote.httpx.Client,
                 "post",
-                return_value=self._presign_response(
+                return_value=_presign(
                     [
                         {"verb": "GET", "path": "decisions/001.md"},
                         {"verb": "GET", "path": "decisions/002.md"},
@@ -216,7 +182,7 @@ class TestPullViaPresign:
         )
         save_state(cloud_store, state)
 
-        manifest = self._manifest_response(
+        manifest = _manifest(
             [{"path": rel, "etag": '"e1"', "size": 1, "last_modified": "x"}],
             next_cursor=None,
         )
@@ -236,11 +202,11 @@ class TestPullViaPresign:
 
     def test_etag_mismatch_triggers_presign_get_and_writes_file(self, cloud_store):
         rel = "decisions/099-remote.md"
-        manifest = self._manifest_response(
+        manifest = _manifest(
             [{"path": rel, "etag": '"new"', "size": 1, "last_modified": "x"}],
             next_cursor=None,
         )
-        presign = self._presign_response([{"verb": "GET", "path": rel}])
+        presign = _presign([{"verb": "GET", "path": rel}])
 
         def fake_get(url, **kwargs):
             if "/sync/manifest" in url:
@@ -287,11 +253,11 @@ class TestPullViaPresign:
         )
         save_state(cloud_store, state)
 
-        manifest = self._manifest_response(
+        manifest = _manifest(
             [{"path": rel, "etag": '"new_etag"', "size": 1, "last_modified": "x"}],
             next_cursor=None,
         )
-        presign = self._presign_response([{"verb": "GET", "path": rel}])
+        presign = _presign([{"verb": "GET", "path": rel}])
 
         def fake_get(url, **kwargs):
             if "/sync/manifest" in url:
@@ -316,12 +282,12 @@ class TestPullViaPresign:
         assert any("stack.md" in b.name for b in backups)
 
     def test_manifest_401_refresh_then_retry_succeeds(self, cloud_store):
-        manifest_ok = self._manifest_response(
+        manifest_ok = _manifest(
             [{"path": "decisions/001.md", "etag": '"e1"', "size": 1, "last_modified": "x"}],
             next_cursor=None,
         )
         unauthorized = httpx.Response(401, content=b'{"error":"unauthorized"}')
-        presign_response = self._presign_response([{"verb": "GET", "path": "decisions/001.md"}])
+        presign_response = _presign([{"verb": "GET", "path": "decisions/001.md"}])
         refresh_response = _ok(200, {"access_token": "tok_new"})
 
         manifest_responses = iter([unauthorized, manifest_ok])
@@ -354,12 +320,12 @@ class TestPullViaPresign:
         assert len(refresh_calls) == 1
 
     def test_presign_401_refresh_then_retry_succeeds(self, cloud_store):
-        manifest = self._manifest_response(
+        manifest = _manifest(
             [{"path": "decisions/001.md", "etag": '"e1"', "size": 1, "last_modified": "x"}],
             next_cursor=None,
         )
         unauthorized = httpx.Response(401, content=b'{"error":"unauthorized"}')
-        presign_ok = self._presign_response([{"verb": "GET", "path": "decisions/001.md"}])
+        presign_ok = _presign([{"verb": "GET", "path": "decisions/001.md"}])
         refresh_response = _ok(200, {"access_token": "tok_new"})
 
         post_responses = iter([unauthorized, presign_ok])
@@ -395,44 +361,8 @@ class TestPullViaPresign:
 
 
 class TestPushViaPresign:
-    @pytest.fixture()
-    def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("pushproj", tmp_path, project_id=CLOUD_PID)
-        _seed_token()
-        return store
-
-    def _seed_synced_state(self, store: Path) -> None:
-        """Record every existing file as already in sync — push diff is empty."""
-        state = SyncState()
-        for f in store.rglob("*"):
-            if not f.is_file():
-                continue
-            rel = str(f.relative_to(store))
-            state.files[rel] = FileState(
-                local_sha256=compute_sha256(f),
-                remote_etag='"e0"',
-                last_sync="2026-05-16T00:00:00Z",
-            )
-        save_state(store, state)
-
-    def _presign_response(self, ops: list[dict]) -> httpx.Response:
-        return _ok(
-            200,
-            {
-                "urls": [
-                    {
-                        "verb": op["verb"],
-                        "path": op["path"],
-                        "url": f"https://s3.example/PUT/{op['path']}",
-                        "expires_at": "2026-05-16T13:00:00Z",
-                    }
-                    for op in ops
-                ]
-            },
-        )
-
     def test_modified_file_minted_via_presign_and_uploaded(self, cloud_store):
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         # Touch one file to look modified vs state.
         modified = cloud_store / "stack.md"
         modified.write_text("entirely new stack picks\n")
@@ -443,7 +373,7 @@ class TestPushViaPresign:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         def fake_post(url, **kwargs):
-            return self._presign_response(kwargs["json"]["operations"])
+            return _presign(kwargs["json"]["operations"])
 
         from nauro.sync import remote
 
@@ -475,7 +405,7 @@ class TestPushViaPresign:
 
         modified = cloud_store / "snapshots/v001.json"
         modified.write_text('{"version": 1}\n')
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         modified.write_text('{"version": 1, "updated": true}\n')
         (cloud_store / "snapshots/v002.json").write_text('{"version": 2}\n')
 
@@ -503,7 +433,7 @@ class TestPushViaPresign:
                 yield dataclasses.replace(entry, raw_relative_path=raw)
 
         monkeypatch.setattr(push, "_walk_store_files", windows_walk)
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         (cloud_store / "snapshots/v001.json").write_text('{"version": 1}\n')
         context_dir = cloud_store / "context"
         context_dir.mkdir()
@@ -519,7 +449,7 @@ class TestPushViaPresign:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         def fake_post(url, **kwargs):
-            return self._presign_response(kwargs["json"]["operations"])
+            return _presign(kwargs["json"]["operations"])
 
         from nauro.sync import remote
 
@@ -539,7 +469,7 @@ class TestPushViaPresign:
         from nauro.cli._reporters import StderrReporter
         from nauro.sync.push import plan_push, push_changed_files
 
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         (cloud_store / "stack.md").write_text("modified\n")
         (cloud_store / "snapshots/v001.json").write_text('{"version": 1}\n')
         context_dir = cloud_store / "context"
@@ -557,7 +487,7 @@ class TestPushViaPresign:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         def fake_post(url, **kwargs):
-            return self._presign_response(kwargs["json"]["operations"])
+            return _presign(kwargs["json"]["operations"])
 
         from nauro.sync import remote
 
@@ -578,7 +508,7 @@ class TestPushViaPresign:
         push path never rewrites decision bytes."""
         from tests.test_sync.conftest import _STAMPED_DECISION
 
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         rel = "decisions/099-remote-stamped.md"
         (cloud_store / "decisions").mkdir(exist_ok=True)
         (cloud_store / rel).write_bytes(_STAMPED_DECISION)
@@ -588,7 +518,7 @@ class TestPushViaPresign:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         def fake_post(url, **kwargs):
-            return self._presign_response(kwargs["json"]["operations"])
+            return _presign(kwargs["json"]["operations"])
 
         from nauro.sync import remote
         from nauro.sync.push import push_changed_files
@@ -612,7 +542,7 @@ class TestPushViaPresign:
         and must not record the brief in sync-state — otherwise the brief stops
         re-warning and the agent believes it shared context that never landed.
         """
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         ctx = cloud_store / "context"
         ctx.mkdir()
         oversize = ctx / "codex-migration-20260605-a1b2.md"
@@ -625,7 +555,7 @@ class TestPushViaPresign:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         def fake_post(url, **kwargs):
-            return self._presign_response(kwargs["json"]["operations"])
+            return _presign(kwargs["json"]["operations"])
 
         from nauro.sync import remote
 
@@ -659,7 +589,7 @@ class TestPushViaPresign:
         """A brief of exactly MAX_BRIEF_BYTES must NOT be skipped — the gate is a
         strict ``>``, so the at-cap file rides through normally. Pins the
         fencepost so a future ``>``->``>=`` drift fails loudly here."""
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         ctx = cloud_store / "context"
         ctx.mkdir()
         at_cap = ctx / "codex-edge-20260605-e5f6.md"
@@ -671,7 +601,7 @@ class TestPushViaPresign:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         def fake_post(url, **kwargs):
-            return self._presign_response(kwargs["json"]["operations"])
+            return _presign(kwargs["json"]["operations"])
 
         from nauro.sync import remote
 
@@ -690,7 +620,7 @@ class TestPushViaPresign:
         assert "context/codex-edge-20260605-e5f6.md" in state.files
 
     def test_no_local_changes_no_presign_call(self, cloud_store):
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
 
         from nauro.sync import remote
 
@@ -707,11 +637,11 @@ class TestPushViaPresign:
         mock_put.assert_not_called()
 
     def test_presign_401_triggers_refresh(self, cloud_store):
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         (cloud_store / "stack.md").write_text("modified\n")
 
         unauthorized = httpx.Response(401, content=b'{"error":"unauthorized"}')
-        presign_ok = self._presign_response([{"verb": "PUT", "path": "stack.md"}])
+        presign_ok = _presign([{"verb": "PUT", "path": "stack.md"}])
         refresh_ok = _ok(200, {"access_token": "tok_new"})
 
         post_responses = iter([unauthorized, presign_ok])

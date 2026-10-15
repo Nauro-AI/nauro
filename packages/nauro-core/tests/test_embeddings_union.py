@@ -14,9 +14,8 @@ against a deterministic encoder.
 from __future__ import annotations
 
 import nauro_core.embeddings as embeddings_mod
-import numpy as np
 import pytest
-from conftest import make_decision
+from conftest import StubEmbeddingModel, make_decision
 from nauro_core.search import bm25_retrieve, union_retrieve
 
 DECISIONS = [
@@ -43,37 +42,7 @@ DECISIONS = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def _reset_model_cache():
-    """Clear the in-process model cache so each test sees a clean load state."""
-    embeddings_mod._model = None
-    embeddings_mod._load_failed = False
-    yield
-    embeddings_mod._model = None
-    embeddings_mod._load_failed = False
-
-
-class _StubModel:
-    """Deterministic stand-in for a Model2Vec ``StaticModel``.
-
-    ``encode`` returns a fixed unit vector per text keyed off a substring, so a
-    chosen query lands closest to a target decision the BM25 path would miss.
-    """
-
-    def __init__(self, vectors: dict[str, list[float]], default: list[float]):
-        self._vectors = vectors
-        self._default = default
-
-    def encode(self, texts):
-        out = []
-        for text in texts:
-            vec = self._default
-            for needle, v in self._vectors.items():
-                if needle in text:
-                    vec = v
-                    break
-            out.append(vec)
-        return np.asarray(out, dtype=np.float32)
+pytestmark = pytest.mark.usefixtures("reset_embedding_model_cache")
 
 
 class TestFlagOff:
@@ -134,7 +103,7 @@ class TestFlagOnDependencyPresent:
 
         # Make the query land closest to decision 4 (identity/email), which
         # shares no lexical surface with "session caching" -> BM25 misses it.
-        stub = _StubModel(
+        stub = StubEmbeddingModel(
             vectors={
                 "Identity tokens carry no email scope": [1.0, 0.0],
                 "session caching": [1.0, 0.0],
@@ -157,7 +126,7 @@ class TestFlagOnDependencyPresent:
     def test_embedding_only_hits_carry_null_similarity(self, monkeypatch):
         """Appended embedding hits report similarity None (no BM25 score)."""
         query = "session caching"
-        stub = _StubModel(
+        stub = StubEmbeddingModel(
             vectors={
                 "Identity tokens carry no email scope": [1.0, 0.0],
                 "session caching": [1.0, 0.0],
@@ -180,7 +149,7 @@ class TestFlagOnDependencyPresent:
 
         # Point the embedding model at the same decision BM25 already ranked top.
         target_title = next(d.title for d in DECISIONS if d.num == bm25_top)
-        stub = _StubModel(
+        stub = StubEmbeddingModel(
             vectors={target_title: [1.0, 0.0], "session caching": [1.0, 0.0]},
             default=[0.0, 1.0],
         )
@@ -197,12 +166,12 @@ class TestEmbeddingPool:
         assert embeddings_mod.embedding_pool(DECISIONS, "anything", top_k=5) == []
 
     def test_returns_empty_for_blank_query(self, monkeypatch):
-        stub = _StubModel(vectors={}, default=[1.0, 0.0])
+        stub = StubEmbeddingModel(vectors={}, default=[1.0, 0.0])
         monkeypatch.setattr(embeddings_mod, "_get_model", lambda: stub)
         assert embeddings_mod.embedding_pool(DECISIONS, "   ", top_k=5) == []
 
     def test_ranks_by_cosine_descending(self, monkeypatch):
-        stub = _StubModel(
+        stub = StubEmbeddingModel(
             vectors={
                 "Use Auth0 for authentication": [1.0, 0.0],
                 "Use FastAPI for MCP server": [0.0, 1.0],

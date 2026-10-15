@@ -35,22 +35,11 @@ from nauro_core.operations import flag_question  # noqa: E402
 
 from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
 from tests.conftest import (  # noqa: E402
-    CROSS_SURFACE_PROJECT_ID,
     active_decision_markdown,
-    moto_s3_bucket,
 )
 from tests.cross_surface.conftest import _dump  # noqa: E402
 
 CloudStore = cloud_store_module.CloudStore
-
-
-@pytest.fixture
-def both_stores(tmp_path, monkeypatch):
-    """Yield a (FilesystemStore, CloudStore) pair backed by separate roots."""
-    with moto_s3_bucket(monkeypatch):
-        fs_store = FilesystemStore(tmp_path)
-        cloud = CloudStore(CROSS_SURFACE_PROJECT_ID)
-        yield fs_store, cloud
 
 
 def _seed_open_questions(fs_store: FilesystemStore, cloud: CloudStore, body: str) -> None:

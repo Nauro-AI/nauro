@@ -9,7 +9,6 @@ nothing here starts the stdio server.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -40,11 +39,11 @@ from nauro.sync.quarantine import (
     unresolved_quarantines,
 )
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.directory_links import LINK_KINDS, link_directory, require_link_kind
 
 runner = CliRunner()
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="POSIX filename semantics")
-LINK_KINDS = ["symlink", "junction"]
 UPPERCASE_SUFFIX_ROW = pytest.param(
     "NOTE.MD",
     marks=pytest.mark.skipif(
@@ -157,23 +156,6 @@ def _status_store(tmp_path: Path, monkeypatch) -> Path:
     )
     monkeypatch.chdir(tmp_path)
     return store
-
-
-def _link(link: Path, target: Path, kind: str) -> None:
-    """Point ``link`` at ``target`` as a symlink or as a Windows junction."""
-    if kind == "junction":
-        subprocess.run(
-            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
-            check=True,
-            capture_output=True,
-        )
-        return
-    link.symlink_to(target, target_is_directory=True)
-
-
-def _require_link_kind(kind: str) -> None:
-    if (kind == "junction") != (sys.platform == "win32"):
-        pytest.skip(f"{kind} is not this platform's directory link")
 
 
 def _control_roots(store: Path) -> tuple[Path, Path]:
@@ -385,9 +367,9 @@ class TestLinkRows:
 
     @pytest.mark.parametrize("kind", LINK_KINDS)
     def test_directory_link_into_control_answers_like_a_miss(self, tmp_path, monkeypatch, kind):
-        _require_link_kind(kind)
+        require_link_kind(kind)
         store = _store(tmp_path)
-        _link(store / "ctrl", store / _REPLICA_CONTROL_ROOT_NAME, kind)
+        link_directory(store / "ctrl", store / _REPLICA_CONTROL_ROOT_NAME, kind)
         _forbid_access(monkeypatch, *_control_roots(store), exact=True)
         envelope = tool_get_raw_file(store, "ctrl/authority.json")
         assert envelope["error"]["reason"] == "File not found: ctrl/authority.json"
@@ -495,12 +477,12 @@ class TestBackupRows:
 
     @pytest.mark.parametrize("kind", LINK_KINDS)
     def test_linked_backup_directory_is_reported_unlistable(self, tmp_path, monkeypatch, kind):
-        _require_link_kind(kind)
+        require_link_kind(kind)
         store = _status_store(tmp_path, monkeypatch)
         save_quarantine_backup(store, "decisions/003-remote.md", b"remote body\n", '"etag"')
         outside = tmp_path / "outside"
         (store / CONFLICT_BACKUP_DIR).rename(outside)
-        _link(store / CONFLICT_BACKUP_DIR, outside, kind)
+        link_directory(store / CONFLICT_BACKUP_DIR, outside, kind)
         _forbid_access(monkeypatch, outside, exact=True)
         _assert_unlistable(store)
 

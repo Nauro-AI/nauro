@@ -18,11 +18,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from nauro.store.filesystem_store import FilesystemStore
 from tests.conftest import (
     CROSS_SURFACE_BUCKET,
     CROSS_SURFACE_PROJECT_ID,
     cloud_prefix,
+    moto_s3_bucket,
 )
 
 
@@ -75,6 +78,21 @@ def seed_cloud_store(
             Body=body.encode(),
         )
     return CloudStore(CROSS_SURFACE_PROJECT_ID)
+
+
+@pytest.fixture
+def both_stores(tmp_path, monkeypatch, request):
+    """Yield a (FilesystemStore, CloudStore) pair seeded with identical content.
+
+    The content is the requesting module's ``SEED_DECISIONS`` and ``SEED_FILES``
+    maps; a module without them gets two empty stores.
+    """
+    decisions = getattr(request.module, "SEED_DECISIONS", None)
+    files = getattr(request.module, "SEED_FILES", None)
+    with moto_s3_bucket(monkeypatch) as s3_client:
+        fs_store = seed_filesystem_store(tmp_path, decisions, files)
+        cloud = seed_cloud_store(s3_client, decisions, files)
+        yield fs_store, cloud
 
 
 def _dump(result) -> dict:

@@ -63,15 +63,7 @@ runner = CliRunner()
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> Path:
-    """Pre-scaffolded project store in tmp_path."""
-    store_path = tmp_path / "projects" / "testproj"
-    scaffold_project_store("testproj", store_path)
-    return store_path
-
-
-@pytest.fixture
-def evolved_store(store: Path) -> Path:
+def evolved_store(scaffolded_store: Path) -> Path:
     """Store with multiple snapshots showing realistic evolution.
 
     Snapshot 1: Initial state (scaffold defaults, includes 001-initial-setup)
@@ -79,11 +71,11 @@ def evolved_store(store: Path) -> Path:
     Snapshot 3: Second decision, question resolved, stack updated, more state changes
     """
     # Snapshot 1: initial state
-    capture_snapshot(store, trigger="initial sync")
+    capture_snapshot(scaffolded_store, trigger="initial sync")
 
     # --- Evolve: add decision, question, update state ---
     append_decision(
-        store,
+        scaffolded_store,
         "Use Postgres for storage",
         rationale="Mature, reliable RDBMS with great JSON support.",
         rejected=[
@@ -92,15 +84,15 @@ def evolved_store(store: Path) -> Path:
         ],
         confidence="high",
     )
-    append_question(store, "Should we add Redis for caching?")
-    update_state(store, "Set up database schema")
+    append_question(scaffolded_store, "Should we add Redis for caching?")
+    update_state(scaffolded_store, "Set up database schema")
 
     # Snapshot 2: after first round of changes
-    capture_snapshot(store, trigger="post-db-setup")
+    capture_snapshot(scaffolded_store, trigger="post-db-setup")
 
     # --- Evolve more: another decision, resolve question, update stack ---
     append_decision(
-        store,
+        scaffolded_store,
         "Use Redis for caching",
         rationale="Low-latency in-memory store, good ecosystem.",
         rejected=[{"alternative": "Memcached", "reason": "Weaker data structures."}],
@@ -108,7 +100,7 @@ def evolved_store(store: Path) -> Path:
     )
 
     # Update stack.md with tech choices
-    stack_path = store / "stack.md"
+    stack_path = scaffolded_store / "stack.md"
     stack_path.write_text(
         "# Stack\n"
         "## Backend\n"
@@ -118,24 +110,24 @@ def evolved_store(store: Path) -> Path:
     )
 
     # Resolve the question by removing it and adding a note
-    oq_path = store / "open-questions.md"
+    oq_path = scaffolded_store / "open-questions.md"
     oq_path.write_text("# Open Questions\n[Append-only unresolved threads — newest first]\n")
 
-    update_state(store, "Added caching layer with Redis")
-    update_state(store, "Deployed v0.2.0 to staging")
+    update_state(scaffolded_store, "Added caching layer with Redis")
+    update_state(scaffolded_store, "Deployed v0.2.0 to staging")
 
     # Snapshot 3: after second round
-    capture_snapshot(store, trigger="post-caching")
+    capture_snapshot(scaffolded_store, trigger="post-caching")
 
-    return store
+    return scaffolded_store
 
 
 # --- read_project_context tests ---
 
 
 class TestReadProjectContext:
-    def test_l0_includes_state(self, store: Path):
-        content = read_project_context(store, level=0)
+    def test_l0_includes_state(self, scaffolded_store: Path):
+        content = read_project_context(scaffolded_store, level=0)
         assert "Current State" in content
 
     def test_l0_includes_recent_decisions(self, evolved_store: Path):
@@ -143,10 +135,10 @@ class TestReadProjectContext:
         assert "Recent Decisions" in content
         assert "Use Redis for caching" in content
 
-    def test_l0_limits_to_10_decisions(self, store: Path):
+    def test_l0_limits_to_10_decisions(self, scaffolded_store: Path):
         for i in range(15):
-            append_decision(store, f"Decision {i}")
-        content = read_project_context(store, level=0)
+            append_decision(scaffolded_store, f"Decision {i}")
+        content = read_project_context(scaffolded_store, level=0)
         # L0 summary shows up to 10 most recent active decisions
         recent_section = content[content.index("## Recent Decisions") :]
         summary_lines = [line for line in recent_section.split("\n") if line.startswith("- D")]
@@ -163,10 +155,10 @@ class TestReadProjectContext:
         content = read_project_context(evolved_store, level=1)
         assert "Mature, reliable RDBMS" in content
 
-    def test_l2_includes_all_decisions(self, store: Path):
+    def test_l2_includes_all_decisions(self, scaffolded_store: Path):
         for i in range(15):
-            append_decision(store, f"Decision {i}")
-        content = read_project_context(store, level=2)
+            append_decision(scaffolded_store, f"Decision {i}")
+        content = read_project_context(scaffolded_store, level=2)
         assert "Decision 0" in content
         assert "Decision 14" in content
 
@@ -200,20 +192,20 @@ class TestDiffSnapshots:
         result = diff_snapshots(evolved_store, 1, 2)
         assert "question" in result.lower()
 
-    def test_no_changes(self, store: Path):
-        capture_snapshot(store, trigger="first")
-        capture_snapshot(store, trigger="second")
-        result = diff_snapshots(store, 1, 2)
+    def test_no_changes(self, scaffolded_store: Path):
+        capture_snapshot(scaffolded_store, trigger="first")
+        capture_snapshot(scaffolded_store, trigger="second")
+        result = diff_snapshots(scaffolded_store, 1, 2)
         assert "No changes" in result
 
-    def test_missing_version_raises(self, store: Path):
-        capture_snapshot(store, trigger="first")
+    def test_missing_version_raises(self, scaffolded_store: Path):
+        capture_snapshot(scaffolded_store, trigger="first")
         with pytest.raises(FileNotFoundError):
-            diff_snapshots(store, 1, 999)
+            diff_snapshots(scaffolded_store, 1, 999)
 
-    def test_missing_both_versions_raises(self, store: Path):
+    def test_missing_both_versions_raises(self, scaffolded_store: Path):
         with pytest.raises(FileNotFoundError):
-            diff_snapshots(store, 100, 200)
+            diff_snapshots(scaffolded_store, 100, 200)
 
     def test_version_order(self, evolved_store: Path):
         # Diffing in reverse should still work
@@ -231,13 +223,13 @@ class TestDiffSinceLastSession:
         assert "v002" in result
         assert "v003" in result
 
-    def test_insufficient_snapshots(self, store: Path):
-        result = diff_since_last_session(store)
+    def test_insufficient_snapshots(self, scaffolded_store: Path):
+        result = diff_since_last_session(scaffolded_store)
         assert "Not enough snapshots" in result
 
-    def test_single_snapshot(self, store: Path):
-        capture_snapshot(store, trigger="only one")
-        result = diff_since_last_session(store)
+    def test_single_snapshot(self, scaffolded_store: Path):
+        capture_snapshot(scaffolded_store, trigger="only one")
+        result = diff_since_last_session(scaffolded_store)
         assert "Not enough snapshots" in result
 
 
@@ -390,25 +382,25 @@ def _backdate_snapshot(store_path: Path, version: int, days_ago: int) -> None:
 
 
 @pytest.fixture
-def timed_store(store: Path) -> Path:
+def timed_store(scaffolded_store: Path) -> Path:
     """Store with snapshots at known time offsets.
 
     v001: 14 days ago (initial)
     v002: 7 days ago (added decision)
     v003: now (added second decision)
     """
-    capture_snapshot(store, trigger="initial sync")
-    _backdate_snapshot(store, 1, days_ago=14)
+    capture_snapshot(scaffolded_store, trigger="initial sync")
+    _backdate_snapshot(scaffolded_store, 1, days_ago=14)
 
-    append_decision(store, "Use Postgres", rationale="Reliable RDBMS.")
-    capture_snapshot(store, trigger="post-db")
-    _backdate_snapshot(store, 2, days_ago=7)
+    append_decision(scaffolded_store, "Use Postgres", rationale="Reliable RDBMS.")
+    capture_snapshot(scaffolded_store, trigger="post-db")
+    _backdate_snapshot(scaffolded_store, 2, days_ago=7)
 
-    append_decision(store, "Use Redis", rationale="Fast cache.")
-    capture_snapshot(store, trigger="post-cache")
+    append_decision(scaffolded_store, "Use Redis", rationale="Fast cache.")
+    capture_snapshot(scaffolded_store, trigger="post-cache")
     # v003 stays at current time
 
-    return store
+    return scaffolded_store
 
 
 # --- Time-based diff_since_last_session tests ---
@@ -458,9 +450,9 @@ class TestDiffSinceLastSessionTimeBased:
         result = diff_since_last_session(timed_store, days=-100000000)
         assert isinstance(result, str) and result
 
-    def test_no_snapshots_graceful(self, store: Path):
+    def test_no_snapshots_graceful(self, scaffolded_store: Path):
         """days=7 with no snapshots returns graceful message."""
-        result = diff_since_last_session(store, days=7)
+        result = diff_since_last_session(scaffolded_store, days=7)
         assert "No snapshots" in result
 
 
@@ -480,26 +472,26 @@ def _snapshot_file(store_path: Path, version: int) -> Path:
 
 
 class TestCorruptSnapshotTimestamp:
-    def test_capture_snapshot_prunes_around_bad_timestamp(self, store: Path):
+    def test_capture_snapshot_prunes_around_bad_timestamp(self, scaffolded_store: Path):
         """A snapshot with an unparseable timestamp does not break pruning of
         the valid ones, and the bad snapshot file is left on disk untouched."""
-        capture_snapshot(store, trigger="first")
-        _backdate_snapshot(store, 1, days_ago=400)
-        append_decision(store, "Use Postgres", rationale="Reliable RDBMS.")
-        capture_snapshot(store, trigger="second")
-        _backdate_snapshot(store, 2, days_ago=200)
+        capture_snapshot(scaffolded_store, trigger="first")
+        _backdate_snapshot(scaffolded_store, 1, days_ago=400)
+        append_decision(scaffolded_store, "Use Postgres", rationale="Reliable RDBMS.")
+        capture_snapshot(scaffolded_store, trigger="second")
+        _backdate_snapshot(scaffolded_store, 2, days_ago=200)
 
         # Corrupt v002's timestamp before the next capture triggers a prune.
-        _corrupt_timestamp(store, 2)
+        _corrupt_timestamp(scaffolded_store, 2)
 
         # A third capture prunes; the prune loop must skip v002 and still
         # process v001/v003 without raising.
-        capture_snapshot(store, trigger="third")
+        capture_snapshot(scaffolded_store, trigger="third")
 
         # The corrupted snapshot is neither deleted nor pruned.
-        assert _snapshot_file(store, 2).exists()
+        assert _snapshot_file(scaffolded_store, 2).exists()
         # The latest snapshot is always kept.
-        assert _snapshot_file(store, 3).exists()
+        assert _snapshot_file(scaffolded_store, 3).exists()
 
     def test_days_resolution_ignores_bad_timestamp(self, timed_store: Path):
         """Day-range baseline matching skips a snapshot whose timestamp cannot
@@ -524,18 +516,18 @@ class TestCorruptSnapshotTimestamp:
         result = diff_since_last_session(timed_store, days=7)
         assert "No snapshots" in result
 
-    def test_capture_snapshot_all_bad_does_not_crash(self, store: Path):
+    def test_capture_snapshot_all_bad_does_not_crash(self, scaffolded_store: Path):
         """capture_snapshot prunes after writing; with only bad-timestamp
         prior snapshots the prune must no-op rather than raise."""
-        capture_snapshot(store, trigger="first")
-        capture_snapshot(store, trigger="second")
-        _corrupt_timestamp(store, 1)
-        _corrupt_timestamp(store, 2)
+        capture_snapshot(scaffolded_store, trigger="first")
+        capture_snapshot(scaffolded_store, trigger="second")
+        _corrupt_timestamp(scaffolded_store, 1)
+        _corrupt_timestamp(scaffolded_store, 2)
 
         # The new capture writes v003 then prunes; every prior snapshot has a
         # bad timestamp, so the prune skips them all and returns without error.
-        version = capture_snapshot(store, trigger="third")
+        version = capture_snapshot(scaffolded_store, trigger="third")
         assert version == 3
-        assert _snapshot_file(store, 1).exists()
-        assert _snapshot_file(store, 2).exists()
-        assert _snapshot_file(store, 3).exists()
+        assert _snapshot_file(scaffolded_store, 1).exists()
+        assert _snapshot_file(scaffolded_store, 2).exists()
+        assert _snapshot_file(scaffolded_store, 3).exists()

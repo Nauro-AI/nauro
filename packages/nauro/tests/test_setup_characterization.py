@@ -42,10 +42,13 @@ from nauro.store.repo_config import save_repo_config
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import normalize_transcript, snapshot_tree
 
-pytestmark = pytest.mark.skipif(
-    os.name == "nt",
-    reason="POSIX-shaped transcripts, env-based home redirection, symlink fixtures",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        os.name == "nt",
+        reason="POSIX-shaped transcripts, env-based home redirection, symlink fixtures",
+    ),
+    pytest.mark.usefixtures("home_at_tmp_path"),
+]
 
 runner = CliRunner()
 
@@ -93,19 +96,6 @@ SKILLS_NEEDS_SUBAGENTS_LINE = (
 def _bridge_line(repo: str = "repo") -> str:
     """The bridge status line for a freshly-wired repo, riding the AGENTS.md write."""
     return f"  {{TMP}}/{repo}: CLAUDE.md imports AGENTS.md (Claude Code bridge)\n"
-
-
-@pytest.fixture(autouse=True)
-def _isolated_home(tmp_path: Path, monkeypatch):
-    """Point the home directory at ``tmp_path`` for every test.
-
-    User-scope sinks (``~/.claude/skills``, ``~/.agents/skills``,
-    ``~/.codex/config.toml``, ``~/.claude.json``, ``~/.claude/agents``) must
-    land inside the test tree. Both HOME and USERPROFILE are redirected,
-    mirroring test_setup_atomic_writes.py.
-    """
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
 
 def _register_project(tmp_path: Path, monkeypatch, name="proj", repos=("repo",)):
