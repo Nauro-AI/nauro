@@ -61,6 +61,7 @@ from nauro.constants import (
     FLAG_QUESTION_HINT_TITLE_LENGTH,
     POINTER_FLAG_PREFIXES,
 )
+from nauro.mcp.resolution_errors import guidance_error
 from nauro.onboarding import (
     NO_CONTEXT_YET,
     WELCOME_NO_PROJECT,
@@ -157,9 +158,9 @@ def requires_store(func: Callable[..., Any]) -> Callable[..., Any]:
             try:
                 require_migration_admission(store_path)
             except PermissionError as exc:
-                return {"store": "local", "status": "error", "guidance": str(exc)}
+                return guidance_error(str(exc))
         if store_path is not None and not store_path.exists():
-            return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+            return guidance_error(WELCOME_NO_PROJECT)
         return func(*args, **kwargs)
 
     return wrapper
@@ -174,7 +175,7 @@ def migration_guarded(func: Callable[..., Any]) -> Callable[..., Any]:
                 try:
                     stack.enter_context(migration_write_guard(store))
                 except MigrationAdmissionError as exc:
-                    return {"store": "local", "status": "error", "guidance": str(exc)}
+                    return guidance_error(str(exc))
             return func(*args, **kwargs)
 
     return wrapper
@@ -257,16 +258,19 @@ def _emit_write_event(
     )
 
 
+def _rejected(reason: str) -> dict:
+    """Return the local rejection envelope for ``reason``."""
+    return {
+        "store": "local",
+        "status": "rejected",
+        "error": ErrorPayload(kind="rejected", reason=reason).model_dump(exclude_none=True),
+    }
+
+
 def _reject_if_too_long(value: str, label: str, max_length: int) -> dict | None:
     """Return a rejection dict if *value* exceeds *max_length*, else None."""
     msg = check_content_length(value, label, max_length)
-    if msg:
-        return {
-            "store": "local",
-            "status": "rejected",
-            "error": ErrorPayload(kind="rejected", reason=msg).model_dump(exclude_none=True),
-        }
-    return None
+    return _rejected(msg) if msg else None
 
 
 def _reject_if_envelope_token(value: str, field_name: str) -> dict | None:
@@ -275,13 +279,7 @@ def _reject_if_envelope_token(value: str, field_name: str) -> dict | None:
     Rejects before any I/O; see ``nauro_core.validation.envelope_token_message``.
     """
     reason = envelope_token_message(value, field_name)
-    if not reason:
-        return None
-    return {
-        "store": "local",
-        "status": "rejected",
-        "error": ErrorPayload(kind="rejected", reason=reason).model_dump(exclude_none=True),
-    }
+    return _rejected(reason) if reason else None
 
 
 def _has_decisions(store_path: Path) -> bool:
@@ -293,17 +291,10 @@ def _has_decisions(store_path: Path) -> bool:
 
 
 def _try_push(store_path: Path) -> PushReport:
-    """Best-effort push to S3 after a local write. Never raises."""
-    try:
-        from nauro.sync.hooks import push_after_write
+    """Push after a local write; run_post_commit owns the fail-open guard."""
+    from nauro.sync.hooks import push_after_write
 
-        project_name = store_path.name
-        return push_after_write(project_name, store_path)
-    except Exception:
-        logger.debug("sync push after write failed for %s", store_path.name, exc_info=True)
-        from nauro.sync.push import PushReport
-
-        return PushReport(failed=("unexpected failure",))
+    return push_after_write(store_path.name, store_path)
 
 
 def _coerce_level(level: int | str) -> int:
@@ -436,24 +427,10 @@ def tool_propose_decision(
 
     if operation in ("update", "supersede"):
         if not affected_decision_id:
-            return {
-                "store": "local",
-                "status": "rejected",
-                "error": ErrorPayload(
-                    kind="rejected",
-                    reason=f"operation={operation!r} requires affected_decision_id",
-                ).model_dump(exclude_none=True),
-            }
+            return _rejected(f"operation={operation!r} requires affected_decision_id")
         resolved = find_decision_stem_by_id(FilesystemStore(store_path), affected_decision_id)
         if resolved is None:
-            return {
-                "store": "local",
-                "status": "rejected",
-                "error": ErrorPayload(
-                    kind="rejected",
-                    reason=f"affected_decision_id={affected_decision_id!r} not found in store",
-                ).model_dump(exclude_none=True),
-            }
+            return _rejected(f"affected_decision_id={affected_decision_id!r} not found in store")
         affected_decision_id = resolved
 
     # confidence flows as None when the caller did not send it so the

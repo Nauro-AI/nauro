@@ -31,6 +31,7 @@ from nauro.sync.state import (
     load_state,
     save_state,
 )
+from nauro.sync.transfer import NullReporter
 from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project, patched_remote_get
 
@@ -81,7 +82,7 @@ class TestModeDetection:
         store = _scaffolded_cloud_project("strandedproj", tmp_path)
         save_config({})
 
-        from nauro.sync.push import push_store_to_cloud
+        from nauro.cli.commands.sync import push_store_to_cloud
 
         ok = push_store_to_cloud(store.name, store)
         assert ok.is_complete is False
@@ -450,7 +451,7 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response) as mock_put,
         ):
-            from nauro.sync.push import push_store_to_cloud
+            from nauro.cli.commands.sync import push_store_to_cloud
 
             ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
@@ -526,7 +527,7 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
-            pushed = push_changed_files(CLOUD_PID, cloud_store)
+            pushed = push_changed_files(CLOUD_PID, cloud_store, NullReporter())
 
         assert pushed.is_complete is True
         assert mock_post.call_args.kwargs["json"]["operations"] == [
@@ -535,6 +536,7 @@ class TestPushViaPresign:
         assert "snapshots/v001.json" in load_state(cloud_store).files
 
     def test_presign_candidates_match_the_push_plan(self, cloud_store, capsys):
+        from nauro.cli._reporters import StderrReporter
         from nauro.sync.push import plan_push, push_changed_files
 
         self._seed_synced_state(cloud_store)
@@ -563,7 +565,7 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
-            pushed = push_changed_files(CLOUD_PID, cloud_store)
+            pushed = push_changed_files(CLOUD_PID, cloud_store, StderrReporter())
 
         assert len(pushed.verified) == len(plan.candidates)
         assert mock_post.call_args.kwargs["json"]["operations"] == [
@@ -595,7 +597,7 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post),
             patch.object(remote.httpx.Client, "put", return_value=put_response) as mock_put,
         ):
-            pushed = push_changed_files(CLOUD_PID, cloud_store)
+            pushed = push_changed_files(CLOUD_PID, cloud_store, NullReporter())
 
         assert pushed.verified == (rel,)
         assert mock_put.call_args.kwargs["content"] == _STAMPED_DECISION
@@ -631,7 +633,7 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
-            from nauro.sync.push import push_store_to_cloud
+            from nauro.cli.commands.sync import push_store_to_cloud
 
             ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
@@ -677,7 +679,7 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
-            from nauro.sync.push import push_store_to_cloud
+            from nauro.cli.commands.sync import push_store_to_cloud
 
             ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
@@ -696,7 +698,7 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post") as mock_post,
             patch.object(remote.httpx.Client, "put") as mock_put,
         ):
-            from nauro.sync.push import push_store_to_cloud
+            from nauro.cli.commands.sync import push_store_to_cloud
 
             ok = push_store_to_cloud(cloud_store.name, cloud_store)
 
@@ -731,7 +733,7 @@ class TestPushViaPresign:
             patch.object(remote.httpx.Client, "post", side_effect=fake_post) as mock_post,
             patch.object(remote.httpx.Client, "put", return_value=put_response),
         ):
-            from nauro.sync.push import push_store_to_cloud
+            from nauro.cli.commands.sync import push_store_to_cloud
 
             ok = push_store_to_cloud(cloud_store.name, cloud_store)
 

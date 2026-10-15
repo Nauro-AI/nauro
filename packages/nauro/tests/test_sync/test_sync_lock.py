@@ -27,6 +27,7 @@ from nauro.sync.lock import (
 from nauro.sync.merge import should_skip
 from nauro.sync.pull import run_pull
 from nauro.sync.push import PushReport, push_changed_files
+from nauro.sync.transfer import NullReporter
 from tests.test_sync.conftest import (
     CLOUD_PID,
     _ok,
@@ -93,7 +94,7 @@ class TestContendedCallers:
         lock = _hold(cloud_store)
         try:
             with pytest.raises(SyncLockTimeoutError):
-                push_changed_files(CLOUD_PID, cloud_store, lock_timeout=0.05)
+                push_changed_files(CLOUD_PID, cloud_store, NullReporter(), lock_timeout=0.05)
         finally:
             lock.release()
 

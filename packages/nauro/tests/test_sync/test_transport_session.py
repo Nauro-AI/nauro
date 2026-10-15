@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
+from nauro.sync.transfer import NullReporter
 from tests.conftest import seed_auth_config
 
 
@@ -164,7 +165,6 @@ def test_permanent_manifest_http_failure_blocks_same_origin_push_but_not_other_o
     from nauro.sync.pull import run_pull
     from nauro.sync.push import push_changed_files
     from nauro.sync.remote import TransferSession, fetch_via_presigned_url
-    from nauro.sync.transfer import NullReporter
 
     seed_auth_config(variant="sync")
     monkeypatch.setenv("NAURO_API_URL", "https://api.test")
@@ -190,7 +190,7 @@ def test_permanent_manifest_http_failure_blocks_same_origin_push_but_not_other_o
 
     with TransferSession(client=client) as session:
         pull_report = run_pull("project", store, NullReporter(), session=session)
-        push_report = push_changed_files("project", store, session=session)
+        push_report = push_changed_files("project", store, NullReporter(), session=session)
         other = fetch_via_presigned_url("https://objects.test/other", session=session)
 
     assert pull_report.origin_aborted == ("https://api.test:443",)
@@ -275,7 +275,7 @@ def test_push_binds_state_to_the_exact_payload_and_leaves_a_later_edit_pending(
 
     monkeypatch.setattr("nauro.sync.remote.put_via_presigned_url", put)
 
-    report = push_changed_files("project", store)
+    report = push_changed_files("project", store, NullReporter())
 
     assert report.verified == ("stack.md",)
     assert seen == [b"sent"]
@@ -418,7 +418,7 @@ def test_unverified_put_reconciles_from_one_get_response_and_ignores_manifest_et
         lambda *_args, **_kwargs: FetchedObject(body=b"sent", etag='"response"'),
     )
 
-    report = push_changed_files("project", store)
+    report = push_changed_files("project", store, NullReporter())
 
     assert report.verified == ("stack.md",)
     assert load_state(store).files["stack.md"].remote_etag == '"response"'
@@ -454,7 +454,7 @@ def test_divergent_reconciliation_fails_without_advancing_state(tmp_path, monkey
         lambda *_args, **_kwargs: FetchedObject(body=b"different", etag='"response"'),
     )
 
-    report = push_changed_files("project", store)
+    report = push_changed_files("project", store, NullReporter())
     state = load_state(store)
 
     assert report.failed == ("stack.md",)
@@ -509,7 +509,7 @@ def test_ambiguous_put_faults_are_observed_without_a_blind_retry(
     monkeypatch.setattr("nauro.sync.remote.put_via_presigned_url", put)
     monkeypatch.setattr("nauro.sync.remote.fetch_manifest", lambda *_args, **_kwargs: [])
 
-    report = push_changed_files("project", store)
+    report = push_changed_files("project", store, NullReporter())
 
     assert calls == 1
     assert report.ambiguous == ("stack.md",)
@@ -541,7 +541,7 @@ def test_http_5xx_put_is_ambiguous_and_is_not_blindly_retried(tmp_path, monkeypa
     monkeypatch.setattr("nauro.sync.remote.put_via_presigned_url", put)
     monkeypatch.setattr("nauro.sync.remote.fetch_manifest", lambda *_args, **_kwargs: [])
 
-    report = push_changed_files("project", store)
+    report = push_changed_files("project", store, NullReporter())
 
     put.assert_called_once()
     assert report.ambiguous == ("stack.md",)
@@ -629,7 +629,7 @@ def test_checkpoint_failure_stops_the_batch_and_preserves_prior_state(tmp_path, 
 
     monkeypatch.setattr(state_module, "save_state", save)
 
-    report = push_changed_files("project", store)
+    report = push_changed_files("project", store, NullReporter())
 
     assert report.verified == report.planned[:1]
     assert report.failed == report.planned[1:]

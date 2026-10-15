@@ -15,6 +15,7 @@ from __future__ import annotations
 import typer
 
 from nauro.auth import DEFAULT_API_URL, load_access_token
+from nauro.cli._reporters import StderrReporter
 from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import refuse_repo_config_symlink
 from nauro.constants import (
@@ -154,7 +155,7 @@ def link(
             from nauro.sync.remote import PresignError
 
             try:
-                pushed = push_changed_files(cloud_id, new_store)
+                pushed = push_changed_files(cloud_id, new_store, StderrReporter())
             except (
                 AuthRefreshError,
                 PresignError,

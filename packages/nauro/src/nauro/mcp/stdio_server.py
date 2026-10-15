@@ -38,7 +38,6 @@ from nauro import __version__
 from nauro.mcp import read_dispatch
 from nauro.mcp.decision_reference import INSTRUCTIONS as REFERENCE_INSTRUCTIONS
 from nauro.mcp.generation_decision import decision_session, register_argument_validation
-from nauro.mcp.rendering import try_render_envelope
 from nauro.mcp.resolution_errors import resolution_error_envelope
 from nauro.mcp.tools import (
     tool_flag_question,
@@ -80,33 +79,16 @@ mcp = FastMCP(
 mcp._mcp_server.version = __version__
 
 
-def _wrap_with_renderer(
-    tool_name: str, result: dict, renderer_kwargs: dict[str, Any] | None = None
-) -> CallToolResult:
-    """Wrap a renderer-scoped read-tool result in a single ``TextContent`` block.
-
-    A renderer that raises, or a tool with none mapped, falls back to a JSON dump.
-    """
-    structured_content = result if disconnected_reason_code(result) is not None else None
-    outcome = try_render_envelope(tool_name, result, renderer_kwargs)
-    if outcome.failure is not None:
-        logger.error(
-            "renderer failed for tool=%s; falling back to JSON-only",
-            tool_name,
-            exc_info=outcome.failure,
-        )
-    text = outcome.text if outcome.text is not None else json.dumps(result, indent=2, default=str)
-    return CallToolResult(
-        content=[TextContent(type="text", text=text)],
-        structuredContent=structured_content,
-    )
+def _tool_spec(name: str) -> ToolSpec:
+    """Return the shared spec, or the local replica-only spec for stack and sharing."""
+    return {"update_stack": UPDATE_STACK, "share_context": SHARE_CONTEXT}.get(
+        name
+    ) or get_tool_spec(name)
 
 
 def _spec_kwargs(name: str) -> dict[str, Any]:
     """Build FastMCP @tool() decorator kwargs from the shared registry."""
-    spec: ToolSpec = {"update_stack": UPDATE_STACK, "share_context": SHARE_CONTEXT}.get(
-        name
-    ) or get_tool_spec(name)
+    spec = _tool_spec(name)
     description = spec["description"]
     if name == "share_context":
         description = (
@@ -146,9 +128,7 @@ def _param_desc(tool_name: str, param: str) -> str:
 
     Read from the shared registry, not inlined, so the drift guards still cover it.
     """
-    spec: ToolSpec = {"update_stack": UPDATE_STACK, "share_context": SHARE_CONTEXT}.get(
-        tool_name
-    ) or get_tool_spec(tool_name)
+    spec = _tool_spec(tool_name)
     if (
         tool_name in {"update_state", "flag_question", "update_stack", "share_context"}
         and param in MODE_DESCRIPTIONS
@@ -172,6 +152,11 @@ def _resolve_or_error(project_id, cwd) -> tuple[Path | None, dict | None]:
         return resolve_store(project_id, cwd), None
     except StoreResolutionError as exc:
         return None, resolution_error_envelope(exc)
+
+
+def _flat_resolution_error(err: dict) -> str | dict:
+    """Keep a disconnected diagnostic whole; flatten any other resolution error to guidance."""
+    return err if disconnected_reason_code(err) is not None else err["guidance"]
 
 
 def _origin_from_ctx(mcp_ctx: Context | None) -> OriginDescriptor | None:
@@ -231,7 +216,7 @@ def get_context(
 ) -> CallToolResult:
     _, error = _resolve_or_error(project_id, cwd)
     if error is not None:
-        return _wrap_with_renderer("get_context", error)
+        return read_dispatch.render_local_result("get_context", error, {}, None)
     return read_dispatch.get_context(project_id=project_id, cwd=cwd, level=level)
 
 
@@ -245,7 +230,7 @@ def get_raw_file(
 ) -> CallToolResult:
     _, error = _resolve_or_error(project_id, cwd)
     if error is not None:
-        return _wrap_with_renderer("get_raw_file", error)
+        return read_dispatch.render_local_result("get_raw_file", error, {}, None)
     return read_dispatch.get_raw_file(path=path, project_id=project_id, cwd=cwd)
 
 
@@ -262,7 +247,7 @@ def list_decisions(
 ) -> CallToolResult:
     _, error = _resolve_or_error(project_id, cwd)
     if error is not None:
-        return _wrap_with_renderer("list_decisions", error)
+        return read_dispatch.render_local_result("list_decisions", error, {}, None)
     return read_dispatch.list_decisions(
         project_id=project_id, cwd=cwd, limit=limit, include_superseded=include_superseded
     )
@@ -281,7 +266,7 @@ def get_decision(
 ) -> CallToolResult:
     _, error = _resolve_or_error(project_id, cwd)
     if error is not None:
-        return _wrap_with_renderer("get_decision", error)
+        return read_dispatch.render_local_result("get_decision", error, {}, None)
     return read_dispatch.get_decision(number=number, mode=mode, project_id=project_id, cwd=cwd)
 
 
@@ -298,7 +283,7 @@ def diff_since_last_session(
 ) -> CallToolResult:
     _, error = _resolve_or_error(project_id, cwd)
     if error is not None:
-        return _wrap_with_renderer("diff_since_last_session", error)
+        return read_dispatch.render_local_result("diff_since_last_session", error, {}, None)
     return read_dispatch.diff_since_last_session(project_id=project_id, cwd=cwd, days=days)
 
 
@@ -316,7 +301,7 @@ def search_decisions(
 ) -> CallToolResult:
     _, error = _resolve_or_error(project_id, cwd)
     if error is not None:
-        return _wrap_with_renderer("search_decisions", error)
+        return read_dispatch.render_local_result("search_decisions", error, {}, None)
     return read_dispatch.search_decisions(
         query=query,
         limit=limit,
@@ -341,7 +326,7 @@ def check_decision(
 ) -> CallToolResult:
     _, error = _resolve_or_error(project_id, cwd)
     if error is not None:
-        return _wrap_with_renderer("check_decision", error)
+        return read_dispatch.render_local_result("check_decision", error, {}, None)
     return read_dispatch.check_decision(
         proposed_approach=proposed_approach, context=context, project_id=project_id, cwd=cwd
     )
@@ -476,7 +461,7 @@ def flag_question(
 
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
-        return err if disconnected_reason_code(err) is not None else err["guidance"]
+        return _flat_resolution_error(err)
     result = tool_flag_question(
         store_path,
         question,
@@ -543,7 +528,7 @@ def update_state(
 
     store_path, err = _resolve_or_error(project_id, cwd)
     if err is not None:
-        return err if disconnected_reason_code(err) is not None else err["guidance"]
+        return _flat_resolution_error(err)
     result = tool_update_state(store_path, delta, origin=_origin_from_ctx(mcp_ctx))
 
     def updated() -> str:
@@ -552,6 +537,28 @@ def update_state(
         return f"State updated. {warning}" if warning else "State updated."
 
     return render_write_status(result, updated)
+
+
+def _replica_only_write(
+    operation: str, arguments: dict[str, Any], project_id: str | None, cwd: str | None
+) -> str | dict | CallToolResult:
+    """Run a write that exists only on a generation replica; elsewhere it is blocked."""
+    from nauro.sync.generation_writes import generation_write
+
+    validate_write_arguments(operation, arguments)
+    result = generation_write(operation, arguments, on_refreshed=regenerate_refreshed_guidance)
+    if result is not None:
+        return _generation_write_result(result)
+    _, err = _resolve_or_error(project_id, cwd)
+    if err is not None:
+        return _flat_resolution_error(err)
+    return _generation_write_result(
+        {
+            "status": "blocked",
+            "error_code": "generation_required",
+            "guidance": f"{operation} requires a generation replica.",
+        }
+    )
 
 
 @mcp.tool(**_spec_kwargs("update_stack"), structured_output=False)
@@ -584,22 +591,7 @@ def update_stack(
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
 ) -> str | dict | CallToolResult:
-    from nauro.sync.generation_writes import generation_write
-
-    validate_write_arguments("update_stack", locals())
-    result = generation_write("update_stack", locals(), on_refreshed=regenerate_refreshed_guidance)
-    if result is not None:
-        return _generation_write_result(result)
-    _, err = _resolve_or_error(project_id, cwd)
-    if err is not None:
-        return err if disconnected_reason_code(err) is not None else err["guidance"]
-    return _generation_write_result(
-        {
-            "status": "blocked",
-            "error_code": "generation_required",
-            "guidance": "update_stack requires a generation replica.",
-        }
-    )
+    return _replica_only_write("update_stack", locals(), project_id, cwd)
 
 
 @mcp.tool(**_spec_kwargs("share_context"), structured_output=False)
@@ -631,22 +623,7 @@ def share_context(
     cwd: _CWD_PARAM = None,
     mcp_ctx: Context | None = None,
 ) -> str | dict | CallToolResult:
-    from nauro.sync.generation_writes import generation_write
-
-    validate_write_arguments("share_context", locals())
-    result = generation_write("share_context", locals(), on_refreshed=regenerate_refreshed_guidance)
-    if result is not None:
-        return _generation_write_result(result)
-    _, err = _resolve_or_error(project_id, cwd)
-    if err is not None:
-        return err if disconnected_reason_code(err) is not None else err["guidance"]
-    return _generation_write_result(
-        {
-            "status": "blocked",
-            "error_code": "generation_required",
-            "guidance": "share_context requires a generation replica.",
-        }
-    )
+    return _replica_only_write("share_context", locals(), project_id, cwd)
 
 
 class _WriteFuncMetadata(FuncMetadata):
@@ -696,8 +673,6 @@ def _pull_on_startup() -> None:
             try:
                 store = refresh_replica(binding)
                 logger.info("session-start refresh: completed")
-                from nauro.templates.generation_guidance import regenerate_refreshed_guidance
-
                 guidance = regenerate_refreshed_guidance(store)
                 if guidance["status"] == "failed":
                     logger.warning("%s", guidance["message"])

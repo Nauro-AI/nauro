@@ -75,6 +75,7 @@
 {"path":"packages/nauro/src/nauro/cli/commands/status.py","rule":"TRY300","count":1}
 {"path":"packages/nauro/src/nauro/cli/commands/sync.py","rule":"B905","count":1}
 {"path":"packages/nauro/src/nauro/cli/commands/sync.py","rule":"C901","count":1}
+{"path":"packages/nauro/src/nauro/cli/commands/sync.py","rule":"PLR0911","count":1}
 {"path":"packages/nauro/src/nauro/cli/commands/sync.py","rule":"PLR0912","count":1}
 {"path":"packages/nauro/src/nauro/cli/generation_auth.py","rule":"TRY300","count":1}
 {"path":"packages/nauro/src/nauro/cli/generation_reads.py","rule":"TRY301","count":1}
@@ -107,7 +108,7 @@
 {"path":"packages/nauro/src/nauro/mcp/read_dispatch.py","rule":"TRY300","count":1}
 {"path":"packages/nauro/src/nauro/mcp/rendering.py","rule":"BLE001","count":1}
 {"path":"packages/nauro/src/nauro/mcp/stdio_server.py","rule":"BLE001","count":2}
-{"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"BLE001","count":4}
+{"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"BLE001","count":3}
 {"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"C901","count":1}
 {"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"PLR0911","count":1}
 {"path":"packages/nauro/src/nauro/mcp/tools.py","rule":"PLR0912","count":1}
@@ -186,7 +187,6 @@
 {"path":"packages/nauro/src/nauro/sync/pull.py","rule":"PLR0915","count":1}
 {"path":"packages/nauro/src/nauro/sync/pull.py","rule":"SIM117","count":1}
 {"path":"packages/nauro/src/nauro/sync/push.py","rule":"C901","count":1}
-{"path":"packages/nauro/src/nauro/sync/push.py","rule":"PLR0911","count":1}
 {"path":"packages/nauro/src/nauro/sync/push.py","rule":"PLR0912","count":1}
 {"path":"packages/nauro/src/nauro/sync/push.py","rule":"PLR0915","count":1}
 {"path":"packages/nauro/src/nauro/sync/push.py","rule":"SIM117","count":1}

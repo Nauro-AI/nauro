@@ -15,6 +15,7 @@ import httpx
 
 from nauro.sync.pull import run_pull
 from nauro.sync.push import push_changed_files
+from nauro.sync.transfer import NullReporter
 from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project, patched_remote_get
 
@@ -58,7 +59,7 @@ def test_push_does_not_enumerate_journal(tmp_path):
         return []  # no URLs → nothing is uploaded
 
     with patch("nauro.sync.remote.request_presigned_urls", side_effect=fake_presign):
-        push_changed_files(CLOUD_PID, store)
+        push_changed_files(CLOUD_PID, store, NullReporter())
 
     paths = [op["path"] for op in captured["ops"]]
     # A normal store file is enumerated; nothing under journal/ ever is.

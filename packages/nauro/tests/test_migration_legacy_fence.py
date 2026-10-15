@@ -113,7 +113,7 @@ def test_transfer_fence_precedes_root_preparation_and_network(saved, monkeypatch
         if direction == "pull":
             pull.run_pull(binding.project_id, binding.store_path, NullReporter())
         else:
-            push.push_changed_files(binding.project_id, binding.store_path)
+            push.push_changed_files(binding.project_id, binding.store_path, NullReporter())
     assert not binding.store_path.exists()
 
 
@@ -137,7 +137,9 @@ def test_delayed_transfer_prevents_conversion(saved, monkeypatch, direction):
 
         def function():
             if direction == "push":
-                return push.push_changed_files(binding.project_id, binding.store_path)
+                return push.push_changed_files(
+                    binding.project_id, binding.store_path, NullReporter()
+                )
             return pull.run_pull(binding.project_id, binding.store_path, NullReporter())
 
         future = pool.submit(function)
