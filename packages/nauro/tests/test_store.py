@@ -49,42 +49,34 @@ def append_question(store_path: Path, question: str) -> None:
 runner = CliRunner()
 
 
-@pytest.fixture
-def store(tmp_path: Path) -> Path:
-    """Pre-scaffolded project store in tmp_path."""
-    store_path = tmp_path / "projects" / "testproj"
-    scaffold_project_store("testproj", store_path)
-    return store_path
-
-
 # --- Scaffold tests ---
 
 
-def test_scaffold_creates_all_files(store: Path):
-    assert (store / "project.md").exists()
-    assert (store / "state_current.md").exists()
-    assert not (store / "state.md").exists()
-    assert (store / "stack.md").exists()
-    assert (store / "open-questions.md").exists()
-    assert (store / "decisions").is_dir()
-    assert (store / "snapshots").is_dir()
+def test_scaffold_creates_all_files(scaffolded_store: Path):
+    assert (scaffolded_store / "project.md").exists()
+    assert (scaffolded_store / "state_current.md").exists()
+    assert not (scaffolded_store / "state.md").exists()
+    assert (scaffolded_store / "stack.md").exists()
+    assert (scaffolded_store / "open-questions.md").exists()
+    assert (scaffolded_store / "decisions").is_dir()
+    assert (scaffolded_store / "snapshots").is_dir()
 
 
-def test_scaffold_uses_bracketed_prompts(store: Path):
-    content = (store / "project.md").read_text()
+def test_scaffold_uses_bracketed_prompts(scaffolded_store: Path):
+    content = (scaffolded_store / "project.md").read_text()
     assert "# testproj" in content
     assert "[What this does in one sentence" in content
     assert "<!--" not in content  # no HTML comments
 
 
-def test_scaffold_stack_has_example(store: Path):
-    content = (store / "stack.md").read_text()
+def test_scaffold_stack_has_example(scaffolded_store: Path):
+    content = (scaffolded_store / "stack.md").read_text()
     assert "Chosen for:" in content
     assert "Rejected:" in content
 
 
-def test_scaffold_creates_first_decision(store: Path):
-    first = store / "decisions" / "001-initial-setup.md"
+def test_scaffold_creates_first_decision(scaffolded_store: Path):
+    first = scaffolded_store / "decisions" / "001-initial-setup.md"
     assert first.exists()
     content = first.read_text()
     # Well-formed v2 YAML frontmatter.
@@ -97,11 +89,11 @@ def test_scaffold_creates_first_decision(store: Path):
     assert "## Rejected Alternatives" in content
 
 
-def test_scaffolded_first_decision_parses_as_v2(store: Path):
+def test_scaffolded_first_decision_parses_as_v2(scaffolded_store: Path):
     """The scaffolded first decision round-trips through parse_decision."""
     from nauro_core.decision_model import parse_decision
 
-    first = store / "decisions" / "001-initial-setup.md"
+    first = scaffolded_store / "decisions" / "001-initial-setup.md"
     d = parse_decision(first.read_text(), first.name)
     assert d.num == 1
     assert d.title == "Initial project setup"
@@ -113,23 +105,23 @@ def test_scaffolded_first_decision_parses_as_v2(store: Path):
 # --- Decision tests ---
 
 
-def test_decision_first(store: Path):
-    path = append_decision(store, "Use Postgres")
+def test_decision_first(scaffolded_store: Path):
+    path = append_decision(scaffolded_store, "Use Postgres")
     assert path.name == "002-use-postgres.md"  # 001 is initial-setup
     content = path.read_text()
     assert "# 002 \u2014 Use Postgres" in content
     assert "confidence: medium" in content
 
 
-def test_decision_auto_increment(store: Path):
-    append_decision(store, "First decision")
-    path = append_decision(store, "Second decision")
+def test_decision_auto_increment(scaffolded_store: Path):
+    append_decision(scaffolded_store, "First decision")
+    path = append_decision(scaffolded_store, "Second decision")
     assert path.name == "003-second-decision.md"  # 001 is initial-setup
 
 
-def test_decision_with_rationale_and_rejected(store: Path):
+def test_decision_with_rationale_and_rejected(scaffolded_store: Path):
     path = append_decision(
-        store,
+        scaffolded_store,
         "Use Redis",
         rationale="Fast in-memory store",
         rejected=[
@@ -149,10 +141,10 @@ def test_decision_with_rationale_and_rejected(store: Path):
     assert "confidence: high" in content
 
 
-def test_decision_with_extended_fields(store: Path):
+def test_decision_with_extended_fields(scaffolded_store: Path):
     """New decision format includes type, reversibility, source, files_affected."""
     path = append_decision(
-        store,
+        scaffolded_store,
         "Switch to Postgres",
         rationale="Better JSON support",
         confidence="high",
@@ -169,9 +161,9 @@ def test_decision_with_extended_fields(store: Path):
     assert "migrations/" in content
 
 
-def test_decision_minimal_fields(store: Path):
+def test_decision_minimal_fields(scaffolded_store: Path):
     """Decision with only required fields works."""
-    path = append_decision(store, "Simple decision")
+    path = append_decision(scaffolded_store, "Simple decision")
     content = path.read_text()
     assert "# 002 \u2014 Simple decision" in content
     assert "confidence: medium" in content
@@ -183,8 +175,8 @@ def test_decision_minimal_fields(store: Path):
     assert "files_affected: []" in content
 
 
-def test_decision_metadata_format(store: Path):
-    path = append_decision(store, "Test metadata")
+def test_decision_metadata_format(scaffolded_store: Path):
+    path = append_decision(scaffolded_store, "Test metadata")
     content = path.read_text()
     assert "date:" in content
     assert "confidence: medium" in content
@@ -193,17 +185,17 @@ def test_decision_metadata_format(store: Path):
 # --- Question tests ---
 
 
-def test_question_append(store: Path):
-    append_question(store, "Should we use GraphQL?")
-    content = (store / "open-questions.md").read_text()
+def test_question_append(scaffolded_store: Path):
+    append_question(scaffolded_store, "Should we use GraphQL?")
+    content = (scaffolded_store / "open-questions.md").read_text()
     assert "Should we use GraphQL?" in content
     assert "[Q1]" in content
 
 
-def test_question_multiple(store: Path):
-    append_question(store, "First question?")
-    append_question(store, "Second question?")
-    content = (store / "open-questions.md").read_text()
+def test_question_multiple(scaffolded_store: Path):
+    append_question(scaffolded_store, "First question?")
+    append_question(scaffolded_store, "Second question?")
+    content = (scaffolded_store / "open-questions.md").read_text()
     lines = [line for line in content.split("\n") if line.startswith("- [Q")]
     assert len(lines) == 2
     # Newest first (inserted at top); ids increment sequentially.
@@ -216,33 +208,33 @@ def test_question_multiple(store: Path):
 # --- State update tests ---
 
 
-def test_update_state_creates_state_current(store: Path):
+def test_update_state_creates_state_current(scaffolded_store: Path):
     """update_state writes to state_current.md (scaffolded directly)."""
-    update_state(store, "Implemented auth module")
-    current = (store / "state_current.md").read_text()
+    update_state(scaffolded_store, "Implemented auth module")
+    current = (scaffolded_store / "state_current.md").read_text()
     assert "# Current State" in current
     assert "Implemented auth module" in current
     # Scaffold no longer writes a legacy state.md.
-    assert not (store / "state.md").exists()
+    assert not (scaffolded_store / "state.md").exists()
 
 
-def test_update_state_appends_history(store: Path):
-    update_state(store, "First task")
-    update_state(store, "Second task")
-    current = (store / "state_current.md").read_text()
+def test_update_state_appends_history(scaffolded_store: Path):
+    update_state(scaffolded_store, "First task")
+    update_state(scaffolded_store, "Second task")
+    current = (scaffolded_store / "state_current.md").read_text()
     assert "Second task" in current
     assert "First task" not in current
     # History file should contain the first task's state
-    history = (store / "state_history.md").read_text()
+    history = (scaffolded_store / "state_history.md").read_text()
     assert "First task" in history
 
 
-def test_update_state_history_accumulates(store: Path):
+def test_update_state_history_accumulates(scaffolded_store: Path):
     for i in range(5):
-        update_state(store, f"Task {i}")
-    current = (store / "state_current.md").read_text()
+        update_state(scaffolded_store, f"Task {i}")
+    current = (scaffolded_store / "state_current.md").read_text()
     assert "Task 4" in current
-    history = (store / "state_history.md").read_text()
+    history = (scaffolded_store / "state_history.md").read_text()
     # All previous tasks are in history (via rotation chain)
     for i in range(4):
         assert f"Task {i}" in history
@@ -273,29 +265,33 @@ def test_update_state_first_write_empty_store(tmp_path: Path):
 # --- Reader split-state tests ---
 
 
-def test_l2_loads_state_history(store: Path):
+def test_l2_loads_state_history(scaffolded_store: Path):
     """L2 context includes state_history.md content."""
-    (store / "state_current.md").write_text("# Current State\n\nCurrent")
-    (store / "state_history.md").write_text("## 2026-04-01T10:00Z\n\nOld\n\n---\n")
-    result = read_project_context(store, level=2)
+    (scaffolded_store / "state_current.md").write_text("# Current State\n\nCurrent")
+    (scaffolded_store / "state_history.md").write_text("## 2026-04-01T10:00Z\n\nOld\n\n---\n")
+    result = read_project_context(scaffolded_store, level=2)
     assert "Current" in result
     assert "Old" in result
 
 
-def test_l0_does_not_load_state_history(store: Path):
+def test_l0_does_not_load_state_history(scaffolded_store: Path):
     """L0 context does not include state_history.md."""
-    (store / "state_current.md").write_text("# Current State\n\nCurrent only")
-    (store / "state_history.md").write_text("## 2026-04-01T10:00Z\n\nShould not appear\n\n---\n")
-    result = read_project_context(store, level=0)
+    (scaffolded_store / "state_current.md").write_text("# Current State\n\nCurrent only")
+    (scaffolded_store / "state_history.md").write_text(
+        "## 2026-04-01T10:00Z\n\nShould not appear\n\n---\n"
+    )
+    result = read_project_context(scaffolded_store, level=0)
     assert "Current only" in result
     assert "Should not appear" not in result
 
 
-def test_l1_does_not_load_state_history(store: Path):
+def test_l1_does_not_load_state_history(scaffolded_store: Path):
     """L1 context does not include state_history.md."""
-    (store / "state_current.md").write_text("# Current State\n\nCurrent only")
-    (store / "state_history.md").write_text("## 2026-04-01T10:00Z\n\nShould not appear\n\n---\n")
-    result = read_project_context(store, level=1)
+    (scaffolded_store / "state_current.md").write_text("# Current State\n\nCurrent only")
+    (scaffolded_store / "state_history.md").write_text(
+        "## 2026-04-01T10:00Z\n\nShould not appear\n\n---\n"
+    )
+    result = read_project_context(scaffolded_store, level=1)
     assert "Current only" in result
     assert "Should not appear" not in result
 
@@ -303,30 +299,30 @@ def test_l1_does_not_load_state_history(store: Path):
 # --- Snapshot tests ---
 
 
-def test_snapshot_capture(store: Path):
-    version = capture_snapshot(store, trigger="test")
+def test_snapshot_capture(scaffolded_store: Path):
+    version = capture_snapshot(scaffolded_store, trigger="test")
     assert version == 1
-    snap = load_snapshot(store, 1)
+    snap = load_snapshot(scaffolded_store, 1)
     assert snap["trigger"] == "test"
     assert "project.md" in snap["files"]
     assert "state_current.md" in snap["files"]
     assert snap["schema_version"] == 1
 
 
-def test_snapshot_has_new_fields(store: Path):
-    version = capture_snapshot(store, trigger="test", trigger_detail="detail here")
-    snap = load_snapshot(store, version)
+def test_snapshot_has_new_fields(scaffolded_store: Path):
+    version = capture_snapshot(scaffolded_store, trigger="test", trigger_detail="detail here")
+    snap = load_snapshot(scaffolded_store, version)
     assert snap["trigger_detail"] == "detail here"
     assert "token_count" in snap
     assert isinstance(snap["token_count"], int)
 
 
-def test_snapshot_capture_round_trips_canonical_fields(store: Path):
+def test_snapshot_capture_round_trips_canonical_fields(scaffolded_store: Path):
     # A local capture carries the full canonical field set: the snapshot
     # schema version, the trigger detail, a derived token count, and a
     # dense integer version.
-    version = capture_snapshot(store, trigger="sync", trigger_detail="auto")
-    snap = load_snapshot(store, version)
+    version = capture_snapshot(scaffolded_store, trigger="sync", trigger_detail="auto")
+    snap = load_snapshot(scaffolded_store, version)
     assert snap["schema_version"] == 1
     assert snap["trigger_detail"] == "auto"
     assert isinstance(snap["token_count"], int)
@@ -334,12 +330,12 @@ def test_snapshot_capture_round_trips_canonical_fields(store: Path):
     assert isinstance(snap["version"], int)
 
 
-def test_snapshot_on_disk_key_order_matches_local_shape(store: Path):
+def test_snapshot_on_disk_key_order_matches_local_shape(scaffolded_store: Path):
     # The on-disk JSON key set and order must match the pre-serializer
     # local shape so existing local snapshots stay byte-compatible; this
     # is why the snapshot schema stays at 1 rather than bumping to 2.
-    version = capture_snapshot(store, trigger="sync", trigger_detail="auto")
-    raw = json.loads((store / SNAPSHOTS_DIR / f"v{version:03d}.json").read_text())
+    version = capture_snapshot(scaffolded_store, trigger="sync", trigger_detail="auto")
+    raw = json.loads((scaffolded_store / SNAPSHOTS_DIR / f"v{version:03d}.json").read_text())
     assert list(raw.keys()) == [
         "schema_version",
         "version",
@@ -351,17 +347,17 @@ def test_snapshot_on_disk_key_order_matches_local_shape(store: Path):
     ]
 
 
-def test_snapshot_auto_increment(store: Path):
-    v1 = capture_snapshot(store, trigger="first")
-    v2 = capture_snapshot(store, trigger="second")
+def test_snapshot_auto_increment(scaffolded_store: Path):
+    v1 = capture_snapshot(scaffolded_store, trigger="first")
+    v2 = capture_snapshot(scaffolded_store, trigger="second")
     assert v1 == 1
     assert v2 == 2
 
 
-def test_snapshot_list_metadata(store: Path):
-    capture_snapshot(store, trigger="snap1")
-    capture_snapshot(store, trigger="snap2")
-    snaps = list_snapshots(store)
+def test_snapshot_list_metadata(scaffolded_store: Path):
+    capture_snapshot(scaffolded_store, trigger="snap1")
+    capture_snapshot(scaffolded_store, trigger="snap2")
+    snaps = list_snapshots(scaffolded_store)
     assert len(snaps) == 2
     assert snaps[0]["version"] == 2  # most recent first
     assert snaps[1]["version"] == 1
@@ -370,9 +366,9 @@ def test_snapshot_list_metadata(store: Path):
     assert "token_count" in snaps[0]
 
 
-def test_snapshot_list_metadata_has_new_fields(store: Path):
-    capture_snapshot(store, trigger="snap1", trigger_detail="some detail")
-    snaps = list_snapshots(store)
+def test_snapshot_list_metadata_has_new_fields(scaffolded_store: Path):
+    capture_snapshot(scaffolded_store, trigger="snap1", trigger_detail="some detail")
+    snaps = list_snapshots(scaffolded_store)
     assert snaps[0]["trigger_detail"] == "some detail"
     assert snaps[0]["token_count"] > 0
 
@@ -488,17 +484,17 @@ def test_snapshot_decision_adding_prunes_by_age(tmp_path: Path):
     assert remaining_versions == sorted([*newest_per_month.values(), 21])
 
 
-def test_snapshot_pruning_few_is_noop(store: Path):
+def test_snapshot_pruning_few_is_noop(scaffolded_store: Path):
     """Pruning with <100 snapshots is effectively a no-op (all kept if within 7 days)."""
     for i in range(10):
-        capture_snapshot(store, trigger=f"snap-{i}")
-    snaps = list(store.glob("snapshots/v*.json"))
+        capture_snapshot(scaffolded_store, trigger=f"snap-{i}")
+    snaps = list(scaffolded_store.glob("snapshots/v*.json"))
     assert len(snaps) == 10  # all kept (all within last 7 days)
 
 
-def test_snapshot_version_rollover_past_v999(store: Path):
+def test_snapshot_version_rollover_past_v999(scaffolded_store: Path):
     """Capture derives the next version numerically, so v1000 is never overwritten."""
-    snapshots_dir = store / SNAPSHOTS_DIR
+    snapshots_dir = scaffolded_store / SNAPSHOTS_DIR
     snapshots_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     for ver in (999, 1000):
@@ -512,7 +508,7 @@ def test_snapshot_version_rollover_past_v999(store: Path):
         }
         (snapshots_dir / f"v{ver:03d}.json").write_text(json.dumps(snap) + "\n")
 
-    version = capture_snapshot(store, trigger="next")
+    version = capture_snapshot(scaffolded_store, trigger="next")
     assert version == 1001
     # v999 sorts after v1000 lexically; deriving from that order would rebuild
     # version 1000 and overwrite it.
@@ -520,9 +516,9 @@ def test_snapshot_version_rollover_past_v999(store: Path):
     assert (snapshots_dir / "v1001.json").exists()
 
 
-def test_non_canonical_snapshot_names_never_deleted_or_counted(store: Path):
+def test_non_canonical_snapshot_names_never_deleted_or_counted(scaffolded_store: Path):
     """A v*-named file that is not the canonical name for its version stays untouched."""
-    snapshots_dir = store / SNAPSHOTS_DIR
+    snapshots_dir = scaffolded_store / SNAPSHOTS_DIR
     snapshots_dir.mkdir(parents=True, exist_ok=True)
     old_ts = (datetime.now(timezone.utc) - timedelta(days=400)).isoformat()
     stray = snapshots_dir / "v001-copy.json"
@@ -530,15 +526,15 @@ def test_non_canonical_snapshot_names_never_deleted_or_counted(store: Path):
     mismatched = snapshots_dir / "v002.json"
     mismatched.write_text(json.dumps({"version": 9000, "timestamp": old_ts, "files": {}}) + "\n")
 
-    version = capture_snapshot(store, trigger="t")
+    version = capture_snapshot(scaffolded_store, trigger="t")
     assert version == 1  # neither file steers version derivation
 
     assert stray.exists() and mismatched.exists()  # prune never touches them
-    assert [s["version"] for s in list_snapshots(store)] == [1]
+    assert [s["version"] for s in list_snapshots(scaffolded_store)] == [1]
 
 
-def test_list_snapshots_numeric_order_past_v999(store: Path):
-    snapshots_dir = store / SNAPSHOTS_DIR
+def test_list_snapshots_numeric_order_past_v999(scaffolded_store: Path):
+    snapshots_dir = scaffolded_store / SNAPSHOTS_DIR
     snapshots_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now(timezone.utc)
     for ver in (999, 1000):
@@ -552,29 +548,29 @@ def test_list_snapshots_numeric_order_past_v999(store: Path):
         }
         (snapshots_dir / f"v{ver:03d}.json").write_text(json.dumps(snap) + "\n")
 
-    snaps = list_snapshots(store)
+    snaps = list_snapshots(scaffolded_store)
     assert [s["version"] for s in snaps[:2]] == [1000, 999]
 
 
-def test_snapshot_load_missing(store: Path):
+def test_snapshot_load_missing(scaffolded_store: Path):
     with pytest.raises(FileNotFoundError):
-        load_snapshot(store, 999)
+        load_snapshot(scaffolded_store, 999)
 
 
-def test_snapshot_includes_decisions(store: Path):
+def test_snapshot_includes_decisions(scaffolded_store: Path):
     # 001-initial-setup.md already exists from scaffold
-    version = capture_snapshot(store, trigger="with-decision")
-    snap = load_snapshot(store, version)
+    version = capture_snapshot(scaffolded_store, trigger="with-decision")
+    snap = load_snapshot(scaffolded_store, version)
     assert any("decisions/" in k for k in snap["files"])
 
 
 # --- Decision reader tests (new format) ---
 
 
-def test_reader_parses_new_format(store: Path):
+def test_reader_parses_new_format(scaffolded_store: Path):
     """Reader returns Decision objects with all fields populated."""
     append_decision(
-        store,
+        scaffolded_store,
         "Use Postgres",
         rationale="Better JSON support",
         confidence="high",
@@ -583,7 +579,7 @@ def test_reader_parses_new_format(store: Path):
         files_affected=["src/db.py", "migrations/"],
         source="compaction",
     )
-    decisions = _list_decisions(store)
+    decisions = _list_decisions(scaffolded_store)
     new = [d for d in decisions if d.title == "Use Postgres"]
     assert len(new) == 1
     d = new[0]
@@ -595,9 +591,9 @@ def test_reader_parses_new_format(store: Path):
     assert d.rationale  # from ## Decision section
 
 
-def test_reader_scaffolded_first_decision(store: Path):
+def test_reader_scaffolded_first_decision(scaffolded_store: Path):
     """The scaffolded 001 decision parses cleanly; optional fields are None."""
-    decisions = _list_decisions(store)
+    decisions = _list_decisions(scaffolded_store)
     initial = [d for d in decisions if d.num == 1]
     assert len(initial) == 1
     d = initial[0]
@@ -607,10 +603,10 @@ def test_reader_scaffolded_first_decision(store: Path):
     assert d.source is None
 
 
-def test_reader_roundtrip_new_format(store: Path):
+def test_reader_roundtrip_new_format(scaffolded_store: Path):
     """Write a decision with all fields, read back, verify all preserved."""
     append_decision(
-        store,
+        scaffolded_store,
         "Switch to WebSocket",
         rationale="Real-time updates needed",
         rejected=[
@@ -623,7 +619,7 @@ def test_reader_roundtrip_new_format(store: Path):
         files_affected=["src/api/ws.py"],
         source="commit",
     )
-    decisions = _list_decisions(store)
+    decisions = _list_decisions(scaffolded_store)
     d = next(d for d in decisions if d.title == "Switch to WebSocket")
     assert d.confidence.value == "high"
     assert d.decision_type is not None
@@ -641,33 +637,33 @@ def test_reader_roundtrip_new_format(store: Path):
 # --- FilesystemStore bulk read tests ---
 
 
-def test_read_decisions_matches_serial_read(store: Path):
+def test_read_decisions_matches_serial_read(scaffolded_store: Path):
     """The bulk read returns, per stem, exactly what serial read_decision does."""
-    append_decision(store, "Use Postgres")
-    append_decision(store, "Use Redis")
-    fs = FilesystemStore(store)
+    append_decision(scaffolded_store, "Use Postgres")
+    append_decision(scaffolded_store, "Use Redis")
+    fs = FilesystemStore(scaffolded_store)
     stems = fs.list_decisions()
     bodies = fs.read_decisions(stems)
     assert [bodies[s] for s in stems] == [fs.read_decision(s) for s in stems]
 
 
-def test_read_decisions_missing_stem_maps_to_none(store: Path):
+def test_read_decisions_missing_stem_maps_to_none(scaffolded_store: Path):
     """A stem with no backing file maps to None, matching read_decision."""
-    fs = FilesystemStore(store)
+    fs = FilesystemStore(scaffolded_store)
     bodies = fs.read_decisions(["999-vanished"])
     assert bodies == {"999-vanished": None}
     assert fs.read_decision("999-vanished") is None
 
 
-def test_parse_all_decisions_bulk_equals_serial(store: Path):
+def test_parse_all_decisions_bulk_equals_serial(scaffolded_store: Path):
     """parse_all_decisions over FilesystemStore yields the same decisions in the
     same order as reading and parsing each stem serially in list order."""
     from nauro_core.decision_model import parse_decision
     from nauro_core.operations.decision_lookup import parse_all_decisions
 
-    append_decision(store, "Use Postgres")
-    append_decision(store, "Use Redis")
-    fs = FilesystemStore(store)
+    append_decision(scaffolded_store, "Use Postgres")
+    append_decision(scaffolded_store, "Use Redis")
+    fs = FilesystemStore(scaffolded_store)
 
     serial = []
     for stem in fs.list_decisions():
@@ -687,8 +683,8 @@ def test_parse_all_decisions_bulk_equals_serial(store: Path):
 # --- Validation tests ---
 
 
-def test_validate_unfilled_prompts(store: Path):
-    warnings = validate_store(store)
+def test_validate_unfilled_prompts(scaffolded_store: Path):
+    warnings = validate_store(scaffolded_store)
     # Fresh scaffold should have unfilled bracket prompts
     prompt_warnings = [w for w in warnings if "unfilled prompt" in w]
     assert len(prompt_warnings) > 0
@@ -706,16 +702,16 @@ def test_validate_stale_sync(tmp_path: Path):
     assert len(stale_warnings) == 1
 
 
-def test_validate_decision_gap(store: Path):
+def test_validate_decision_gap(scaffolded_store: Path):
     # Create decisions 001 (exists from scaffold), 002, then 004 (gap at 003).
     # The 004 filler is a minimal valid v2 decision so the reader can load it.
-    append_decision(store, "Second")
+    append_decision(scaffolded_store, "Second")
     _minimal_v2_decision(
-        store / "decisions" / "004-skipped.md",
+        scaffolded_store / "decisions" / "004-skipped.md",
         num=4,
         title="Skipped",
     )
-    warnings = validate_store(store)
+    warnings = validate_store(scaffolded_store)
     gap_warnings = [w for w in warnings if "gap" in w]
     assert len(gap_warnings) == 1
     assert "3" in gap_warnings[0]

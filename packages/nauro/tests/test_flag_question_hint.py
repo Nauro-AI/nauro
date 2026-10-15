@@ -7,7 +7,6 @@ that replaced the previously-inlined literals.
 """
 
 import logging
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -18,14 +17,6 @@ from nauro.constants import (
     POINTER_FLAG_PREFIXES,
 )
 from nauro.mcp.tools import tool_flag_question
-from nauro.templates.scaffolds import scaffold_project_store
-
-
-@pytest.fixture()
-def store(tmp_path: Path) -> Path:
-    store_path = tmp_path / "projects" / "testproj"
-    scaffold_project_store("testproj", store_path)
-    return store_path
 
 
 def test_hint_constants_exist():
@@ -40,39 +31,39 @@ def _stub_similar(score: float) -> tuple[str, list[dict]]:
     )
 
 
-def test_hint_fires_above_threshold(store):
+def test_hint_fires_above_threshold(scaffolded_store):
     """A top score above the threshold annotates the flag with a hint."""
     above = FLAG_QUESTION_HINT_MIN_SCORE + 0.1
     with (
         patch("nauro.mcp.tools.check_bm25_similarity", return_value=_stub_similar(above)),
         patch("nauro.mcp.tools._try_push"),
     ):
-        result = tool_flag_question(store, question="Should we cache hot reads?")
+        result = tool_flag_question(scaffolded_store, question="Should we cache hot reads?")
 
     assert "hint" in result
     assert "decision-007" in result["hint"]
 
 
-def test_hint_absent_below_threshold(store):
+def test_hint_absent_below_threshold(scaffolded_store):
     """A top score at or below the threshold leaves the flag without a hint."""
     below = FLAG_QUESTION_HINT_MIN_SCORE - 0.1
     with (
         patch("nauro.mcp.tools.check_bm25_similarity", return_value=_stub_similar(below)),
         patch("nauro.mcp.tools._try_push"),
     ):
-        result = tool_flag_question(store, question="Should we cache hot reads?")
+        result = tool_flag_question(scaffolded_store, question="Should we cache hot reads?")
 
     assert "hint" not in result
 
 
-def test_hint_failure_is_logged_and_flag_still_lands(store, caplog):
+def test_hint_failure_is_logged_and_flag_still_lands(scaffolded_store, caplog):
     """A hint lookup that fails is logged at debug and the question is still flagged."""
     caplog.set_level(logging.DEBUG, logger="nauro.mcp.tools")
     with (
         patch("nauro.store.reader._list_decisions", side_effect=RuntimeError("index gone")),
         patch("nauro.mcp.tools._try_push"),
     ):
-        result = tool_flag_question(store, question="Should we cache hot reads?")
+        result = tool_flag_question(scaffolded_store, question="Should we cache hot reads?")
 
     assert "hint" not in result
     assert result["store"] == "local"
@@ -92,7 +83,7 @@ def test_pointer_flag_prefixes_constant():
         "  BRIEF: context/x.md — leading whitespace still skips the hint",
     ],
 )
-def test_hint_skipped_for_discovery_pointers(store, pointer):
+def test_hint_skipped_for_discovery_pointers(scaffolded_store, pointer):
     """BRIEF:/RESUME:/SELECT: discovery pointers are file pointers, not
     questions for review, so the similar-decision hint is skipped even when
     BM25 scores above threshold. The flag itself still logs."""
@@ -101,7 +92,7 @@ def test_hint_skipped_for_discovery_pointers(store, pointer):
         patch("nauro.mcp.tools.check_bm25_similarity", return_value=_stub_similar(above)),
         patch("nauro.mcp.tools._try_push"),
     ):
-        result = tool_flag_question(store, question=pointer)
+        result = tool_flag_question(scaffolded_store, question=pointer)
 
     assert "hint" not in result
     assert result["status"] == "ok"  # the pointer still logged; only the hint is skipped

@@ -14,11 +14,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+import pytest
 
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.registry import register_project_v2
+from nauro.store.replica_control import _REPLICA_CONTROL_LOCK_NAME, _REPLICA_CONTROL_ROOT_NAME
 from nauro.sync.pull import run_pull
-from nauro.sync.state import FileState, compute_sha256, load_state, save_state
+from nauro.sync.state import FileState, SyncState, compute_sha256, load_state, save_state
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config
 
@@ -56,6 +58,29 @@ def _ok(status: int, payload: dict) -> httpx.Response:
 
 def _seed_token() -> None:
     seed_auth_config(variant="sync")
+
+
+@pytest.fixture()
+def cloud_store(tmp_path: Path) -> Path:
+    """A cloud-mode store registered under ``CLOUD_PID`` with a sync token seeded."""
+    store = _scaffolded_cloud_project("cloudproj", tmp_path, project_id=CLOUD_PID)
+    _seed_token()
+    return store
+
+
+def seed_synced_state(store: Path) -> None:
+    """Record every existing file as already in sync, so the push diff is empty."""
+    state = SyncState()
+    for f in store.rglob("*"):
+        if not f.is_file():
+            continue
+        rel = str(f.relative_to(store))
+        state.files[rel] = FileState(
+            local_sha256=compute_sha256(f),
+            remote_etag='"e0"',
+            last_sync="2026-05-16T00:00:00Z",
+        )
+    save_state(store, state)
 
 
 def _manifest(files, next_cursor=None) -> httpx.Response:
@@ -220,6 +245,15 @@ def entry_names(directory) -> set[str]:
     what a pull did or did not write has to read the directory itself.
     """
     return {entry.name for entry in directory.iterdir()} if directory.is_dir() else set()
+
+
+def is_reserved(value) -> bool:
+    """True when any path component folds to a replica control name."""
+    for part in str(value).replace("\\", "/").split("/"):
+        folded = part.split(":", 1)[0].strip(" ").rstrip(" .").casefold()
+        if folded in {_REPLICA_CONTROL_ROOT_NAME, _REPLICA_CONTROL_LOCK_NAME}:
+            return True
+    return False
 
 
 def track(store, rel: str) -> None:

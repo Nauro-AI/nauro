@@ -26,6 +26,7 @@ from nauro.setup.outcomes import (
 from nauro.store.registry import register_project_v2
 from nauro.templates.scaffolds import scaffold_project_store
 from tests._ansi import strip_ansi
+from tests.conftest import git_init
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -33,10 +34,6 @@ else:
     import tomli as tomllib
 
 runner = CliRunner()
-
-
-def _git_init(repo: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
 
 
 # ─── nauro setup cursor ─────────────────────────────────────────────────────
@@ -258,7 +255,7 @@ def test_setup_claude_code_warns_for_untracked_unignored_known_paths(tmp_path: P
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    _git_init(repo)
+    git_init(repo)
     _, store_path = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store_path)
     monkeypatch.chdir(repo)
@@ -280,7 +277,7 @@ def test_setup_claude_code_refuses_tracked_wiring_file(tmp_path: Path, monkeypat
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    _git_init(repo)
+    git_init(repo)
     (repo / ".mcp.json").write_text("{}\n")
     subprocess.run(["git", "add", ".mcp.json"], cwd=repo, check=True)
     _, store_path = register_project_v2("myproj", [repo])
@@ -299,7 +296,7 @@ def test_setup_claude_code_suppresses_warning_for_ignored_known_paths(tmp_path: 
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    _git_init(repo)
+    git_init(repo)
     (repo / ".gitignore").write_text(".mcp.json\nAGENTS.md\n")
     _, store_path = register_project_v2("myproj", [repo])
     scaffold_project_store("myproj", store_path)
@@ -791,7 +788,7 @@ def test_setup_keeps_user_scope_entry_when_project_write_refused(tmp_path: Path,
     monkeypatch.setenv("HOME", str(tmp_path))
     repo = tmp_path / "myrepo"
     repo.mkdir()
-    _git_init(repo)
+    git_init(repo)
     (repo / ".mcp.json").write_text("{}\n")
     subprocess.run(["git", "add", ".mcp.json"], cwd=repo, check=True)
     _, store_path = register_project_v2("myproj", [repo])

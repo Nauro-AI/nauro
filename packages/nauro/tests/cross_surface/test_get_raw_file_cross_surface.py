@@ -31,12 +31,6 @@ pytest.importorskip("moto", reason="moto needed for in-memory S3.")
 # installed; ruff E402 does not apply here.
 from nauro_core.operations import get_raw_file  # noqa: E402
 
-from tests.conftest import moto_s3_bucket  # noqa: E402
-from tests.cross_surface.conftest import (  # noqa: E402
-    seed_cloud_store,
-    seed_filesystem_store,
-)
-
 CloudStore = cloud_store_module.CloudStore
 
 EXISTING_PATH = "project.md"
@@ -48,19 +42,6 @@ MISSING_PATH = "does-not-exist.md"
 SEED_FILES: dict[str, str] = {
     EXISTING_PATH: "# Parity Project\n\nA tiny file used by cross-surface parity.\n",
 }
-
-
-@pytest.fixture
-def both_stores(tmp_path, monkeypatch):
-    """Yield a (FilesystemStore, CloudStore) pair seeded with identical files.
-
-    The cloud half lives inside a moto-mocked S3 + an env-pointed bucket so
-    the test never touches AWS.
-    """
-    with moto_s3_bucket(monkeypatch) as s3_client:
-        fs_store = seed_filesystem_store(tmp_path, files=SEED_FILES)
-        cloud = seed_cloud_store(s3_client, files=SEED_FILES)
-        yield fs_store, cloud
 
 
 def test_get_raw_file_result_matches_across_stores_on_hit(both_stores):

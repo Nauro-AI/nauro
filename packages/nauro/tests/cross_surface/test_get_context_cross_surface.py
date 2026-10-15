@@ -39,12 +39,6 @@ from nauro_core.decision_model import (  # noqa: E402
 )
 from nauro_core.operations import get_context  # noqa: E402
 
-from tests.conftest import moto_s3_bucket  # noqa: E402
-from tests.cross_surface.conftest import (  # noqa: E402
-    seed_cloud_store,
-    seed_filesystem_store,
-)
-
 CloudStore = cloud_store_module.CloudStore
 
 # Fixed seed: project + state + stack + questions + two active decisions.
@@ -81,15 +75,6 @@ SEED_DECISIONS: dict[str, str] = {
         )
     ),
 }
-
-
-@pytest.fixture
-def both_stores(tmp_path, monkeypatch):
-    """Yield a (FilesystemStore, CloudStore) pair seeded with identical content."""
-    with moto_s3_bucket(monkeypatch) as s3_client:
-        fs_store = seed_filesystem_store(tmp_path, SEED_DECISIONS, SEED_FILES)
-        cloud = seed_cloud_store(s3_client, SEED_DECISIONS, SEED_FILES)
-        yield fs_store, cloud
 
 
 @pytest.mark.parametrize("level", [0, 1, 2])

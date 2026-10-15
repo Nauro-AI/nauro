@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import stat
-import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -63,6 +62,7 @@ from nauro.sync.corpus import DecisionCorpus
 from nauro.sync.pull import PullReport
 from nauro.sync.quarantine import list_conflict_backup_files, list_quarantine_backups
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.directory_links import LINK_KINDS, link_directory, require_link_kind
 from tests.test_sync.conftest import (
     _scaffolded_cloud_project,
     _seed_token,
@@ -72,7 +72,6 @@ from tests.test_sync.conftest import (
 from tests.windows_refusal import REFUSALS, chmod_calls, refusing
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="POSIX filename semantics")
-LINK_KINDS = ["symlink", "junction"]
 PROJECT_ID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 GENERATION_ID = "01K11111111111111111111111"
 USER_ID = "01K33333333333333333333333"
@@ -113,22 +112,6 @@ DIVERGED = "generation_root_diverged"
 LOCK_NAME = ".replica-control.lock"
 OCCUPIED = "The generation root is occupied by a non-directory entry."
 PUBLISH_FAILED = "The generation root could not be published."
-
-
-def _link(link: Path, target: Path, kind: str) -> None:
-    if kind == "junction":
-        subprocess.run(
-            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
-            check=True,
-            capture_output=True,
-        )
-        return
-    link.symlink_to(target, target_is_directory=True)
-
-
-def _require_link_kind(kind: str) -> None:
-    if (kind == "junction") != (sys.platform == "win32"):
-        pytest.skip(f"{kind} is not this platform's directory link")
 
 
 @pytest.fixture
@@ -236,7 +219,7 @@ def _authorization_view(store: Path) -> Path:
 
 def _guard_occupant(kind: str) -> None:
     if kind in LINK_KINDS:
-        _require_link_kind(kind)
+        require_link_kind(kind)
     if sys.platform == "win32" and kind in ("dangling", "fifo", "unreadable"):
         pytest.skip(f"{kind} is a POSIX proof")
 
@@ -245,7 +228,7 @@ def _plant_occupant(path: Path, kind: str, outside: Path) -> None:
     if kind == "missing":
         return
     if kind in LINK_KINDS:
-        _link(path, outside, kind)
+        link_directory(path, outside, kind)
     elif kind == "dangling":
         path.symlink_to(outside / "gone", target_is_directory=True)
     elif kind == "hardlink":
@@ -377,7 +360,7 @@ def test_staging_name_retries_on_collision(store: Path, monkeypatch) -> None:
 @pytest.mark.parametrize("kind", LINK_KINDS)
 @pytest.mark.parametrize("name", list(COMPONENTS))
 def test_linked_component_is_refused_before_creation(store, tmp_path, kind, name) -> None:
-    _require_link_kind(kind)
+    require_link_kind(kind)
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "victim.md").write_bytes(b"victim\n")
@@ -385,7 +368,7 @@ def test_linked_component_is_refused_before_creation(store, tmp_path, kind, name
     component.parent.mkdir(parents=True, exist_ok=True)
     if name == "staging":
         (component.parent / "generations").mkdir()
-    _link(component, outside, kind)
+    link_directory(component, outside, kind)
     before = (_tree(outside), _tree(store))
     with pytest.raises(ReplicaControlReadError) as raised:
         stage_generation_root(_projection())
@@ -405,12 +388,12 @@ def test_regular_file_component_is_refused(store: Path, name: str) -> None:
 
 @pytest.mark.parametrize("kind", LINK_KINDS)
 def test_staged_link_is_refused_before_any_write(store, tmp_path, kind) -> None:
-    _require_link_kind(kind)
+    require_link_kind(kind)
     outside = tmp_path / "outside"
     outside.mkdir()
     hand = _actor(store) / "staging" / f"{ROOT_KEY}-{'0' * 16}"
     (hand / "store").mkdir(parents=True)
-    _link(hand / "store" / "decisions", outside, kind)
+    link_directory(hand / "store" / "decisions", outside, kind)
     before = _tree(outside)
     with pytest.raises(ReplicaControlReadError):
         installation._ensure_directory(store, hand / "store" / "decisions")
@@ -477,7 +460,7 @@ def _mutate(tree: Path, mutation: str, projection, tmp_path: Path, monkeypatch) 
         victim.symlink_to(tree / "store" / "decisions" / "001-x.md")
     elif mutation == "junction":
         shutil.rmtree(tree / "store" / "context")
-        _link(tree / "store" / "context", tree / "store" / "decisions", "junction")
+        link_directory(tree / "store" / "context", tree / "store" / "decisions", "junction")
     elif mutation == "hard-link":
         os.link(tree / "store" / "decisions" / "001-x.md", tmp_path / "alias.md")
     elif mutation == "fifo":
@@ -504,7 +487,7 @@ def _mutate(tree: Path, mutation: str, projection, tmp_path: Path, monkeypatch) 
 @pytest.mark.parametrize(("mutation", "message"), AUDIT_ROWS)
 def test_audit_refuses_each_mutation(store, tmp_path, monkeypatch, mutation: str, message: str):
     if mutation in LINK_KINDS:
-        _require_link_kind(mutation)
+        require_link_kind(mutation)
     projection = _projection()
     staging = stage_generation_root(projection).staging_path
     _mutate(staging, mutation, projection, tmp_path, monkeypatch)
@@ -684,7 +667,7 @@ def test_publish_then_reuse_without_writing(store: Path, monkeypatch) -> None:
 @pytest.mark.parametrize(("mutation", "message"), AUDIT_ROWS)
 def test_divergent_root_is_refused_in_place(store, tmp_path, monkeypatch, mutation, message):
     if mutation in LINK_KINDS:
-        _require_link_kind(mutation)
+        require_link_kind(mutation)
     projection = _projection()
     root = install_generation_root(projection).root_path
     _mutate(root, mutation, projection, tmp_path, monkeypatch)
@@ -705,7 +688,7 @@ def test_root_path_occupied_by_a_file_is_refused_and_kept(store: Path) -> None:
 
 @pytest.mark.parametrize("kind", [*LINK_KINDS, "dangling"])
 def test_linked_root_path_is_refused_before_any_kind_check(store, tmp_path, kind) -> None:
-    _require_link_kind("symlink" if kind == "dangling" else kind)
+    require_link_kind("symlink" if kind == "dangling" else kind)
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "victim.md").write_bytes(b"victim\n")
@@ -715,7 +698,7 @@ def test_linked_root_path_is_refused_before_any_kind_check(store, tmp_path, kind
     if kind == "dangling":
         root.symlink_to(outside / "absent")
     else:
-        _link(root, outside, kind)
+        link_directory(root, outside, kind)
     before = (_tree(outside), _tree(store))
     with pytest.raises(ReplicaControlReadError) as raised:
         install_generation_root(_projection())
@@ -725,12 +708,12 @@ def test_linked_root_path_is_refused_before_any_kind_check(store, tmp_path, kind
 
 @pytest.mark.parametrize("kind", LINK_KINDS)
 def test_absent_probe_sees_a_dangling_link_as_present(tmp_path: Path, kind: str) -> None:
-    _require_link_kind(kind)
+    require_link_kind(kind)
     assert installation._lstat_optional(tmp_path / "absent") is None
     target = tmp_path / "target"
     target.mkdir()
     dangling = tmp_path / "dangling"
-    _link(dangling, target, kind)
+    link_directory(dangling, target, kind)
     target.rmdir()
     assert not dangling.exists()
     metadata = installation._lstat_optional(dangling)
@@ -783,7 +766,7 @@ def test_root_planted_under_the_lock_is_audited_never_replaced(store, monkeypatc
 
 @pytest.mark.parametrize("kind", LINK_KINDS)
 def test_root_link_planted_under_the_lock_is_refused(store, tmp_path, monkeypatch, kind):
-    _require_link_kind(kind)
+    require_link_kind(kind)
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "victim.md").write_bytes(b"victim\n")
@@ -792,7 +775,7 @@ def test_root_link_planted_under_the_lock_is_refused(store, tmp_path, monkeypatc
 
     def plant() -> None:
         assert len(entry_names(_staging(store))) == 1
-        _link(root, outside, kind)
+        link_directory(root, outside, kind)
         planted["metadata"] = os.lstat(root)
 
     real_replace = installation.durability.durable_rename
@@ -946,7 +929,7 @@ SWEEP_ROWS = [
 @pytest.mark.parametrize(("entry", "kind"), SWEEP_ROWS)
 def test_sweep_removes_only_stale_plain_directories(store, tmp_path, monkeypatch, entry, kind):
     if kind is not None:
-        _require_link_kind(kind)
+        require_link_kind(kind)
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "victim.md").write_bytes(b"victim\n")
@@ -954,7 +937,7 @@ def test_sweep_removes_only_stale_plain_directories(store, tmp_path, monkeypatch
     if entry in ("link", "file", "fifo"):
         stale.parent.mkdir(parents=True)
         if entry == "link":
-            _link(stale, outside, kind)
+            link_directory(stale, outside, kind)
         elif entry == "file":
             stale.write_bytes(b"stray\n")
         else:
@@ -963,7 +946,7 @@ def test_sweep_removes_only_stale_plain_directories(store, tmp_path, monkeypatch
     else:
         (stale / "store").mkdir(parents=True)
         if entry == "holding-link":
-            _link(stale / "store" / "context", outside, kind)
+            link_directory(stale / "store" / "context", outside, kind)
     if entry == "link":
         planted_mtime = os.lstat(stale).st_mtime
         monkeypatch.setattr(installation.time, "time", lambda: planted_mtime + 7200)
@@ -1684,7 +1667,7 @@ def test_control_publication_reaudits_every_installed_byte(
         publish_generation_control(installed)
     before = tuple(path.read_bytes() if path.exists() else None for path in (marker, pointer))
     if mutation in LINK_KINDS:
-        _require_link_kind(mutation)
+        require_link_kind(mutation)
     _mutate(installed.root_path, mutation, projection, tmp_path, monkeypatch)
     _forbid_publication_effects(monkeypatch)
     _diverges(message, lambda: publish_generation_control(installed))

@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import shutil
-import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +36,7 @@ from nauro.sync.corpus import DecisionCorpus, IrregularEntry, SkipReason
 from nauro.sync.remote import FetchedObject
 from nauro.sync.state import SYNC_STATE_FILE
 from nauro.templates.scaffolds import scaffold_project_store
+from tests.directory_links import LINK_KINDS, link_directory, require_link_kind
 from tests.test_sync.conftest import (
     CLOUD_PID,
     _RecordingReporter,
@@ -44,11 +44,11 @@ from tests.test_sync.conftest import (
     _seed_token,
     decision_bytes,
     entry_names,
+    is_reserved,
     pull_report,
 )
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="POSIX filename semantics")
-LINK_KINDS = ["symlink", "junction"]
 
 PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 NOTE = "context/note.md"
@@ -150,14 +150,6 @@ def _read(path: Path) -> bytes:
         return handle.read()
 
 
-def _is_reserved(value) -> bool:
-    for part in str(value).replace("\\", "/").split("/"):
-        folded = part.split(":", 1)[0].strip(" ").rstrip(" .").casefold()
-        if folded in {_REPLICA_CONTROL_ROOT_NAME, _REPLICA_CONTROL_LOCK_NAME}:
-            return True
-    return False
-
-
 def _forbid(monkeypatch, matches, *, inspect: bool = False) -> None:
     """Fail the test when a restore reads, writes, or inspects a path ``matches`` accepts."""
     real_read = Path.read_bytes
@@ -184,23 +176,6 @@ def _forbid(monkeypatch, matches, *, inspect: bool = False) -> None:
     monkeypatch.setattr(recovery, "atomic_write_bytes", write)
     if inspect:
         monkeypatch.setattr(merge_module.os, "lstat", guarded_lstat)
-
-
-def _link(link: Path, target: Path, kind: str) -> None:
-    """Point ``link`` at ``target`` as a symlink or as a Windows junction."""
-    if kind == "junction":
-        subprocess.run(
-            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
-            check=True,
-            capture_output=True,
-        )
-        return
-    link.symlink_to(target, target_is_directory=True)
-
-
-def _require_link_kind(kind: str) -> None:
-    if (kind == "junction") != (sys.platform == "win32"):
-        pytest.skip(f"{kind} is not this platform's directory link")
 
 
 def _outside_with_victim(tmp_path: Path) -> Path:
@@ -252,7 +227,7 @@ def test_reserved_manifest_rows_are_never_presigned_or_installed(tmp_path, monke
     installed = _installed(destination)
     assert installed.pop(SYNC_STATE_FILE)
     assert installed == files
-    assert not [name for name in entry_names(destination) if _is_reserved(name)]
+    assert not [name for name in entry_names(destination) if is_reserved(name)]
     assert sorted(cloud.presigned) == sorted(files)
     assert sorted(cloud.fetched) == sorted(files)
     state = json.loads((destination / SYNC_STATE_FILE).read_text(encoding="utf-8"))
@@ -282,7 +257,7 @@ def test_unsafe_manifest_rows_are_named_once_and_counted(tmp_path, monkeypatch):
 @pytest.mark.parametrize("name", [_REPLICA_CONTROL_ROOT_NAME, _REPLICA_CONTROL_LOCK_NAME])
 def test_control_state_in_staging_is_removed_without_following(tmp_path, monkeypatch, name, kind):
     if kind in LINK_KINDS:
-        _require_link_kind(kind)
+        require_link_kind(kind)
     _files, _cloud, destination, reporter = _remote(tmp_path, monkeypatch, {})
     outside = _outside_with_victim(tmp_path)
     control = _staging(destination) / name
@@ -293,11 +268,11 @@ def test_control_state_in_staging_is_removed_without_following(tmp_path, monkeyp
         control.mkdir()
         (control / "authority.json").write_bytes(b"{}\n")
     else:
-        _link(control, outside, kind)
+        link_directory(control, outside, kind)
 
     restore_cloud_store(PID, destination, reporter)
 
-    assert not [entry for entry in entry_names(destination) if _is_reserved(entry)]
+    assert not [entry for entry in entry_names(destination) if is_reserved(entry)]
     assert reporter.warns == [CONTROL_DISCARDED]
     assert entry_names(outside) == {"victim.md"}
 
@@ -321,11 +296,11 @@ def test_control_state_that_cannot_be_removed_stops_the_restore(tmp_path, monkey
 
 @pytest.mark.parametrize("kind", LINK_KINDS)
 def test_a_linked_staging_path_is_refused(tmp_path, monkeypatch, kind):
-    _require_link_kind(kind)
+    require_link_kind(kind)
     _files, cloud, destination, reporter = _remote(tmp_path, monkeypatch, {})
     outside = _outside_with_victim(tmp_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    _link(_staging(destination), outside, kind)
+    link_directory(_staging(destination), outside, kind)
 
     with pytest.raises(RecoveryError) as raised:
         restore_cloud_store(PID, destination, reporter)
@@ -406,7 +381,7 @@ def test_a_restore_reaches_no_reserved_path_and_no_linked_target(tmp_path, monke
         monkeypatch,
         lambda path: (
             str(path) not in probes
-            and (_is_reserved(path) or path == outside or outside in path.parents)
+            and (is_reserved(path) or path == outside or outside in path.parents)
         ),
         inspect=True,
     )
@@ -448,7 +423,7 @@ def test_an_unusable_staging_root_is_refused_before_presign(tmp_path, monkeypatc
 
 @pytest.mark.parametrize("kind", LINK_KINDS)
 def test_a_linked_destination_is_refused_before_any_network_call(tmp_path, monkeypatch, kind):
-    _require_link_kind(kind)
+    require_link_kind(kind)
 
     def explode(_project_id, **_kwargs):
         raise AssertionError("network must not run")
@@ -458,7 +433,7 @@ def test_a_linked_destination_is_refused_before_any_network_call(tmp_path, monke
     target = destination.parent / "victim"
     target.mkdir(parents=True)
     (target / "keep.md").write_bytes(b"keep\n")
-    _link(destination, target, kind)
+    link_directory(destination, target, kind)
 
     with pytest.raises(RecoveryError) as raised:
         restore_cloud_store(PID, destination)

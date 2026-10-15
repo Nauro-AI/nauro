@@ -24,14 +24,6 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> Path:
-    """Pre-scaffolded project store in tmp_path."""
-    store_path = tmp_path / "projects" / "testproj"
-    scaffold_project_store("testproj", store_path)
-    return store_path
-
-
-@pytest.fixture
 def full_memory_bank(tmp_path: Path) -> Path:
     """A complete .context/ directory with all Memory Bank files."""
     ctx = tmp_path / ".context"
@@ -74,33 +66,33 @@ def partial_memory_bank(tmp_path: Path) -> Path:
 # --- Full import ---
 
 
-def test_import_complete_memory_bank(store: Path, full_memory_bank: Path):
-    counts = _import_memory_bank(full_memory_bank, store)
+def test_import_complete_memory_bank(scaffolded_store: Path, full_memory_bank: Path):
+    counts = _import_memory_bank(full_memory_bank, scaffolded_store)
 
     assert counts["files_merged"] == 3  # projectBrief, activeContext, techContext
     assert counts["decisions"] == 2
     assert counts["progress_items"] == 3
 
     # project.md should have imported content appended
-    project_content = (store / "project.md").read_text()
+    project_content = (scaffolded_store / "project.md").read_text()
     assert "## Imported from Memory Bank" in project_content
     assert "task management" in project_content
 
     # state_current.md should have the composed activeContext + progress
     # (the legacy "## Imported from Memory Bank" header is no longer added —
     # active body lands directly under prepare_state_update's "# Current State").
-    state_current = (store / "state_current.md").read_text()
+    state_current = (scaffolded_store / "state_current.md").read_text()
     assert "auth module" in state_current
     assert "## Recently completed" in state_current
     assert "Set up project scaffolding" in state_current
 
     # stack.md should have tech context
-    stack_content = (store / "stack.md").read_text()
+    stack_content = (scaffolded_store / "stack.md").read_text()
     assert "## Imported from Memory Bank" in stack_content
     assert "React + Node.js" in stack_content
 
     # decisions/ should have new files (001 from scaffold + 2 imported)
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 3
     assert "use-postgresql" in decisions[1].name
     assert "use-react-for-frontend" in decisions[2].name
@@ -113,33 +105,33 @@ def test_import_complete_memory_bank(store: Path, full_memory_bank: Path):
 # --- Partial import ---
 
 
-def test_import_partial_memory_bank(store: Path, partial_memory_bank: Path):
-    counts = _import_memory_bank(partial_memory_bank, store)
+def test_import_partial_memory_bank(scaffolded_store: Path, partial_memory_bank: Path):
+    counts = _import_memory_bank(partial_memory_bank, scaffolded_store)
 
     assert counts["files_merged"] == 1  # only projectBrief
     assert counts["decisions"] == 0
     assert counts["progress_items"] == 0
 
     # project.md should have imported content
-    project_content = (store / "project.md").read_text()
+    project_content = (scaffolded_store / "project.md").read_text()
     assert "## Imported from Memory Bank" in project_content
     assert "minimal project" in project_content
 
     # state_current.md should NOT have import header (no activeContext.md)
-    state_content = (store / "state_current.md").read_text()
+    state_content = (scaffolded_store / "state_current.md").read_text()
     assert "## Imported from Memory Bank" not in state_content
 
 
 # --- Append, not overwrite ---
 
 
-def test_import_preserves_existing_content(store: Path, full_memory_bank: Path):
+def test_import_preserves_existing_content(scaffolded_store: Path, full_memory_bank: Path):
     # Write some custom content to project.md first
-    project_md = store / "project.md"
+    project_md = scaffolded_store / "project.md"
     original = project_md.read_text()
     assert "testproj" in original  # scaffold content present
 
-    _import_memory_bank(full_memory_bank, store)
+    _import_memory_bank(full_memory_bank, scaffolded_store)
 
     updated = project_md.read_text()
     # Original scaffold content still present
@@ -151,16 +143,16 @@ def test_import_preserves_existing_content(store: Path, full_memory_bank: Path):
     assert updated.index("testproj") < updated.index("## Imported from Memory Bank")
 
 
-def test_import_preserves_existing_decisions(store: Path, full_memory_bank: Path):
+def test_import_preserves_existing_decisions(scaffolded_store: Path, full_memory_bank: Path):
     """Existing decisions (e.g., 001-initial-setup) are not overwritten."""
-    initial = (store / "decisions" / "001-initial-setup.md").read_text()
+    initial = (scaffolded_store / "decisions" / "001-initial-setup.md").read_text()
 
-    _import_memory_bank(full_memory_bank, store)
+    _import_memory_bank(full_memory_bank, scaffolded_store)
 
     # Original decision unchanged
-    assert (store / "decisions" / "001-initial-setup.md").read_text() == initial
+    assert (scaffolded_store / "decisions" / "001-initial-setup.md").read_text() == initial
     # New decisions start at 002
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert decisions[0].name == "001-initial-setup.md"
     assert decisions[1].name.startswith("002-")
 
@@ -279,29 +271,31 @@ def test_import_cli_with_project_flag(tmp_path: Path, monkeypatch, full_memory_b
 # --- Edge cases ---
 
 
-def test_import_decision_log_with_no_decisions(store: Path, tmp_path: Path):
+def test_import_decision_log_with_no_decisions(scaffolded_store: Path, tmp_path: Path):
     """decisionLog.md exists but has no ## Decision: blocks."""
     ctx = tmp_path / ".context_empty_decisions"
     ctx.mkdir()
     (ctx / "projectBrief.md").write_text("# Brief\n\nSomething.\n")
     (ctx / "decisionLog.md").write_text("# Decision Log\n\nNo decisions yet.\n")
 
-    counts = _import_memory_bank(ctx, store)
+    counts = _import_memory_bank(ctx, scaffolded_store)
     assert counts["decisions"] == 0
 
 
-def test_import_progress_with_empty_items(store: Path, tmp_path: Path):
+def test_import_progress_with_empty_items(scaffolded_store: Path, tmp_path: Path):
     """progress.md has empty list items that should be skipped."""
     ctx = tmp_path / ".context_empty_progress"
     ctx.mkdir()
     (ctx / "projectBrief.md").write_text("# Brief\n\nSomething.\n")
     (ctx / "progress.md").write_text("# Progress\n\n- \n- Real item\n-\n")
 
-    counts = _import_memory_bank(ctx, store)
+    counts = _import_memory_bank(ctx, scaffolded_store)
     assert counts["progress_items"] == 1
 
 
-def test_import_empty_decision_heading_not_promoted_to_title(store: Path, tmp_path: Path):
+def test_import_empty_decision_heading_not_promoted_to_title(
+    scaffolded_store: Path, tmp_path: Path
+):
     """A malformed empty '## Decision:' heading must not consume the following
     body line as its title or fabricate a phantom decision; only the real,
     titled decision is imported and the count stays honest."""
@@ -316,10 +310,10 @@ def test_import_empty_decision_heading_not_promoted_to_title(store: Path, tmp_pa
         "This line must not become a decision title.\n"
     )
 
-    counts = _import_memory_bank(ctx, store)
+    counts = _import_memory_bank(ctx, scaffolded_store)
 
     assert counts["decisions"] == 1
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 2  # scaffold 001 + the one real import
 
     # Collect every decision's title line ("# NNN — ..."); decision files lead
@@ -349,43 +343,45 @@ def _mb_with(tmp_path: Path, name: str, **files: str) -> Path:
     return ctx
 
 
-def test_active_context_lands_in_state_current_not_legacy(store: Path, tmp_path: Path):
+def test_active_context_lands_in_state_current_not_legacy(scaffolded_store: Path, tmp_path: Path):
     """Legacy stores may carry a state.md alongside state_current.md.
     Verify import writes only to state_current.md, never the legacy file."""
     legacy_marker = "# Legacy state — should not be touched\n"
-    (store / "state.md").write_text(legacy_marker)
+    (scaffolded_store / "state.md").write_text(legacy_marker)
     mb = _mb_with(
         tmp_path,
         ".context_active_only",
         **{"activeContext.md": "# Active Context\n\nWiring up Stripe checkout.\n"},
     )
 
-    _import_memory_bank(mb, store)
+    _import_memory_bank(mb, scaffolded_store)
 
-    state_current = (store / "state_current.md").read_text()
+    state_current = (scaffolded_store / "state_current.md").read_text()
     assert "Wiring up Stripe checkout." in state_current
     # Legacy state.md remains untouched.
-    assert (store / "state.md").read_text() == legacy_marker
-    assert "Wiring up Stripe checkout." not in (store / "state.md").read_text()
+    assert (scaffolded_store / "state.md").read_text() == legacy_marker
+    assert "Wiring up Stripe checkout." not in (scaffolded_store / "state.md").read_text()
 
 
-def test_progress_items_compose_into_recently_completed(store: Path, tmp_path: Path):
+def test_progress_items_compose_into_recently_completed(scaffolded_store: Path, tmp_path: Path):
     mb = _mb_with(
         tmp_path,
         ".context_progress_only",
         **{"progress.md": "# Progress\n\n- Item one\n- Item two\n- Item three\n"},
     )
 
-    _import_memory_bank(mb, store)
+    _import_memory_bank(mb, scaffolded_store)
 
-    state_current = (store / "state_current.md").read_text()
+    state_current = (scaffolded_store / "state_current.md").read_text()
     assert "## Recently completed" in state_current
     assert "- Item one" in state_current
     assert "- Item two" in state_current
     assert "- Item three" in state_current
 
 
-def test_active_context_and_progress_compose_into_single_state_current(store: Path, tmp_path: Path):
+def test_active_context_and_progress_compose_into_single_state_current(
+    scaffolded_store: Path, tmp_path: Path
+):
     mb = _mb_with(
         tmp_path,
         ".context_both",
@@ -395,9 +391,9 @@ def test_active_context_and_progress_compose_into_single_state_current(store: Pa
         },
     )
 
-    _import_memory_bank(mb, store)
+    _import_memory_bank(mb, scaffolded_store)
 
-    state_current = (store / "state_current.md").read_text()
+    state_current = (scaffolded_store / "state_current.md").read_text()
     assert "Reviewing payment flow." in state_current
     assert "## Recently completed" in state_current
     assert "- A" in state_current
@@ -407,7 +403,7 @@ def test_active_context_and_progress_compose_into_single_state_current(store: Pa
     # state_history should NOT contain N entries (one per progress item).
     # update_state was called once, so at most one prior-state archive exists
     # (the migrated legacy scaffold).
-    history_path = store / "state_history.md"
+    history_path = scaffolded_store / "state_history.md"
     if history_path.exists():
         # Count `## ` timestamp headers — there should be exactly one (or zero).
         history = history_path.read_text()
@@ -415,7 +411,7 @@ def test_active_context_and_progress_compose_into_single_state_current(store: Pa
         assert len(timestamp_headers) <= 1
 
 
-def test_build_l0_surfaces_imported_state(store: Path, tmp_path: Path):
+def test_build_l0_surfaces_imported_state(scaffolded_store: Path, tmp_path: Path):
     """Regression: imported activeContext + progress must reach the L0 payload.
 
     build_l0 passes include_history=False, so anything in state_history.md is
@@ -431,56 +427,56 @@ def test_build_l0_surfaces_imported_state(store: Path, tmp_path: Path):
         },
     )
 
-    _import_memory_bank(mb, store)
+    _import_memory_bank(mb, scaffolded_store)
 
-    payload = build_l0_payload(store)
+    payload = build_l0_payload(scaffolded_store)
     assert "L0_ACTIVE_MARKER" in payload
     assert "L0_PROGRESS_MARKER" in payload
 
 
-def test_progress_only_no_active_context(store: Path, tmp_path: Path):
+def test_progress_only_no_active_context(scaffolded_store: Path, tmp_path: Path):
     mb = _mb_with(
         tmp_path,
         ".context_progress_no_active",
         **{"progress.md": "# Progress\n\n- Only progress here\n"},
     )
 
-    _import_memory_bank(mb, store)
+    _import_memory_bank(mb, scaffolded_store)
 
-    state_current = (store / "state_current.md").read_text()
+    state_current = (scaffolded_store / "state_current.md").read_text()
     # State delta starts directly with the section header — no leading body.
     body_after_wrapper = state_current.split("# Current State", 1)[1].lstrip()
     assert body_after_wrapper.startswith("## Recently completed")
 
 
-def test_active_only_no_progress(store: Path, tmp_path: Path):
+def test_active_only_no_progress(scaffolded_store: Path, tmp_path: Path):
     mb = _mb_with(
         tmp_path,
         ".context_active_no_progress",
         **{"activeContext.md": "# Active Context\n\nJust active body.\n"},
     )
 
-    _import_memory_bank(mb, store)
+    _import_memory_bank(mb, scaffolded_store)
 
-    state_current = (store / "state_current.md").read_text()
+    state_current = (scaffolded_store / "state_current.md").read_text()
     assert "Just active body." in state_current
     assert "## Recently completed" not in state_current
 
 
-def test_neither_active_nor_progress_no_state_update(store: Path, tmp_path: Path):
+def test_neither_active_nor_progress_no_state_update(scaffolded_store: Path, tmp_path: Path):
     """Only projectBrief — no update_state call, scaffolded state_current.md untouched.
 
     When neither activeContext nor progress is imported, update_state is
     skipped entirely; the placeholder state_current.md from scaffold_project_store
     must remain unchanged.
     """
-    state_before = (store / "state_current.md").read_text()
+    state_before = (scaffolded_store / "state_current.md").read_text()
     mb = _mb_with(tmp_path, ".context_brief_only")  # only projectBrief.md
 
-    _import_memory_bank(mb, store)
+    _import_memory_bank(mb, scaffolded_store)
 
-    assert (store / "state_current.md").read_text() == state_before
-    assert not (store / "state.md").exists()
+    assert (scaffolded_store / "state_current.md").read_text() == state_before
+    assert not (scaffolded_store / "state.md").exists()
 
 
 def test_import_progress_returns_parsed_items():
@@ -565,15 +561,15 @@ def nygard_directory(tmp_path: Path) -> Path:
     return adr_dir
 
 
-def test_import_madr_format(store: Path, madr_directory: Path):
+def test_import_madr_format(scaffolded_store: Path, madr_directory: Path):
     """Test import of 3 MADR-format ADR files."""
-    counts = _import_adrs(madr_directory, store)
+    counts = _import_adrs(madr_directory, scaffolded_store)
 
     assert counts["imported"] == 3
     assert counts["skipped"] == 0
 
     # Check decisions were created (001 from scaffold + 3 imported)
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 4
 
     # Verify ordering preserved (postgres before react before redis)
@@ -592,14 +588,14 @@ def test_import_madr_format(store: Path, madr_directory: Path):
     assert "In-process cache" in redis_content
 
 
-def test_import_nygard_format(store: Path, nygard_directory: Path):
+def test_import_nygard_format(scaffolded_store: Path, nygard_directory: Path):
     """Test import of Nygard-format ADR files with status-based confidence."""
-    counts = _import_adrs(nygard_directory, store)
+    counts = _import_adrs(nygard_directory, scaffolded_store)
 
     assert counts["imported"] == 2
     assert counts["skipped"] == 0
 
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 3  # 001 scaffold + 2 imported
 
     # First ADR has "Accepted" status → high confidence
@@ -637,18 +633,18 @@ def h3_adr_directory(tmp_path: Path) -> Path:
     return adr_dir
 
 
-def test_import_h3_heading_adr(store: Path, h3_adr_directory: Path):
+def test_import_h3_heading_adr(scaffolded_store: Path, h3_adr_directory: Path):
     """h3-heading ADRs (h1 title + ### sections) capture rationale and status.
 
     Before the fix ### sections were not matched, so these imported title-only
     with rationale None and default (medium) confidence.
     """
-    counts = _import_adrs(h3_adr_directory, store)
+    counts = _import_adrs(h3_adr_directory, scaffolded_store)
 
     assert counts["imported"] == 1
     assert counts["skipped"] == 0
 
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 2  # 001 scaffold + 1 imported
 
     content = decisions[1].read_text()
@@ -698,7 +694,7 @@ def test_extract_section_prefers_h2_over_earlier_h3():
     assert _extract_section(content, "Context") == "The real top-level context body."
 
 
-def test_import_skips_non_adr_markdown(store: Path, tmp_path: Path):
+def test_import_skips_non_adr_markdown(scaffolded_store: Path, tmp_path: Path):
     """Test that non-ADR markdown files in the directory are skipped."""
     adr_dir = tmp_path / "mixed_dir"
     adr_dir.mkdir()
@@ -712,27 +708,27 @@ def test_import_skips_non_adr_markdown(store: Path, tmp_path: Path):
     (adr_dir / "template.md").write_text("# Template\n\nADR template.\n")
     (adr_dir / "index.md").write_text("# Index\n\n- ADR 1\n")
 
-    counts = _import_adrs(adr_dir, store)
+    counts = _import_adrs(adr_dir, scaffolded_store)
 
     assert counts["imported"] == 1
     assert counts["skipped"] == 0
 
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 2  # 001 scaffold + 1 imported
 
 
-def test_import_adr_empty_directory(store: Path, tmp_path: Path):
+def test_import_adr_empty_directory(scaffolded_store: Path, tmp_path: Path):
     """Test import from empty directory."""
     empty_dir = tmp_path / "empty_adrs"
     empty_dir.mkdir()
 
-    counts = _import_adrs(empty_dir, store)
+    counts = _import_adrs(empty_dir, scaffolded_store)
 
     assert counts["imported"] == 0
     assert counts["skipped"] == 0
 
     # Only scaffold decision should exist
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 1
 
 
@@ -757,7 +753,7 @@ def test_import_adr_cli_integration(tmp_path: Path, monkeypatch, madr_directory:
 # --- Hardening: non-UTF-8 sources and honest zero-import warnings ---
 
 
-def test_import_adr_non_utf8_does_not_crash(store: Path, tmp_path: Path):
+def test_import_adr_non_utf8_does_not_crash(scaffolded_store: Path, tmp_path: Path):
     """A legacy-encoded byte in an ADR file must not abort the migration."""
     adr_dir = tmp_path / "legacy_adrs"
     adr_dir.mkdir()
@@ -766,7 +762,7 @@ def test_import_adr_non_utf8_does_not_crash(store: Path, tmp_path: Path):
         b"# Use a legacy thing\n\n## Context\n\nThe caf" + b"\xe9" + b" service is slow.\n"
     )
 
-    counts = _import_adrs(adr_dir, store)
+    counts = _import_adrs(adr_dir, scaffolded_store)
     assert counts["imported"] == 1  # no UnicodeDecodeError; the ADR imports
 
 
@@ -938,7 +934,9 @@ def test_strict_extractor_keeps_rejection_that_narrates_revisiting():
     assert [e["alternative"] for e in result] == ["A shared connection pool"]
 
 
-def test_strict_extractor_import_omits_rejected_when_none_named(store: Path, tmp_path: Path):
+def test_strict_extractor_import_omits_rejected_when_none_named(
+    scaffolded_store: Path, tmp_path: Path
+):
     """On the strict path, an ADR with no alternatives section imports a
     decision with no rejected list — no placeholder reason."""
     adr_dir = tmp_path / "strict_adrs"
@@ -948,25 +946,25 @@ def test_strict_extractor_import_omits_rejected_when_none_named(store: Path, tmp
         "## Consequences\n\n- Good, it is simple\n"
     )
 
-    counts = _import_adrs(adr_dir, store, strict_alternatives=True)
+    counts = _import_adrs(adr_dir, scaffolded_store, strict_alternatives=True)
     assert counts["imported"] == 1
 
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     imported = decisions[1].read_text()
     # No fabricated placeholder reason leaks onto the strict path.
     assert "Rejected reason not available in source ADR." not in imported
     assert "## Rejected Alternatives" not in imported
 
 
-def test_strict_extractor_import_records_named_rejections(store: Path):
+def test_strict_extractor_import_records_named_rejections(scaffolded_store: Path):
     """The strict path imports the fixture's two named rejections with
     their verbatim reasons and skips the conditional option."""
     adr_dir = FIXTURES / "adr"
 
-    counts = _import_adrs(adr_dir, store, strict_alternatives=True)
+    counts = _import_adrs(adr_dir, scaffolded_store, strict_alternatives=True)
     assert counts["imported"] == 1
 
-    decisions = sorted((store / "decisions").glob("*.md"))
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     imported = decisions[1].read_text()
     assert "## Rejected Alternatives" in imported
     assert "### Keep CLI-Only Embedded Access" in imported

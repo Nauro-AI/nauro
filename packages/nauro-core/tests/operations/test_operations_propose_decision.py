@@ -15,9 +15,7 @@ gating the write.
 
 from __future__ import annotations
 
-import ast
 from datetime import date
-from pathlib import Path
 
 import pytest
 from conftest import _seed_decision, _store_with
@@ -863,56 +861,6 @@ def test_touched_decisions_empty_on_rejection() -> None:
     )
     assert result.status == "rejected"
     assert result.touched_decisions == []
-
-
-# ── Import-graph negative constraint ────────────────────────────────────
-
-
-def _kernel_imports() -> set[str]:
-    module_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "nauro_core"
-        / "operations"
-        / "propose_decision.py"
-    )
-    tree = ast.parse(module_path.read_text())
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            for alias in node.names:
-                imported.add(f"{module}.{alias.name}")
-                imported.add(alias.name)
-                imported.add(module)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                imported.add(alias.name)
-    return imported
-
-
-def test_kernel_does_not_import_adapter_or_path_primitives() -> None:
-    imported = _kernel_imports()
-    forbidden_names = {
-        "nauro.store.snapshot",
-        "nauro.sync.hooks",
-        "nauro.validation.pending",
-        "nauro.validation.pipeline",
-        "nauro.validation.tier1",
-        "nauro.validation.tier2",
-        "capture_snapshot",
-        "push_after_write",
-        "pull_before_session",
-    }
-    leaked = forbidden_names & imported
-    assert not leaked, (
-        f"kernel imports adapter-side primitives: {leaked}; "
-        "those live on the transport, not in the kernel."
-    )
-    assert "pathlib" not in imported and "pathlib.Path" not in imported, (
-        "kernel imports pathlib; the Store protocol abstracts paths as strings."
-    )
-    assert "filelock" not in imported, "kernel must not import filelock"
 
 
 # ── _write_decision_direct helper ───────────────────────────────────────

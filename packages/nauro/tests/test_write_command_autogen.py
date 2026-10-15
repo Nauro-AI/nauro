@@ -32,7 +32,6 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.mcp import tools as mcp_tools
-from nauro.store import post_commit as post_commit_module
 from tests._ansi import strip_ansi
 from tests._writer_compat import append_decision
 from tests.conftest import active_decision_markdown, register_v2_repo
@@ -40,22 +39,7 @@ from tests.conftest import active_decision_markdown, register_v2_repo
 runner = CliRunner()
 
 
-@pytest.fixture(autouse=True)
-def _no_push(monkeypatch):
-    """Suppress the best-effort cloud push so the CLI layer stays local."""
-    monkeypatch.setattr(mcp_tools, "_try_push", lambda _store_path: None)
-
-
-@pytest.fixture(autouse=True)
-def _no_regen(monkeypatch):
-    """Suppress AGENTS.md regen so the CLI layer stays local."""
-    monkeypatch.setattr(post_commit_module, "warn_then_regen", lambda *args, **kwargs: [])
-
-
-@pytest.fixture(autouse=True)
-def _no_snapshot(monkeypatch):
-    """Suppress snapshot capture so the CLI layer doesn't touch snapshots/."""
-    monkeypatch.setattr(post_commit_module, "capture_snapshot", lambda *args, **kwargs: None)
+pytestmark = pytest.mark.usefixtures("local_only_writes")
 
 
 @pytest.fixture

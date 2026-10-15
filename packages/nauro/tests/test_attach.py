@@ -27,10 +27,6 @@ runner = CliRunner()
 EXAMPLE_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 
 
-def _seed_token(monkeypatch, tmp_path):
-    seed_auth_config()
-
-
 def _list_response(projects):
     def handler(method, url, **kwargs):
         return httpx.Response(200, json=projects, request=httpx.Request(method, url))
@@ -45,7 +41,7 @@ def _restore_project(_project_id, destination, _reporter=None):
 
 def test_attach_happy_path(tmp_path, monkeypatch):
     """A member of the cloud project gets a v2 entry + cloud-mode repo config."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
@@ -86,7 +82,7 @@ def test_attach_happy_path(tmp_path, monkeypatch):
 
 
 def test_attach_preserves_hand_authored_agents_md(tmp_path, monkeypatch):
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
     sentinel = b"# Team agent rules\n\nKeep these instructions.\n"
@@ -219,7 +215,7 @@ def test_attach_symlink_refusal_precedes_collision_check(tmp_path, monkeypatch):
 
 def test_attach_non_member_writes_nothing(tmp_path, monkeypatch):
     """When the user is not a member, the registry and config are untouched."""
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
 
@@ -240,7 +236,7 @@ def test_attach_scaffolds_empty_store_when_cloud_record_is_empty(tmp_path, monke
     keeps attach's contract: the store directory is created empty, the repo
     config is written, and files arrive via sync.
     """
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
     handler = _list_response(
@@ -279,7 +275,7 @@ def test_attach_missing_record_keeps_hard_error_on_empty_cloud(tmp_path, monkeyp
     an empty remote must stay a hard stop, never a silently scaffolded blank
     directory standing in for the lost record.
     """
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("NAURO_API_URL", "https://example.test")
     registry.save_registry_v2(
@@ -327,7 +323,7 @@ def test_attach_reconciles_server_side_rename(tmp_path, monkeypatch):
     server-side rename — membership verification makes the cloud name
     authoritative for cloud-mode projects.
     """
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     repo = tmp_path / "second-repo"
     repo.mkdir()
     monkeypatch.chdir(repo)
@@ -369,7 +365,7 @@ def test_attach_reconciles_server_side_rename(tmp_path, monkeypatch):
 
 
 def test_attach_restore_failure_writes_no_registry_or_repo_config(tmp_path, monkeypatch):
-    _seed_token(monkeypatch, tmp_path)
+    seed_auth_config()
     monkeypatch.chdir(tmp_path)
     handler = _list_response(
         [

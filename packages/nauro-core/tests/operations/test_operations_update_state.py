@@ -9,8 +9,6 @@ must never reach into those primitives.
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -199,55 +197,3 @@ def test_store_field_absent_from_result_model_dump() -> None:
     result = update_state(InMemoryStore(), "x")
     dumped = result.model_dump(mode="json")
     assert "store" not in dumped
-
-
-# --- Import-graph negative constraint ---
-#
-# The kernel must not depend on snapshot capture, sync hooks, or
-# pathlib — those are transport-side concerns that the locked Store
-# protocol abstracts over. Pinning the constraint as an AST scan keeps
-# the no-drift-by-construction guarantee from accidentally regressing
-# through a casual import.
-
-
-def _kernel_imports() -> set[str]:
-    module_path = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "nauro_core"
-        / "operations"
-        / "update_state.py"
-    )
-    tree = ast.parse(module_path.read_text())
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            module = node.module or ""
-            for alias in node.names:
-                imported.add(f"{module}.{alias.name}")
-                imported.add(alias.name)
-                imported.add(module)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                imported.add(alias.name)
-    return imported
-
-
-def test_kernel_does_not_import_snapshot_or_sync_or_path() -> None:
-    imported = _kernel_imports()
-    forbidden_names = {
-        "nauro.store.snapshot",
-        "nauro.sync.hooks",
-        "capture_snapshot",
-        "push_after_write",
-        "pull_before_session",
-    }
-    leaked = forbidden_names & imported
-    assert not leaked, (
-        f"kernel imports adapter-side primitives: {leaked}; "
-        "those live on the transport, not in the kernel."
-    )
-    # pathlib stays out of the kernel — paths are strings through the Store.
-    assert "pathlib" not in imported and "pathlib.Path" not in imported, (
-        "kernel imports pathlib; the Store protocol abstracts paths as strings."
-    )

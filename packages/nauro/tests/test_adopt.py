@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -15,27 +14,13 @@ from nauro.cli.main import app
 from nauro.skills import load_adopt_body
 from nauro.store.registry import add_repo_v2, find_projects_by_name_v2, register_project_v2
 from nauro.store.repo_config import load_repo_config, save_repo_config
+from tests.conftest import adopt_env, git_init
 
 runner = CliRunner()
 
 
-def _git_init(repo: Path) -> None:
-    """Initialize a git repo. ``adopt`` refuses non-git directories."""
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-
-
-def _adopt_env(monkeypatch, tmp_path: Path) -> Path:
-    """Set up an isolated NAURO_HOME + HOME for adopt tests."""
-    monkeypatch.setenv("HOME", str(tmp_path))  # diverts ~/.claude, ~/.codex, ~/.agents
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    _git_init(repo)
-    monkeypatch.chdir(repo)
-    return repo
-
-
 def test_adopt_creates_v2_project_and_writes_repo_config(tmp_path: Path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -57,7 +42,7 @@ def test_adopt_creates_v2_project_and_writes_repo_config(tmp_path: Path, monkeyp
 
 
 def test_adopt_uses_repo_basename_when_name_omitted(tmp_path: Path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt"])
     assert result.exit_code == 0, result.output
@@ -81,7 +66,7 @@ def test_adopt_from_home_is_refused(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("NAURO_HOME", str(nauro_home))
     sentinel = '{"auth": {"access_token": "keep-me"}}\n'
     (nauro_home / "config.json").write_text(sentinel)
-    _git_init(home)
+    git_init(home)
     monkeypatch.chdir(home)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
@@ -100,7 +85,7 @@ def test_adopt_refuses_symlinked_repo_config_before_registering(tmp_path: Path, 
     The refusal fires before ``register_project_v2``, so the registry gains
     no entry that would then need manual cleanup.
     """
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     (repo / ".nauro").mkdir()
     (repo / ".nauro" / "config.json").symlink_to(tmp_path / "attacker-target.json")
 
@@ -119,13 +104,13 @@ def _planted_adoption(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path))
     victim = tmp_path / "victim"
     victim.mkdir()
-    _git_init(victim)
+    git_init(victim)
     monkeypatch.chdir(victim)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
 
     attack = tmp_path / "attack"
     (attack / ".nauro").mkdir(parents=True)
-    _git_init(attack)
+    git_init(attack)
     (attack / ".nauro" / "config.json").symlink_to(victim / ".nauro" / "config.json")
     monkeypatch.chdir(attack)
     return attack
@@ -163,7 +148,7 @@ def test_adopt_plain_refuses_planted_config_link(tmp_path: Path, monkeypatch):
 
 
 def test_adopt_aborts_when_repo_already_adopted(tmp_path: Path, monkeypatch):
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
     runner.invoke(app, ["adopt", "--name", "alpha"])
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
@@ -181,7 +166,7 @@ def test_adopt_already_adopted_with_subagents_installs_instead_of_aborting(
     subagents rather than dead-ending on the already-adopted guard."""
     from nauro.agents import AGENT_NAMES
 
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
     first = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert first.exit_code == 0, first.output
     # Fresh adopt without the flag installs no subagents.
@@ -206,7 +191,7 @@ def test_adopt_already_adopted_with_subagents_installs_instead_of_aborting(
 def test_adopt_already_adopted_with_skills_installs_and_notices(tmp_path: Path, monkeypatch):
     """`adopt --with-skills` on an already-adopted repo installs the opt-in skill
     and emits the needs-subagents notice."""
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
     assert runner.invoke(app, ["adopt", "--name", "alpha"]).exit_code == 0
 
     result = runner.invoke(app, ["adopt", "--with-skills"])
@@ -217,14 +202,14 @@ def test_adopt_already_adopted_with_skills_installs_and_notices(tmp_path: Path, 
 def test_adopt_already_adopted_installs_cursor_agents_in_every_registered_repo(
     tmp_path: Path, monkeypatch
 ):
-    repo_one = _adopt_env(monkeypatch, tmp_path)
+    repo_one = adopt_env(monkeypatch, tmp_path)
     first = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert first.exit_code == 0, first.output
 
     config = load_repo_config(repo_one)
     repo_two = tmp_path / "repo-two"
     repo_two.mkdir()
-    _git_init(repo_two)
+    git_init(repo_two)
     add_repo_v2(config["id"], repo_two)
     save_repo_config(repo_two, config)
 
@@ -246,7 +231,7 @@ def test_adopt_aborts_on_same_name_collision(tmp_path: Path, monkeypatch):
 
     new_repo = tmp_path / "alpha"
     new_repo.mkdir()
-    _git_init(new_repo)
+    git_init(new_repo)
     monkeypatch.chdir(new_repo)
 
     result = runner.invoke(app, ["adopt"])  # infers name="alpha", collides
@@ -274,7 +259,7 @@ def test_collision_message_picks_first_repo_deterministically(tmp_path: Path, mo
 
     new_repo = tmp_path / "alpha"
     new_repo.mkdir()
-    _git_init(new_repo)
+    git_init(new_repo)
     monkeypatch.chdir(new_repo)
 
     # Run twice — same surfaced path each time (deterministic).
@@ -303,7 +288,7 @@ def test_adopt_print_prompt_conflicts_with_other_flags(tmp_path: Path, monkeypat
 
 
 def test_adopt_no_setup_and_skills_skips_wiring(tmp_path: Path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--no-setup-and-skills"])
     assert result.exit_code == 0, result.output
@@ -317,7 +302,7 @@ def test_adopt_no_setup_and_skills_skips_wiring(tmp_path: Path, monkeypatch):
 
 
 def test_adopt_warns_for_unignored_repo_config(tmp_path: Path, monkeypatch):
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--no-setup-and-skills"])
     assert result.exit_code == 0, result.output
@@ -326,7 +311,7 @@ def test_adopt_warns_for_unignored_repo_config(tmp_path: Path, monkeypatch):
 
 
 def test_adopt_materializes_skills_across_surfaces(tmp_path: Path, monkeypatch):
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -369,7 +354,7 @@ def _cursor_agent_path(repo: Path, agent: str) -> Path:
 
 def test_adopt_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
     """``nauro adopt`` without ``--with-subagents`` must not write any nauro-* agents."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -382,7 +367,7 @@ def test_adopt_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
 
 def test_adopt_with_subagents_installs_all_four(tmp_path: Path, monkeypatch):
     """``--with-subagents`` materializes every bundled agent byte-equal to render_agent()."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
     assert result.exit_code == 0, result.output
@@ -403,7 +388,7 @@ def test_adopt_with_subagents_refreshes_differing_file_with_backup(tmp_path: Pat
     common case) is replaced with the current one. The displaced content is
     recoverable from ``nauro-planner.md.bak`` for the rare hand-edit.
     """
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
     custom = "---\nname: nauro-planner\n---\n\ncustom body\n"
     target = _agent_path(tmp_path, "nauro-planner")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -421,7 +406,7 @@ def test_adopt_with_subagents_refreshes_differing_file_with_backup(tmp_path: Pat
 
 def test_adopt_with_subagents_force_overwrite_skips_backup(tmp_path: Path, monkeypatch):
     """``--force-overwrite`` replaces a differing bundled agent in place, writing no .bak."""
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
     custom = "---\nname: nauro-planner\n---\n\ncustom body\n"
     target = _agent_path(tmp_path, "nauro-planner")
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -442,7 +427,7 @@ def test_with_subagents_reinstall_is_idempotent(tmp_path: Path, monkeypatch):
     Driven via ``setup all`` (re-runnable) rather than ``adopt`` (which refuses
     an already-adopted repo); the materialize-agents code path is shared.
     """
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
 
     first = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
     assert first.exit_code == 0, first.output
@@ -464,7 +449,7 @@ def test_adopt_with_subagents_does_not_touch_user_authored_planner_md(tmp_path: 
     ``planner`` from a different source — or who wrote their own — must
     not have their files replaced when they opt in to Nauro's bundle.
     """
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
     user_planner = tmp_path / ".claude" / "agents" / "planner.md"
     user_planner.parent.mkdir(parents=True, exist_ok=True)
     original = "---\nname: planner\n---\n\nuser's own planner body\n"
@@ -502,7 +487,7 @@ def _ship_task_paths(home: Path, repo: Path) -> tuple[Path, Path, Path]:
 
 def test_adopt_default_does_not_install_ship_task_skill(tmp_path: Path, monkeypatch):
     """Bare ``nauro adopt`` (no ``--with-skills``) leaves nauro-ship-task uninstalled."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -519,7 +504,7 @@ def test_adopt_with_skills_installs_ship_task_across_surfaces(tmp_path: Path, mo
     """``--with-skills`` materializes nauro-ship-task byte-equal to render_skill()."""
     from nauro.skills import render_skill
 
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
     assert result.exit_code == 0, result.output
@@ -535,7 +520,7 @@ def test_adopt_with_skills_installs_ship_task_across_surfaces(tmp_path: Path, mo
 
 def test_adopt_with_skills_without_subagents_emits_notice(tmp_path: Path, monkeypatch):
     """The ship-task skill requires the workflow agents, so the install path warns."""
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
     assert result.exit_code == 0, result.output
@@ -544,7 +529,7 @@ def test_adopt_with_skills_without_subagents_emits_notice(tmp_path: Path, monkey
 
 def test_adopt_with_skills_and_subagents_does_not_emit_notice(tmp_path: Path, monkeypatch):
     """When both flags are passed, the notice is suppressed — prerequisites met."""
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills", "--with-subagents"])
     assert result.exit_code == 0, result.output
@@ -558,7 +543,7 @@ def test_adopt_remove_clears_ship_task_when_last_project(tmp_path: Path, monkeyp
     setup all --remove``, which shares ``materialize_skills_*`` with adopt's
     install path. Verify the round-trip on the new bundled skill.
     """
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     install = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
     assert install.exit_code == 0, install.output
@@ -585,7 +570,7 @@ def _loop_paths(home: Path, repo: Path) -> tuple[Path, Path, Path]:
 
 def test_adopt_default_does_not_install_loop_skill(tmp_path: Path, monkeypatch):
     """Bare ``nauro adopt`` (no ``--with-skills``) leaves nauro-loop uninstalled."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -600,7 +585,7 @@ def test_adopt_with_skills_installs_loop_across_surfaces(tmp_path: Path, monkeyp
     """``--with-skills`` materializes nauro-loop byte-equal to render_skill()."""
     from nauro.skills import render_skill
 
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
     assert result.exit_code == 0, result.output
@@ -628,7 +613,7 @@ def test_adopt_print_prompt_conflicts_with_with_skills(tmp_path: Path, monkeypat
 
 def test_adopt_writes_agents_md(tmp_path: Path, monkeypatch):
     """`adopt` produces AGENTS.md from the freshly-scaffolded store."""
-    repo = _adopt_env(monkeypatch, tmp_path)
+    repo = adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -662,7 +647,7 @@ def test_adopt_refuses_non_git_directory(tmp_path: Path, monkeypatch):
 
 def test_adopt_in_git_directory_fully_wires(tmp_path: Path, monkeypatch):
     """`adopt` in a git'd directory exits 0 and wires the surfaces (regression)."""
-    repo = _adopt_env(monkeypatch, tmp_path)  # _adopt_env now git-inits
+    repo = adopt_env(monkeypatch, tmp_path)  # adopt_env git-inits the repo
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -678,7 +663,7 @@ def test_adopt_in_git_directory_fully_wires(tmp_path: Path, monkeypatch):
 
 def test_adopt_with_subagents_names_connector_requirement(tmp_path: Path, monkeypatch):
     """`adopt --with-subagents` names the required cloud connector name."""
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
     assert result.exit_code == 0, result.output
@@ -687,7 +672,7 @@ def test_adopt_with_subagents_names_connector_requirement(tmp_path: Path, monkey
 
 def test_adopt_without_subagents_omits_connector_notice(tmp_path: Path, monkeypatch):
     """No connector-name notice when subagents are not installed."""
-    _adopt_env(monkeypatch, tmp_path)
+    adopt_env(monkeypatch, tmp_path)
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output

@@ -13,7 +13,6 @@ Setup and removal also retain the per-store migration lock when they acquire it.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,7 +25,7 @@ from nauro.store.migration_admission import migration_lock_path
 from nauro.store.registry import register_project_v2
 from nauro.sync import cloud_projects
 from nauro.templates.scaffolds import scaffold_project_store
-from tests.conftest import seed_auth_config, snapshot_tree
+from tests.conftest import git_init, seed_auth_config, snapshot_tree
 
 runner = CliRunner()
 
@@ -37,21 +36,13 @@ EXAMPLE_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 BOOKKEEPING = {"registry.json", "registry.lock"}
 
 
-@pytest.fixture(autouse=True)
-def _isolated_home(tmp_path: Path, monkeypatch):
-    """Keep user-scoped artifact writes inside the test directory."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path))
-
-
-def _git_init(repo: Path) -> None:
-    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+pytestmark = pytest.mark.usefixtures("home_at_tmp_path")
 
 
 def _make_git_repo(tmp_path: Path, monkeypatch) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    _git_init(repo)
+    git_init(repo)
     monkeypatch.chdir(repo)
     return repo
 

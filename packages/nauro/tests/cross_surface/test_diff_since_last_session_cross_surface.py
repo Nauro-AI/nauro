@@ -36,12 +36,6 @@ pytest.importorskip("moto", reason="moto needed for in-memory S3.")
 # installed; ruff E402 does not apply here.
 from nauro_core.operations import diff_since_last_session  # noqa: E402
 
-from nauro.store.filesystem_store import FilesystemStore  # noqa: E402
-from tests.conftest import (  # noqa: E402
-    CROSS_SURFACE_PROJECT_ID,
-    moto_s3_bucket,
-)
-
 CloudStore = cloud_store_module.CloudStore
 
 
@@ -65,15 +59,6 @@ LATEST_SNAPSHOT: dict = {
         "decisions/001-adopt-postgres.md": "# Adopt Postgres\n\nReasoned.\n",
     },
 }
-
-
-@pytest.fixture
-def both_stores(tmp_path, monkeypatch):
-    """Yield a (FilesystemStore, CloudStore) pair — kernel ignores both."""
-    with moto_s3_bucket(monkeypatch):
-        fs_store = FilesystemStore(tmp_path)
-        cloud = CloudStore(CROSS_SURFACE_PROJECT_ID)
-        yield fs_store, cloud
 
 
 def test_diff_result_matches_across_stores(both_stores):

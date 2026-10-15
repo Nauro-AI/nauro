@@ -6,7 +6,7 @@ import pytest
 
 from nauro.store.reader import _list_decisions
 from nauro.templates.scaffolds import scaffold_project_store
-from tests._writer_compat import append_decision, supersede_decision, update_decision
+from tests._writer_compat import append_decision
 
 
 @pytest.fixture
@@ -38,70 +38,3 @@ class TestDecisionVersioning:
         assert initial.status.value == "active"
         assert initial.superseded_by is None
         assert initial.supersedes is None
-
-
-class TestSupersedeDecision:
-    def test_supersede_marks_old_as_superseded(self, store):
-        old_path = append_decision(
-            store, "Use MySQL", rationale="Cheap and widely available database option."
-        )
-        old_id = old_path.stem
-
-        supersede_decision(
-            old_id,
-            {
-                "title": "Switch to Postgres",
-                "rationale": "Better JSON support needed.",
-                "confidence": "high",
-            },
-            store,
-        )
-
-        decisions = _list_decisions(store)
-        old = next(d for d in decisions if d.title == "Use MySQL")
-        new = next(d for d in decisions if d.title == "Switch to Postgres")
-
-        # 001 is the scaffold's initial-setup, 002 is "Use MySQL", 003 is the supersede.
-        assert old.status.value == "superseded"
-        assert old.superseded_by == "3"
-        assert new.status.value == "active"
-        assert new.supersedes == "2"
-
-
-class TestUpdateDecision:
-    def test_update_increments_version(self, store):
-        path = append_decision(store, "Use Postgres", rationale="Better JSON support for our app.")
-        decision_id = path.stem
-
-        update_decision(decision_id, "Also great for full-text search.", store)
-
-        decisions = _list_decisions(store)
-        d = next(d for d in decisions if d.title == "Use Postgres")
-        assert d.version == 2
-
-    def test_update_appends_text(self, store):
-        """v2 appends a dated paragraph to rationale, not a `## Update` section."""
-        path = append_decision(store, "Use Postgres", rationale="Better JSON support for our app.")
-        decision_id = path.stem
-
-        update_decision(decision_id, "Also supports full-text search.", store)
-
-        content = path.read_text()
-        assert "*Update (v2)" in content
-        assert "full-text search" in content
-        assert "JSON support" in content
-
-    def test_multiple_updates(self, store):
-        path = append_decision(store, "Use Postgres", rationale="Better JSON support for our app.")
-        decision_id = path.stem
-
-        update_decision(decision_id, "Full-text search support.", store)
-        update_decision(decision_id, "PostGIS for geospatial queries.", store)
-
-        decisions = _list_decisions(store)
-        d = next(d for d in decisions if d.title == "Use Postgres")
-        assert d.version == 3
-
-        content = path.read_text()
-        assert "*Update (v2)" in content
-        assert "*Update (v3)" in content

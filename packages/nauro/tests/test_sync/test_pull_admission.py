@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import shutil
-import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -36,6 +35,7 @@ from nauro.sync.hooks import pull_before_session
 from nauro.sync.merge import CONFLICT_BACKUP_DIR
 from nauro.sync.pull import PullReport, _Transfer, run_pull
 from nauro.sync.state import SYNC_STATE_FILE, FileState, SyncState, load_state, save_state
+from tests.directory_links import LINK_KINDS, link_directory, require_link_kind
 from tests.test_sync.conftest import (
     CLOUD_PID,
     _manifest,
@@ -45,13 +45,13 @@ from tests.test_sync.conftest import (
     _seed_token,
     decision_bytes,
     entry_names,
+    is_reserved,
     patched_remote_get,
     pull_report,
     track,
 )
 
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="POSIX filename semantics")
-LINK_KINDS = ["symlink", "junction"]
 
 ROOT_TEXT = "The Store root is unavailable."
 OUTSIDE_TEXT = "The path resolves outside the Store root."
@@ -115,14 +115,6 @@ def _control_entries(store) -> set[str]:
     return {name for name in entry_names(store) if name.casefold().startswith(".replica")}
 
 
-def _is_reserved(value) -> bool:
-    for part in str(value).replace("\\", "/").split("/"):
-        folded = part.split(":", 1)[0].strip(" ").rstrip(" .").casefold()
-        if folded in {_REPLICA_CONTROL_ROOT_NAME, _REPLICA_CONTROL_LOCK_NAME}:
-            return True
-    return False
-
-
 def _strand(path: Path, *, age_seconds: float = 600.0) -> Path:
     """Leave a tmp sibling of ``path`` behind, as a killed write would."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,27 +152,10 @@ def _forbid_target(monkeypatch, target: Path) -> None:
     monkeypatch.setattr(pull_module, "atomic_write_bytes", write)
 
 
-def _link(link: Path, target: Path, kind: str) -> None:
-    """Point ``link`` at ``target`` as a symlink or as a Windows junction."""
-    if kind == "junction":
-        subprocess.run(
-            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
-            check=True,
-            capture_output=True,
-        )
-        return
-    link.symlink_to(target, target_is_directory=True)
-
-
-def _require_link_kind(kind: str) -> None:
-    if (kind == "junction") != (sys.platform == "win32"):
-        pytest.skip(f"{kind} is not this platform's directory link")
-
-
 def _link_decisions(store: Path, target: str, kind: str = "symlink") -> None:
     """Replace ``decisions/`` with a directory link at ``target``."""
     shutil.rmtree(store / DECISIONS_DIR)
-    _link(store / DECISIONS_DIR, store / target, kind)
+    link_directory(store / DECISIONS_DIR, store / target, kind)
 
 
 def _alias_decisions(store: Path, kind: str = "symlink") -> Path:
@@ -234,7 +209,7 @@ def forbid_control_access(monkeypatch):
     real_resolve = pull_module.resolve_destination
 
     def check(value) -> None:
-        if _is_reserved(value):
+        if is_reserved(value):
             pytest.fail(f"reached {value!r}")
 
     def lstat(path, *args, **kwargs):
@@ -730,7 +705,7 @@ GATED_ROWS = [(NOTE, b"note\n"), (DECISION_ROW, decision_bytes(3, "Remote"))]
 
 @pytest.mark.parametrize("kind", LINK_KINDS)
 def test_a_decisions_link_over_context_refuses_every_row_it_aliases(store, kind):
-    _require_link_kind(kind)
+    require_link_kind(kind)
     _link_decisions(store, "context", kind)
 
     report, reporter, operations = _run(store, GATED_ROWS)
@@ -747,7 +722,7 @@ def test_a_decisions_link_over_context_refuses_every_row_it_aliases(store, kind)
 
 @pytest.mark.parametrize("kind", LINK_KINDS)
 def test_a_linked_decisions_directory_refuses_the_decision_row_alone(store, kind):
-    _require_link_kind(kind)
+    require_link_kind(kind)
     aliased = _alias_decisions(store, kind)
 
     report, reporter, operations = _run(store, GATED_ROWS)
@@ -763,7 +738,7 @@ def test_a_linked_decisions_directory_refuses_the_decision_row_alone(store, kind
 
 @pytest.mark.parametrize("kind", LINK_KINDS)
 def test_a_tracked_decision_is_refused_through_a_linked_decisions_directory(store, kind):
-    _require_link_kind(kind)
+    require_link_kind(kind)
     aliased = _alias_decisions(store, kind)
     local = decision_bytes(3, "Local")
     (aliased / "003-x.md").write_bytes(local)

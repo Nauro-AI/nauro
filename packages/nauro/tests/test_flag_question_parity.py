@@ -32,11 +32,7 @@ from nauro.mcp.stdio_server import flag_question as stdio_flag_question
 from nauro.mcp.tools import tool_flag_question
 from tests.conftest import active_decision_markdown, register_v2_repo
 
-
-@pytest.fixture(autouse=True)
-def _no_push(monkeypatch):
-    """Suppress the best-effort cloud push so the parity layer stays local."""
-    monkeypatch.setattr(mcp_tools, "_try_push", lambda _store_path: None)
+pytestmark = pytest.mark.usefixtures("no_cloud_push")
 
 
 @pytest.fixture
@@ -44,16 +40,6 @@ def seeded_repo(tmp_path, monkeypatch):
     """Register a project, scaffold the store, and chdir into the repo."""
     result = register_v2_repo(tmp_path, "parity-flag-question", monkeypatch=monkeypatch)
     return result.pid, result.store_path
-
-
-@pytest.fixture
-def missing_store(tmp_path, monkeypatch):
-    """A repo with no associated project store at all."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    nonexistent = tmp_path / "projects" / "nope"
-    monkeypatch.chdir(repo)
-    return nonexistent
 
 
 def _cli_envelope(args: list[str]) -> tuple[int, dict | None, str]:

@@ -16,7 +16,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
-import pytest
 
 from nauro.store.config import save_config
 from nauro.store.registry import register_project_v2
@@ -26,29 +25,17 @@ from nauro.sync.hooks import (
     push_after_write,
 )
 from nauro.sync.push import PushReport
-from nauro.sync.state import (
-    FileState,
-    SyncState,
-    compute_sha256,
-    load_state,
-    save_state,
-)
+from nauro.sync.state import load_state
 from nauro.templates.scaffolds import scaffold_project_store
-from tests.conftest import seed_auth_config
-from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project, patched_remote_get
-
-
-def _ok(status: int, payload: dict) -> httpx.Response:
-    return httpx.Response(
-        status,
-        content=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
-    )
-
-
-def _seed_token() -> None:
-    seed_auth_config(variant="sync")
-
+from tests.test_sync.conftest import (
+    CLOUD_PID,
+    _manifest,
+    _presign,
+    _scaffolded_cloud_project,
+    _seed_token,
+    patched_remote_get,
+    seed_synced_state,
+)
 
 # --- gating: silent no-op semantics ---
 
@@ -159,33 +146,8 @@ class TestSilentNoOpGating:
 
 
 class TestPullBeforeSessionPresign:
-    @pytest.fixture()
-    def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("pullproj", tmp_path, project_id=CLOUD_PID)
-        _seed_token()
-        return store
-
-    def _manifest(self, files, next_cursor=None):
-        return _ok(200, {"files": files, "next_cursor": next_cursor})
-
-    def _presign(self, ops):
-        return _ok(
-            200,
-            {
-                "urls": [
-                    {
-                        "verb": op["verb"],
-                        "path": op["path"],
-                        "url": f"https://s3.example/{op['verb']}/{op['path']}",
-                        "expires_at": "2026-05-16T13:00:00Z",
-                    }
-                    for op in ops
-                ]
-            },
-        )
-
     def test_empty_manifest_returns_zero_and_updates_last_sync(self, cloud_store):
-        empty = self._manifest([])
+        empty = _manifest([])
 
         with (
             patch("nauro.sync.remote.httpx.Client.get", return_value=empty),
@@ -200,10 +162,10 @@ class TestPullBeforeSessionPresign:
 
     def test_changed_remote_file_is_fetched_and_written(self, cloud_store):
         rel = "decisions/099-remote.md"
-        manifest = self._manifest(
+        manifest = _manifest(
             [{"path": rel, "etag": '"new"', "size": 1, "last_modified": "x"}],
         )
-        presign = self._presign([{"verb": "GET", "path": rel}])
+        presign = _presign([{"verb": "GET", "path": rel}])
 
         def fake_get(url, **kwargs):
             if "/sync/manifest" in url:
@@ -243,43 +205,8 @@ class TestPullBeforeSessionPresign:
 
 
 class TestPushAfterWritePresign:
-    @pytest.fixture()
-    def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("pushproj", tmp_path, project_id=CLOUD_PID)
-        _seed_token()
-        return store
-
-    def _seed_synced_state(self, store: Path) -> None:
-        state = SyncState()
-        for f in store.rglob("*"):
-            if not f.is_file():
-                continue
-            rel = str(f.relative_to(store))
-            state.files[rel] = FileState(
-                local_sha256=compute_sha256(f),
-                remote_etag='"e0"',
-                last_sync="2026-05-16T00:00:00Z",
-            )
-        save_state(store, state)
-
-    def _presign(self, ops):
-        return _ok(
-            200,
-            {
-                "urls": [
-                    {
-                        "verb": op["verb"],
-                        "path": op["path"],
-                        "url": f"https://s3.example/PUT/{op['path']}",
-                        "expires_at": "2026-05-16T13:00:00Z",
-                    }
-                    for op in ops
-                ]
-            },
-        )
-
     def test_no_local_changes_skips_presign_call(self, cloud_store):
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
 
         with (
             patch("nauro.sync.remote.httpx.Client.post") as mock_post,
@@ -292,7 +219,7 @@ class TestPushAfterWritePresign:
         mock_put.assert_not_called()
 
     def test_modified_file_minted_and_uploaded(self, cloud_store):
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         (cloud_store / "stack.md").write_text("new stack picks\n")
 
         put_response = MagicMock(spec=httpx.Response)
@@ -300,7 +227,7 @@ class TestPushAfterWritePresign:
         put_response.headers = {"ETag": '"e_pushed"'}
 
         def fake_post(url, **kwargs):
-            return self._presign(kwargs["json"]["operations"])
+            return _presign(kwargs["json"]["operations"])
 
         with (
             patch("nauro.sync.remote.httpx.Client.post", side_effect=fake_post) as mock_post,
@@ -318,7 +245,7 @@ class TestPushAfterWritePresign:
         assert state.files["stack.md"].remote_etag == '"e_pushed"'
 
     def test_push_swallows_presign_error(self, cloud_store):
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         (cloud_store / "stack.md").write_text("modified\n")
 
         bad = httpx.Response(500, content=b"server error")
@@ -328,7 +255,7 @@ class TestPushAfterWritePresign:
         assert result.is_complete is False
 
     def test_push_swallows_auth_refresh_error(self, cloud_store):
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         (cloud_store / "stack.md").write_text("modified\n")
 
         unauthorized = httpx.Response(401, content=b'{"error":"unauthorized"}')
@@ -343,7 +270,7 @@ class TestPushAfterWritePresign:
         """The hook is a thin wrapper over the shared push module — it must
         route the same changed-file set through ``push_changed_files`` exactly
         once (retiring the old inline copy and its double-hash)."""
-        self._seed_synced_state(cloud_store)
+        seed_synced_state(cloud_store)
         (cloud_store / "stack.md").write_text("changed\n")
 
         report = PushReport(planned=("a", "b"), verified=("a", "b"))
@@ -363,12 +290,6 @@ class TestPushAfterWritePresign:
 class TestPullBeforeSessionNeverRaises:
     """``pull_before_session`` must never propagate an exception and must stay
     silent on stdout even when the shared core's dependencies blow up."""
-
-    @pytest.fixture()
-    def cloud_store(self, tmp_path):
-        store = _scaffolded_cloud_project("silentpull", tmp_path, project_id=CLOUD_PID)
-        _seed_token()
-        return store
 
     def test_returns_zero_and_silent_when_run_pull_raises(self, cloud_store, capsys):
         with patch("nauro.sync.pull.run_pull", side_effect=RuntimeError("unexpected boom")):
