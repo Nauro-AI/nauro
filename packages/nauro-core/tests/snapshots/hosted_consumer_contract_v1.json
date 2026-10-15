@@ -102,6 +102,10 @@
       "kind": "value",
       "type": "str"
     },
+    "nauro_core.constants.STATE_REVISION_ABSENT": {
+      "kind": "value",
+      "type": "str"
+    },
     "nauro_core.decision_model.DecisionConfidence": {
       "bases": [
         "builtins.str",
@@ -245,10 +249,35 @@
       "qualname": "validate_identifier",
       "signature": "(kind: IdentifierKind, value: object, *, field: str) -> str"
     },
+    "nauro_core.mcp_tools.FLAG_QUESTION": {
+      "kind": "value",
+      "len": 5,
+      "type": "dict"
+    },
     "nauro_core.mcp_tools.HOSTED_TOOLS": {
       "kind": "value",
       "len": 14,
       "type": "tuple"
+    },
+    "nauro_core.mcp_tools.PROPOSE_DECISION": {
+      "kind": "value",
+      "len": 5,
+      "type": "dict"
+    },
+    "nauro_core.mcp_tools.SHARE_CONTEXT": {
+      "kind": "value",
+      "len": 5,
+      "type": "dict"
+    },
+    "nauro_core.mcp_tools.UPDATE_STACK": {
+      "kind": "value",
+      "len": 5,
+      "type": "dict"
+    },
+    "nauro_core.mcp_tools.UPDATE_STATE": {
+      "kind": "value",
+      "len": 5,
+      "type": "dict"
     },
     "nauro_core.normalize_title": {
       "kind": "function",
@@ -275,6 +304,15 @@
       "module": "nauro_core.operations.check_decision",
       "qualname": "check_decision",
       "signature": "(store: Store, proposed_approach: str, context: str | None = None, use_embeddings: bool = False) -> CheckDecisionResult"
+    },
+    "nauro_core.operations.check_decision.check_decision": {
+      "kind": "function",
+      "module": "nauro_core.operations.check_decision",
+      "qualname": "check_decision",
+      "signature": "(store: Store, proposed_approach: str, context: str | None = None, use_embeddings: bool = False) -> CheckDecisionResult"
+    },
+    "nauro_core.operations.commit_plan": {
+      "kind": "module"
     },
     "nauro_core.operations.commit_plan.AbsentContentClaimObservation": {
       "bases": [
@@ -533,6 +571,27 @@
       "module": "nauro_core.operations._commit_contract",
       "qualname": "JudgmentCommitPlan"
     },
+    "nauro_core.operations.commit_plan.JudgmentContent": {
+      "bases": [
+        "nauro_core.operations._commit_contract._FrozenModel"
+      ],
+      "fields": {
+        "affected_decision_id": "None | str",
+        "confidence": "Literal['high', 'medium', 'low'] | None",
+        "decision_type": "Literal['architecture', 'api_design', 'infrastructure', 'pattern', 'refactor', 'data_model'] | None",
+        "files_affected": "tuple[str, Ellipsis]",
+        "operation": "Literal['add', 'update', 'supersede']",
+        "rationale": "str",
+        "rejected": "tuple[nauro_core.operations._commit_contract.RejectedSelection, Ellipsis]",
+        "resolves_questions": "tuple[str, Ellipsis]",
+        "reversibility": "Literal['easy', 'moderate', 'hard'] | None",
+        "title": "None | str"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations._commit_contract",
+      "qualname": "JudgmentContent"
+    },
     "nauro_core.operations.commit_plan.MalformedClaimObservation": {
       "bases": [
         "nauro_core.operations._commit_contract.ClaimObservationError"
@@ -695,6 +754,16 @@
       "qualname": "diff_since_last_session",
       "signature": "(store: Store, baseline_snapshot: dict | None, latest_snapshot: dict | None, cutoff_date_used: str | None = None) -> DiffSinceLastSessionResult"
     },
+    "nauro_core.operations.diff_since_last_session.ONE_SNAPSHOT_COVERS_RANGE": {
+      "kind": "value",
+      "type": "str"
+    },
+    "nauro_core.operations.diff_since_last_session.diff_since_last_session": {
+      "kind": "function",
+      "module": "nauro_core.operations.diff_since_last_session",
+      "qualname": "diff_since_last_session",
+      "signature": "(store: Store, baseline_snapshot: dict | None, latest_snapshot: dict | None, cutoff_date_used: str | None = None) -> DiffSinceLastSessionResult"
+    },
     "nauro_core.operations.find_decision_stem_by_id": {
       "kind": "function",
       "module": "nauro_core.operations.decision_lookup",
@@ -713,7 +782,19 @@
       "qualname": "get_context",
       "signature": "(store: Store, level: int) -> GetContextResult"
     },
+    "nauro_core.operations.get_context.get_context": {
+      "kind": "function",
+      "module": "nauro_core.operations.get_context",
+      "qualname": "get_context",
+      "signature": "(store: Store, level: int) -> GetContextResult"
+    },
     "nauro_core.operations.get_decision": {
+      "kind": "function",
+      "module": "nauro_core.operations.get_decision",
+      "qualname": "get_decision",
+      "signature": "(store: Store, number: int, mode: Literal['header', 'full'] = 'full') -> GetDecisionResult"
+    },
+    "nauro_core.operations.get_decision.get_decision": {
       "kind": "function",
       "module": "nauro_core.operations.get_decision",
       "qualname": "get_decision",
@@ -725,7 +806,25 @@
       "qualname": "get_raw_file",
       "signature": "(store: Store, path: str) -> GetRawFileResult"
     },
+    "nauro_core.operations.get_raw_file.get_raw_file": {
+      "kind": "function",
+      "module": "nauro_core.operations.get_raw_file",
+      "qualname": "get_raw_file",
+      "signature": "(store: Store, path: str) -> GetRawFileResult"
+    },
+    "nauro_core.operations.l0_inputs.capture_l0_inputs": {
+      "kind": "function",
+      "module": "nauro_core.operations.l0_inputs",
+      "qualname": "capture_l0_inputs",
+      "signature": "(files: Mapping[str, bytes]) -> dict[str, str]"
+    },
     "nauro_core.operations.list_decisions": {
+      "kind": "function",
+      "module": "nauro_core.operations.list_decisions",
+      "qualname": "list_decisions",
+      "signature": "(store: Store, limit: int = 20, include_superseded: bool = False) -> ListDecisionsResult"
+    },
+    "nauro_core.operations.list_decisions.list_decisions": {
       "kind": "function",
       "module": "nauro_core.operations.list_decisions",
       "qualname": "list_decisions",
@@ -760,6 +859,45 @@
       "kind": "class",
       "module": "nauro_core.operations.results",
       "qualname": "FlagQuestionResult"
+    },
+    "nauro_core.operations.results.GetContextResult": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "content": "None | str",
+        "error": "None | nauro_core.operations.results.ErrorPayload"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.results",
+      "qualname": "GetContextResult"
+    },
+    "nauro_core.operations.results.GetDecisionResult": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "content": "None | str",
+        "error": "None | nauro_core.operations.results.ErrorPayload"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.results",
+      "qualname": "GetDecisionResult"
+    },
+    "nauro_core.operations.results.GetRawFileResult": {
+      "bases": [
+        "pydantic.main.BaseModel"
+      ],
+      "fields": {
+        "content": "None | str",
+        "error": "None | nauro_core.operations.results.ErrorPayload"
+      },
+      "frozen": true,
+      "kind": "class",
+      "module": "nauro_core.operations.results",
+      "qualname": "GetRawFileResult"
     },
     "nauro_core.operations.results.ProposeDecisionResult": {
       "bases": [
@@ -920,6 +1058,12 @@
       "qualname": "search_decisions",
       "signature": "(store: Store, query: str, limit: int = 10, include_superseded: bool = False, use_embeddings: bool = False) -> SearchDecisionsResult"
     },
+    "nauro_core.operations.search_decisions.search_decisions": {
+      "kind": "function",
+      "module": "nauro_core.operations.search_decisions",
+      "qualname": "search_decisions",
+      "signature": "(store: Store, query: str, limit: int = 10, include_superseded: bool = False, use_embeddings: bool = False) -> SearchDecisionsResult"
+    },
     "nauro_core.operations.share_context.ShareContextPlan": {
       "bases": [
         "pydantic.main.BaseModel"
@@ -945,6 +1089,22 @@
       "module": "nauro_core.operations.share_context",
       "qualname": "share_context",
       "signature": "(slug: str, content: str, pointer_kind: str, summary: str) -> ShareContextPlan"
+    },
+    "nauro_core.operations.store.Store": {
+      "bases": [
+        "typing.Protocol"
+      ],
+      "kind": "class",
+      "methods": [
+        "delete_file",
+        "list_decisions",
+        "read_decision",
+        "read_decisions",
+        "read_file",
+        "write_file"
+      ],
+      "module": "nauro_core.operations.store",
+      "qualname": "Store"
     },
     "nauro_core.operations.submit_report.SubmitReportPlan": {
       "bases": [
@@ -1021,6 +1181,12 @@
       "kind": "class",
       "module": "nauro_core.operations.update_state",
       "qualname": "UpdateStatePlan"
+    },
+    "nauro_core.operations.update_state.compute_state_revision": {
+      "kind": "function",
+      "module": "nauro_core.operations.update_state",
+      "qualname": "compute_state_revision",
+      "signature": "(content: bytes | None) -> str"
     },
     "nauro_core.operations.update_state.plan_state_update": {
       "kind": "function",
@@ -1245,6 +1411,18 @@
       "module": "nauro_core.snapshot",
       "qualname": "serialize_snapshot",
       "signature": "(*, timestamp: str, trigger: str, files: dict[str, str], trigger_detail: str = '', version: int | None = None) -> Snapshot"
+    },
+    "nauro_core.snapshot.serialize_snapshot": {
+      "kind": "function",
+      "module": "nauro_core.snapshot",
+      "qualname": "serialize_snapshot",
+      "signature": "(*, timestamp: str, trigger: str, files: dict[str, str], trigger_detail: str = '', version: int | None = None) -> Snapshot"
+    },
+    "nauro_core.snapshot_references.snapshot_descriptor": {
+      "kind": "function",
+      "module": "nauro_core.snapshot_references",
+      "qualname": "snapshot_descriptor",
+      "signature": "(files: Mapping[str, bytes], *, timestamp: str, trigger: str) -> bytes"
     },
     "nauro_core.state.prepare_state_update": {
       "kind": "function",

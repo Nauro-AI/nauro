@@ -189,6 +189,19 @@ jobs:
           token: ${{ secrets.MCP_SERVER_READ_TOKEN }}
           persist-credentials: false
           path: server
+      - name: Require the hosted-consumer manifest to cover the pinned server
+        run: |
+          python client/scripts/hosted_consumer_symbols.py --out "$RUNNER_TEMP/hosted_consumer_symbols.txt" server/src
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          def symbols(path):
+              return {line for line in Path(path).read_text().splitlines() if line and not line.startswith("#")}
+          generated = symbols(Path(os.environ["RUNNER_TEMP"], "hosted_consumer_symbols.txt"))
+          assert generated, "generator found no nauro_core imports under server/src"
+          missing = generated - symbols("client/packages/nauro-core/tests/hosted_consumer_symbols.txt")
+          assert not missing, "regenerate packages/nauro-core/tests/hosted_consumer_symbols.txt; missing: " + ", ".join(sorted(missing))
+          PY
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
       - run: uv sync --locked --package nauro --all-extras --python 3.12
