@@ -39,6 +39,8 @@ dev = [
     "ruff==0.15.20",
     "mypy==2.1.0",
     "import-linter==2.12",
+    "jsonschema",
+    "packaging",
 ]
 embeddings = ["nauro-core[embeddings]"]
 
@@ -59,21 +61,49 @@ exclude = ["tests/"]
 [tool.uv.sources]
 nauro-core = { workspace = true }
 
+# Run mypy from the repository root: the files below resolve against the working directory.
 [tool.mypy]
 python_version = "3.10"
+files = [
+    "packages/nauro/src/nauro",
+    "scripts/controlled_decision_reference.py",
+    "scripts/check_ruff_budget.py",
+]
+disallow_untyped_defs = true
 warn_return_any = true
 warn_unused_configs = true
 check_untyped_defs = true
 no_implicit_optional = true
 strict_equality = true
 
+# Modules that do not yet pass. This list may only shrink.
 [[tool.mypy.overrides]]
-module = "tests.*"
-check_untyped_defs = false
-
-[[tool.mypy.overrides]]
-module = ["mcp.*"]
-ignore_missing_imports = true
+module = [
+    "nauro.cli._codex_hooks",
+    "nauro.cli.autogen",
+    "nauro.cli.commands.auth",
+    "nauro.cli.commands.doctor",
+    "nauro.cli.commands.graph",
+    "nauro.cli.commands.hook",
+    "nauro.cli.commands.import_cmd",
+    "nauro.cli.commands.status",
+    "nauro.cli.integrations.claude_hooks",
+    "nauro.cli.integrations.codex_config",
+    "nauro.cli.integrations.cursor",
+    "nauro.graph.html_render",
+    "nauro.mcp.stdio_server",
+    "nauro.mcp.tools",
+    "nauro.setup.render",
+    "nauro.store.config",
+    "nauro.store.decision_lock",
+    "nauro.store.registry",
+    "nauro.store.snapshot",
+    "nauro.store.store_lock",
+    "nauro.sync.lock",
+    "nauro.sync.push",
+    "nauro.sync.remote",
+]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
