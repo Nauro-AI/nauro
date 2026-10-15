@@ -465,7 +465,7 @@ def test_browse_and_timeline_fail_loud_on_missing_number():
     payload = {"nodes": [bad_node], "components": [], "questions": []}
 
     with pytest.raises(KeyError):
-        _render_browse_view(payload, {}, {})
+        _render_browse_view(payload, {})
     with pytest.raises(KeyError):
         _render_timeline_view(payload)
 
@@ -1003,8 +1003,8 @@ def test_browse_renders_all_decisions_with_truthful_counts(tmp_path, monkeypatch
     assert "superseded</span>" in browse
     # At least one group's count names both active and superseded truthfully.
     assert "active · " in browse and " superseded</span>" in browse
-    # The count badge carries the data attributes the script rewrites on filter.
-    assert 'class="category-count" data-active=' in browse
+    # The script rewrites the count badge text from the visible cards on filter.
+    assert 'class="category-count"' in browse
 
 
 def test_question_refs_route_through_jump_to_node(tmp_path, monkeypatch):
@@ -1415,7 +1415,6 @@ def _emitted_label_nums(payload: dict) -> tuple[list[int], list[int]]:
         layout["radii"],
         layout["degree"],
         relations,
-        question_refs,
         node_by_number,
         layout["clusters"],
         insights,
