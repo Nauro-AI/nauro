@@ -1,12 +1,13 @@
 """Render a decision-graph payload into one self-contained HTML document.
 
 The output is a single read-only artifact: inline CSS, vanilla JS, and SVG,
-with no external requests. The payload (v2 shape assumed, no legacy fallback)
-is embedded once as a JSON script block and drives four views: Graph (a
-deterministic node-link map, no force physics), Lineage (one supersession DAG
-per component), Timeline (a true date axis with category lanes), and Browse
-(decisions grouped by category). Open questions link into the shared detail
-panel via the payload's ``references`` field.
+with no external requests. The server-rendered DOM, built from the payload (v2
+shape assumed, no legacy fallback), drives four views: Graph (a deterministic
+node-link map, no force physics), Lineage (one supersession DAG per component),
+Timeline (a true date axis with category lanes), and Browse (decisions grouped
+by category). The payload is also embedded verbatim as a JSON block for
+inspection. Open-question references, from the payload's ``references`` field,
+jump to the decision's graph node, falling back to the detail panel.
 
 This module consumes only the payload dict, never a store or any I/O, and the
 layout is a pure function of the payload, so the same payload and timestamp
@@ -18,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Iterable
 from datetime import date as _date
 from html import escape as _html_escape
 
@@ -116,7 +118,7 @@ def render_html(payload: dict, *, generated_at: str) -> str:
             + _render_graph_view(payload, relations, question_refs)
             + _render_lineage_view(payload, relations)
             + _render_timeline_view(payload)
-            + _render_browse_view(payload, relations, question_refs)
+            + _render_browse_view(payload, question_refs)
             + _render_questions_section(payload)
             + _render_detail_store(payload, relations, question_refs)
         )
@@ -243,16 +245,11 @@ def _node_degree(payload: dict) -> dict[int, int]:
     Degree drives node radius, so both edge layers count toward it.
     """
     degree: dict[int, int] = {n["number"]: 0 for n in payload.get("nodes", [])}
-    for edge in payload.get("supersession_edges", []):
-        if edge["from"] in degree:
-            degree[edge["from"]] += 1
-        if edge["to"] in degree:
-            degree[edge["to"]] += 1
-    for edge in payload.get("citation_edges", []):
-        if edge["from"] in degree:
-            degree[edge["from"]] += 1
-        if edge["to"] in degree:
-            degree[edge["to"]] += 1
+    for key in ("supersession_edges", "citation_edges"):
+        for edge in payload.get(key, []):
+            for end in (edge["from"], edge["to"]):
+                if end in degree:
+                    degree[end] += 1
     return degree
 
 
@@ -583,6 +580,20 @@ def _largest_consolidation(
     return best if best is not None and best_count >= 2 else None
 
 
+def _consolidation_targets(
+    numbers: Iterable[int],
+    relations: dict[int, dict[str, list[int]]],
+    node_by_number: dict[int, dict],
+) -> set[int]:
+    """Return the consolidation targets among ``numbers``: an active fan-in of three or more."""
+    return {
+        num
+        for num in numbers
+        if len(relations.get(num, {}).get("supersedes", [])) >= 3
+        and node_by_number.get(num, {}).get("status") == "active"
+    }
+
+
 def _compute_insights(
     payload: dict,
     relations: dict[int, dict[str, list[int]]],
@@ -599,13 +610,12 @@ def _compute_insights(
     consolidation = _largest_consolidation(relations, node_by_number)
     if consolidation is not None:
         count = len(relations.get(consolidation, {}).get("supersedes", []))
-        plural = "decision" if count == 1 else "decisions"
         insights.append(
             {
                 "kind": "center",
                 "target": consolidation,
                 "kicker": "Largest consolidation",
-                "body": f"D{consolidation} retires {count} {plural}",
+                "body": f"D{consolidation} retires {count} decisions",
                 "short": f"D{consolidation} · retires {count}",
             }
         )
@@ -648,13 +658,12 @@ def _compute_insights(
                 busiest_count = date_counts[d]
                 busiest_date = d
         if busiest_count >= 2:
-            plural = "decision" if busiest_count == 1 else "decisions"
             insights.append(
                 {
                     "kind": "date",
                     "date": busiest_date,
                     "kicker": "Busiest day",
-                    "body": f"{busiest_date}: {busiest_count} {plural}",
+                    "body": f"{busiest_date}: {busiest_count} decisions",
                 }
             )
 
@@ -723,15 +732,12 @@ def _render_graph_view(
     nodes = payload.get("nodes", [])
     node_by_number = {n["number"]: n for n in nodes}
 
-    # One insight computation feeds the strip, the pinned labels, and the
-    # default spotlight, so they cannot disagree. The largest consolidation (the
-    # first insight) gets origin priority in the packing so the named top story
-    # sits near the visual center instead of being out-sized to the edge.
+    # One insight computation feeds the strip and the pinned labels, so they
+    # cannot disagree. The largest consolidation, from the shared
+    # _largest_consolidation, gets origin priority in the packing so the named
+    # top story sits near the visual center instead of being out-sized to the edge.
     insights = _compute_insights(payload, relations, question_refs)
-    priority_center = next(
-        (ins["target"] for ins in insights if ins["kicker"] == "Largest consolidation"),
-        None,
-    )
+    priority_center = _largest_consolidation(relations, node_by_number)
 
     layout = build_graph_layout(payload, priority_center=priority_center)
     positions = layout["positions"]
@@ -757,7 +763,6 @@ def _render_graph_view(
         radii,
         degree,
         relations,
-        question_refs,
         node_by_number,
         layout["clusters"],
         insights,
@@ -773,7 +778,7 @@ def _render_graph_view(
         f'<svg id="graph-svg" class="graph-svg" viewBox="{viewbox}" '
         f'data-fit="{viewbox}" preserveAspectRatio="xMidYMid meet" '
         'role="img" aria-label="Decision graph node-link map">'
-        '<g id="graph-pan">'
+        "<g>"
         f'<g class="citation-layer">{citation_layer}</g>'
         f'<g class="supersession-layer">{supersession_layer}</g>'
         f'<g class="node-layer">{node_layer}</g>'
@@ -816,12 +821,7 @@ def _graph_supersession_edges(
     An edge ``(from, to)`` means ``from`` supersedes ``to``. An edge whose retirer is a
     consolidation target (active fan-in of three or more) carries the emphasis class.
     """
-    consolidation = {
-        num
-        for num in positions
-        if len(relations.get(num, {}).get("supersedes", [])) >= 3
-        and node_by_number.get(num, {}).get("status") == "active"
-    }
+    consolidation = _consolidation_targets(positions, relations, node_by_number)
     lines: list[str] = []
     for edge in payload.get("supersession_edges", []):
         a, b = edge["from"], edge["to"]
@@ -838,21 +838,15 @@ def _graph_supersession_edges(
 
 
 def _graph_hub_numbers(
-    payload: dict,
     degree: dict[int, int],
     relations: dict[int, dict[str, list[int]]],
     node_by_number: dict[int, dict],
 ) -> set[int]:
     """Pick the nodes labelled at the default zoom: hubs and top-degree nodes.
-    Every active fan-in of three or more is a hub, then the highest-degree nodes
-    fill the label budget, deterministically by degree then number.
+    Every consolidation target is a hub, then the highest-degree nodes fill the
+    label budget, deterministically by degree then number.
     """
-    hubs: set[int] = {
-        num
-        for num in degree
-        if len(relations.get(num, {}).get("supersedes", [])) >= 3
-        and node_by_number.get(num, {}).get("status") == "active"
-    }
+    hubs = _consolidation_targets(degree, relations, node_by_number)
     by_degree = sorted(degree, key=lambda n: (-degree[n], n))
     for num in by_degree:
         if len(hubs) >= _GRAPH_HUB_LABEL_LIMIT:
@@ -897,8 +891,7 @@ def _insight_label_box(
     num: int, meta: dict, x: float, y: float, r: float
 ) -> tuple[float, float, float, float]:
     """Estimate an insight pill's box as ``(x0, y0, x1, y1)``.
-    Mirrors the pill geometry in ``_render_insight_labels`` exactly so the
-    suppression pass blocks against the same rectangle that renders.
+    Single source of the pill geometry; the renderer draws this box.
     """
     pill_w = len(_insight_label_text(num, meta)) * _GRAPH_LABEL_CHAR_W + 12
     pill_h = 18.0
@@ -942,7 +935,6 @@ def _graph_nodes_and_labels(
     radii: dict[int, float],
     degree: dict[int, int],
     relations: dict[int, dict[str, list[int]]],
-    question_refs: dict[int, list[str]],
     node_by_number: dict[int, dict],
     clusters: list[dict],
     insights: list[dict],
@@ -951,7 +943,7 @@ def _graph_nodes_and_labels(
     Each node carries the data attributes the script needs for search, filter, hover label,
     spotlight and detail open. The label layer sits above every node.
     """
-    hubs = _graph_hub_numbers(payload, degree, relations, node_by_number)
+    hubs = _graph_hub_numbers(degree, relations, node_by_number)
     # Insight target numbers, with the named top story (index 0) flagged primary
     # so it carries the stronger at-rest label. This is not a selection state;
     # the default view stays even-emphasis until a chip is clicked.
@@ -1001,7 +993,6 @@ def _graph_nodes_and_labels(
         confidence = node["confidence"]
         opacity = _confidence_opacity(confidence)
         title = node.get("title", "")
-        has_q = "1" if question_refs.get(num) else "0"
         classes = ["gnode", f"status-{_esc(status)}"]
         if num in hubs:
             classes.append("is-hub")
@@ -1009,7 +1000,7 @@ def _graph_nodes_and_labels(
             f'<circle class="{" ".join(classes)}" cx="{x:.1f}" cy="{y:.1f}" '
             f'r="{r:.1f}" fill="{hue}" fill-opacity="{opacity:.2f}" '
             f'data-number="{num}" data-title="{_esc(title)}" '
-            f'{_node_data_attrs(node)} data-has-questions="{has_q}" '
+            f"{_node_data_attrs(node)} "
             f'data-date="{_esc(node["date"])}" '
             f'data-detail-trigger="{num}" tabindex="0" role="button">'
             f"<title>D{num} {_esc(title)}</title></circle>"
@@ -1039,8 +1030,8 @@ def _graph_nodes_and_labels(
         )
 
     # Pinned insight labels sit above their target node on a dark pill. They are
-    # never click targets (the script applies pointer-events: none via CSS), so
-    # they cannot block a node click. The selected insight gets the fuller form.
+    # never click targets (the CSS sets pointer-events: none), so they cannot
+    # block a node click. The primary (top-story) insight gets the fuller form.
     label_svg.append(_render_insight_labels(insight_target, positions, radii))
 
     return "".join(node_svg), "".join(label_svg)
@@ -1063,10 +1054,8 @@ def _render_insight_labels(
         r = radii[num]
         primary = meta["primary"]
         text = _insight_label_text(num, meta)
-        pill_w = len(text) * _GRAPH_LABEL_CHAR_W + 12
-        pill_h = 18.0
-        px = x - pill_w / 2
-        py = y - r - 8 - pill_h
+        px, py, x1, y1 = _insight_label_box(num, meta, x, y, r)
+        pill_w, pill_h = x1 - px, y1 - py
         cls = "insight-label is-primary" if primary else "insight-label"
         parts.append(
             f'<g class="{cls}" data-insight-for="{num}">'
@@ -1081,11 +1070,7 @@ def _render_insight_labels(
 # ── View: Browse (the card browser, demoted from default) ──
 
 
-def _render_browse_view(
-    payload: dict,
-    relations: dict[int, dict[str, list[int]]],
-    question_refs: dict[int, list[str]],
-) -> str:
+def _render_browse_view(payload: dict, question_refs: dict[int, list[str]]) -> str:
     """Render the Browse view: every decision grouped by category.
     Active and superseded both render, so the status filter has cards in every state; a superseded
     card is visibly distinct. Each card expands in place to the shared detail panel.
@@ -1105,7 +1090,7 @@ def _render_browse_view(
         superseded = sum(1 for n in cat_nodes if n.get("status") == "superseded")
         cards = "".join(_render_browse_card(n, question_refs) for n in cat_nodes)
         groups.append(
-            f'<section class="category" data-category="{_esc(category)}">'
+            '<section class="category">'
             f'<h3 class="category-head">{_esc(_category_label(category))}'
             f"{_category_count_badge(active, superseded)}</h3>"
             f'<div class="card-grid">{cards}</div></section>'
@@ -1125,16 +1110,13 @@ def _render_browse_view(
 
 def _category_count_badge(active: int, superseded: int) -> str:
     """Truthful per-group count badge: active alone, or active and superseded.
-    The badge carries data attributes so the script can rewrite it to the filtered counts.
+    The script rewrites the badge text from the visible cards on filter.
     """
     if superseded:
         text = f"{active} active · {superseded} superseded"
     else:
         text = f"{active} active"
-    return (
-        f'<span class="category-count" data-active="{active}" '
-        f'data-superseded="{superseded}">{text}</span>'
-    )
+    return f'<span class="category-count">{text}</span>'
 
 
 def _render_browse_card(node: dict, question_refs: dict[int, list[str]]) -> str:
@@ -1216,20 +1198,16 @@ def _order_components(components: list[dict], node_by_number: dict[int, dict]) -
     surface above equally sized older ones.
     """
 
-    def sort_key(component: dict) -> tuple[int, str]:
-        dates = [node_by_number.get(n, {}).get("date", "") for n in component["nodes"]]
-        latest = max(dates) if dates else ""
-        # Size descending (negated), then recency descending: a higher latest
-        # date should sort earlier, so invert the string via its complement is
-        # not available; instead sort size asc/recency asc then reverse the
-        # whole list would break the size tiebreak. Use a two-pass sort instead.
-        return (-len(component["nodes"]), latest)
+    def latest_date(component: dict) -> str:
+        return max(
+            (node_by_number.get(n, {}).get("date", "") for n in component["nodes"]), default=""
+        )
 
     # Stable two-key sort: primary size descending, secondary recency
     # descending. Python sorts ascending, so apply recency first (descending)
     # then size (descending) using stability to preserve recency order within a
     # size band.
-    by_recency = sorted(components, key=lambda c: sort_key(c)[1], reverse=True)
+    by_recency = sorted(components, key=latest_date, reverse=True)
     return sorted(by_recency, key=lambda c: -len(c["nodes"]))
 
 
@@ -1340,15 +1318,9 @@ def _render_lineage_component(
     width = _MARGIN_X * 2 + max_col * _COL_WIDTH + _NODE_WIDTH
     height = _MARGIN_Y * 2 + max_row * _ROW_PITCH + _NODE_HEIGHT
 
-    # Consolidation targets: active retirers that fan in three or more children.
-    # Edges into one carry the emphasis class so the converging bundle is the
-    # most prominent drawn object on the page.
-    consolidation: set[int] = {
-        num
-        for num in nodes
-        if len(relations.get(num, {}).get("supersedes", [])) >= 3
-        and node_by_number.get(num, {}).get("status") == "active"
-    }
+    # Edges into a consolidation target carry the emphasis class so the
+    # converging bundle is the most prominent drawn object on the page.
+    consolidation = _consolidation_targets(nodes, relations, node_by_number)
 
     # Edge paths: from retired (to) on the left toward retirer (from) on the
     # right. The path leaves the right edge of the older node and enters the
@@ -1395,7 +1367,7 @@ def _render_lineage_component(
     size = len(nodes)
     headline = _component_headline(size, sorted(consolidation), relations)
     return (
-        '<section class="thread" data-size="{size}">'
+        '<section class="thread">'
         '<h3 class="thread-head">{headline}</h3>'
         '<div class="thread-canvas">'
         '<svg class="lineage-svg" viewBox="0 0 {w} {h}" '
@@ -1404,7 +1376,6 @@ def _render_lineage_component(
         '<g class="nodes">{nodes}</g>'
         "</svg></div></section>"
     ).format(
-        size=size,
         headline=headline,
         w=int(width),
         h=int(height),
@@ -1462,7 +1433,7 @@ def _render_timeline_view(payload: dict) -> str:
     plot_height = y_cursor + 28
     total_width = _TL_LEFT_GUTTER + _TL_PLOT_WIDTH + _TL_RIGHT_PAD
 
-    axis = _timeline_axis(first, last, span, plot_height, single_day)
+    axis = _timeline_axis(first, span, plot_height, single_day)
     lanes = "".join(_timeline_lane_label(c, lane_top[c], lane_height[c]) for c in categories)
 
     marks: list[str] = []
@@ -1535,7 +1506,7 @@ def _lane_stack_depth(nodes: list[dict], categories: list[str]) -> dict[str, int
     return deepest
 
 
-def _timeline_axis(first: int, last: int, span: int, plot_height: float, single_day: bool) -> str:
+def _timeline_axis(first: int, span: int, plot_height: float, single_day: bool) -> str:
     """Build the axis baseline and date tick labels for the timeline.
     A single-day store gets exactly one centered tick and never invents a second date. Otherwise
     ticks are first, last, and evenly spaced interior dates.
@@ -1543,13 +1514,7 @@ def _timeline_axis(first: int, last: int, span: int, plot_height: float, single_
     baseline_y = plot_height - 14
     if single_day:
         x = _TL_LEFT_GUTTER + 0.5 * _TL_PLOT_WIDTH
-        label = _ordinal_to_iso(first)
-        return (
-            f'<line class="tl-tick" x1="{x:.1f}" y1="{_TL_TOP_PAD - 12}" '
-            f'x2="{x:.1f}" y2="{baseline_y:.1f}" />'
-            f'<text class="tl-tick-label" x="{x:.1f}" y="{baseline_y + 14:.1f}" '
-            f'text-anchor="middle">{_esc(label)}</text>'
-        )
+        return _timeline_tick(x, _ordinal_to_iso(first), baseline_y)
     ticks: list[str] = []
     # First and last always; interior ticks evenly spaced by ordinal.
     tick_count = 5
@@ -1561,14 +1526,18 @@ def _timeline_axis(first: int, last: int, span: int, plot_height: float, single_
         seen.add(ordinal)
         frac = (ordinal - first) / span
         x = _TL_LEFT_GUTTER + frac * _TL_PLOT_WIDTH
-        label = _ordinal_to_iso(ordinal)
-        ticks.append(
-            f'<line class="tl-tick" x1="{x:.1f}" y1="{_TL_TOP_PAD - 12}" '
-            f'x2="{x:.1f}" y2="{baseline_y:.1f}" />'
-            f'<text class="tl-tick-label" x="{x:.1f}" y="{baseline_y + 14:.1f}" '
-            f'text-anchor="middle">{_esc(label)}</text>'
-        )
+        ticks.append(_timeline_tick(x, _ordinal_to_iso(ordinal), baseline_y))
     return "".join(ticks)
+
+
+def _timeline_tick(x: float, label: str, baseline_y: float) -> str:
+    """Render one timeline date tick: the dashed rule and its label."""
+    return (
+        f'<line class="tl-tick" x1="{x:.1f}" y1="{_TL_TOP_PAD - 12}" '
+        f'x2="{x:.1f}" y2="{baseline_y:.1f}" />'
+        f'<text class="tl-tick-label" x="{x:.1f}" y="{baseline_y + 14:.1f}" '
+        f'text-anchor="middle">{_esc(label)}</text>'
+    )
 
 
 def _timeline_lane_label(category: str, top: float, height: float) -> str:
@@ -1812,7 +1781,7 @@ def _render_questions_section(payload: dict) -> str:
         else:
             body_html = f'<span class="q-body">{_esc(body)}</span>'
         items.append(
-            f'<li class="question" id="question-{_esc(qid)}" data-q-id="{_esc(qid)}">'
+            f'<li class="question" id="question-{_esc(qid)}">'
             f'<span class="q-id">{_esc(qid)}</span>{body_html}{ref_block}</li>'
         )
 
@@ -2265,7 +2234,7 @@ h2 {
 .body-md li { margin: 0.25rem 0; }
 .body-md code { font-size: 0.85em; }
 .body-md strong { color: var(--ink); }
-.question.flash, li.flash, .q-expand.flash { background: var(--line); }
+.question.flash { background: var(--line); }
 code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   background: var(--line);
@@ -2341,9 +2310,6 @@ _SCRIPT = """
     highlightIncident(null);
   }
   closeBtn.addEventListener("click", closePanel);
-  document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") { closePanel(); clearSpotlight(); clearDateHits(); }
-  });
 
   function openDetail(number) {
     var src = document.querySelector('[data-detail="' + number + '"]');
@@ -2352,31 +2318,6 @@ _SCRIPT = """
     panel.classList.add("is-open");
     panel.setAttribute("aria-hidden", "false");
     highlightIncident(number);
-    wirePanelChips();
-  }
-
-  function wirePanelChips() {
-    var jumps = panelBody.querySelectorAll("[data-jump]");
-    for (var i = 0; i < jumps.length; i++) {
-      jumps[i].addEventListener("click", function () {
-        jumpToNode(this.getAttribute("data-jump"));
-      });
-    }
-    var qlinks = panelBody.querySelectorAll("[data-q-link]");
-    for (var j = 0; j < qlinks.length; j++) {
-      qlinks[j].addEventListener("click", function (e) {
-        e.preventDefault();
-        var qid = this.getAttribute("data-q-link");
-        var el = document.getElementById("question-" + qid);
-        if (el) {
-          if (el.open === false) { el.open = true; }
-          el.scrollIntoView({ block: "center" });
-          el.classList.add("flash");
-          setTimeout(function () { el.classList.remove("flash"); }, 1200);
-        }
-        closePanel();
-      });
-    }
   }
 
   // ----- Graph canvas (Graph view): pan, zoom, search centering -----
@@ -2518,9 +2459,8 @@ _SCRIPT = """
   // This is the fix for chips dead-ending on isolated citation targets.
   function jumpToNode(number) {
     closePanel();
-    if (svg && svg.querySelector('.gnode[data-number="' + number + '"]')) {
+    if (centerOnNode(number, true)) {
       showView("graph");
-      centerOnNode(number, true);
       highlightIncident(number);
       flashGraphNode(number);
       return;
@@ -2701,15 +2641,21 @@ _SCRIPT = """
     if (trigger) {
       openDetail(trigger.getAttribute("data-detail-trigger"));
     }
-    var qbadge = e.target.closest("[data-q-badge]");
-    if (qbadge) {
-      var qs = document.getElementById("questions");
-      if (qs) { qs.scrollIntoView({ block: "start" }); }
-    }
-    var qref = e.target.closest(".q-ref[data-jump]");
+    var qref = e.target.closest("[data-jump]");
     if (qref) {
       e.preventDefault();
       jumpToNode(qref.getAttribute("data-jump"));
+    }
+    var qlink = e.target.closest("[data-q-link]");
+    if (qlink) {
+      e.preventDefault();
+      var el = document.getElementById("question-" + qlink.getAttribute("data-q-link"));
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        el.classList.add("flash");
+        setTimeout(function () { el.classList.remove("flash"); }, 1200);
+      }
+      closePanel();
     }
     var story = e.target.closest("[data-story]");
     if (story) {
@@ -2719,6 +2665,7 @@ _SCRIPT = """
   });
 
   document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { closePanel(); clearSpotlight(); clearDateHits(); }
     if (e.key !== "Enter" && e.key !== " ") { return; }
     var trigger = e.target.closest && e.target.closest("[data-detail-trigger]");
     if (trigger) {
@@ -2747,7 +2694,12 @@ _SCRIPT = """
       c.category !== "all" || c.confidence !== "all";
   }
 
-  function matches(c, title, num, status, category, confidence) {
+  function matches(c, el) {
+    var title = (el.getAttribute("data-title") || "").toLowerCase();
+    var num = el.getAttribute("data-number");
+    var status = el.getAttribute("data-status");
+    var category = el.getAttribute("data-category");
+    var confidence = el.getAttribute("data-confidence");
     var matchSearch = c.needle === "" ||
       title.indexOf(c.needle) !== -1 ||
       ("d" + num).indexOf(c.needle) !== -1;
@@ -2762,14 +2714,7 @@ _SCRIPT = """
     var anyVisible = false;
     for (var i = 0; i < cards.length; i++) {
       var card = cards[i];
-      var show = matches(
-        c,
-        (card.getAttribute("data-title") || "").toLowerCase(),
-        card.getAttribute("data-number"),
-        card.getAttribute("data-status"),
-        card.getAttribute("data-category"),
-        card.getAttribute("data-confidence")
-      );
+      var show = matches(c, card);
       card.style.display = show ? "" : "none";
       if (show) { anyVisible = true; }
     }
@@ -2818,14 +2763,7 @@ _SCRIPT = """
     for (var i = 0; i < gnodes.length; i++) {
       var node = gnodes[i];
       var num = node.getAttribute("data-number");
-      var ok = matches(
-        c,
-        (node.getAttribute("data-title") || "").toLowerCase(),
-        num,
-        node.getAttribute("data-status"),
-        node.getAttribute("data-category"),
-        node.getAttribute("data-confidence")
-      );
+      var ok = matches(c, node);
       node.classList.toggle("match", active && ok);
       node.classList.toggle("dim", active && !ok);
       if (ok) { matchSet[num] = true; }
@@ -2877,14 +2815,7 @@ _SCRIPT = """
     var marks = document.querySelectorAll(".tl-mark[data-number]");
     for (var i = 0; i < marks.length; i++) {
       var m = marks[i];
-      var ok = matches(
-        c,
-        (m.getAttribute("data-title") || "").toLowerCase(),
-        m.getAttribute("data-number"),
-        m.getAttribute("data-status"),
-        m.getAttribute("data-category"),
-        m.getAttribute("data-confidence")
-      );
+      var ok = matches(c, m);
       m.style.display = ok ? "" : "none";
     }
   }
