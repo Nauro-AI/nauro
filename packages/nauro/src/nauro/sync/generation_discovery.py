@@ -30,6 +30,21 @@ class AuthorityDiscovery:
     detail: str | None
 
 
+def is_generation_owner(body: dict[str, object], project_id: str) -> bool:
+    """Return whether a ``GET /projects`` body grants generation owner access to the project."""
+    projects = body.get("projects")
+    return (
+        body.get("authority") == "generation_owner"
+        and isinstance(projects, list)
+        and any(
+            isinstance(item, dict)
+            and item.get("project_id") == project_id
+            and item.get("role") == "owner"
+            for item in projects
+        )
+    )
+
+
 def discover_project_authority(project_id: str) -> AuthorityDiscovery:
     """Return ``generation`` only for a 200 generation-owner answer naming this project."""
     if not isinstance(project_id, str):
@@ -64,18 +79,7 @@ def discover_project_authority(project_id: str) -> AuthorityDiscovery:
     if not isinstance(body, dict):
         return AuthorityDiscovery("legacy", response.status_code, None)
     detail = body.get("detail")
-    projects = body.get("projects")
-    owner = (
-        response.status_code == 200
-        and body.get("authority") == "generation_owner"
-        and isinstance(projects, list)
-        and any(
-            isinstance(item, dict)
-            and item.get("project_id") == project_id
-            and item.get("role") == "owner"
-            for item in projects
-        )
-    )
+    owner = response.status_code == 200 and is_generation_owner(body, project_id)
     return AuthorityDiscovery(
         "generation" if owner else "legacy",
         response.status_code,

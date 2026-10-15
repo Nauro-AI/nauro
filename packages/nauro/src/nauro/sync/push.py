@@ -5,9 +5,10 @@ Shared by ``nauro sync`` (push half of pull-then-push) and ``nauro link
 scan the store for files whose local sha differs from sync-state, mint
 presigned PUT URLs, and upload directly to S3.
 
-The push is token-gated and offline-tolerant: a project that is not
+Callers gate the push on a token and cloud mode, so a project that is not
 cloud-mode, or a cloud-mode project without a token, never reaches the
-network here.
+network. Warnings go through the caller's ``Reporter``: the CLI echoes them
+and the post-write hook logs them.
 """
 
 from __future__ import annotations
@@ -18,19 +19,16 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-import typer
 from nauro_core.constants import MAX_BRIEF_BYTES
 
-from nauro.auth import AuthRefreshError, load_access_token
+from nauro.auth import AuthRefreshError
 from nauro.store.migration_admission import migration_write_guard, require_migration_admission
-from nauro.store.registry import is_cloud_project
 from nauro.sync._path_diagnostics import (
     _escape_path_for_display,
     _PathClass,
-    _StoreRootPreparationError,
     _unsafe_reason_text,
 )
-from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, SyncLockTimeoutError, sync_lock
+from nauro.sync.lock import CLI_SYNC_LOCK_TIMEOUT, sync_lock
 from nauro.sync.merge import (
     CONFLICT_BACKUP_DIR,
     _prepare_store_root,
@@ -47,7 +45,7 @@ from nauro.sync.remote import (
     operation_session,
 )
 from nauro.sync.state import SyncState, compute_sha256
-from nauro.sync.transfer import backoff_delay, pause
+from nauro.sync.transfer import Reporter, backoff_delay, pause
 
 logger = logging.getLogger("nauro.sync")
 
@@ -155,48 +153,10 @@ def plan_push(store_path: Path, state: SyncState) -> PushPlan:
     return PushPlan(tuple(candidates), tuple(oversized_briefs), tuple(unsafe))
 
 
-def push_store_to_cloud(
-    project_id: str,
-    store_path: Path,
-    *,
-    session: TransferSession | None = None,
-) -> PushReport:
-    """Push store changes and render failures for an explicit sync."""
-    if not is_cloud_project(project_id):
-        return PushReport()
-    if not load_access_token():
-        typer.echo(
-            "  Warning: this is a cloud-mode project but you're not authenticated.\n"
-            "  Your local snapshot is captured, but nothing was uploaded.\n"
-            "  Run 'nauro auth login' to configure credentials.",
-            err=True,
-        )
-        return PushReport(failed=("authentication",))
-    try:
-        report = push_changed_files(project_id, store_path, session=session)
-    except SyncLockTimeoutError as exc:
-        typer.echo(f"  Warning: {exc}", err=True)
-        return PushReport(failed=("sync lock",))
-    except _StoreRootPreparationError as exc:
-        typer.echo(f"  Warning: cloud push failed ({exc})", err=True)
-        return PushReport(failed=("store root",))
-    except AuthRefreshError as exc:
-        typer.echo(f"  {exc}", err=True)
-        return PushReport(failed=("authentication",))
-    except PresignError as exc:
-        logger.warning("Cloud push boundary failed: %s", exc)
-        typer.echo(f"  Warning: cloud push failed ({exc})", err=True)
-        return PushReport(failed=("transport",))
-    if report.verified:
-        typer.echo(f"  Pushed {len(report.verified)} file(s) to S3")
-    if not report.is_complete:
-        typer.echo(f"  Warning: {report.warning}", err=True)
-    return report
-
-
 def push_changed_files(
     project_id: str,
     store_path: Path,
+    reporter: Reporter,
     *,
     lock_timeout: float = CLI_SYNC_LOCK_TIMEOUT,
     session: TransferSession | None = None,
@@ -210,11 +170,11 @@ def push_changed_files(
         _prepare_store_root(store_path)
         with operation_session(session) as active:
             with sync_lock(store_path, lock_timeout):
-                return _push_changed_files_locked(project_id, store_path, active)
+                return _push_changed_files_locked(project_id, store_path, reporter, active)
 
 
 def _push_changed_files_locked(
-    project_id: str, store_path: Path, session: TransferSession
+    project_id: str, store_path: Path, reporter: Reporter, session: TransferSession
 ) -> PushReport:
     from nauro.sync.remote import request_presigned_urls, urls_by_path
     from nauro.sync.state import load_state, save_state
@@ -222,14 +182,13 @@ def _push_changed_files_locked(
     state = load_state(store_path)
     plan = plan_push(store_path, state)
     for brief in plan.oversized_briefs:
-        typer.echo(
-            f"  Warning: brief {brief.relative_path} is {brief.size:,} bytes, over the "
+        reporter.warn(
+            f"Warning: brief {brief.relative_path} is {brief.size:,} bytes, over the "
             f"{MAX_BRIEF_BYTES:,}-byte limit, and was not pushed. "
-            "It stays on your machine; trim it under the cap and re-sync to share it.",
-            err=True,
+            "It stays on your machine; trim it under the cap and re-sync to share it."
         )
     for item in plan.unsafe:
-        typer.echo(f"  Warning: {item.display} was not pushed: {item.reason}", err=True)
+        reporter.warn(f"Warning: {item.display} was not pushed: {item.reason}")
     planned = tuple(candidate.relative_path for candidate in plan.candidates)
     if not plan.candidates:
         save_state(store_path, state)
@@ -436,5 +395,4 @@ __all__ = [
     "SkippedUnsafePath",
     "plan_push",
     "push_changed_files",
-    "push_store_to_cloud",
 ]

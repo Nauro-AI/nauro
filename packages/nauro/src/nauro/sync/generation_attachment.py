@@ -31,6 +31,7 @@ from nauro.sync.generation_credentials import (
     GenerationConnection,
     generation_credentials,
 )
+from nauro.sync.generation_discovery import is_generation_owner
 from nauro.sync.generation_refresh import (
     commit_generation_refresh,
     prepare_generation_refresh,
@@ -88,17 +89,7 @@ class InitialAttachmentSession(GenerationTransferSession):
         except ValueError as exc:
             raise GenerationConnectionError("Current owner access could not be confirmed.") from exc
         self.credentials()
-        projects = response.get("projects")
-        if (
-            response.get("authority") != "generation_owner"
-            or not isinstance(projects, list)
-            or not any(
-                isinstance(item, dict)
-                and item.get("project_id") == binding.project_id
-                and item.get("role") == "owner"
-                for item in projects
-            )
-        ):
+        if not is_generation_owner(response, binding.project_id):
             raise GenerationConnectionError("Initial attachment requires current owner access.")
 
     def credentials(self) -> ActiveCredentials:

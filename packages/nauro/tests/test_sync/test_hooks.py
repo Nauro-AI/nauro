@@ -21,6 +21,7 @@ import pytest
 from nauro.store.config import save_config
 from nauro.store.registry import register_project_v2
 from nauro.sync.hooks import (
+    _LoggingReporter,
     pull_before_session,
     push_after_write,
 )
@@ -351,7 +352,9 @@ class TestPushAfterWritePresign:
 
         assert result == report
         assert mock_push.call_count == 1
-        assert mock_push.call_args.args == (CLOUD_PID, cloud_store)
+        project_id, store_path, reporter = mock_push.call_args.args
+        assert (project_id, store_path) == (CLOUD_PID, cloud_store)
+        assert isinstance(reporter, _LoggingReporter)
 
 
 # --- hook never-raise envelope ---

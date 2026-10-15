@@ -12,6 +12,7 @@ from pydantic import create_model, model_validator
 from nauro.mcp.reference_reads import register_reference_reads
 from nauro.sync.decision_reference import DecisionReferenceTransport
 from nauro.sync.decision_reference_contract import reference_schema, validate_arguments
+from nauro.sync.generation_decision import REFUSED_STATUSES
 
 INSTRUCTIONS = (
     "Prepare an immutable decision with the existing propose_decision tool. Preparation does "
@@ -73,8 +74,7 @@ def _register_decision_reference(server: FastMCP, transport: DecisionReferenceTr
         result = transport.propose_decision(**arguments)
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(result, ensure_ascii=False))],
-            isError=result.get("status")
-            in {"stale", "unresolved", "pending", "expired", "conflict", "disposed"},
+            isError=result.get("status") in REFUSED_STATUSES,
         )
 
     server.add_tool(

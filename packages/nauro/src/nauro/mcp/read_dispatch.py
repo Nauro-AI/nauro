@@ -47,9 +47,10 @@ def _unavailable() -> CallToolResult:
     )
 
 
-def _legacy_result(
+def render_local_result(
     name: str, envelope: dict[str, object], options: dict[str, object], path: Path | None
 ) -> CallToolResult:
+    """Render a flat-store or resolution envelope, falling back to a JSON dump."""
     rendered = try_render_envelope(name, envelope, resolve_renderer_kwargs(name, options, path))
     if rendered.failure is not None:
         logger.error(
@@ -113,7 +114,7 @@ def _read(
     try:
         binding = resolve_project_binding(project_id, cwd or Path.cwd())
     except (NoProjectError, DisconnectedProjectError) as exc:
-        return _legacy_result(name, resolution_error_envelope(exc), options or {}, None)
+        return render_local_result(name, resolution_error_envelope(exc), options or {}, None)
     except (StoreResolutionError, OSError):
         return _unavailable()
     try:
@@ -123,7 +124,9 @@ def _read(
             if observe_generation_marker(binding) != marker:
                 return _unavailable()
             return _prepared(response)
-        result = _legacy_result(name, flat(binding.store_path), options or {}, binding.store_path)
+        result = render_local_result(
+            name, flat(binding.store_path), options or {}, binding.store_path
+        )
         if observe_generation_marker(binding) is not None:
             return _unavailable()
         return result

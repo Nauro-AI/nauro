@@ -10,9 +10,14 @@ from nauro.store.resolution import (
 )
 
 
+def guidance_error(guidance: str) -> dict[str, object]:
+    """Return the local error envelope that carries only guidance text."""
+    return {"store": "local", "status": "error", "guidance": guidance}
+
+
 def resolution_error_envelope(error: StoreResolutionError) -> dict[str, object]:
     if isinstance(error, NoProjectError):
-        return {"store": "local", "status": "error", "guidance": WELCOME_NO_PROJECT}
+        return guidance_error(WELCOME_NO_PROJECT)
     if isinstance(error, DisconnectedProjectError):
         state = error.state
         return {
@@ -28,4 +33,4 @@ def resolution_error_envelope(error: StoreResolutionError) -> dict[str, object]:
             "reason_code": state.reason_code,
             "recovery_actions": list(state.recovery_actions),
         }
-    return {"store": "local", "status": "error", "guidance": str(error)}
+    return guidance_error(str(error))

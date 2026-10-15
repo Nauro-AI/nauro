@@ -109,7 +109,7 @@ def test_post_binding_error_never_becomes_diagnostic(tmp_path, monkeypatch, phas
         )
     monkeypatch.setattr(dispatch, "resolve_project_binding", lambda *args: binding)
     monkeypatch.setattr(dispatch.legacy, "tool_get_context", forbidden)
-    monkeypatch.setattr(dispatch, "_legacy_result", forbidden)
+    monkeypatch.setattr(dispatch, "render_local_result", forbidden)
     if phase == "marker":
         monkeypatch.setattr(dispatch, "observe_generation_marker", Mock(side_effect=error))
     else:

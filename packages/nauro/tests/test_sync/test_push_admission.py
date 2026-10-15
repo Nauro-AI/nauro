@@ -13,6 +13,8 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
+from nauro.cli._reporters import StderrReporter
+from nauro.cli.commands.sync import push_store_to_cloud
 from nauro.cli.main import app
 from nauro.store import registry
 from nauro.store.config import save_config
@@ -33,9 +35,9 @@ from nauro.sync.push import (
     SkippedUnsafePath,
     plan_push,
     push_changed_files,
-    push_store_to_cloud,
 )
 from nauro.sync.state import FileState, SyncState, compute_sha256, load_state, save_state
+from nauro.sync.transfer import NullReporter
 from nauro.templates.scaffolds import scaffold_project_store
 from tests.conftest import seed_auth_config
 from tests.test_sync.conftest import CLOUD_PID, _scaffolded_cloud_project, track
@@ -100,7 +102,7 @@ def _run_push(store: Path) -> tuple[PushReport, list[str]]:
         patch.object(remote.httpx.Client, "post", side_effect=_presign_post) as post,
         patch.object(remote.httpx.Client, "put", return_value=_ok_put()),
     ):
-        report = push_changed_files(CLOUD_PID, store)
+        report = push_changed_files(CLOUD_PID, store, StderrReporter())
     put_paths = [
         op["path"] for call in post.call_args_list for op in call.kwargs["json"]["operations"]
     ]
@@ -250,7 +252,7 @@ def test_push_never_reads_reserved_paths(tmp_path: Path, monkeypatch) -> None:
         return []
 
     with patch("nauro.sync.remote.request_presigned_urls", side_effect=fake_presign):
-        report = push_changed_files(CLOUD_PID, store)
+        report = push_changed_files(CLOUD_PID, store, NullReporter())
 
     paths = [op["path"] for ops in captured for op in ops]
     assert "stack.md" in paths
@@ -275,7 +277,7 @@ def test_push_never_reads_control_or_outside_link_targets(tmp_path: Path, monkey
     )
 
     with patch("nauro.sync.remote.request_presigned_urls", side_effect=AssertionError):
-        report = push_changed_files(CLOUD_PID, store)
+        report = push_changed_files(CLOUD_PID, store, NullReporter())
 
     assert report == PushReport()
 
@@ -426,7 +428,7 @@ def test_push_changed_files_refuses_bad_root_before_the_lock(
         patch("nauro.sync.remote.request_presigned_urls", side_effect=AssertionError),
         pytest.raises(_StoreRootPreparationError) as raised,
     ):
-        push_changed_files(CLOUD_PID, root)
+        push_changed_files(CLOUD_PID, root, NullReporter())
     assert str(raised.value) == ROOT_TEXT
     _assert_root_untouched(root, condition)
 

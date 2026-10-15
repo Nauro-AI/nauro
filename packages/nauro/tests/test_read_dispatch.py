@@ -84,7 +84,7 @@ def test_generation_uses_prepared_text_without_legacy_render(cloud, monkeypatch,
         assert session.credentials().user_id == USER_ID
     expected = getattr(generation, name)(binding, **kwargs, actor=USER_ID)
     assert expected.is_error is False
-    monkeypatch.setattr(dispatch, "_legacy_result", forbidden)
+    monkeypatch.setattr(dispatch, "render_local_result", forbidden)
     monkeypatch.setattr(dispatch.legacy, f"tool_{name}", forbidden)
     checks.clear()
     actual = getattr(dispatch, name)(project_id=binding.project_id, **kwargs)
@@ -102,9 +102,7 @@ def test_generation_uses_prepared_text_without_legacy_render(cloud, monkeypatch,
 def test_flat_matches_legacy_adapter_without_credentials(flat, monkeypatch, name, kwargs):
     monkeypatch.setattr(dispatch, "GenerationTransferSession", forbidden)
     envelope = getattr(dispatch.legacy, f"tool_{name}")(flat.store_path, **kwargs)
-    expected = stdio_server._wrap_with_renderer(
-        name, envelope, dispatch.resolve_renderer_kwargs(name, kwargs, flat.store_path)
-    )
+    expected = dispatch.render_local_result(name, envelope, kwargs, flat.store_path)
     actual = getattr(dispatch, name)(project_id=flat.project_id, **kwargs)
     assert actual == expected
     assert getattr(stdio_server, name)(project_id=flat.project_id, **kwargs) == expected

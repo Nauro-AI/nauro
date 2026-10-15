@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
 
-from nauro.auth import load_access_token
+from nauro.auth import AuthRefreshError, load_access_token
 from nauro.cli.generation_reads import refresh_command, status_command
 from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import resolve_target_project
@@ -17,12 +18,14 @@ from nauro.store._atomic import is_tmp_sibling
 from nauro.store.registry import is_cloud_project
 from nauro.store.snapshot import capture_snapshot
 from nauro.store.validator import print_warnings, validate_store
-from nauro.sync.push import push_store_to_cloud
-from nauro.sync.remote import TransferSession, operation_session
+from nauro.sync.push import PushReport, push_changed_files
+from nauro.sync.remote import PresignError, TransferSession, operation_session
 from nauro.templates.agents_md_regen import warn_then_regen
 
 if TYPE_CHECKING:
     from nauro.sync.pull import PullReport
+
+logger = logging.getLogger("nauro.sync")
 
 
 def sync(
@@ -154,7 +157,7 @@ def _pull_from_cloud(
 
 
 class _EchoReporter:
-    """Pull reporter for ``nauro sync``.
+    """Transfer reporter for ``nauro sync``.
 
     Echoes progress to the terminal (warnings on stderr).
     """
@@ -189,6 +192,48 @@ def _pull_via_presign(
     except _StoreRootPreparationError as exc:
         typer.echo(f"Error: pull skipped ({exc})", err=True)
         raise typer.Exit(code=1) from exc
+
+
+def push_store_to_cloud(
+    project_id: str,
+    store_path: Path,
+    *,
+    session: TransferSession | None = None,
+) -> PushReport:
+    """Push store changes and render failures for an explicit sync."""
+    from nauro.sync._path_diagnostics import _StoreRootPreparationError
+    from nauro.sync.lock import SyncLockTimeoutError
+
+    if not is_cloud_project(project_id):
+        return PushReport()
+    if not load_access_token():
+        typer.echo(
+            "  Warning: this is a cloud-mode project but you're not authenticated.\n"
+            "  Your local snapshot is captured, but nothing was uploaded.\n"
+            "  Run 'nauro auth login' to configure credentials.",
+            err=True,
+        )
+        return PushReport(failed=("authentication",))
+    try:
+        report = push_changed_files(project_id, store_path, _EchoReporter(), session=session)
+    except SyncLockTimeoutError as exc:
+        typer.echo(f"  Warning: {exc}", err=True)
+        return PushReport(failed=("sync lock",))
+    except _StoreRootPreparationError as exc:
+        typer.echo(f"  Warning: cloud push failed ({exc})", err=True)
+        return PushReport(failed=("store root",))
+    except AuthRefreshError as exc:
+        typer.echo(f"  {exc}", err=True)
+        return PushReport(failed=("authentication",))
+    except PresignError as exc:
+        logger.warning("Cloud push boundary failed: %s", exc)
+        typer.echo(f"  Warning: cloud push failed ({exc})", err=True)
+        return PushReport(failed=("transport",))
+    if report.verified:
+        typer.echo(f"  Pushed {len(report.verified)} file(s) to S3")
+    if not report.is_complete:
+        typer.echo(f"  Warning: {report.warning}", err=True)
+    return report
 
 
 def _show_authentication() -> bool:

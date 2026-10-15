@@ -30,17 +30,20 @@ logger = logging.getLogger("nauro.sync")
 
 
 class _LoggingReporter:
-    """Pull reporter for the SessionStart hook.
+    """Transfer reporter for the pull and push hooks.
 
-    Routes progress to ``logger`` at the appropriate level so auto-pull
-    never writes to the session's terminal.
+    Routes progress to ``logger`` under a ``sync pull`` or ``sync push`` prefix,
+    so neither hook writes to the session's terminal.
     """
 
+    def __init__(self, direction: str) -> None:
+        self._prefix = f"sync {direction}: %s"
+
     def info(self, msg: str) -> None:
-        logger.info("sync pull: %s", msg)
+        logger.info(self._prefix, msg)
 
     def warn(self, msg: str) -> None:
-        logger.warning("sync pull: %s", msg)
+        logger.warning(self._prefix, msg)
 
 
 def pull_before_session(project_id: str, store_path: Path) -> int:
@@ -63,7 +66,7 @@ def pull_before_session(project_id: str, store_path: Path) -> int:
         return run_pull(
             project_id,
             store_path,
-            _LoggingReporter(),
+            _LoggingReporter("pull"),
             lock_timeout=HOOK_SYNC_LOCK_TIMEOUT,
         ).merged
     except SyncLockTimeoutError as exc:
@@ -99,7 +102,9 @@ def push_after_write(project_id: str, store_path: Path) -> PushReport:
     from nauro.sync.remote import PresignError
 
     try:
-        return push_changed_files(project_id, store_path, lock_timeout=HOOK_SYNC_LOCK_TIMEOUT)
+        return push_changed_files(
+            project_id, store_path, _LoggingReporter("push"), lock_timeout=HOOK_SYNC_LOCK_TIMEOUT
+        )
     except SyncLockTimeoutError as exc:
         # Post-write publication is a fail-open ancillary step: the changed
         # files stay changed and the next push picks them up.
