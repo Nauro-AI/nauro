@@ -283,7 +283,7 @@ class TestDiscoveryPointerClassification:
 
 
 class TestDiscoveryPointerPartition:
-    """``genuine_open_entries`` / ``discovery_pointers`` partition the
+    """``genuine_open_entries`` and the discovery pointers partition the
     ``unresolved_entries`` set on the discovery-pointer flag, annotation-first."""
 
     def _file(self) -> OpenQuestionsFile:
@@ -306,12 +306,13 @@ class TestDiscoveryPointerPartition:
         # Q3 is a RESUME pointer but resolved-annotated, so it lands in neither
         # half — the partition mirrors unresolved_entries on the "unresolved" axis.
         file = self._file()
-        assert [e.id for e in file.discovery_pointers] == ["Q1", "Q4"]
+        pointers = [e for e in file.unresolved_entries if e.is_discovery_pointer]
+        assert [e.id for e in pointers] == ["Q1", "Q4"]
 
     def test_partition_covers_unresolved_exactly(self):
         file = self._file()
         partitioned = {e.id for e in file.genuine_open_entries} | {
-            e.id for e in file.discovery_pointers
+            e.id for e in file.unresolved_entries if e.is_discovery_pointer
         }
         assert partitioned == {e.id for e in file.unresolved_entries}
 
@@ -319,7 +320,7 @@ class TestDiscoveryPointerPartition:
         content = "# Open Questions\n- [Q1] One?\n- [Q2] Two?\n"
         file = OpenQuestionsFile.parse(content)
         assert [e.id for e in file.genuine_open_entries] == ["Q1", "Q2"]
-        assert file.discovery_pointers == []
+        assert not any(e.is_discovery_pointer for e in file.unresolved_entries)
 
 
 class TestResolve:

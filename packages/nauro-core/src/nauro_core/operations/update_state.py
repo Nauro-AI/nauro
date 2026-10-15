@@ -37,7 +37,6 @@ from nauro_core.operations.results import (
 )
 from nauro_core.operations.store import Store
 from nauro_core.state import (
-    _format_state_timestamp,
     _prepare_state_update_at,
     migrate_legacy_state,
     prepare_state_update,
@@ -143,12 +142,6 @@ class UpdateStatePlan(BaseModel):
         if self.legacy_state_bytes is not None:
             return "legacy"
         return "missing"
-
-    @property
-    def state_timestamp(self) -> str | None:
-        if self.updated_at is None:
-            return None
-        return _format_state_timestamp(self.updated_at)
 
     @property
     def source_revision(self) -> str:

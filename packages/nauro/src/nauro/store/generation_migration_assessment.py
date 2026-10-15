@@ -89,10 +89,6 @@ class LegacyMigrationAssessment:
     def ready_for_backup(self) -> bool:
         return not self.pending_paths
 
-    @property
-    def nonidentical_local_paths(self) -> tuple[str, ...]:
-        return tuple(sorted((*self.divergent_paths, *self.local_only_paths)))
-
 
 def _container_entries(path: Path, *, required: bool, label: str) -> tuple[Path, ...]:
     try:

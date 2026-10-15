@@ -12,6 +12,7 @@ from nauro.mcp import generation_responses as responses
 from nauro.store import generation_installation as installation
 from nauro.store.generation_authority import RefreshRequiredError
 from nauro.sync import generation_refresh as refresh
+from tests._generation_refresh import recover_generation_refresh
 from tests.test_generation_installation import USER_ID, _projection
 from tests.test_generation_reads import CASES
 from tests.test_generation_reads import admitted as admitted
@@ -164,7 +165,7 @@ def test_context_limit_keeps_authority_frame(admitted):
     current[0] = fresh_projection(
         {"project.md": ("# Project\n" + "x" * (L2_CHAR_BUDGET + 100)).encode()}
     )
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = responses.get_context(binding, "L2", actor=USER_ID)
     assert result.is_error is False
     assert "x" * 100 not in result.text
@@ -242,7 +243,7 @@ def fresh_projection(artifacts):
 def test_empty_authorized_projection_is_not_onboarding(admitted):
     binding, current, _ = admitted
     current[0] = fresh_projection({})
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = responses.get_context(binding, actor=USER_ID)
     assert result.is_error is False
     assert "read_authority" in result.envelope
@@ -257,7 +258,7 @@ def test_raw_content_budget_and_frame_are_separate(admitted):
     binding, current, _ = admitted
     content = "A" * (RAW_FILE_CHAR_BUDGET + 1000)
     current[0] = fresh_projection({"stack.md": content.encode()})
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = responses.get_raw_file(binding, "./stack.md", actor=USER_ID)
     assert result.is_error is False
     assert result.envelope["content"] == content

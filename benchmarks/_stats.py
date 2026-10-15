@@ -143,26 +143,6 @@ def mcnemar_exact_p(b: int, c: int) -> float:
     return min(1.0, 2.0 * tail)
 
 
-def holm_reject(pvalues: list[float], alpha: float = 0.05) -> list[bool]:
-    """Holm step-down multiplicity correction over the operating points searched.
-
-    Returns a reject/keep mask aligned with the input order. Holm dominates
-    plain Bonferroni at the same family-wise error rate; both are reported so a
-    post-hoc operating-point search cannot manufacture a significant cell.
-    """
-    m = len(pvalues)
-    if m == 0:
-        return []
-    order = sorted(range(m), key=lambda i: pvalues[i])
-    reject = [False] * m
-    for rank, idx in enumerate(order):
-        if pvalues[idx] <= alpha / (m - rank):
-            reject[idx] = True
-        else:
-            break
-    return reject
-
-
 def required_n_fired(target_lb: float, z: float = _Z_95) -> int:
     """Smallest perfect-run n whose Wilson lower bound reaches ``target_lb``.
 
@@ -185,12 +165,8 @@ def required_n_fired(target_lb: float, z: float = _Z_95) -> int:
 
 def holm_adjusted(pvalues: list[float]) -> list[float]:
     """Holm step-down adjusted p-values, aligned with the input order.
-
-    The multiplicity-corrected companion to ``holm_reject``: a hypothesis is
-    rejected at level alpha iff its adjusted p-value is <= alpha. Adjusted values
-    are made monotone non-decreasing along the sorted order, so the reject set is
-    nested and the two functions agree on the same family.
-    """
+    Reject at level alpha iff the adjusted value is <= alpha; adjusted values are
+    monotone non-decreasing along the sorted order."""
     m = len(pvalues)
     if m == 0:
         return []

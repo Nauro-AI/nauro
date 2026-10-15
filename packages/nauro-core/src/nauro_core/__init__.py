@@ -298,13 +298,7 @@ from nauro_core.search import (
     bm25_search as bm25_search,
 )
 from nauro_core.snapshot import (
-    normalize_snapshot as normalize_snapshot,
-)
-from nauro_core.snapshot import (
     serialize_snapshot as serialize_snapshot,
-)
-from nauro_core.snapshot import (
-    snapshot_schema_version as snapshot_schema_version,
 )
 from nauro_core.state import (
     StateUpdateResult as StateUpdateResult,

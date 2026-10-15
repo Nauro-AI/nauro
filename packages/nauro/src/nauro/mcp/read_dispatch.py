@@ -83,7 +83,6 @@ def generation_response(
     binding: ResolvedProjectBinding,
     name: str,
     options: dict[str, object],
-    transport: HttpHistoryTransport | None = None,
 ) -> generation.GenerationToolResponse:
     if name not in GENERATION_READS:
         raise ValueError("Unsupported generation read")
@@ -92,7 +91,7 @@ def generation_response(
         if name in {"search_decisions", "check_decision"}:
             arguments["use_embeddings"] = resolve_embeddings_flag()
         if name == "diff_since_last_session":
-            arguments["transport"] = transport or HttpHistoryTransport(
+            arguments["transport"] = HttpHistoryTransport(
                 session.api_url, session.client, session.credentials
             )
         response: generation.GenerationToolResponse = getattr(generation, name)(
@@ -110,7 +109,6 @@ def _read(
     cwd: str | None,
     flat: Callable[[Path], dict[str, object]],
     options: dict[str, object] | None = None,
-    transport: HttpHistoryTransport | None = None,
 ) -> CallToolResult:
     try:
         binding = resolve_project_binding(project_id, cwd or Path.cwd())
@@ -121,7 +119,7 @@ def _read(
     try:
         marker = observe_generation_marker(binding)
         if marker is not None:
-            response = generation_response(binding, name, options or {}, transport)
+            response = generation_response(binding, name, options or {})
             if observe_generation_marker(binding) != marker:
                 return _unavailable()
             return _prepared(response)
@@ -220,11 +218,8 @@ def check_decision(
     )
 
 
-def _history_diff(
-    project_id: str | None,
-    cwd: str | None,
-    days: int | None,
-    transport: HttpHistoryTransport | None,
+def diff_since_last_session(
+    project_id: str | None = None, cwd: str | None = None, days: int | None = None
 ) -> CallToolResult:
     return _read(
         "diff_since_last_session",
@@ -232,20 +227,4 @@ def _history_diff(
         cwd,
         lambda p: legacy.tool_diff_since_last_session(p, days),
         {"days": days},
-        transport,
     )
-
-
-def diff_since_last_session(
-    project_id: str | None = None, cwd: str | None = None, days: int | None = None
-) -> CallToolResult:
-    return _history_diff(project_id, cwd, days, None)
-
-
-def history_dispatch(transport: HttpHistoryTransport) -> Callable[..., CallToolResult]:
-    def diff_since_last_session(
-        project_id: str | None = None, cwd: str | None = None, days: int | None = None
-    ) -> CallToolResult:
-        return _history_diff(project_id, cwd, days, transport)
-
-    return diff_since_last_session

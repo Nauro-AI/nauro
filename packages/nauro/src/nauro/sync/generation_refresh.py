@@ -393,10 +393,3 @@ def confirm_installed_target(
             or _target(binding, intent) != target
         ):
             raise RefreshRequiredError("The installed generation differs from the refresh.")
-
-
-def recover_generation_refresh(
-    binding: ResolvedProjectBinding, *, actor: str, session: TransferSession | None = None
-) -> GenerationSnapshotStore:
-    prepared = prepare_generation_refresh(binding, actor=actor, session=session)
-    return commit_generation_refresh(prepared, session=session)

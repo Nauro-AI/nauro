@@ -2,17 +2,13 @@
 
 The serializer is pure compute: no I/O, no clock, no regex. These tests
 pin the on-disk dict shape (key order, schema stamping, token derivation)
-and the legacy read-path normalization both surfaces rely on.
+both surfaces rely on.
 """
 
 from __future__ import annotations
 
 import pytest
-from nauro_core.snapshot import (
-    normalize_snapshot,
-    serialize_snapshot,
-    snapshot_schema_version,
-)
+from nauro_core.snapshot import serialize_snapshot
 
 # 12 + 8 = 20 characters across the two files; 20 // 4 == 5.
 _FILES = {"state_current.md": "# State\nabcd", "stack.md": "# Stack\n"}
@@ -88,34 +84,3 @@ def test_serialize_is_clock_free_and_deterministic() -> None:
     first = serialize_snapshot(timestamp=_TIMESTAMP, trigger="sync", files=_FILES, version=3)
     second = serialize_snapshot(timestamp=_TIMESTAMP, trigger="sync", files=_FILES, version=3)
     assert first == second
-
-
-def test_normalize_defaults_absent_schema_version_to_legacy() -> None:
-    normalized = normalize_snapshot({"timestamp": _TIMESTAMP, "files": {}})
-    assert normalized["schema_version"] == 0
-    assert normalized["trigger_detail"] == ""
-    assert normalized["token_count"] == 0
-    assert normalized["files"] == {}
-
-
-def test_normalize_preserves_present_schema_version() -> None:
-    normalized = normalize_snapshot({"schema_version": 1, "timestamp": _TIMESTAMP, "files": {}})
-    assert normalized["schema_version"] == 1
-
-
-def test_normalize_round_trips_version_when_present() -> None:
-    normalized = normalize_snapshot({"version": 9, "timestamp": _TIMESTAMP, "files": {}})
-    assert normalized["version"] == 9
-
-
-def test_normalize_omits_version_when_absent() -> None:
-    normalized = normalize_snapshot({"timestamp": _TIMESTAMP, "files": {}})
-    assert "version" not in normalized
-
-
-def test_snapshot_schema_version_defaults_absent_to_legacy() -> None:
-    assert snapshot_schema_version({"timestamp": _TIMESTAMP}) == 0
-
-
-def test_snapshot_schema_version_reads_present_value() -> None:
-    assert snapshot_schema_version({"schema_version": 1}) == 1

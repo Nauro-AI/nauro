@@ -17,7 +17,6 @@ from typing import TypedDict
 
 from nauro_core.constants import (
     CHARS_PER_TOKEN,
-    LEGACY_SCHEMA_VERSION,
     SNAPSHOT_SCHEMA_VERSION,
 )
 
@@ -74,26 +73,3 @@ def serialize_snapshot(
     snapshot["token_count"] = token_count
     snapshot["files"] = files
     return snapshot
-
-
-def normalize_snapshot(raw: dict) -> Snapshot:
-    """Fill in defaults a legacy snapshot may omit: ``schema_version`` to
-    ``LEGACY_SCHEMA_VERSION``, ``trigger`` and ``trigger_detail`` to empty strings,
-    ``token_count`` to ``0``, ``files`` to ``{}``. ``version`` survives if present.
-    """
-    normalized: dict = {
-        "schema_version": raw.get("schema_version", LEGACY_SCHEMA_VERSION),
-    }
-    if "version" in raw:
-        normalized["version"] = raw["version"]
-    normalized["timestamp"] = raw.get("timestamp", "")
-    normalized["trigger"] = raw.get("trigger", "")
-    normalized["trigger_detail"] = raw.get("trigger_detail", "")
-    normalized["token_count"] = raw.get("token_count", 0)
-    normalized["files"] = raw.get("files", {})
-    return normalized
-
-
-def snapshot_schema_version(raw: dict) -> int:
-    """Return a snapshot's schema version, defaulting legacy reads to 0."""
-    return raw.get("schema_version", LEGACY_SCHEMA_VERSION)

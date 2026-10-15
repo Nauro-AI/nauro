@@ -85,14 +85,6 @@ class LegacyMigrationPlan:
             self.assessment.projection.target.binding.store_path.parent / self.backup_directory_name
         )
 
-    @property
-    def quarantine_entries(self) -> tuple[LegacyMigrationPlanEntry, ...]:
-        return tuple(entry for entry in self.entries if entry.disposition == "quarantine")
-
-    @property
-    def backup_entries(self) -> tuple[LegacyMigrationPlanEntry, ...]:
-        return tuple(entry for entry in self.entries if entry.disposition == "legacy_backup")
-
 
 def _validate_assessment(assessment: LegacyMigrationAssessment) -> None:
     if type(assessment) is not LegacyMigrationAssessment:

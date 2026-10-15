@@ -98,10 +98,6 @@ class PushReport:
         )
 
     @property
-    def pushed(self) -> int:
-        return len(self.verified)
-
-    @property
     def warning(self) -> str:
         parts = []
         for label, values in (

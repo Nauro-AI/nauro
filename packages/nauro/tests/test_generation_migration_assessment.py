@@ -123,11 +123,6 @@ def test_assessment_classifies_protected_paths_and_stamps_snapshots(tmp_path: Pa
     assert assessment.divergent_paths == ("state_current.md",)
     assert assessment.local_only_paths == ("context/auth-cutover-2.md", "stack.md")
     assert assessment.server_only_paths == ("open-questions.md",)
-    assert assessment.nonidentical_local_paths == (
-        "context/auth-cutover-2.md",
-        "stack.md",
-        "state_current.md",
-    )
     assert assessment.pending_paths == ()
     assert assessment.unsupported_paths == (
         "context/.lock",

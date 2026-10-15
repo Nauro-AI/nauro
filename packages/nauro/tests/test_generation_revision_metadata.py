@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 from nauro.cli.main import app
 from nauro.mcp import generation_responses as responses
 from nauro.mcp import stdio_server
-from nauro.sync import generation_refresh as refresh
+from tests._generation_refresh import recover_generation_refresh
 from tests.test_generation_installation import USER_ID
 from tests.test_generation_reads import admitted
 from tests.test_generation_responses import fresh_projection
@@ -27,7 +27,7 @@ def test_context_revisions_use_exact_admitted_bytes(admitted, level):
     binding, current, _ = admitted
     state = b"# State\r\n\r\nCurrent status.\r\n"
     current[0] = fresh_projection({"state_current.md": state, "state.md": b"old"})
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = responses.get_context(binding, level, actor=USER_ID)
     assert result.is_error is False
     assert result.envelope["state_revision"] == hashlib.sha256(state).hexdigest()
@@ -47,7 +47,7 @@ def test_raw_revision_is_outside_exact_content(admitted, path, field):
     binding, current, _ = admitted
     body = b"# Inventory\r\n\r\nA verified body.\r\n"
     current[0] = fresh_projection({path: body})
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = responses.get_raw_file(binding, path, actor=USER_ID)
     assert result.is_error is False
     assert result.envelope["content"] == body.decode()
@@ -64,7 +64,7 @@ def test_revision_hashes_original_bytes_before_display_replacement(admitted, pat
     binding, current, _ = admitted
     body = b"# State\n\nLegacy byte: \xff\n"
     current[0] = fresh_projection({path: body})
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = responses.get_raw_file(binding, path, actor=USER_ID)
     assert result.is_error is False
     assert result.envelope["content"] == body.decode(errors="replace")
@@ -74,7 +74,7 @@ def test_revision_hashes_original_bytes_before_display_replacement(admitted, pat
 def test_stack_revision_line_is_followed_by_non_authoritative_framing(admitted):
     binding, current, _ = admitted
     current[0] = fresh_projection({"stack.md": STACK})
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = responses.get_raw_file(binding, "stack.md", actor=USER_ID)
     revision = compute_stack_revision(STACK)
     authority = result.envelope["read_authority"]
@@ -102,7 +102,7 @@ def test_missing_stack_carries_no_revision(admitted):
 def test_cli_json_stack_read_carries_revision(cloud):
     binding, current, _ = cloud
     current[0] = fresh_projection({"stack.md": STACK})
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = CliRunner().invoke(
         app, ["get-raw-file", "stack.md", "--project", binding.display_name, "--format", "json"]
     )
@@ -115,7 +115,7 @@ def test_cli_json_stack_read_carries_revision(cloud):
 def test_stdio_stack_read_carries_revision(cloud):
     binding, current, _ = cloud
     current[0] = fresh_projection({"stack.md": STACK})
-    refresh.recover_generation_refresh(binding, actor=USER_ID)
+    recover_generation_refresh(binding, actor=USER_ID)
     result = stdio_server.get_raw_file("stack.md", project_id=binding.project_id)
     revision = compute_stack_revision(STACK)
     assert result.isError is False

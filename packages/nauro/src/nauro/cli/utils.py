@@ -20,12 +20,9 @@ from nauro import __version__
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.journal import OriginDescriptor
 from nauro.store.registry import (
-    RegistrySchemaError,
-    add_repo_v2,
+    _load_registry_v2_or_empty,
     find_projects_by_name_v2,
     get_project_v2,
-    load_registry_v2,
-    register_project_v2,
     suggest_project_for_path,
 )
 from nauro.store.repo_config import collides_with_global_config
@@ -100,21 +97,11 @@ def refuse_repo_config_symlink(repo_root: Path) -> None:
     raise typer.Exit(code=1)
 
 
-def _v2_registry_or_empty() -> dict:
-    """Return the v2 registry, or ``{"projects": {}}`` on ``RegistrySchemaError`` only.
-    The schema error is surfaced by resolution, not here; other exceptions propagate.
-    """
-    try:
-        return load_registry_v2()
-    except RegistrySchemaError:
-        return {"projects": {}}
-
-
 def _available_project_names() -> list[str]:
     """Return the sorted project names, the empty string subtracted so a nameless entry
     cannot leak a blank token into listings.
     """
-    names = {e.get("name", "") for e in _v2_registry_or_empty()["projects"].values()}
+    names = {e.get("name", "") for e in _load_registry_v2_or_empty()["projects"].values()}
     return sorted(names - {""})
 
 
@@ -204,14 +191,11 @@ def _resolve_project_entry(project_name: str, project_key: str) -> dict:
     return entry
 
 
-# Re-exported for callers that need to write or extend v2 entries directly
 __all__ = [
-    "add_repo_v2",
     "cli_origin",
     "DisconnectedProjectExit",
     "ProjectResolutionExit",
     "refuse_global_config_collision",
     "refuse_repo_config_symlink",
-    "register_project_v2",
     "resolve_target_project",
 ]

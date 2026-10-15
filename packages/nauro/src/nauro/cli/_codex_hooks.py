@@ -128,8 +128,6 @@ def _transform_codex_hooks(
             return _CodexHookTransform(transformed, 0)
         hooks = {}
         transformed["hooks"] = hooks
-    if not isinstance(hooks, dict):
-        raise _CodexHookConfigError("hooks key in .codex/hooks.json is not a JSON object, skipped")
 
     removed = _strip_nauro_events(hooks)
 
