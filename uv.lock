@@ -953,7 +953,9 @@ dependencies = [
 dev = [
     { name = "hatchling" },
     { name = "import-linter" },
+    { name = "jsonschema" },
     { name = "mypy" },
+    { name = "packaging" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -967,10 +969,12 @@ requires-dist = [
     { name = "hatchling", marker = "extra == 'dev'" },
     { name = "httpx", specifier = ">=0.24" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = "==2.12" },
+    { name = "jsonschema", marker = "extra == 'dev'" },
     { name = "mcp", specifier = ">=1.0,<2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.1.0" },
     { name = "nauro-core", editable = "packages/nauro-core" },
     { name = "nauro-core", extras = ["embeddings"], marker = "extra == 'embeddings'", editable = "packages/nauro-core" },
+    { name = "packaging", marker = "extra == 'dev'" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.20" },
@@ -995,7 +999,6 @@ dependencies = [
 dev = [
     { name = "import-linter" },
     { name = "pytest" },
-    { name = "ruff" },
 ]
 embeddings = [
     { name = "model2vec" },
@@ -1014,7 +1017,6 @@ requires-dist = [
     { name = "pystemmer", specifier = ">=2.2" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ruff", marker = "extra == 'dev'" },
 ]
 provides-extras = ["dev", "embeddings"]
 

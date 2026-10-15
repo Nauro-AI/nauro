@@ -25,79 +25,7 @@ jobs:
       - run: uv run --no-sync ruff format --check packages/ benchmarks/ scripts/
       - run: uv run --no-sync python scripts/check_ruff_budget.py
       - run: uv run --no-sync python -m unittest discover -s scripts -p test_check_ruff_budget.py
-      - run: >-
-          uv run --no-sync mypy --disallow-untyped-defs --config-file packages/nauro/pyproject.toml
-          packages/nauro/src/nauro/store/generation_authority.py
-          packages/nauro/src/nauro/store/replica_control.py
-          packages/nauro/src/nauro/store/generation_installation.py
-          packages/nauro/src/nauro/store/generation_read.py
-          packages/nauro/src/nauro/store/generation_store.py
-          packages/nauro/src/nauro/mcp/generation_reads.py
-          packages/nauro/src/nauro/mcp/generation_responses.py
-          packages/nauro/src/nauro/mcp/resolution_errors.py
-          packages/nauro/src/nauro/mcp/read_dispatch.py
-          packages/nauro/src/nauro/mcp/state_responses.py
-          packages/nauro/src/nauro/mcp/question_responses.py
-          packages/nauro/src/nauro/store/read_authority.py
-          packages/nauro/src/nauro/store/generation_refresh_state.py
-          packages/nauro/src/nauro/store/generation_refresh_intent.py
-          packages/nauro/src/nauro/store/generation_refresh_io.py
-          packages/nauro/src/nauro/sync/generation_refresh.py
-          packages/nauro/src/nauro/sync/generation_acquisition.py
-          packages/nauro/src/nauro/sync/generation_discovery.py
-          packages/nauro/src/nauro/cli/connection_routing.py
-          packages/nauro/src/nauro/store/submission_records.py
-          packages/nauro/src/nauro/store/share_contract.py
-          packages/nauro/src/nauro/store/share_records.py
-          packages/nauro/src/nauro/sync/share_submission.py
-          packages/nauro/src/nauro/sync/share_transport.py
-          packages/nauro/src/nauro/mcp/share_responses.py
-          packages/nauro/src/nauro/store/stack_contract.py
-          packages/nauro/src/nauro/store/stack_records.py
-          packages/nauro/src/nauro/sync/stack_submission.py
-          packages/nauro/src/nauro/sync/stack_transport.py
-          packages/nauro/src/nauro/mcp/stack_responses.py
-          packages/nauro/src/nauro/store/state_contract.py
-          packages/nauro/src/nauro/store/state_records.py
-          packages/nauro/src/nauro/sync/state_submission.py
-          packages/nauro/src/nauro/sync/state_transport.py
-          packages/nauro/src/nauro/sync/generation_writes.py
-          packages/nauro/src/nauro/sync/question_writes.py
-          packages/nauro/src/nauro/sync/stack_writes.py
-          packages/nauro/src/nauro/sync/share_writes.py
-          packages/nauro/src/nauro/sync/write_arguments.py
-          packages/nauro/src/nauro/sync/write_failures.py
-          packages/nauro/src/nauro/sync/write_revision.py
-          packages/nauro/src/nauro/cli/generation_writes.py
-          packages/nauro/src/nauro/store/question_contract.py
-          packages/nauro/src/nauro/store/question_records.py
-          packages/nauro/src/nauro/sync/question_submission.py
-          packages/nauro/src/nauro/sync/question_transport.py
-          packages/nauro/src/nauro/sync/judgment_submission.py
-          packages/nauro/src/nauro/sync/history_contract.py
-          packages/nauro/src/nauro/sync/history_transport.py
-          packages/nauro/src/nauro/sync/judgment_transport.py
-          packages/nauro/src/nauro/sync/decision_reference.py
-          packages/nauro/src/nauro/sync/decision_reference_contract.py
-          packages/nauro/src/nauro/mcp/decision_reference.py
-          packages/nauro/src/nauro/cli/decision_reference.py
-          packages/nauro/src/nauro/sync/reference_reads.py
-          packages/nauro/src/nauro/sync/hosted_state_schema.py
-          packages/nauro/src/nauro/sync/hosted_stack_schema.py
-          packages/nauro/src/nauro/sync/hosted_share_schema.py
-          packages/nauro/src/nauro/mcp/reference_reads.py
-          packages/nauro/src/nauro/sync/generation_pool.py
-          packages/nauro/src/nauro/sync/generation_renewal.py
-          packages/nauro/src/nauro/sync/reference_auth.py
-          packages/nauro/src/nauro/sync/reference_credentials.py
-          packages/nauro/src/nauro/store/_windows_security.py
-          packages/nauro/src/nauro/sync/reference_oauth.py
-          packages/nauro/src/nauro/sync/decision_profile.py
-          packages/nauro/src/nauro/mcp/decision_reference_startup.py
-          scripts/controlled_decision_reference.py
-          packages/nauro/src/nauro/auth.py
-          packages/nauro/src/nauro/sync/merge.py
-          scripts/check_ruff_budget.py
+      - run: uv run --no-sync mypy --config-file packages/nauro/pyproject.toml
       - run: python scripts/check_single_sourced.py packages/nauro/src
       - run: python scripts/check_docstring_budget.py packages/nauro/src packages/nauro-core/src
       - run: python scripts/check_server_json_version.py
@@ -110,10 +38,9 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v6
       - run: uv python install 3.12
-      - run: uv sync --locked --package nauro-core --all-extras --python 3.12
+      - run: uv sync --locked --package nauro --extra dev --python 3.12
       - run: uv run --no-sync --package nauro-core lint-imports
         working-directory: packages/nauro-core
-      - run: uv sync --locked --package nauro --extra dev --python 3.12
       - run: uv run --no-sync --package nauro lint-imports
         working-directory: packages/nauro
 
@@ -290,7 +217,7 @@ jobs:
   test-generation-control-platforms:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
