@@ -86,6 +86,9 @@ class _QuestionResolveOutcome:
     skipped_prose_ids: tuple[str, ...] = ()
 
 
+_OpOutcome = tuple[str | None, str, tuple[str, ...], _QuestionResolveOutcome, ErrorPayload | None]
+
+
 def propose_decision(
     store: Store,
     *,
@@ -256,7 +259,7 @@ def _execute_operation(
     operation: str,
     proposal: dict,
     affected_decision_id: str | None,
-) -> tuple[str | None, str, tuple[str, ...], _QuestionResolveOutcome, ErrorPayload | None]:
+) -> _OpOutcome:
     """Return ``(decision_id, actual_operation, touched, resolve_outcome, error)``.
     ``touched`` lists every rewritten decision stem (drives adapter AGENTS.md regen);
     half-state errors leave completed writes standing with ``resolve_outcome`` empty.
@@ -274,37 +277,27 @@ def _do_supersede(
     store: Store,
     proposal: dict,
     affected_decision_id: str,
-) -> tuple[str | None, str, tuple[str, ...], _QuestionResolveOutcome, ErrorPayload | None]:
+) -> _OpOutcome:
     """Two-write supersede: new decision first, then flipped old."""
     old_num = extract_decision_number(affected_decision_id)
     if old_num is None:
-        return (
+        return _op_error(
             None,
             "supersede",
             (),
-            _QuestionResolveOutcome(),
-            ErrorPayload(
-                kind="error",
-                reason=f"Cannot derive supersession ref from {affected_decision_id!r}.",
-            ),
+            f"Cannot derive supersession ref from {affected_decision_id!r}.",
         )
 
     # Write the new decision and rewrite it to carry the supersedes backref.
     new_decision_id = _write_decision_direct(store, proposal)
     new_body = store.read_decision(new_decision_id)
     if new_body is None:
-        return (
+        return _op_error(
             None,
             "supersede",
             (new_decision_id,),
-            _QuestionResolveOutcome(),
-            ErrorPayload(
-                kind="error",
-                reason=(
-                    f"supersede half-state: new decision {new_decision_id} written "
-                    "but the kernel cannot read it back to attach supersedes ref."
-                ),
-            ),
+            f"supersede half-state: new decision {new_decision_id} written "
+            "but the kernel cannot read it back to attach supersedes ref.",
         )
     new_decision = parse_decision(new_body, _decision_filename(new_decision_id))
     new_decision_rewritten = attach_supersedes(new_decision, old_num)
@@ -318,33 +311,21 @@ def _do_supersede(
     # sync-repair on next pull recovers the half-state.
     old_stem = find_decision_stem_by_num(store, old_num)
     if old_stem is None:
-        return (
+        return _op_error(
             new_decision_id,
             "supersede",
             (new_decision_id,),
-            _QuestionResolveOutcome(),
-            ErrorPayload(
-                kind="error",
-                reason=(
-                    f"supersede half-state: new decision {new_decision_id} written; "
-                    f"old decision matching {affected_decision_id!r} not found to flip."
-                ),
-            ),
+            f"supersede half-state: new decision {new_decision_id} written; "
+            f"old decision matching {affected_decision_id!r} not found to flip.",
         )
     old_body = store.read_decision(old_stem)
     if old_body is None:
-        return (
+        return _op_error(
             new_decision_id,
             "supersede",
             (new_decision_id,),
-            _QuestionResolveOutcome(),
-            ErrorPayload(
-                kind="error",
-                reason=(
-                    f"supersede half-state: new decision {new_decision_id} written; "
-                    f"old decision {old_stem} could not be read."
-                ),
-            ),
+            f"supersede half-state: new decision {new_decision_id} written; "
+            f"old decision {old_stem} could not be read.",
         )
     try:
         old_decision = parse_decision(old_body, _decision_filename(old_stem))
@@ -354,62 +335,36 @@ def _do_supersede(
             format_decision(old_rewritten),
         )
     except Exception as exc:
-        return (
+        return _op_error(
             new_decision_id,
             "supersede",
             (new_decision_id,),
-            _QuestionResolveOutcome(),
-            ErrorPayload(
-                kind="error",
-                reason=(
-                    f"supersede half-state: new decision {new_decision_id} written; "
-                    f"old decision {old_stem} not flipped ({exc.__class__.__name__})."
-                ),
-            ),
+            f"supersede half-state: new decision {new_decision_id} written; "
+            f"old decision {old_stem} not flipped ({exc.__class__.__name__}).",
         )
 
     resolve_outcome, resolve_error = _apply_question_resolves(store, proposal, new_decision_id)
-    if resolve_error is not None:
-        return (
-            new_decision_id,
-            "supersede",
-            (new_decision_id, old_stem),
-            resolve_outcome,
-            resolve_error,
-        )
-    return new_decision_id, "supersede", (new_decision_id, old_stem), resolve_outcome, None
+    touched = (new_decision_id, old_stem)
+    return new_decision_id, "supersede", touched, resolve_outcome, resolve_error
 
 
 def _do_update(
     store: Store,
     proposal: dict,
     affected_decision_id: str,
-) -> tuple[str | None, str, tuple[str, ...], _QuestionResolveOutcome, ErrorPayload | None]:
+) -> _OpOutcome:
     """Rationale-only update: bump version, append dated paragraph."""
     target_stem = find_decision_stem_by_id(store, affected_decision_id)
     if target_stem is None:
-        return (
+        return _op_error(
             None,
             "update",
             (),
-            _QuestionResolveOutcome(),
-            ErrorPayload(
-                kind="error",
-                reason=f"update target {affected_decision_id!r} not found in store.",
-            ),
+            f"update target {affected_decision_id!r} not found in store.",
         )
     body = store.read_decision(target_stem)
     if body is None:
-        return (
-            None,
-            "update",
-            (),
-            _QuestionResolveOutcome(),
-            ErrorPayload(
-                kind="error",
-                reason=f"update target {target_stem} could not be read.",
-            ),
-        )
+        return _op_error(None, "update", (), f"update target {target_stem} could not be read.")
     target = parse_decision(body, _decision_filename(target_stem))
     updated = append_decision_update(
         target,
@@ -420,9 +375,23 @@ def _do_update(
     store.write_file(_decision_path(target_stem), format_decision(updated))
 
     resolve_outcome, resolve_error = _apply_question_resolves(store, proposal, target_stem)
-    if resolve_error is not None:
-        return target_stem, "update", (target_stem,), resolve_outcome, resolve_error
-    return target_stem, "update", (target_stem,), resolve_outcome, None
+    return target_stem, "update", (target_stem,), resolve_outcome, resolve_error
+
+
+def _op_error(
+    decision_id: str | None,
+    operation: str,
+    touched: tuple[str, ...],
+    reason: str,
+) -> _OpOutcome:
+    """An operation outcome that stops with ``reason`` and no question resolution."""
+    return (
+        decision_id,
+        operation,
+        touched,
+        _QuestionResolveOutcome(),
+        ErrorPayload(kind="error", reason=reason),
+    )
 
 
 # ── resolves_questions ingestion ──────────────────────────────────────────

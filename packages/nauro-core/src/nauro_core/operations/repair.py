@@ -26,7 +26,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nauro_core.decision_model import Decision, DecisionStatus, format_decision
 from nauro_core.doctor import SupersedeOrphan, SupersessionCycle, diagnose_store
-from nauro_core.operations.decision_lookup import scan_decisions
+from nauro_core.operations._decision_transitions import mark_superseded
+from nauro_core.operations.decision_lookup import scan_decision_records
 from nauro_core.operations.store import Store
 from nauro_core.parsing import _decision_path, extract_decision_number
 
@@ -112,14 +113,15 @@ class _Candidate(NamedTuple):
 def plan_supersede_repair(store: Store) -> RepairAssessment:
     """Assess the store and plan the single repairable orphan, if there is one."""
     diagnosis = diagnose_store(store)
-    parsed, failures = scan_decisions(store)
+    records, failures, stems = scan_decision_records(store)
+    parsed = [record.decision for record in records]
 
     by_num: dict[int, Decision] = {}
     for decision in parsed:
         by_num.setdefault(decision.num, decision)
 
     stems_by_num: dict[int, list[str]] = {}
-    for stem in store.list_decisions():
+    for stem in stems:
         num = extract_decision_number(stem)
         if num is not None:
             stems_by_num.setdefault(num, []).append(stem)
@@ -130,6 +132,7 @@ def plan_supersede_repair(store: Store) -> RepairAssessment:
     refusals = _refusals(
         candidates=candidates,
         parsed=parsed,
+        by_num=by_num,
         cycles=diagnosis.cycles,
         stems_by_num=stems_by_num,
         stem_counts=stem_counts,
@@ -171,6 +174,7 @@ def _refusals(
     *,
     candidates: list[_Candidate],
     parsed: list[Decision],
+    by_num: dict[int, Decision],
     cycles: list[SupersessionCycle],
     stems_by_num: dict[int, list[str]],
     stem_counts: Counter[int],
@@ -180,9 +184,6 @@ def _refusals(
     if not candidates:
         return []
 
-    by_num: dict[int, Decision] = {}
-    for decision in parsed:
-        by_num.setdefault(decision.num, decision)
     cycle_by_member = {member: cycle for cycle in cycles for member in cycle.members}
     children_by_target: dict[int, list[int]] = {}
     for candidate in candidates:
@@ -264,19 +265,14 @@ def _build_plan(
     by_num: dict[int, Decision],
     stems_by_num: dict[int, list[str]],
 ) -> RepairPlan:
-    """Render the flipped target for a candidate already cleared of refusals. Only the
-    two frontmatter fields move, through the same ``model_copy`` plus
-    ``format_decision`` path a supersede write takes, so the bytes match exactly.
+    """Render the flipped target for a candidate already cleared of refusals. The flip
+    reuses the supersede-write transition (``mark_superseded`` plus ``format_decision``),
+    so the bytes match a supersede write by construction.
     """
     child = by_num[orphan.child]
     target = by_num[orphan.target]
     target_stem = stems_by_num[orphan.target][0]
-    flipped = target.model_copy(
-        update={
-            "status": DecisionStatus.superseded,
-            "superseded_by": str(orphan.child),
-        }
-    )
+    flipped = mark_superseded(target, orphan.child)
     return RepairPlan(
         child_num=child.num,
         child_title=child.title,

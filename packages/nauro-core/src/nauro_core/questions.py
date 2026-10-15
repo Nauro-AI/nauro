@@ -198,7 +198,8 @@ class QuestionEntry(BaseModel):
         if self.resolved_by is not None:
             ref = self.resolved_by
             head = (
-                f"- [Resolved by D{ref.decision_num} on {ref.date.isoformat()}] "
+                f"- [{_RESOLVED_PREFIX_TOKEN}{ref.decision_num}"
+                f"{_RESOLVED_PREFIX_SEP}{ref.date.isoformat()}] "
                 f"[{self._render_id}] {self.body}"
             )
         else:
@@ -588,17 +589,7 @@ class OpenQuestionsFile(BaseModel):
         ``max(num across the file) + 1``, clears its timestamp into a ``(logged ...)``
         body suffix, and stays in place. Only touched entries copy, so it is idempotent.
         """
-        next_num = (
-            max(
-                (
-                    b.entry.num
-                    for b in self.blocks
-                    if isinstance(b, EntryBlock) and b.entry.num is not None
-                ),
-                default=0,
-            )
-            + 1
-        )
+        next_num = max((e.num for e in self.numbered_entries if e.num is not None), default=0) + 1
 
         renames: list[MigrationRename] = []
         new_blocks: list[Block] = []

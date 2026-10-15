@@ -10,10 +10,7 @@ from __future__ import annotations
 import hashlib
 from functools import lru_cache
 
-from nauro_core.constants import (
-    MIN_RATIONALE_LENGTH,
-    VALID_CONFIDENCES,
-)
+from nauro_core.constants import MIN_RATIONALE_LENGTH
 from nauro_core.decision_model import (
     DECISION_TYPE_VALUES,
     Decision,
@@ -114,6 +111,8 @@ def rejected_item_label(item: dict) -> str | None:
     return None
 
 
+_CONFIDENCE_VALUES = tuple(c.value for c in DecisionConfidence)
+
 # Optional enum-valued proposal fields and their allowed wire values. Each
 # must reject at Tier 1: the write path coerces them with the enum
 # constructor, so a non-member value that slips past screening raises an
@@ -143,8 +142,11 @@ def screen_structural(
         return ("reject", "Rationale is empty.")
 
     confidence = proposal.get("confidence", DecisionConfidence.medium.value)
-    if confidence not in VALID_CONFIDENCES:
-        return ("reject", f"Invalid confidence: {confidence}. Must be one of: {VALID_CONFIDENCES}")
+    if confidence not in _CONFIDENCE_VALUES:
+        return (
+            "reject",
+            f"Invalid confidence: {confidence}. Must be one of: {', '.join(_CONFIDENCE_VALUES)}",
+        )
 
     # None and blank strings coerce to unset on the write path, so only a
     # non-blank non-member value rejects.

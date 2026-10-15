@@ -25,7 +25,7 @@ from nauro_core.constants import (
     STATE_MD,
     VALID_CONFIDENCES,
 )
-from nauro_core.decision_model import DecisionType
+from nauro_core.decision_model import DecisionConfidence, DecisionType, Reversibility
 from nauro_core.instructions import build_remote_instructions
 from nauro_core.protocol import (
     APPROVAL_BEFORE_PROPOSE,
@@ -125,6 +125,10 @@ class TestValidValues:
 
     def test_reversibility_levels_non_empty(self):
         assert REVERSIBILITY_LEVELS == ("easy", "moderate", "hard")
+
+    def test_confidence_and_reversibility_track_their_enums(self):
+        assert {c.value for c in DecisionConfidence} == VALID_CONFIDENCES
+        assert tuple(r.value for r in Reversibility) == REVERSIBILITY_LEVELS
 
 
 class TestPointerFlagPrefixes:
