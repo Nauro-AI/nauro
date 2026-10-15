@@ -116,12 +116,20 @@ On approval, squash-merge with a clean subject `Release ... (#NNN)`. Then
 ## Step 6 — Tag and publish (GATE — irreversible)
 
 Only on explicit publish approval. Tag the merge commit and push — each tag
-triggers its trusted-publish workflow (OIDC, no tokens):
+triggers its trusted-publish workflow (OIDC, no tokens). A single-package
+release pushes its one tag.
+
+For a paired release, push the nauro-core tag first. The nauro workflow smoke
+tests its built wheel in a fresh venv, which resolves the nauro-core floor from
+PyPI, so wait for `publish-nauro-core.yml` to succeed and the new files to
+appear on the PyPI simple index before pushing the nauro tag:
 
 ```
 git tag -a nauro-core-v<Y> <merge-sha> -m "nauro-core <Y>"
+git push origin nauro-core-v<Y>
+# wait: publish-nauro-core.yml green and https://pypi.org/simple/nauro-core/ lists <Y>
 git tag -a nauro-v<X>      <merge-sha> -m "nauro <X>"
-git push origin nauro-core-v<Y> nauro-v<X>          # push only the tags being released
+git push origin nauro-v<X>
 ```
 
 ## Step 7 — Watch the publish workflows
@@ -187,8 +195,12 @@ auto-deletes on merge.
   `uv lock`, commit, push.
 - `check_server_json_version.py` fail → `server.json` `.version` /
   `.packages[0].version` do not match the nauro pyproject; fix before the PR.
-- Publish workflow fail after tag → a PyPI version is consumed; you cannot
-  re-tag the same version. Diagnose, then cut the next patch. Never delete or
-  re-push a released tag.
+- Publish workflow fail after tag → first check where the run failed.
+  - Before the upload step (the build or the wheel smoke test, for example when
+    the nauro-core floor has not propagated to PyPI yet): nothing is consumed,
+    and `gh run rerun <id> --failed` is safe.
+  - At or after the upload: the version is consumed and cannot be re-tagged.
+    Diagnose, then cut the next patch.
+  - Never delete or re-push a released tag.
 - If only one package changed, release only that package: push only its tag, and
   skip server.json/registry unless it is the nauro tag.

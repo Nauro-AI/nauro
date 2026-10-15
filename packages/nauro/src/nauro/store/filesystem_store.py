@@ -58,10 +58,8 @@ class FilesystemStore:
             return None
         return read_text_lenient(target)
 
-    # Per-write FileLock only — no cross-file lock to serialize decision
-    # numbering across concurrent writers. Collisions (two writers minting
-    # the same num because they raced between list/write) are caught and
-    # repaired on the next sync-pull.
+    # The per-target FileLock excludes only same-file writers; callers that
+    # mint decision numbers hold decision_lock.decision_write_lock.
     def write_file(self, path: str, content: str) -> None:
         """Replace ``path`` atomically: readers see old bytes or new bytes, never a mix."""
         # Fail loud on an out-of-store path: silently dropping or redirecting a

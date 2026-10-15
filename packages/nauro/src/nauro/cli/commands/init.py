@@ -48,7 +48,7 @@ from nauro.sync.cloud_projects import CloudProjectError, create_project
 from nauro.templates.scaffolds import scaffold_project_store
 
 _CURSOR_NEW_REPO_NOTICE = (
-    "Cursor: 'nauro setup cursor' writes only .cursor/mcp.json. "
+    "Cursor: 'nauro setup cursor' writes only ~/.cursor/mcp.json. "
     "Run 'nauro setup all --with-skills --with-subagents' to install "
     "Cursor rules and project agents in each registered repo."
 )
