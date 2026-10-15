@@ -46,7 +46,7 @@ from nauro.templates.agents_md_regen import warn_then_regen
 from nauro.templates.scaffolds import scaffold_project_store
 
 _CURSOR_NEW_REPO_NOTICE = (
-    "Cursor: 'nauro setup cursor' writes only .cursor/mcp.json. "
+    "Cursor: 'nauro setup cursor' writes only ~/.cursor/mcp.json. "
     "Run 'nauro setup all --with-skills --with-subagents' to install "
     "Cursor rules and project agents in each registered repo."
 )

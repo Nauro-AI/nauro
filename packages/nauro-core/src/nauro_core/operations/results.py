@@ -5,12 +5,12 @@ shape responses from typed attributes rather than loosely-typed dicts.
 ``RelatedDecision`` and ``ErrorPayload`` are shared submodels reused by
 multiple operations; per-operation ``Result`` models live alongside.
 
-The plan-returning operations (``update_stack``, ``share_context``,
-``submit_report``) are
-executed by the hosted server, so their outcome models — the accepted,
-conflict, and workflow shapes at the bottom of this module — are defined
-here as the cross-surface contract even though the kernel never
-constructs them itself.
+The plan-returning operations are ``update_state`` (``plan_state_update``),
+``update_stack``, ``share_context`` and ``submit_report``. The kernel's state
+plan constructs ``StateRevisionConflict`` itself. The accepted, conflict and
+workflow models for stack, share and report at the bottom of this module are
+defined here as the cross-surface contract, but only the hosted server
+constructs them.
 """
 
 from __future__ import annotations

@@ -314,8 +314,9 @@ def _do_supersede(
     )
     new_num = new_decision.num
 
-    # Flip the old decision. Failure here leaves the new decision standing;
-    # sync-repair on next pull recovers the half-state.
+    # Flip the old decision. Failure here leaves the new decision standing as a
+    # supersede backref orphan; doctor diagnosis reports it and the gated repair
+    # operation closes it.
     old_stem = find_decision_stem_by_num(store, old_num)
     if old_stem is None:
         return (

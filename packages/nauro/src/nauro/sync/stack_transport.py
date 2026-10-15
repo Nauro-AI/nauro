@@ -1,4 +1,4 @@
-"""Dormant HTTPS adapter for original stack payloads and verified receipts."""
+"""HTTPS adapter for original stack payloads and verified receipts."""
 
 from __future__ import annotations
 

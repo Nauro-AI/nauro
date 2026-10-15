@@ -1,4 +1,4 @@
-"""Guided existing-hosted conversion, pending connection-flow rollout."""
+"""Guided upgrade of a legacy local store for an existing hosted project, run from nauro attach."""
 
 from __future__ import annotations
 
