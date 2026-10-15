@@ -13,6 +13,7 @@ from nauro_core.parsing import (
     _is_top_level_bullet,
     _stem_from_decision_path,
     extract_decision_number,
+    extract_stack_oneliner,
     first_sentence_end,
     is_ascii_decimal,
     is_scaffold_project_md,
@@ -569,3 +570,26 @@ class TestIsTopLevelBullet:
             "- [Q1] Should we support team sync in v1 or defer to v2?",
             "- [Q2] Do we need embeddings for retrieval?",
         ]
+
+
+class TestExtractStackOneliner:
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            ("- **Python**: language", "Python"),
+            ("-  **Nbsp**", "Nbsp"),
+            ("-\t**Tab**", ""),
+            ("- ***x**", "*x"),
+            ("- ****", ""),
+            ("- **unclosed", ""),
+            ("- plain", ""),
+            ("  - **Nested**", ""),
+            ("- **A** and **B**", "A"),
+        ],
+    )
+    def test_bullet_shapes(self, line, expected):
+        assert extract_stack_oneliner(line) == expected
+
+    def test_joins_top_level_names(self):
+        content = "# Stack\n- **Python**: why\n  - **pytest**: nested\n- **uv**: tooling"
+        assert extract_stack_oneliner(content) == "Python, uv"

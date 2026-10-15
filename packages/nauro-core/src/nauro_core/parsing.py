@@ -7,7 +7,6 @@ state/stack/questions parsing, and snippet extraction.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 
 from nauro_core.constants import DECISIONS_DIR, PROJECT_MD_SCAFFOLD_BODY, STACK_EMPTY_MARKER
@@ -292,11 +291,13 @@ def extract_stack_oneliner(stack_content: str) -> str:
 
     names: list[str] = []
     for line in stack_content.split("\n"):
-        stripped = line.strip()
-        if _is_top_level_bullet(line):
-            m = re.match(r"-\s+\*\*(.+?)\*\*", stripped)
-            if m:
-                names.append(m.group(1))
+        if not _is_top_level_bullet(line):
+            continue
+        rest = line.strip()[2:].lstrip()
+        if rest.startswith("**"):
+            end = rest.find("**", 3)
+            if end != -1:
+                names.append(rest[2:end])
     return ", ".join(names)
 
 
