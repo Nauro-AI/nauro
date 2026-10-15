@@ -14,6 +14,7 @@ import typer
 from nauro_core.mcp_tools import ToolSpec
 
 from nauro.cli._json_input import parse_json_list_of_dicts
+from nauro.cli._option_spelling import option_flag
 from nauro.sync.decision_profile import ReferenceProfile, load_reference_profile, profile_transport
 from nauro.sync.decision_reference import DecisionReferenceError
 from nauro.sync.decision_reference_contract import validate_arguments
@@ -149,7 +150,7 @@ def with_reference_options(command: Callable[..., None], spec: ToolSpec) -> Call
             name,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
             annotation=annotation,
-            default=typer.Option(None, "--" + name.replace("_", "-"), help=help_text),
+            default=typer.Option(None, option_flag(name), help=help_text),
         )
         for name, annotation, help_text in options
     )

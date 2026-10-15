@@ -13,9 +13,8 @@ from nauro_core.constants import OPEN_QUESTIONS_DEFAULT_BODY, OPEN_QUESTIONS_MD
 from nauro_core.questions import OpenQuestionsFile
 
 from nauro.cli.generation_writes import legacy_write_guard
-from nauro.cli.utils import resolve_target_project
+from nauro.cli.utils import echo_post_commit, resolve_target_project
 from nauro.store.filesystem_store import FilesystemStore
-from nauro.store.post_commit import run_post_commit
 
 questions_app = typer.Typer(help="Maintenance commands for open-questions.md.")
 
@@ -60,12 +59,4 @@ def migrate(
 
         # Refresh AGENTS.md so MCP-disconnected agents see the new ids without a
         # separate `nauro sync`. Mirrors `nauro note`.
-        outcome = run_post_commit(
-            store_path,
-            regenerate_agents_md=True,
-            warn=lambda msg: typer.echo(msg, err=True),
-        )
-        for line in outcome.warnings:
-            typer.echo(line, err=True)
-        for repo_path in outcome.updated_repos:
-            typer.echo(f"  Updated AGENTS.md: {repo_path}")
+        echo_post_commit(store_path)

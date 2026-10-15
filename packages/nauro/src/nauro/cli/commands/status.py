@@ -59,11 +59,9 @@ def _count_remote_decisions(project_id: str) -> int | None:
     and cloud-mode first; this function does not re-check.
     """
     try:
-        from nauro.sync.remote import PresignError, fetch_manifest
+        from nauro.sync.remote import fetch_manifest
 
         manifest = fetch_manifest(project_id)
-    except PresignError:
-        return None
     except Exception:
         return None
     return sum(
@@ -189,45 +187,6 @@ class _SurfacePair:
         return self.current == self.expected
 
 
-_NO_PAIR = _SurfacePair(claude=_NO_COUNTS, codex=_NO_COUNTS, cursor=_NO_COUNTS)
-
-
-@dataclass(frozen=True)
-class _WorkflowAgentCounts:
-    """Workflow agents tallied on Claude Code, Cursor, and Codex."""
-
-    claude: _ArtifactCounts
-    cursor: _ArtifactCounts
-    codex: _ArtifactCounts
-
-    @property
-    def present(self) -> int:
-        return self.claude.present + self.cursor.present + self.codex.present
-
-    @property
-    def current(self) -> int:
-        return self.claude.current + self.cursor.current + self.codex.current
-
-    @property
-    def expected(self) -> int:
-        return self.claude.expected + self.cursor.expected + self.codex.expected
-
-    @property
-    def stale(self) -> int:
-        return self.present - self.current
-
-    @property
-    def fully_current(self) -> bool:
-        return self.current == self.expected
-
-
-_NO_AGENT_COUNTS = _WorkflowAgentCounts(
-    claude=_NO_COUNTS,
-    cursor=_NO_COUNTS,
-    codex=_NO_COUNTS,
-)
-
-
 @dataclass(frozen=True)
 class _SkillArtifacts:
     """Nauro-owned skills across surfaces.
@@ -240,11 +199,6 @@ class _SkillArtifacts:
     core_skills: _SurfacePair
     opt_in_skills: _SurfacePair
     legacy_codex_skills: int
-
-
-_NO_SKILL_ARTIFACTS = _SkillArtifacts(
-    core_skills=_NO_PAIR, opt_in_skills=_NO_PAIR, legacy_codex_skills=0
-)
 
 
 @dataclass(frozen=True)
@@ -273,7 +227,7 @@ class _WiringSnapshot:
     hooks: _Probe[tuple[_CodexHookState, ...]]
     agents: _Probe[int]
     skills: _Probe[_SkillArtifacts]
-    workflow_agents: _Probe[_WorkflowAgentCounts]
+    workflow_agents: _Probe[_SurfacePair]
     untrusted_commands: frozenset[str] = frozenset()
 
     @property
@@ -312,36 +266,40 @@ class _WiringSnapshot:
     def agents_generated(self) -> int:
         return self.agents.value
 
-    def _unreadable(self, *probes: _Probe) -> tuple[UnreadableFileError, ...]:
-        return tuple(failure for probe in probes for failure in probe.unreadable)
-
     @property
     def mcp_unreadable(self) -> tuple[UnreadableFileError, ...]:
         return (
-            self._unreadable(self.repo_mcp, self.codex)
+            _failures(self.repo_mcp, self.codex)
             + self.cursor.unreadable
             + tuple(failure for wiring in self.legacy_cursor for failure in wiring.unreadable)
         )
 
     @property
     def hooks_unreadable(self) -> tuple[UnreadableFileError, ...]:
-        return self._unreadable(self.hooks)
+        return _failures(self.hooks)
 
     @property
     def agents_unreadable(self) -> tuple[UnreadableFileError, ...]:
-        return self._unreadable(self.agents)
+        return _failures(self.agents)
 
     @property
     def skills_unreadable(self) -> tuple[UnreadableFileError, ...]:
-        return self._unreadable(self.skills)
+        return _failures(self.skills)
 
     @property
     def workflow_unreadable(self) -> tuple[UnreadableFileError, ...]:
-        return self._unreadable(self.workflow_agents)
+        return _failures(self.workflow_agents)
 
     @property
     def configured_hooks(self) -> tuple[_CodexHookState, ...]:
         return tuple(state for state in self.hook_states if state.present)
+
+    @property
+    def hooks_complete(self) -> bool:
+        return all(
+            state.complete and state.recorded_commands and all(state.recorded_commands)
+            for state in self.configured_hooks
+        )
 
     @property
     def hook_commands(self) -> frozenset[str]:
@@ -416,10 +374,16 @@ def _count_cursor_rules(repo_paths: list[Path], names: tuple[str, ...]) -> _Prob
 
 def _skill_artifacts(repo_paths: list[Path]) -> _Probe[_SkillArtifacts]:
     """Inspect Nauro-owned skills on Claude Code, Cursor, and Codex."""
-    from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
+    from nauro.cli.integrations.skills import (
+        OPT_IN_SKILL_NAMES,
+        SKILL_NAMES,
+        claude_skill_dir,
+        codex_skill_dir,
+        legacy_codex_skill_dir,
+    )
 
-    claude_base = Path.home() / ".claude" / "skills"
-    codex_base = Path.home() / ".agents" / "skills"
+    claude_base = claude_skill_dir()
+    codex_base = codex_skill_dir()
     core_claude = _count_skills("claude_code", claude_base, SKILL_NAMES)
     core_codex = _count_skills("codex", codex_base, SKILL_NAMES)
     opt_in_claude = _count_skills("claude_code", claude_base, OPT_IN_SKILL_NAMES)
@@ -427,8 +391,7 @@ def _skill_artifacts(repo_paths: list[Path]) -> _Probe[_SkillArtifacts]:
     core_cursor = _count_cursor_rules(repo_paths, SKILL_NAMES)
     opt_in_cursor = _count_cursor_rules(repo_paths, OPT_IN_SKILL_NAMES)
     legacy_paths = [
-        Path.home() / ".codex" / "skills" / name / "SKILL.md"
-        for name in SKILL_NAMES + OPT_IN_SKILL_NAMES
+        legacy_codex_skill_dir() / name / "SKILL.md" for name in SKILL_NAMES + OPT_IN_SKILL_NAMES
     ]
     legacy = _probe_each(legacy_paths, is_regular_file, False)
     artifacts = _SkillArtifacts(
@@ -454,15 +417,13 @@ def _skill_artifacts(repo_paths: list[Path]) -> _Probe[_SkillArtifacts]:
     )
 
 
-def _agent_artifacts(repo_paths: list[Path]) -> _Probe[_WorkflowAgentCounts]:
+def _agent_artifacts(repo_paths: list[Path]) -> _Probe[_SurfacePair]:
     """Inspect Nauro's workflow agents on Claude Code, Cursor (per repo) and Codex."""
     from nauro.agents import AGENT_NAMES, render_agent
+    from nauro.cli.integrations.agents import agent_path
 
     claude = _count_artifacts(
-        {
-            Path.home() / ".claude" / "agents" / f"{name}.md": render_agent("claude_code", name)
-            for name in AGENT_NAMES
-        }
+        {agent_path("claude_code", name): render_agent("claude_code", name) for name in AGENT_NAMES}
     )
     cursor = _count_artifacts(
         {
@@ -472,12 +433,9 @@ def _agent_artifacts(repo_paths: list[Path]) -> _Probe[_WorkflowAgentCounts]:
         }
     )
     codex = _count_artifacts(
-        {
-            Path.home() / ".codex" / "agents" / f"{name}.toml": render_agent("codex", name)
-            for name in AGENT_NAMES
-        }
+        {agent_path("codex", name): render_agent("codex", name) for name in AGENT_NAMES}
     )
-    counts = _WorkflowAgentCounts(claude=claude.value, cursor=cursor.value, codex=codex.value)
+    counts = _SurfacePair(claude=claude.value, cursor=cursor.value, codex=codex.value)
     return _Probe(counts, _failures(claude, cursor, codex))
 
 
@@ -603,11 +561,7 @@ def _codex_hooks_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResu
             return _unknown_line("Codex hooks", failures)
         return "  Codex hooks   inactive - run 'nauro setup codex --with-hooks'"
     detail = f"wired in {len(configured)}/{snapshot.repo_count} repos"
-    complete = all(
-        state.complete and state.recorded_commands and all(state.recorded_commands)
-        for state in configured
-    )
-    if not complete:
+    if not snapshot.hooks_complete:
         return _broken_line(
             f"  Codex hooks   BROKEN - {detail} but the lifecycle wiring is incomplete; "
             "re-run 'nauro setup all --with-hooks'",
@@ -652,15 +606,6 @@ def _surface_detail(*pairs: _SurfacePair) -> str:
         f"Claude {claude_current}/{claude_expected}; "
         f"Cursor {cursor_current}/{cursor_expected}; "
         f"Codex {codex_current}/{codex_expected}"
-    )
-
-
-def _workflow_agent_detail(counts: _WorkflowAgentCounts) -> str:
-    """Per-surface current and expected workflow-agent counts."""
-    return (
-        f"Claude {counts.claude.current}/{counts.claude.expected}; "
-        f"Cursor {counts.cursor.current}/{counts.cursor.expected}; "
-        f"Codex {counts.codex.current}/{counts.codex.expected}"
     )
 
 
@@ -718,7 +663,7 @@ def _workflow_agents_status_line(snapshot: _WiringSnapshot) -> str:
     stated choice; a partial or stale install is a defect."""
     failures = snapshot.workflow_unreadable
     agents = snapshot.workflow_agents.value
-    detail = _workflow_agent_detail(agents)
+    detail = _surface_detail(agents)
     if agents.stale:
         return _broken_line(
             f"  Workflow      BROKEN - {detail}; installed Nauro agent files differ from "
@@ -943,10 +888,7 @@ class _SurfaceCountsPayload(BaseModel):
     codex: _CountsPayload
 
 
-class _WorkflowAgentCountsPayload(BaseModel):
-    claude: _CountsPayload
-    cursor: _CountsPayload
-    codex: _CountsPayload
+class _WorkflowAgentCountsPayload(_SurfaceCountsPayload):
     unreadable: list[str]
 
 
@@ -1033,13 +975,10 @@ def _surface_counts_payload(pair: _SurfacePair) -> _SurfaceCountsPayload:
 
 
 def _workflow_agent_counts_payload(
-    counts: _WorkflowAgentCounts, unreadable: tuple[UnreadableFileError, ...]
+    counts: _SurfacePair, unreadable: tuple[UnreadableFileError, ...]
 ) -> _WorkflowAgentCountsPayload:
     return _WorkflowAgentCountsPayload(
-        claude=_counts_payload(counts.claude),
-        cursor=_counts_payload(counts.cursor),
-        codex=_counts_payload(counts.codex),
-        unreadable=_paths(unreadable),
+        **_surface_counts_payload(counts).model_dump(), unreadable=_paths(unreadable)
     )
 
 
@@ -1060,14 +999,7 @@ def _build_status_payload(facts: _StatusFacts) -> StatusPayload:
     configured = snapshot.configured_hooks
     # Null when nothing is configured — completeness is not applicable, same
     # idiom as the healthy fields when nothing was probed.
-    hooks_complete = (
-        all(
-            state.complete and state.recorded_commands and all(state.recorded_commands)
-            for state in configured
-        )
-        if configured
-        else None
-    )
+    hooks_complete = snapshot.hooks_complete if configured else None
     hooks_probed = not probes.skipped and probes.hooks is not None
     hooks_healthy = (
         all(probes.hooks.get(command, True) for command in snapshot.hook_commands)

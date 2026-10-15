@@ -26,14 +26,12 @@ from nauro_core.operations.repair import (
     RepairPlan,
     plan_supersede_repair,
 )
-from pydantic import BaseModel, ConfigDict
 
 from nauro.cli.generation_writes import legacy_write_guard, require_legacy_write
-from nauro.cli.utils import cli_origin, resolve_target_project
+from nauro.cli.utils import cli_origin, echo_post_commit, resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.journal import record_event
-from nauro.store.post_commit import run_post_commit
 from nauro.store.registry import (
     RegistryEntryV2,
     StoreBindingError,
@@ -56,30 +54,13 @@ class StoreChangedDuringRepairError(RuntimeError):
     """The store moved between the confirmed plan and the locked write."""
 
 
-class RepairEligibility(BaseModel):
-    """Whether this project's store may be rewritten from this machine."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    eligible: bool
-    guidance: str = ""
-
-
-def classify_repair_eligibility(entry: RegistryEntryV2 | None) -> RepairEligibility:
-    """Decide from the registry entry whether the local command may write.
-    Both registered modes proceed: a cloud project's decisions are plain markdown in the same
-    local store. A project with no readable registry entry is refused.
-    """
-    if entry is None:
-        return RepairEligibility(
-            eligible=False,
-            guidance=(
-                "This store has no readable registry entry on this machine, so "
-                "repair cannot confirm which project owns it and will not "
-                "rewrite it. Run 'nauro status'."
-            ),
-        )
-    return RepairEligibility(eligible=True)
+# Both registered modes may be repaired: a cloud project's decisions are plain
+# markdown in the same local store. Only a store with no readable entry is refused.
+_NO_REGISTRY_GUIDANCE = (
+    "This store has no readable registry entry on this machine, so "
+    "repair cannot confirm which project owns it and will not "
+    "rewrite it. Run 'nauro status'."
+)
 
 
 def _registry_entry(project_key: str) -> RegistryEntryV2 | None:
@@ -233,9 +214,8 @@ def repair(
     _require_legacy_store(store_path)
     typer.echo(f"Project: {project_name}\n")
 
-    eligibility = classify_repair_eligibility(_registry_entry(store_path.name))
-    if not eligibility.eligible:
-        typer.echo(eligibility.guidance)
+    if _registry_entry(store_path.name) is None:
+        typer.echo(_NO_REGISTRY_GUIDANCE)
         return
 
     assessment = plan_supersede_repair(FilesystemStore(store_path))
@@ -270,16 +250,10 @@ def repair(
         )
         typer.echo(f"  {store_path / plan.target_path}")
 
-        outcome = run_post_commit(
+        echo_post_commit(
             store_path,
             snapshot_trigger=(
                 f"repair: {_label(plan.target_num)} superseded by {_label(plan.child_num)}"
             ),
-            regenerate_agents_md=True,
-            warn=lambda msg: typer.echo(msg, err=True),
         )
-        for line in outcome.warnings:
-            typer.echo(line, err=True)
-        for repo_path in outcome.updated_repos:
-            typer.echo(f"  Updated AGENTS.md: {repo_path}")
         typer.echo("Run 'nauro sync' to publish this change.")

@@ -20,9 +20,13 @@ from nauro.cli._reporters import StderrReporter
 from nauro.cli.auth_presentation import present_login_url
 from nauro.cli.connection_routing import route_attach
 from nauro.cli.generation_writes import legacy_write_guard
-from nauro.cli.utils import refuse_global_config_collision, refuse_repo_config_symlink
+from nauro.cli.utils import (
+    refuse_global_config_collision,
+    refuse_repo_config_symlink,
+    regen_agents_md_fail_soft,
+    write_repo_config,
+)
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
-from nauro.setup.git_hygiene import public_surface_git_warnings
 from nauro.store.recovery import (
     EmptyCloudRecordError,
     RecoveryError,
@@ -41,10 +45,8 @@ from nauro.store.repo_config import (
     RepoConfigSchemaError,
     load_repo_config,
     repo_config_path,
-    save_repo_config,
 )
 from nauro.store.resolution import DisconnectedProject, resolve_registered_project
-from nauro.templates.agents_md_regen import warn_then_regen
 
 _Opt_repo_path = typer.Option(
     None,
@@ -171,24 +173,14 @@ def attach(
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(code=1) from exc
 
-        save_repo_config(
+        write_repo_config(
             repo_path,
-            {
-                "mode": REPO_CONFIG_MODE_CLOUD,
-                "id": project_id,
-                "name": name,
-                "server_url": server_url,
-            },
+            mode=REPO_CONFIG_MODE_CLOUD,
+            project_id=project_id,
+            name=name,
+            server_url=server_url,
         )
-        for warning in public_surface_git_warnings(repo_path, ".nauro/config.json"):
-            typer.echo(warning, err=True)
-
-        warn_then_regen(
-            project_id,
-            store_path,
-            warn=lambda message: typer.echo(message, err=True),
-            fail_soft=True,
-        )
+        regen_agents_md_fail_soft(project_id, store_path)
 
         typer.echo(f"Attached '{name}' to {repo_path.resolve()}")
         typer.echo(f"  Project id: {project_id}")

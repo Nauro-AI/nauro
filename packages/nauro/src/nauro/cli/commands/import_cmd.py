@@ -15,12 +15,11 @@ from nauro_core.operations import update_state as _update_state_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
 from nauro.cli.generation_writes import legacy_write_guard
-from nauro.cli.utils import cli_origin, resolve_target_project
+from nauro.cli.utils import cli_origin, echo_post_commit, resolve_target_project
 from nauro.constants import DECISIONS_DIR, PROJECT_MD, STACK_MD
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.journal import record_event
-from nauro.store.post_commit import run_post_commit
 from nauro.store.store_lock import store_write_lock
 
 
@@ -550,9 +549,9 @@ def import_cmd(
                 )
             typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
 
-            outcome = run_post_commit(store_path, snapshot_trigger="import: memory-bank")
-            for line in outcome.warnings:
-                typer.echo(line, err=True)
+            echo_post_commit(
+                store_path, snapshot_trigger="import: memory-bank", regenerate_agents_md=False
+            )
 
         if adr is not None:
             adr_path = Path(adr)
@@ -576,6 +575,4 @@ def import_cmd(
                 )
             typer.echo("  Next: run 'nauro sync' to update AGENTS.md in associated repos")
 
-            outcome = run_post_commit(store_path, snapshot_trigger="import: adr")
-            for line in outcome.warnings:
-                typer.echo(line, err=True)
+            echo_post_commit(store_path, snapshot_trigger="import: adr", regenerate_agents_md=False)

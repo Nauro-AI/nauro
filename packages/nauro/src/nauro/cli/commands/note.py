@@ -7,11 +7,10 @@ from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _write_decision_direct
 
 from nauro.cli.generation_writes import legacy_write_guard
-from nauro.cli.utils import cli_origin, resolve_target_project
+from nauro.cli.utils import cli_origin, echo_post_commit, resolve_target_project
 from nauro.store.decision_lock import decision_write_lock
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.journal import record_event
-from nauro.store.post_commit import run_post_commit
 from nauro.store.store_lock import store_write_lock
 
 
@@ -140,12 +139,4 @@ def note(
         # Refresh AGENTS.md so MCP-disconnected agents see the update without
         # requiring a separate `nauro sync`. The write above has already committed,
         # so this trails it through the fail-open seam.
-        outcome = run_post_commit(
-            store_path,
-            regenerate_agents_md=True,
-            warn=lambda msg: typer.echo(msg, err=True),
-        )
-        for line in outcome.warnings:
-            typer.echo(line, err=True)
-        for repo_path in outcome.updated_repos:
-            typer.echo(f"  Updated AGENTS.md: {repo_path}")
+        echo_post_commit(store_path)

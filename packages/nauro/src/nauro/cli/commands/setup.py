@@ -13,10 +13,14 @@ from pathlib import Path
 
 import typer
 
+from nauro.cli._setup_options import (
+    FORCE_OVERWRITE_OPTION,
+    WITH_SKILLS_OPTION,
+    WITH_SUBAGENTS_OPTION,
+    echo_install_notices,
+)
 from nauro.cli.integrations.echo import echo_outcomes
 from nauro.cli.integrations.orchestrator import (
-    SHIP_TASK_NEEDS_SUBAGENTS_NOTICE,
-    SUBAGENTS_CONNECTOR_NAME_NOTICE,
     claude_code_surfaces,
     codex_surfaces,
     cursor_surfaces,
@@ -194,34 +198,9 @@ def all_(
             "Nauro project is registered."
         ),
     ),
-    with_subagents: bool = typer.Option(
-        False,
-        "--with-subagents",
-        help=(
-            "Install Nauro's bundled workflow subagents (nauro-planner, "
-            "nauro-executor, nauro-reviewer, nauro-tech-lead, nauro-investigator) into "
-            "~/.claude/agents/ for Claude Code, .cursor/agents/ in each registered "
-            "repo for Cursor, and ~/.codex/agents/ for Codex. Off by default."
-        ),
-    ),
-    force_overwrite: bool = typer.Option(
-        False,
-        "--force-overwrite",
-        help=(
-            "Overwrite differing bundled Nauro skills and agent definitions "
-            "without saving .bak files. By default, refresh preserves the "
-            "previous content in a sibling backup."
-        ),
-    ),
-    with_skills: bool = typer.Option(
-        False,
-        "--with-skills",
-        help=(
-            "Install Nauro's bundled opt-in skills "
-            "(nauro-ship-task, nauro-context, nauro-loop, nauro-interview) alongside the "
-            "always-installed nauro-adopt skill. Independent of --with-subagents."
-        ),
-    ),
+    with_subagents: bool = WITH_SUBAGENTS_OPTION,
+    force_overwrite: bool = FORCE_OVERWRITE_OPTION,
+    with_skills: bool = WITH_SKILLS_OPTION,
     with_hooks: bool = typer.Option(
         False,
         "--with-hooks",
@@ -258,11 +237,8 @@ def all_(
         )
     )
 
-    if not remove and with_skills and not with_subagents:
-        typer.echo(f"\n{SHIP_TASK_NEEDS_SUBAGENTS_NOTICE}")
-
-    if not remove and with_subagents:
-        typer.echo(f"\n{SUBAGENTS_CONNECTOR_NAME_NOTICE}")
+    if not remove:
+        echo_install_notices(with_skills, with_subagents)
 
     if not remove and with_hooks:
         typer.echo(f"\n{HOOKS_NOTICE}")

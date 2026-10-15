@@ -13,6 +13,7 @@ from typing import Any
 import typer
 from nauro_core.mcp_tools import ToolSpec
 
+from nauro.cli._option_spelling import merge_primary_positional, option_flag
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.migration_admission import migration_write_guard, require_migration_admission
 from nauro.sync.generation_writes import CONTENT, FAMILIES, generation_write
@@ -59,19 +60,17 @@ def _parameters(command: Callable[..., None], family: str) -> list[inspect.Param
             name,
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
             annotation=annotation,
-            default=typer.Option(None, "--" + name.replace("_", "-"), help=help_text[name]),
+            default=typer.Option(None, option_flag(name), help=help_text[name]),
         )
         for name, annotation in options.items()
     )
     return parameters
 
 
-def _request(family: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+def _request(tool_name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+    family = FAMILIES[tool_name]
     request = {"project_id": kwargs.get("project")}
-    if family == "question" and kwargs.get("question_option") is not None:
-        if kwargs.get("question") is not None:
-            raise ValueError("Pass QUESTION positionally or via --question, not both.")
-        kwargs = {**kwargs, "question": kwargs["question_option"]}
+    kwargs = merge_primary_positional(tool_name, kwargs)
     for name in CONTENT[family] | _options(family).keys():
         value = kwargs.get(name)
         if isinstance(value, enum.Enum):
@@ -88,7 +87,7 @@ def with_write_options(command: Callable[..., None], spec: ToolSpec) -> Callable
         try:
             result = generation_write(
                 spec["name"],
-                _request(family, kwargs),
+                _request(spec["name"], kwargs),
                 use_cwd=kwargs.get("project") is None,
                 on_refreshed=regenerate_refreshed_guidance,
             )

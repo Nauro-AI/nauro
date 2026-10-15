@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import shlex
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -160,7 +161,7 @@ def _strip_nauro_events(hooks: dict[str, Any]) -> int:
         event_matchers = hooks.get(event)
         if event_matchers is None:
             continue
-        hooks[event], event_removed = _strip_nauro_hooks(event_matchers)
+        hooks[event], event_removed = strip_owned_hook_entries(event_matchers, _is_nauro_hook)
         removed += event_removed
         if not hooks[event]:
             hooks.pop(event)
@@ -257,7 +258,12 @@ def _is_nauro_hook(entry: object) -> bool:
     )
 
 
-def _strip_nauro_hooks(event_matchers: list[Any]) -> tuple[list[Any], int]:
+def strip_owned_hook_entries(
+    event_matchers: list[Any], is_owned: Callable[[object], bool]
+) -> tuple[list[Any], int]:
+    """Drop ``is_owned`` entries from one event's matchers, returning survivors and the count.
+    Off-shape matchers pass through; an emptied matcher survives only if it carries metadata.
+    """
     surviving_matchers = []
     removed = 0
     for matcher in event_matchers:
@@ -265,7 +271,7 @@ def _strip_nauro_hooks(event_matchers: list[Any]) -> tuple[list[Any], int]:
             surviving_matchers.append(matcher)
             continue
         entries = matcher["hooks"]
-        kept = [entry for entry in entries if not _is_nauro_hook(entry)]
+        kept = [entry for entry in entries if not is_owned(entry)]
         removed_here = len(entries) - len(kept)
         removed += removed_here
         if removed_here == 0:

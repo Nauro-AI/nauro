@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import CODEX_STARTUP_TIMEOUT_SEC, _configure_codex
-from nauro.cli.integrations.json_mcp import _configure_cursor_for_repo
+from nauro.cli.integrations.cursor import configure_cursor
 from nauro.cli.integrations.skills import _remove_bundled_skill, materialize_skills_cursor_for_repo
 from nauro.cli.main import app
 from nauro.cli.nauro_command import _find_nauro_command
@@ -77,73 +77,16 @@ def test_setup_cursor_remove_clears_entry(tmp_path: Path, monkeypatch):
     assert not (Path.home() / ".cursor" / "mcp.json").is_file()
 
 
-def test_configure_cursor_preserves_other_mcp_servers(tmp_path: Path):
-    """Adding nauro to .cursor/mcp.json must not clobber other servers."""
-    repo = tmp_path / "repo"
-    (repo / ".cursor").mkdir(parents=True)
-    config = {"mcpServers": {"other": {"command": "other-cmd", "args": []}}}
-    (repo / ".cursor" / "mcp.json").write_text(json.dumps(config))
-
-    _configure_cursor_for_repo(repo, remove=False)
-
-    result = json.loads((repo / ".cursor" / "mcp.json").read_text())
-    assert "other" in result["mcpServers"]
-    assert "nauro" in result["mcpServers"]
-
-
-def test_configure_cursor_remove_preserves_other_servers(tmp_path: Path):
-    """`--remove` should drop only the nauro entry, not the rest."""
-    repo = tmp_path / "repo"
-    (repo / ".cursor").mkdir(parents=True)
-    config = {
-        "mcpServers": {
-            "nauro": {"command": "nauro", "args": ["serve", "--stdio"]},
-            "other": {"command": "other-cmd", "args": []},
-        }
-    }
-    (repo / ".cursor" / "mcp.json").write_text(json.dumps(config))
-
-    _configure_cursor_for_repo(repo, remove=True)
-
-    result = json.loads((repo / ".cursor" / "mcp.json").read_text())
-    assert "other" in result["mcpServers"]
-    assert "nauro" not in result["mcpServers"]
-
-
-def test_configure_cursor_add_surfaces_parse_error_without_clobbering(tmp_path: Path):
-    """Hand-edited / corrupt `.cursor/mcp.json` surfaces a parse error
-    rather than crashing — same contract as `_configure_mcp` for `.mcp.json`."""
-    repo = tmp_path / "repo"
-    (repo / ".cursor").mkdir(parents=True)
-    (repo / ".cursor" / "mcp.json").write_text("{not json")
-
-    msg = _configure_cursor_for_repo(repo, remove=False)
-
-    assert msg.kind is JsonMcpKind.PARSE_ERROR
-    assert (repo / ".cursor" / "mcp.json").read_text() == "{not json"
-
-
-def test_configure_cursor_remove_surfaces_parse_error(tmp_path: Path):
-    """Same parse-error contract on the `--remove` path."""
-    repo = tmp_path / "repo"
-    (repo / ".cursor").mkdir(parents=True)
-    (repo / ".cursor" / "mcp.json").write_text("{not json")
-
-    msg = _configure_cursor_for_repo(repo, remove=True)
-
-    assert msg.kind is JsonMcpKind.PARSE_ERROR
-
-
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
 def test_cursor_surfaces_refuse_symlinked_cursor_dir(tmp_path: Path):
-    """A symlinked `.cursor` directory blocks both the MCP and rules writes."""
+    """A symlinked `.cursor` directory blocks the legacy MCP teardown and the rules writes."""
     repo = tmp_path / "repo"
     repo.mkdir()
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (repo / ".cursor").symlink_to(elsewhere)
 
-    mcp_line = _configure_cursor_for_repo(repo, remove=False)
+    mcp_line = configure_cursor(remove=True, repo=repo, migration=False)
     skill_lines = materialize_skills_cursor_for_repo(repo, remove=False, with_skills=True)
 
     assert mcp_line.kind is JsonMcpKind.REFUSED_SYMLINK

@@ -70,7 +70,7 @@ def test_legacy_command_holds_fence_through_ancillary_work(saved, tmp_path, monk
         monkeypatch.setattr(module, "_pull_from_cloud", lambda *a, **k: pull.PullReport())
         monkeypatch.setattr(module, "push_store_to_cloud", lambda *a, **k: push.PushReport())
         monkeypatch.setattr(module, "warn_then_regen", lambda *a, **k: [])
-    seam = "capture_snapshot" if command == "sync" else "run_post_commit"
+    seam = "capture_snapshot" if command == "sync" else "echo_post_commit"
     original = getattr(module, seam)
     entered, release = Event(), Event()
 

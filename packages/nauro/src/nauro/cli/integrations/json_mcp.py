@@ -1,4 +1,8 @@
-"""JSON MCP config codec (.mcp.json and .cursor/mcp.json) for the setup surface."""
+"""JSON MCP config codec for the setup surface.
+
+Writes the repo's project-scope ``.mcp.json``. The parse model is shared with
+``cursor.py``, which owns ``.cursor/mcp.json``.
+"""
 
 from __future__ import annotations
 
@@ -68,45 +72,34 @@ def _parse_mcp_document(raw: object) -> McpConfigDocument:
         raise McpShapeError(McpShape.MCPSERVERS_NOT_OBJECT) from exc
 
 
-def _configure_json_mcp(
-    repo_path: Path,
-    *,
-    config_rel_path: str,
-    label: str,
-    remove: bool,
-) -> JsonMcpOutcome:
-    """Add or remove the Nauro MCP entry in the JSON config at ``repo_path / config_rel_path``.
-    Shared shape behind ``.mcp.json`` and ``.cursor/mcp.json``: only the relative path and the
-    status ``label`` vary. Writes mutate the raw dict, so key order and siblings stay identical."""
+_MCP_JSON = ".mcp.json"
+
+
+def _configure_mcp(repo_path: Path, *, remove: bool = False) -> JsonMcpOutcome:
+    """Add or remove the Nauro MCP entry in the repo's project-scope ``.mcp.json``.
+    Writes mutate the raw dict, so key order and sibling entries stay identical.
+    """
     try:
-        return _edit_json_mcp(
-            repo_path, config_rel_path=config_rel_path, label=label, remove=remove
-        )
+        return _edit_json_mcp(repo_path, remove=remove)
     except OSError as exc:
         return JsonMcpOutcome(
             JsonMcpKind.WRITE_FAILED,
             repo_path,
-            label,
-            write_failure=WriteFailure.of(repo_path / config_rel_path, exc),
+            _MCP_JSON,
+            write_failure=WriteFailure.of(repo_path / _MCP_JSON, exc),
         )
 
 
-def _edit_json_mcp(
-    repo_path: Path,
-    *,
-    config_rel_path: str,
-    label: str,
-    remove: bool,
-) -> JsonMcpOutcome:
-    refusal = find_symlink(repo_path, config_rel_path)
+def _edit_json_mcp(repo_path: Path, *, remove: bool) -> JsonMcpOutcome:
+    refusal = find_symlink(repo_path, _MCP_JSON)
     if refusal is not None:
-        return JsonMcpOutcome(JsonMcpKind.REFUSED_SYMLINK, repo_path, label, refusal=refusal)
+        return JsonMcpOutcome(JsonMcpKind.REFUSED_SYMLINK, repo_path, _MCP_JSON, refusal=refusal)
     # Never write a machine-local absolute path into a git-tracked file: the
     # next commit would ship a command that is dead on every other machine.
     # Teardown stays allowed — removing an entry writes no machine-local path.
-    if not remove and wiring_path_is_tracked(repo_path, config_rel_path):
-        return JsonMcpOutcome(JsonMcpKind.REFUSED_TRACKED, repo_path, label)
-    config_path = repo_path / config_rel_path
+    if not remove and wiring_path_is_tracked(repo_path, _MCP_JSON):
+        return JsonMcpOutcome(JsonMcpKind.REFUSED_TRACKED, repo_path, _MCP_JSON)
+    config_path = repo_path / _MCP_JSON
     nauro_cmd = _find_nauro_command()
     nauro_entry = {"command": nauro_cmd, "args": ["serve", "--stdio"]}
 
@@ -114,7 +107,7 @@ def _edit_json_mcp(
         try:
             raw = json.loads(config_path.read_text(encoding="utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            return JsonMcpOutcome(JsonMcpKind.PARSE_ERROR, repo_path, label, detail=str(exc))
+            return JsonMcpOutcome(JsonMcpKind.PARSE_ERROR, repo_path, _MCP_JSON, detail=str(exc))
     else:
         raw = {}
 
@@ -125,10 +118,10 @@ def _edit_json_mcp(
         document = _parse_mcp_document(raw)
     except McpShapeError as exc:
         if exc.shape is McpShape.TOP_LEVEL_NOT_OBJECT:
-            return JsonMcpOutcome(JsonMcpKind.NOT_JSON_OBJECT, repo_path, label)
+            return JsonMcpOutcome(JsonMcpKind.NOT_JSON_OBJECT, repo_path, _MCP_JSON)
         if remove:
-            return JsonMcpOutcome(JsonMcpKind.NOTHING_TO_REMOVE, repo_path, label)
-        return JsonMcpOutcome(JsonMcpKind.MCPSERVERS_NOT_OBJECT, repo_path, label)
+            return JsonMcpOutcome(JsonMcpKind.NOTHING_TO_REMOVE, repo_path, _MCP_JSON)
+        return JsonMcpOutcome(JsonMcpKind.MCPSERVERS_NOT_OBJECT, repo_path, _MCP_JSON)
 
     servers = document.mcp_servers
     if remove:
@@ -136,8 +129,8 @@ def _edit_json_mcp(
             return JsonMcpOutcome(
                 JsonMcpKind.NOTHING_TO_REMOVE,
                 repo_path,
-                label,
-                gitignore=remove_wiring_ignore_entry(repo_path, config_rel_path),
+                _MCP_JSON,
+                gitignore=remove_wiring_ignore_entry(repo_path, _MCP_JSON),
             )
         raw_servers = raw["mcpServers"]
         del raw_servers["nauro"]
@@ -150,8 +143,8 @@ def _edit_json_mcp(
         return JsonMcpOutcome(
             JsonMcpKind.REMOVED,
             repo_path,
-            label,
-            gitignore=remove_wiring_ignore_entry(repo_path, config_rel_path),
+            _MCP_JSON,
+            gitignore=remove_wiring_ignore_entry(repo_path, _MCP_JSON),
         )
 
     # The parse guarantees mcpServers is absent or an object here, so setdefault
@@ -159,38 +152,16 @@ def _edit_json_mcp(
     # entry stays byte-identical because Nauro does not own it.
     raw.setdefault("mcpServers", {})["nauro"] = nauro_entry
     write_json_config(config_path, raw)
-    ignore_result = ensure_wiring_ignored(repo_path, config_rel_path)
+    ignore_result = ensure_wiring_ignored(repo_path, _MCP_JSON)
     # The advisory warnings degrade gracefully: once the file is ignored they
     # are empty, and they still fire when the ignore update was refused.
-    git_warnings = tuple(public_surface_git_warnings(repo_path, config_rel_path))
+    git_warnings = tuple(public_surface_git_warnings(repo_path, _MCP_JSON))
     return JsonMcpOutcome(
         JsonMcpKind.WROTE,
         repo_path,
-        label,
+        _MCP_JSON,
         git_warnings=git_warnings,
         gitignore=ignore_result,
-    )
-
-
-def _configure_mcp(repo_path: Path, *, remove: bool = False) -> JsonMcpOutcome:
-    """Add or remove the Nauro MCP entry in the repo's project-scope ``.mcp.json``.
-    Writes the file directly, through the shape shared with the Cursor and Codex handlers.
-    """
-    return _configure_json_mcp(
-        repo_path,
-        config_rel_path=".mcp.json",
-        label=".mcp.json",
-        remove=remove,
-    )
-
-
-def _configure_cursor_for_repo(repo_path: Path, *, remove: bool) -> JsonMcpOutcome:
-    """Add or remove the Nauro MCP entry in this repo's ``.cursor/mcp.json``."""
-    return _configure_json_mcp(
-        repo_path,
-        config_rel_path=".cursor/mcp.json",
-        label=".cursor/mcp.json",
-        remove=remove,
     )
 
 
@@ -207,11 +178,11 @@ class McpWiring:
 
 
 def recorded_mcp_commands(repo: Path) -> McpWiring:
-    """Inspect a repo's MCP configs. A wired entry without a usable ``command`` records ``None``:
+    """Inspect a repo's ``.mcp.json``. A wired entry without a usable ``command`` records ``None``:
     wired, nothing to probe. A missing or off-shape config records nothing; an unreadable or
-    unparseable one is recorded as such and the other config is still inspected.
+    unparseable one is recorded as such.
     """
-    return _recorded_json_mcp(repo / ".mcp.json", report_shape_error=False)
+    return _recorded_json_mcp(repo / _MCP_JSON, report_shape_error=False)
 
 
 def recorded_cursor_command() -> McpWiring:

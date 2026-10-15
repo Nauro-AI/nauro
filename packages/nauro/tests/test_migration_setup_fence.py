@@ -67,7 +67,7 @@ def test_setup_holds_fence_through_binding_and_ancillary_work(
                 "Synthetic", [], project_id=PID, mode="cloud", server_url="https://synthetic.test"
             )
             scaffold_project_store("Synthetic", store)
-            arguments, seam = ["attach", PID], "warn_then_regen"
+            arguments, seam = ["attach", PID], "regen_agents_md_fail_soft"
         else:
             save_repo_config(
                 isolated,
@@ -84,7 +84,7 @@ def test_setup_holds_fence_through_binding_and_ancillary_work(
                 return destination
 
             monkeypatch.setattr(module, "restore_cloud_store", restore)
-            arguments, seam = ["reconnect"], "_finish_connection"
+            arguments, seam = ["reconnect"], "regen_agents_md_fail_soft"
     else:
         store = _initialize()
         if route in {"demo", "add_repo"}:
@@ -101,7 +101,7 @@ def test_setup_holds_fence_through_binding_and_ancillary_work(
                     str(extra),
                 ]
             )
-            seam = "_regenerate_after_init"
+            seam = "regen_agents_md_fail_soft"
         elif route == "purge":
             monkeypatch.setattr(module, "setup_all_surfaces", lambda *a, **k: [])
             arguments, seam = ["adopt", "--remove", "--purge-store", "--yes"], "remove_project_v2"
@@ -143,7 +143,7 @@ def test_reconnect_locate_holds_both_original_and_selected_paths(isolated, tmp_p
     original_store = registry.get_store_path_v2(PID)
     selected = tmp_path / "external" / PID
     scaffold_project_store("Synthetic", selected)
-    original = module._finish_connection
+    original = module.regen_agents_md_fail_soft
 
     def check_fences(*args):
         def competing():
@@ -155,7 +155,7 @@ def test_reconnect_locate_holds_both_original_and_selected_paths(isolated, tmp_p
             pool.submit(competing).result(timeout=10)
         return original(*args)
 
-    monkeypatch.setattr(module, "_finish_connection", check_fences)
+    monkeypatch.setattr(module, "regen_agents_md_fail_soft", check_fences)
     result = CliRunner().invoke(app, ["reconnect"], input=f"locate\n{selected}\n")
     assert result.exit_code == 0, result.output
 

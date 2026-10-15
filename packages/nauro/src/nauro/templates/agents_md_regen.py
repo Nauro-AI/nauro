@@ -1,9 +1,9 @@
-"""Shared warn-then-regen helper for AGENTS.md across write paths.
+"""Shared warn-then-regen seam for AGENTS.md.
 
-``nauro note`` and ``tool_propose_decision`` both refresh ``AGENTS.md`` in
-every associated repo after writing a decision. This helper owns the
-registry-lookup / missing-repo-warning loop in one shape so the warning
-message and skip behaviour cannot drift between callers.
+Every write, setup, sync, init, attach and reconnect path refreshes
+``AGENTS.md`` in each associated repo through this helper. It owns the
+registry lookup and the skip warnings in one shape, so the warning text and
+skip behaviour cannot drift between callers.
 """
 
 from __future__ import annotations
@@ -11,15 +11,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from nauro.constants import AGENTS_MD
 from nauro.setup.git_hygiene import public_surface_git_warnings
 from nauro.setup.outcomes import BridgeKind, BridgeOutcome
 from nauro.setup.render import render
 from nauro.store.generation_store import GenerationSnapshotStore
 from nauro.store.registry import get_repo_paths
-from nauro.store.write_safety import find_symlink
 from nauro.templates.agents_md import (
-    agents_md_is_safe_to_replace,
+    agents_md_skip_warning,
     regenerate_agents_md_for_project,
 )
 
@@ -43,30 +41,16 @@ def warn_then_regen(
     collected: list[BridgeOutcome] = bridge_sink if bridge_sink is not None else []
     repo_paths = [Path(repo_str) for repo_str in get_repo_paths(project_key)]
     try:
-        # Warn channel only: the regeneration itself re-applies every skip
-        # below, so nothing outside a real checkout is ever written through.
-        # One loop, first matching skip wins, so no repo path double-warns.
+        # Warn channel only: the regeneration applies the same skip guard, so
+        # nothing outside a real checkout is ever written through.
         # The ownership probe reads the existing file, so it stays inside the
         # try: a read-side permission error is covered by the same fail_soft
         # contract as a failed write.
         if warn is not None:
             for repo_path in repo_paths:
-                if not repo_path.is_dir():
-                    warn(
-                        f"  Warning: repo path does not exist, skipping AGENTS.md: {repo_path}\n"
-                        f"  Fix: remove from registry or update path in ~/.nauro/registry.json"
-                    )
-                    continue
-                refusal = find_symlink(repo_path, AGENTS_MD)
-                if refusal is not None:
-                    warn(f"  Warning: {refusal.message}")
-                    continue
-                agents_md_path = repo_path / AGENTS_MD
-                if not overwrite_unmanaged and not agents_md_is_safe_to_replace(agents_md_path):
-                    warn(
-                        "  Warning: existing AGENTS.md is not Nauro-generated; "
-                        f"left unchanged: {agents_md_path}"
-                    )
+                message = agents_md_skip_warning(repo_path, overwrite_unmanaged=overwrite_unmanaged)
+                if message is not None:
+                    warn(message)
         updated = regenerate_agents_md_for_project(
             project_key,
             store_path,

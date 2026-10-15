@@ -71,7 +71,7 @@ def test_note_refuses_replica_evidence_without_mutation(
         "decision_write_lock",
         "store_write_lock",
         "record_event",
-        "run_post_commit",
+        "echo_post_commit",
     ):
         monkeypatch.setattr(note, name, forbidden)
     options = (

@@ -4,13 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from nauro.cli.integrations._bundled_files import bundled_file_refusal, retained_backup_name
 from nauro.setup.outcomes import AgentKind, AgentOutcome, WriteFailure
-from nauro.store.write_safety import (
-    SymlinkRefusal,
-    UserSymlinkRefusal,
-    find_file_symlink,
-    find_symlink,
-)
 
 
 def _claude_agent_dir() -> Path:
@@ -35,6 +30,11 @@ def _agent_extension(surface: str) -> str:
     if surface == "codex":
         return ".toml"
     raise ValueError(f"unknown surface: {surface!r}")
+
+
+def agent_path(surface: str, name: str) -> Path:
+    """Return the user-global install path of agent ``name`` on Claude Code or Codex."""
+    return _agent_dir(surface) / f"{name}{_agent_extension(surface)}"
 
 
 def materialize_agents(
@@ -99,7 +99,7 @@ def _materialize_agent_files(
     results: list[AgentOutcome] = []
     for name in AGENT_NAMES:
         target = base / f"{name}{extension}"
-        refusal = _agent_refusal(target, repo=repo)
+        refusal = bundled_file_refusal(target, repo=repo)
         if refusal is not None:
             results.append(AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=refusal))
             continue
@@ -116,14 +116,6 @@ def _materialize_agent_files(
                 )
             )
     return results
-
-
-def _agent_refusal(
-    target: Path, *, repo: Path | None
-) -> SymlinkRefusal | UserSymlinkRefusal | None:
-    if repo is None:
-        return find_file_symlink(target)
-    return find_symlink(repo, target.relative_to(repo).as_posix())
 
 
 def _install_bundled_agent(
@@ -168,7 +160,7 @@ def _install_bundled_agent_io(
             target.write_text(bundled, encoding="utf-8")
             return AgentOutcome(AgentKind.OVERWROTE, target=target)
         backup = target.parent / (target.name + ".bak")
-        backup_refusal = _agent_refusal(backup, repo=repo)
+        backup_refusal = bundled_file_refusal(backup, repo=repo)
         if backup_refusal is not None:
             return AgentOutcome(AgentKind.REFUSED_SYMLINK, refusal=backup_refusal)
         backup.write_text(current, encoding="utf-8")
@@ -177,20 +169,6 @@ def _install_bundled_agent_io(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(bundled, encoding="utf-8")
     return AgentOutcome(AgentKind.INSTALLED, target=target)
-
-
-def _retained_backup_name(target: Path) -> str | None:
-    """Return a sibling ``.bak`` name when that backup is a real file.
-
-    Removal never deletes the backup. It may be the only copy of a local edit.
-    """
-    backup = target.with_name(target.name + ".bak")
-    try:
-        if backup.is_symlink() or not backup.is_file():
-            return None
-    except OSError:
-        return None
-    return backup.name
 
 
 def _remove_bundled_agent(target: Path, bundled: str) -> AgentOutcome:
@@ -207,7 +185,7 @@ def _remove_bundled_agent(target: Path, bundled: str) -> AgentOutcome:
 
 
 def _remove_bundled_agent_io(target: Path, bundled: str) -> AgentOutcome:
-    backup_name = _retained_backup_name(target)
+    backup_name = retained_backup_name(target)
     if not target.is_file():
         return AgentOutcome(AgentKind.ABSENT, target=target, backup_name=backup_name)
     current = target.read_text(encoding="utf-8")

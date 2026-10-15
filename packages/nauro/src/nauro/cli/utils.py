@@ -18,20 +18,23 @@ import typer
 
 from nauro import __version__
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
+from nauro.setup.git_hygiene import public_surface_git_warnings
 from nauro.store.journal import OriginDescriptor
+from nauro.store.post_commit import PostCommitOutcome, run_post_commit
 from nauro.store.registry import (
     _load_registry_v2_or_empty,
     find_projects_by_name_v2,
     get_project_v2,
     suggest_project_for_path,
 )
-from nauro.store.repo_config import collides_with_global_config
+from nauro.store.repo_config import collides_with_global_config, save_repo_config
 from nauro.store.resolution import (
     DisconnectedProject,
     resolve_from_cwd,
     resolve_registered_project,
 )
 from nauro.store.write_safety import find_symlink
+from nauro.templates.agents_md_regen import warn_then_regen
 
 # Pinned vocabulary for ProjectResolutionExit.reason. Machine-readable
 # consumers (e.g. ``nauro status --json``) surface these values verbatim.
@@ -95,6 +98,44 @@ def refuse_repo_config_symlink(repo_root: Path) -> None:
         return
     typer.echo(f"Error: {refusal.message}", err=True)
     raise typer.Exit(code=1)
+
+
+def _echo_err(message: str) -> None:
+    typer.echo(message, err=True)
+
+
+def write_repo_config(
+    repo: Path, *, mode: str, project_id: str, name: str, server_url: str | None = None
+) -> None:
+    """Save ``repo``'s ``.nauro/config.json`` and echo its git-hygiene warnings to stderr."""
+    data = {"mode": mode, "id": project_id, "name": name}
+    if server_url is not None:
+        data["server_url"] = server_url
+    save_repo_config(repo, data)
+    for warning in public_surface_git_warnings(repo, ".nauro/config.json"):
+        _echo_err(warning)
+
+
+def echo_post_commit(
+    store_path: Path, *, snapshot_trigger: str | None = None, regenerate_agents_md: bool = True
+) -> PostCommitOutcome:
+    """Run the post-commit steps, echoing their warnings to stderr and each refreshed AGENTS.md."""
+    outcome = run_post_commit(
+        store_path,
+        snapshot_trigger=snapshot_trigger,
+        regenerate_agents_md=regenerate_agents_md,
+        warn=_echo_err,
+    )
+    for line in outcome.warnings:
+        _echo_err(line)
+    for repo_path in outcome.updated_repos:
+        typer.echo(f"  Updated AGENTS.md: {repo_path}")
+    return outcome
+
+
+def regen_agents_md_fail_soft(project_id: str, store_path: Path) -> None:
+    """Regenerate AGENTS.md for ``project_id``, warning on stderr instead of failing."""
+    warn_then_regen(project_id, store_path, warn=_echo_err, fail_soft=True)
 
 
 def _available_project_names() -> list[str]:
