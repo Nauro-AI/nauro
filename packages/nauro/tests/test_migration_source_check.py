@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.commands import projects
 from nauro.cli.main import app
+from nauro.store import generation_migration_assessment as assessment_module
 from nauro.store.generation_migration_assessment import assess_legacy_migration
 from nauro.store.generation_migration_plan import prepare_legacy_migration_plan
 from nauro.store.migration_admission import MigrationAdmissionError, inspect_migration
@@ -119,7 +120,7 @@ def test_control_evidence_arriving_during_inventory_refuses(tmp_path, monkeypatc
     monkeypatch.setenv("NAURO_HOME", str(tmp_path / "home"))
     binding, assessment = _assessment(tmp_path)
     record = migration.save_migration_assessment(prepare_legacy_migration_plan(assessment))
-    original = migration._inventory
+    original = assessment_module._inventory
     control = binding.store_path / ".replica-control.lock"
 
     def arriving(store):
@@ -127,7 +128,7 @@ def test_control_evidence_arriving_during_inventory_refuses(tmp_path, monkeypatc
         control.write_bytes(b"arriving evidence")
         return result
 
-    monkeypatch.setattr(migration, "_inventory", arriving)
+    monkeypatch.setattr(assessment_module, "_inventory", arriving)
     with pytest.raises(MigrationAdmissionError, match="fresh assessment"):
         migration.decide_migration_assessment(record, preserve=True)
     assert control.read_bytes() == b"arriving evidence"

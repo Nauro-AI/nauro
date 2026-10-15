@@ -23,6 +23,7 @@ from nauro.store.journal import JOURNAL_DIR
 from nauro.store.replica_control import (
     _REPLICA_CONTROL_LOCK_NAME,
     _REPLICA_CONTROL_ROOT_NAME,
+    _is_link_or_reparse,
 )
 from nauro.store.store_lock import DIR_LOCK_NAME, RMW_LOCK_SUFFIX
 from nauro.store.submission_records import SUBMISSION_RECORDS_DIR
@@ -274,12 +275,6 @@ def _metadata_kind(metadata: Any) -> _NativeKind:
     if stat.S_ISREG(metadata.st_mode):
         return _NativeKind.REGULAR_FILE
     return _NativeKind.IRREGULAR
-
-
-def _is_link_or_reparse(metadata: Any) -> bool:
-    attributes = getattr(metadata, "st_file_attributes", 0)
-    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-    return stat.S_ISLNK(metadata.st_mode) or bool(attributes & reparse)
 
 
 def _is_supported_link(metadata: Any) -> bool:

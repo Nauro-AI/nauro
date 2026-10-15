@@ -24,6 +24,7 @@ from nauro.sync.generation_attachment import InitialAttachmentSession
 from nauro.sync.migration_admission import (
     MigrationSourceRefusedError,
     decide_migration_assessment,
+    load_expected_migration_plan,
     load_migration_plan,
     save_migration_assessment,
     verify_migration_source,
@@ -94,9 +95,7 @@ def _present_reassessment(
 
 
 def _present(record: MigrationAdmission, emit: Callable[[str], None]) -> None:
-    current, raw = load_migration_plan(Path(record.store))
-    if current != record:
-        raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
+    raw = load_expected_migration_plan(Path(record.store), record)
     plan = decode_migration_plan(raw, record)
     emit("This hosted project already uses server-authorized generations.")
     emit(
@@ -174,9 +173,7 @@ def _execute(
     projection = acquire_generation_projection(
         binding, active_user_id=record.actor, session=session
     )
-    current, raw = load_migration_plan(binding.store_path)
-    if current != record:
-        raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
+    raw = load_expected_migration_plan(binding.store_path, record)
     if decode_migration_plan(raw, record).projection != projection.target.identity:
         raise _AssessmentChangedError(
             "The hosted generation changed. A fresh assessment and confirmation "
@@ -265,9 +262,7 @@ def guided_existing_hosted_upgrade(
     binding = session.binding
     record = inspect_migration(binding.store_path)
     if record is not None:
-        current, _ = load_migration_plan(binding.store_path)
-        if current != record:
-            raise MigrationAdmissionError("The saved upgrade changed; reopen connection setup.")
+        load_expected_migration_plan(binding.store_path, record)
         if (record.project_id, record.endpoint, record.actor) != (
             binding.project_id,
             binding.server_url,

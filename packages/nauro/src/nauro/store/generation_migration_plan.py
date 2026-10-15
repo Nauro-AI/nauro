@@ -6,16 +6,19 @@ import hashlib
 import json
 from dataclasses import InitVar, dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from nauro_core.identifiers import IdentifierKind, validate_identifier
+from pydantic import BaseModel, ConfigDict
 
 from nauro.store.generation_authority import GenerationAuthorityError
 from nauro.store.generation_migration_assessment import (
     LegacyFileStamp,
     LegacyMigrationAssessment,
 )
+from nauro.store.generation_projection import GenerationProjectionIdentity
+from nauro.store.migration_admission import MigrationAdmission, MigrationAdmissionError
 from nauro.store.repo_config import generate_ulid
 
 LegacySourceClass = Literal["identical", "divergent", "local_only", "snapshot", "evidence"]
@@ -265,9 +268,87 @@ def prepare_legacy_migration_plan(
     )
 
 
+class _Entry(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    source_path: str
+    destination_path: str
+    size: int
+    sha256: str
+    source_class: Literal["identical", "divergent", "local_only", "snapshot", "evidence"]
+    disposition: Literal["legacy_backup", "quarantine"]
+    recovery_kind: Literal[
+        "archive_only", "restore_only", "typed_resubmission", "preserved_unsupported"
+    ]
+    recovery_routes: list[Literal["propose_decision"]]
+    offer_export: bool
+
+
+class _Plan(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    schema_version: Literal[1]
+    migration_id: str
+    created_at: str
+    backup_directory_name: str
+    project_id: str
+    server_url: str
+    directory_paths: list[str]
+    assessment_capture_digest: str
+    projection: GenerationProjectionIdentity
+    server_only_paths: list[str]
+    entries: list[_Entry]
+
+
+def _relative(value: str) -> str:
+    path = PurePosixPath(value)
+    if (
+        not value
+        or value == "."
+        or path.is_absolute()
+        or ".." in path.parts
+        or "\\" in value
+        or path.as_posix() != value
+    ):
+        raise MigrationAdmissionError("Preservation path is unsafe.")
+    return value
+
+
+def decode_migration_plan(raw: bytes, record: MigrationAdmission) -> _Plan:
+    plan = _Plan.model_validate_json(raw)
+    if (
+        plan.migration_id != record.migration_id
+        or plan.project_id != record.project_id
+        or plan.server_url != record.endpoint
+        or plan.projection.installed_for_user_id != record.actor
+        or plan.projection.project_id != record.project_id
+        or len({entry.source_path for entry in plan.entries}) != len(plan.entries)
+    ):
+        raise MigrationAdmissionError("Preservation plan binding differs.")
+    name = _relative(plan.backup_directory_name)
+    if (
+        "/" in name
+        or not name.startswith(f"legacy-backup-{record.project_id}-")
+        or not name.endswith("-" + record.migration_id)
+    ):
+        raise MigrationAdmissionError("Preservation location differs.")
+    for directory in plan.directory_paths:
+        _relative(directory)
+    for entry in plan.entries:
+        prefix = "legacy" if entry.disposition == "legacy_backup" else "quarantine"
+        if entry.destination_path != prefix + "/" + _relative(entry.source_path) or entry.size < 0:
+            raise MigrationAdmissionError("Preservation entry differs.")
+        MigrationAdmission.digest(entry.sha256)
+    return plan
+
+
+def plan_source_stamps(plan: _Plan) -> tuple[LegacyFileStamp, ...]:
+    return tuple(sorted(LegacyFileStamp(e.source_path, e.size, e.sha256) for e in plan.entries))
+
+
 __all__ = [
     "LegacyMigrationPlan",
     "LegacyMigrationPlanEntry",
     "LegacyMigrationPlanError",
+    "decode_migration_plan",
+    "plan_source_stamps",
     "prepare_legacy_migration_plan",
 ]

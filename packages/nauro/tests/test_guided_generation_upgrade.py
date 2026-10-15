@@ -677,7 +677,7 @@ def test_saved_upgrade_for_another_connection_is_refused_offline(assessed, monke
     record, _, session, _, _, calls = assessed
     foreign = record.model_copy(update=update)
     monkeypatch.setattr(upgrade, "inspect_migration", lambda path: foreign)
-    monkeypatch.setattr(upgrade, "load_migration_plan", lambda path: (foreign, b""))
+    monkeypatch.setattr(upgrade, "load_expected_migration_plan", lambda path, record: b"")
     before = _tree(session.binding.store_path.parent)
     with pytest.raises(MigrationAdmissionError, match="another connection"):
         upgrade.guided_existing_hosted_upgrade(session, emit=_forbidden, confirm=_forbidden)

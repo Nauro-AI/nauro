@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import stat
 from pathlib import Path
 
 from nauro.store._platform_durability import durable_write_bytes
-from nauro.store.generation_installation import _read_expected
+from nauro.store.generation_installation import GenerationInstallError, _read_expected
 from nauro.store.generation_migration_assessment import (
     LegacyFileRefusedError,
-    LegacyFileStamp,
-    _inventory,
-    _require_empty_control_lock,
-    _require_legacy_root,
+    inventory_legacy_location,
 )
-from nauro.store.generation_migration_plan import LegacyMigrationPlan
+from nauro.store.generation_migration_plan import (
+    LegacyMigrationPlan,
+    decode_migration_plan,
+    plan_source_stamps,
+)
 from nauro.store.generation_refresh_io import RefreshPaths, durable_replace, sync_file, sync_parents
 from nauro.store.migration_admission import (
     MigrationAdmission,
@@ -56,7 +56,10 @@ def _read_plan(record: MigrationAdmission) -> bytes:
         or info.st_size > MAX_PLAN_BYTES
     ):
         raise MigrationAdmissionError("Saved migration plan is unsafe.")
-    raw = _read_expected(path, info.st_size, (info.st_dev, info.st_ino), "migration plan")
+    try:
+        raw = _read_expected(path, info.st_size, (info.st_dev, info.st_ino), "migration plan")
+    except GenerationInstallError as exc:
+        raise MigrationAdmissionError("Saved migration plan changed during inspection.") from exc
     _validate_managed_path(migration_home(), path)
     after = path.lstat()
     if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (
@@ -78,6 +81,19 @@ def load_migration_plan(store: Path) -> tuple[MigrationAdmission, bytes]:
         raise MigrationAdmissionError("No saved migration plan.")
     inspect_previous_migration(record)
     return record, _read_plan(record)
+
+
+def load_expected_migration_plan(
+    store: Path,
+    record: MigrationAdmission,
+    *,
+    changed: str = "The saved upgrade changed; reopen connection setup.",
+) -> bytes:
+    """Return the saved plan bytes, refusing with changed unless the saved record is record."""
+    current, raw = load_migration_plan(store)
+    if current != record:
+        raise MigrationAdmissionError(changed)
+    return raw
 
 
 def _previous_path(digest: str) -> Path:
@@ -162,16 +178,10 @@ def save_migration_assessment(
         project_id=binding.project_id,
         actor=plan.assessment.projection.target.identity.installed_for_user_id,
         endpoint=binding.server_url,
-        store=(
-            replace.store
-            if type(replace) is MigrationAdmission
-            else str(binding.store_path.resolve())
-        ),
+        store=replace.store if replace is not None else str(binding.store_path.resolve()),
         plan_digest=plan.plan_digest,
         predecessor_digest=(
-            hashlib.sha256(replace.canonical_bytes()).hexdigest()
-            if type(replace) is MigrationAdmission
-            else None
+            hashlib.sha256(replace.canonical_bytes()).hexdigest() if replace is not None else None
         ),
         phase="assessed",
     )
@@ -227,27 +237,9 @@ def verify_migration_source(record: MigrationAdmission, raw_plan: bytes) -> None
 
 
 def _compare_source(record: MigrationAdmission, raw_plan: bytes) -> None:
-    store = Path(record.store)
-    payload = json.loads(raw_plan)
-    if (
-        payload["migration_id"] != record.migration_id
-        or payload["project_id"] != record.project_id
-        or payload["server_url"] != record.endpoint
-        or payload["projection"]["installed_for_user_id"] != record.actor
-    ):
-        raise ValueError("Saved plan binding differs")
-    expected = tuple(
-        sorted(
-            LegacyFileStamp(entry["source_path"], entry["size"], entry["sha256"])
-            for entry in payload["entries"]
-        )
-    )
-    _require_legacy_root(store)
-    _require_empty_control_lock(store)
-    files, directories, pending = _inventory(store)
-    _require_empty_control_lock(store)
-    _require_legacy_root(store)
-    if pending or files != expected or directories != tuple(payload["directory_paths"]):
+    plan = decode_migration_plan(raw_plan, record)
+    files, directories, pending = inventory_legacy_location(Path(record.store))
+    if pending or files != plan_source_stamps(plan) or directories != tuple(plan.directory_paths):
         raise ValueError("Source inventory differs")
 
 
