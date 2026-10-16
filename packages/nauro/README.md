@@ -4,7 +4,7 @@ Decision system for software built with AI
 
 Keep your project's direction in human hands as agents do more of the work.
 
-Nauro keeps a living project record. It combines project scope, current state, and open questions with human-approved project judgment: intent, goals, decisions, rationale, tradeoffs, and rejected paths. Project judgment is the human-ratified part of the record; context is the relevant slice of the record an agent receives for the work in front of it. Works with Claude, Perplexity, Cursor, Codex, and any MCP client.
+Nauro keeps a living project record. It combines project scope, current state, and open questions with human-approved project judgment: intent, goals, decisions, rationale, tradeoffs, and rejected paths. Project judgment is the human-ratified part of the record; context is the relevant slice of the record an agent receives for the work in front of it. Works with Claude, Cursor, Codex, and any MCP client.
 
 ## How the loop works
 
@@ -49,11 +49,11 @@ If a small repo plus a reliable AGENTS.md or CLAUDE.md keeps agents oriented, Na
 
 `nauro graph` renders the store to one self-contained HTML file and opens it: a node-link map of every decision as the default view, plus drawn supersession lineage, a timeline, and a category browser. The demo store's consolidation, three retired decisions converging on the one that replaced them, draws as a fan. By default the file carries the full decision store, including each decision's body rendered as structured detail in the side panel, and lands in the store directory under `~/.nauro/` (in the Nauro home itself for a generation replica) rather than your repo; `--no-include-bodies` produces a redacted titles-and-metadata artifact for wider sharing.
 
-`nauro doctor` checks the store for structural defects: unparseable decision files, dangling or cyclic supersession refs, status contradictions, duplicate decision numbers, and duplicate active titles. It is deterministic and report-only — it never edits the store and exits 0 whether or not it finds defects. It also names one repairable defect separately: a supersession recorded on the newer decision but never written back to the older one.
+`nauro doctor` checks the store for structural defects: unparseable decision files, dangling or cyclic supersession refs, status contradictions, duplicate decision numbers, and duplicate active titles. It is deterministic and report-only: it never edits the store, and it exits 0 whether or not it finds defects. It exits 1 only when a replica's installed generation cannot be read. It also names one repairable defect separately: a supersession recorded on the newer decision but never written back to the older one.
 
-`nauro repair` is the only command that acts on what doctor names, and it acts on that one shape. When a single decision in the store claims to supersede another that is still active with no reference back, it shows you both decisions with their versions and dates, states the exact field change, and asks. Anything less clear-cut — two decisions claiming the same predecessor, a cycle, a file that will not parse — is reported with guidance and left alone. Nothing is written without your answer, and there is no flag to skip the question.
+`nauro repair` is the only command that acts on what doctor names, and it acts on that one shape. When a single decision in the store claims to supersede another that is still active with no reference back, it shows you both decisions with their versions and dates, states the exact field change, and asks. Anything less clear-cut, such as two decisions claiming the same predecessor, a cycle, or a file that will not parse, is reported with guidance and left alone. Nothing is written without your answer, and there is no flag to skip the question.
 
-For real-project setup (`nauro init` / `nauro adopt`), cross-surface access, MCP tool reference, and architecture details, see the [main project README](https://github.com/nauro-ai/nauro#readme). Don't run `nauro setup` from `/tmp/nauro-demo`; that would wire the throwaway demo into your MCP client.
+For real-project setup (`nauro init` / `nauro adopt`) and cross-surface access, see the [quickstart](https://nauro.ai/docs/quickstart). The [MCP tool reference](https://nauro.ai/docs/mcp) covers every tool. Don't run `nauro setup` from `/tmp/nauro-demo`; that would wire the throwaway demo into your MCP client.
 
 For cross-surface onboarding, run `nauro adopt --with-skills --with-subagents`. Plain adopt installs `nauro-adopt`. `--with-skills` adds `nauro-ship-task`, `nauro-context`, `nauro-loop`, and `nauro-interview`. `--with-subagents` adds Nauro's planner, executor, reviewer, tech-lead, and investigator agents for Claude Code, Cursor, and Codex; the investigator is read-only and studies Claude Code and Codex session logs for supported defects, repeated friction, and drift. Cursor stores its native project agents under `.cursor/agents/`.
 
@@ -86,7 +86,7 @@ Nauro supports a human-ratified project-judgment loop. It captures what you deci
 
 No model judges your decisions. The check uses deterministic keyword retrieval (BM25), is advisory, and never blocks a change. Agents draft additions, updates, and supersessions; you explicitly approve each one before `propose_decision` commits it in one call.
 
-`check_decision` returns the related prior decisions (the `related_decisions` list in the response) so the agent can weigh them before proposing; Nauro ranks by keyword relevance and does not judge the proposal. On the approved `propose_decision` call, near-matches surface as advisory `similar_decisions`, and a clean proposal commits in one call. What you approve in one tool, every connected agent inherits; for example, a decision recorded in Claude Code is available later in Perplexity. The store is plain markdown in a folder you own. Run it fully locally with no account; cloud sync is opt-in.
+`check_decision` returns the related prior decisions (the `related_decisions` list in the response) so the agent can weigh them before proposing; Nauro ranks by keyword relevance and does not judge the proposal. On the approved `propose_decision` call, near-matches surface as advisory `similar_decisions`, and a clean proposal commits in one call. What you approve in one tool, every connected agent inherits; for example, a decision recorded in Claude Code is available later in Codex. The store is plain markdown in a folder you own. Run it fully locally with no account; cloud sync is opt-in.
 
 ## Hosted allowance
 
@@ -94,7 +94,7 @@ Nauro includes unlimited local usage, unlimited projects, and 5,000 remote MCP c
 
 ---
 
-Apache 2.0 license. Part of the [nauro-ai/nauro](https://github.com/nauro-ai/nauro) monorepo.
+Apache 2.0 license. Part of the [nauro-ai/nauro](https://github.com/nauro-ai/nauro) monorepo. Website: [nauro.ai](https://nauro.ai).
 
 Named for Peter Naur, whose 1985 paper *Programming as Theory Building* argued the real program is the theory in the programmer's mind, not the code. Every fresh agent session is the equivalent of losing that programmer.
 

@@ -22,10 +22,7 @@ FIT_BOUNDARY = (
     "Nauro may be more than you need."
 )
 
-COMPACT_DESCRIPTION = (
-    "What every agent should know. Keep your project's direction in human hands as "
-    "agents do more of the work."
-)
+COMPACT_DESCRIPTION = f"{TAGLINE}. {SUPPORT_LINE}"
 
 README_PATHS = ("README.md", "packages/nauro/README.md")
 
@@ -65,6 +62,7 @@ def test_readmes_carry_tagline_support_line_and_fit_boundary() -> None:
     for relative in README_PATHS:
         text = (ROOT / relative).read_text(encoding="utf-8")
         assert TAGLINE in text, relative
+        assert "[nauro.ai](https://nauro.ai)" in text, relative
         assert SUPPORT_LINE in text, relative
         assert FIT_BOUNDARY in text, relative
 
@@ -80,6 +78,9 @@ def test_readmes_carry_cursor_and_skill_onboarding_contract() -> None:
             assert "https://nauro.ai/docs/agents-and-skills" in text
             assert "https://nauro.ai/docs/quickstart" in text
             continue
+        assert "https://nauro.ai/docs/mcp" in text, relative
+        assert "https://nauro.ai/docs/quickstart" in text, relative
+        assert "#readme" not in text, relative
         assert "nauro setup cursor" in text, relative
         assert ".cursor/mcp.json" in text, relative
         assert "cursor.com/agents" in text, relative
@@ -93,6 +94,9 @@ def test_compact_description_contract_across_distribution_surfaces() -> None:
     pyproject = tomllib.loads((ROOT / "packages/nauro/pyproject.toml").read_text(encoding="utf-8"))
     server = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
     assert pyproject["project"]["description"] == COMPACT_DESCRIPTION
+    assert pyproject["project"]["urls"]["Homepage"] == "https://nauro.ai"
+    assert pyproject["project"]["urls"]["Documentation"] == "https://nauro.ai/docs"
+    assert pyproject["project"]["urls"]["Repository"] == "https://github.com/nauro-ai/nauro"
 
     from nauro.cli.main import app
 

@@ -94,6 +94,8 @@ An existing `AGENTS.md` is preserved unless you run `nauro sync`. Its `# Manual`
 
 [Documentation](https://nauro.ai/docs) covers commands, storage, and cloud access. Semantic versioning covers the CLI, local stdio MCP contract, store format, and curated `nauro-core` API. Cloud sync and hosted MCP are versioned separately.
 
+Website: [nauro.ai](https://nauro.ai).
+
 ## Development
 
 ```bash
