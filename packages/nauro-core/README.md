@@ -10,17 +10,17 @@ pip install nauro-core
 
 ## What's inside
 
-- **`decision_model`** — the Pydantic `Decision` model plus compiled regexes and `parse_decision`/`format_decision` for the Nauro markdown protocol (decision titles, metadata fields, section headers)
-- **`constants`** — limits, thresholds, valid values, file paths shared across all Nauro surfaces
-- **`parsing`** — pure markdown→data helpers: `extract_stack_summary`, `decisions_summary_lines` (decision parsing lives in `decision_model.parse_decision`, which returns a validated `Decision`)
-- **`context`** — `build_l0`/`build_l1`/`build_l2` context assembly from pre-loaded files and parsed decisions
+- **`decision_model`**: the Pydantic `Decision` model plus compiled regexes and `parse_decision`/`format_decision` for the Nauro markdown protocol (decision titles, metadata fields, section headers)
+- **`constants`**: limits, thresholds, valid values, file paths shared across all Nauro surfaces
+- **`parsing`**: pure markdown→data helpers such as `extract_stack_summary` and `decisions_summary_lines` (decision parsing lives in `decision_model.parse_decision`, which returns a validated `Decision`)
+- **`context`**: `build_l0`/`build_l1`/`build_l2` context assembly from pre-loaded files and parsed decisions
 - **`validation`**: structural screening, hash dedup, and BM25 retrieval of related decisions
 
 ## Design principles
 
-- **No I/O** — no filesystem, no network; callers inject pre-loaded data. Runtime dependencies are compute-only (BM25, parsing, validation); embeddings are an optional extra (`nauro-core[embeddings]`)
-- **Function injection** — callers pass pre-loaded data (`files: dict[str, str]`, `decisions: list[dict]`); nauro-core never reads files or calls APIs
-- **Import isolation** — enforced via `import-linter`: nauro-core cannot import from `nauro` or `mcp_server`
+- **No I/O**: no filesystem, no network; callers inject pre-loaded data. Runtime dependencies are compute-only (BM25, parsing, validation); embeddings are an optional extra (`nauro-core[embeddings]`)
+- **Function injection**: callers pass pre-loaded data (`files: dict[str, str]`, `decisions: list[dict]`); nauro-core never reads files or calls APIs
+- **Import isolation**: enforced via `import-linter`, so nauro-core cannot import from `nauro` or `mcp_server`
 
 ## Usage
 
