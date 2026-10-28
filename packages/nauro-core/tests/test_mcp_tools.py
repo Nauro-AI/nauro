@@ -8,7 +8,7 @@ from nauro_core.instructions import (
     build_remote_instructions,
 )
 from nauro_core.mcp_tools import ALL_TOOLS, get_tool_spec
-from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
+from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE, APPROVAL_BEFORE_STATE_WRITE
 
 # Real-shaped 26-char ULIDs for the inline-rendering tests.
 ULID_ALPHA = "01AAAAAAAAAAAAAAAAAAAAAAAA"
@@ -383,15 +383,16 @@ class TestInstructionsSurviveTruncation:
 
 
 class TestTrimmedGuidanceCanonicalHome:
-    """Guidance trimmed from the static block must remain reachable on the
-    matching ToolSpec descriptions, which tools/list delivers intact."""
+    """Guidance kept out of the static block lives on the matching ToolSpec
+    descriptions, which tools/list delivers intact."""
 
-    def test_update_state_description_carries_completion_guidance(self):
-        """The 'When to update state' static section was trimmed; the
-        update_state ToolSpec description is its canonical home."""
+    def test_update_state_description_leads_with_approval_rule(self):
+        """The first paragraph is also the CLI help text, so the rule sits there."""
         desc = get_tool_spec("update_state")["description"]
-        assert "meaningful unit of work" in desc
-        assert "next session starts with current context" in desc
+        first_paragraph = desc.split("\n\n", 1)[0]
+        assert APPROVAL_BEFORE_STATE_WRITE in first_paragraph
+        assert "The delta replaces the current state." in first_paragraph
+        assert "meaningful unit of work" not in desc
 
     def test_get_context_description_carries_list_decisions_nuance(self):
         """The 'do not call list_decisions after get_context' nuance was the

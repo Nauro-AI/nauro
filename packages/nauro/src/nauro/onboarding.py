@@ -7,7 +7,7 @@ render the same empty-store text.
 """
 
 from nauro_core.constants import NO_DECISIONS_TO_CHECK as NO_DECISIONS_TO_CHECK
-from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE
+from nauro_core.protocol import APPROVAL_BEFORE_PROPOSE, APPROVAL_BEFORE_STATE_WRITE
 
 WELCOME_NO_PROJECT = (
     "Welcome to Nauro! No project store found.\n"
@@ -28,7 +28,8 @@ NO_CONTEXT_YET = (
     "\n"
     "To populate your project context:\n"
     "- Use propose_decision to record architectural decisions\n"
-    "- Use update_state to track current progress\n"
+    "- Use update_state to record current state. Before calling it: "
+    f"{APPROVAL_BEFORE_STATE_WRITE}\n"
     "\n"
     f"{APPROVAL_BEFORE_PROPOSE}"
 )

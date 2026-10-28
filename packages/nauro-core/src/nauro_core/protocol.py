@@ -62,6 +62,12 @@ APPROVAL_BEFORE_PROPOSE = (
     "validation."
 )
 
+APPROVAL_BEFORE_STATE_WRITE = (
+    "Show the exact replacement text, end the turn, and get explicit user "
+    "approval from the user's next reply. If no user can reply, write no "
+    "state; return the proposed text instead."
+)
+
 _PROPOSAL_VISIBILITY_DETAIL = (
     "Never pair the draft with an approval prompt (AskUserQuestion) in the "
     "same turn - text before a tool call may never render. Prompt only once "
@@ -140,6 +146,7 @@ def protocol_tokens_in(text: str, *, only_unknown: bool = False) -> list[str]:
 
 __all__ = [
     "APPROVAL_BEFORE_PROPOSE",
+    "APPROVAL_BEFORE_STATE_WRITE",
     "CANONICAL_FRAGMENTS",
     "CHECK_DECISION_RETURNS",
     "GET_DECISION_BEFORE_PROPOSING",

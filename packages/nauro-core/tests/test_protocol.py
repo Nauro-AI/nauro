@@ -14,6 +14,7 @@ from nauro_core.mcp_tools import get_tool_spec
 from nauro_core.protocol import (
     _PROPOSAL_VISIBILITY_DETAIL,
     APPROVAL_BEFORE_PROPOSE,
+    APPROVAL_BEFORE_STATE_WRITE,
     CANONICAL_FRAGMENTS,
     CHECK_DECISION_RETURNS,
     GET_DECISION_BEFORE_PROPOSING,
@@ -64,6 +65,26 @@ class TestFragmentAnchors:
         assert "APPROVAL_BEFORE_PROPOSE" not in CANONICAL_FRAGMENTS
         assert "_PROPOSAL_VISIBILITY_DETAIL" not in protocol.__all__
         assert "PROPOSAL_VISIBILITY_DETAIL" not in CANONICAL_FRAGMENTS
+
+    def test_state_write_fragment_pins_human_authority(self) -> None:
+        for anchor in (
+            "exact replacement text",
+            "end the turn",
+            "explicit user approval",
+            "next reply",
+            "write no state",
+            "return the proposed text",
+        ):
+            assert anchor in APPROVAL_BEFORE_STATE_WRITE
+
+    def test_state_write_fragment_stays_off_contract_and_static_block(self) -> None:
+        """The fragment is protocol-local: no curated export, token, or static-block text."""
+        import nauro_core
+
+        assert "APPROVAL_BEFORE_STATE_WRITE" in protocol.__all__
+        assert "APPROVAL_BEFORE_STATE_WRITE" not in nauro_core.__all__
+        assert "APPROVAL_BEFORE_STATE_WRITE" not in CANONICAL_FRAGMENTS
+        assert APPROVAL_BEFORE_STATE_WRITE not in MCP_INSTRUCTIONS_STATIC
 
     def test_check_decision_returns_names_bm25_and_deterministic(self) -> None:
         assert "BM25" in CHECK_DECISION_RETURNS

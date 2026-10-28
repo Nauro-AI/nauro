@@ -13,7 +13,7 @@ Nauro keeps a living project record. It combines project scope, current state, a
 3. If the work needs new or revised judgment, the agent drafts it and waits for your explicit approval.
 4. The agent plans, recommends, or implements with that context in view.
 5. The agent explains how the context shaped the result, and you accept, correct, except, reopen, or supersede it in conversation.
-6. The agent reports meaningful completed progress as current state, so later connected agents inherit the updated state and approved judgment.
+6. The agent proposes current-state updates as exact text and records them only after you approve, so later connected agents inherit the updated state and approved judgment.
 
 The markdown store, context summaries, BM25 retrieval, advisory checks, and optional sync support this loop. They do not replace your judgment or silently change project truth.
 

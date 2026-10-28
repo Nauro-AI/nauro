@@ -232,6 +232,8 @@ If Step 6c produced inventory items, append a short trailing section:
 
 If only one of activeContext / progress / inventory is present, the corresponding sections are omitted. If none is present, `update_state` is skipped entirely. The composed delta must stay under 5,000 characters — `update_state` rejects longer deltas at the boundary. When the activeContext body alone would exceed the cap, condense it to the current focus and the most recent items rather than pasting it whole. Never split the delta across multiple `update_state` calls: each call replaces the state, so a second call clobbers the first. **The agent does not call `update_state` per progress item or per inventory entry** — `update_state` archives prior state to history, and the L0 payload ignores history.
 
+Before calling `update_state`, the agent renders the exact composed delta in chat as the final text of its turn and ends the turn. It calls `update_state` only after the user's next reply explicitly approves that exact text. Step 6c inventory counts as present only after the user's `done`. An earlier `done`, `keep`, or `confirm` reply selects content; it does not approve the state write. If the user asks for changes, the agent revises the delta, renders it in full again, and waits for fresh approval. When no user is present to reply (an unattended, headless, or scheduled run), the agent writes no state through MCP or `nauro update-state`; it returns the proposed delta in its final output for later review.
+
 ## Step 9 — Flag open questions
 
 Sources: explicit `## Open Questions` sections, lines beginning `Q:` or `TODO:` in CONTRIBUTING / ARCHITECTURE docs, user-noted gaps from 6a / 6b / 6c dialogue ("we never decided X"), and Step 6b probes the user routed to `question N` or answered with "I don't know". Per candidate: surface, ask `keep / edit / skip`. On keep → `flag_question(question, context, project_id=...)`.
@@ -258,6 +260,6 @@ The agent prints one block:
 - Code-evidence probes asked: `P` / answered: `A`
 - Decisions created: `N` (titles)
 - Decisions skipped: `M` (titles)
-- State updated: `yes`/`no`
+- State updated: `yes`, `no`, or `proposed, not written`
 - Open questions flagged: `K`
 - Next: on filesystem-capable surfaces, the agent tells the user that `nauro sync` captures a snapshot and regenerates `AGENTS.md` in the project's associated repos, and offers to run it, proceeding only on user confirmation. On chat surfaces, the agent instructs the user to run `nauro sync` from the repo.
