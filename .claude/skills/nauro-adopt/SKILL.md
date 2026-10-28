@@ -7,6 +7,8 @@ description: Seeds Nauro's project store from an existing repo. Use after `nauro
 
 The agent helps the user seed Nauro with context from the current repo. Before this skill runs, the user has run `nauro adopt` from the repo root, which created the project, wired MCP across surfaces, and installed this skill into the agent's surface directory. The agent's job here is to seed the Nauro store via MCP write tools: docs supply the rationale for documented decisions, code and config and tests and manifests and recent git history supply evidence, and the user supplies the "why" via targeted probes when only evidence is present. Do not invent rationale. Record only what was actually decided, with the reasoning that supports it.
 
+The agent writes nothing into the Nauro store folder (under `~/.nauro/projects/`) except through Nauro tools, over MCP or the `nauro` CLI. Review material, such as unapproved drafts, the candidate list or an adoption report, goes back to the user in chat, or in the final output of an unattended run, never into a file in the store folder.
+
 ## Surface modes
 
 The agent's behaviour depends on whether the surface can read the repo directly.
