@@ -47,7 +47,7 @@ pytestmark = [
         os.name == "nt",
         reason="POSIX-shaped transcripts, env-based home redirection, symlink fixtures",
     ),
-    pytest.mark.usefixtures("home_at_tmp_path"),
+    pytest.mark.usefixtures("home_at_tmp_path", "cursor_configured"),
 ]
 
 runner = CliRunner()

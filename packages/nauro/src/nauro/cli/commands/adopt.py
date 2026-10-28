@@ -33,6 +33,7 @@ from nauro.cli._setup_options import (
 )
 from nauro.cli.generation_writes import require_legacy_write
 from nauro.cli.integrations.echo import echo_outcomes
+from nauro.cli.integrations.json_mcp import _MCP_JSON
 from nauro.cli.integrations.orchestrator import setup_all_surfaces
 from nauro.cli.integrations.skills import OPT_IN_SKILL_NAMES, SKILL_NAMES
 from nauro.cli.nauro_command import _find_nauro_command
@@ -43,6 +44,7 @@ from nauro.cli.utils import (
 )
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
 from nauro.setup.git_hygiene import is_git_repo
+from nauro.setup.outcomes import ArtifactOutcome, JsonMcpOutcome, is_failure
 from nauro.skills import load_adopt_body
 from nauro.store.migration_admission import migration_write_guard
 from nauro.store.registry import (
@@ -137,6 +139,30 @@ def _exit_writes_failed(rerun: str) -> NoReturn:
     raise typer.Exit(code=1)
 
 
+_PRINT_PROMPT_HINT = (
+    "Claude Code MCP wiring was not written. To get the adopt instructions anyway, run "
+    "'nauro adopt --print-prompt' and paste them into your agent; this does not wire MCP."
+)
+
+_CURSOR_ADOPT_RULE = Path(".cursor") / "rules" / "nauro-adopt.mdc"
+
+
+def _echo_print_prompt_hint(outcomes: list[ArtifactOutcome]) -> None:
+    """Point at ``--print-prompt`` when a repo's Claude Code ``.mcp.json`` write did not land."""
+    if any(
+        isinstance(outcome, JsonMcpOutcome) and outcome.label == _MCP_JSON and is_failure(outcome)
+        for outcome in outcomes
+    ):
+        typer.echo(_PRINT_PROMPT_HINT, err=True)
+
+
+def _cursor_rule_installed(repo_root: Path) -> bool:
+    try:
+        return (repo_root / _CURSOR_ADOPT_RULE).is_file()
+    except OSError:
+        return False
+
+
 def _install_into_adopted_repo(
     repo_root: Path,
     *,
@@ -159,17 +185,17 @@ def _install_into_adopted_repo(
         pass
 
     typer.echo("Repo already adopted. Installing requested artifacts across surfaces:\n")
-    failed = echo_outcomes(
-        setup_all_surfaces(
-            project_repos,
-            remove=False,
-            with_subagents=with_subagents,
-            force_overwrite=force_overwrite,
-            with_skills=with_skills,
-        )
+    outcomes = setup_all_surfaces(
+        project_repos,
+        remove=False,
+        with_subagents=with_subagents,
+        force_overwrite=force_overwrite,
+        with_skills=with_skills,
     )
+    failed = echo_outcomes(outcomes)
     echo_install_notices(with_skills, with_subagents)
     if failed:
+        _echo_print_prompt_hint(outcomes)
         _exit_writes_failed("nauro setup all")
     typer.echo("\nNext: restart your agent so it picks up the newly installed files.")
 
@@ -541,19 +567,19 @@ def adopt(
 
     # ── wire MCP + materialize skills ──────────────────────────────────────
     failed = False
+    outcomes: list[ArtifactOutcome] = []
     if not no_setup_and_skills:
         typer.echo("\nWiring MCP and installing skills across surfaces:")
-        failed = echo_outcomes(
-            setup_all_surfaces(
-                [repo_root],
-                remove=False,
-                current_project_key=pid,
-                store_path=store_path,
-                with_subagents=with_subagents,
-                force_overwrite=force_overwrite,
-                with_skills=with_skills,
-            )
+        outcomes = setup_all_surfaces(
+            [repo_root],
+            remove=False,
+            current_project_key=pid,
+            store_path=store_path,
+            with_subagents=with_subagents,
+            force_overwrite=force_overwrite,
+            with_skills=with_skills,
         )
+        failed = echo_outcomes(outcomes)
 
         echo_install_notices(with_skills, with_subagents)
 
@@ -562,11 +588,16 @@ def adopt(
             typer.echo(warning, err=True)
 
     if failed:
+        _echo_print_prompt_hint(outcomes)
         _exit_writes_failed("nauro setup all")
+    cursor_handoff = (
+        " In Cursor Agent chat, type @nauro-adopt to include .cursor/rules/nauro-adopt.mdc. "
+        "Commit that file if collaborators should inherit the rule."
+        if _cursor_rule_installed(repo_root)
+        else ""
+    )
     typer.echo(
         "\nNext: restart your agent and invoke the nauro-adopt skill to seed "
         "context from this repo. Use /nauro-adopt in Claude Code or "
-        "$nauro-adopt in Codex. In Cursor Agent chat, type @nauro-adopt to "
-        "include .cursor/rules/nauro-adopt.mdc. Commit that file if "
-        "collaborators should inherit the rule."
+        "$nauro-adopt in Codex." + cursor_handoff
     )

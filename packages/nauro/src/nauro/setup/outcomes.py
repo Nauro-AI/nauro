@@ -48,6 +48,11 @@ class RawLine:
     text: str
 
 
+@dataclass(frozen=True)
+class CursorSkippedOutcome:
+    """Setup found no Cursor configuration for the project and wrote no Cursor files."""
+
+
 class JsonMcpKind(Enum):
     INSTALL_FAILED = auto()
     PRESERVED = auto()
@@ -296,6 +301,7 @@ class AgentsMdOutcome:
 
 ArtifactOutcome = (
     RawLine
+    | CursorSkippedOutcome
     | AgentsMdOutcome
     | JsonMcpOutcome
     | ClaudeHookOutcome
@@ -326,6 +332,6 @@ _FAILED_KINDS: frozenset[Enum] = frozenset(
 
 def is_failure(outcome: ArtifactOutcome) -> bool:
     """Whether ``outcome`` reports a write that did not land."""
-    if isinstance(outcome, RawLine):
+    if isinstance(outcome, RawLine | CursorSkippedOutcome):
         return False
     return outcome.kind in _FAILED_KINDS

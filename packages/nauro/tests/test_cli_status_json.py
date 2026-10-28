@@ -105,15 +105,16 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
             "untrusted_commands": 0,
             "unreadable": [],
         },
+        # No Cursor configuration is found, so nothing is expected on Cursor.
         "skills": {
             "core": {
                 "claude": _absent_counts(len(SKILL_NAMES)),
-                "cursor": _absent_counts(len(SKILL_NAMES)),
+                "cursor": _absent_counts(0),
                 "codex": _absent_counts(len(SKILL_NAMES)),
             },
             "opt_in": {
                 "claude": _absent_counts(len(OPT_IN_SKILL_NAMES)),
-                "cursor": _absent_counts(len(OPT_IN_SKILL_NAMES)),
+                "cursor": _absent_counts(0),
                 "codex": _absent_counts(len(OPT_IN_SKILL_NAMES)),
             },
             "legacy_codex_copies": 0,
@@ -121,7 +122,7 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
         },
         "workflow_agents": {
             "claude": _absent_counts(len(AGENT_NAMES)),
-            "cursor": _absent_counts(len(AGENT_NAMES)),
+            "cursor": _absent_counts(0),
             "codex": _absent_counts(len(AGENT_NAMES)),
             "unreadable": [],
         },

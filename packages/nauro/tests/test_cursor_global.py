@@ -352,6 +352,7 @@ def test_custom_global_entry_preserves_all_bytes_and_legacy(tmp_path, entry):
 
 
 @pytest.mark.parametrize("command", ["cursor", "all"])
+@pytest.mark.usefixtures("cursor_configured")
 def test_failed_install_exits_one_and_shared_preservation_succeeds(tmp_path, monkeypatch, command):
     from typer.testing import CliRunner
 

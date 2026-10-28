@@ -57,7 +57,7 @@ For real-project setup (`nauro init` / `nauro adopt`) and cross-surface access, 
 
 For cross-surface onboarding, run `nauro adopt --with-skills --with-subagents`. Plain adopt installs `nauro-adopt`. `--with-skills` adds `nauro-ship-task`, `nauro-context`, `nauro-loop`, and `nauro-interview`. `--with-subagents` adds Nauro's planner, executor, reviewer, tech-lead, and investigator agents for Claude Code, Cursor, and Codex; the investigator is read-only and studies Claude Code and Codex session logs for supported defects, repeated friction, and drift. Cursor stores its native project agents under `.cursor/agents/`.
 
-Cursor runs `nauro-ship-task` natively. `nauro-loop` Program Delivery stays on hold.
+Cursor runs `nauro-ship-task` natively. `nauro-loop` Program Delivery stays on hold. `nauro adopt` and `nauro setup all` wire Cursor only when a `~/.cursor` directory or a repository `.cursor/` directory exists; otherwise they skip it, and `nauro setup cursor` wires it later.
 
 Restart, then seed the store with `/nauro-adopt` in Claude Code, `$nauro-adopt` in Codex, or `@nauro-adopt` in Cursor Agent chat. Cursor requires a working durable absolute Nauro executable for user-global `~/.cursor/mcp.json`; otherwise installation fails. Claude/Codex retain their existing fallback behavior. Follow the migration steps below before changing legacy wiring. Commit `.nauro/config.json`, `.cursor/rules/nauro-*.mdc`, and `.cursor/agents/nauro-*.md`. Keep the global MCP configuration machine-local.
 

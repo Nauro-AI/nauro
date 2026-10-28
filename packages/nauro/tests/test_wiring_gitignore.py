@@ -308,6 +308,7 @@ def test_unadopt_preserves_user_gitignore_lines(tmp_path, monkeypatch):
 def test_adopt_refuses_tracked_wiring_but_completes(tmp_path, monkeypatch):
     """A tracked wiring file refuses only that surface; adoption itself lands."""
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
     (repo / ".mcp.json").write_text("{}\n", encoding="utf-8")
     subprocess.run(["git", "add", ".mcp.json"], cwd=repo, check=True)
 

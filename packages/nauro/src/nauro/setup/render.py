@@ -28,6 +28,7 @@ from nauro.setup.outcomes import (
     CodexConfigOutcome,
     CodexHookKind,
     CodexHookOutcome,
+    CursorSkippedOutcome,
     JsonMcpKind,
     JsonMcpOutcome,
     LegacyKind,
@@ -43,6 +44,14 @@ def render(outcome: ArtifactOutcome) -> list[str]:
     """Flatten one outcome into the status lines a command echoes."""
     if isinstance(outcome, RawLine):
         return [outcome.text]
+    if isinstance(outcome, CursorSkippedOutcome):
+        return [
+            "Cursor configuration not found, skipped; run 'nauro setup cursor' to wire it later."
+        ]
+    return _render_codec_outcome(outcome)
+
+
+def _render_codec_outcome(outcome: ArtifactOutcome) -> list[str]:
     if isinstance(outcome, AgentsMdOutcome):
         return _render_agents_md(outcome)
     if isinstance(outcome, JsonMcpOutcome):

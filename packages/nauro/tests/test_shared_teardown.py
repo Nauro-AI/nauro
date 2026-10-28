@@ -88,6 +88,7 @@ def test_standalone_codex_obeys_evidence(raw, preserved):
         ({}, True, False),
     ],
 )
+@pytest.mark.usefixtures("cursor_configured")
 def test_all_preserves_shared_artifacts_but_removes_local(tmp_path, projects, override, preserved):
     repo = tmp_path / "repo"
     repo.mkdir()

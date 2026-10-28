@@ -361,6 +361,14 @@ def home_at_tmp_path(tmp_path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
 
 
+@pytest.fixture
+def cursor_configured() -> Path:
+    """Create ``~/.cursor`` so setup and adopt wire Cursor; list it after the home fixture."""
+    cursor_dir = Path.home() / ".cursor"
+    cursor_dir.mkdir(parents=True, exist_ok=True)
+    return cursor_dir
+
+
 def git_init(repo: Path) -> None:
     """Initialize a git repo. ``adopt`` refuses non-git directories."""
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)

@@ -10,7 +10,7 @@ from nauro.cli.integrations.claude_hooks import materialize_hooks_claude_code
 from nauro.cli.integrations.claude_user_config import _prune_redundant_user_scope_mcp
 from nauro.cli.integrations.codex_config import _configure_codex, codex_config_path
 from nauro.cli.integrations.codex_hooks import _nearest_codex_hooks_repo, materialize_hooks_codex
-from nauro.cli.integrations.cursor import configure_cursor
+from nauro.cli.integrations.cursor import configure_cursor, cursor_configuration_found
 from nauro.cli.integrations.json_mcp import _configure_mcp
 from nauro.cli.integrations.legacy import _remove_claude_md
 from nauro.cli.integrations.skills import (
@@ -30,6 +30,7 @@ from nauro.setup.outcomes import (
     AgentsMdOutcome,
     ArtifactOutcome,
     BridgeOutcome,
+    CursorSkippedOutcome,
     JsonMcpKind,
     JsonMcpOutcome,
     RawLine,
@@ -418,11 +419,12 @@ def setup_all_surfaces(
     with_hooks: bool = False,
     clear_user_scope_override: bool | None = None,
 ) -> list[ArtifactOutcome]:
-    """Wire/unwire MCP/skills per ``remove`` for Claude Code, Cursor, Codex; a write that fails
-    is one typed outcome. AGENTS.md regen on add: ``current_project_key``+``store_path``.
+    """Wire/unwire MCP/skills per ``remove`` for Claude Code, Cursor (on add only when its
+    configuration is found), Codex. AGENTS.md regen on add: ``current_project_key``+``store_path``.
     Multi-repo un-adopt passes ``clear_user_scope_override=False`` (default: project-granular)."""
     if not remove and store_path is not None:
         check_guidance_available(store_path)
+    wire_cursor = remove or cursor_configuration_found(project_repos)
     clear_user_scope = (
         clear_user_scope_override is not False and _user_scope_safe_to_clear(current_project_key)
         if remove
@@ -441,17 +443,20 @@ def setup_all_surfaces(
             with_hooks=with_hooks,
         )
     )
-    outcomes.extend(
-        _all_cursor_lines(
-            project_repos,
-            remove=remove,
-            current_project_key=current_project_key,
-            clear_user_scope_override=clear_user_scope_override,
-            with_subagents=with_subagents,
-            with_skills=with_skills,
-            force_overwrite=force_overwrite,
+    if wire_cursor:
+        outcomes.extend(
+            _all_cursor_lines(
+                project_repos,
+                remove=remove,
+                current_project_key=current_project_key,
+                clear_user_scope_override=clear_user_scope_override,
+                with_subagents=with_subagents,
+                with_skills=with_skills,
+                force_overwrite=force_overwrite,
+            )
         )
-    )
+    else:
+        outcomes.append(CursorSkippedOutcome())
     outcomes.extend(
         _all_codex_lines(
             project_repos,

@@ -325,6 +325,7 @@ def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatc
     """`setup all` writes `.mcp.json`, `.cursor/mcp.json`, and `~/.codex/config.toml`
     plus the skill files across all three surfaces."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -351,6 +352,7 @@ def test_setup_all_writes_claude_cursor_codex_configs(tmp_path: Path, monkeypatc
 
 def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -358,6 +360,7 @@ def test_setup_all_remove_clears_everything(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(repo)
 
     runner.invoke(app, ["setup", "all"])
+    assert (repo / ".cursor" / "rules" / "nauro-adopt.mdc").is_file()
     result = runner.invoke(app, ["setup", "all", "--remove"])
     assert result.exit_code == 0, result.output
 
@@ -414,6 +417,7 @@ def test_remove_preserves_user_scope_when_other_projects_exist(tmp_path: Path, m
     Claude/Codex skills or the codex MCP entry while another nauro project
     remains in the registry — those resources are shared."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo_a = tmp_path / "repo_a"
     repo_b = tmp_path / "repo_b"
     repo_a.mkdir()
@@ -458,6 +462,7 @@ def test_remove_keeps_shared_agents_and_reports_backups(tmp_path: Path, monkeypa
     in the output. Neither is deleted.
     """
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo_a = tmp_path / "repo_a"
     repo_b = tmp_path / "repo_b"
     repo_a.mkdir()
@@ -574,6 +579,7 @@ def test_setup_all_with_subagents_installs_and_removes_files(tmp_path: Path, mon
     from nauro.agents import AGENT_NAMES, render_agent
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -606,6 +612,7 @@ def test_setup_all_with_subagents_remove_preserves_customized_files(tmp_path: Pa
     from nauro.agents import AGENT_NAMES
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -665,6 +672,7 @@ def test_setup_all_with_subagents_installs_cursor_agents_in_every_repo(tmp_path:
     from nauro.agents import AGENT_NAMES, render_agent
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo_one = tmp_path / "repo-one"
     repo_two = tmp_path / "repo-two"
     repo_one.mkdir()
@@ -812,6 +820,7 @@ def test_setup_keeps_user_scope_entry_when_project_write_refused(tmp_path: Path,
 def test_setup_all_default_does_not_install_ship_task(tmp_path: Path, monkeypatch):
     """Off-by-default: ``setup all`` without ``--with-skills`` installs only /nauro-adopt."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -823,6 +832,7 @@ def test_setup_all_default_does_not_install_ship_task(tmp_path: Path, monkeypatc
 
     # nauro-adopt installed everywhere; opt-in skills absent everywhere.
     assert (tmp_path / ".claude" / "skills" / "nauro-adopt" / "SKILL.md").is_file()
+    assert (repo / ".cursor" / "rules" / "nauro-adopt.mdc").is_file()
     assert not (tmp_path / ".claude" / "skills" / "nauro-ship-task" / "SKILL.md").exists()
     assert not (tmp_path / ".agents" / "skills" / "nauro-ship-task" / "SKILL.md").exists()
     assert not (repo / ".cursor" / "rules" / "nauro-ship-task.mdc").exists()
@@ -842,6 +852,7 @@ def test_setup_all_with_skills_installs_ship_task_everywhere(tmp_path: Path, mon
     from nauro.skills import render_skill
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -966,6 +977,7 @@ def test_setup_all_with_skills_installs_context_everywhere(tmp_path: Path, monke
     from nauro.skills import render_skill
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -996,6 +1008,7 @@ def test_setup_all_with_skills_installs_loop_everywhere(tmp_path: Path, monkeypa
     from nauro.skills import render_skill
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])
@@ -1025,6 +1038,7 @@ def test_setup_all_with_skills_installs_interview_everywhere(tmp_path: Path, mon
     from nauro.skills import render_skill
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".cursor").mkdir()
     repo = tmp_path / "myrepo"
     repo.mkdir()
     _, store_path = register_project_v2("myproj", [repo])

@@ -259,6 +259,7 @@ def test_remove_aborts_when_teardown_target_is_symlinked(tmp_path, monkeypatch):
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
 def test_remove_aborts_when_cursor_agents_directory_is_symlinked(tmp_path, monkeypatch):
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
     assert result.exit_code == 0, result.output
 
