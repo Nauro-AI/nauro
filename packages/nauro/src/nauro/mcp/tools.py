@@ -84,6 +84,7 @@ from nauro.store.snapshot import (
     list_snapshots,
     load_snapshot,
     resolve_diff_snapshots,
+    snapshot_content_view,
 )
 from nauro.store.store_lock import store_write_lock
 from nauro.sync._path_diagnostics import (
@@ -334,8 +335,8 @@ def _snapshot_diff_section(store_path: Path) -> str:
     snapshots = list_snapshots(store_path)
     if len(snapshots) < 2:
         return ""
-    prev = load_snapshot(store_path, snapshots[1]["version"])
-    curr = load_snapshot(store_path, snapshots[0]["version"])
+    prev = snapshot_content_view(load_snapshot(store_path, snapshots[1]["version"]))
+    curr = snapshot_content_view(load_snapshot(store_path, snapshots[0]["version"]))
     prev_files = prev.get("files", {})
     curr_files = curr.get("files", {})
     lines: list[str] = []

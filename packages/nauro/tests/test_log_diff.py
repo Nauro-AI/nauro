@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.main import app
 from nauro.constants import SNAPSHOTS_DIR
-from nauro.mcp.tools import tool_diff_since_last_session
+from nauro.mcp.tools import tool_diff_since_last_session, tool_get_context
 from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import (
     capture_snapshot,
@@ -531,3 +531,67 @@ class TestCorruptSnapshotTimestamp:
         assert _snapshot_file(scaffolded_store, 1).exists()
         assert _snapshot_file(scaffolded_store, 2).exists()
         assert _snapshot_file(scaffolded_store, 3).exists()
+
+
+# --- Snapshots captured before membership filtering ---
+
+_STRAY = "adoption-review.md"
+
+
+@pytest.fixture
+def stray_transition_store(tmp_path: Path, monkeypatch) -> Path:
+    """v001 holds a stray, as captures before membership filtering did; v002 does not.
+
+    The stray stays on disk throughout, and one decision lands between the captures.
+    """
+    from nauro.store.registry import register_project_v2
+
+    _pid, store = register_project_v2("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+    (store / _STRAY).write_text("# Adoption review\n")
+
+    capture_snapshot(store, trigger="old capture")
+    old = load_snapshot(store, 1)
+    old["files"][_STRAY] = "# Adoption review\n"
+    old["timestamp"] = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+    (store / SNAPSHOTS_DIR / "v001.json").write_text(json.dumps(old, indent=2) + "\n")
+
+    append_decision(store, "Use Postgres", rationale="Reliable RDBMS.")
+    capture_snapshot(store, trigger="filtered capture")
+    assert _STRAY not in load_snapshot(store, 2)["files"]
+    return store
+
+
+class TestStraySnapshotTransition:
+    @pytest.mark.parametrize("days", [None, 7])
+    def test_resolved_snapshots_drop_the_stray(self, stray_transition_store: Path, days):
+        baseline, latest, _cutoff = resolve_diff_snapshots(stray_transition_store, days)
+        assert baseline is not None and baseline["version"] == 1
+        assert latest is not None and latest["version"] == 2
+        assert _STRAY not in baseline["files"]
+
+    @pytest.mark.parametrize("days", [None, 7])
+    def test_mcp_diff_does_not_report_the_stray(self, stray_transition_store: Path, days):
+        diff = diff_since_last_session(stray_transition_store, days)
+        assert "New file: decisions/002-" in diff
+        assert _STRAY not in diff
+
+    @pytest.mark.parametrize("args", [[], ["--days", "7"]])
+    def test_cli_diff_does_not_report_the_stray(self, stray_transition_store: Path, args):
+        result = runner.invoke(app, ["diff-since-last-session", *args])
+        assert result.exit_code == 0
+        diff = json.loads(result.stdout)["diff"]
+        assert "New file: decisions/002-" in diff
+        assert _STRAY not in diff
+
+    def test_l2_snapshot_diff_does_not_report_the_stray(self, stray_transition_store: Path):
+        content = tool_get_context(stray_transition_store, 2)["content"]
+        diff_section = content[content.index("## Snapshot Diff (v001 → v002)") :]
+        assert "+ Added: decisions/002-" in diff_section
+        assert _STRAY not in diff_section
+
+    def test_log_full_still_shows_the_old_capture(self, stray_transition_store: Path):
+        result = runner.invoke(app, ["log", "--full"])
+        assert result.exit_code == 0
+        assert f"--- {_STRAY} ---" in result.output

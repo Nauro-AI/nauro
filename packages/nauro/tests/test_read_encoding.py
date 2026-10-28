@@ -87,7 +87,7 @@ def test_filesystem_store_reads_survive_non_utf8(poisoned_store):
 
 
 def test_snapshot_capture_survives_non_utf8(poisoned_store):
-    # sync regenerates AGENTS.md off a snapshot; capture reads every md file.
+    # sync regenerates AGENTS.md off a snapshot; capture reads every canonical store file.
     version = capture_snapshot(poisoned_store, trigger="test")
     assert version >= 1
 
