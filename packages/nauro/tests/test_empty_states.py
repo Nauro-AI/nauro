@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from nauro_core.protocol import APPROVAL_BEFORE_STATE_WRITE
 
 from nauro.mcp.tools import (
     tool_check_decision,
@@ -81,6 +82,12 @@ class TestEmptyStore:
         assert "no context data yet" in content or "propose_decision" in content
         assert "complete add, update, or supersede draft" in content
         assert "explicit user approval" in content
+        state_bullet = (
+            f"- Use update_state to record current state. Before calling it: "
+            f"{APPROVAL_BEFORE_STATE_WRITE}"
+        )
+        assert state_bullet in content
+        assert "track current progress" not in content
 
     def test_check_decision_returns_no_decisions_guidance(self, empty_store):
         result = tool_check_decision(empty_store, "Use Redis")

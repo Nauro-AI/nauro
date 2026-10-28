@@ -302,16 +302,16 @@ CONTEXT_GUARD_REPORT = (
 # UPDATE_SUPERSEDE_CARE, and RESOLVES_OPEN_QUESTIONS fragments are
 # deliberately omitted here — they are bound to the `propose_decision`
 # ToolSpec parameter descriptions instead, where the agent reads them at the
-# moment of use. The approval fragment remains here because both
-# servers must deliver the human-authority boundary at initialization. For the
-# same budget reason the `update_state` "meaningful
-# unit of work" guidance and the `get_context` "do not call list_decisions
-# afterward" nuance are omitted here too — they live on the matching ToolSpec
-# descriptions in mcp_tools.py, which the client delivers intact via
-# tools/list even when initialize.instructions is truncated. Keeping all five
-# out of the static block trims the budget so the per-user project section
-# the remote server prepends survives client-side truncation of the
-# `initialize.instructions` field.
+# moment of use. The decision approval fragment (APPROVAL_BEFORE_PROPOSE)
+# remains here because both servers must deliver that human-authority boundary
+# at initialization. For the same budget reason the `update_state` approval
+# rule (APPROVAL_BEFORE_STATE_WRITE) and the `get_context` "do not call
+# list_decisions afterward" nuance are omitted here too: they live on the
+# matching ToolSpec descriptions in mcp_tools.py, which the client delivers
+# intact via tools/list even when initialize.instructions is truncated.
+# Keeping all five out of the static block trims the budget so the per-user
+# project section the remote server prepends survives client-side truncation
+# of the `initialize.instructions` field.
 # MCP_INSTRUCTIONS remains as a backward-compatible alias.
 MCP_INSTRUCTIONS_STATIC = (
     "Nauro carries human-ratified project judgment across sessions. "

@@ -303,6 +303,17 @@ class TestAutogenHelp:
             assert sub is not None
             assert sub.help == specs[name]["description"].split("\n\n", 1)[0]
 
+    def test_update_state_help_carries_state_approval_rule(self) -> None:
+        import click
+        import typer as typer_mod
+        from nauro_core.protocol import APPROVAL_BEFORE_STATE_WRITE
+
+        command = typer_mod.main.get_command(app)
+        ctx = click.Context(command, info_name="nauro")
+        sub = command.get_command(ctx, "update-state")
+        assert sub is not None
+        assert APPROVAL_BEFORE_STATE_WRITE in sub.help
+
     def test_propose_decision_help_omits_later_paragraphs(self) -> None:
         """Approval prose stays off help because only paragraph one renders."""
         result = runner.invoke(app, ["propose-decision", "--help"])

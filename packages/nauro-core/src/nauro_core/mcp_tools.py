@@ -27,6 +27,7 @@ from nauro_core.decision_model import DECISION_TYPE_VALUES, DecisionConfidence, 
 from nauro_core.protocol import (
     _PROPOSAL_VISIBILITY_DETAIL,
     APPROVAL_BEFORE_PROPOSE,
+    APPROVAL_BEFORE_STATE_WRITE,
     GET_DECISION_BEFORE_PROPOSING,
     PROPOSE_DECISION_OPERATIONS,
     RESOLVES_OPEN_QUESTIONS,
@@ -483,12 +484,11 @@ UPDATE_STATE: ToolSpec = {
     "title": "Update project state",
     "description": (
         "Update the project's current state with a progress delta and trigger "
-        "a snapshot.\n"
+        "a snapshot. The delta replaces the current state. Before calling with "
+        f"a new delta: {APPROVAL_BEFORE_STATE_WRITE}\n"
         "\n"
         "If the delta appears to repeat recent state entries, a warning "
-        "returns (the update still applies). Use when you complete a "
-        "meaningful unit of work so the next session starts with current "
-        "context."
+        "returns (the update still applies)."
     ),
     "annotations": {**_WRITE_ANNOTATIONS, "idempotentHint": False},
     "input_schema": {

@@ -857,6 +857,21 @@ def test_adopt_body_gates_each_classified_proposal_before_write():
     assert "rerun `check_decision`" in body
 
 
+def test_adopt_body_step8_gates_state_write_on_exact_text_approval():
+    body = load_adopt_body()
+    step8 = body[body.index("## Step 8") : body.index("## Step 9")]
+
+    assert "If none is present, `update_state` is skipped entirely." in step8
+    assert "renders the exact composed delta in chat as the final text of its turn" in step8
+    assert "explicitly approves that exact text" in step8
+    assert "Step 6c inventory counts as present only after the user's `done`" in step8
+    assert "it does not approve the state write" in step8
+    assert "renders it in full again, and waits for fresh approval" in step8
+    assert "writes no state through MCP or `nauro update-state`" in step8
+    assert "returns the proposed delta in its final output" in step8
+    assert "- State updated: `yes`, `no`, or `proposed, not written`" in body
+
+
 def test_ship_task_routes_all_decision_drafts_through_parent_approval():
     body = load_ship_task_body()
 
