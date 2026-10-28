@@ -21,6 +21,7 @@ from nauro.cli._codex_hooks import (
     _parse_codex_hooks,
 )
 from nauro.cli.integrations import codex_config, json_mcp
+from nauro.cli.integrations.cursor import cursor_configuration_found
 from nauro.cli.utils import (
     RESOLUTION_NO_PROJECT,
     DisconnectedProjectExit,
@@ -441,6 +442,7 @@ def _agent_artifacts(repo_paths: list[Path]) -> _Probe[_SurfacePair]:
 
 def _collect_wiring(registry: _RegistryFacts) -> _WiringSnapshot:
     repos = registry.repos
+    cursor_repos = list(repos) if cursor_configuration_found(repos) else []
     generated = _probe_each(repos, _repo_has_generated_agents_md, False)
     wirings = [json_mcp.recorded_mcp_commands(repo) for repo in repos]
     snapshot = _WiringSnapshot(
@@ -454,8 +456,8 @@ def _collect_wiring(registry: _RegistryFacts) -> _WiringSnapshot:
         codex=_probe(lambda: _CodexGlobal(*codex_config.recorded_codex_command()), _CodexGlobal()),
         hooks=_probe_each(repos, _repo_codex_hook_state, _NO_CODEX_HOOKS),
         agents=_Probe(sum(generated.value), generated.unreadable),
-        skills=_skill_artifacts(list(repos)),
-        workflow_agents=_agent_artifacts(list(repos)),
+        skills=_skill_artifacts(cursor_repos),
+        workflow_agents=_agent_artifacts(cursor_repos),
     )
     recorded = snapshot.mcp_commands | snapshot.hook_commands
     return replace(snapshot, untrusted_commands=_untrusted_commands(recorded, list(repos)))
@@ -595,17 +597,18 @@ def _agents_status_line(snapshot: _WiringSnapshot) -> str:
 
 
 def _surface_detail(*pairs: _SurfacePair) -> str:
-    """Per-surface current/expected summary across one or more artifact sets."""
+    """Per-surface current/expected summary across one or more artifact sets.
+    Cursor is omitted when nothing is expected there, as when no Cursor configuration is found.
+    """
     claude_current = sum(pair.claude.current for pair in pairs)
     claude_expected = sum(pair.claude.expected for pair in pairs)
     cursor_current = sum(pair.cursor.current for pair in pairs)
     cursor_expected = sum(pair.cursor.expected for pair in pairs)
     codex_current = sum(pair.codex.current for pair in pairs)
     codex_expected = sum(pair.codex.expected for pair in pairs)
+    cursor = f"Cursor {cursor_current}/{cursor_expected}; " if cursor_expected else ""
     return (
-        f"Claude {claude_current}/{claude_expected}; "
-        f"Cursor {cursor_current}/{cursor_expected}; "
-        f"Codex {codex_current}/{codex_expected}"
+        f"Claude {claude_current}/{claude_expected}; {cursor}Codex {codex_current}/{codex_expected}"
     )
 
 

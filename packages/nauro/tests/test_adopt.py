@@ -167,6 +167,7 @@ def test_adopt_already_adopted_with_subagents_installs_instead_of_aborting(
     from nauro.agents import AGENT_NAMES
 
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
     first = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert first.exit_code == 0, first.output
     # Fresh adopt without the flag installs no subagents.
@@ -203,6 +204,7 @@ def test_adopt_already_adopted_installs_cursor_agents_in_every_registered_repo(
     tmp_path: Path, monkeypatch
 ):
     repo_one = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
     first = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert first.exit_code == 0, first.output
 
@@ -289,6 +291,7 @@ def test_adopt_print_prompt_conflicts_with_other_flags(tmp_path: Path, monkeypat
 
 def test_adopt_no_setup_and_skills_skips_wiring(tmp_path: Path, monkeypatch):
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--no-setup-and-skills"])
     assert result.exit_code == 0, result.output
@@ -312,6 +315,7 @@ def test_adopt_warns_for_unignored_repo_config(tmp_path: Path, monkeypatch):
 
 def test_adopt_materializes_skills_across_surfaces(tmp_path: Path, monkeypatch):
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
@@ -355,9 +359,11 @@ def _cursor_agent_path(repo: Path, agent: str) -> Path:
 def test_adopt_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
     """``nauro adopt`` without ``--with-subagents`` must not write any nauro-* agents."""
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
 
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
+    assert (repo / ".cursor" / "rules" / "nauro-adopt.mdc").is_file()
 
     for name in AGENT_NAMES:
         assert not _agent_path(tmp_path, name).exists()
@@ -368,6 +374,7 @@ def test_adopt_default_does_not_install_subagents(tmp_path: Path, monkeypatch):
 def test_adopt_with_subagents_installs_all_four(tmp_path: Path, monkeypatch):
     """``--with-subagents`` materializes every bundled agent byte-equal to render_agent()."""
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-subagents"])
     assert result.exit_code == 0, result.output
@@ -505,6 +512,7 @@ def test_adopt_with_skills_installs_ship_task_across_surfaces(tmp_path: Path, mo
     from nauro.skills import render_skill
 
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
     assert result.exit_code == 0, result.output
@@ -586,6 +594,7 @@ def test_adopt_with_skills_installs_loop_across_surfaces(tmp_path: Path, monkeyp
     from nauro.skills import render_skill
 
     repo = adopt_env(monkeypatch, tmp_path)
+    (tmp_path / ".cursor").mkdir()
 
     result = runner.invoke(app, ["adopt", "--name", "alpha", "--with-skills"])
     assert result.exit_code == 0, result.output

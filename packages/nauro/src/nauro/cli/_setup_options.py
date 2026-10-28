@@ -16,7 +16,8 @@ WITH_SUBAGENTS_OPTION = typer.Option(
         "Install Nauro's bundled workflow subagents (nauro-planner, "
         "nauro-executor, nauro-reviewer, nauro-tech-lead, nauro-investigator) into "
         "~/.claude/agents/ for Claude Code, .cursor/agents/ in each registered "
-        "repo for Cursor, and ~/.codex/agents/ for Codex. Off by default."
+        "repo for Cursor when Cursor configuration is found, and ~/.codex/agents/ "
+        "for Codex. Off by default."
     ),
 )
 

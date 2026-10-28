@@ -36,7 +36,7 @@ EXAMPLE_PID = "01KQ6AZGNA0B3QBF67NBXP3S45"
 BOOKKEEPING = {"registry.json", "registry.lock"}
 
 
-pytestmark = pytest.mark.usefixtures("home_at_tmp_path")
+pytestmark = pytest.mark.usefixtures("home_at_tmp_path", "cursor_configured")
 
 
 def _make_git_repo(tmp_path: Path, monkeypatch) -> Path:

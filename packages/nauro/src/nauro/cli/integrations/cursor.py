@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import stat
+from collections.abc import Iterable
 from pathlib import Path
 
 from nauro.cli import nauro_command
@@ -12,6 +14,25 @@ from nauro.setup.git_hygiene import remove_wiring_ignore_entry, wiring_path_is_t
 from nauro.setup.outcomes import JsonMcpKind, JsonMcpOutcome, WriteFailure
 from nauro.store.local_files import UnreadableFileError, read_text_or_absent
 from nauro.store.write_safety import find_file_symlink, find_symlink
+
+
+def cursor_configuration_found(repos: Iterable[Path]) -> bool:
+    """True when ``~/.cursor`` is a directory or any repo holds a ``.cursor`` directory or link.
+    A path that cannot be inspected for a reason other than its absence counts as found.
+    """
+    return _cursor_dir_present(Path.home() / ".cursor", follow_symlinks=True) or any(
+        _cursor_dir_present(repo / ".cursor", follow_symlinks=False) for repo in repos
+    )
+
+
+def _cursor_dir_present(path: Path, *, follow_symlinks: bool) -> bool:
+    try:
+        mode = path.stat().st_mode if follow_symlinks else path.lstat().st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        return True
+    return stat.S_ISDIR(mode) or stat.S_ISLNK(mode)
 
 
 def _owned(entry: object) -> bool:
