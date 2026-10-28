@@ -10,9 +10,9 @@ Supersede backref orphans get their own section and their own count: they are
 repairable rather than blocking, and the section names the route: ``nauro
 repair`` on a legacy store; a replica has no route yet, so they stay reported.
 
-Scope boundary: doctor reads only the decision store, so its findings are
-deterministic with no false positives. Everything else that can be off on a
-machine — not connected, missing or dead wiring — belongs to ``nauro status``.
+Scope boundary: doctor reads only the store, so its defect findings are
+deterministic with no false positives; unknown store files on a legacy store
+are advisory, never counted. Connection and wiring belong to ``nauro status``.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from __future__ import annotations
 import typer
 from nauro_core.doctor import StoreDiagnosis, diagnose_store
 
+from nauro.cli._store_contents import unknown_store_files
 from nauro.cli.generation_reads import generation_line, render_installed
 from nauro.cli.utils import resolve_target_project
 from nauro.store.filesystem_store import FilesystemStore
@@ -49,6 +50,18 @@ def _render_unknown_keys(diagnosis: StoreDiagnosis) -> list[str]:
     return lines
 
 
+def _render_unknown_files(unknown_files: tuple[str, ...]) -> list[str]:
+    """Render the advisory unknown-store-files section, or nothing."""
+    if not unknown_files:
+        return []
+    return [
+        f"Unknown store files ({len(unknown_files)}) "
+        "(advisory, not a defect; snapshots do not capture them):",
+        *(f"  {path}" for path in unknown_files),
+        "",
+    ]
+
+
 def _render_orphans(diagnosis: StoreDiagnosis, fix: str) -> list[str]:
     """Render the repairable supersede-orphan section, or nothing."""
     if not diagnosis.supersede_orphans:
@@ -74,7 +87,9 @@ def _render_repairable_total(diagnosis: StoreDiagnosis) -> list[str]:
     return [f"Found {len(diagnosis.supersede_orphans)} repairable defect(s)."]
 
 
-def _render_report(diagnosis: StoreDiagnosis, fix: str) -> list[str]:
+def _render_report(
+    diagnosis: StoreDiagnosis, fix: str, unknown_files: tuple[str, ...]
+) -> list[str]:
     """Render a diagnosis as human-readable report lines."""
     lines: list[str] = []
 
@@ -83,6 +98,7 @@ def _render_report(diagnosis: StoreDiagnosis, fix: str) -> list[str]:
             "No integrity defects found.",
             *_render_orphans(diagnosis, fix),
             *_render_unknown_keys(diagnosis),
+            *_render_unknown_files(unknown_files),
             *_render_repairable_total(diagnosis),
         ]
 
@@ -146,6 +162,7 @@ def _render_report(diagnosis: StoreDiagnosis, fix: str) -> list[str]:
 
     lines.extend(_render_orphans(diagnosis, fix))
     lines.extend(_render_unknown_keys(diagnosis))
+    lines.extend(_render_unknown_files(unknown_files))
 
     total = (
         len(diagnosis.unparseable)
@@ -177,9 +194,11 @@ def doctor(
     typer.echo(f"Project: {project_name}")
     if captured is None:
         diagnosis, fix = diagnose_store(FilesystemStore(store_path)), _REPAIR_LEGACY
+        unknown_files = unknown_store_files(store_path)
     else:
         (diagnosis, identity), fix = captured, _REPAIR_REPLICA
+        unknown_files = ()
         typer.echo(generation_line(identity))
     typer.echo("")
-    for line in _render_report(diagnosis, fix):
+    for line in _render_report(diagnosis, fix, unknown_files):
         typer.echo(line)
