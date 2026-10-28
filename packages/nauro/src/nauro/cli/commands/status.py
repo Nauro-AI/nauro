@@ -505,6 +505,16 @@ def _broken_line(line: str, failures: tuple[UnreadableFileError, ...]) -> str:
     return f"{line}; {_unreadable_clause(failures)}" if failures else line
 
 
+_CLAUDE_CODE_HINT = "to use Claude Code, run 'nauro setup claude-code' for this project"
+
+
+def _claude_code_detail(snapshot: _WiringSnapshot) -> str:
+    detail = f"Claude Code in {snapshot.mcp_wired}/{snapshot.repo_count} repos"
+    if snapshot.mcp_wired < snapshot.repo_count and not snapshot.mcp_unreadable:
+        return f"{detail}, {_CLAUDE_CODE_HINT}"
+    return detail
+
+
 def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> str:
     failures = snapshot.mcp_unreadable
     legacy = (
@@ -527,7 +537,7 @@ def _mcp_status_line(snapshot: _WiringSnapshot, probes: _WiringProbeResults) -> 
         return "  MCP           inactive - run 'nauro setup all'" + legacy
     details = []
     if snapshot.repo_count:
-        details.append(f"wired in {snapshot.mcp_wired}/{snapshot.repo_count} repos")
+        details.append(_claude_code_detail(snapshot))
     if snapshot.codex_global:
         details.append("Codex global")
     if snapshot.cursor_global:

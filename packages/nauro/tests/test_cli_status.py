@@ -27,6 +27,8 @@ runner = CliRunner()
 # The real subprocess seam, captured before the autouse fixture stubs it.
 _REAL_PROBE = nauro_command.probe_nauro_command
 
+_CLAUDE_HINT = "to use Claude Code, run 'nauro setup claude-code' for this project"
+
 
 def _setup_project(tmp_path, monkeypatch, repos=None):
     """Register a project with the given repos (default: tmp_path itself).
@@ -247,7 +249,57 @@ def test_status_mcp_partial_repo_wiring(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "MCP           active (wired in 1/2 repos)" in result.output
+    assert f"MCP           active (Claude Code in 1/2 repos, {_CLAUDE_HINT})" in result.output
+
+
+def test_status_mcp_hint_precedes_codex_global_once(tmp_path, monkeypatch):
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    repo1.mkdir()
+    repo2.mkdir()
+    _setup_project(tmp_path, monkeypatch, repos=[repo1, repo2])
+    codex_config = tmp_path / "codex-home" / "config.toml"
+    codex_config.parent.mkdir(parents=True)
+    codex_config.write_text('[mcp_servers.nauro]\ncommand = "nauro"\nargs = ["serve", "--stdio"]\n')
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert f"MCP           active (Claude Code in 0/2 repos, {_CLAUDE_HINT}; Codex global)" in (
+        result.output
+    )
+    assert result.output.count("nauro setup claude-code") == 1
+
+
+def test_status_mcp_hint_with_project_flag_outside_every_repo(tmp_path, monkeypatch):
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    outside = tmp_path / "outside"
+    for path in (repo1, repo2, outside):
+        path.mkdir()
+    _setup_project(tmp_path, monkeypatch, repos=[repo1, repo2])
+    _wire_repo_mcp(repo1)
+    monkeypatch.chdir(outside)
+
+    result = runner.invoke(app, ["status", "--project", "testproj"])
+    assert result.exit_code == 0
+    assert f"MCP           active (Claude Code in 1/2 repos, {_CLAUDE_HINT})" in result.output
+
+
+def test_status_mcp_broken_with_readable_configs_keeps_hint(tmp_path, monkeypatch):
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    repo1.mkdir()
+    repo2.mkdir()
+    _setup_project(tmp_path, monkeypatch, repos=[repo1, repo2])
+    _wire_repo_mcp(repo1)
+    monkeypatch.setattr(nauro_command, "probe_nauro_command", lambda cmd, **kwargs: False)
+
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0
+    assert (
+        f"MCP           BROKEN - Claude Code in 1/2 repos, {_CLAUDE_HINT} but the recorded "
+        "command won't run; re-run 'nauro setup all'"
+    ) in result.output
 
 
 @pytest.mark.parametrize("global_wired", [False, True])
@@ -268,6 +320,8 @@ def test_status_legacy_cursor_is_migration_evidence(tmp_path, monkeypatch, globa
     result = runner.invoke(app, ["status", "--no-probe"])
     assert result.exit_code == 0
     assert ("Cursor global" if global_wired else "MCP           inactive") in result.output
+    if global_wired:
+        assert f"{_CLAUDE_HINT}; Cursor global; legacy Cursor in 1 repos." in result.output
     assert (
         "legacy Cursor in 1 repos. From each affected repository root, run 'nauro setup cursor' "
         "first. Keep legacy files unchanged unless setup reports global configuration written "
@@ -291,7 +345,9 @@ def test_status_mcp_codex_global_only(tmp_path, monkeypatch):
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "MCP           active (wired in 0/1 repos; Codex global)" in result.output
+    assert f"MCP           active (Claude Code in 0/1 repos, {_CLAUDE_HINT}; Codex global)" in (
+        result.output
+    )
 
 
 def test_status_agents_md_active_with_footer(tmp_path, monkeypatch):
@@ -389,9 +445,11 @@ def test_status_keeps_broken_over_unknown_and_names_the_unreadable_file(tmp_path
 
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
-    assert "MCP           BROKEN - wired in 1/2 repos but the recorded command won't run; " in (
-        result.output
+    assert (
+        "MCP           BROKEN - Claude Code in 1/2 repos but the recorded command won't run; "
+        in (result.output)
     )
+    assert "nauro setup claude-code" not in result.output
     assert f"re-run 'nauro setup all'; could not read {unreadable / '.mcp.json'}" in result.output
 
 
@@ -446,7 +504,7 @@ def test_status_no_probe_skips_liveness(tmp_path, monkeypatch):
     result = runner.invoke(app, ["status", "--no-probe"])
     assert result.exit_code == 0
     assert calls == []
-    assert "MCP           active (wired in 1/1 repos)" in result.output
+    assert "MCP           active (Claude Code in 1/1 repos)" in result.output
 
 
 def test_status_codex_hooks_configured_when_both_events_are_wired(tmp_path, monkeypatch):
@@ -644,12 +702,31 @@ def test_status_never_executes_a_non_nauro_recorded_command(tmp_path, monkeypatc
     assert result.exit_code == 0
     assert calls == []
     assert (
-        "MCP           active (wired in 1/1 repos; './setup-helper.sh' is not a nauro install, "
-        "not probed)"
+        "MCP           active (Claude Code in 1/1 repos; './setup-helper.sh' is not a nauro "
+        "install, not probed)"
     ) in result.output
     assert (
         "Codex hooks   configured (wired in 1/1 repos; './setup-helper.sh' is not a nauro "
         "install, not probed)"
+    ) in result.output
+
+
+def test_status_mcp_hint_precedes_untrusted_command_note(tmp_path, monkeypatch):
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    repo1.mkdir()
+    repo2.mkdir()
+    _setup_project(tmp_path, monkeypatch, repos=[repo1, repo2])
+    (repo1 / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"nauro": {"command": "./setup-helper.sh"}}})
+    )
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert (
+        f"MCP           active (Claude Code in 1/2 repos, {_CLAUDE_HINT}; './setup-helper.sh' "
+        "is not a nauro install, not probed)"
     ) in result.output
 
 
@@ -716,7 +793,7 @@ def test_status_still_probes_an_untracked_project_venv_nauro(tmp_path, monkeypat
 
     assert result.exit_code == 0
     assert calls == [str(venv_nauro)]
-    assert "MCP           active (wired in 1/1 repos)" in result.output
+    assert "MCP           active (Claude Code in 1/1 repos)" in result.output
 
 
 def test_status_dead_trusted_command_still_wins_over_untrusted_caveat(tmp_path, monkeypatch):
@@ -754,7 +831,7 @@ def test_status_dedupes_shared_command_to_one_probe(tmp_path, monkeypatch):
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 0
     assert calls == ["nauro"]  # deduped to a single probe
-    assert "MCP           active (wired in 2/2 repos)" in result.output
+    assert "MCP           active (Claude Code in 2/2 repos)" in result.output
 
 
 def test_status_no_project_shows_friendly_message(tmp_path, monkeypatch):
