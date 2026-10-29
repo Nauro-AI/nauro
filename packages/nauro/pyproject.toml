@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nauro"
-version = "1.22.2"
+version = "1.23.0"
 description = "Decision system for software built with AI. Keep your project's direction in human hands as agents do more of the work."
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "nauro-core>=1.17.1,<2",
+    "nauro-core>=1.17.2,<2",
     "typer>=0.9",
     "httpx>=0.24",
     "PyJWT[crypto]>=2.15,<3",
