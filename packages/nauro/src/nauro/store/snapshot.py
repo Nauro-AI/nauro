@@ -1,7 +1,10 @@
 """Snapshot capture and management.
 
-Snapshots are point-in-time JSON captures of the full project store,
-written to snapshots/vNNN.json. Pruned with logarithmic spacing:
+Snapshots are point-in-time JSON captures of the canonical store files,
+the same membership hosted snapshots use, written to snapshots/vNNN.json.
+Diff readers compare snapshots through that membership too, so an older
+snapshot that captured other files does not report them as removed.
+Pruned with logarithmic spacing:
 - Last 7 days: keep every snapshot
 - Last 30 days: keep one per day
 - Last 6 months: keep one per week
@@ -19,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from filelock import FileLock
+from nauro_core.protected_generation_membership import is_hosted_snapshot_content_member
 from nauro_core.snapshot import serialize_snapshot
 
 from nauro.constants import (
@@ -121,7 +125,7 @@ def _snapshot_lock(snapshots_dir: Path):
 
 
 def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = "") -> int:
-    """Capture every markdown file in the store as one JSON snapshot.
+    """Capture the store's canonical snapshot members as one JSON snapshot.
 
     Returns the auto-incremented version number.
     """
@@ -136,15 +140,17 @@ def capture_snapshot(store_path: Path, trigger: str = "", trigger_detail: str = 
         metas = _scan_snapshots(snapshots_dir)
         next_version = max((m.version for m in metas), default=0) + 1
 
-        # Read all markdown files
         files = {}
         for md in sorted(store_path.glob("*.md")):
-            files[md.name] = read_text_lenient(md)
+            if is_hosted_snapshot_content_member(md.name):
+                files[md.name] = read_text_lenient(md)
 
         decisions_dir = store_path / DECISIONS_DIR
         if decisions_dir.exists():
             for md in sorted(decisions_dir.glob("*.md")):
-                files[f"{DECISIONS_DIR}/{md.name}"] = read_text_lenient(md)
+                rel = f"{DECISIONS_DIR}/{md.name}"
+                if is_hosted_snapshot_content_member(rel):
+                    files[rel] = read_text_lenient(md)
 
         now = datetime.now(timezone.utc)
         snapshot = serialize_snapshot(
@@ -264,6 +270,17 @@ def load_snapshot(store_path: Path, version: int) -> dict:
     return json.loads(path.read_text())  # type: ignore[no-any-return]
 
 
+def snapshot_content_view(snapshot: dict) -> dict:
+    """Return ``snapshot`` with ``files`` narrowed to canonical snapshot members."""
+    files = snapshot.get("files", {})
+    return {
+        **snapshot,
+        "files": {
+            path: body for path, body in files.items() if is_hosted_snapshot_content_member(path)
+        },
+    }
+
+
 def resolve_diff_snapshots(
     store_path: Path,
     days: int | None,
@@ -293,15 +310,19 @@ def resolve_diff_snapshots(
         if baseline is None:
             return None, None, None
         return (
-            load_snapshot(store_path, baseline.version),
-            load_snapshot(store_path, latest.version),
+            _load_content_view(store_path, baseline.version),
+            _load_content_view(store_path, latest.version),
             target.isoformat(),
         )
 
     if len(metas) < 2:
-        return None, load_snapshot(store_path, latest.version), None
+        return None, _load_content_view(store_path, latest.version), None
     return (
-        load_snapshot(store_path, metas[-2].version),
-        load_snapshot(store_path, latest.version),
+        _load_content_view(store_path, metas[-2].version),
+        _load_content_view(store_path, latest.version),
         None,
     )
+
+
+def _load_content_view(store_path: Path, version: int) -> dict:
+    return snapshot_content_view(load_snapshot(store_path, version))

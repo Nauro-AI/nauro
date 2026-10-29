@@ -95,6 +95,13 @@ def test_doctor_diagnoses_the_installed_generation(replica):
     assert "run 'nauro repair'" not in result.stdout
 
 
+def test_doctor_does_not_scan_a_replica_for_unknown_files(replica):
+    (replica.store_path / "adoption-review.md").write_text("draft\n", encoding="utf-8")
+    result = runner.invoke(app, ["doctor", "--project", replica.project_id])
+    assert result.exit_code == 0, result.output
+    assert "Unknown store files" not in result.stdout
+
+
 def test_log_lists_the_installed_generation_decisions(replica):
     result = runner.invoke(app, ["log", "--decisions", "--project", replica.project_id])
     assert result.exit_code == 0, result.output

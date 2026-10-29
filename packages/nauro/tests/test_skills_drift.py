@@ -872,6 +872,16 @@ def test_adopt_body_step8_gates_state_write_on_exact_text_approval():
     assert "- State updated: `yes`, `no`, or `proposed, not written`" in body
 
 
+def test_adopt_body_writes_to_the_store_only_through_nauro_tools():
+    body = load_adopt_body()
+
+    assert (
+        "The agent writes nothing into the Nauro store folder (under `~/.nauro/projects/`) "
+        "except through Nauro tools, over MCP or the `nauro` CLI."
+    ) in body
+    assert "never into a file in the store folder" in body
+
+
 def test_ship_task_routes_all_decision_drafts_through_parent_approval():
     body = load_ship_task_body()
 

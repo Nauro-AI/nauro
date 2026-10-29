@@ -347,6 +347,26 @@ def test_snapshot_on_disk_key_order_matches_local_shape(scaffolded_store: Path):
     ]
 
 
+def test_snapshot_capture_keeps_only_canonical_members(scaffolded_store: Path):
+    (scaffolded_store / "adoption-review.md").write_text("# Review\n")
+    (scaffolded_store / "state.md").write_text("# Legacy state\n")
+    (scaffolded_store / "context").mkdir()
+    (scaffolded_store / "context" / "x.md").write_text("brief\n")
+    (scaffolded_store / DECISIONS_DIR / "sub").mkdir()
+    (scaffolded_store / DECISIONS_DIR / "sub" / "x.md").write_text("nested\n")
+
+    snap = load_snapshot(scaffolded_store, capture_snapshot(scaffolded_store, trigger="t"))
+
+    assert sorted(snap["files"]) == [
+        f"{DECISIONS_DIR}/001-initial-setup.md",
+        OPEN_QUESTIONS_MD,
+        "project.md",
+        "stack.md",
+        "state.md",
+        STATE_CURRENT_FILENAME,
+    ]
+
+
 def test_snapshot_auto_increment(scaffolded_store: Path):
     v1 = capture_snapshot(scaffolded_store, trigger="first")
     v2 = capture_snapshot(scaffolded_store, trigger="second")

@@ -8,8 +8,10 @@ re-asserted here.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+import pytest
 from nauro_core.decision_model import Decision, format_decision
 from typer.testing import CliRunner
 
@@ -113,6 +115,57 @@ def test_unknown_frontmatter_key_renders_advisory_on_clean_store(tmp_path: Path)
     assert "Unknown frontmatter keys" in result.stdout
     assert "D12" in result.stdout
     assert "origin" in result.stdout
+
+
+def test_unknown_store_files_render_advisory_and_stay_uncounted(tmp_path: Path) -> None:
+    store = _new_store(tmp_path)
+    (store / "adoption-review.md").write_text("draft\n", encoding="utf-8")
+    write_decision_file(store, 10, "broken", "this file does not parse as a decision")
+
+    result = runner.invoke(app, ["doctor", "--project", "docproj"])
+
+    assert result.exit_code == 0
+    assert (
+        "Unknown store files (1) (advisory, not a defect; snapshots do not capture them):\n"
+        "  adoption-review.md\n"
+    ) in result.stdout
+    assert "Found 1 defect(s)." in result.stdout
+
+
+def test_unknown_store_files_render_on_a_clean_store(tmp_path: Path) -> None:
+    store = _new_store(tmp_path)
+    (store / "adoption-review.md").write_text("draft\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["doctor", "--project", "docproj"])
+
+    assert result.exit_code == 0
+    assert result.stdout == (
+        "Project: docproj\n\nNo integrity defects found.\n"
+        "Unknown store files (1) (advisory, not a defect; snapshots do not capture them):\n"
+        "  adoption-review.md\n\n"
+    )
+
+
+def test_unreadable_store_directory_keeps_the_diagnosis_and_exit_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = _new_store(tmp_path)
+    (store / "locked").mkdir()
+    real_scandir = os.scandir
+
+    def scandir(path: Path) -> object:
+        if Path(path) == store / "locked":
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+
+    result = runner.invoke(app, ["doctor", "--project", "docproj"])
+
+    assert result.exit_code == 0
+    assert "No integrity defects found." in result.stdout
+    assert "Unknown store files (1)" in result.stdout
+    assert "  locked/\n" in result.stdout
 
 
 def test_supersede_orphan_renders_its_own_section_and_repair_remedy(tmp_path: Path) -> None:
