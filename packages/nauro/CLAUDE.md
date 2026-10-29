@@ -19,7 +19,7 @@ The project store lives at `~/.nauro/projects/<project-id>/` — **not** inside 
       decisions/
         001-title.md             # one file per decision, sequential, immutable
       snapshots/
-        v001.json                # full store capture at a point in time
+        v001.json                # canonical store files at a point in time
 ```
 
 All files are freeform markdown. No database. No JSON for content — JSON only for `registry.json` and snapshots.
