@@ -92,6 +92,9 @@ jobs:
           PYTEST
 
   test-paired-server:
+    # Fork pull requests get no repository secrets, so they skip this job and a
+    # maintainer runs it on their exact commits before merge.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
