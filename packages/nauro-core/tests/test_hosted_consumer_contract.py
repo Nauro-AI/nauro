@@ -1,6 +1,6 @@
-"""Guard the nauro_core symbols the private hosted server imports.
+"""Guard the nauro_core symbols the hosted MCP server imports.
 
-The hosted MCP server is a separate private repository that imports nauro_core
+The hosted MCP server is maintained outside this repository and imports nauro_core
 submodule symbols directly, well past the curated public API. The manifest at
 ``hosted_consumer_symbols.txt`` lists those names; this test resolves each one
 and freezes its shape against a checked-in snapshot, so a rename, a moved
@@ -10,9 +10,9 @@ Annotations are rendered here rather than by ``str()``, so the snapshot reads
 the same on every Python and pydantic version. Out of scope: prose, string
 contents, and ``Annotated`` metadata, whose reprs move between versions.
 
-Regenerate the manifest with scripts/hosted_consumer_symbols.py <consumer>/src,
-and the snapshot with NAURO_UPDATE_CONTRACT=1 .venv/bin/python -m pytest
-packages/nauro-core/tests/test_hosted_consumer_contract.py
+Contributors never regenerate the manifest or the snapshot; a failure here
+needs an issue. Maintainers regenerate them with scripts/hosted_consumer_symbols.py
+and NAURO_UPDATE_CONTRACT=1 python -m pytest on this file.
 """
 
 from __future__ import annotations
@@ -266,8 +266,10 @@ def test_every_consumed_symbol_resolves() -> None:
         except UnresolvedSymbol:
             missing.append(name)
     assert not missing, (
-        "These names no longer resolve in nauro-core, and the hosted mcp-server "
-        "imports each one directly:\n  " + "\n  ".join(missing)
+        "These names no longer resolve in nauro-core, and the hosted MCP server "
+        "imports each one directly. Restore them, or open an issue at "
+        "https://github.com/Nauro-AI/nauro/issues before renaming or removing them:\n  "
+        + "\n  ".join(missing)
     )
 
 
@@ -280,8 +282,8 @@ def test_hosted_consumer_contract_matches_snapshot() -> None:
         pytest.skip(f"{SNAPSHOT_PATH.name} regenerated from the live symbols")
 
     assert SNAPSHOT_PATH.exists(), (
-        f"{SNAPSHOT_PATH} is missing. Generate it once with "
-        f"{_UPDATE_ENV}=1 .venv/bin/python -m pytest {Path(__file__).name}"
+        f"{SNAPSHOT_PATH} is missing. Restore it from git. Maintainers generate it with "
+        f"{_UPDATE_ENV}=1 python -m pytest packages/nauro-core/tests/{Path(__file__).name}"
     )
     expected = SNAPSHOT_PATH.read_text(encoding="utf-8").rstrip("\n")
     if current != expected:
@@ -298,8 +300,11 @@ def test_hosted_consumer_contract_matches_snapshot() -> None:
         if len(diff) > 8000:
             diff = diff[:8000] + "\n... (diff truncated)"
         raise AssertionError(
-            "A symbol the hosted server imports changed. This is a cross-repo change: "
-            "coordinate the mcp-server update, then regenerate with "
-            f"`{_UPDATE_ENV}=1 .venv/bin/python -m pytest {Path(__file__).name}` and "
-            "review the diff.\n\n" + diff
+            "A nauro-core symbol that the hosted MCP server imports changed shape. "
+            "Contributors: do not regenerate the snapshot. Open an issue at "
+            "https://github.com/Nauro-AI/nauro/issues that names the symbol and the "
+            "change; a maintainer coordinates the hosted update. Maintainers: after "
+            "that update, regenerate with "
+            f"`{_UPDATE_ENV}=1 python -m pytest packages/nauro-core/tests/{Path(__file__).name}` "
+            "and review the diff.\n\n" + diff
         )
