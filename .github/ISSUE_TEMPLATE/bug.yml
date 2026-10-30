@@ -6,6 +6,8 @@ body:
     attributes:
       value: |
         Thanks for the report. For a security problem, do not file an issue: use the private form linked from the issue chooser.
+
+        Everything you enter here is public. Before you paste commands, prompts, errors or output, remove tokens, email addresses, private paths and any project content you do not want to share.
   - type: input
     id: version
     attributes:
