@@ -92,6 +92,9 @@ jobs:
           PYTEST
 
   test-paired-server:
+    # Fork pull requests get no repository secrets, so they skip this job and a
+    # maintainer runs it on their exact commits before merge.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -109,13 +112,17 @@ jobs:
         with:
           persist-credentials: false
           path: client
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - id: server_checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: Nauro-AI/mcp-server
           ref: 5fbcfbc222489655a02c272d09a84e2676fd9528
           token: ${{ secrets.MCP_SERVER_READ_TOKEN }}
           persist-credentials: false
           path: server
+      - name: Explain a server checkout failure
+        if: failure() && steps.server_checkout.outcome == 'failure'
+        run: echo "::error::The server checkout token has expired or lost access. Rotate MCP_SERVER_READ_TOKEN, then rerun this job."
       - name: Require the hosted-consumer manifest to cover the pinned server
         run: |
           python client/scripts/hosted_consumer_symbols.py --out "$RUNNER_TEMP/hosted_consumer_symbols.txt" server/src
