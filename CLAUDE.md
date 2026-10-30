@@ -9,7 +9,16 @@ Nauro is a versioned project context system for AI coding agents. This is a `uv`
 | `nauro` | `packages/nauro/` | 3.10+ | CLI + local MCP server (stdio). Reads/writes `~/.nauro/projects/` |
 | `nauro-core` | `packages/nauro-core/` | 3.10+ | Shared pure-Python logic: parsing, validation, context assembly, constants. No I/O; compute-only deps. |
 
-Each package has its own `pyproject.toml` and test suite; `packages/nauro/` also carries a package-level `CLAUDE.md` (nauro-core does not). The remote MCP server (`mcp-server/`) lives in a separate private repository.
+Each package has its own `pyproject.toml` and test suite; `packages/nauro/` also carries a package-level `CLAUDE.md` (nauro-core does not). The hosted MCP server is maintained outside this repository.
+
+## Outside contributors
+
+You do not need Nauro, its MCP tools, or a Nauro account to work on this repository. This file is also the maintainer's working context; where it and CONTRIBUTING.md disagree, follow CONTRIBUTING.md.
+
+- The `@AGENTS.md` import above loads a file that `nauro sync` generates on maintainer machines. It is gitignored, so it is absent from your clone. That is expected; do not create or commit it.
+- `.claude/skills/`, `.agents/skills/` and `.cursor/rules/` hold rendered copies of the bundled skills. Edit the sources in `packages/nauro/src/nauro/skills/`, then run the re-render command that `packages/nauro/tests/test_skills_drift.py` prints. The skills call Nauro tools, so do not run them while contributing unless you have Nauro set up.
+- If `test_public_contract.py` or `test_hosted_consumer_contract.py` fails, do not regenerate the snapshot. Open an issue first; the failure messages say what to include.
+- Before opening a PR, run every command in [Run the CI checks before you push](CONTRIBUTING.md#run-the-ci-checks-before-you-push).
 
 ## The one architectural fact that matters
 
@@ -129,9 +138,11 @@ uv run ruff format --check packages/ benchmarks/ scripts/
 uv run python scripts/check_ruff_budget.py
 ```
 
+CI runs more checks than these. Before opening a PR, run every command in [Run the CI checks before you push](CONTRIBUTING.md#run-the-ci-checks-before-you-push).
+
 ### Hosted-consumer symbols
 
-The nauro-core names listed in `packages/nauro-core/tests/hosted_consumer_symbols.txt` are imported directly by the private hosted MCP server, well past the curated `nauro_core.__all__`. `test_hosted_consumer_contract.py` freezes each one's shape, so renaming, moving, or re-signing any of them is a cross-repo change: coordinate the mcp-server update in the same window. Regenerate the manifest with `python scripts/hosted_consumer_symbols.py <mcp-server>/src` after the consumer's imports change, and the snapshot with `NAURO_UPDATE_CONTRACT=1 .venv/bin/python -m pytest packages/nauro-core/tests/test_hosted_consumer_contract.py`.
+The nauro-core names listed in `packages/nauro-core/tests/hosted_consumer_symbols.txt` are imported directly by the hosted MCP server, well past the curated `nauro_core.__all__`. `test_hosted_consumer_contract.py` freezes each one's shape, so renaming, moving, or re-signing any of them is a cross-repository change. Contributors: if that test fails, open an issue and do not regenerate anything. Maintainers regenerate the manifest with `python scripts/hosted_consumer_symbols.py <server-checkout>/src` after the consumer's imports change, and the snapshot with `NAURO_UPDATE_CONTRACT=1 python -m pytest packages/nauro-core/tests/test_hosted_consumer_contract.py`.
 
 ## Code bar
 
