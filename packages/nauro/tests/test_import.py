@@ -971,3 +971,68 @@ def test_strict_extractor_import_records_named_rejections(scaffolded_store: Path
     assert "### Add a Local File Lock Around CLI Writes" in imported
     assert "### Use the Embedded Engine's Daemon Directly" not in imported
     assert "This is the simplest short-term shape" in imported
+
+
+# --- UTF-8 BOM sources ---
+
+
+def test_import_memory_bank_with_utf8_bom(scaffolded_store: Path, tmp_path: Path):
+    """Windows editors save with a UTF-8 BOM; a BOM must not hide the first
+    heading, drop the first decision, or leak U+FEFF into the store."""
+    ctx = tmp_path / ".context_bom"
+    ctx.mkdir()
+    (ctx / "projectBrief.md").write_bytes(b"\xef\xbb\xbf# Project Brief\n\nA brief with a BOM.\n")
+    (ctx / "techContext.md").write_bytes(b"\xef\xbb\xbf# Tech Context\n\nPython with SQLite.\n")
+    (ctx / "activeContext.md").write_bytes(
+        b"\xef\xbb\xbf# Active Context\n\nWorking on the importer.\n"
+    )
+    (ctx / "progress.md").write_bytes(b"\xef\xbb\xbf# Progress\n\n- Finished the BOM fix\n")
+    (ctx / "decisionLog.md").write_bytes(
+        b"\xef\xbb\xbf## Decision: Use SQLite\n"
+        b"Embedded storage keeps setup simple.\n\n"
+        b"## Decision: Use Click\n"
+        b"The CLI already depends on it.\n"
+    )
+
+    counts = _import_memory_bank(ctx, scaffolded_store)
+
+    assert counts["decisions"] == 2
+    assert counts["decisionlog_unparsed"] == 0
+    assert counts["progress_items"] == 1
+
+    project_content = (scaffolded_store / "project.md").read_text()
+    assert "A brief with a BOM." in project_content
+    assert "\ufeff" not in project_content
+
+    stack_content = (scaffolded_store / "stack.md").read_text()
+    assert "Python with SQLite." in stack_content
+
+    state_current = (scaffolded_store / "state_current.md").read_text()
+    assert "Working on the importer." in state_current
+    assert "Finished the BOM fix" in state_current
+    # The source H1 is stripped rather than copied after the BOM.
+    assert "# Active Context" not in state_current
+
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
+    assert len(decisions) == 3
+    titles = "\n".join(p.read_text() for p in decisions[1:])
+    assert "Use SQLite" in titles
+    assert "Use Click" in titles
+
+
+def test_import_adr_with_utf8_bom(scaffolded_store: Path, tmp_path: Path):
+    adr_dir = tmp_path / "adr_bom"
+    adr_dir.mkdir()
+    (adr_dir / "0001-bom.md").write_bytes(
+        b"\xef\xbb\xbf# Use a BOM-safe read\n\n## Context\n\nBOM files exist.\n"
+        b"\n## Decision\n\nStrip it.\n"
+    )
+
+    counts = _import_adrs(adr_dir, scaffolded_store)
+
+    assert counts["imported"] == 1
+    assert counts["skipped"] == 0
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
+    imported = decisions[1].read_text()
+    assert "BOM-safe read" in imported
+    assert "Strip it." in imported

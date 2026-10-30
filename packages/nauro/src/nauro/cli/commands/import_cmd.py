@@ -26,9 +26,10 @@ from nauro.store.store_lock import store_write_lock
 def _read(path: Path) -> str:
     """Read an import source file, replacing any undecodable bytes.
     Legacy ADR and Memory-Bank sources are often cp1252 or latin-1, and strict UTF-8 would
-    abort the whole migration on the first bad byte.
+    abort the whole migration on the first bad byte. Windows editors may also prepend a
+    UTF-8 BOM; ``utf-8-sig`` drops it so a first-line heading still matches the parsers.
     """
-    return path.read_text(encoding="utf-8", errors="replace")
+    return path.read_text(encoding="utf-8-sig", errors="replace")
 
 
 def _import_append_decision(
