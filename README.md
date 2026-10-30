@@ -104,6 +104,6 @@ uv run pytest packages/nauro-core/tests/ -x -q
 uv run pytest packages/nauro/tests/ -x -q
 ```
 
-Report bugs and request features in [GitHub Issues](https://github.com/Nauro-AI/nauro/issues).
+Bugs and feature requests: [GitHub Issues](https://github.com/Nauro-AI/nauro/issues). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Apache 2.0. Named for Peter Naur's *Programming as Theory Building* (1985).
