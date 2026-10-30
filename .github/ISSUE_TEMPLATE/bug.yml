@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in Nauro does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a security problem, do not file an issue: use the private form linked from the issue chooser.
+
+        Everything you enter here is public. Before you paste commands, prompts, errors or output, remove tokens, email addresses, private paths and any project content you do not want to share.
+  - type: input
+    id: version
+    attributes:
+      label: Nauro version
+      description: Output of `nauro --version`.
+      placeholder: nauro 1.23.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [macOS, Linux, Windows, Windows (WSL), Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Install method
+      options: [uv tool install, pipx, pip, Desktop app, From source (this repository), Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where you ran it
+      multiple: true
+      options: [CLI only, Claude Code, Codex, Cursor, Another MCP client]
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Project type
+      options: [Local only, Connected to a nauro.ai account, Not sure]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands or agent prompts, in order.
+      placeholder: |
+        1. nauro init --demo
+        2. nauro check-decision "..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include the full error text or traceback.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: nauro status and nauro doctor output (optional)
+      description: Remove tokens, email addresses, private paths and anything else you do not want public before you paste.
+      render: text
+    validations:
+      required: false
