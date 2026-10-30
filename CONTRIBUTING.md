@@ -52,7 +52,7 @@ A skip is not a failure. A new skip in the area you changed is worth a second lo
 
 ## Run the CI checks before you push
 
-These are the lint job's commands from `.github/workflows/ci.yml`. CI runs `check_single_sourced.py`, `check_docstring_budget.py` and `check_server_json_version.py` with a bare `python`; they use only the standard library, so running them through `uv run --no-sync python` gives the same result.
+These are the commands from the lint and import-linter jobs in `.github/workflows/ci.yml`. CI runs `check_single_sourced.py`, `check_docstring_budget.py` and `check_server_json_version.py` with a bare `python`; they use only the standard library, so running them through `uv run --no-sync python` gives the same result.
 
 ```bash
 uv run --no-sync ruff check packages/ benchmarks/ scripts/
