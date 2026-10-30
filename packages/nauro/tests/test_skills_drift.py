@@ -1194,8 +1194,10 @@ def test_dogfood_file_matches_render_skill(rel_path: str, surface: str, skill_na
     expected = render_skill(surface, skill_name)
     assert actual == expected, (
         f"{rel_path} has drifted from render_skill({surface!r}, {skill_name!r}). "
-        "Re-render via `python -c 'from nauro.skills import render_skill; ...'` "
-        "or update the canonical body."
+        "Edit the source under packages/nauro/src/nauro/skills/, then re-render this "
+        'copy from the repository root with: python -c "from pathlib import Path; '
+        f"from nauro.skills import render_skill; Path({rel_path!r}).write_text("
+        f"render_skill({surface!r}, {skill_name!r}), encoding='utf-8')\""
     )
 
 

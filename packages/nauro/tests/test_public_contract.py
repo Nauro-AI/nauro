@@ -48,14 +48,13 @@ Deliberately OUT of scope (documented, not silent — coverage is the value):
     parser in ``nauro_core.decision_model`` owns it) and the stdio-vs-remote
     registration split (``list_projects`` is remote-only by design).
 
-Regenerate after an intentional, reviewed contract change (note: ``.venv`` per
-the project's test-env convention — ``uv run`` clobbers the shared venv), from
-the ``nauro`` workspace root:
+Contributors do not regenerate the snapshot to make this test pass: open an issue
+that names the observed need, and regenerate only after a maintainer agrees the
+change there. Regenerate from the repository root:
 
-    NAURO_UPDATE_CONTRACT=1 .venv/bin/python -m pytest \\
-        packages/nauro/tests/test_public_contract.py
+    NAURO_UPDATE_CONTRACT=1 python -m pytest packages/nauro/tests/test_public_contract.py
 
-then review the diff to ``snapshots/public_contract_v1.json`` carefully — a
+then review the diff to ``snapshots/public_contract_v1.json`` carefully. A
 ``v2`` file is what a 2.0 looks like.
 """
 
@@ -355,8 +354,8 @@ def test_public_contract_matches_snapshot() -> None:
         pytest.skip(f"{SNAPSHOT_PATH.name} regenerated from the live contract")
 
     assert SNAPSHOT_PATH.exists(), (
-        f"{SNAPSHOT_PATH} is missing. Generate it once with "
-        f"{_UPDATE_ENV}=1 .venv/bin/python -m pytest {Path(__file__).name}"
+        f"{SNAPSHOT_PATH} is missing. Restore it from git. Maintainers generate it with "
+        f"{_UPDATE_ENV}=1 python -m pytest packages/nauro/tests/{Path(__file__).name}"
     )
     expected = SNAPSHOT_PATH.read_text(encoding="utf-8").rstrip("\n")
     if current != expected:
@@ -374,10 +373,12 @@ def test_public_contract_matches_snapshot() -> None:
             diff = diff[:8000] + "\n... (diff truncated)"
         raise AssertionError(
             "The 1.0 public contract has drifted from the checked-in snapshot "
-            f"({SNAPSHOT_PATH.name}). This is a surface frozen at 1.0: a change "
-            "here is a major-version (2.0) concern unless it is purely additive and "
-            "you have confirmed so. If the change is intentional and reviewed, "
-            f"regenerate with `{_UPDATE_ENV}=1 .venv/bin/python -m pytest "
-            f"{Path(__file__).name}` and review the diff carefully.\n\n"
+            f"({SNAPSHOT_PATH.name}). This surface is frozen under semantic versioning: "
+            "a breaking change needs a new major version, and an addition needs an "
+            "observed need. Contributors: do not regenerate the snapshot to make this "
+            "pass. Open an issue at https://github.com/Nauro-AI/nauro/issues first, and "
+            "regenerate only after a maintainer agrees the change there. To regenerate: "
+            f"`{_UPDATE_ENV}=1 python -m pytest packages/nauro/tests/{Path(__file__).name}`, "
+            "then review the diff carefully.\n\n"
             f"{diff}"
         )
