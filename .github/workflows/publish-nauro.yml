@@ -11,8 +11,10 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: false
       - run: uv python install 3.12
       - run: uv build --package nauro --python 3.12 --out-dir packages/nauro/dist
       - name: Smoke test the built wheel
@@ -36,7 +38,7 @@ jobs:
             "$smoke_root/venv/bin/python" \
             "$GITHUB_WORKSPACE/scripts/smoke_nauro_wheel_stdio.py" \
             "$smoke_root/venv/bin/nauro"
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: packages/nauro/dist/
           skip-existing: true
@@ -47,7 +49,7 @@ jobs:
     environment: mcp-registry
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Verify server.json version matches the release tag
         run: |
           tag_version="${GITHUB_REF_NAME#nauro-v}"
