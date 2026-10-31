@@ -1006,25 +1006,28 @@ def test_import_memory_bank_with_utf8_bom(scaffolded_store: Path, tmp_path: Path
 
     stack_content = (scaffolded_store / "stack.md").read_text()
     assert "Python with SQLite." in stack_content
+    assert "\ufeff" not in stack_content
 
     state_current = (scaffolded_store / "state_current.md").read_text()
     assert "Working on the importer." in state_current
     assert "Finished the BOM fix" in state_current
+    assert "\ufeff" not in state_current
     # The source H1 is stripped rather than copied after the BOM.
     assert "# Active Context" not in state_current
 
     decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 3
-    titles = "\n".join(p.read_text() for p in decisions[1:])
-    assert "Use SQLite" in titles
-    assert "Use Click" in titles
+    from nauro_core.decision_model import parse_decision
+
+    titles = [parse_decision(p.read_text(), p.name).title for p in decisions[1:]]
+    assert titles == ["Use SQLite", "Use Click"]
 
 
 def test_import_adr_with_utf8_bom(scaffolded_store: Path, tmp_path: Path):
     adr_dir = tmp_path / "adr_bom"
     adr_dir.mkdir()
     (adr_dir / "0001-bom.md").write_bytes(
-        b"\xef\xbb\xbf# Use a BOM-safe read\n\n## Context\n\nBOM files exist.\n"
+        b"\xef\xbb\xbf# 1. Use Postgres\n\n## Context\n\nBOM files exist.\n"
         b"\n## Decision\n\nStrip it.\n"
     )
 
@@ -1034,5 +1037,24 @@ def test_import_adr_with_utf8_bom(scaffolded_store: Path, tmp_path: Path):
     assert counts["skipped"] == 0
     decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     imported = decisions[1].read_text()
-    assert "BOM-safe read" in imported
+    from nauro_core.decision_model import parse_decision
+
+    assert parse_decision(imported, decisions[1].name).title == "Use Postgres"
     assert "Strip it." in imported
+
+
+def test_import_memory_bank_keeps_existing_store_bom(scaffolded_store: Path, tmp_path: Path):
+    """An existing store file that starts with a BOM keeps its bytes on import."""
+    existing = scaffolded_store / "project.md"
+    existing.write_bytes(b"\xef\xbb\xbf# Project\n\nKept verbatim.\n")
+    ctx = tmp_path / ".context_existing_bom"
+    ctx.mkdir()
+    (ctx / "projectBrief.md").write_text("# Project Brief\n\nImported brief.\n")
+
+    _import_memory_bank(ctx, scaffolded_store)
+
+    raw = existing.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf")
+    content = raw.decode("utf-8")
+    assert "Kept verbatim." in content
+    assert "Imported brief." in content
