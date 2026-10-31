@@ -24,11 +24,11 @@ from nauro.store.store_lock import store_write_lock
 
 
 def _read(path: Path) -> str:
-    """Read an import source file, replacing any undecodable bytes.
-    Legacy ADR and Memory-Bank sources are often cp1252 or latin-1, and strict UTF-8 would
-    abort the whole migration on the first bad byte.
+    """Read an import source, replacing undecodable bytes and dropping a leading BOM.
+
+    Legacy sources are often cp1252 or latin-1; a Windows editor may also prepend one.
     """
-    return path.read_text(encoding="utf-8", errors="replace")
+    return path.read_text(encoding="utf-8", errors="replace").removeprefix("\ufeff")
 
 
 def _import_append_decision(
@@ -190,7 +190,8 @@ def _append_to_store_file(target: Path, content: str) -> bool:
         return False
 
     if target.exists():
-        existing = _read(target)
+        # No BOM stripping here: an existing store file keeps its bytes as written.
+        existing = target.read_text(encoding="utf-8", errors="replace")
         target.write_text(existing.rstrip() + header + stripped + "\n", encoding="utf-8")
     else:
         target.write_text(header.lstrip() + stripped + "\n", encoding="utf-8")
