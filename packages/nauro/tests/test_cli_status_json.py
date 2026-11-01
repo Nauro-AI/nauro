@@ -139,6 +139,21 @@ def test_status_json_happy_path_golden_payload(tmp_path, monkeypatch):
     }
 
 
+def test_status_json_survives_one_malformed_decision_file(tmp_path, monkeypatch):
+    """A hand-edited decision file with broken YAML frontmatter must not crash
+    ``status --json``; it should keep the valid decisions and still print JSON."""
+    store, _repo = _setup_project(tmp_path, monkeypatch)
+    (store / "decisions" / "007-bad.md").write_text("---\nstatus: [weird\n---\n# 007 Bad\n")
+
+    result = runner.invoke(app, ["status", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["decisions"]["local"] == 1
+    assert "Skipping unreadable decision file 007-bad.md" in result.stderr
+    assert "nauro doctor" in result.stderr
+
+
 def test_status_json_probed_and_healthy_when_wired(tmp_path, monkeypatch):
     _store, repo = _setup_project(tmp_path, monkeypatch)
     _wire_repo_mcp(repo)

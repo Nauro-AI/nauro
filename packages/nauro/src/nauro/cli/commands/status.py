@@ -27,6 +27,7 @@ from nauro.cli.utils import (
     DisconnectedProjectExit,
     ProjectResolutionExit,
     resolve_target_project,
+    warn_unreadable_decisions,
 )
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
 from nauro.store.local_files import UnreadableFileError, is_regular_file, read_text_or_absent
@@ -753,8 +754,10 @@ class _StatusFacts:
 
 def _collect_status(project_name: str, store_path: Path, *, no_probe: bool) -> _StatusFacts:
     """Gather every fact the human table and the JSON payload render from."""
+    from nauro_core.operations.decision_lookup import scan_decisions
+
     from nauro.auth import load_access_token
-    from nauro.store.reader import _list_decisions
+    from nauro.store.filesystem_store import FilesystemStore
 
     project_id = store_path.name
     authenticated = bool(load_access_token())
@@ -781,6 +784,9 @@ def _collect_status(project_name: str, store_path: Path, *, no_probe: bool) -> _
             recorded = None
         last_full_sync = recorded if isinstance(recorded, str) and recorded else None
 
+    decisions, decision_failures = scan_decisions(FilesystemStore(store_path))
+    warn_unreadable_decisions(decision_failures)
+
     return _StatusFacts(
         project_name=project_name,
         store_path=store_path,
@@ -789,7 +795,7 @@ def _collect_status(project_name: str, store_path: Path, *, no_probe: bool) -> _
         cloud=cloud,
         snapshot=snapshot,
         probes=probes,
-        local_decisions=len(_list_decisions(store_path)),
+        local_decisions=len(decisions),
         remote_decisions=remote_decisions,
         last_full_sync=last_full_sync,
         quarantine=_quarantined_collisions(store_path),

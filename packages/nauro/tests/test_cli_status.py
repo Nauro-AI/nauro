@@ -453,6 +453,25 @@ def test_status_keeps_broken_over_unknown_and_names_the_unreadable_file(tmp_path
     assert f"re-run 'nauro setup all'; could not read {unreadable / '.mcp.json'}" in result.output
 
 
+def test_status_survives_one_malformed_decision_file(tmp_path, monkeypatch):
+    """A hand-edited decision file with broken YAML frontmatter must not crash status.
+
+    Other commands (list-decisions, graph, doctor) already skip an
+    unparseable decision file; status should keep the valid ones and
+    report a warning instead of raising ``ValueError`` from
+    ``parse_decision``.
+    """
+    store = _setup_project(tmp_path, monkeypatch)
+    (store / "decisions" / "007-bad.md").write_text("---\nstatus: [weird\n---\n# 007 Bad\n")
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0, result.output
+    assert "Decisions: 1 local" in result.output
+    assert "Skipping unreadable decision file 007-bad.md" in result.stderr
+    assert "nauro doctor" in result.stderr
+
+
 def test_status_shows_store_path(tmp_path, monkeypatch):
     """`nauro status` surfaces the absolute store path.
 
