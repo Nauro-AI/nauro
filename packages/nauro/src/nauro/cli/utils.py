@@ -110,8 +110,7 @@ def warn_unreadable_decisions(failures: Iterable[ParseFailure]) -> None:
     """Echo one stderr warning per decision file a lenient scan could not parse."""
     for failure in failures:
         _echo_err(
-            f"Skipping unreadable decision file {failure.stem}.md: {failure.error}; "
-            "run 'nauro doctor' for the full store diagnosis."
+            f"Skipping unreadable decision file {failure.stem}.md; run 'nauro doctor' to see why."
         )
 
 

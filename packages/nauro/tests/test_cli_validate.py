@@ -49,6 +49,21 @@ def test_validate_status_survives_one_malformed_decision_file(tmp_path, monkeypa
     assert "nauro doctor" in result.stderr
 
 
+def test_validate_status_warns_on_one_line_per_malformed_decision_file(tmp_path, monkeypatch):
+    """YAML errors span several lines, so the warning leaves the detail to `nauro doctor`."""
+    store = _setup_project(tmp_path, monkeypatch)
+    for name in ("007-bad.md", "008-bad.md"):
+        (store / "decisions" / name).write_text("---\nstatus: [weird\n---\n# Bad\n")
+
+    result = runner.invoke(app, ["validate", "status"])
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr.splitlines() == [
+        "Skipping unreadable decision file 007-bad.md; run 'nauro doctor' to see why.",
+        "Skipping unreadable decision file 008-bad.md; run 'nauro doctor' to see why.",
+    ]
+
+
 def test_validate_status_empty_store(tmp_path, monkeypatch):
     """An empty decisions set reports zero counts without error."""
     _pid, store = register_project_v2("emptyproj", [tmp_path])
