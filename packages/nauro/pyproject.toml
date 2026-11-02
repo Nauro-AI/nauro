@@ -27,7 +27,8 @@ dependencies = [
     "httpx>=0.24",
     "PyJWT[crypto]>=2.15,<3",
     "mcp>=1.0,<2",
-    "filelock>=3.29.5",
+    "filelock>=3.29.5; python_version < '3.11'",
+    "filelock>=4.2.1; python_version >= '3.11'",
     "tomli>=2.0; python_version<'3.11'",
     "tomlkit>=0.13.2",
 ]
