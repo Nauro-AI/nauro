@@ -34,6 +34,21 @@ def test_validate_status_on_non_empty_store(tmp_path, monkeypatch):
     assert "Active decisions: 1" in result.output
 
 
+def test_validate_status_survives_one_malformed_decision_file(tmp_path, monkeypatch):
+    """A hand-edited decision file with broken YAML frontmatter must not crash
+    `validate status`; it should keep counting the valid decisions."""
+    store = _setup_project(tmp_path, monkeypatch)
+    (store / "decisions" / "007-bad.md").write_text("---\nstatus: [weird\n---\n# 007 Bad\n")
+
+    result = runner.invoke(app, ["validate", "status"])
+
+    assert result.exit_code == 0, result.output
+    assert "Total decisions: 1" in result.output
+    assert "Active decisions: 1" in result.output
+    assert "Skipping unreadable decision file 007-bad.md" in result.stderr
+    assert "nauro doctor" in result.stderr
+
+
 def test_validate_status_empty_store(tmp_path, monkeypatch):
     """An empty decisions set reports zero counts without error."""
     _pid, store = register_project_v2("emptyproj", [tmp_path])

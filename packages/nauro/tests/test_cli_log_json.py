@@ -140,6 +140,20 @@ class TestLogJsonDecisions:
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout) == []
 
+    def test_survives_one_malformed_decision_file(self, tmp_path, monkeypatch):
+        """A hand-edited decision file with broken YAML frontmatter must not
+        crash ``log --decisions --json``; it should keep the valid decisions."""
+        store = _setup_project(tmp_path, monkeypatch)
+        (store / "decisions" / "007-bad.md").write_text("---\nstatus: [weird\n---\n# 007 Bad\n")
+
+        result = runner.invoke(app, ["log", "--decisions", "--json"])
+        assert result.exit_code == 0, result.output
+
+        rows = json.loads(result.stdout)
+        assert [row["num"] for row in rows] == [1]
+        assert "Skipping unreadable decision file 007-bad.md" in result.stderr
+        assert "nauro doctor" in result.stderr
+
 
 class TestLogFlagPrecedence:
     def test_json_decisions_wins_over_full(self, tmp_path, monkeypatch):
@@ -202,3 +216,16 @@ class TestLogHumanAsciiRules:
         for output in (summary.output, decisions.output, full.output):
             assert "─" not in output
             assert "═" not in output
+
+    def test_decisions_survive_one_malformed_decision_file(self, tmp_path, monkeypatch):
+        """A hand-edited decision file with broken YAML frontmatter must not
+        crash ``log --decisions``; it should keep rendering the valid decisions."""
+        store = _setup_project(tmp_path, monkeypatch)
+        (store / "decisions" / "007-bad.md").write_text("---\nstatus: [weird\n---\n# 007 Bad\n")
+
+        result = runner.invoke(app, ["log", "--decisions"])
+
+        assert result.exit_code == 0, result.output
+        assert "001" in result.output
+        assert "Skipping unreadable decision file 007-bad.md" in result.stderr
+        assert "nauro doctor" in result.stderr

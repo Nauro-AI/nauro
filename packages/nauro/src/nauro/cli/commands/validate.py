@@ -17,12 +17,14 @@ def status(
 ) -> None:
     """Show validation search status."""
     from nauro_core.decision_model import DecisionStatus
+    from nauro_core.operations.decision_lookup import scan_decisions
 
-    from nauro.cli.utils import resolve_target_project
-    from nauro.store.reader import _list_decisions
+    from nauro.cli.utils import resolve_target_project, warn_unreadable_decisions
+    from nauro.store.filesystem_store import FilesystemStore
 
     project_name, store_path = resolve_target_project(project)
-    decisions = _list_decisions(store_path)
+    decisions, decision_failures = scan_decisions(FilesystemStore(store_path))
+    warn_unreadable_decisions(decision_failures)
     active = [d for d in decisions if d.status is DecisionStatus.active]
 
     typer.echo(f"Project: {project_name}")

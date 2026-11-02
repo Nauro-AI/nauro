@@ -12,9 +12,11 @@ Resolution priority for any command that needs a project context:
 from __future__ import annotations
 
 import shlex
+from collections.abc import Iterable
 from pathlib import Path
 
 import typer
+from nauro_core.operations.decision_lookup import ParseFailure
 
 from nauro import __version__
 from nauro.constants import REPO_CONFIG_MODE_CLOUD
@@ -102,6 +104,15 @@ def refuse_repo_config_symlink(repo_root: Path) -> None:
 
 def _echo_err(message: str) -> None:
     typer.echo(message, err=True)
+
+
+def warn_unreadable_decisions(failures: Iterable[ParseFailure]) -> None:
+    """Echo one stderr warning per decision file a lenient scan could not parse."""
+    for failure in failures:
+        _echo_err(
+            f"Skipping unreadable decision file {failure.stem}.md: {failure.error}; "
+            "run 'nauro doctor' for the full store diagnosis."
+        )
 
 
 def write_repo_config(

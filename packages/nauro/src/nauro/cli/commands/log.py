@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 from nauro_core.decision_model import Decision
-from nauro_core.operations.decision_lookup import scan_decision_records
+from nauro_core.operations.decision_lookup import scan_decision_records, scan_decisions
 from nauro_core.operations.store import Store
 
 from nauro.cli.generation_reads import (
@@ -13,8 +13,8 @@ from nauro.cli.generation_reads import (
     render_installed,
     require_legacy_snapshots,
 )
-from nauro.cli.utils import resolve_target_project
-from nauro.store.reader import _list_decisions
+from nauro.cli.utils import resolve_target_project, warn_unreadable_decisions
+from nauro.store.filesystem_store import FilesystemStore
 from nauro.store.snapshot import list_snapshots, load_snapshot
 
 
@@ -55,7 +55,8 @@ def log(
     if decisions:
         captured = render_installed(store_path, _generation_decisions)
         if captured is None:
-            all_decs = _list_decisions(store_path)
+            all_decs, decision_failures = scan_decisions(FilesystemStore(store_path))
+            warn_unreadable_decisions(decision_failures)
         else:
             all_decs, identity = captured
             if not json_output:
