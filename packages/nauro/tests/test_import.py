@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from nauro.cli.commands.import_cmd import (
     _extract_adr_alternatives_strict,
+    _extract_adr_rationale,
     _extract_section,
     _import_adrs,
     _import_memory_bank,
@@ -730,6 +731,92 @@ def test_import_adr_empty_directory(scaffolded_store: Path, tmp_path: Path):
     # Only scaffold decision should exist
     decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
     assert len(decisions) == 1
+
+
+MADR_TEMPLATE_RATIONALE = (
+    "Decisions are scattered across chat threads.\n\n"
+    "Chosen option: MADR, because it is lightweight.\n\n"
+    "### Consequences\n\n"
+    "- Good, because records look the same\n\n"
+    "### Confirmation\n\n"
+    "Reviewers check the template."
+)
+
+
+@pytest.fixture
+def madr_template_directory(tmp_path: Path) -> Path:
+    """Directory with one ADR that uses the headings of the real MADR template."""
+    adr_dir = tmp_path / "madr_template_adrs"
+    adr_dir.mkdir()
+    (adr_dir / "0001-use-madr.md").write_text(
+        "# Use MADR for decision records\n\n"
+        "## Context and Problem Statement\n\n"
+        "Decisions are scattered across chat threads.\n\n"
+        "## Considered Options\n\n"
+        "- MADR\n"
+        "- Free-form notes\n\n"
+        "## Decision Outcome\n\n"
+        "Chosen option: MADR, because it is lightweight.\n\n"
+        "### Consequences\n\n"
+        "- Good, because records look the same\n\n"
+        "### Confirmation\n\n"
+        "Reviewers check the template.\n\n"
+        "## More Information\n\n"
+        "See the MADR project.\n"
+    )
+    return adr_dir
+
+
+def test_import_madr_template_keeps_title_and_rationale(
+    scaffolded_store: Path, madr_template_directory: Path
+):
+    """A MADR-template ADR imports its title and both rationale sections."""
+    counts = _import_adrs(madr_template_directory, scaffolded_store)
+    assert counts["imported"] == 1
+
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))
+    assert decisions[1].name == "002-use-madr-for-decision-records.md"
+    imported = decisions[1].read_text()
+    assert "Use MADR for decision records\n" in imported
+    assert imported.split("## Decision\n\n", 1)[1].strip() == MADR_TEMPLATE_RATIONALE
+
+
+def test_extract_adr_rationale_exact_for_madr_template(madr_template_directory: Path):
+    """The ### subsections stay in Decision Outcome, up to the next ## heading."""
+    content = (madr_template_directory / "0001-use-madr.md").read_text()
+
+    assert _extract_adr_rationale(content) == MADR_TEMPLATE_RATIONALE
+
+
+def test_extract_adr_rationale_falls_back_per_section():
+    """Each section falls back on its own, so the two heading styles can mix."""
+    content = "# Title\n\n## Context\n\nLegacy context.\n\n## Decision Outcome\n\nMADR outcome.\n"
+
+    assert _extract_adr_rationale(content) == "Legacy context.\n\nMADR outcome."
+
+
+def test_extract_adr_rationale_legacy_heading_wins():
+    """Context beats Context and Problem Statement when an ADR has both."""
+    content = (
+        "# Title\n\n"
+        "## Context and Problem Statement\n\nMADR context.\n\n"
+        "## Context\n\nLegacy context.\n\n"
+        "## Decision\n\nLegacy decision.\n"
+    )
+
+    assert _extract_adr_rationale(content) == "Legacy context.\n\nLegacy decision."
+
+
+def test_extract_adr_rationale_without_madr_headings_is_unchanged():
+    """ADRs with neither MADR heading keep their exact rationale string."""
+    content = (
+        "# Title\n\n"
+        "## Context\n\nLegacy context.\n\n"
+        "## Decision\n\nLegacy decision.\n\n"
+        "## Consequences\n\n- Good\n"
+    )
+
+    assert _extract_adr_rationale(content) == "Legacy context.\n\nLegacy decision."
 
 
 def test_import_adr_cli_integration(tmp_path: Path, monkeypatch, madr_directory: Path):
