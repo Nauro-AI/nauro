@@ -305,10 +305,13 @@ def _extract_adr_title(content: str) -> str | None:
 
 
 def _extract_adr_rationale(content: str) -> str | None:
-    """Extract rationale from ## Context or ## Decision sections."""
+    """Extract rationale from Context and Decision, or their MADR template headings."""
     rationale_parts = []
-    for section_name in ["Context", "Decision"]:
-        text = _extract_section(content, section_name)
+    for section_name, madr_name in [
+        ("Context", "Context and Problem Statement"),
+        ("Decision", "Decision Outcome"),
+    ]:
+        text = _extract_section(content, section_name) or _extract_section(content, madr_name)
         if text:
             rationale_parts.append(text)
 
