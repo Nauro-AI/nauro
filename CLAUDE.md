@@ -17,6 +17,7 @@ You do not need Nauro, its MCP tools, or a Nauro account to work on this reposit
 
 - The `@AGENTS.md` import above loads a file that `nauro sync` generates on maintainer machines. It is gitignored, so it is absent from your clone. That is expected; do not create or commit it.
 - `.claude/skills/`, `.agents/skills/` and `.cursor/rules/` hold rendered copies of the bundled skills. Edit the sources in `packages/nauro/src/nauro/skills/`, then run the re-render command that `packages/nauro/tests/test_skills_drift.py` prints. The skills call Nauro tools, so do not run them while contributing unless you have Nauro set up.
+- `skills/` holds standalone hand-written skills. Edit them in place; they are not rendered or shipped in the package.
 - If `test_public_contract.py` or `test_hosted_consumer_contract.py` fails, do not regenerate the snapshot. Open an issue first; the failure messages say what to include.
 - Before opening a PR, run every command in [Run the CI checks before you push](CONTRIBUTING.md#run-the-ci-checks-before-you-push).
 

@@ -138,6 +138,7 @@ Better error text and new tests around these areas are welcome. Changes to their
 - **Plain ASCII hyphens** in CLI output and docs. No em-dashes.
 - **Python 3.10 stays supported.**
 - **Skill files:** the copies under `.claude/`, `.agents/` and `.cursor/` are generated. Edit the source under `packages/nauro/src/nauro/skills/`; if the skill drift test fails, it prints the command that re-renders each copy.
+- **Standalone skills:** `skills/` holds hand-written skills that work without Nauro. They are edited in place, and they are not rendered or shipped in the package.
 
 ## Pull requests
 
