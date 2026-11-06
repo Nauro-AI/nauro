@@ -23,9 +23,11 @@ From a test replay against an earlier state of `doomemacs/core`. The plan was wr
 >
 > **Strength:** `strong`. A maintainer gave a reason that applies directly to this flag, and the plan doesn't address it.
 
-The tone follows the evidence. A weak case gets "You're absolutely possibly wrong." If it finds nothing, the whole reply is:
+The tone follows the evidence. A weak case gets "You're absolutely possibly wrong." If it completes the search and finds no supported objection, the whole reply is:
 
 > I have nothing. Proceed.
+
+If missing history or failed searches prevent a conclusion, it says "I can't call this one." and names the gap. Before objecting, it checks the current code and later history for evidence that the old reason no longer applies.
 
 ## Install
 
@@ -47,7 +49,7 @@ It only runs when you invoke it. It needs `git`, and it reads pull requests thro
 ## What it can't do
 
 - It only knows what was written down. Reasons that never reached a commit, a PR or a doc are invisible to it.
-- "I have nothing" means it found no earlier attempt. It does not mean the plan is good, and without `gh` it covers git history only.
+- "I have nothing" means the completed search found no objection that still applies. It does not mean the plan is good. Without `gh`, it cannot check PR history and must disclose that limit.
 - It looks for ideas that were tried and undone or refused. It won't catch a plan that's wrong for other reasons.
 - It can still get a detail wrong, so read the evidence before you change course.
 - Its searches send repository text to your model provider, like anything else your agent reads.
@@ -57,7 +59,8 @@ It only runs when you invoke it. It needs `git`, and it reads pull requests thro
 These tests are small, and other agents are untested.
 
 - **Replays:** agents who had not seen the history wrote plans for earlier states of public repos. An earlier version of the skill, without this voice, found and supported the earlier attempt in 7 of 9 cases: 3 of 5 reverted changes and 4 of 4 refused PRs. It invented no citations. Agents did the grading, not people. These ran as subagents on one model, not through real skill activation. Plans that drifted to a different idea were dropped first, 3 of 12, and the refused PRs were found through a `wontfix` label, so they're unusually clear.
-- **This voice:** three of those cases, three real Claude Code runs each. The strength ratings held, and the case with nothing to find said "I have nothing. Proceed." every time.
+- **Earlier voice:** three of those cases, three real Claude Code runs each. The strength ratings held, and the case with nothing to find said "I have nothing. Proceed." every time.
+- **Revision checks:** fresh Claude Code 2.1.318 sessions on Opus 5.5 tested synthetic Git histories for a standing rejection, later acceptance and shallow history. After outcome selection moved before the objection format, all three research outcomes matched expectations. The tests also found unsupported jokes and inconsistent objection length. The final wording changes still need a completed behavioral rerun. An agent reviewed the outputs; these fixtures do not test live GitHub PR searches or establish reliability across models.
 - **Our own plans:** on five recent plans from this project, it told their author nothing new. Three got "I have nothing", and two pointed at work the author had already parked.
 
 ---
