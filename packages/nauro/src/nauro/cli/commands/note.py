@@ -1,7 +1,7 @@
 """nauro note — Add a decision or question to the project store."""
 
 import typer
-from nauro_core.constants import DECISIONS_DIR, OPEN_QUESTIONS_MD
+from nauro_core.constants import DECISIONS_DIR, MAX_TITLE_LENGTH, OPEN_QUESTIONS_MD
 from nauro_core.decision_model import DecisionConfidence
 from nauro_core.operations import flag_question as _flag_question_op
 from nauro_core.operations.propose_decision import _write_decision_direct
@@ -72,6 +72,15 @@ def note(
         typer.echo("Note text cannot be empty.", err=True)
         raise typer.Exit(1)
 
+    is_question = question or (text.rstrip().endswith("?") and not decision)
+    if not is_question and len(text) > MAX_TITLE_LENGTH:
+        typer.echo(
+            f"Decision title exceeds maximum length of {MAX_TITLE_LENGTH} characters "
+            f"(got {len(text)}); pass the reasoning via --rationale.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     if question and decision:
         typer.echo(
             "Warning: --question and --decision were both passed; --question wins.",
@@ -81,8 +90,6 @@ def note(
     project_name, store_path = resolve_target_project(project)
     with legacy_write_guard(store_path, "note"):
         fs_store = FilesystemStore(store_path)
-
-        is_question = question or (text.rstrip().endswith("?") and not decision)
 
         if is_question:
             # Explicit `-c medium` is indistinguishable from the default, so it
