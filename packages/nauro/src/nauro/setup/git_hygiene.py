@@ -16,6 +16,7 @@ the advisory layer only.
 from __future__ import annotations
 
 import subprocess
+import sys
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -255,6 +256,12 @@ def _is_ignored(git_root: Path, git_rel: str) -> bool:
     return proc is not None and proc.returncode == 0
 
 
+def _git_output_encoding() -> str:
+    """Return the encoding git writes paths in: UTF-8 on Windows, and the
+    filesystem encoding elsewhere, where git prints raw path bytes."""
+    return "utf-8" if sys.platform == "win32" else sys.getfilesystemencoding()
+
+
 def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
     try:
         return subprocess.run(
@@ -262,6 +269,8 @@ def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding=_git_output_encoding(),
+            errors="surrogateescape",
             check=False,
         )
     except (FileNotFoundError, OSError):

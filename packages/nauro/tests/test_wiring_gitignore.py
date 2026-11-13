@@ -22,6 +22,7 @@ from nauro.setup.git_hygiene import (
     GITIGNORE_BLOCK_BEGIN,
     GITIGNORE_BLOCK_END,
     GitIgnoreKind,
+    _git_output_encoding,
     ensure_wiring_ignored,
     remove_wiring_ignore_entry,
     wiring_path_is_tracked,
@@ -36,6 +37,12 @@ def _git_repo(tmp_path: Path) -> Path:
     repo.mkdir()
     git_init(repo)
     return repo
+
+
+def _non_ascii_dir(tmp_path: Path) -> Path:
+    base = tmp_path / "Łukasz-ü"
+    base.mkdir()
+    return base
 
 
 def _is_effectively_ignored(repo: Path, rel_path: str) -> bool:
@@ -269,6 +276,59 @@ def test_wiring_path_is_tracked_soft_fails_outside_git(tmp_path: Path):
     assert wiring_path_is_tracked(repo, ".mcp.json") is False
 
 
+def test_git_output_is_decoded_with_the_git_output_encoding(tmp_path: Path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    calls: list[dict] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout=f"{repo}\n", stderr="")
+
+    monkeypatch.setattr("nauro.setup.git_hygiene.subprocess.run", fake_run)
+    # The fake never decodes, so a value no platform default produces is safe.
+    monkeypatch.setattr("nauro.setup.git_hygiene._git_output_encoding", lambda: "latin-1")
+
+    assert wiring_path_is_tracked(repo, ".mcp.json") is True
+
+    assert calls
+    for kwargs in calls:
+        assert kwargs.get("encoding") == "latin-1"
+        assert kwargs.get("errors") == "surrogateescape"
+
+
+@pytest.mark.parametrize(
+    ("platform", "filesystem_encoding", "expected"),
+    [("win32", "mbcs", "utf-8"), ("linux", "latin-1", "latin-1")],
+)
+def test_git_output_encoding_per_platform(monkeypatch, platform, filesystem_encoding, expected):
+    with monkeypatch.context() as patched:
+        patched.setattr("nauro.setup.git_hygiene.sys.platform", platform)
+        patched.setattr(
+            "nauro.setup.git_hygiene.sys.getfilesystemencoding", lambda: filesystem_encoding
+        )
+        encoding = _git_output_encoding()
+
+    assert encoding == expected
+
+
+def test_wiring_path_is_tracked_in_non_ascii_directory(tmp_path: Path):
+    repo = _git_repo(_non_ascii_dir(tmp_path))
+    (repo / ".mcp.json").write_text("{}\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".mcp.json"], cwd=repo, check=True)
+
+    assert wiring_path_is_tracked(repo, ".mcp.json") is True
+
+
+def test_ensure_adds_entry_in_non_ascii_directory(tmp_path: Path):
+    repo = _git_repo(_non_ascii_dir(tmp_path))
+    (repo / ".mcp.json").write_text("{}\n", encoding="utf-8")
+
+    result = ensure_wiring_ignored(repo, ".mcp.json")
+
+    assert result.kind is GitIgnoreKind.ADDED
+
+
 # ── adopt / un-adopt symmetry ──────────────────────────────────────────────────
 
 
@@ -322,6 +382,19 @@ def test_adopt_refuses_tracked_wiring_but_completes(tmp_path, monkeypatch):
     cursor_config = json.loads((Path.home() / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
     assert "nauro" in cursor_config["mcpServers"]
     assert (repo / ".nauro" / "config.json").is_file()
+
+
+def test_adopt_leaves_tracked_wiring_untouched_in_non_ascii_directory(tmp_path, monkeypatch):
+    base = _non_ascii_dir(tmp_path)
+    repo = adopt_env(monkeypatch, base)
+    (base / ".cursor").mkdir()
+    (repo / ".mcp.json").write_bytes(b"{}\n")
+    subprocess.run(["git", "add", ".mcp.json"], cwd=repo, check=True)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+
+    assert result.exit_code == 0, result.output
+    assert (repo / ".mcp.json").read_bytes() == b"{}\n"
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation requires extra Windows privileges")
