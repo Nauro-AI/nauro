@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 from enum import Enum, auto
 from pathlib import Path
 
@@ -162,9 +164,11 @@ def _edit_claude_hooks(repo: Path, *, remove: bool) -> ClaudeHookOutcome:
 
 
 def _nauro_hook_entry() -> dict:
+    command = _find_nauro_command()
+    executable = command if os.name == "nt" else shlex.quote(command)
     return {
         "type": "command",
-        "command": f"{_find_nauro_command()} {HOOK_SUBCOMMAND}",
+        "command": f"{executable} {HOOK_SUBCOMMAND}",
         "timeout": HOOK_TIMEOUT_SECONDS,
     }
 
