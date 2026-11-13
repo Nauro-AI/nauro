@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -1269,8 +1271,101 @@ def test_is_nauro_hook_matches_regardless_of_entrypoint_name():
     for cmd in (
         "nauro hook user-prompt-submit",
         "/opt/venv/bin/nauro hook user-prompt-submit",
+        "'/opt/Nauro Tool/bin/nauro' hook user-prompt-submit",
         r"C:\Users\me\Scripts\nauro.exe hook user-prompt-submit",
     ):
         assert _is_nauro_hook({"type": "command", "command": cmd}), cmd
     # A user's own UserPromptSubmit hook is left alone.
     assert not _is_nauro_hook({"type": "command", "command": "my-linter --check"})
+
+
+def test_materialize_claude_quotes_spaced_executable_path(tmp_path: Path, monkeypatch):
+    """A POSIX executable path containing spaces is shell-quoted in the hook command."""
+    import nauro.cli.integrations.claude_hooks as claude_hooks_mod
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    spaced_path = "/opt/Nauro Tool/bin/nauro"
+    monkeypatch.setattr(claude_hooks_mod, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(claude_hooks_mod, "_find_nauro_command", lambda: spaced_path)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    settings = json.loads(_settings(repo).read_text(encoding="utf-8"))
+    entries = _nauro_entries(settings)
+    assert len(entries) == 1
+    command = entries[0]["command"]
+    assert command.startswith(shlex.quote(spaced_path))
+    assert shlex.split(command) == [spaced_path, "hook", "user-prompt-submit"]
+
+
+def test_materialize_claude_leaves_plain_executable_path_unquoted(tmp_path: Path, monkeypatch):
+    """A path without special characters produces the exact unquoted entry shape."""
+    import nauro.cli.integrations.claude_hooks as claude_hooks_mod
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    plain_path = "/opt/nauro/bin/nauro"
+    monkeypatch.setattr(claude_hooks_mod, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(claude_hooks_mod, "_find_nauro_command", lambda: plain_path)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    settings = json.loads(_settings(repo).read_text(encoding="utf-8"))
+    assert _nauro_entries(settings) == [
+        {
+            "type": "command",
+            "command": f"{plain_path} {HOOK_SUBCOMMAND}",
+            "timeout": HOOK_TIMEOUT_SECONDS,
+        }
+    ]
+
+
+def test_setup_claude_code_spaced_path_is_idempotent_and_removable(tmp_path: Path, monkeypatch):
+    """Setup with a spaced executable path is idempotent on repeat runs and removed by --remove."""
+    import nauro.cli.integrations.claude_hooks as claude_hooks_mod
+
+    repo, _store = _make_project(tmp_path)
+    monkeypatch.chdir(repo)
+    spaced_path = "/opt/Nauro Tool/bin/nauro"
+    monkeypatch.setattr(claude_hooks_mod, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(claude_hooks_mod, "_find_nauro_command", lambda: spaced_path)
+
+    first = runner.invoke(app, ["setup", "claude-code", "--with-hooks"])
+    assert first.exit_code == 0, first.output
+    second = runner.invoke(app, ["setup", "claude-code", "--with-hooks"])
+    assert second.exit_code == 0, second.output
+
+    settings = json.loads(_settings(repo).read_text(encoding="utf-8"))
+    entries = _nauro_entries(settings)
+    assert len(entries) == 1
+    assert shlex.split(entries[0]["command"]) == [spaced_path, "hook", "user-prompt-submit"]
+
+    removed = runner.invoke(app, ["setup", "claude-code", "--remove"])
+    assert removed.exit_code == 0, removed.output
+    assert not _settings(repo).exists()
+
+
+def test_materialize_claude_leaves_windows_command_unchanged(tmp_path: Path, monkeypatch):
+    """On Windows the executable path is not POSIX-quoted."""
+    import nauro.cli.integrations.claude_hooks as claude_hooks_mod
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    win_path = r"C:\Program Files\Nauro\Scripts\nauro.exe"
+    monkeypatch.setattr(claude_hooks_mod, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(claude_hooks_mod, "_find_nauro_command", lambda: win_path)
+
+    line = materialize_hooks_claude_code(repo, remove=False)
+
+    assert line.kind is ClaudeHookKind.WROTE
+    settings = json.loads(_settings(repo).read_text(encoding="utf-8"))
+    assert _nauro_entries(settings) == [
+        {
+            "type": "command",
+            "command": f"{win_path} {HOOK_SUBCOMMAND}",
+            "timeout": HOOK_TIMEOUT_SECONDS,
+        }
+    ]
