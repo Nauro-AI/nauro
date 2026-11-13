@@ -259,3 +259,61 @@ def test_note_survives_a_failing_agents_md_regen(tmp_path: Path, monkeypatch):
     assert "AGENTS.md regeneration failed" in result.stderr
     new_files = [f for f in (store / "decisions").glob("*.md") if f.name != "001-initial-setup.md"]
     assert len(new_files) == 1
+
+
+def test_note_decision_over_max_title_length_rejects(tmp_path: Path, monkeypatch):
+    """A 301-character decision title exits 1, reports limit and length, and writes nothing."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _pid, store = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(repo)
+
+    agents_md = repo / "AGENTS.md"
+    agents_md.write_text("# Seed AGENTS.md\n", encoding="utf-8")
+    overlong_title = "A" * 301
+
+    result = runner.invoke(app, ["note", overlong_title])
+
+    assert result.exit_code == 1
+    assert "300" in result.stderr
+    assert "301" in result.stderr
+    assert "--rationale" in result.stderr
+    decisions_dir = store / "decisions"
+    assert sorted(decisions_dir.glob("*.md")) == [decisions_dir / "001-initial-setup.md"]
+    assert agents_md.read_text(encoding="utf-8") == "# Seed AGENTS.md\n"
+
+
+def test_note_decision_at_max_title_length_succeeds(tmp_path: Path, monkeypatch):
+    """A decision title of exactly 300 characters is accepted and recorded."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _pid, store = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(repo)
+
+    boundary_title = "A" * 300
+    result = runner.invoke(app, ["note", boundary_title])
+
+    assert result.exit_code == 0, result.output
+    assert "Decision recorded" in result.output
+    decisions_dir = store / "decisions"
+    new_files = [f for f in decisions_dir.glob("*.md") if f.name != "001-initial-setup.md"]
+    assert len(new_files) == 1
+    assert boundary_title in new_files[0].read_text(encoding="utf-8")
+
+
+def test_note_question_over_max_title_length_succeeds(tmp_path: Path, monkeypatch):
+    """A 400-character note ending in '?' is still recorded as a question."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _pid, store = register_project_v2("myproj", [repo])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(repo)
+
+    long_question = ("Q" * 399) + "?"
+    result = runner.invoke(app, ["note", long_question])
+
+    assert result.exit_code == 0, result.output
+    assert "Question added" in result.output
+    assert long_question in (store / "open-questions.md").read_text(encoding="utf-8")
