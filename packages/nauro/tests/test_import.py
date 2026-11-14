@@ -1145,3 +1145,80 @@ def test_import_memory_bank_keeps_existing_store_bom(scaffolded_store: Path, tmp
     content = raw.decode("utf-8")
     assert "Kept verbatim." in content
     assert "Imported brief." in content
+
+
+def test_import_adrs_second_run_skips_existing(scaffolded_store: Path, madr_directory: Path):
+    """Running _import_adrs twice skips already-imported decisions without creating duplicates."""
+    first = _import_adrs(madr_directory, scaffolded_store)
+    before = sorted((scaffolded_store / "decisions").glob("*.md"))
+
+    second = _import_adrs(madr_directory, scaffolded_store)
+    after = sorted((scaffolded_store / "decisions").glob("*.md"))
+
+    assert first["imported"] >= 1
+    assert second["imported"] == 0
+    assert second["skipped"] == first["imported"]
+    assert after == before
+
+
+def test_import_adrs_edited_adr_reimports(scaffolded_store: Path, madr_directory: Path):
+    """Editing an imported ADR so its content changes causes it to be re-imported."""
+    first = _import_adrs(madr_directory, scaffolded_store)
+    adr_files = sorted(madr_directory.glob("*.md"))
+    edited_adr = adr_files[0]
+    original = edited_adr.read_text(encoding="utf-8")
+    edited_adr.write_text(
+        original.replace(
+            "Use PostgreSQL for all persistent storage.",
+            "Use PostgreSQL 17 with pgvector for all persistent storage.",
+        ),
+        encoding="utf-8",
+    )
+
+    second = _import_adrs(madr_directory, scaffolded_store)
+
+    assert second["imported"] == 1
+    assert second["skipped"] == first["imported"] - 1
+
+
+def test_import_memory_bank_second_run_is_idempotent(
+    scaffolded_store: Path, full_memory_bank: Path
+):
+    """Running _import_memory_bank twice does not duplicate blocks, decisions, or warn."""
+    first = _import_memory_bank(full_memory_bank, scaffolded_store)
+    assert first["decisions"] >= 1
+    decisions_after_first = sorted((scaffolded_store / "decisions").glob("*.md"))
+    project_after_first = (scaffolded_store / "project.md").read_text(encoding="utf-8")
+    stack_after_first = (scaffolded_store / "stack.md").read_text(encoding="utf-8")
+    state_after_first = (scaffolded_store / "state_current.md").read_text(encoding="utf-8")
+    history_after_first = (scaffolded_store / "state_history.md").read_text(encoding="utf-8")
+
+    second = _import_memory_bank(full_memory_bank, scaffolded_store)
+
+    assert second["files_merged"] == 0
+    assert second["decisions"] == 0
+    assert second["progress_items"] == 0
+    assert second["decisionlog_unparsed"] == 0
+    assert (scaffolded_store / "project.md").read_text(encoding="utf-8") == project_after_first
+    assert (scaffolded_store / "stack.md").read_text(encoding="utf-8") == stack_after_first
+    assert (scaffolded_store / "state_current.md").read_text(encoding="utf-8") == state_after_first
+    assert (scaffolded_store / "state_history.md").read_text(
+        encoding="utf-8"
+    ) == history_after_first
+    assert sorted((scaffolded_store / "decisions").glob("*.md")) == decisions_after_first
+
+
+def test_import_memory_bank_deleted_decision_reimports(
+    scaffolded_store: Path, full_memory_bank: Path
+):
+    """Deleting a previously imported decision allows re-importing it on the next run."""
+    _import_memory_bank(full_memory_bank, scaffolded_store)
+    before = sorted((scaffolded_store / "decisions").glob("*.md"))
+    assert len(before) >= 2
+    before[-1].unlink()
+
+    second = _import_memory_bank(full_memory_bank, scaffolded_store)
+    after = sorted((scaffolded_store / "decisions").glob("*.md"))
+
+    assert second["decisions"] == 1
+    assert len(after) == len(before)
