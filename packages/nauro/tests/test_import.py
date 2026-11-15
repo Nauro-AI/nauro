@@ -1145,3 +1145,71 @@ def test_import_memory_bank_keeps_existing_store_bom(scaffolded_store: Path, tmp
     content = raw.decode("utf-8")
     assert "Kept verbatim." in content
     assert "Imported brief." in content
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_import_madr_front_matter_titles(scaffolded_store: Path, tmp_path: Path, newline: str):
+    adr_dir = tmp_path / "front_matter_adrs"
+    adr_dir.mkdir()
+    for number, title in enumerate(("Use React for the web frontend", "Use PostgreSQL"), 1):
+        content = (
+            "---\n# These are optional metadata elements. Feel free to remove any of them.\n"
+            "status: accepted\ndate: 2023-09-14\n---\n\n"
+            f"# {title}\n\n## Context and Problem Statement\n\nWe need a UI library.\n\n"
+            "## Decision Outcome\n\nChosen option: React.\n"
+        )
+        (adr_dir / f"{number:04d}-decision.md").write_bytes(content.replace("\n", newline).encode())
+    counts = _import_adrs(adr_dir, scaffolded_store)
+    assert counts["imported"] == 2
+    decisions = sorted((scaffolded_store / "decisions").glob("*.md"))[1:]
+    assert [path.name for path in decisions] == [
+        "002-use-react-for-the-web-frontend.md",
+        "003-use-postgresql.md",
+    ]
+    for path in decisions:
+        imported = path.read_text(encoding="utf-8")
+        assert "These are optional metadata elements" not in imported
+        assert imported.split("## Decision\n\n", 1)[1].strip() == (
+            "We need a UI library.\n\nChosen option: React."
+        )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "",
+        "---\n# Metadata comment\n",
+        " ---\n",
+        "\n---\n",
+        "---\n# Metadata comment\n ---\n",
+        "---\n# Metadata comment\n--- \n",
+    ],
+)
+def test_import_without_closed_front_matter_is_byte_identical(
+    scaffolded_store: Path, tmp_path: Path, monkeypatch, prefix: str
+):
+    import shutil
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+
+    from nauro.cli.commands import import_cmd
+
+    before_store = tmp_path / "before_store"
+    shutil.copytree(scaffolded_store, before_store)
+    adr_dir = tmp_path / "unchanged_adrs"
+    adr_dir.mkdir()
+    (adr_dir / "0001-decision.md").write_text(
+        prefix + "# Use React\n\n## Context\n\nNeed a UI.\n\n## Decision\n\nUse React.\n",
+        encoding="utf-8",
+    )
+    with patch("nauro_core.operations.propose_decision.datetime", wraps=datetime) as clock:
+        clock.now.return_value = datetime(2025, 1, 2, tzinfo=timezone.utc)
+        with monkeypatch.context() as legacy:
+            legacy.setattr(
+                import_cmd, "_strip_adr_front_matter", lambda content: content, raising=False
+            )
+            _import_adrs(adr_dir, before_store)
+        _import_adrs(adr_dir, scaffolded_store)
+    assert {
+        path.name: path.read_bytes() for path in (scaffolded_store / "decisions").glob("*.md")
+    } == {path.name: path.read_bytes() for path in (before_store / "decisions").glob("*.md")}

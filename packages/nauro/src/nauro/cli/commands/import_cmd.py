@@ -251,7 +251,7 @@ def _import_adrs(
 
     for _num, adr_path in adr_files:
         content = _read(adr_path)
-        title = _extract_adr_title(content)
+        title = _extract_adr_title(_strip_adr_front_matter(content))
         if not title:
             counts["skipped"] += 1
             skipped_reasons.append(f"{adr_path.name}: no title heading found")
@@ -291,6 +291,16 @@ def _legacy_structured_rejected(content: str) -> list[dict] | None:
         }
         for alt in rejected
     ]
+
+
+def _strip_adr_front_matter(content: str) -> str:
+    """Remove a complete front matter block starting on the first line only."""
+    lines = content.splitlines(keepends=True)
+    if lines and lines[0].rstrip("\r\n") == "---":
+        for index, line in enumerate(lines[1:], 1):
+            if line.rstrip("\r\n") == "---":
+                return "".join(lines[index + 1 :])
+    return content
 
 
 def _extract_adr_title(content: str) -> str | None:
