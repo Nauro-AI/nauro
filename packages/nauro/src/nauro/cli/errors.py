@@ -1,11 +1,13 @@
-"""Friendly rendering for uncaught filesystem errors.
+"""Friendly rendering for uncaught filesystem and registry schema errors.
 
 Commands that write to the store (``note``, ``propose-decision``,
 ``update-state``, ``flag-question``, ``sync``) or scaffold it (``init``) can hit
 a read-only store, a read-only ``NAURO_HOME``, a full disk, or a
 permission-denied path. Left unhandled, the ``OSError`` reaches Typer as a raw
-traceback with absolute paths. ``apply_fs_error_handling`` wraps every command
-so such an error renders as a clean one-line message and exits 1.
+traceback with absolute paths. A registry written by an incompatible nauro
+raises ``RegistrySchemaError``, whose migration or upgrade hint must render
+cleanly too. ``apply_fs_error_handling`` wraps every command and group callback
+so these errors render as a clean one-line message and exit 1.
 
 This is applied after command registration so every command receives the same
 filesystem error handling.
@@ -18,6 +20,8 @@ from collections.abc import Callable
 from typing import Any
 
 import typer
+
+from nauro.store.registry import RegistrySchemaError
 
 
 def _render_and_exit(exc: OSError) -> None:
@@ -33,7 +37,7 @@ def _render_and_exit(exc: OSError) -> None:
 
 
 def friendly_fs_errors(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap a command callback so an uncaught ``OSError`` becomes a clean exit.
+    """Wrap a command callback so an uncaught error becomes a clean exit.
     Idempotent. ``typer.Exit``, ``Abort`` and ``SystemExit`` pass through untouched.
     """
     if getattr(func, "_nauro_fs_wrapped", False):
@@ -47,17 +51,22 @@ def friendly_fs_errors(func: Callable[..., Any]) -> Callable[..., Any]:
             raise
         except OSError as exc:
             _render_and_exit(exc)
+        except RegistrySchemaError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(code=1) from None
 
     wrapper._nauro_fs_wrapped = True  # type: ignore[attr-defined]
     return wrapper
 
 
 def apply_fs_error_handling(app: typer.Typer) -> None:
-    """Recursively wrap every command in ``app`` (and its sub-Typers)."""
+    """Recursively wrap every command and group callback in ``app``."""
     for cmd_info in app.registered_commands:
         if cmd_info.callback is None:
             continue
         cmd_info.callback = friendly_fs_errors(cmd_info.callback)
+    if app.registered_callback is not None and app.registered_callback.callback is not None:
+        app.registered_callback.callback = friendly_fs_errors(app.registered_callback.callback)
     for group_info in app.registered_groups:
         sub = group_info.typer_instance
         if sub is None:
