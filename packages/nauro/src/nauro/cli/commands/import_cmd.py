@@ -11,7 +11,6 @@ from typing import Any
 
 import typer
 from nauro_core.constants import STATE_CURRENT_FILENAME
-from nauro_core.decision_model import parse_decision
 from nauro_core.operations import update_state as _update_state_op
 from nauro_core.operations.propose_decision import _load_hash_index, _write_decision_direct
 from nauro_core.validation import compute_hash
@@ -34,22 +33,15 @@ def _read(path: Path) -> str:
 
 
 def _decision_exists(store: FilesystemStore, title: str, rationale: str) -> bool:
-    """Return True when an active store decision matches *title* and *rationale*."""
+    """Return True when the hash index points to an existing decision file."""
     target_hash = compute_hash(title, rationale)
-    stems = set(store.list_decisions())
     entry = _load_hash_index(store).get(target_hash)
-    if isinstance(entry, dict):
-        decision_id = entry.get("decision_id")
-        if isinstance(decision_id, str) and decision_id.removesuffix(".md") in stems:
-            return True
-    bodies = store.read_decisions(sorted(stems))
-    for stem, body in bodies.items():
-        if not body:
-            continue
-        parsed = parse_decision(body, stem)
-        if compute_hash(parsed.title, parsed.rationale) == target_hash:
-            return True
-    return False
+    if not isinstance(entry, dict):
+        return False
+    decision_id = entry.get("decision_id")
+    return isinstance(decision_id, str) and decision_id.removesuffix(".md") in set(
+        store.list_decisions()
+    )
 
 
 def _import_append_decision(
@@ -99,43 +91,16 @@ def _journal_import_merge(store_path: Path, target: str, content: str) -> None:
 
 
 def _merge_memory_bank_file(source_path: Path, store_path: Path, target_rel: str) -> int:
-    """Append a Memory Bank file into the store if its block is new; return 1 or 0."""
+    """Append a Memory Bank file into the store unless already present; return 1 or 0."""
     if not source_path.exists():
         return 0
     content = _read(source_path)
+    if not content.strip():
+        return 1
     if _append_to_store_file(store_path / target_rel, content):
         _journal_import_merge(store_path, target_rel, content)
         return 1
     return 0
-
-
-def _apply_memory_bank_state(memory_bank: Path, store_path: Path, counts: dict[str, int]) -> None:
-    """Compose activeContext and progress into state_current.md when not already present."""
-    active_path = memory_bank / "activeContext.md"
-    active_body = _strip_h1_prefix(_read(active_path)) if active_path.exists() else None
-    progress_path = memory_bank / "progress.md"
-    progress_items = _import_progress(_read(progress_path)) if progress_path.exists() else []
-    delta = _compose_state_delta(active_body, progress_items)
-    if delta is None:
-        return
-    with store_write_lock(store_path, STATE_CURRENT_FILENAME):
-        store = FilesystemStore(store_path)
-        current_state = store.read_file(STATE_CURRENT_FILENAME)
-        if current_state is not None and f"\n\n{delta.strip()}\n\n" in current_state:
-            return
-        state_result = _update_state_op(store, delta)
-    if state_result.status != "noop":
-        if active_body:
-            counts["files_merged"] += 1
-        counts["progress_items"] = len(progress_items)
-        record_event(
-            store_path,
-            operation="update_state",
-            target=STATE_CURRENT_FILENAME,
-            status="committed",
-            payload={"delta": delta},
-            origin_factory=cli_origin,
-        )
 
 
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
@@ -169,7 +134,37 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
         if not parsed_blocks and log_text.strip():
             counts["decisionlog_unparsed"] = 1
 
-    _apply_memory_bank_state(memory_bank, store_path, counts)
+    # activeContext.md + progress.md -> state_current.md (one composed update_state)
+    active_body: str | None = None
+    active_path = memory_bank / "activeContext.md"
+    if active_path.exists():
+        active_body = _strip_h1_prefix(_read(active_path))
+        if active_body:
+            counts["files_merged"] += 1
+
+    progress_items: list[str] = []
+    progress_path = memory_bank / "progress.md"
+    if progress_path.exists():
+        progress_items = _import_progress(_read(progress_path))
+    counts["progress_items"] = len(progress_items)
+
+    delta = _compose_state_delta(active_body, progress_items)
+    if delta is not None:
+        # update_state rewrites state_current.md and read-appends
+        # state_history.md; hold one lock across the whole kernel call so a
+        # concurrent local writer cannot drop an update on either file.
+        with store_write_lock(store_path, STATE_CURRENT_FILENAME):
+            state_result = _update_state_op(FilesystemStore(store_path), delta)
+        if state_result.status != "noop":
+            record_event(
+                store_path,
+                operation="update_state",
+                target=STATE_CURRENT_FILENAME,
+                status="committed",
+                payload={"delta": delta},
+                origin_factory=cli_origin,
+            )
+
     return counts
 
 
@@ -205,21 +200,35 @@ def _compose_state_delta(active_body: str | None, progress_items: list[str]) -> 
     return None
 
 
+def _has_imported_block(existing: str, stripped: str) -> bool:
+    """Return True when *existing* already contains an exact imported Memory Bank block."""
+    block = "## Imported from Memory Bank\n\n" + stripped
+    pos = 0
+    while True:
+        idx = existing.find(block, pos)
+        if idx == -1:
+            return False
+        at_start = idx == 0 or existing[idx - 1] == "\n"
+        rest = existing[idx + len(block) :]
+        at_end = not rest.strip("\n") or rest.startswith("\n\n## Imported from Memory Bank\n")
+        if at_start and at_end:
+            return True
+        pos = idx + 1
+
+
 def _append_to_store_file(target: Path, content: str) -> bool:
     """Append imported content under a ``## Imported from Memory Bank`` header.
-    Creates the file when absent. Returns True when a write occurred, False when the content
-    was empty and the file was left untouched.
+    Creates the file when absent. Returns True when a write occurred, False when skipped.
     """
     header = "\n\n## Imported from Memory Bank\n\n"
     stripped = content.strip()
     if not stripped:
         return False
 
-    block = "## Imported from Memory Bank\n\n" + stripped
     if target.exists():
         # No BOM stripping here: an existing store file keeps its bytes as written.
         existing = target.read_text(encoding="utf-8", errors="replace")
-        if block in existing:
+        if _has_imported_block(existing, stripped):
             return False
         target.write_text(existing.rstrip() + header + stripped + "\n", encoding="utf-8")
     else:

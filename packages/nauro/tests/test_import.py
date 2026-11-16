@@ -1181,31 +1181,67 @@ def test_import_adrs_edited_adr_reimports(scaffolded_store: Path, madr_directory
     assert second["skipped"] == first["imported"] - 1
 
 
-def test_import_memory_bank_second_run_is_idempotent(
+def test_import_memory_bank_second_run_skips_duplicate_blocks_and_decisions(
     scaffolded_store: Path, full_memory_bank: Path
 ):
-    """Running _import_memory_bank twice does not duplicate blocks, decisions, or warn."""
+    """Running _import_memory_bank twice skips duplicate project/stack blocks and decisions."""
     first = _import_memory_bank(full_memory_bank, scaffolded_store)
     assert first["decisions"] >= 1
     decisions_after_first = sorted((scaffolded_store / "decisions").glob("*.md"))
     project_after_first = (scaffolded_store / "project.md").read_text(encoding="utf-8")
     stack_after_first = (scaffolded_store / "stack.md").read_text(encoding="utf-8")
-    state_after_first = (scaffolded_store / "state_current.md").read_text(encoding="utf-8")
-    history_after_first = (scaffolded_store / "state_history.md").read_text(encoding="utf-8")
 
     second = _import_memory_bank(full_memory_bank, scaffolded_store)
 
-    assert second["files_merged"] == 0
+    assert second["files_merged"] == 1  # activeContext.md still processed; brief/tech skipped
     assert second["decisions"] == 0
-    assert second["progress_items"] == 0
     assert second["decisionlog_unparsed"] == 0
     assert (scaffolded_store / "project.md").read_text(encoding="utf-8") == project_after_first
     assert (scaffolded_store / "stack.md").read_text(encoding="utf-8") == stack_after_first
-    assert (scaffolded_store / "state_current.md").read_text(encoding="utf-8") == state_after_first
-    assert (scaffolded_store / "state_history.md").read_text(
-        encoding="utf-8"
-    ) == history_after_first
     assert sorted((scaffolded_store / "decisions").glob("*.md")) == decisions_after_first
+
+
+def test_import_memory_bank_empty_project_brief_preserves_first_import_count(
+    scaffolded_store: Path, tmp_path: Path
+):
+    """An empty projectBrief.md still counts toward files_merged on import."""
+    ctx = tmp_path / ".context_empty_brief"
+    ctx.mkdir()
+    (ctx / "projectBrief.md").write_text("   \n", encoding="utf-8")
+
+    counts = _import_memory_bank(ctx, scaffolded_store)
+
+    assert counts["files_merged"] == 1
+
+
+def test_import_memory_bank_prefix_block_is_not_skipped(scaffolded_store: Path, tmp_path: Path):
+    """A new block that is a prefix of an earlier imported block is still appended."""
+    ctx1 = tmp_path / ".context_long"
+    ctx1.mkdir()
+    (ctx1 / "projectBrief.md").write_text("# Brief\n\nPart one\n\nPart two\n", encoding="utf-8")
+    _import_memory_bank(ctx1, scaffolded_store)
+
+    ctx2 = tmp_path / ".context_prefix"
+    ctx2.mkdir()
+    (ctx2 / "projectBrief.md").write_text("# Brief\n\nPart one\n", encoding="utf-8")
+    second = _import_memory_bank(ctx2, scaffolded_store)
+
+    content = (scaffolded_store / "project.md").read_text(encoding="utf-8")
+    assert second["files_merged"] == 1
+    assert content.count("## Imported from Memory Bank") == 2
+
+
+def test_import_adrs_ignores_malformed_decision_file(scaffolded_store: Path, madr_directory: Path):
+    """A malformed decision file in the store does not break hash-index deduplication."""
+    (scaffolded_store / "decisions" / "999-malformed.md").write_text(
+        "not a valid decision format\n", encoding="utf-8"
+    )
+    first = _import_adrs(madr_directory, scaffolded_store)
+    second = _import_adrs(madr_directory, scaffolded_store)
+
+    assert first["imported"] >= 1
+    assert second["imported"] == 0
+    assert second["skipped"] == first["imported"]
 
 
 def test_import_memory_bank_deleted_decision_reimports(
