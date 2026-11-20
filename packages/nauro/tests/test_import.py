@@ -1,6 +1,7 @@
 """Tests for nauro import --memory-bank and --adr."""
 
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -668,7 +669,8 @@ def test_import_current_adr_bytes_unchanged(
         encoding="utf-8",
     )
 
-    with patch("nauro_core.operations.propose_decision.datetime", wraps=datetime) as clock:
+    module = sys.modules["nauro_core.operations.propose_decision"]
+    with patch.object(module, "datetime", wraps=datetime) as clock:
         clock.now.return_value = datetime(2025, 1, 2, tzinfo=timezone.utc)
         counts = _import_adrs(adr_dir, scaffolded_store)
 
