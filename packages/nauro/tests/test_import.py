@@ -1,6 +1,10 @@
 """Tests for nauro import --memory-bank and --adr."""
 
+import os
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
@@ -587,6 +591,100 @@ def test_import_madr_format(scaffolded_store: Path, madr_directory: Path):
     redis_content = decisions[3].read_text()
     assert "Memcached" in redis_content
     assert "In-process cache" in redis_content
+
+
+@pytest.mark.parametrize("heading", ["##", "###"])
+@pytest.mark.parametrize(
+    "status", ["Superseded by another ADR", "Deprecated", "Rejected", "  rEjEcTeD  "]
+)
+def test_import_skips_inactive_adr_status(
+    scaffolded_store: Path, tmp_path: Path, heading: str, status: str
+):
+    adr_dir = tmp_path / "inactive_adrs"
+    adr_dir.mkdir()
+    (adr_dir / "0001-use-mysql.md").write_text(
+        f"# Use MySQL\n\n{heading} Status\n\n{status}\n\n{heading} Decision\n\nUse MySQL.\n",
+        encoding="utf-8",
+    )
+    before = {p.name: p.read_bytes() for p in (scaffolded_store / "decisions").glob("*.md")}
+
+    counts = _import_adrs(adr_dir, scaffolded_store)
+
+    assert counts == {
+        "imported": 0,
+        "skipped": 1,
+        "_skipped_reasons": [f"0001-use-mysql.md: status is {status.strip().lower().split()[0]}"],
+    }
+    assert {p.name: p.read_bytes() for p in (scaffolded_store / "decisions").glob("*.md")} == before
+
+
+def test_import_cli_skips_inactive_adrs(tmp_path: Path, monkeypatch):
+    _pid, store = register_project_v2("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+    adr_dir = tmp_path / "adrs"
+    adr_dir.mkdir()
+    for name, title, status in [
+        (
+            "0002-use-mysql.md",
+            "Use MySQL",
+            "Superseded by [3. Use PostgreSQL](0003-use-postgresql.md)",
+        ),
+        (
+            "0003-use-postgresql.md",
+            "Use PostgreSQL",
+            "Accepted\n\nSupersedes [2. Use MySQL](0002-use-mysql.md)",
+        ),
+        ("0004-use-graphql.md", "Use GraphQL", "Rejected"),
+    ]:
+        (adr_dir / name).write_text(
+            f"# {title}\n\n## Status\n\n{status}\n\n## Decision\n\nUse it.\n", encoding="utf-8"
+        )
+
+    result = runner.invoke(app, ["import", "--adr", str(adr_dir)])
+
+    assert result.exit_code == 0
+    assert "1 ADR(s) imported" in result.output
+    assert "2 ADR(s) skipped" in result.output
+    assert "0002-use-mysql.md: status is superseded" in result.output
+    assert "0004-use-graphql.md: status is rejected" in result.output
+    assert sorted(p.name for p in (store / "decisions").glob("*.md")) == [
+        "001-initial-setup.md",
+        "002-use-postgresql.md",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "confidence"), [("Accepted", "high"), ("Proposed", "medium"), (None, "medium")]
+)
+def test_import_current_adr_bytes_unchanged(
+    scaffolded_store: Path, tmp_path: Path, status: str | None, confidence: str
+):
+    adr_dir = tmp_path / "current_adrs"
+    adr_dir.mkdir()
+    status_section = f"## Status\n\n{status}\n\n" if status is not None else ""
+    (adr_dir / "0001-use-postgresql.md").write_text(
+        f"# Use PostgreSQL\n\n{status_section}## Context\n\nNeed JSON.\n\n"
+        "## Decision\n\nUse PostgreSQL.\n",
+        encoding="utf-8",
+    )
+
+    module = sys.modules["nauro_core.operations.propose_decision"]
+    with patch.object(module, "datetime", wraps=datetime) as clock:
+        clock.now.return_value = datetime(2025, 1, 2, tzinfo=timezone.utc)
+        counts = _import_adrs(adr_dir, scaffolded_store)
+
+    assert counts == {"imported": 1, "skipped": 0, "_skipped_reasons": []}
+    expected = (
+        "---\ndate: 2025-01-02\nversion: 1\n"
+        f"status: active\nconfidence: {confidence}\n"
+        "decision_type: null\nreversibility: null\nsource: null\n"
+        "files_affected: []\nsupersedes: null\n"
+        "superseded_by: null\n---\n\n# 002 — Use PostgreSQL\n\n"
+        "## Decision\n\nNeed JSON.\n\nUse PostgreSQL.\n"
+    )
+    actual = (scaffolded_store / "decisions" / "002-use-postgresql.md").read_bytes()
+    assert actual == expected.replace("\n", os.linesep).encode("utf-8")
 
 
 def test_import_nygard_format(scaffolded_store: Path, nygard_directory: Path):
