@@ -12,7 +12,8 @@ from typing import Any
 import typer
 from nauro_core.constants import STATE_CURRENT_FILENAME
 from nauro_core.operations import update_state as _update_state_op
-from nauro_core.operations.propose_decision import _write_decision_direct
+from nauro_core.operations.propose_decision import _load_hash_index, _write_decision_direct
+from nauro_core.validation import compute_hash
 
 from nauro.cli.generation_writes import legacy_write_guard
 from nauro.cli.utils import cli_origin, echo_post_commit, resolve_target_project
@@ -31,25 +32,38 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace").removeprefix("\ufeff")
 
 
+def _decision_exists(store: FilesystemStore, title: str, rationale: str) -> bool:
+    """Return True when the hash index points to an existing decision file."""
+    target_hash = compute_hash(title, rationale)
+    entry = _load_hash_index(store).get(target_hash)
+    if not isinstance(entry, dict):
+        return False
+    decision_id = entry.get("decision_id")
+    return isinstance(decision_id, str) and decision_id.removesuffix(".md") in set(
+        store.list_decisions()
+    )
+
+
 def _import_append_decision(
     store_path: Path,
     title: str,
     rationale: str | None = None,
     rejected: list[dict] | None = None,
     confidence: str = "medium",
-) -> None:
-    """Adapter for the import paths: write a decision via the kernel."""
+) -> bool:
+    """Adapter for the import paths: write a decision via the kernel if not already present."""
     proposal = {
         "title": title,
         "rationale": rationale,
         "rejected": rejected,
         "confidence": confidence,
     }
-    # Hold the allocation lock across the number computation and the write so
-    # concurrent local writers cannot mint the same decision number. The
-    # post-loop snapshot capture stays outside the lock.
+    # Hold the allocation lock across the duplicate check, number allocation, and write.
     with decision_write_lock(store_path):
-        decision_id = _write_decision_direct(FilesystemStore(store_path), proposal)
+        store = FilesystemStore(store_path)
+        if _decision_exists(store, title, rationale or title):
+            return False
+        decision_id = _write_decision_direct(store, proposal)
     record_event(
         store_path,
         operation="propose_decision",
@@ -59,6 +73,7 @@ def _import_append_decision(
         origin_factory=cli_origin,
         decision_id=decision_id,
     )
+    return True
 
 
 def _journal_import_merge(store_path: Path, target: str, content: str) -> None:
@@ -75,6 +90,19 @@ def _journal_import_merge(store_path: Path, target: str, content: str) -> None:
     )
 
 
+def _merge_memory_bank_file(source_path: Path, store_path: Path, target_rel: str) -> int:
+    """Append a Memory Bank file into the store unless already present; return 1 or 0."""
+    if not source_path.exists():
+        return 0
+    content = _read(source_path)
+    if not content.strip():
+        return 1
+    if _append_to_store_file(store_path / target_rel, content):
+        _journal_import_merge(store_path, target_rel, content)
+        return 1
+    return 0
+
+
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
     """Import a Cline/Roo Code Memory Bank directory into the store; returns per-type counts.
     projectBrief and techContext append to project.md and stack.md, decisionLog becomes one
@@ -89,31 +117,24 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
         "decisionlog_unparsed": 0,
     }
 
-    # projectBrief.md → project.md
-    brief_path = memory_bank / "projectBrief.md"
-    if brief_path.exists():
-        brief = _read(brief_path)
-        if _append_to_store_file(store_path / PROJECT_MD, brief):
-            _journal_import_merge(store_path, PROJECT_MD, brief)
-        counts["files_merged"] += 1
+    counts["files_merged"] += _merge_memory_bank_file(
+        memory_bank / "projectBrief.md", store_path, PROJECT_MD
+    )
+    counts["files_merged"] += _merge_memory_bank_file(
+        memory_bank / "techContext.md", store_path, STACK_MD
+    )
 
-    # techContext.md → stack.md
-    tech_path = memory_bank / "techContext.md"
-    if tech_path.exists():
-        tech = _read(tech_path)
-        if _append_to_store_file(store_path / STACK_MD, tech):
-            _journal_import_merge(store_path, STACK_MD, tech)
-        counts["files_merged"] += 1
-
-    # decisionLog.md → decisions/NNN-title.md
     decision_log = memory_bank / "decisionLog.md"
     if decision_log.exists():
         log_text = _read(decision_log)
-        counts["decisions"] = _parse_and_import_decisions(log_text, store_path)
-        if counts["decisions"] == 0 and log_text.strip():
+        parsed_blocks = _parse_decision_blocks(log_text)
+        for title, rationale in parsed_blocks:
+            if _import_append_decision(store_path, title, rationale=rationale):
+                counts["decisions"] += 1
+        if not parsed_blocks and log_text.strip():
             counts["decisionlog_unparsed"] = 1
 
-    # activeContext.md + progress.md → state_current.md (one composed update_state)
+    # activeContext.md + progress.md -> state_current.md (one composed update_state)
     active_body: str | None = None
     active_path = memory_bank / "activeContext.md"
     if active_path.exists():
@@ -179,10 +200,25 @@ def _compose_state_delta(active_body: str | None, progress_items: list[str]) -> 
     return None
 
 
+def _has_imported_block(existing: str, stripped: str) -> bool:
+    """Return True when *existing* already contains an exact imported Memory Bank block."""
+    block = "## Imported from Memory Bank\n\n" + stripped
+    pos = 0
+    while True:
+        idx = existing.find(block, pos)
+        if idx == -1:
+            return False
+        at_start = idx == 0 or existing[idx - 1] == "\n"
+        rest = existing[idx + len(block) :]
+        at_end = not rest.strip("\n") or rest.startswith("\n\n## Imported from Memory Bank\n")
+        if at_start and at_end:
+            return True
+        pos = idx + 1
+
+
 def _append_to_store_file(target: Path, content: str) -> bool:
     """Append imported content under a ``## Imported from Memory Bank`` header.
-    Creates the file when absent. Returns True when a write occurred, False when the content
-    was empty and the file was left untouched.
+    Creates the file when absent. Returns True when a write occurred, False when skipped.
     """
     header = "\n\n## Imported from Memory Bank\n\n"
     stripped = content.strip()
@@ -192,17 +228,16 @@ def _append_to_store_file(target: Path, content: str) -> bool:
     if target.exists():
         # No BOM stripping here: an existing store file keeps its bytes as written.
         existing = target.read_text(encoding="utf-8", errors="replace")
+        if _has_imported_block(existing, stripped):
+            return False
         target.write_text(existing.rstrip() + header + stripped + "\n", encoding="utf-8")
     else:
         target.write_text(header.lstrip() + stripped + "\n", encoding="utf-8")
     return True
 
 
-def _parse_and_import_decisions(content: str, store_path: Path) -> int:
-    """Parse decision blocks from decisionLog.md and create decision files.
-
-    Expects ## Decision: <title> blocks. Each block's body becomes the rationale.
-    """
+def _parse_decision_blocks(content: str) -> list[tuple[str, str | None]]:
+    """Extract ``(title, rationale)`` pairs from ``## Decision: <title>`` sections."""
     # Split on ## Decision: headers. The title must begin with a non-whitespace
     # char (\S): this stops an empty heading ("## Decision:" with no title, with
     # or without trailing spaces) from either swallowing the newline to promote
@@ -213,14 +248,20 @@ def _parse_and_import_decisions(content: str, store_path: Path) -> int:
     blocks = re.split(pattern, content, flags=re.MULTILINE)
 
     # blocks[0] is preamble (before first ## Decision:), then alternating title/body
-    count = 0
+    parsed: list[tuple[str, str | None]] = []
     for i in range(1, len(blocks), 2):
         title = blocks[i].strip()
         body = blocks[i + 1].strip() if i + 1 < len(blocks) else ""
-        rationale = body if body else None
-        _import_append_decision(store_path, title, rationale=rationale)
-        count += 1
+        parsed.append((title, body if body else None))
+    return parsed
 
+
+def _parse_and_import_decisions(content: str, store_path: Path) -> int:
+    """Parse decision blocks from decisionLog.md and create decision files."""
+    count = 0
+    for title, rationale in _parse_decision_blocks(content):
+        if _import_append_decision(store_path, title, rationale=rationale):
+            count += 1
     return count
 
 
@@ -265,14 +306,17 @@ def _import_adrs(
         else:
             structured_rejected = _legacy_structured_rejected(content)
 
-        _import_append_decision(
+        if _import_append_decision(
             store_path,
             title=title,
             rationale=rationale,
             rejected=structured_rejected,
             confidence=confidence,
-        )
-        counts["imported"] += 1
+        ):
+            counts["imported"] += 1
+        else:
+            counts["skipped"] += 1
+            skipped_reasons.append(f"{adr_path.name}: already in store")
 
     counts["_skipped_reasons"] = skipped_reasons
     return counts

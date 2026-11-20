@@ -1147,6 +1147,119 @@ def test_import_memory_bank_keeps_existing_store_bom(scaffolded_store: Path, tmp
     assert "Imported brief." in content
 
 
+def test_import_adrs_second_run_skips_existing(scaffolded_store: Path, madr_directory: Path):
+    """Running _import_adrs twice skips already-imported decisions without creating duplicates."""
+    first = _import_adrs(madr_directory, scaffolded_store)
+    before = sorted((scaffolded_store / "decisions").glob("*.md"))
+
+    second = _import_adrs(madr_directory, scaffolded_store)
+    after = sorted((scaffolded_store / "decisions").glob("*.md"))
+
+    assert first["imported"] >= 1
+    assert second["imported"] == 0
+    assert second["skipped"] == first["imported"]
+    assert after == before
+
+
+def test_import_adrs_edited_adr_reimports(scaffolded_store: Path, madr_directory: Path):
+    """Editing an imported ADR so its content changes causes it to be re-imported."""
+    first = _import_adrs(madr_directory, scaffolded_store)
+    adr_files = sorted(madr_directory.glob("*.md"))
+    edited_adr = adr_files[0]
+    original = edited_adr.read_text(encoding="utf-8")
+    edited_adr.write_text(
+        original.replace(
+            "Use PostgreSQL for all persistent storage.",
+            "Use PostgreSQL 17 with pgvector for all persistent storage.",
+        ),
+        encoding="utf-8",
+    )
+
+    second = _import_adrs(madr_directory, scaffolded_store)
+
+    assert second["imported"] == 1
+    assert second["skipped"] == first["imported"] - 1
+
+
+def test_import_memory_bank_second_run_skips_duplicate_blocks_and_decisions(
+    scaffolded_store: Path, full_memory_bank: Path
+):
+    """Running _import_memory_bank twice skips duplicate project/stack blocks and decisions."""
+    first = _import_memory_bank(full_memory_bank, scaffolded_store)
+    assert first["decisions"] >= 1
+    decisions_after_first = sorted((scaffolded_store / "decisions").glob("*.md"))
+    project_after_first = (scaffolded_store / "project.md").read_text(encoding="utf-8")
+    stack_after_first = (scaffolded_store / "stack.md").read_text(encoding="utf-8")
+
+    second = _import_memory_bank(full_memory_bank, scaffolded_store)
+
+    assert second["files_merged"] == 1  # activeContext.md still processed; brief/tech skipped
+    assert second["decisions"] == 0
+    assert second["decisionlog_unparsed"] == 0
+    assert (scaffolded_store / "project.md").read_text(encoding="utf-8") == project_after_first
+    assert (scaffolded_store / "stack.md").read_text(encoding="utf-8") == stack_after_first
+    assert sorted((scaffolded_store / "decisions").glob("*.md")) == decisions_after_first
+
+
+def test_import_memory_bank_empty_project_brief_preserves_first_import_count(
+    scaffolded_store: Path, tmp_path: Path
+):
+    """An empty projectBrief.md still counts toward files_merged on import."""
+    ctx = tmp_path / ".context_empty_brief"
+    ctx.mkdir()
+    (ctx / "projectBrief.md").write_text("   \n", encoding="utf-8")
+
+    counts = _import_memory_bank(ctx, scaffolded_store)
+
+    assert counts["files_merged"] == 1
+
+
+def test_import_memory_bank_prefix_block_is_not_skipped(scaffolded_store: Path, tmp_path: Path):
+    """A new block that is a prefix of an earlier imported block is still appended."""
+    ctx1 = tmp_path / ".context_long"
+    ctx1.mkdir()
+    (ctx1 / "projectBrief.md").write_text("# Brief\n\nPart one\n\nPart two\n", encoding="utf-8")
+    _import_memory_bank(ctx1, scaffolded_store)
+
+    ctx2 = tmp_path / ".context_prefix"
+    ctx2.mkdir()
+    (ctx2 / "projectBrief.md").write_text("# Brief\n\nPart one\n", encoding="utf-8")
+    second = _import_memory_bank(ctx2, scaffolded_store)
+
+    content = (scaffolded_store / "project.md").read_text(encoding="utf-8")
+    assert second["files_merged"] == 1
+    assert content.count("## Imported from Memory Bank") == 2
+
+
+def test_import_adrs_ignores_malformed_decision_file(scaffolded_store: Path, madr_directory: Path):
+    """A malformed decision file in the store does not break hash-index deduplication."""
+    (scaffolded_store / "decisions" / "999-malformed.md").write_text(
+        "not a valid decision format\n", encoding="utf-8"
+    )
+    first = _import_adrs(madr_directory, scaffolded_store)
+    second = _import_adrs(madr_directory, scaffolded_store)
+
+    assert first["imported"] >= 1
+    assert second["imported"] == 0
+    assert second["skipped"] == first["imported"]
+
+
+def test_import_memory_bank_deleted_decision_reimports(
+    scaffolded_store: Path, full_memory_bank: Path
+):
+    """Deleting a previously imported decision allows re-importing it on the next run."""
+    _import_memory_bank(full_memory_bank, scaffolded_store)
+    before = sorted((scaffolded_store / "decisions").glob("*.md"))
+    assert len(before) >= 2
+    before[-1].unlink()
+
+    second = _import_memory_bank(full_memory_bank, scaffolded_store)
+    after = sorted((scaffolded_store / "decisions").glob("*.md"))
+
+    assert second["decisions"] == 1
+    assert len(after) == len(before)
+
+
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 def test_import_madr_front_matter_titles(scaffolded_store: Path, tmp_path: Path, newline: str):
     adr_dir = tmp_path / "front_matter_adrs"
@@ -1189,6 +1302,7 @@ def test_import_without_closed_front_matter_is_byte_identical(
     scaffolded_store: Path, tmp_path: Path, monkeypatch, prefix: str
 ):
     import shutil
+    import sys
     from datetime import datetime, timezone
     from unittest.mock import patch
 
@@ -1202,7 +1316,8 @@ def test_import_without_closed_front_matter_is_byte_identical(
         prefix + "# Use React\n\n## Context\n\nNeed a UI.\n\n## Decision\n\nUse React.\n",
         encoding="utf-8",
     )
-    with patch("nauro_core.operations.propose_decision.datetime", wraps=datetime) as clock:
+    module = sys.modules["nauro_core.operations.propose_decision"]
+    with patch.object(module, "datetime", wraps=datetime) as clock:
         clock.now.return_value = datetime(2025, 1, 2, tzinfo=timezone.utc)
         with monkeypatch.context() as legacy:
             legacy.setattr(
