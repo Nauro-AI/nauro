@@ -50,6 +50,9 @@ def log(
 
     --decisions lists the decision history instead; --all includes superseded.
     """
+    if limit < 1:
+        raise typer.BadParameter("must be 1 or greater", param_hint="--limit")
+
     _project_name, store_path = resolve_target_project(project)
 
     if decisions:
