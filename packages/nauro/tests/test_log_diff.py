@@ -20,6 +20,7 @@ from nauro.store.snapshot import (
     resolve_diff_snapshots,
 )
 from nauro.templates.scaffolds import scaffold_project_store
+from tests._ansi import strip_ansi
 from tests._writer_compat import append_decision
 from tests.conftest import read_project_context
 
@@ -303,6 +304,57 @@ class TestLogCommand:
         result = runner.invoke(app, ["log"])
         assert result.exit_code == 1
         assert "No project found" in result.output
+
+    @pytest.mark.parametrize("json_flag", [[], ["--json"]])
+    @pytest.mark.parametrize("limit", ["0", "-1"])
+    def test_log_rejects_nonpositive_limit(self, tmp_path: Path, monkeypatch, limit, json_flag):
+        from nauro.store.registry import register_project_v2
+
+        _pid, store = register_project_v2("myproj", [tmp_path])
+        scaffold_project_store("myproj", store)
+        monkeypatch.chdir(tmp_path)
+        for i in range(3):
+            capture_snapshot(store, trigger=f"snap-{i}")
+
+        result = runner.invoke(app, ["log", *json_flag, "-n", limit])
+        assert result.exit_code == 2
+        assert "--limit" in strip_ansi(result.stderr)
+        assert result.stdout == ""
+
+    def test_log_nonpositive_limit_rejected_before_project_resolution(
+        self, tmp_path: Path, monkeypatch
+    ):
+        monkeypatch.chdir(tmp_path)
+
+        result = runner.invoke(app, ["log", "-n", "0"])
+        assert result.exit_code == 2
+        assert "--limit" in strip_ansi(result.stderr)
+        assert "No project found" not in result.output
+
+    @pytest.mark.parametrize("json_flag", [[], ["--json"]])
+    def test_log_positive_and_default_limit_unchanged(self, tmp_path: Path, monkeypatch, json_flag):
+        from nauro.store.registry import register_project_v2
+
+        _pid, store = register_project_v2("myproj", [tmp_path])
+        scaffold_project_store("myproj", store)
+        monkeypatch.chdir(tmp_path)
+        for i in range(12):
+            capture_snapshot(store, trigger=f"snap-{i}")
+
+        one = runner.invoke(app, ["log", *json_flag, "-n", "1"])
+        default = runner.invoke(app, ["log", *json_flag])
+        assert one.exit_code == 0
+        assert default.exit_code == 0
+        if json_flag:
+            assert [s["version"] for s in json.loads(one.stdout)] == [12]
+            assert [s["version"] for s in json.loads(default.stdout)] == list(range(12, 2, -1))
+        else:
+            one_rows = one.stdout.splitlines()[2:]
+            default_rows = default.stdout.splitlines()[2:]
+            assert [row.split()[0] for row in one_rows] == ["v012"]
+            assert [row.split()[0] for row in default_rows] == [
+                f"v{v:03d}" for v in range(12, 2, -1)
+            ]
 
 
 # --- CLI: nauro diff tests ---
