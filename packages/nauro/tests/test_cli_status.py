@@ -961,3 +961,30 @@ def test_cursor_null_is_unreadable_for_status_and_reconnect(
     from nauro.cli.integrations.json_mcp import recorded_mcp_commands
 
     assert recorded_mcp_commands(repo).unreadable == ()
+
+
+def test_status_unknown_project_does_not_add_no_project_message(tmp_path, monkeypatch):
+    """#746: the resolver already names the unknown project and lists the
+    available ones. Status must not append the generic "No project found"
+    line on top of that guidance.
+    """
+    _setup_project(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["status", "--project", "nope"])
+    assert result.exit_code == 1
+    assert "Unknown project 'nope'." in result.output
+    assert "Available projects: testproj" in result.output
+    assert "No project found." not in result.output
+
+
+def test_status_ambiguous_project_does_not_add_no_project_message(tmp_path, monkeypatch):
+    """#746: an ambiguous name already tells the user how to disambiguate,
+    so the generic no-project guidance is wrong here too.
+    """
+    _setup_project(tmp_path, monkeypatch)
+    register_project_v2("testproj", [tmp_path / "other"])
+
+    result = runner.invoke(app, ["status", "--project", "testproj"])
+    assert result.exit_code == 1
+    assert "Multiple projects named 'testproj'." in result.output
+    assert "No project found." not in result.output

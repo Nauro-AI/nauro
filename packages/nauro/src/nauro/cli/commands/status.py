@@ -24,7 +24,6 @@ from nauro.cli.integrations import codex_config, json_mcp
 from nauro.cli.integrations.cursor import cursor_configuration_found
 from nauro.cli.utils import (
     RESOLUTION_NO_PROJECT,
-    DisconnectedProjectExit,
     ProjectResolutionExit,
     resolve_target_project,
 )
@@ -1105,15 +1104,18 @@ def status(
     try:
         project_name, store_path = resolve_target_project(project)
     except typer.Exit as exc:
-        if not isinstance(exc, DisconnectedProjectExit):
+        # Only the no-project path lacks its own guidance. Unknown, ambiguous
+        # and disconnected resolutions already told the user what to do, so
+        # appending the init hint there only repeats a wrong message (#746).
+        # A plain typer.Exit without resolution fields maps defensively to the
+        # no-project reason.
+        if isinstance(exc, ProjectResolutionExit):
+            reason, guidance = exc.reason, exc.guidance
+        else:
+            reason, guidance = RESOLUTION_NO_PROJECT, _STATUS_NO_PROJECT_MESSAGE
+        if reason == RESOLUTION_NO_PROJECT:
             typer.echo(_STATUS_NO_PROJECT_MESSAGE, err=True)
         if json_output:
-            # A plain typer.Exit without resolution fields should not occur;
-            # map it defensively to the no-project reason.
-            if isinstance(exc, ProjectResolutionExit):
-                reason, guidance = exc.reason, exc.guidance
-            else:
-                reason, guidance = RESOLUTION_NO_PROJECT, _STATUS_NO_PROJECT_MESSAGE
             envelope = {"status": "error", "error": {"reason": reason, "guidance": guidance}}
             typer.echo(json.dumps(envelope, indent=2))
         raise typer.Exit(exc.exit_code) from exc
