@@ -1426,3 +1426,32 @@ def test_import_memory_bank_deleted_decision_reimports(
 
     assert second["decisions"] == 1
     assert len(after) == len(before)
+
+
+def test_import_lowercase_project_brief_cli(tmp_path: Path, monkeypatch):
+    _pid, store = register_project_v2("myproj", [tmp_path])
+    scaffold_project_store("myproj", store)
+    monkeypatch.chdir(tmp_path)
+    bank = tmp_path / "memory-bank"
+    bank.mkdir()
+    (bank / "projectbrief.md").write_text("# Project Brief\n\nLowercase brief content.\n")
+    result = runner.invoke(app, ["import", "--memory-bank", str(bank)])
+    assert result.exit_code == 0, result.output
+    assert "1 file(s) merged" in result.output
+    assert "Lowercase brief content." in (store / "project.md").read_text()
+
+
+def test_import_prefers_camel_case_brief(scaffolded_store: Path, tmp_path: Path):
+    bank = tmp_path / "both-briefs"
+    bank.mkdir()
+    camel = bank / "projectBrief.md"
+    lower = bank / "projectbrief.md"
+    camel.write_text("Preferred camel case brief.")
+    lower.write_text("Unused lowercase brief.")
+    if camel.samefile(lower):
+        pytest.skip("requires distinct names on a case-sensitive filesystem")
+    counts = _import_memory_bank(bank, scaffolded_store)
+    assert counts["files_merged"] == 1
+    content = (scaffolded_store / "project.md").read_text()
+    assert "Preferred camel case brief." in content
+    assert "Unused lowercase brief." not in content
