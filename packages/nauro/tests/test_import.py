@@ -489,6 +489,66 @@ def test_import_progress_returns_parsed_items():
     assert items == ["one", "two", "three"]
 
 
+def test_import_progress_filters_unchecked_and_strips_checked_markers():
+    content = (
+        "# Progress\n\n"
+        "## What Works\n\n"
+        "- [x] Invoice PDF generation\n"
+        "- [X] Done thing\n"
+        "- [draft] proposal\n\n"
+        "## What Is Left\n\n"
+        "- [ ] Dunning emails\n"
+        "- [ ] Tax reports\n"
+    )
+    assert _import_progress(content) == [
+        "Invoice PDF generation",
+        "Done thing",
+        "[draft] proposal",
+    ]
+
+
+def test_import_progress_only_unchecked_adds_no_recently_completed(
+    tmp_path: Path, scaffolded_store: Path
+):
+    mb = tmp_path / "mb"
+    mb.mkdir()
+    (mb / "projectBrief.md").write_text("# Project Brief\n\nInvoicing app.\n")
+    (mb / "progress.md").write_text(
+        "# Progress\n\n## What Is Left\n\n- [ ] Dunning emails\n- [ ] Tax reports\n"
+    )
+
+    counts = _import_memory_bank(mb, scaffolded_store)
+
+    assert counts["progress"] == 0
+    state_text = (scaffolded_store / "state_current.md").read_text()
+    assert "## Recently completed" not in state_text
+
+
+def test_import_progress_checked_and_unchecked_end_to_end(
+    tmp_path: Path, scaffolded_store: Path
+):
+    mb = tmp_path / "mb"
+    mb.mkdir()
+    (mb / "projectBrief.md").write_text("# Project Brief\n\nInvoicing app.\n")
+    (mb / "progress.md").write_text(
+        "# Progress\n\n"
+        "## What Works\n\n"
+        "- [x] Invoice PDF generation\n\n"
+        "## What Is Left\n\n"
+        "- [ ] Dunning emails\n"
+        "- [ ] Tax reports\n"
+    )
+
+    counts = _import_memory_bank(mb, scaffolded_store)
+
+    assert counts["progress"] == 1
+    state_text = (scaffolded_store / "state_current.md").read_text()
+    assert "- Invoice PDF generation" in state_text
+    assert "[x]" not in state_text
+    assert "Dunning emails" not in state_text
+    assert "Tax reports" not in state_text
+
+
 # ===========================================================================
 # ADR import tests
 # ===========================================================================
