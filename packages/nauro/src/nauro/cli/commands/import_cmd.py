@@ -298,6 +298,16 @@ def _import_adrs(
             skipped_reasons.append(f"{adr_path.name}: no title heading found")
             continue
 
+        status = (_extract_section(content, "Status") or "").strip().lower()
+        inactive_status = next(
+            (word for word in ("superseded", "deprecated", "rejected") if status.startswith(word)),
+            None,
+        )
+        if inactive_status is not None:
+            counts["skipped"] += 1
+            skipped_reasons.append(f"{adr_path.name}: status is {inactive_status}")
+            continue
+
         rationale = _extract_adr_rationale(content)
         confidence = _extract_adr_confidence(content)
 
