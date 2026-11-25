@@ -103,6 +103,15 @@ def _merge_memory_bank_file(source_path: Path, store_path: Path, target_rel: str
     return 0
 
 
+def _memory_bank_brief(memory_bank: Path) -> Path | None:
+    """Resolve the supported brief names, preserving camel-case precedence."""
+    for name in ("projectBrief.md", "projectbrief.md"):
+        candidate = memory_bank / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
     """Import a Cline/Roo Code Memory Bank directory into the store; returns per-type counts.
     projectBrief and techContext append to project.md and stack.md, decisionLog becomes one
@@ -117,9 +126,9 @@ def _import_memory_bank(memory_bank: Path, store_path: Path) -> dict[str, int]:
         "decisionlog_unparsed": 0,
     }
 
-    counts["files_merged"] += _merge_memory_bank_file(
-        memory_bank / "projectBrief.md", store_path, PROJECT_MD
-    )
+    brief = _memory_bank_brief(memory_bank)
+    if brief is not None:
+        counts["files_merged"] += _merge_memory_bank_file(brief, store_path, PROJECT_MD)
     counts["files_merged"] += _merge_memory_bank_file(
         memory_bank / "techContext.md", store_path, STACK_MD
     )
@@ -593,7 +602,7 @@ def import_cmd(
             if not mb.is_dir():
                 typer.echo(f"Error: '{memory_bank}' is not a directory.", err=True)
                 raise typer.Exit(code=1)
-            if not (mb / "projectBrief.md").exists():
+            if _memory_bank_brief(mb) is None:
                 typer.echo(
                     f"Error: '{memory_bank}' does not contain projectBrief.md. "
                     "Not a valid Memory Bank directory.",
