@@ -519,14 +519,12 @@ def test_import_progress_only_unchecked_adds_no_recently_completed(
 
     counts = _import_memory_bank(mb, scaffolded_store)
 
-    assert counts["progress"] == 0
+    assert counts["progress_items"] == 0
     state_text = (scaffolded_store / "state_current.md").read_text()
     assert "## Recently completed" not in state_text
 
 
-def test_import_progress_checked_and_unchecked_end_to_end(
-    tmp_path: Path, scaffolded_store: Path
-):
+def test_import_progress_checked_and_unchecked_end_to_end(tmp_path: Path, scaffolded_store: Path):
     mb = tmp_path / "mb"
     mb.mkdir()
     (mb / "projectBrief.md").write_text("# Project Brief\n\nInvoicing app.\n")
@@ -541,7 +539,7 @@ def test_import_progress_checked_and_unchecked_end_to_end(
 
     counts = _import_memory_bank(mb, scaffolded_store)
 
-    assert counts["progress"] == 1
+    assert counts["progress_items"] == 1
     state_text = (scaffolded_store / "state_current.md").read_text()
     assert "- Invoice PDF generation" in state_text
     assert "[x]" not in state_text
