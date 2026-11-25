@@ -869,6 +869,27 @@ def test_status_no_project_shows_friendly_message(tmp_path, monkeypatch):
     assert "No project found. Run 'nauro init <name>' to get started." in result.output
 
 
+def test_status_unknown_project_does_not_show_no_project_message(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["status", "--project", "nope"])
+    assert result.exit_code == 1
+    assert "Unknown project 'nope'." in result.output
+    assert "Available projects: testproj" in result.output
+    assert "No project found" not in result.output
+
+
+def test_status_ambiguous_project_does_not_show_no_project_message(tmp_path, monkeypatch):
+    _setup_project(tmp_path, monkeypatch)
+    register_project_v2("dup", [tmp_path / "a"])
+    register_project_v2("dup", [tmp_path / "b"])
+
+    result = runner.invoke(app, ["status", "--project", "dup"])
+    assert result.exit_code == 1
+    assert "Multiple projects named 'dup'." in result.output
+    assert "No project found" not in result.output
+
+
 def _write_quarantine_backup(store, remote_path: str, content: bytes = b"remote body\n") -> None:
     from nauro.sync.quarantine import save_quarantine_backup
 

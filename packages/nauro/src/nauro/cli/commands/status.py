@@ -24,7 +24,6 @@ from nauro.cli.integrations import codex_config, json_mcp
 from nauro.cli.integrations.cursor import cursor_configuration_found
 from nauro.cli.utils import (
     RESOLUTION_NO_PROJECT,
-    DisconnectedProjectExit,
     ProjectResolutionExit,
     resolve_target_project,
     warn_unreadable_decisions,
@@ -1111,7 +1110,7 @@ def status(
     try:
         project_name, store_path = resolve_target_project(project)
     except typer.Exit as exc:
-        if not isinstance(exc, DisconnectedProjectExit):
+        if not isinstance(exc, ProjectResolutionExit) or exc.reason == RESOLUTION_NO_PROJECT:
             typer.echo(_STATUS_NO_PROJECT_MESSAGE, err=True)
         if json_output:
             # A plain typer.Exit without resolution fields should not occur;
