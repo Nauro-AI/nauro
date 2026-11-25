@@ -960,7 +960,7 @@ wheels = [
 
 [[package]]
 name = "nauro"
-version = "1.23.0"
+version = "1.23.1"
 source = { editable = "packages/nauro" }
 dependencies = [
     { name = "filelock", version = "4.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },

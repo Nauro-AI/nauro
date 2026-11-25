@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "nauro"
-version = "1.23.0"
+version = "1.23.1"
 description = "Decision system for software built with AI. Keep your project's direction in human hands as agents do more of the work."
 readme = "README.md"
 license = "Apache-2.0"
