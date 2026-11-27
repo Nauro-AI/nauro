@@ -69,7 +69,7 @@ def wiring_path_is_tracked(repo_root: Path, rel_path: str) -> bool:
     """True iff ``rel_path`` under ``repo_root`` is tracked by git.
     Soft-fails to False (non-git directory, git missing) so bare setup keeps working.
     """
-    git_root = _git_root(repo_root)
+    git_root = git_work_tree_root(repo_root)
     if git_root is None:
         return False
     git_rel = _git_rel(git_root, repo_root, rel_path)
@@ -83,7 +83,7 @@ def ensure_wiring_ignored(repo_root: Path, rel_path: str) -> GitIgnoreResult:
     A no-op when the path is already effectively ignored, so user rules are never duplicated.
     Entries carry a leading slash so they anchor to the repo root.
     """
-    git_root = _git_root(repo_root)
+    git_root = git_work_tree_root(repo_root)
     if git_root is None:
         return GitIgnoreResult(GitIgnoreKind.SKIPPED_NON_GIT, rel_path)
     git_rel = _git_rel(git_root, repo_root, rel_path)
@@ -132,7 +132,7 @@ def remove_wiring_ignore_entry(repo_root: Path, rel_path: str) -> GitIgnoreResul
     """Drop ``rel_path`` from the managed block, and drop the block when it empties.
     User lines outside the markers are never touched. A ``.gitignore`` left empty is deleted.
     """
-    git_root = _git_root(repo_root)
+    git_root = git_work_tree_root(repo_root)
     if git_root is None:
         return GitIgnoreResult(GitIgnoreKind.SKIPPED_NON_GIT, rel_path)
 
@@ -217,7 +217,7 @@ def public_surface_git_warnings(repo_root: Path, rel_path: str) -> list[str]:
     if not target.exists():
         return []
 
-    git_root = _git_root(repo_root)
+    git_root = git_work_tree_root(repo_root)
     if git_root is None:
         return []
 
@@ -235,10 +235,11 @@ def public_surface_git_warnings(repo_root: Path, rel_path: str) -> list[str]:
 
 def is_git_repo(path: Path) -> bool:
     """Return True iff ``path`` is inside a git working tree."""
-    return _git_root(path) is not None
+    return git_work_tree_root(path) is not None
 
 
-def _git_root(path: Path) -> Path | None:
+def git_work_tree_root(path: Path) -> Path | None:
+    """Return the top level of the git work tree containing ``path``, or None outside one."""
     proc = _run_git(path, "rev-parse", "--show-toplevel")
     if proc is None or proc.returncode != 0:
         return None

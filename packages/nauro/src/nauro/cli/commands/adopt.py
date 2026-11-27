@@ -43,7 +43,7 @@ from nauro.cli.utils import (
     write_repo_config,
 )
 from nauro.constants import REPO_CONFIG_MODE_LOCAL
-from nauro.setup.git_hygiene import is_git_repo
+from nauro.setup.git_hygiene import git_work_tree_root, is_git_repo
 from nauro.setup.outcomes import ArtifactOutcome, JsonMcpOutcome, is_failure
 from nauro.skills import load_adopt_body
 from nauro.store.migration_admission import migration_write_guard
@@ -67,6 +67,21 @@ from nauro.templates.scaffolds import scaffold_project_store
 def _resolve_repo_root(repo_arg: Path | None) -> Path:
     """Return the absolute path of the repo root to adopt."""
     return (repo_arg if repo_arg is not None else Path.cwd()).resolve()
+
+
+def _subdirectory_note(repo_root: Path) -> str | None:
+    """Return the note for a repo root below its git top level, else ``None``.
+
+    A subdirectory stays adoptable, but an agent started at the top reads no wiring below it.
+    """
+    top_level = git_work_tree_root(repo_root)
+    if top_level is None or top_level == repo_root:
+        return None
+    return (
+        f"Note: {repo_root} is inside the git repository at {top_level}. "
+        f"Wiring is written here, not at the repository root. To adopt the whole "
+        f"repository, run 'nauro adopt --repo {top_level}'."
+    )
 
 
 def _smoke_test_wired_binary(nauro_cmd: str, timeout: float = 1.5) -> str | None:
@@ -505,6 +520,11 @@ def adopt(
         )
         raise typer.Exit(code=1)
 
+    # Kept as a note rather than a refusal: a subdirectory is a valid target for a
+    # package inside a monorepo, but wiring written there is invisible to an agent
+    # started at the top of the repository.
+    subdirectory_note = _subdirectory_note(repo_root)
+
     # Refused before the already-adopted routing and before registration, so
     # a planted link can neither impersonate an adoption nor leave a registry
     # entry behind.
@@ -560,6 +580,9 @@ def adopt(
 
     write_repo_config(repo_root, mode=REPO_CONFIG_MODE_LOCAL, project_id=pid, name=project_name)
     scaffold_project_store(project_name, store_path)
+
+    if subdirectory_note is not None:
+        typer.echo(subdirectory_note, err=True)
 
     typer.echo(f"Adopted project '{project_name}' (id: {pid})")
     typer.echo(f"  Store: {store_path}")
