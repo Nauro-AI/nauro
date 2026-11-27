@@ -296,6 +296,22 @@ def init(
 
     repo_paths = add_repo_paths if add_repo_paths else [Path.cwd()]
 
+    # Validate every explicit --add-repo path before any project, registry,
+    # store, or target-repo mutation. Checking the full list first keeps
+    # repeated arguments atomic when a later path is invalid.
+    if add_repo_paths:
+        for rp in add_repo_paths:
+            if not rp.exists():
+                raise typer.BadParameter(
+                    f"Path does not exist: {rp}",
+                    param_hint="--add-repo",
+                )
+            if not rp.is_dir():
+                raise typer.BadParameter(
+                    f"Path is not a directory: {rp}",
+                    param_hint="--add-repo",
+                )
+
     # The home directory is never a valid repo root: its .nauro/config.json
     # is the global config (credentials and user-level settings). Refused for every
     # target path before any registry or store mutation, and deliberately
