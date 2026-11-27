@@ -686,3 +686,62 @@ def test_adopt_without_subagents_omits_connector_notice(tmp_path: Path, monkeypa
     result = runner.invoke(app, ["adopt", "--name", "alpha"])
     assert result.exit_code == 0, result.output
     assert "name the remote MCP connector exactly `Nauro`" not in result.output
+
+
+# ─── subdirectory adoption note ─────────────────────────────────────────────
+
+
+def _subdirectory_note(adopted: Path, top_level: Path) -> str:
+    """Render the note `adopt` prints when the adopted dir sits below the git top level."""
+    return (
+        f"Note: {adopted} is inside the git repository at {top_level}. "
+        f"Wiring is written here, not at the repository root. To adopt the whole "
+        f"repository, run 'nauro adopt --repo {top_level}'."
+    )
+
+
+def test_adopt_from_subdirectory_prints_note_and_wires_there(tmp_path: Path, monkeypatch):
+    """Adopting a subdirectory stays allowed, but the note names the git top level."""
+    repo = adopt_env(monkeypatch, tmp_path)  # adopt_env git-inits the repo
+    sub = repo / "sub" / "deep"
+    sub.mkdir(parents=True)
+    monkeypatch.chdir(sub)
+
+    result = runner.invoke(app, ["adopt", "--name", "deep"])
+    assert result.exit_code == 0, result.output
+
+    note = _subdirectory_note(sub.resolve(), repo.resolve())
+    assert note in result.output
+    # The note precedes the adoption line, so it reads as a caveat on it.
+    assert result.output.index(note) < result.output.index("Adopted project 'deep'")
+
+    # Adopting the subdirectory still works: wiring lands here, not at the top level.
+    assert (sub / ".nauro" / "config.json").is_file()
+    assert not (repo / ".nauro").exists()
+
+
+def test_adopt_at_git_top_level_prints_no_subdirectory_note(tmp_path: Path, monkeypatch):
+    """At the top level of the work tree the output carries no subdirectory note."""
+    repo = adopt_env(monkeypatch, tmp_path)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 0, result.output
+
+    assert "is inside the git repository at" not in result.output
+    assert "Adopted project 'alpha'" in result.output
+    assert (repo / ".nauro" / "config.json").is_file()
+
+
+def test_adopt_outside_a_git_repository_prints_no_subdirectory_note(tmp_path: Path, monkeypatch):
+    """Outside a repository `adopt` still refuses, and the note never appears."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.chdir(plain)
+
+    result = runner.invoke(app, ["adopt", "--name", "alpha"])
+    assert result.exit_code == 1, result.output
+
+    assert "must be run inside a git repository" in result.output
+    assert "is inside the git repository at" not in result.output
+    assert not (plain / ".nauro").exists()
