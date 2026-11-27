@@ -319,3 +319,114 @@ def test_init_demo_refuses_symlinked_repo_config(tmp_path, monkeypatch):
     assert "refused to modify" in result.output
     assert find_projects_by_name_v2("demo-project") == []
     assert not (tmp_path / "attacker.json").exists()
+
+
+# ── --add-repo path validation ────────────────────────────────────────────────
+
+
+def _invalid_repo_path(tmp_path, kind):
+    target = tmp_path / f"invalid-{kind}"
+    if kind == "file":
+        target.write_text("not a directory")
+    return target
+
+
+@pytest.mark.parametrize("kind", ["missing", "file"])
+def test_init_rejects_invalid_add_repo_path_before_registering(kind, tmp_path, monkeypatch):
+    target = _invalid_repo_path(tmp_path, kind)
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["init", "invalid-new", "--add-repo", str(target)])
+
+    assert result.exit_code == 2, result.output
+    assert "--add-repo" in result.output
+    assert str(target) in result.output
+    assert find_projects_by_name_v2("invalid-new") == []
+    assert not (tmp_path / "projects").exists()
+    if kind == "missing":
+        assert not target.exists()
+    else:
+        assert target.is_file()
+
+
+@pytest.mark.parametrize("kind", ["missing", "file"])
+def test_init_existing_project_rejects_invalid_add_repo_path_without_changes(
+    kind, tmp_path, monkeypatch
+):
+    repo = tmp_path / "existing-repo"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+    created = runner.invoke(app, ["init", "existing-project"])
+    assert created.exit_code == 0, created.output
+
+    pid, before_entry = find_projects_by_name_v2("existing-project")[0]
+    store_path = tmp_path / "projects" / pid
+    before_store = sorted(path.relative_to(store_path) for path in store_path.rglob("*"))
+    target = _invalid_repo_path(tmp_path, kind)
+
+    result = runner.invoke(app, ["init", "existing-project", "--add-repo", str(target)])
+
+    assert result.exit_code == 2, result.output
+    assert "--add-repo" in result.output
+    assert str(target) in result.output
+    assert registry.get_project_v2(pid) == before_entry
+    assert sorted(path.relative_to(store_path) for path in store_path.rglob("*")) == before_store
+    assert not (target / ".nauro").exists()
+    if kind == "missing":
+        assert not target.exists()
+    else:
+        assert target.is_file()
+
+
+@pytest.mark.parametrize("existing_project", [False, True])
+def test_init_repeated_add_repo_valid_then_invalid_is_atomic(
+    existing_project, tmp_path, monkeypatch
+):
+    repo = tmp_path / "working-repo"
+    valid_repo = tmp_path / "valid-repo"
+    invalid_repo = tmp_path / "missing-repo"
+    repo.mkdir()
+    valid_repo.mkdir()
+    monkeypatch.chdir(repo)
+
+    project_name = "existing-project" if existing_project else "new-project"
+    if existing_project:
+        created = runner.invoke(app, ["init", project_name])
+        assert created.exit_code == 0, created.output
+        pid, before_entry = find_projects_by_name_v2(project_name)[0]
+        store_path = tmp_path / "projects" / pid
+        before_store = sorted(path.relative_to(store_path) for path in store_path.rglob("*"))
+    else:
+        before_entry = None
+        before_store = []
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            project_name,
+            "--add-repo",
+            str(valid_repo),
+            "--add-repo",
+            str(invalid_repo),
+        ],
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "--add-repo" in result.output
+    assert str(invalid_repo) in result.output
+    assert not (valid_repo / ".nauro").exists()
+    assert not (valid_repo / "AGENTS.md").exists()
+    assert not invalid_repo.exists()
+
+    matches = find_projects_by_name_v2(project_name)
+    if existing_project:
+        assert len(matches) == 1
+        assert matches[0][1] == before_entry
+        assert (
+            sorted(path.relative_to(store_path) for path in store_path.rglob("*"))
+            == before_store
+        )
+    else:
+        assert matches == []
+        assert not (tmp_path / "projects").exists()
