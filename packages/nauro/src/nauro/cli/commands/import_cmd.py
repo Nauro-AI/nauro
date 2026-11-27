@@ -555,6 +555,10 @@ def _import_progress(content: str) -> list[str]:
         stripped = line.strip()
         if stripped.startswith(("- ", "* ")):
             item = stripped[2:].strip()
+            if item.startswith("[ ] "):
+                continue
+            if item.startswith(("[x] ", "[X] ")):
+                item = item[4:].strip()
             if item:
                 items.append(item)
     return items
