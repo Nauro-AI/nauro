@@ -97,6 +97,9 @@ def remove_project(
         # rather than surfacing a raw traceback.
         typer.echo(f"Invalid project id {project_id!r}: {exc}", err=True)
         raise typer.Exit(code=1) from None
+    if project_id not in registry["projects"]:
+        typer.echo(f"No project registered with id {project_id!r}.", err=True)
+        raise typer.Exit(code=1)
     if not yes:
         store_description = (
             str(store_path)
