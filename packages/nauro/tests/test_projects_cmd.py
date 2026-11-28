@@ -80,6 +80,15 @@ def test_projects_rm_missing_id_exits_1(tmp_path, monkeypatch):
     assert "No project registered" in result.output
 
 
+def test_projects_rm_missing_id_fails_before_prompting(tmp_path, monkeypatch):
+    """Without --yes, a missing id exits 1 and never asks to confirm."""
+    _seed_two_projects(tmp_path)
+    result = runner.invoke(app, ["projects", "rm", "01KMISSING00000000000000000"])
+    assert result.exit_code == 1, result.output
+    assert "No project registered" in result.output
+    assert "Remove registry entry" not in result.output
+
+
 def test_projects_rm_declined_confirm_keeps_entry(tmp_path, monkeypatch):
     """Declining the confirmation prompt leaves the entry in place."""
     pid_a, _pid_b = _seed_two_projects(tmp_path)
